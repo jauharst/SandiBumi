@@ -252,22 +252,42 @@ export class Ribbon {
     // pops open on its own — the user shouldn't have to hunt for progress. Ribbon is a
     // singleton created once in main.ts, so this window listener is registered exactly once.
     window.addEventListener("sandibumi:open-processing", () => workspace.openProcessing());
+    // The start sheet's recent-project rows route through the SAME switchProject guard the
+    // Recent ▾ menu uses — a busy chain blocks a switch there exactly as it does here.
+    window.addEventListener("sandibumi:open-recent-project", (e) => {
+      const path = (e as CustomEvent<string>).detail;
+      if (typeof path === "string" && path) void this.switchProject(() => openProject(path));
+    });
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
-    q<HTMLButtonElement>("#pore-area-btn")?.addEventListener("click", () => {
-      void import("./poreAreaDialog").then((m) => m.openPoreAreaDialog());
-    });
-    q<HTMLButtonElement>("#mineral-class-btn")?.addEventListener("click", () => {
-      void import("./mineralClassDialog").then((m) => m.openMineralClassDialog());
-    });
+    // Every tool below opens as a WORKING PANE (Jauhar, 2026-08-01: "dont use pop up for future
+    // except my request"). These are all worked through iteratively — plate by plate, barrel by
+    // barrel, fit after fit — against the Wells pane and the log views a modal would cover.
+    // Same workspace the core photographs use — a thin section arrives with the same problems, and
+    // two dialogs would be two places for the wording and the white-balance rule to drift.
+    q<HTMLButtonElement>("#plate-condition-btn")?.addEventListener("click", () =>
+      workspace.openCoreCondition("plate"),
+    );
+    q<HTMLButtonElement>("#pore-area-btn")?.addEventListener("click", () => workspace.openPoreArea());
+    q<HTMLButtonElement>("#mineral-class-btn")?.addEventListener("click", () => workspace.openMineralClass());
+    // Moved out of the Data ▸ Tools ▾ dropdown onto their own ribbon groups (Jauhar,
+    // 2026-08-01): core depth work is one job done in sequence, core photographs are an
+    // interpretation method, and plate details belong with the rest of petrography.
+    q<HTMLButtonElement>("#plate-details-btn")?.addEventListener("click", () => workspace.openPlateDetails());
+    q<HTMLButtonElement>("#register-depth-btn")?.addEventListener("click", () => workspace.openDepthReg());
+    q<HTMLButtonElement>("#condition-core-btn")?.addEventListener("click", () =>
+      workspace.openCoreCondition("core"),
+    );
+    q<HTMLButtonElement>("#core-trace-btn")?.addEventListener("click", () => workspace.openCoreTrace());
+    q<HTMLButtonElement>("#fluid-contacts-btn")?.addEventListener("click", () =>
+      workspace.openFluidContacts(),
+    );
+    q<HTMLButtonElement>("#shift-core-btn")?.addEventListener("click", () => this.handleShiftCore());
+    q<HTMLButtonElement>("#data-sets-btn")?.addEventListener("click", () => this.handleDataSets());
     q<HTMLButtonElement>("#plug-qc-btn")?.addEventListener("click", () => workspace.openPlugQc());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
-    q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => {
-      void import("./rtcFitDialog").then((m) => m.openRtcFitDialog());
-    });
-    q<HTMLButtonElement>("#sfactor-fit-btn")?.addEventListener("click", () => {
-      void import("./sFactorFitDialog").then((m) => m.openSFactorFitDialog());
-    });
+    q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => workspace.openRtcFit());
+    q<HTMLButtonElement>("#sfactor-fit-btn")?.addEventListener("click", () => workspace.openSFactorFit());
     q<HTMLButtonElement>("#dashboard-btn")?.addEventListener("click", () => workspace.openDashboard());
     q<HTMLButtonElement>("#results-qc-btn")?.addEventListener("click", () => workspace.openResultsQc());
     q<HTMLButtonElement>("#map-btn")?.addEventListener("click", () => workspace.openMap());
@@ -396,30 +416,6 @@ export class Ribbon {
           label: "Autocorrelate Tops…",
           doc: "Propagate a top from the selected well to other wells by matching a log's shape (GR by default)",
           onPick: () => this.workspace.openAutoCorr(),
-        },
-        {
-          label: "Register Depth…",
-          doc: "Find the core-to-log depth shift by matching a core measurement against a log, with the correlogram to judge it by (proposes; you accept)",
-          onPick: () => {
-            void import("./depthRegDialog").then((m) => m.openDepthRegDialog());
-          },
-        },
-        {
-          label: "Plate Details…",
-          doc: "Re-register pictures already imported — shift a whole delivery, or correct one plate's depth, name or caption (undoable)",
-          onPick: () => {
-            void import("./plateDepthDialog").then((m) => m.openPlateDepthDialog());
-          },
-        },
-        {
-          label: "Shift Core…",
-          doc: "Shift the selected well's core plugs by a constant depth you already know (core-to-log alignment; undoable)",
-          onPick: () => this.handleShiftCore(),
-        },
-        {
-          label: "Data Sets…",
-          doc: "Every core, SCAL, survey and point-data delivery imported for the selected well — switch which one is active, or delete one",
-          onPick: () => this.handleDataSets(),
         },
         {
           label: "Well Header…",

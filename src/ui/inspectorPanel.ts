@@ -770,6 +770,13 @@ function summarizeRun(results: EquationRunResult[]): string {
   if (failed.length > 0) {
     text += ` Errors: ${failed.map((r) => `${r.well_id}: ${r.error}`).join("; ")}`;
   }
+  // A well that succeeded with holes in its curve. Reported separately from the errors because it
+  // is a different thing to know: the curve is there and usable, and the script threw on part of
+  // it. Silence here is what made a half-failed script indistinguishable from absent inputs.
+  const warned = ok.filter((r) => r.note);
+  if (warned.length > 0) {
+    text += ` Warnings: ${warned.map((r) => `${r.well_id}: ${r.note}`).join("; ")}`;
+  }
   return text;
 }
 

@@ -1283,8 +1283,17 @@ pub fn run_monte_carlo(
         // never ran. Reported per well after the sweep.
         let step_err: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-        let has_perm_cut =
-            req.perm_min.is_some() && raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false);
+        // A permeability cutoff has to survive a chain that MODELS permeability.
+        //
+        // `raw_pool` holds only EXTERNAL inputs — mnemonics no step produces — so the moment a
+        // `perm_coates` (or any other permeability model) is inserted into the chain, PERM leaves
+        // that pool and the cutoff switched itself off silently. Exactly backwards: a study that
+        // models permeability is the study whose permeability cutoff matters
+        // (`docs/review_triage.md` finding 8). The realization pool carries produced curves, so
+        // PERM really is there when `zone_metrics` reads it.
+        let has_perm_cut = req.perm_min.is_some()
+            && (produced.contains("PERM")
+                || raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false));
 
         // In-zone mask (union of the reported zone windows) for the physical-plausibility scan —
         // out-of-zone samples never enter the volumetrics, so they should not count either.
@@ -1870,6 +1879,199 @@ mod tests {
             persist: false,
             persist_realizations: false,
             realization_cap: None,
+        }
+    }
+
+    /// T-BATCH-16 — adding a permeability MODEL to a Monte Carlo chain silently switches the
+    /// permeability CUTOFF off.
+    ///
+    /// `has_perm_cut` asks whether PERM is in `raw_pool`, and `build_plans` fills `raw_pool`
+    /// only from LogIn mnemonics that **no step produces**. So a chain that reads PERM from the
+    /// project (rocktyping takes it as an input) gets a working cutoff — but the moment a
+    /// permeability model is added ahead of it, PERM becomes a produced curve, drops out of the
+    /// external set, and the cutoff goes quiet. Both chains are shown here, one after the other,
+    /// on the same well with the same PERM curve in the project and the same cutoff.
+    ///
+    /// That was the wrong way round — a study that models permeability is exactly the study whose
+    /// permeability cutoff matters, and there was nothing in the result to say it had been
+    /// skipped, so the numbers looked like a cutoff that was applied and happened not to bite.
+    ///
+    /// Fixed 2026-08-01 (`docs/review_triage.md` finding 8) by asking `produced` as well as
+    /// `raw_pool`. The realization pool carries produced curves, so PERM really is there when
+    /// `zone_metrics` reads it — this is not a case of turning on a cutoff with no data behind it.
+    ///
+    /// Both chains stay in the test. Chain A is the control: without it, the assertions on B
+    /// would pass just as well against a cutoff that was broken everywhere.
+    #[test]
+    fn a_permeability_cutoff_survives_a_chain_that_models_permeability() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        // A measured permeability in the project, far below any cutoff used here.
+        let n = 300usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        crate::equations::write_computed_curve(&conn, &well, &depth, "PERM", &vec![1.0f32; n]).unwrap();
+        let dbm = Mutex::new(conn);
+
+        let run = |steps: Vec<ChainStep>, perm_min: Option<f64>| -> McResult {
+            let mc = vec![McParam {
+                param: "GR_MA".into(),
+                dist: Distribution::Normal { mean: 25.0, sd: 5.0 },
+                zone: None,
+            }];
+            let mut req = base_request(&well, mc, 24, 42);
+            req.steps = steps;
+            req.perm_min = perm_min;
+            let res = run_monte_carlo(&dbm, &req, None);
+            assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+            res
+        };
+
+        // Chain A — reads permeability from the project (rocktyping consumes PERM, nothing
+        // produces it). This is the case where the cutoff works, and it is the control: without
+        // it, the equality below would prove only that the cutoff is broken everywhere.
+        let reads_perm = || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("rocktyping")];
+        let a_open = run(reads_perm(), None);
+        let a_cut = run(reads_perm(), Some(1.0e9));
+        assert!(a_open.zones[0].net.mid > 0.0, "the well must have pay before any cutoff");
+        assert_eq!(a_cut.zones[0].net.mid, 0.0, "1 mD cannot pass a 1e9 mD cutoff — the cutoff works here");
+
+        // Chain B — the SAME chain with a permeability model inserted ahead of it. PERM is now a
+        // PRODUCED curve, so it never enters the external pool at all; the cutoff has to find it
+        // in `produced` instead.
+        let makes_perm =
+            || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("perm_coates"), step("rocktyping")];
+        let b_open = run(makes_perm(), None);
+        let b_cut = run(makes_perm(), Some(1.0e9));
+        let (bo, bc) = (&b_open.zones[0], &b_cut.zones[0]);
+        assert!(bo.net.mid > 0.0, "chain B must have pay to lose");
+        assert_eq!(bc.net.mid, 0.0, "a 1e9 mD cutoff must bite in chain B exactly as in chain A");
+        assert_eq!(bc.hpv.mid, 0.0, "and take HPV with it");
+        assert_eq!(bc.ntg.mid, 0.0, "and N:G");
+
+        // Stated as the comparison a user would actually make: same well, same cutoff, same
+        // project — the two chains must now AGREE, where before one reported no pay and the other
+        // reported all of it.
+        assert_eq!(
+            bc.net.mid, a_cut.zones[0].net.mid,
+            "modelling permeability must not change whether the permeability cutoff applies"
+        );
+
+        // And the cutoff is still a cutoff rather than a switch that now deletes everything: a
+        // threshold the modelled rock CLEARS must leave the pay alone. Without this, setting
+        // `has_perm_cut` unconditionally would pass every assertion above.
+        let b_loose = run(makes_perm(), Some(1.0e-9));
+        assert_eq!(
+            b_loose.zones[0].net.mid, bo.net.mid,
+            "a cutoff the modelled permeability passes must not remove pay"
+        );
+    }
+
+    /// T-BATCH-17 — a step's MASK is carried into the Monte Carlo plan and then never read.
+    ///
+    /// The real chain runner blanks every masked input before a module runs and blanks the
+    /// outputs after (`workflow.rs`). `run_realization` does neither, so the Monte Carlo engine
+    /// interprets washout as rock and reports MORE pay than the very same chain does — the
+    /// dangerous direction, since a batch study is what gets quoted.
+    ///
+    /// There are TWO causes, not the one the audit names, and this test pins both: even if
+    /// `run_realization` learned to blank, `build_plans` never fetches the flag curve, because
+    /// `external` is assembled from LogIn mnemonics and MASK is an Option. Whoever fixes this
+    /// must extend both or the mask will silently blank nothing.
+    #[test]
+    fn the_monte_carlo_chain_ignores_a_step_mask_the_real_chain_honours() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+
+        // Bad hole over the shallow third — the same grid `seed_well` laid down.
+        let n = 300usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let badhole: Vec<f32> = (0..n).map(|i| if i < 100 { 1.0 } else { 0.0 }).collect();
+        crate::equations::write_computed_curve(&conn, &well, &depth, "BADHOLE", &badhole).unwrap();
+        let dbm = Mutex::new(conn);
+
+        let masked = || HashMap::from([("MASK".to_string(), "BADHOLE".to_string())]);
+        let modules_in_chain = ["vsh_gr", "phi_dn", "sw_indo"];
+
+        // The real chain, one masked step at a time, then the pay summary over what it wrote.
+        for m in modules_in_chain {
+            let res = crate::workflow::run_workflow_module(
+                &dbm,
+                &crate::workflow::RunModuleRequest {
+                    module: m.into(),
+                    well_ids: vec![well.clone()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::new(),
+                    opts: masked(),
+                    output_set: None,
+                    input_set: None,
+                },
+            );
+            assert!(res[0].error.is_none(), "{m} failed: {:?}", res[0].error);
+        }
+        let chain_rows = crate::workflow::run_pay_summary(
+            &dbm,
+            &crate::workflow::PaySummaryRequest {
+                well_ids: vec![well.clone()],
+                vsh_max: 0.5,
+                phie_min: 0.08,
+                swe_max: 0.6,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+            },
+        )
+        .expect("pay summary runs");
+        let chain_net = chain_rows.iter().find(|r| r.flag == "PAY").expect("a PAY row").net;
+        assert!(chain_net > 0.0, "the masked chain must still leave pay, or the comparison is empty");
+
+        // Monte Carlo over the SAME chain with the SAME mask and no uncertainty at all. It claims
+        // to run the same chain, so it should land on the same number.
+        let mut req = base_request(&well, Vec::new(), 4, 42);
+        req.steps = modules_in_chain
+            .iter()
+            .map(|m| {
+                let mut s = step(m);
+                s.opts = masked();
+                s
+            })
+            .collect();
+        let mc = run_monte_carlo(&dbm, &req, None);
+        assert!(mc.errors.is_empty(), "unexpected errors: {:?}", mc.errors);
+        let mc_net = mc.zones[0].net.mid;
+
+        assert!(
+            mc_net > chain_net,
+            "MC counted the washout as rock: MC net {mc_net} vs the same chain's {chain_net}"
+        );
+
+        // The mask is inert, not partially applied: dropping it changes nothing.
+        let mut unmasked = req.clone();
+        unmasked.steps = modules_in_chain.iter().map(|m| step(m)).collect();
+        let mc_unmasked = run_monte_carlo(&dbm, &unmasked, None);
+        assert_eq!(
+            mc_net, mc_unmasked.zones[0].net.mid,
+            "setting a MASK on the step made no difference to the Monte Carlo answer"
+        );
+
+        // Cause two: the flag curve never even enters the pool the realizations run on, though
+        // the option itself is carried all the way into the plan.
+        {
+            let conn = dbm.lock().unwrap();
+            let specs: HashMap<String, modules::ModuleSpec> =
+                modules::list_modules().into_iter().map(|s| (s.name.clone(), s)).collect();
+            let wp = build_plans(&conn, &well, &req.steps, &specs).expect("plans build");
+            assert!(
+                !wp.raw_pool.contains_key("BADHOLE"),
+                "the flag curve is never fetched: {:?}",
+                wp.raw_pool.keys().collect::<Vec<_>>()
+            );
+            assert_eq!(
+                wp.plans[0].opts.get("MASK").map(String::as_str),
+                Some("BADHOLE"),
+                "the MASK option IS carried into the plan — it is simply never read"
+            );
         }
     }
 

@@ -29,6 +29,10 @@ export interface EquationRunResult {
   well_id: string;
   rows_written: number;
   error: string | null;
+  /** Succeeded, but not every sample did — a Rhai script that raised on some depths. Distinct
+   *  from `error`: the curve was written and is usable, it just has holes the user should know
+   *  about (`docs/review_triage.md` finding 13). */
+  note: string | null;
 }
 
 export interface CurveCatalogEntry {
@@ -312,7 +316,11 @@ export interface ImageStyle {
   size?: number;
   /** "contain" (default, whole picture visible) | "cover" (fill the box, crop the overhang).
    *  There is no stretch option: a distorted thin section misstates grain shape. */
-  fit?: "contain" | "cover";
+  /** "contain" fits the whole picture in its box, "cover" crops it to fill, "stretch" fills it
+   *  exactly. "stretch" is for depth STRIPS only — a picture whose height is the depth scale and
+   *  whose width is the track has no shape of its own to preserve. A thin section is never
+   *  stretched: its delivered shape is the truth. */
+  fit?: "contain" | "cover" | "stretch";
   align?: "left" | "center" | "right";
   label?: boolean;
   border?: boolean;
@@ -685,7 +693,14 @@ export interface ArgSpec {
   unit: string;
   kind: ArgKind;
   default: string;
+  /** Option ids. **Stored in `params_json` on every saved run — never render-and-submit anything
+   *  else as the value.** */
   choices: string[];
+  /** Display text parallel to `choices`; empty or short means "show the id". Exists because a
+   *  dropdown of bare ids (`LARINOV1`, `LARINOV2`, …) carries no rock age and no coefficient, and
+   *  picking the wrong Larionov returns a shale volume more than half again too high right where
+   *  the VSH cutoff decides net pay (`docs/review_triage.md` finding 21). */
+  choice_labels?: string[];
   min: number | null;
   max: number | null;
   required: boolean;
@@ -1618,6 +1633,14 @@ export interface FluidContact {
   is_tvdss: boolean;
   color: string | null;
   label: string | null;
+  /** The named fault block or segment. null = not stated. Two compartments are not in pressure
+   *  communication, so they have no reason to sit on the same contact — and pooling them into one
+   *  QC fit produces a surface neither is on. */
+  compartment?: string | null;
+  /** The markers this contact governs, sorted. EMPTY = none stated (a field-wide datum cuts across
+   *  markers). SEVERAL = stacked sands in one hydraulic unit sharing ONE contact — the case a
+   *  single marker field cannot express. */
+  zones?: string[];
 }
 
 export function listFluidContacts(): Promise<FluidContact[]> {
@@ -1634,6 +1657,8 @@ export function upsertFluidContact(c: FluidContact): Promise<void> {
     isTvdss: c.is_tvdss,
     color: c.color,
     label: c.label,
+    compartment: c.compartment ?? null,
+    zones: c.zones ?? [],
   });
 }
 
@@ -1681,6 +1706,8 @@ export interface ContactWellResidual {
 
 export interface ContactConsistency {
   contact_type: string;
+  compartment: string | null;
+  zones: string[];
   n: number;
   mean_tvdss: number;
   rms: number;
@@ -1690,9 +1717,65 @@ export interface ContactConsistency {
   error: string | null;
 }
 
-/** Check whether every well's pick of a contact type agrees on a flat TVDSS surface. */
-export function checkContactConsistency(contactType: string, flagAbs?: number): Promise<ContactConsistency> {
-  return invoke<ContactConsistency>("check_contact_consistency", { contactType, flagAbs });
+/** One QC group: a contact type, in one compartment, governing one set of markers.
+ *
+ *  All three parts of the key earn their place — two stacked sands can have two contacts, several
+ *  stacked sands can SHARE one, and two fault blocks have no reason to share anything. */
+export interface ContactGroup {
+  contact_type: string;
+  compartment: string | null;
+  zones: string[];
+  n: number;
+  /** Well-scoped contacts — the only ones the consistency check can use. */
+  n_well: number;
+}
+
+/** Every (type, compartment, marker set) in the project, so the QC can check them all. */
+export function contactGroups(): Promise<ContactGroup[]> {
+  return invoke<ContactGroup[]>("contact_groups", {});
+}
+
+/** Check whether the wells sharing ONE contact agree on a flat TVDSS surface.
+ *
+ *  The compartment and the marker set are part of the GROUP, not filters you may omit: omitting
+ *  them checks the contacts that state none, never "all of them". */
+export function checkContactConsistency(
+  contactType: string,
+  compartment?: string | null,
+  zones?: string[],
+  flagAbs?: number,
+): Promise<ContactConsistency> {
+  return invoke<ContactConsistency>("check_contact_consistency", {
+    contactType,
+    compartment: compartment ?? null,
+    zones: zones ?? [],
+    flagAbs,
+  });
+}
+
+/** One well/marker where the picked FWL and the FWL the arithmetic reads do not agree. */
+export interface FwlCheck {
+  well_id: string;
+  well_name: string;
+  zone_name: string;
+  contact_depth: number;
+  contact_is_tvdss: boolean;
+  param_value: number | null;
+  /** contact − parameter; NaN when the two cannot be compared. */
+  difference: number;
+  verdict: string;
+  can_apply: boolean;
+}
+
+/** Compares each marker-tagged FWL contact against the parameter `sw_height` computes from. */
+export function checkFwlAgreement(tolerance?: number): Promise<FwlCheck[]> {
+  return invoke<FwlCheck[]>("check_fwl_agreement", { tolerance });
+}
+
+/** Copies picked FWL contacts into `zone_params`, so the arithmetic reads what the panel draws.
+ *  An explicit, undoable copy — never a live read at calculation time. */
+export function applyFwlToZoneParams(picks: [string, string, number][]): Promise<number> {
+  return invoke<number>("apply_fwl_to_zone_params", { picks });
 }
 
 // --- Results-QC: Sw-method spread ---------------------------------------------------------------
@@ -1836,6 +1919,16 @@ export interface PaySummaryRow {
    *  (VSH/PHIE/SWE resolved to all-NaN) — which produces net/ntg/hpv of exactly 0, identical to
    *  a genuine zero-net result. Render "—" rather than 0.00 when this is 0. */
   n_classified: number;
+  /** A permeability cutoff is active and this well carries no PERM anywhere, so every sample
+   *  failed it for want of data. Per well, so it is the same on every zone row of that well.
+   *
+   *  The zero net pay this well reports is an absence of evidence, not a dry reservoir, and
+   *  nothing else on the row distinguishes the two — `n_classified` is above zero either way.
+   *  Show it wherever pay is read or summed (`docs/review_triage.md` finding 7).
+   *
+   *  It means "a cutoff was requested and this well has nothing to answer it with", never "this
+   *  well has no permeability" — with no cutoff asked for there is nothing to report. */
+  perm_cutoff_no_data: boolean;
 }
 
 export async function runPaySummary(req: PaySummaryRequest): Promise<PaySummaryRow[]> {
@@ -2566,6 +2659,338 @@ export function listImageDatasets(wellId: string): Promise<[string, number][]> {
 
 /** The pixels of one picture, as raw bytes (rule 3 — never a JSON array). Wrapped into a
  *  Blob by the caller, which already knows the mime type from `listWellImages`. */
+// ---------------------------------------------------------------------------
+// Core slab photograph conditioning (coreimage.rs)
+// ---------------------------------------------------------------------------
+
+/** A rectangle as FRACTIONS of the picture it was drawn on, never pixels — the stored copy is
+ *  already resampled to a long-edge cap, so a pixel rectangle would belong to whichever copy it
+ *  was dragged on. It is also what lets the preview and the full-size bake describe the same
+ *  rectangle. Taken on the ROTATED picture, because that is what the user dragged across. */
+export interface CropBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** What was done to one photograph. Every field defaults to "no change", so an empty recipe is
+ *  exactly the imported picture. */
+export interface CoreRecipe {
+  /** Deskew, degrees CLOCKWISE. Applied before the crop, so a rotation's empty corners are cut
+   *  away rather than printed. */
+  rotate_deg?: number;
+  /** The four corners of the box as the camera saw them, FRACTIONS, in reading order: top-left,
+   *  top-right, bottom-right, bottom-left. Rectifying deliberately changes the aspect ratio — a box
+   *  shot from one end arrives with its shape already wrong, and the output takes its proportions
+   *  from these corners rather than from the frame. */
+  quad?: Quad | null;
+  crop?: CropBox | null;
+  /** Per-channel gains from a neutral patch the user clicked. Normalised so the LARGEST is 1, so
+   *  it can only darken and never clips the brightest pixels. */
+  gain?: [number, number, number] | null;
+  /** Manual white-balance trim on top of the picked patch: blue-to-amber. */
+  warmth?: number;
+  /** The other axis: green-to-magenta. */
+  tint?: number;
+  /** Stops. */
+  exposure?: number;
+  contrast?: number;
+  saturation?: number;
+  /** Speckle removal, 0..1 — a median filter whose radius is a fraction of the long edge, so the
+   *  preview and the full-size bake take the same thing out of the rock. */
+  denoise?: number;
+  /** Local contrast, 0..1 (contrast-limited adaptive histogram equalisation). */
+  clarity?: number;
+  /** Unsharp mask, 0..1. */
+  sharpen?: number;
+}
+
+/** Four corners as fractions, top-left, top-right, bottom-right, bottom-left. */
+export type Quad = [[number, number], [number, number], [number, number], [number, number]];
+
+export interface CorePreview {
+  /** The conditioned proxy, base64 PNG. */
+  png: string;
+  width: number;
+  height: number;
+  /** The same proxy with nothing applied — sent together so before and after are the same decode
+   *  of the same picture, and a stale one can never linger beside a fresh one. */
+  before_png: string;
+  before_width: number;
+  before_height: number;
+  hist_r: number[];
+  hist_g: number[];
+  hist_b: number[];
+  /** Present when the call carried a pick: the gains that neutralise the patch clicked, and the
+   *  colour it actually is, so a swatch can be shown instead of three numbers. */
+  picked_gain?: [number, number, number] | null;
+  picked_rgb?: [number, number, number] | null;
+}
+
+export interface BakeItem {
+  image_id: string;
+  recipe: CoreRecipe;
+}
+
+export interface BakeResult {
+  conditioned: number;
+  /** Pictures whose recipe was cleared, so the import was restored. */
+  restored: number;
+  skipped: string[];
+  notes: string[];
+}
+
+/** Are numpy and Pillow reachable? Probed once so the workspace can say what is missing before a
+ *  photograph is opened rather than after a slider is moved. */
+export async function coreImageSupport(): Promise<boolean> {
+  return invoke<boolean>("core_image_support");
+}
+
+/** One photograph at preview size under a recipe, with the un-conditioned proxy and a histogram.
+ *  Writes nothing. `pickX`/`pickY` are fractions of the rotated, cropped picture — where the user
+ *  clicked on what they can see — and the gains come back computed BEFORE any colour operation, so
+ *  clicking the same grey twice gives the same answer rather than compounding. */
+export async function previewCoreImage(
+  imageId: string,
+  recipe: CoreRecipe,
+  pickX?: number,
+  pickY?: number
+): Promise<CorePreview> {
+  return invoke<CorePreview>("preview_core_image", {
+    imageId,
+    recipe,
+    pickX: pickX ?? null,
+    pickY: pickY ?? null,
+  });
+}
+
+/** Bakes recipes into pictures, keeping each import so the conditioning stays reversible. An empty
+ *  recipe restores the photograph as delivered. */
+export async function bakeCoreImages(items: BakeItem[]): Promise<BakeResult> {
+  return invoke<BakeResult>("bake_core_images", { items });
+}
+
+/** Copies one photograph's LIGHT across a whole live delivery, keeping each picture's own framing.
+ *  The merge happens in Rust so what "the look" means is one rule rather than one per caller. */
+export async function applyCoreLook(
+  wellId: string,
+  dataset: string,
+  look: CoreRecipe
+): Promise<BakeResult> {
+  return invoke<BakeResult>("apply_core_look", { wellId, dataset, look });
+}
+
+/** Curve-name prefix for every measure read off a core photograph.
+ *
+ *  Deliberately NOT `VSH`. A photograph's darkness co-varies with shale in most clastic sections,
+ *  which is not the same statement as being a shale volume — the same dark band is organic mudstone
+ *  in one core, oil stain in another. A curve called VSH is read by every module downstream as a
+ *  shale volume, and an uncalibrated one under that name is a wrong answer that computes and plots.
+ *  The same reason `GRAIN_D50_APP` is not `GRAIN_D50`. */
+export const CORE_LOG_PREFIX = "CPHOTO";
+
+/** One run of core inside a packed photograph — one column of a core-display plate, one row of a
+ *  core box. `start`/`end` are fractions of the ACROSS-core axis, in reading order.
+ *
+ *  The depths are the barrel's OWN, and they are all-or-nothing across a picture's lanes: a plate
+ *  carries four separate barrels with preserved intervals and part-filled columns between them,
+ *  none of which one span divided in four can express. Where none is given the picture's own
+ *  interval is shared out by lane length, which is what an equal split always did. */
+export interface Lane {
+  start: number;
+  end: number;
+  depth_top?: number | null;
+  depth_base?: number | null;
+}
+
+/** How ONE picture is laid out. Per picture, because every plate of a delivery carries different
+ *  barrels. Held as a `corelanes` document, the way the mineral classifier holds its clicks. */
+export interface PlateLayout {
+  /** The fraction of the down-core axis that is core, so a title block above the columns and a
+   *  caption below them are not read as the shallowest and deepest rock in the barrel. */
+  span?: [number, number] | null;
+  lanes: Lane[];
+}
+
+/** What a column-detection pass found in one picture. */
+export interface LaneDetection {
+  /** In reading order, WITHOUT depths — nothing in the pixels says what depth a column came from. */
+  lanes: Lane[];
+  span: [number, number];
+  /** The across-axis brightness profile the split was made from, decimated for drawing. Returned
+   *  for the reason `registration.rs` returns its whole correlogram: four clean columns and a smear
+   *  cut in four are the same answer and completely different situations. */
+  profile: number[];
+  threshold: number;
+  notes: string[];
+}
+
+/** A proposed recipe for one picture, and the measurement behind every value. */
+export interface RecipeAdvice {
+  image_id: string;
+  name: string;
+  recipe: CoreRecipe;
+  reasons: string[];
+  notes: string[];
+  error?: string | null;
+}
+
+/** Proposes where the runs of core are in one packed photograph. Proposes only. */
+export function detectCoreLanes(
+  imageId: string,
+  axis: "x" | "y",
+  reverse: boolean,
+): Promise<LaneDetection> {
+  return invoke<LaneDetection>("detect_core_lanes", { imageId, axis, reverse });
+}
+
+/** Measures a delivery and proposes conditioning for each picture, with reasons. Never applies. */
+export function recommendCoreRecipe(imageIds: string[]): Promise<RecipeAdvice[]> {
+  return invoke<RecipeAdvice[]>("recommend_core_recipe", { imageIds });
+}
+
+export interface CoreLogSpec {
+  well_id: string;
+  dataset: string;
+  /** Which way depth runs across the conditioned picture: "x" along the width, "y" down it. */
+  axis?: "x" | "y";
+  /** The picture is laid out deepest-first. */
+  reverse?: boolean;
+  /** Rows of core in one photograph, split into equal lanes and read in order. An APPROXIMATION —
+   *  a real box has unequal rows and gaps — so the default is 1 and nobody gets it without asking. */
+  lanes?: number;
+  /** Per-picture lay-outs, keyed by image id — the columns of a core-display plate and the barrel
+   *  each one covers. A picture named here uses its own columns; anything else falls back to
+   *  `lanes` equal lanes over its own interval. */
+  layouts?: Record<string, PlateLayout>;
+  /** Depth step of the output curve, in the project's depth unit. */
+  step?: number;
+  /** Which light this delivery was shot under. DECLARED, never detected: a UV frame is dark and
+   *  so is a daylight photograph of dark shale in a shadowed box, and the evidence for "this is
+   *  ultraviolet" would be the brightness about to be measured. */
+  light?: "white" | "uv";
+  /** What counts as fluorescence, when `light` is "uv". Empty falls back to one generic band. */
+  fluor?: FluorClass[];
+  /** Report how each measure tracks this curve, usually GR. It is the only thing that says whether
+   *  the trace is about the rock. */
+  compare_curve?: string | null;
+  /** Write the curves. Omit to measure without writing, so a lay-out can be tried first. */
+  write?: boolean;
+}
+
+/**
+ * One kind of fluorescence, as the user describes it.
+ *
+ * Structurally a `PoreColorBand` plus a name and a saturation CEILING, so the shared colour-band
+ * control drives the hue window and the two floors unchanged.
+ *
+ * **The ceiling is not decoration.** Fluorescence is routinely described as *dull blue-white*, and
+ * white is the ABSENCE of colour — it cannot be written as a floor. Same distinction that makes
+ * `StainBand` carry one so dolomite can be identified by staying colourless.
+ */
+export interface FluorClass {
+  /** Becomes the curve suffix, upper-cased: `SHOW` gives `CPHOTO_FLUOR_SHOW`. */
+  name: string;
+  hue_lo: number;
+  hue_hi: number;
+  sat_min: number;
+  /** 1 is no ceiling. Lower it to reach the pale end of a description. */
+  sat_max?: number;
+  val_min: number;
+}
+
+/** The shipped band: generic round numbers to start a VISUAL tuning from, never a calibration —
+ *  what a fluorescing oil photographs as depends on the lamp, the camera and the exposure. Kept in
+ *  step with `coreimage.rs::default_fluor`. */
+export const DEFAULT_FLUOR: FluorClass = {
+  name: "SHOW",
+  hue_lo: 40,
+  hue_hi: 200,
+  sat_min: 0.2,
+  sat_max: 1,
+  val_min: 0.35,
+};
+
+export interface CoreLogCurve {
+  name: string;
+  n: number;
+  p10: number;
+  p50: number;
+  p90: number;
+  /** SIGNED agreement with the compared curve. Darkness and GR should both rise into shale, so a
+   *  strongly negative value on DARK is a finding rather than a weak result — most often the depth
+   *  axis is the other way round. NaN when nothing was compared. */
+  correlation: number;
+  pairs: number;
+  /** Evenly spread down the interval for drawing — never the first N, which would be the top of
+   *  the core rather than the core. */
+  preview: number[];
+}
+
+export interface CoreLogResult {
+  photographs: number;
+  samples: number;
+  depth_min: number;
+  depth_max: number;
+  curves: CoreLogCurve[];
+  preview_depth: number[];
+  written: string[];
+  skipped: string[];
+  notes: string[];
+}
+
+/** Reads the proxy measures off a well's live core-photograph delivery, and optionally writes them
+ *  as curves. Reads the CONDITIONED pictures, so a darkness is comparable across boxes. */
+export async function extractCoreLog(spec: CoreLogSpec): Promise<CoreLogResult> {
+  return invoke<CoreLogResult>("extract_core_log", { spec });
+}
+
+/** Where depth strips are written unless the caller names another dataset. */
+export const CORE_STRIP_DATASET = "CORE STRIP";
+
+/** How a box is laid out — the SAME vocabulary the trace uses, because the strip and the trace read
+ *  the box the same way and are built from one statement of that lay-out. */
+export interface StripSpec {
+  well_id: string;
+  /** The photographs to cut up: the live delivery of this dataset. */
+  dataset: string;
+  /** "x" — the core runs across the frame; "y" — down it. */
+  axis?: "x" | "y";
+  lanes?: number;
+  reverse?: boolean;
+  /** Where the strips land. Defaults to CORE STRIP; may not be the source dataset. */
+  target?: string | null;
+}
+
+export interface StripResult {
+  dataset: string;
+  set_name: string;
+  built: number;
+  skipped: string[];
+  notes: string[];
+}
+
+/** Cuts each box of a delivery into its rows and stacks them into ONE tall depth-registered picture
+ *  per box, so an ordinary image track in depth mode shows the core running beside the logs.
+ *
+ *  The lay-out happens here rather than at draw time: doing it while drawing would mean writing the
+ *  same rotation and re-stacking three times — the log view, the SVG export and the PDF export —
+ *  with nothing to stop the three drifting apart. Rebuilding REPLACES: a strip is derived, not
+ *  delivered. */
+export async function buildCoreStrips(spec: StripSpec): Promise<StripResult> {
+  return invoke<StripResult>("build_core_strips", { spec });
+}
+
+/** The conditioning recipe of every picture in a dataset's live delivery, as (image_id, json).
+ *  Empty string where a picture is exactly as imported. Never reads a blob. */
+export async function listImageRecipes(
+  wellId: string,
+  dataset: string
+): Promise<[string, string][]> {
+  return invoke<[string, string][]>("list_image_recipes", { wellId, dataset });
+}
+
 export async function getWellImage(imageId: string): Promise<ArrayBuffer> {
   return invoke<ArrayBuffer>("get_well_image", { imageId });
 }
@@ -2738,7 +3163,8 @@ export function coreExtraDatasets(wellId: string): Promise<[string, number][]> {
 // --- Core-to-log depth registration ---
 
 export interface CoreReference {
-  /** "core" = a plug-table column; "aux" = an item of a point dataset. */
+  /** "core" = a plug-table column; "aux" = an item of a point dataset; "curve" = the core
+   *  photograph's own proxy trace, which is the densest reference this dialog has. */
   kind: string;
   dataset: string;
   item: string;
@@ -3295,6 +3721,15 @@ export interface PoreColorBand {
   val_min: number;
 }
 
+/** One depth interval and the plate every section inside it is corrected onto. */
+export interface ReferenceZone {
+  /** Shallowest depth this reference serves. Omit to reach up to the top of the well. */
+  top?: number | null;
+  /** Deepest. Omit to reach down to total depth. */
+  base?: number | null;
+  image_id: string;
+}
+
 export interface PoreSpec {
   well_id: string;
   dataset: string;
@@ -3303,6 +3738,20 @@ export interface PoreSpec {
   preview_image_id?: string | null;
   /** Measure only this plate — so moving a slider does not re-measure the whole delivery. */
   only_image_id?: string | null;
+  /** The plate the band was tuned on. Every other plate is colour-corrected onto it before the
+   *  band is applied, which is what lets one band serve a delivery photographed under more than
+   *  one light. Omit to read every plate exactly as delivered. Naming one also turns on the
+   *  empty-measurement refusal — see `band_missed`. */
+  reference_image_id?: string | null;
+  /** References for particular depth intervals, overruling `reference_image_id` where they reach.
+   *  Omit for the delivery-wide behaviour.
+   *
+   *  A delivery spanning two cored intervals is two different rocks, usually photographed on two
+   *  different days, and one reference serves both only by accident. A plate no interval covers
+   *  falls back to `reference_image_id`; where that is absent too the plate is REFUSED by name
+   *  rather than read as delivered — one stored set holding both corrected and uncorrected
+   *  fractions would be two measurements under one name. */
+  reference_zones?: ReferenceZone[];
   /** Store the results as point data under this delivery name. Omit to measure without writing:
    *  tuning must not leave a trail of half-judged answers in the project. */
   set_name?: string | null;
@@ -3324,6 +3773,17 @@ export interface PoreSpec {
   wicksell?: boolean;
   /** Read the stain too. Omit for no stain — a stain assumed is a mineral fraction invented. */
   stain?: StainSpec | null;
+  /** Score this run against an independent measurement of the same plugs — usually the core
+   *  porosity the laboratory measured on the plug each section was cut from. Omit to skip.
+   *
+   *  `reference_image_id` turned out to be a bigger lever on the answer than the colour band is,
+   *  and until now the dialog offered nothing to tell a good choice from a bad one except the
+   *  preview. A setting judged by eye against a picture is judged on how the picture looks; this
+   *  is the number that says whether it also tracks the rock. */
+  check_against?: PlugSource | null;
+  /** Two measurements further apart than this are not the same plug. Omit for the standard
+   *  6-inch sample the rest of the app pairs on. */
+  check_depth_tol?: number;
 }
 
 /** An HSV window. Richer than PoreColorBand because a stain scheme has to be able to say
@@ -3444,6 +3904,17 @@ export interface PlatePore {
    *  background rather than the pores. The fraction is still shown — tuning the band is how it
    *  gets fixed — but the plate is left out of the write. */
   scene_dominated: boolean;
+  /** How far this photograph's light sat from the reference plate's, in degrees of hue — the size
+   *  of the correction applied. NaN when no reference was named. Diagnostic, never a threshold. */
+  cast_shift: number;
+  /** The plate this one was corrected onto, by name; empty when nothing was. Reported because with
+   *  more than one reference in play, a shift of 40° means nothing until you know which plate it is
+   *  40° from. */
+  reference_name: string;
+  /** True when the band, carried onto this plate, claimed less than one resolvable pore. Only ever
+   *  set on a normalized run: near zero reads as a tight rock, so it is refused rather than stored,
+   *  but only once a reference plate has established that the band finds epoxy somewhere. */
+  band_missed: boolean;
   pixels: number;
   geometry?: PoreGeometry;
   grains?: GrainStats;
@@ -3505,10 +3976,36 @@ export interface PoreResult {
   /** Plates left out and why, one entry each — never a silent subset. */
   skipped: string[];
   preview_png: string | null;
+  /** The same plate at the same size WITHOUT the mask — what the eyedropper reads and what Hold to
+   *  compare shows. Sent with the overlay so the two can never be one plate's mask over another
+   *  plate's pixels. */
+  plain_png?: string | null;
   preview_width: number;
   preview_height: number;
   /** [dataset, delivery] written, when a set name was given. */
   written: [string, string] | null;
+  /** How the STORABLE plates agreed with an independent plug measurement, when one was named.
+   *  Computed whether or not the run was saved, so a setting can be judged before it is kept. */
+  agreement?: Agreement | null;
+  notes: string[];
+}
+
+/** How a run agrees with a measurement this app did not produce. */
+export interface Agreement {
+  reference_label: string;
+  /** Plugs carrying BOTH — not the number of plates measured. Two runs that refused different
+   *  plates are scored on different rock, so this has to be read beside every coefficient. */
+  n_pairs: number;
+  /** Measurements on either side that found no partner inside the tolerance. */
+  n_unpaired: number;
+  /** Straight-line agreement — the right question when both axes are porosity. */
+  pearson: number;
+  /** Rank agreement: does it order the plugs the way the laboratory does. The number to choose a
+   *  setting on, because it survives the systematic offset a section-versus-plug comparison always
+   *  carries. */
+  spearman: number;
+  measured_median: number;
+  reference_median: number;
   notes: string[];
 }
 

@@ -1,12 +1,17 @@
 import { runRtcFit, type RtcFitRequest, type RtcFitResult } from "../ipc";
 import { appState, setStatus } from "../state";
 import { recordProcess } from "../processLog";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
 import { buildFitScatter, type FitScatter } from "./fitScatter";
 import { buildCalibrationApply } from "./calibrationApply";
 
 /** RtC calibration (Advance ▸ Calibrate RtC…).
+ *
+ *  A dock PANE, not a popup. A calibration is not one click: you fit, read R² and the excluded
+ *  samples, look at the scatter, change the interval or a curve and fit again — with the log view
+ *  beside you, because deciding which interval is wet is done by looking at one. Standing rule
+ *  from Jauhar (2026-08-01): tools open as working panes.
  *
  *  `sw_rtc` has always told the user to "recalibrate per field from water-zone excess
  *  conductivity" and never given them a way to do it, so in practice one study's coefficients
@@ -18,9 +23,9 @@ import { buildCalibrationApply } from "./calibrationApply";
  *  required, the backend refuses without it, and this dialog says why in plain language rather
  *  than presenting it as one input among nine.
  */
-export async function openRtcFitDialog(): Promise<void> {
+export async function buildRtcFitContent(): Promise<{ el: HTMLElement; dispose: () => void }> {
   const wrap = document.createElement("div");
-  const close = openModal("Calibrate RtC from the water zone", wrap, 660);
+  wrap.className = "module-pane";
 
   const intro = document.createElement("div");
   intro.className = "eq-note";
@@ -129,7 +134,7 @@ export async function openRtcFitDialog(): Promise<void> {
   wrap.appendChild(out);
 
   const actions = document.createElement("div");
-  actions.className = "modal-actions";
+  actions.className = "module-footer";
   // The QC scatter is rebuilt on every fit; keep a handle so its ResizeObserver and tooltip are
   // released rather than accumulating one set per run.
   let scatter: FitScatter | null = null;
@@ -138,15 +143,6 @@ export async function openRtcFitDialog(): Promise<void> {
     scatter = null;
   };
 
-  const cancel = document.createElement("button");
-  cancel.className = "btn";
-  cancel.textContent = "Close";
-  cancel.addEventListener("click", () => {
-    dropScatter();
-    scope.dispose();
-    close();
-  });
-  actions.appendChild(cancel);
   actions.appendChild(runBtn);
   wrap.appendChild(actions);
 
@@ -300,4 +296,14 @@ export async function openRtcFitDialog(): Promise<void> {
         runBtn.textContent = `Fit from ${scope.getWellIds().length} well(s)`;
       });
   });
+
+  // A pane is closed by the dock, not by a Close button, so the two things that outlive the
+  // element — the scatter's ResizeObserver and the well scope's subscriptions — are released here.
+  return {
+    el: wrap,
+    dispose: () => {
+      dropScatter();
+      scope.dispose();
+    },
+  };
 }

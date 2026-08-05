@@ -28,6 +28,7 @@ import { DbInspectorPanel } from "./dbInspectorPanel";
 import type { PlotContent } from "./plotCommon";
 import { SqlQueryPanel } from "./sqlQueryPanel";
 import { HistoryPanel } from "./historyPanel";
+import { buildStartSheet } from "./startSheet";
 import { showContextMenu, type ContextMenuEntry } from "./contextMenu";
 import { imageExportMenuEntries } from "./plotExport";
 import { forgetViewer, isWorkingPane, markActiveViewer } from "./activeViewer";
@@ -100,7 +101,9 @@ export class Workspace {
       theme: {
         name: "sandibumi",
         className: "dockview-theme-sandibumi",
-        gap: 2,
+        // Organic redesign: 7px of cream ground between the white panel cards
+        // (design 1a — tight on purpose, do not add air here).
+        gap: 7,
         dndTabIndicator: "line",
       },
       createComponent: (options) => this.createComponent(options),
@@ -346,7 +349,18 @@ export class Workspace {
       ["Unconventional (ΔlogR + Langmuir)", () => this.openUnconventional(group)],
       ["Results QC (Sw spread)", () => this.openResultsQc(group)],
       ["Plug QC (core vs petrography)", () => this.openPlugQc(group)],
+      ["Mineral Classifier (point counts)", () => this.openMineralClass(group)],
+      ["Pore Area (thin sections)", () => this.openPoreArea(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
+      "sep",
+      ["Fluid Contacts (pick + QC)", () => this.openFluidContacts(group)],
+      ["Register Core Depth", () => this.openDepthReg(group)],
+      ["Condition Core Photos", () => this.openCoreCondition("core", group)],
+      ["Photo Log (core → curves)", () => this.openCoreTrace(group)],
+      ["Condition Plates", () => this.openCoreCondition("plate", group)],
+      ["Plate Details", () => this.openPlateDetails(group)],
+      ["Calibrate RtC", () => this.openRtcFit(group)],
+      ["Calibrate S Factor", () => this.openSFactorFit(group)],
       "sep",
       ["Zones", () => this.openZones(group)],
       ["Autocorrelate Tops", () => this.openAutoCorr(group)],
@@ -407,11 +421,9 @@ export class Workspace {
         return this.createLogView(options.id);
       case "canvas":
         return new DomPanel("dock-canvas", (host) => {
-          host.innerHTML = `
-            <div class="canvas-empty">
-              <img class="canvas-logo" src="/logo-mark.svg" alt="" width="52" height="52" />
-              <div class="canvas-hint">Open a Log View or a plot from the ribbon to get started.</div>
-            </div>`;
+          // The blank-canvas placeholder is the start sheet now (Organic design
+          // 1g): identity, New/Open, recent projects, sessions tip.
+          buildStartSheet(host);
         });
       case "wellsTops":
         return this.createWellsTops();
@@ -520,6 +532,65 @@ export class Workspace {
           "dock-plug-qc",
           () => import("./plugQcPanel").then((m) => m.buildPlugQcContent(setStatus)),
           "plug QC",
+        );
+      case "mineralClass":
+        return this.asyncPane(
+          "dock-mineral-class",
+          () => import("./mineralClassDialog").then((m) => m.buildMineralClassContent()),
+          "mineral classifier",
+        );
+      case "poreArea":
+        return this.asyncPane(
+          "dock-pore-area",
+          () => import("./poreAreaDialog").then((m) => m.buildPoreAreaContent()),
+          "pore area",
+        );
+      case "plateDetails":
+        return this.asyncPane(
+          "dock-plate-details",
+          () => import("./plateDepthDialog").then((m) => m.buildPlateDetailsContent()),
+          "plate details",
+        );
+      // One workspace, two deliveries: the panel id carries which kind it was opened for
+      // ("coreCondition:plate"), so a core photograph pane and a thin-section pane can sit side by
+      // side and a layout restore rebuilds each on its own subject. Same idea as "module:<name>".
+      case "coreCondition": {
+        const subject = options.id.endsWith(":plate") ? "plate" : "core";
+        return this.asyncPane(
+          "dock-core-condition",
+          () => import("./coreConditionDialog").then((m) => m.buildCoreConditionContent(subject)),
+          subject === "plate" ? "plate conditioning" : "core photo conditioning",
+        );
+      }
+      case "fluidContacts":
+        return this.asyncPane(
+          "dock-fluid-contacts",
+          () => import("./fluidContactsPanel").then((m) => m.buildFluidContactsContent()),
+          "fluid contacts",
+        );
+      case "coreTrace":
+        return this.asyncPane(
+          "dock-core-trace",
+          () => import("./coreTraceDialog").then((m) => m.buildCoreTraceContent()),
+          "photo log",
+        );
+      case "depthReg":
+        return this.asyncPane(
+          "dock-depth-reg",
+          () => import("./depthRegDialog").then((m) => m.buildDepthRegContent()),
+          "depth registration",
+        );
+      case "rtcFit":
+        return this.asyncPane(
+          "dock-rtc-fit",
+          () => import("./rtcFitDialog").then((m) => m.buildRtcFitContent()),
+          "RtC calibration",
+        );
+      case "sFactorFit":
+        return this.asyncPane(
+          "dock-sfactor-fit",
+          () => import("./sFactorFitDialog").then((m) => m.buildSFactorFitContent()),
+          "S-factor calibration",
         );
       case "multimin":
         return this.asyncPane(
@@ -1442,6 +1513,50 @@ export class Workspace {
 
   openPlugQc(group?: DockviewGroupPanel): void {
     this.openSingleton("plugQc", "plugQc", "Plug QC (core vs petrography)", group);
+  }
+
+  openMineralClass(group?: DockviewGroupPanel): void {
+    this.openSingleton("mineralClass", "mineralClass", "Mineral Classifier", group);
+  }
+
+  openPoreArea(group?: DockviewGroupPanel): void {
+    this.openSingleton("poreArea", "poreArea", "Pore Area (thin sections)", group);
+  }
+
+  openPlateDetails(group?: DockviewGroupPanel): void {
+    this.openSingleton("plateDetails", "plateDetails", "Plate Details", group);
+  }
+
+  /** The conditioning workspace, one pane per KIND of picture: a core photograph and a thin
+   *  section are two deliveries with two recipes, and a single pane would make correcting one
+   *  mean losing the other's place. */
+  openCoreCondition(subject: "core" | "plate" = "core", group?: DockviewGroupPanel): void {
+    this.openSingleton(
+      `coreCondition:${subject}`,
+      "coreCondition",
+      subject === "plate" ? "Condition Plates" : "Condition Core Photos",
+      group,
+    );
+  }
+
+  openFluidContacts(group?: DockviewGroupPanel): void {
+    this.openSingleton("fluidContacts", "fluidContacts", "Fluid Contacts", group);
+  }
+
+  openCoreTrace(group?: DockviewGroupPanel): void {
+    this.openSingleton("coreTrace", "coreTrace", "Photo Log (core → curves)", group);
+  }
+
+  openDepthReg(group?: DockviewGroupPanel): void {
+    this.openSingleton("depthReg", "depthReg", "Register Core Depth", group);
+  }
+
+  openRtcFit(group?: DockviewGroupPanel): void {
+    this.openSingleton("rtcFit", "rtcFit", "Calibrate RtC", group);
+  }
+
+  openSFactorFit(group?: DockviewGroupPanel): void {
+    this.openSingleton("sFactorFit", "sFactorFit", "Calibrate S Factor", group);
   }
 
   openUnconventional(group?: DockviewGroupPanel): void {

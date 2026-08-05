@@ -382,6 +382,11 @@ def make_bad_las(well: str, kind: str) -> str:
                     of each depth wins) plus a dropped-rows warning.
     `kind="null"` — every depth cell is the NULL sentinel. Must FAIL CLEANLY with
                     "no importable rows" and commit no orphan well row.
+    `kind="trunc"` — the last data line is cut mid-row (depth and GR present, RHOB
+                    missing), the shape a copy that died mid-write leaves behind. Must
+                    FAIL CLEANLY on the leftover tokens rather than importing 39 good
+                    rows and silently dropping the 40th, because a file that ends early
+                    looks exactly like a file that was always that long.
 
     Deliberately short (40 rows) so the expected counts in the README and in
     `example_data_test.rs` can be stated exactly rather than approximately.
@@ -415,6 +420,11 @@ def make_bad_las(well: str, kind: str) -> str:
             depth = top + i * STEP
         gr = curve_value("GR", top + i * STEP, 0.0, rng)
         rhob = curve_value("RHOB", top + i * STEP, 0.0, rng)
+        if kind == "trunc" and i == n - 1:
+            # Cut mid-row: the depth and GR survive, RHOB never made it to disk, and there
+            # is no trailing newline either — what a half-written file actually looks like.
+            lines.append(f"{depth:10.4f} {gr:8.2f}")
+            break
         lines.append(f"{depth:10.4f} {gr:8.2f} {rhob:8.4f}\n")
     return "".join(lines)
 
@@ -426,6 +436,7 @@ def main() -> None:
         files[f"{well}.las"] = make_las(well, shift, seed=1000 + i)
     files["bad_dup_depth.las"] = make_bad_las("SANDI-BAD-DUP", "dup")
     files["bad_null_depth.las"] = make_bad_las("SANDI-BAD-NULL", "null")
+    files["bad_truncated.las"] = make_bad_las("SANDI-BAD-TRUNC", "trunc")
     files["core_rcal_SANDI-01.csv"] = make_core_csv()
     files["core_rcal_multiwell.csv"] = make_core_multiwell_csv()
     files["xrd_multiwell.txt"] = make_xrd_multiwell_txt()

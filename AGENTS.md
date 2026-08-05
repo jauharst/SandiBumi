@@ -5,7 +5,7 @@
 
 Desktop application for multi-well (2000+) petrophysical log analysis. Stack: **Tauri (Rust) + DuckDB (embedded, bundled) + TypeScript/WebGPU**.
 
-This file is the Codex equivalent of `.cursorrules` (kept in this repo for Cursor). Keep both in sync if the rules change.
+This file is the Claude Code equivalent of `.cursorrules` (kept in this repo for Cursor). Keep both in sync if the rules change.
 
 ## Critical implementation rules
 
@@ -18,7 +18,16 @@ This file is the Codex equivalent of `.cursorrules` (kept in this repo for Curso
 7. **Python equations run as a SUBPROCESS** (`python_engine.rs`), never PyO3/embedded — a missing Python must never stop the app from launching. Discovery: `SANDIBUMI_PYTHON` (the pre-rename `ARSHILLA_PYTHON` is still honoured so no existing setup breaks, but is never named in a message) → `%LOCALAPPDATA%\Programs\Python\Python31x` → PATH; requires numpy. **scipy is OPTIONAL** — when present the worker binds `scipy` plus `signal`/`interpolate`/`optimize`/`stats`/`ndimage` into the user-equation namespace (despike, Savitzky-Golay, resample, `curve_fit`); when absent each name is a stub whose first use raises a message naming the interpreter and the pip command, never a bare `NameError`. A CURVE MNEMONIC ALWAYS SHADOWS a scipy name — the user's data never yields. This is for the user's own equations; core petrophysics stays in Rust. `python_status()` probes numpy+scipy once per session so the editor can say so before a run. **DLIS import (`dlis.rs`) reuses the same subprocess mechanism** (`find_python` + a `dlisio` helper script), never a native parser; needs the `dlisio` pip package (installed: `dlisio 1.0.4` in the Python312 env). A missing `dlisio` fails only the DLIS import, with a clear message — never the app.
 8. **Data/UI edits must be undoable** (`src/undo.ts` `pushUndo`); module runs are re-runnable, not undone.
 9. **New petrophysics modules** = Rust fn + manifest in `modules.rs`; parameter dialogs auto-generate — write no UI code for them. Heavy solvers can live in their own file (e.g. `multimin.rs` — deterministic NNLS mineral inversion; do NOT confuse with `inversion.rs`, which is the separate background async stochastic-job registry) and be referenced from `modules.rs::list_modules`/`run_module`.
-10. **Module inputs are generic-store aware**: `equations::fetch_curve_frame` resolves any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) by mnemonic-then-family, so modules/equations can take PEF/CALI/DRHO/extra runs — not just the fixed six. (Log-view rendering `get_track_data` still reads only `standard_curves`.) Runs can pass `opts["MASK"]="<flag curve>"` (e.g. BADHOLE) to NaN-out flagged samples in every output.
+10a. **Import sets (2026-07-30)**: one delivery = one named SET in the generic store. LAS/DLIS
+    import take a set name (`ingest::LasImportOptions`, `canonical_set_name`/`resolve_set_name`);
+    a name already used on a well is auto-suffixed (`FPROOH`→`FPROOH_1`) — **an import never
+    overwrites an existing set**. With `attach`, a file whose well name matches exactly ONE
+    existing well writes ONLY the generic store on that record (never `standard_curves`, never
+    a second well row); >1 match is ambiguous → separate record + warning. **Curve resolution:
+    set RAW has ABSOLUTE priority in `equations::fetch_generic_curve_aligned` — do not
+    reorder that; other sets are consulted only for mnemonics RAW does not carry.** Browse via
+    the Wells-pane ▸ twisty (`objectTree.ts`, lazy per well).
+11. **Module inputs are generic-store aware**: `equations::fetch_curve_frame` resolves any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) by mnemonic-then-family, so modules/equations can take PEF/CALI/DRHO/extra runs — not just the fixed six. (Log-view rendering `get_track_data` still reads only `standard_curves`.) Runs can pass `opts["MASK"]="<flag curve>"` (e.g. BADHOLE) to NaN-out flagged samples in every output.
 
 ## Current state (2026-07-20)
 
@@ -45,7 +54,7 @@ his LRLC research), `gr_normalize` (two-point percentile GRN, Rokan P3 53.68/P97
 and `log_predict` (leave-one-out KNN synthetic logs, MAX_RAW washout rule) in `modules.rs`,
 Bunga mnemonic table merged into `curves.rs` FAMILIES. Method math is banked IN THIS REPO:
 `docs/method_ssc_sspw.md`, `docs/method_lrlc_rtc_imts.md`, `docs/workflow_standards.md`
-(portable — do not rely on any machine-local Codex auto-memory for it).
+(portable — do not rely on any machine-local Claude auto-memory for it).
 
 Phase 8b shipped (2026-07-18) — **report generator** (`report.rs` + `reportDialog.ts`,
 Plot ribbon → Deliverables → Report…): cover → editable methodology table (persisted as
@@ -117,6 +126,57 @@ any panel-side wiring — but it returns a `dispose` every builder must call. Lo
 scroll to the selected top (`LogCanvasRenderer.scrollToDepth`). Interval is cleared
 BEFORE the well broadcast on well switch (order matters — followers must never see a
 foreign interval). Selected rows highlight via `.tree-selected`/`.top-selected`.
+
+**Ribbon homes, reorganised 2026-08-01** on Jauhar's call, after "where is core cond. menu?"
+— five tools were buried in the Data ▸ Tools ▾ dropdown and are now labelled buttons in
+groups of their own. **Data ▸ Core**: Register Depth… / Shift Core… / Data Sets… (core depth
+work is one job done in sequence, so the tools sit together). **Advance ▸ Core Imaging**:
+Core Photos… (conditioning, the CPHOTO traces and depth strips are an interpretation method,
+not a data-management chore, so they sit with the other in-house methods). **Advance ▸
+Petrography** gains Plate Details…, beside Condition Plates… / Pore Area… / Mineral
+Classifier… / Plug QC…. Note the Petrography group is in the **Advance** tab, not
+Petrophysics — older notes here said otherwise and were wrong. A dropdown is for a long tail
+of rarely-used items; anything in a workflow gets a button.
+
+**A tool opens as a WORKING PANE, never a popup** (Jauhar, 2026-08-01: *"make this module
+shown as working pane not pop up, remember dont use pop up for future except my request"*).
+This is a standing rule for all new work, not a one-off: a popup covers the workspace and
+cannot be left open beside the Wells pane, and these tools are worked through iteratively —
+point counting runs plate by plate through a whole delivery, a threshold is tuned against a
+preview, a QC scatter is read next to the log. Add a `case` in `workspace.ts::createComponent`
++ an `openX()` singleton + a `＋` menu entry, and point the ribbon button at the workspace;
+`buildMineralClassContent` / `buildPlugQcContent` are the shape to copy (return `{el, dispose?}`,
+class `module-pane`, and give the pane a padding rule beside `.dock-plug-qc` or its labels sit
+flush against the card edge). `openModal` stays for genuine interruptions — confirmations,
+refusals (`needWell.ts`), Help — and for anything Jauhar explicitly asks to be a popup.
+**The sweep is done (2026-08-01, "check if those tools still pop up, make it panes").** Every
+ribbon TOOL is now a pane: Pore Area…, Plate Details…, Condition Plates… / Core Photos…, Register
+Depth…, Calibrate RtC… and Calibrate S… joined Mineral Classifier…, Plug QC… and SandiMin. Three
+things the conversion turned up, all worth keeping:
+
+- **A modal has no close hook**, so anything outliving the DOM leaked. `plateStrip.dispose()`
+  (an IntersectionObserver plus one object URL per thumbnail, on a delivery of hundreds) was never
+  called by Pore Area OR by the already-converted Mineral Classifier; the conditioning workspace
+  had to watch `#modal-root` with a `MutationObserver` for its own detachment. `asyncPane` hands
+  every builder a real teardown, so all three are fixed and that observer is gone. **A converted
+  pane must return a `dispose` whenever it holds an observer, an object URL or a subscription.**
+- **A pane must not close itself on success.** `depthRegDialog`'s Apply called the modal's
+  `close()`; a pane stays, so it now clears the PROPOSAL instead — the core has moved and pressing
+  Apply again on a shift computed against the old depths would double it — and refreshes the
+  barrels and the history, which is what the per-barrel path already did.
+- **`.module-pane` caps at 620px, which is right for a form column and wrong for a picture.** The
+  picture and table panes (pore area, plate details, conditioning, depth registration, mineral
+  classifier) opt out via `.dock-<x> .module-pane { max-width: none }`; the two calibration fits
+  keep the cap because they genuinely are a column of fields. A picture tool squeezed into a form
+  column in a wide pane is exactly the "not proportional" complaint.
+
+A pane that needs a well says so IN THE PANE rather than calling `requireWell` — that refusal
+exists for a click where nothing visible happens, and a pane opening IS visible.
+
+Still modal, and correctly so: naming prompts (Save Layout/Session As, Open Session), import
+wizards (LAS/DLIS set, SCAL, Aux, Deviation, Images, Well Locations), export dialogs (Workbook…,
+Deck…), and the short one-shot forms (Shift Core…, Well Header…, Data Sets…). Each is filled once
+and dismissed; none is a tool you work beside a log view.
 
 UX conventions (2026-07-19 fix batch, from Jauhar's click-through): dialogs are
 NON-BLOCKING — `.modal-scrim` is pointer-transparent, only Esc/✕ close (never re-add
@@ -537,6 +597,7 @@ context overlays on crossplot/histogram/Pickett (T-SHELL-16, shared machinery in
 UMAA/RHOMAA feeding the Lith-6 overlay, with a real Por-11 crossplot-porosity lookup).
 Open follow-ups: CSV import into the per-well parameter grid, and a per-well colour-stability
 rule for the multi-well overlays.
+
 Import sets shipped (2026-07-30, T-IMP-02) — the Geolog/IP curve-set model. `ingest.rs`
 `LasImportOptions {set_name, attach}`: Import LAS opens a set dialog (`importSetDialog.ts`,
 suggestion from the filenames' common token — `blso*_fprooh.las` → FPROOH); with attach ON
@@ -765,7 +826,7 @@ fixed here.
 
 ## Core-to-log depth registration (2026-07-31)
 
-`registration.rs` (Data ▸ Tools ▾ ▸ **Register Depth…**, `depthRegDialog.ts`) proposes the constant
+`registration.rs` (Data ▸ Core ▸ **Register Depth…**, `depthRegDialog.ts`) proposes the constant
 shift that puts a well's core back on the log's depth scale. Until now the only tool was a number
 typed into Shift Core — you had to already know the answer. Five rules.
 
@@ -1067,11 +1128,11 @@ a core photograph the thin sections' magnification. Its undo restores plate by p
 plates need not have agreed before and writing one value back across the delivery would invent a
 uniformity that was not there.
 
-Data ▸ Tools ▾ ▸ **Plate Details…** (renamed from Plate Depths…, same dialog).
+Advance ▸ Petrography ▸ **Plate Details…** (renamed from Plate Depths…, same dialog).
 
 ## Pore area from blue-dyed epoxy (2026-07-31 — Part 2 A1)
 
-`petrography.rs` (Petrophysics ▸ Petrography ▸ **Pore Area…**, `poreAreaDialog.ts`) is the first
+`petrography.rs` (Advance ▸ Petrography ▸ **Pore Area…**, `poreAreaDialog.ts`) is the first
 measurement taken off a plate, and deliberately the **dimensionless** one: an area fraction needs no
 micrometres per pixel, so it runs on every plate rather than only the calibrated ones. The
 deliverable is an area fraction per plate, which estimates volume fraction by the Delesse relation.
@@ -1222,7 +1283,7 @@ Sets, Shift Core, Well header.
 
 ## Mineral classifier (2026-07-31 — Part 2 family A3)
 
-`petrography.rs` `run_plate_classifier` + `mineralClassDialog.ts` (Petrophysics ▸ Petrography ▸
+`petrography.rs` `run_plate_classifier` + `mineralClassDialog.ts` (Advance ▸ Petrography ▸
 **Mineral Classifier…**). Quartz against feldspar in plane light is not a colour problem, so this
 family is a supervised classifier and never a colour rule — `docs/plan_image_analysis.md` §2.1 A3.
 
@@ -1441,7 +1502,7 @@ browser, not by the compiler.
 
 ## Plug QC — checking a measurement against an independent one (2026-07-31)
 
-`plugqc.rs` + `plugQcPanel.ts` (Petrophysics ▸ Petrography ▸ **Plug QC…**, also in the workspace
+`plugqc.rs` + `plugQcPanel.ts` (Advance ▸ Petrography ▸ **Plug QC…**, also in the workspace
 ＋ menu) plot two measurements made on the SAME plug against each other. The petrography numbers
 were the first measurements this app produced that nothing else in it could check: an area fraction
 estimating a volume fraction by the Delesse relation is a *claim*, and the only test of it is the
@@ -1591,6 +1652,32 @@ and taking the bare number would be a coin toss. A sheet with no stated depth ge
 counted, and is reported; it is never filled in from a neighbour. Pinned by
 `the_workbook_reader_only_takes_a_depth_that_carries_a_unit`.
 
+**And that number is read under EITHER decimal convention** (2026-07-31). One delivered book wrote
+103 of its plate sheets `6980.71 FT` and 18 of them `7016,54 FT` — one laboratory, one report, one
+file number, two people. Reading only the dot convention did not FAIL on the comma sheets, which is
+what made it dangerous: the comma split the number, `7016` was dropped for carrying no unit, and
+`54 FT` matched instead, so a seventh of the delivery was stored at **54 feet on rock cored at
+7,000**. A plausible shallow depth on entirely the wrong sand. Same family as
+`parsers::read_text_file`: bytes must be interpreted rather than assumed, and so must numbers.
+
+`as_number` in `WORKBOOK_RUNNER` is the one place that decides. **Where both separators appear the
+RIGHTMOST is the decimal** — true of `1,234.56` and `1.234,56` alike, and it needs no guess about
+which locale typed it. **A single separator is a decimal unless the token is VALIDLY grouped**
+(1–3 digits, then exactly 3), which is what keeps `4633.500 FT` reading as three decimal places
+rather than becoming 4,633,500. The genuinely ambiguous `1,234` is read as a DECIMAL and REPORTED,
+because the wrong answer is then absurd (1.234 ft) rather than plausible (1234 ft) — an absurd
+depth gets looked at, a plausible one gets used. Pinned by
+`a_comma_decimal_depth_is_read_as_one_number_not_two`, which is EXECUTED through the discovered
+interpreter rather than asserted against the source (a source match keeps passing over a regex that
+no longer works) and skips with a printed reason where there is no Python, the `field_fixtures`
+pattern.
+
+**Known limit, found on the same delivery and deliberately not patched around.** One sheet in 129
+writes `7033,50/354 FT (CORE)` — the unit sits on the PLUG number, not the depth — and reads 354 ft.
+Every rule that would fix it breaks a commoner shape: "prefer the first number" misreads
+`PLATE 12, DEPTH 4633.50 FT`. The defence stays the import wizard's editable table, where a 354
+among 7,000s is visible before anything is stored.
+
 **The unit is the sheets' own**, and only when every sheet that stated one agreed; a mixed workbook
 returns `None` so the wizard has to ask rather than fall back to the display unit. A foot silently
 read as a metre puts a plate more than three times too deep and nothing on the log looks wrong.
@@ -1631,6 +1718,1351 @@ whatever the folder holds and skips with a printed reason when unset, so a fresh
 Measured on two real deliveries: **152 plates, every one with a depth from its sheet, unit ft, 33
 notes** covering dropped decorations, sheets stating two magnifications and sheets whose header omits
 the depth.
+
+## The whole road, and what it measured (2026-07-31)
+
+`petrography::field_tests::a_delivered_book_measures_against_the_petrographers_own_point_count`
+drives the entire chain on a real delivery — workbook in, plates at their stated depths, pore area
+measured, checked against an independent measurement of the same rock through `plugqc`. Every
+increment before it was verified against synthetic plates, which can only ever prove the
+arithmetic.
+
+**The independent measurement is the petrographer's own POINT COUNT, deliberately not helium
+porosity.** A plug's helium porosity and a section's area fraction differ for two reasons at once —
+the measurement and the depth registration — so a disagreement could not be attributed to either.
+The petrographer counted the SAME picture, which puts only the measurement under test. (This also
+found that a point-count table need not carry its own total: one delivered table left the *Total
+porosity* column empty on every row with the six components filled in, and several component cells
+read `trace`, which is a word.)
+
+**The answer on this delivery is that it does NOT agree, and that is the finding.** 152 plates
+against 50 counted samples paired 35 plugs: counted median 14%, measured median 6.8%, Pearson
+**-0.300**, Spearman **-0.092**. Sweeping the band from 180-260 to 220-260 moved the measured median
+from 5.8% to 0.5% and never moved either coefficient off zero.
+
+**The measurement was tracking each photograph's colour cast rather than the rock.** On a
+green-cast plate (own median hue ~149 degrees) the band found 0.04% against a counted 15%; on a
+blue-cast plate (~195 degrees) it found 31% against a counted 9%. Across one laboratory, one core
+and one report the plates' median hue spanned 289 degrees. The existing "not photographed under one
+light" note was already firing; what was new is how completely it invalidates the numbers rather
+than merely qualifying them.
+
+**Within a colour-consistent group it works.** Restricted to the blue-cast plates with a band
+tuned to them: Pearson 0.643, Spearman 0.616 on 10 plates. That is the reason the family is worth
+keeping and the reason "measure them in groups" is a real instruction rather than a hedge.
+
+**Matching the median is not evidence that the measurement is right, and this is the sharpest
+result of the exercise.** On the green-cast group a band can be tuned until the measured median
+lands on the counted median almost exactly (15.72 against 15.00) while the per-plate rank agreement
+stays at **-0.10**. Tuning a colour band until the average looks right is therefore precisely the
+wrong way to tune it: the average is the one statistic that survives a segmentation which has
+stopped discriminating. Tune against the PREVIEW on a single plate, and judge a delivery by
+agreement, never by its mean.
+
+Still open and not shipped: the mirror of the scene-dominance guard. A plate cast AWAY from the
+band returns a fraction near zero, which is a plausible number for a tight rock and is currently
+stored. The signature is visible here (0.04% against a counted 15%) but the floor that would
+separate it from a genuinely tight section is a judgement, not a measurement, so nothing was
+invented.
+
+## A delivery can be vector, and it was vanishing (2026-07-31)
+
+The same run found that half a petrography delivery could not be imported at all. `openpyxl`
+**DROPS** the picture formats it cannot decode — WMF and EMF — with a warning nothing downstream
+sees. One delivered book of 53 plate sheets and 106 photomicrographs therefore arrived as a
+workbook that appeared to hold no pictures: `ws._images` was empty, the sheet was skipped by `if
+not imgs: continue`, and the file produced **zero plates and almost no notes**. A silent subset,
+which reads as a complete answer — the same failure the scene guard was built for, one layer down.
+
+**So `WORKBOOK_RUNNER` now reads the pictures from the PACKAGE and leaves openpyxl to read the
+cells.** That is not a patch around the drop, it removes the failure mode by construction: openpyxl
+does what it is good at (the cells the depth is written in) and the pictures come from the zip.
+Unlike the old `.xls`, the association is EXPLICIT — workbook -> sheet part -> drawing part -> media
+part, every step a relationship file — so nothing is guessed, which is exactly the property `.xls`
+lacks and why that format is still refused. Document order in the drawing XML is anchor order, so
+the panels keep the order they appear in. Pinned by
+`the_workbook_reader_takes_its_pictures_from_the_package_not_from_openpyxl`, which fails if
+`_images` ever comes back.
+
+`sniff` recognises **EMF**, or a recovered plate would be called "not a recognised image format" by
+the importer that just extracted it. The four-byte record type is far too weak a magic on its own,
+so the ` EMF` signature at offset 40 is what identifies it — pinned from both sides, including the
+control that the record type alone is NOT enough. `rclBounds` is inclusive, so a picture 1103
+device units across reads 0..1102. Pillow decodes EMF through the Windows GDI; without Pillow the
+importer says "EMF needs Pillow" by name rather than storing a plate nothing can display.
+
+A worksheet holding no picture is now **counted and reported once per file** rather than skipped in
+silence. A cover sheet legitimately holds none — but a delivery whose plates failed to come through
+shows up here as a large number instead of as nothing at all.
+
+Measured on the same two real books: **258 plates where there had been 152**, all 258 through the
+extractor, 242 through import and measurement (the 16 without a stated depth are counted and
+reported, never filled in from a neighbour).
+
+## One band, many lamps (2026-07-31 — the colour fix)
+
+The first real delivery showed the pore rule tracking each photograph's colour cast rather than
+the rock: across one core, one laboratory and one report the plates' own median hue spanned 289
+degrees, and a band tuned on one plate found 31% on a blue-cast plate the petrographer had counted
+at 9% and 0.04% on a green-cast plate they had counted at 15%. `PoreSpec.reference_image_id` names
+the plate the band was tuned on, and every other plate is colour-corrected onto it before the band
+is applied. Six rules.
+
+**The correction is a per-channel GAIN, not a rotation of the hue wheel.** A wrong white balance is
+physically a gain on each sensor channel, so undoing it is a gain back — the von Kries diagonal
+model. A fixed hue rotation looks like the same thing and is not: a channel gain moves hues near
+the boosted primary much less than hues perpendicular to it, so a rigid rotation lands the matrix
+correctly and the epoxy wrong, which is exactly the wrong way round.
+
+**The reference patch is the delivery's own ROCK, never grey.** Grey-world — forcing the three
+channel means together — is the textbook white balance and is actively harmful here: a blue-epoxy
+section IS genuinely blue-biased, and the more porous it is the more so, so grey-world would
+normalize away the very signal being measured and compress every plate toward one answer.
+Anchoring on the reference plate's matrix colour assumes only that the rock is the same rock, which
+within one core is a far better assumption than "the lamp was the same". Pinned by
+`the_colour_correction_is_anchored_on_the_reference_plate_not_on_grey`.
+
+**The matrix colour is the channel-wise median of the pixels the band did NOT claim — never the
+whole plate's median.** This shipped as the whole-plate median first and that was wrong in a way
+that looked right. The whole-plate median moves with how much epoxy is in the field of view: a
+plate with more pore has a bluer median, so anchoring on it partly normalizes away the very
+contrast being measured. That is the grey-world trap above, reached by a different route. Measured
+against a petrographer's own point count on a real delivery: rank agreement **0.19 uncorrected,
+0.05 on the whole-plate anchor, 0.20 on the matrix anchor**. The same delivery photographed each
+plug twice, and the two fields of view differ in whole-plate median hue by 66 degrees at p90 —
+far more than one lamp can explain, which is what says the whole-plate median is measuring the rock
+rather than the light.
+
+Resolving matrix from pore needs the band, and the band needs the correction, so it is ONE
+iteration and it terminates: the uncorrected band defines the matrix, the gain follows, the band is
+applied again. `scene_hue` stays the WHOLE-plate median hue, because "is the typical pixel
+pore-coloured" is genuinely a whole-plate question — only the anchor changed.
+
+Pinned by `a_plate_corrected_onto_one_lit_the_same_way_is_left_alone`, which is the invariant the
+first version broke: two plates of one rock under one lamp differing only in porosity must come
+back unchanged. Its fixture scatters the pore evenly through a gradient-lit frame rather than
+stacking it at one end — scattered pore hides the same share of every part of the gradient, so the
+matrix median is identical on both plates while the whole-plate median moves. Stack it and both
+anchors are biased and the test proves nothing. The test asserts that discriminating power before
+it asserts the invariant.
+
+**A plate the correction cannot reach at all is refused.** Where the band claimed essentially the
+whole picture there is no matrix left to anchor on, so no gain can be built — and read as delivered
+that plate would be stored at nearly 1.0. On a normalized run that case IS the scene-dominance
+refusal, and takes the same message. It is the opposite end of `band_missed`, and the pair is why
+neither guard can be dropped.
+
+**The gain is scaled so the LARGEST channel gain is 1.** The correction is a relative rebalance, so
+a uniform scale changes nothing that matters — and this way no channel can be pushed past 1 and
+clipped, which would distort the hue of exactly the brightest pixels. The cost is a slight uniform
+darkening, which the value floor can see.
+
+**A reference plate that is itself scene-dominated REFUSES the whole run.** Everything is corrected
+onto it, so a mistake there is inherited by every plate and then agrees with itself everywhere. On
+a normalized run the plain per-plate scene test would only restate the reference's, so it is
+checked once, up front, by name.
+
+**The stain is read off the SAME corrected picture.** `stain_from` takes the h, s, v the pore rule
+was read from rather than re-converting the image, or the minerals and the porosity would describe
+two different photographs of one section — and they are required to sum against each other. The
+preview overlay is drawn on the corrected copy too, for the standing reason: what the user tunes
+against has to be literally what was measured.
+
+Verified end to end by `the_same_rock_under_a_different_lamp_reads_as_the_same_rock` (ignored,
+needs Pillow): two plates of identical synthetic rock, one photographed through a lamp 2.0x on
+green and 0.55x on blue. Uncorrected the cast plate reads under 1% against its twin's 25% — the
+delivery's failure, reproduced. Corrected onto its twin it reads the same quarter. The cast is
+applied as channel gains chosen so nothing clips, which is what makes it a genuine white-balance
+error rather than a repaint.
+
+**The mirror guard, and why it is conditional** (Jauhar, 2026-07-31: "yes but conditional"). A
+plate cast AWAY from the band returns a fraction near zero, and near zero is a perfectly plausible
+reading for a tight rock — it plots against helium porosity without ever drawing attention to
+itself, which makes it the more dangerous of the two failures. `band_missed` refuses it, and takes
+its condition from the user rather than from a threshold: it applies **only on a normalized run**.
+Without a reference there is no evidence the band finds epoxy anywhere in this delivery, so an
+empty answer could equally mean the band has never been tuned, and refusing then would refuse a
+first click. Naming a reference is the user's statement that the band works on THAT plate; once
+that is on the record, a plate showing nothing after being corrected onto it is either nonporous or
+mis-corrected, and nothing in the picture separates those two. Refusing is the conservative call.
+
+**"Empty" is one resolvable pore's worth of pixels — the user's own `min_pore_px`, not a new
+constant.** A band that has not claimed even a single countable pore over a whole field of view has
+not found a pore phase; that is not a small porosity, it is not a measurement. Pinned by
+`an_empty_measurement_is_refused_only_once_a_reference_plate_says_the_band_works`, which checks
+both conditions independently and that raising the floor moves the bar with it.
+
+`cast_shift` — how far this photograph's light sat from the reference's, by
+`hue_delta`, the SHORT way round the wheel — rides beside every result and is reported in the
+table. It is diagnostic and never a threshold: a plate that had to move a long way is one to look
+at, and nothing else on the row would say so. NaN when no reference was named, and the column is
+hidden then rather than shown empty — an empty column reads as "every plate matched" instead of
+"nothing was compared".
+
+The two guards cover for each other by different routes, which is why neither can be dropped: a
+wholly blue plate is refused as scene-dominated on an uncorrected run, and on a corrected run its
+own blue has become the matrix, so it is refused as `band_missed` instead. Same outcome, and the
+round-trip test asserts both.
+
+**What it is worth on real rock, measured rather than hoped.** On the delivery it was built for it
+stops the measurement being actively wrong and does not make it right. Against the petrographer's
+own point count over 45 plugs, with the two fields of view per plug averaged: rank agreement 0.19
+uncorrected and 0.10–0.22 corrected depending on which plate is the reference; sweeping 57 bands,
+the best reachable is 0.25 uncorrected against 0.15–0.36 corrected. Those best-of figures are an
+upper bound fitted on the data they are scored on and must never be quoted as accuracy — this same
+delivery already taught that tuning until a statistic looks right is how a segmentation that has
+stopped discriminating passes for a good one.
+
+**The measurement is repeatable; it is the agreement that is weak.** That delivery photographed two
+independent fields of view of every plug, and the two agree with each other at rank 0.85 while
+agreeing with the point count at 0.10–0.27. So the disagreement is systematic rather than noise,
+and it is not the pictures. A colour band is not yet a substitute for a point count on this rock.
+
+Still open, and deliberately not invented: whether a single reference can serve plates spanning 289
+degrees at all. The correction gets less exact the further a plate has to move — shifts of 180
+degrees appear on this delivery, which is the far side of the wheel and not a lamp — and how far is
+too far is a judgement to be read off the shift column and the preview, not a number to ship.
+
+## The second opinion, and what it moved (2026-07-31 — the helium arm)
+
+Every judgement of the pore rule so far was made against the petrographer's own point count, on the
+argument that counting the SAME picture puts only the measurement under test. That argument holds,
+and it hid something: **nobody had asked whether the point count agrees with anything either.**
+
+**It does not, much.** Against the laboratory's ambient helium porosity on the same 45 plugs, the
+delivered point count reads **Pearson 0.581, Spearman 0.505**, with a median 14.5% against helium's
+24.8%. That is the microporosity difference stated plainly — a point count ticks pores VISIBLE under
+an optical grid, helium fills every connected pore including micropores far below optical
+resolution, and in a carbonate that is most of the pore system. So ~0.5 is about the ceiling for
+this rock, and "the colour rule disagrees with the point count" was never on its own evidence that
+the colour rule is wrong.
+
+**AMBIENT helium, not overburden.** A section is cut from an unstressed plug and photographed at
+atmospheric pressure, so ambient is the like-for-like number; overburden folds in the rock's
+compressibility, which is real and is not something a picture can see.
+
+**Against helium the colour rule reaches 0.575 uncorrected and 0.67–0.69 corrected — and that
+headline must never be quoted.** The delivery spans two cored intervals of very different rock, ~25%
+porosity against ~5%. A coefficient computed across both is largely rewarding the tool for telling a
+porous carbonate from a tight one, which an interpreter knows before starting. Scored INSIDE each
+interval against helium:
+
+| | shallow core | deep core |
+|---|---|---|
+| colour rule, uncorrected | 0.01 | 0.27 |
+| colour rule, corrected | 0.19 | 0.49 |
+| the petrographer's count | 0.51 | not counted |
+
+Three things follow, and they are the reason this arm was worth running.
+
+**The colour correction earns its place on independent data.** It lifts agreement inside BOTH
+intervals — roughly doubling the deep one — measured against a laboratory instrument rather than
+against the count it was previously scored on. Everything said before about the correction rested on
+a reference that itself only reaches 0.5.
+
+**The colour rule still loses to the petrographer where both exist**, 0.19 against 0.51. It is not a
+replacement for a point count on this rock, which is the same conclusion as before, now reached
+against a yardstick that can be defended.
+
+**A cross-interval coefficient is a trap in this family generally.** Any measurement that separates
+two rock types will look strong pooled and may resolve nothing within either. Score within an
+interval, or say plainly that the number is a between-core contrast.
+
+Method note that changes the numbers: this delivery photographed TWO fields of view of every plug,
+and they are **averaged per depth, never pooled**. Pooling counts each plug twice, inflates n from
+45 to 90, and adds no independent rock. Pairing is `plugqc.rs`'s rule throughout — closest pair
+first, each measurement consumed once, nothing snapped beyond the tolerance.
+
+Still open and deliberately not chased: the deep core has no point count at all, and the colour rule
+reaches 0.49 there against helium. That is the one interval where this suite is doing work nobody
+did by hand, and whether the numbers look like the rock is a question for the interpreter rather
+than for another statistic.
+
+## Judging a setting instead of eyeballing it (2026-07-31)
+
+`PoreSpec.check_against` + `plugqc::score_against_plugs`, surfaced as **Check against** in the Pore
+Area dialog. The reference plate turned out to be a bigger lever on the answer than the colour band
+is — a 3.5x spread in rank agreement across three references drawn from one cored interval, with the
+worst pick WORSE than not correcting at all — and the dialog offered nothing to tell a good choice
+from a bad one except the preview. A setting judged by eye against a picture is judged on how the
+picture LOOKS. This is the number that says whether it also tracks the rock. Six rules.
+
+**The pairing is `plugqc`'s, literally the same code.** `score_against_plugs` differs from
+`run_plug_qc` only in that one axis arrives as a slice instead of a database read; it shares
+`samples_for`, `pair_samples` and `ranks`. A second pairing implementation would drift, and the
+drift would be SILENT — both versions return a plausible correlation and nothing on screen says
+which rule produced it. Pinned by `scoring_a_run_in_hand_matches_scoring_it_after_it_is_saved`,
+which stores the identical values and requires the two paths to agree to the last decimal.
+
+**Scored BEFORE it is saved.** That is the whole reason the slice form exists: tuning that had to be
+written first would leave a trail of half-judged answers in the project, the same reasoning that
+makes `set_name` optional on a pore run.
+
+**Only the plates that would be STORED are scored.** `storable()` is the single predicate the write
+path and the check share, and `storable_samples` is split out so the rule can be pinned without a
+Python subprocess. A plate the run has already refused must not vote on whether the run is any good
+— and the failure would be quiet rather than loud, because a scene-dominated plate reads near 1.0,
+which is exactly the kind of outlier that moves a correlation on its own. Pinned by
+`the_agreement_scores_only_the_plates_the_write_would_keep`, which also checks an interval plate
+pairs on its MIDDLE, the convention `plugqc` and the point tracks already use.
+
+**The RANK figure is the one to choose a setting on, and the dialog says so.** A section reads
+systematically below its plug's helium porosity — microporosity below optical resolution, which on
+a carbonate is most of the pore system — without being wrong about which plug is the better rock. A
+delivery stored as a percent instead of a fraction does the same thing again, a hundredfold. Pearson
+feels both; Spearman feels neither. Both are reported, and so are the two MEDIANS, which is what
+makes a unit mismatch visible instead of mysterious. Pinned by
+`a_scale_difference_moves_the_medians_and_not_the_rank_agreement`.
+
+**One coefficient is not a decision, so the dialog keeps every setting tried this session.** 0.24 is
+a poor result next to 0.53 and a good one next to 0.11, and the only way to know which is to have
+seen the alternatives — the same argument as reporting the whole correlogram in `registration.rs`
+rather than only its peak. The best is bolded, **but only among rows scored on the same number of
+plugs**: changing the reference changes which plates get refused, so two runs can be scored on
+different rock, and a coefficient that rose because the awkward plugs dropped out is not an
+improvement. A non-comparable row is FLAGGED and never bolded, rather than hidden — it is still
+informative, it just cannot be read straight across. Not persisted: it describes an afternoon's
+tuning, not the project.
+
+**A well with nothing to check against says so, and nothing is ever snapped.** A 0.00 would read as
+"this setting is useless" rather than "nothing was compared". A plate with no plug inside the
+tolerance is dropped and counted, and the empty-result note points at Register Depth… rather than at
+a wider tolerance — a core off by a whole sample interval passes any tolerance check, so loosening
+it quietly pairs each section with its neighbour's plug and returns a confident number about the
+wrong rock. Core porosity is picked by DEFAULT where the well has it: a setting nobody thought to
+verify is exactly the one that ships.
+
+## A reference plate per cored interval (2026-07-31)
+
+`PoreSpec.reference_zones` (Pore Area ▸ **Per-interval references**) lets one run correct different
+depth ranges onto different plates. A delivery spanning two cored intervals is two different rocks,
+usually photographed on two different days, and one reference serves both only by accident: on the
+real delivery, giving each interval its own lifted rank agreement with core porosity in BOTH (0.19
+to 0.24 shallow, 0.49 to 0.53 deep). That is a refinement rather than a rescue — and the point is
+that it is now something the user can **measure** with **Check against** rather than be told. Six
+rules.
+
+**A plate no interval covers falls back to the delivery-wide reference, and where there is none it
+is REFUSED by name — never read as delivered.** This is the rule the whole design hangs off.
+`band_missed` only ever fires on a corrected plate, deliberately: with no reference there is no
+evidence the band finds epoxy anywhere in this delivery, so an empty answer could equally mean the
+band has never been tuned. Read one plate uncorrected inside a normalized run and it sits in the
+same stored delivery as corrected ones having silently lost that guard, with nothing downstream able
+to tell the two apart. Refusing keeps `normalized` a RUN-level fact, which is why nothing else in
+the measurement had to change.
+
+**Intervals may TOUCH but never cross.** `2000-2010` beside `2010-2020` is how anyone writes two
+adjacent cored sections and neither should have to be typed a millimetre short, so `contains` is
+inclusive at both ends and a shared depth goes to the interval listed FIRST. A genuine overlap is
+refused up front, before a single picture is decoded: inside one, which reference a section is
+corrected onto would come down to the order of a list nobody sees, so the same settings could give
+two answers with nothing on screen saying why. Exactly the rule `db::apply_core_run_shifts` enforces
+on core barrels, and for the same reason. A base above its top is refused as a typo rather than
+silently swapped.
+
+**Pass 1 harvests colours only; every plate is measured in pass 2.** The single-reference code used
+the reference plate's own first-pass result AS its stored result, which is correct when correcting
+onto itself is the identity. With several references a plate serving an interval it does not sit in
+would have kept an uncorrected number while its neighbours were corrected — silently. Measuring
+every plate in pass 2 costs one extra decode per reference and removes the case by construction. The
+harvest pass draws no preview: what the user tunes against has to be the CORRECTED picture the
+stored number came from. `run_batch` is the one copy of the pipe protocol, shared by both passes.
+
+**Every reference is scene-checked before any other plate is decoded, and one bad one condemns the
+run.** Everything in an interval is corrected onto its reference, so a reference that is itself
+mostly the colour called pore anchors that interval to the mistake — and agrees with itself
+everywhere afterwards. Refusing the whole run rather than just that interval is the conservative
+call: a partial result with one interval quietly missing is worse than a named refusal.
+
+**`PlatePore.reference_name` rides beside `cast_shift`, and the column appears only when more than
+one plate served.** A shift of 40 degrees means nothing until you know which plate it is 40 from;
+with a single reference the column would just repeat the picker on every row.
+
+**Fractions from different intervals are only as comparable as their two references are**, and the
+run says so in a note listing which plate served which span. Compare intervals on the agreement
+figure rather than by reading their medians against each other.
+
+Pinned by `reference_intervals_may_touch_but_never_cross`,
+`a_plate_takes_its_own_intervals_reference_then_the_delivery_wide_one` (both pure, both green on
+every gate run) and the round trip `each_interval_is_corrected_onto_its_own_reference` (ignored,
+needs Pillow). That fixture's two lamps are deliberately NOT a pure channel gain apart, which is the
+realistic case and the whole reason one reference stops serving a delivery: the deep sections are
+lost when dragged onto a shallow reference (shift > 100 degrees, band missed) and read their true
+quarter when corrected onto their own. Its orphan plate pins the refusal above.
+
+## Core slab photographs: conditioning, and a trace read off them (2026-07-31)
+
+`coreimage.rs` + `coreConditionDialog.ts` (Advance ▸ Core Imaging ▸ **Core Photos…**) are ROADMAP
+C2 item (7)'s first two halves. A core photograph arrives as somebody's snapshot — the box a degree
+off square on the bench, the tray and the tape in frame, and whatever colour the core shed's lights
+had that afternoon. None of that is the rock and all of it goes into a report.
+
+**The controls are the picture wherever they can be** (Jauhar, 2026-07-31: "geologist see image not
+text"). The delivery is a strip of thumbnails rather than a list of filenames, the crop is a drag on
+the image rather than four numbers, the white balance is a click on a grey patch rather than three
+gains, the depth lay-out is a row of buttons showing every option at once, and each slider's TRACK
+carries the gradient it moves along — blue to amber, green to magenta, grey to vivid. The readout
+beside a slider is there to be read back, not typed into.
+
+### The conditioning
+
+**Non-destructive, and `well_images` enforces it rather than claiming it.** `recipe` holds the
+settings, `source_data` the un-conditioned display copy — written ONCE, by a `COALESCE` inside the
+UPDATE rather than a read-then-write, so two applies in flight cannot let the second file the
+first's output as the original. Every later edit re-renders FROM it: editing a recipe must never
+stack a second correction on the first, because a brightness raised twice by eye is a photograph
+nobody can get back to.
+
+**`source_meta` (`WxH;mime`) is the third column and it is not decoration.** A crop changes the
+picture's shape, so a restore that left the baked dimensions behind would have every renderer draw
+the whole photograph into the cropped one's box, at the wrong aspect ratio — the one thing this app
+never does to a picture. Pinned by `conditioning_keeps_the_import_and_a_restore_puts_back_its_shape`.
+
+**The result is BAKED into `data`, not applied when the picture is drawn.** The PDF exporter embeds
+those bytes untouched through a `/DCTDecode` XObject, so a render-time recipe would print the
+unconditioned photograph while the screen showed the corrected one — silently, and only on the
+deliverable. Baking also leaves the log view, the composite and the PDF nothing to disagree about.
+A recipe that changes nothing RESTORES rather than re-encoding: a second JPEG pass to record a
+decision to leave the pixels alone is pure loss.
+
+**Everything geometric is a FRACTION of the picture.** A crop in pixels belongs to whichever copy it
+was dragged on, and the stored copy is already capped at a long edge — the `fov_um` and scale-bar
+argument again. It is also what makes the preview trustworthy: the proxy the user drags on and the
+full-size bake apply the identical recipe, checked by shape in
+`a_picked_grey_a_crop_and_a_way_back`. A second crop COMPOSES with the first, because it was drawn
+on the already-cropped picture.
+
+**The picked white balance is normalised so the LARGEST gain is 1** — it can only darken, and no
+channel is pushed past white and clipped, which would distort the hue of exactly the brightest
+pixels. The patch is a MEDIAN, not a mean: a speck of dust or a highlight on the tray is one pixel
+from the grey that was actually clicked. Same rule the thin-section colour correction follows.
+
+**"Apply this light to the whole run" copies the colour half only**, and the merge is done in Rust
+(`CoreRecipe::with_look`) so what "the look" means is one rule rather than one per caller. A
+core-shed run is shot under one light in one afternoon, so the colour genuinely belongs to the
+delivery — but the box sits differently on the bench in every frame, so the crop and the deskew do
+not. Same reasoning as `set_image_delivery_details` refusing "All datasets".
+
+**The preview comes from the backend.** Re-implementing the pipeline in canvas would drag faster and
+would put one correction in two languages — the standing `composite.rs`-versus-renderer warning.
+What is tuned is literally what gets baked, at a smaller size. Slider moves are coalesced and stale
+answers dropped by sequence number.
+
+The dialog distinguishes THREE states, not two: as imported / applied / edited-and-not-yet-written.
+"Conditioned" and "conditioned in the project" are different facts and the second is the one that
+reaches a report — the status line read "not yet applied" the moment after Apply until this was
+fixed. The filmstrip dot follows the PROJECT, never what is being tried on screen.
+
+### The trace
+
+`extract_core_log` reads three measures down the core and can write them as curves:
+`CPHOTO_DARK` (1 − Rec. 709 luma), `CPHOTO_RED` (normalised (R−G)/(R+G), so an uneven lamp cancels
+in the ratio) and `CPHOTO_TEX` (spread across the core within each slab — lamination and
+conglomerate scatter, a clean massive sand does not).
+
+**The prefix is `CPHOTO` and it will never be `VSH`.** Darkness co-varies with shale in most clastic
+sections, which is not the same statement as being a shale volume: the same dark band is
+organic-rich mudstone in one core, oil stain in another, a wet patch in a third. A curve called VSH
+is read by every module downstream AS a shale volume, and an uncalibrated one under that name is a
+wrong answer that computes and plots. Turning it into one is a calibration the user makes against
+their own GR. Same argument that keeps `GRAIN_D50_APP` apart from `GRAIN_D50`.
+
+**It reads the CONDITIONED picture**, which is why the conditioning came first: a darkness compared
+across boxes shot under two different lamps is a comparison of the lamps.
+
+**The agreement with a real log is SIGNED, and that is the point.** Darkness and GR should both rise
+into shale, so a strongly negative `CPHOTO_DARK` is a finding rather than a weak result — most often
+the depth axis is the other way round, occasionally the dark bands are oil stain. Below −0.3 the run
+says so by name and suggests Deepest first. Pinned from both sides by
+`the_trace_runs_the_way_the_picture_is_laid_out`, which requires the forward reading above +0.95 and
+the reversed one below −0.95: a test that only checked "strong" would pass on the upside-down trace.
+
+**A photograph with no `depth_base` is refused by name.** It is a point sample anchored at one depth
+and covers no interval, so there is no axis to read along; stretching it over a guessed thickness
+would invent every sample in it. **The depth range is taken to span the picture end to end**, which
+makes the conditioning crop also the statement of where the core is in the frame — crop the tray and
+the tape away, or they are read as rock.
+
+**Lanes are an approximation and say so.** A four-row core box is split into equal lanes read in
+order; a real box has unequal rows and gaps between them. Default is 1, so nobody gets the
+approximation without asking, and the note points at cropping to one row for a careful job.
+
+Samples sit at the MIDDLE of the slab they averaged, so a trace read at 2 cm is not shifted a
+centimetre shallow against the log it is compared with. Photographs are sorted into depth order
+before anything is written — a delivery arrives in whatever order it is stored in, and a
+non-monotonic curve is a sawtooth to every reader downstream. Reading and writing are separate
+buttons, the `set_name` rule again.
+
+Rule 7 throughout: numpy + Pillow in ONE subprocess per batch of 8 (photographs are large), both
+runners read `sys.stdin.buffer`, and `core_image_support()` probes before anything opens. The real
+round trips are `#[ignore]`d so the green gate never depends on an optional package.
+
+**Not yet built, and deliberately named**: perspective correction, CLAHE/denoise/sharpen, the
+stitched multi-box depth strip, WL/UV pairs, and a log-view strip track. Cross-correlating the
+photograph trace against GR to PROPOSE a depth shift is `registration.rs`'s job and would compose
+with it — the trace is already a curve.
+
+## Squaring up a box, and the three corrections that change what a trace says (2026-08-01)
+
+`coreimage.rs` finishes the conditioning toolbox. `CoreRecipe` gains `quad` (perspective) and
+`denoise` / `clarity` / `sharpen` (detail), every field `#[serde(default)]` so recipes already
+stored in a project still load. Six rules.
+
+**Perspective is four draggable corners rather than another slider, because a slider cannot fix
+it.** A core box photographed from one end is a trapezoid: the far end is drawn shorter than the
+near end, so a depth read straight down the frame runs fast at one end and slow at the other, and
+every sample between them is out by an amount that changes along the core. Straighten cannot touch
+that — rotating a trapezoid gives a rotated trapezoid. `Quad` is the four corners in reading order
+(TL, TR, BR, BL) as FRACTIONS, applied after the rotation and before the crop, because the corners
+are dragged onto the picture the user can see and the crop is what states where the rock is.
+
+**Rectifying deliberately CHANGES the aspect ratio, which is the opposite of the rule plates
+follow.** A thin section must never be stretched, because its delivered shape is the truth; a box
+shot at an angle arrives with its shape already wrong. The output's proportions are measured from
+the quadrilateral's OWN sides — inheriting the frame's would put the distortion straight back, and
+a box that really is eight times as long as it is wide has to come out eight times as long or the
+depth axis is still not linear.
+
+**In corner mode the picture is shown UNRECTIFIED and uncropped.** You cannot point at the box's
+corner in a photograph that has already been squared up to it, and a crop would have cut the
+corners off. `viewRecipe()` in `coreConditionDialog.ts` is the one place that decides; everything
+else edits the real recipe. The polygon is the feedback while dragging, so a corner is stored on
+pointer-up without re-rendering — re-rendering rectified on every corner would take the corners off
+screen.
+
+**The corners belong to the photograph, so `colour_only` clears them** — and `colour_only` is now
+written out field by field rather than with a `..self.clone()` spread, so a new field has to be
+classified as framing or as light DELIBERATELY. Getting that wrong is silent: every other box in
+the run would quietly take this box's framing, and the only evidence would be crops that look
+slightly off on pictures nobody cropped. Pinned by
+`applying_a_look_to_a_delivery_carries_the_colour_and_not_the_framing`, which is written as a full
+struct literal so a new field fails to compile there.
+
+**CLAHE's tile floor is a handful of pixels, NOT one per histogram bin.** The obvious guard — a
+tile smaller than the 256-bin histogram falls back to the identity — turns EVERY tile into the
+identity on a box cropped down to a single row, which is forty-odd pixels across. The slider then
+does nothing at all, silently, on exactly the pictures most likely to need it. Sparse counts are
+what the clip limit is for. Found by a test, not by reading it back.
+
+**Local contrast damages the SCALE, not the shape, and that is the whole reason `touches_detail`
+exists.** On a perfect ramp from clean sand into mudstone, Clarity HALVES the darkness contrast
+(P10-P90 0.62 to 0.30) while the agreement with a GR rising through the same mudstone barely moves
+(+1.00 to +0.97). Pearson is scale-invariant and CLAHE compresses without inverting, so the
+correlation has a ceiling on how far it can move — the S-factor calibration's lesson again, where
+two central values could only ever disagree by so much and the spread had no such limit. What the
+compression costs is comparability: `CPHOTO_DARK` is only useful once it is calibrated against a
+real GR, and a transform fitted on an un-equalised box does not hold on an equalised one. Nothing
+in either curve says which is which, so `extract_core_log` NAMES the photographs that carry one of
+the three. Pinned by `local_contrast_flattens_the_very_trend_the_trace_is_reading`, which also
+asserts the correlation STAYS high — so nobody "improves" the test into the check that would find
+nothing to warn about.
+
+Denoise and Sharpen are the same family read the other way: one suppresses `CPHOTO_TEX`, the other
+inflates it. **Their radius is a FRACTION of the long edge rather than a pixel count**, so the
+preview the user judges them on and the full-size bake take the same thing out of the rock — the
+`min_pore_px` argument turned around (there the number states what the picture can resolve and must
+stay in pixels; here it states a size on the core and must not). Both are capped, because a median
+filter costs the square of its radius and nothing past a 9x9 removes speckle any better.
+
+## The core, running down the page beside the log (2026-08-01)
+
+`coreimage::build_core_strips` (Condition Core Photos… ▸ **Build depth strips**) cuts every box of a
+delivery into its rows and stacks them into ONE tall picture per box, core running down it, at the
+box's own depth interval. The built-in **Core** layout puts that beside GR, `CPHOTO_DARK` and the
+porosity crossover. Six rules.
+
+**The lay-out is baked into a picture, not applied while drawing, and that is the whole design.** A
+core box has the core running across the frame in several rows; a log track has depth running down
+it. Turning one into the other is a rotation and a re-stacking — and doing it at draw time would
+mean writing that geometry THREE times, in the WebGPU log view, the SVG export and the PDF export,
+with nothing to stop the three drifting apart. That is the standing `composite.rs`-versus-renderer
+warning, and this is the version of it that does not need a warning: a strip is an ordinary
+depth-registered image, so every renderer already knows how to draw one and what the screen shows is
+what prints. It also needed no new `DrawOp`.
+
+It is inspectable for the same reason. A strip appears in the Wells pane, in Plate Details and in a
+composite like any other delivery, so a lay-out that came out wrong can be SEEN rather than deduced
+from the shape of a curve.
+
+**The strip and the trace lay a box out from ONE statement of how it is laid out**, so they cannot
+disagree about which row is shallowest or which way a row runs. `reverse` is a 180-degree rotation
+of the frame; then each row of core is rotated 90 degrees CLOCKWISE so its shallow end is at the
+top, and the rows are stacked in order. Clockwise because the core runs left to right in the box, so
+its left end has to end up at the top — and `np.rot90(a, -1)` rather than a bare transpose, which is
+a reflection about the diagonal and would mirror every sedimentary structure across the core.
+Verified on a marked fixture: the mark on row 1's shallow end at that row's own top edge lands at
+the strip's top RIGHT. Pinned by `a_strip_reads_the_same_way_the_trace_does`, which reads a trace
+off the strip as a plain single-lane picture and requires it to match the trace read off the box it
+came from — a strip with its rows stacked in the wrong order would still look like a perfectly good
+core photograph in a log track, and nothing but this comparison would catch it.
+
+**Rebuilding REPLACES.** A strip is derived, not delivered: pressing Build again with a different
+lane count is the same re-run a module makes, not a second delivery of pictures. So unlike an import
+it writes one fixed set name rather than auto-suffixing, and tuning a lane count leaves no trail of
+`STRIP_1`, `STRIP_2` behind. Writing the strips over the photographs they were built from is refused
+by name.
+
+**`ImageStyle.fit` gains "stretch", and it is the one case the never-stretch-a-plate rule does not
+cover.** A thin section is never stretched because its delivered shape is the truth and a squashed
+plate misstates grain shape. A depth strip is the opposite: its vertical axis IS depth, set by the
+print scale, and its width IS the track — neither of them the picture's own, so there is no true
+aspect ratio to preserve. Without it `contain` leaves a strip as a hairline down the middle of the
+track and `cover` shows a couple of per cent of it blown up; both are what the existing rules give,
+and both are useless. Reserve it for pictures whose two axes are both imposed from outside.
+
+**`CPHOTO_DARK` sits BESIDE gamma in the built-in layout, never on top of it.** Overlaying the two
+needs a shared scale and there isn't one — darkness is dimensionless, gamma is API units — so a
+common axis would be a picture of a calibration nobody has done. Side by side the eye does the
+comparison, and the trace's own signed correlation puts a number on it.
+
+**Each box keeps its own depth interval, so a gap between two runs stays a gap.** Stitching the
+whole cored interval into one picture would have to invent depths across the gaps, and boxes that
+overlap would have to be reconciled — neither is something a display should decide. Storage follows
+the same reasoning as everything else here: across-core pixels are capped at `STRIP_MAX_W`, because
+a strip is drawn a few centimetres wide and past that the extra columns are storage rather than
+detail, with the height following proportionally so nothing is distorted.
+
+Still open on the core-photo road: WL/UV pairs, and feeding the trace into `registration.rs` to
+PROPOSE a core-to-log shift (it is already a curve, so that composes).
+
+## The photograph as a registration reference, and a saved curve nothing could read (2026-08-01)
+
+`registration.rs` gains a third reference kind, `"curve"`, offering the core photograph's own
+`CPHOTO_*` traces beside the plug columns and the point datasets in Data ▸ Tools ▾ ▸ Register
+Depth… Four rules, and one bug the work uncovered.
+
+**It is not a general curve-vs-curve registration.** The `CPHOTO_*` curves are the only ones in a
+project MEASURED ON THE CORE, so they carry the core's depth error and a shift found from them is a
+shift for the plugs. Any other curve is a wireline reading and registering it against another
+wireline reading would answer nothing.
+
+**They are also the densest reference this dialog has.** A plug table gives a few dozen samples a
+foot apart; a photograph gives a reading every few millimetres down the whole cored interval. That
+is what a cross-correlation wants — the same reason the thing being registered against is a log
+rather than a set of picks.
+
+**Darkness is the one proxy whose SIGN is known, and a negative peak is refused in words.** The
+shift is still chosen on |r| like any other proxy, because darkness is not a gamma reading and
+forcing two different quantities onto one line would be a claim nobody made. But the expected sign
+is not a mystery: clay is dark and clay is radioactive, so both rise into shale. A winning peak that
+is NEGATIVE says the box is laid out the other way up — which a correlogram cannot tell apart from a
+genuine depth error — and accepting it would bake an upside-down photograph into the core's depths
+where nothing downstream could find it. `expects_to_rise_with_shale` is deliberately a named
+predicate rather than a family entry: giving `CPHOTO_DARK` the GR family would make the pairing
+like-for-like, which asserts they are the same quantity.
+
+Pinned from both sides by `the_photograph_trace_can_anchor_a_shift_and_says_when_the_box_is_upside_
+down`, which runs the same fixture twice — once as delivered, once inverted — and requires the first
+to recover the 2 m error and the second to be named rather than proposed.
+
+### The bug it uncovered: a saved trace nothing could read
+
+`computed_curves` are joined onto the standard depth grid by an **exact** depth match. `extract_core
+_log` wrote its curves at the PHOTOGRAPH's own sampling — a reading every couple of centimetres,
+landing on a wireline depth only by coincidence — so `CPHOTO_DARK` was written, was counted in the
+run's report, and then came back all-NaN to every module, plot and export that read it. The worst
+shape a bug can have here: the run says three curves were saved and the project holds three curves
+nothing can open.
+
+The trace now resamples onto the well's own depth frame before writing, and says so in its notes. A
+well with no wireline frame falls back to the photograph's sampling and says THAT instead, rather
+than pretending.
+
+**The resampling is a box AVERAGE, not an interpolation.** The photograph is sampled several times
+finer than a log, so linear interpolation between two neighbouring photograph samples is very nearly
+picking one of them — and picking one of every seven is aliasing: a lamination every few centimetres
+would beat against the log's sampling and come back as a trend that is not in the rock. Each output
+sample takes every photograph sample inside the interval reaching halfway to its neighbours.
+
+**An output depth with no photograph inside it is NaN, never the nearest value.** Outside the cored
+interval there is no picture, and filling it in would draw core where none was cut.
+
+Pinned by `a_saved_trace_lands_on_the_frame_the_rest_of_the_project_reads`, which checks the
+read-back through `fetch_curve_frame` rather than a row count — the read-back is the thing that was
+broken — and feeds the resampler a lamination alternating sample by sample, which must come back at
+its mean rather than at whichever phase the coarse frame happened to land on. The older test
+asserted 200 stored rows, which was pinning the bug; it now asserts the curve is readable and still
+carries its trend.
+
+## White light and ultraviolet, side by side (2026-08-01)
+
+A core shed shoots the same box twice — once in white light, once under ultraviolet — and the UV
+frame is where an oil show lives, as fluorescence that is simply not in the white-light picture.
+Condition Core Photos… gets a **pair picker and a Hold for the pair** button, and Build depth strips
+gets an editable **target dataset**. Five rules.
+
+**The two deliveries stay two deliveries.** A UV frame is a different measurement of the same rock,
+not a version of the white-light one, so it arrives as its own dataset and follows the delivery-set
+model like everything else. That also means everything downstream already works: build strips off
+both, put two image tracks side by side, and the log view and the composite need nothing new.
+
+**Held, not toggled** — the before/after argument. The answer is a glance, and a toggle leaves you
+one click away from tuning the wrong picture without noticing.
+
+**The pair is matched on the depth INTERVAL, never on the name.** The two deliveries are two
+cameras' filenames for one box, and a shed's naming is a shed's business. Matching on OVERLAP rather
+than on nearest top means a UV frame shot in two halves still finds the white-light box it belongs
+to; a point sample with no thickness falls back to a half-metre proximity so it is not excluded by
+having no interval to overlap with.
+
+**Each frame is rendered with its OWN recipe**, through the same preview pipeline. Showing a UV
+frame under a white-light photograph's white balance would be a picture of the correction rather
+than of the fluorescence — and the white balance is exactly the correction that has no meaning
+across two light sources.
+
+**A delivery is never paired with itself.** The picker is rebuilt when the source changes and drops
+the source from its own list; otherwise it would show the same picture and read as a control that
+does nothing.
+
+**The strip target is editable and suggested rather than fixed.** `build_core_strips` always took a
+target; the dialog now shows it, pre-filled from the source's own name — `CORE PHOTO UV` suggests
+`CORE STRIP UV`. With one fixed name the second build would quietly replace the first, leaving one
+box's two lights reduced to whichever was built last.
+
+## A thin section is a picture too (2026-08-01)
+
+The conditioning workspace built for core slab photographs now serves plates as well
+(Advance ▸ Petrography ▸ **Condition Plates…**), and Pore Area's colour band is a colour rather
+than four numbers. Jauhar's rule from the core work — "geologist see image not text" — applied to the
+petrography side, which is where it matters most, because a colour threshold is the one setting that
+genuinely cannot be judged from a number.
+
+**One workspace, two entry points, not two dialogs.** A thin section arrives with exactly the
+problems a core photograph does: lifted out of a workbook at whatever angle it was scanned, under
+whatever lamp the microscope had. `openCoreConditionDialog("plate")` retitles, opens on a
+thin-section delivery and hides the core-only block; everything else is the same code. Two dialogs
+would be two places for the wording, the white-balance rule and the three-state status to drift —
+the `followCore.ts` argument.
+
+**The trace and the depth strips stay core-only, and not by omission.** A thin section is cut from
+ONE plug and covers no interval, so there is no axis to read a log along and nothing to stretch a
+strip over — the same statement `extract_core_log` makes when it refuses a picture with no base
+depth.
+
+**Conditioning a plate is upstream of measuring it**, since `petrography.rs` reads the baked `data`.
+That is the intended order — correct the plate, then measure it — and it composes with the
+reference-plate correction rather than competing: a white balance done by hand leaves the reference
+correction less to do, and the reference correction anchors on the matrix colour either way.
+
+### The band, as a colour
+
+`src/ui/colourBand.ts` is the shared control: a hue wheel laid out flat with two draggable ends, the
+saturation and brightness floors as sliders whose TRACKS carry the gradient they move along, a live
+swatch of what the band accepts, and the numbers still there and still typable — a band that came
+off somebody else's run has to be enterable, and a value that can only be dragged cannot be written
+down.
+
+**The wheel is a canvas, one column per degree.** A band that WRAPS through red is two arcs, and
+dimming everything outside two arcs with layered CSS panels is three special cases that each have to
+be got right. `inBand` is the runner's own rule restated here so the picture and the measurement
+agree about what a wrapped band means — refusing to draw one would make the control unable to
+express a band the runner reads perfectly well.
+
+**Pick the pore colour is the white-balance pick pointed the other way.** There a click says "this
+should be neutral"; here it says "this is pore". Both replace a number nobody can picture with the
+thing itself. The band keeps its WIDTH and moves its centre, because a click says "this colour is
+pore", not "this is the only colour that is pore" — a band collapsed onto one hue finds almost
+nothing and reads as a broken tool. The floors drop to just under what was clicked, so the very
+pixel the user pointed at is inside the band it just defined.
+
+**The colour is read from the UN-MASKED plate**, which is why `PoreResult` gained `plain_png`: the
+same picture at the same size without the overlay. Clicking inside the red mask would otherwise
+sample the mask and re-centre the band on the overlay's own colour, which is circular. It is sent
+BESIDE the overlay rather than fetched separately — the `CorePreview.before_png` argument, so the
+two can never be one plate's mask over another plate's pixels — and it is the CORRECTED picture,
+because that is what the band is applied to. A small patch and its MEDIAN, not one pixel: a single
+pixel on a scanned plate is as likely to be a speck as the epoxy, the same reason the white-balance
+pick takes a median.
+
+It also buys **Hold to compare** on the plate: what the band claimed, against what is actually
+there.
+
+Measured in the browser on a plate half blue epoxy and half tan grain: clicking the blue moved the
+band from 180–260° to 190–270°, centred on the epoxy's own 230°.
+
+## The delivery, as pictures, everywhere it is picked from (2026-08-01)
+
+`src/ui/plateStrip.ts` is the filmstrip lifted out of the conditioning workspace so the MEASURING
+dialogs get it too — Pore Area and the Mineral Classifier. A petrographer choosing which plate to
+tune a threshold on, or which plate to point-count next, is choosing a PICTURE; a list of filenames
+makes them open six to find the one they meant.
+
+**A plate the tool cannot measure is GREYED with the reason on hover, never hidden.** "TS-2 is
+there, but nobody declared it impregnated" is exactly the question the user is about to ask by
+running the tool. Hiding it instead turns a refusal into a delivery that silently lost a plate —
+the same argument the S-factor dialog makes for showing a text-only measurement greyed rather than
+dropping it.
+
+**And a blocked tile is still clickable.** Previewing what the band WOULD claim is how somebody
+decides whether the plate is worth declaring; a greyed tile with no way to look at it is a dead end.
+The refusal is on the WRITE, which is where it has always been.
+
+**The classifier's tiles carry their own click count**, re-annotated in place rather than by
+rebuilding the strip. Point counting means moving through a delivery plate by plate, and "which ones
+have I already done" is the question a dropdown cannot answer without opening every entry.
+`annotate` exists precisely so a count can change without a single thumbnail being refetched — the
+lazy-load rule still holds, and a delivery is routinely hundreds of plates at about a megabyte each.
+
+The counts are refreshed when the LABELS load, not only when a click is placed: the labels arrive
+after the strip is built, so annotating only on click would show every tile as uncounted each time a
+delivery was reopened.
+
+## Four ways an operation reported success having done nothing (2026-08-01)
+
+`docs/review_triage.md` findings 13, 17, 19 and 20, fixed together because they are one defect
+wearing four faces: **the honest signal existed but was gated on the failure being total.** A
+script that raised on every sample was caught; one that raised on half was not. A chain that
+reported a terminal status released the project switch; one that died did not. A backend that
+refused a non-finite constant never saw the empty field the frontend had already turned into 0.0.
+Three sample editors checked their UPDATE's row count; the fourth did not.
+
+Each was pinned AS-IS by a test written to go red when fixed, so the fix and the test rewrite are
+one action rather than two.
+
+**A partial failure is a WARNING, not an error, and not silence.** `EquationRunResult.note` is a
+third channel beside `error`: the curve WAS written and an equation guarded by a domain check
+legitimately refuses some depths, so calling that a failure trains the user to ignore the channel —
+but a holed curve with nothing on the log to prompt a second look is indistinguishable from one
+whose inputs were simply absent, which is the ordinary innocent case. **The raises are counted at
+the evaluator, never from the output**: counting MISSING output samples would flag every equation
+ever run over a washout, and a warning that always fires is one nobody reads. Samples whose inputs
+were already MISSING never reach the evaluator (the `has_nan` short-circuit), which is exactly what
+makes the count mean something — these are depths where the script had real numbers and still could
+not answer. A non-finite result (`exp(1000)`) is counted and worded separately, because telling the
+user their script threw when it did not sends them reading the wrong line. This is Rhai-specific:
+`run_python_equation` runs the whole well in one call, so a `raise` fails that well outright.
+
+**A dead chain worker releases the project switch, and the entry is still not pruned.** The chain
+registry has no prune (contrast `jobs.rs`) — `register` inserts, `set_status` mutates, nothing
+removes — so a worker that died without a terminal status left `any_active` answering true and
+Open/New/Compact Project refused for the rest of the session, each telling the user to wait for a
+job that would never finish. `catch_unwind` in `run_workflow_chain` now reports the panic on BOTH
+registries (`chain::failed` for the Builder's poll, `job.failed` for the Processing panel). The
+entry deliberately survives, because the reason is the whole point of not pruning it; what changed
+is that it reaches a terminal status. **The panic's own message is carried through** —
+`panic!("literal")` gives a `&str` and `panic!("{x}")` a `String`, anything else has no readable
+message and says so rather than printing a type name. Honest limit, recorded at the call site: a
+panic that was HOLDING the DB mutex poisons it, and no catch here rescues that.
+
+**A dialog refuses its own bad field, in the dialog.** `curveEditDialog`'s numeric helper fell back
+to a default on an unparseable value — which is safe only where the default is the identity. It is
+for `mul` (1) and `add` (0); it is not for `value`, where 0.0 gAPI over an interval looks like a
+measurement of very clean rock, and it is not for `top`, where 0 does not mean "no interval" but
+"from surface". Those three are refused by name in `var(--warn)` with focus on the first, which is
+`needWell.ts`'s rule: the user is looking at this dialog, and a refusal in a corner of the window is
+one they will not read before clicking Apply again. Passing the non-finite value down to the
+backend's existing guard was the one-character alternative and gives a message that cannot say
+which of six fields was wrong.
+
+**`update_well_field` checks its row count like its three siblings.** Without it, an edit against a
+well deleted in the Wells & Tops pane returned Ok: the cell showed the new value, the status bar
+reported the edit, and an undo entry was pushed for a change that never happened. The message
+deliberately does NOT name the well — the identity here is a UUID the user has never seen, unlike
+the depth its siblings quote — so it says what happened and what to do. A bad column stays a
+separate refusal: that is a programming error, this is a stale grid.
+
+## What lands in a client folder (2026-08-01)
+
+`docs/review_triage.md` findings 12, 15 and 18 — three defects in the PDF report, all of them
+invisible to the person who exported it.
+
+**A batch never writes two wells to one file.** `well_name` carries no uniqueness constraint, and an
+import with attach OFF creates a second record under the same name by design; the filename sanitizer
+widens the collision further, because every non-alphanumeric maps to `_`, so two distinct names can
+land on one stem. When they collided the second write silently OVERWROTE the first and both paths
+were still reported as written — a 3-well batch said "wrote 3 file(s)" over 2 files on disk, and the
+report kept was the last well's under the first well's name. `unique_stem` suffixes the duplicate.
+
+**The first well of a colliding pair keeps the plain name**, so a delivered folder does not rename
+the well anybody was expecting, and **only collisions WITHIN one batch are suffixed** — re-running a
+batch into the same folder should overwrite its own previous output, and suffixing around files
+already on disk would grow a folder of `_2`, `_3`, `_4` every time the button was pressed. A name
+that sanitizes to nothing falls back to the well id, because `_report.pdf` is not a deliverable.
+
+**The well name is resolved BEFORE the render, and that is the root rather than a tidy-up.** The
+success path used to look the name up for the filename while the failure path reported the raw
+UUID, so an error nobody could attribute and a success that silently replaced a file were one gap
+with two faces. One lookup now serves both.
+
+**The cover dates itself to the LOG, not to the composite's print window.** It read the interval
+off the composite pagination, which honours the render's depth window — so setting a print window
+re-dated the whole report, including the tables the window never touched (`run_pay_summary` works
+per zone and knows nothing about it). A report rendered over 5 m carried a pay table covering every
+zone in the well, and on a **tables-only** render there were no log pages left to show the reader
+that the window was only ever a print setting. `db::logged_interval` is the replacement: two
+aggregates over the leading column of a primary key, standard curves first, computed curves as the
+fallback for a well carrying only derived logs.
+
+**A print window is stated BESIDE the interval, never instead of it**, only when it genuinely
+narrows, and never on tables-only where it describes nothing in the document. A line that always
+appeared would train the reader to skip it. The pagination remains the fallback for a well with no
+curve rows at all, which prints the same 0.0 – 0.0 it always did rather than inventing a new failure
+mode. This also unblocks the audit's tables-only slowness — the composite render was what supplied
+the cover's one remaining fact — though skipping it still needs `pw`/`ph` and the well name to come
+from somewhere else, and that is a separate change.
+
+**Every report page carries the mark.** The cover had it, every composite page had it, the Word
+document and the PowerPoint deck had it — `table_pages` and `note_page` did not, so the methodology,
+zone-parameter and pay-summary pages were the only unmarked surface in the deliverable set, and a
+reader who extracted or photocopied the pay summary got an unattributed page. It is applied **after
+pagination**, once per finished page, rather than at either `pages.push`: there are two of those,
+and a mark added at one would silently miss every continuation page of a long pay summary — exactly
+the page most likely to be read on its own. The test asserts it on EVERY page rather than sampling
+one, because the failure mode is a page type being missed and a spot check is how it stayed missed.
+
+## Cutoffs, and what a run is allowed to claim (2026-08-01)
+
+`docs/review_triage.md` findings 8, 7 and 10 — three ways the pay engine and the module runner said
+more than they could support.
+
+**A permeability cutoff survives a chain that MODELS permeability.** `montecarlo`'s `has_perm_cut`
+asked whether PERM was in `raw_pool`, and `build_plans` fills that pool only from LogIn mnemonics
+**no step produces**. So a chain reading PERM from the project got a working cutoff, and the moment
+a `perm_coates` was inserted ahead of it PERM became a produced curve, left the external set, and
+the cutoff went quiet. Exactly backwards: a study that models permeability is the study whose
+permeability cutoff matters. It now asks `produced` as well — not turning a cutoff on with no data
+behind it, because the realization pool carries produced curves and PERM really is there when
+`zone_metrics` reads it.
+
+**A well with no permeability used to escape the cutoff; it now fails it.** See "Four answers that
+moved numbers" below — the well-level test is gone and `PaySummaryRow.perm_cutoff_no_data` (renamed
+from `perm_cutoff_skipped`) carries the inverted meaning.
+
+**A run that reports failure must not also version an interpretation.** Phase 2 of
+`run_workflow_module_into` wrote for any well whose outcome was `Computed` with a non-empty output
+map — and an all-MISSING map is still non-empty — so rocktyping on a well with porosity but no
+permeability reported its failure AND versioned RQI, PHIZ, FZI, R35, PGEOM, PSTRUC, RT and PERM_RT
+into the Curve Catalog as curves blank from top to bottom. The values were honestly MISSING; the
+cost was that the catalog stopped distinguishing *"never run"* from *"ran and could not answer"*,
+burning a log-set version on the second as though it were the first.
+
+The rule is deliberately not "drop blank curves". One helper, `answered`, now decides all four
+things that have to agree: the Processing panel's item state, whether a log-set version is
+allocated, whether anything is written, and what the result reports. **A single all-MISSING output
+ALONGSIDE finite ones is still written** — a flag curve nothing triggered is a real answer, and
+dropping one output would leave the written set inconsistent with the one the module declares. The
+gate is over the whole output map, never per curve. The all-MISSING case is also checked BEFORE the
+set/write branches in the result assembly, because that well is now deliberately given no output
+set and falling through would report "no output set allocated", naming the mechanism instead of the
+cause.
+
+## A dropdown that says which Larionov it is (2026-08-01)
+
+`docs/review_triage.md` finding 21, plus the bookkeeping of 11 and 14.
+
+`ArgSpec` gained `choice_labels` (`#[serde(default)]`, parallel to `choices`, empty means "show the
+id") and `opt_labelled` builds them. Only `vsh_gr` uses it so far, because that is the one the
+finding proved was dangerous.
+
+**The IDS are unchanged, and every LABEL leads with its own id.** `choices` are stored in
+`params_json` on every saved run, so renaming one would orphan every run that used it, and a label
+that REPLACED the id would leave a user reading a stored run unable to match the two. The label is
+a superset of what was there before, never a substitute.
+
+**Why this option and not the others.** `OPT_GR`'s choices were the bare strings `LARINOV1`,
+`LARINOV2`, `LARINOV3`, `STIEBER1..3` — no rock age, no coefficient, no tooltip — so the only place
+a user was told which is which was the manual test plan, and the plan had the two Larionov
+attributions the wrong way round. `LARINOV1` is `0.33·(2^(2·IGR) − 1)`, published for Mesozoic and
+older rocks, giving 0.330 at IGR 0.5; `LARINOV2` is `0.083·(2^(3.7·IGR) − 1)`, the Tertiary /
+unconsolidated set, giving 0.216. Picking the wrong one returns a shale volume more than half again
+too high through the whole intermediate-GR interval — which is exactly where the VSH cutoff decides
+net pay, on a curve that looks entirely normal at both endpoints with nothing downstream able to
+catch it.
+
+**`LARINOV3` is stated by its coefficients rather than attributed.** Nothing in the repo cites a
+source for `0.127·(3.15^(2·IGR) − 1)`, and inventing a rock age to make the dropdown look complete
+would read exactly as authoritative as the two that are real.
+
+**The label and the arithmetic are pinned to each other.**
+`every_vsh_gr_transform_lands_on_its_published_coefficient` ties the code to the closed forms;
+`the_vsh_gr_labels_agree_with_the_coefficients_they_describe` ties the closed forms to what the user
+is told. Between them the loop closes — and it needs to, because a label claiming Tertiary above a
+Mesozoic coefficient set is the same defect moved one layer out, and just as invisible.
+
+## Four answers that moved numbers (2026-08-01)
+
+`docs/review_triage.md` findings 6, 7 and 16 — three the triage held back because each was a
+petrophysical judgement rather than a defect. Jauhar answered them, and every one changes what a
+run computes. (Finding 9, the fourth, has its own section below.)
+
+**A geothermal gradient belongs to the WELL, so a per-zone override is refused** (finding 6,
+*"temperature is curves only"*). `precalc` evaluates `SURF_TEMP + TEMP_GRAD × TVDSS` from surface at
+every sample rather than integrating down through the zones above it, so a lower zone's own gradient
+did not bend the profile, it STEPPED it — a 0.03 °C/m well with 0.035 below 1500 m jumped 10.5 °C
+across 100 m where the trend rises 3.0. Rock temperature is continuous, and it reaches Sw through
+Arps.
+
+`ArgSpec.well_scope` (`#[serde(default)]`) marks such a parameter and `param_well` builds one.
+`precalc`'s SURF_TEMP/TEMP_GRAD and `ftemp_grad`'s TSURF/TGRAD/BHT/TD_BHT carry it;
+`workflow::resolve_param_arrays` is the one place that enforces it.
+
+**Refused by name with the fix, not silently ignored** — dropping the override would change the
+well's temperature, and so its Sw, with nothing on the log to say why. **The `*` well-wide scope
+still applies**, and that distinction IS the rule: `*` gives the well one value, which is what a
+trend has, while a named zone gives it a different value part way down. It also keeps the per-well
+parameter grid working, which matters because wells in one field genuinely differ. **Only an
+override that would actually bite is refused** — one naming a zone the well lacks was always inert
+and must not become a new failure.
+
+**PSURF/PGRAD are deliberately NOT well-scoped, and the asymmetry is the physics**: a pressure step
+at a formation top is a pressure compartment, which is a real thing rock does. Asserted from both
+ends — `a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well`, and, driving the real
+runner, `a_per_zone_pressure_gradient_reaches_exactly_its_own_samples` (the old T-PREP-05 test,
+moved onto pressure).
+
+**A requested permeability cutoff is always active** (finding 7, *"no relation between em, wells
+still can have perm curves"*). Whether a cutoff applies has no relation to whether this well was
+cored, and permeability can be MODELLED where it was not measured, so lacking a measured PERM is not
+a reason to be let off. `has_perm_cut` is now just `req.perm_min.is_some()`; `classify_sample`'s
+rule — a sample that cannot be SHOWN to pass, fails — is the only one left, and the two halves of
+what was one rule finally agree. **This moves reserves**: an uncored well books zero net pay where
+it booked full.
+
+`PaySummaryRow.perm_cutoff_no_data` (renamed from `perm_cutoff_skipped`) survives with its meaning
+inverted, because the reader's problem is unchanged and only its direction moved: a well booking
+zero across every zone looks exactly like a wet well. It means *"a cutoff was requested and this
+well has nothing to answer it with"*, never *"this well has no permeability"* — a flag that fired
+without a cutoff would appear on every report anyone ever ran. It is surfaced **where the number is
+read**: the client PDF prints a note under the pay table saying the zero records an absence of
+evidence rather than a dry reservoir, and the Field Dashboard names the wells whose zeros are being
+averaged in. `n_classified` could never carry this — the well is fully interpreted, so it is above
+zero either way.
+
+**PHIE is floored at 0.001, at the curve AND at every pay path** (finding 16, *"always limit phie to
+0.001"*). *Always* is load-bearing: the motivating case is a **vendor** PHIE arriving by LAS, which
+never passes through a porosity module, so flooring only where modules write would have missed it. A
+tight carbonate streak on a sandstone matrix reads slightly negative, clears the VSH cutoff, is
+flagged SAND — and its `PHIE·(1−SWE)·h` was SUBTRACTED from the zone's hydrocarbon column, measured
+at more than 20 % below the floored answer while RESERVOIR and PAY stayed byte-identical.
+
+`modules::PHIE_FLOOR` is the constant; `workflow::floored_phie` is the one helper both the pay
+summary and the cutoff sweep use, because the two must agree at the same cutoffs. **0.001 rather
+than 0.0** is his call and not an epsilon: a hard zero is a legitimate reading — shale has no
+effective porosity and the ≥95 % VSH branch says so — so flooring at zero would make "no porosity"
+and "the arithmetic went below zero" indistinguishable. **The floor lands on `PHIE` only**;
+`PHIE_DEN`/`PHIE_DN` are the declared unlimited twins and keep the excursion, because it is the
+evidence that RHO_MA is wrong. **The NaN guard is load-bearing, not defensive**: `f32::max` returns
+the other side when one is NaN, so without it a MISSING sample becomes a real 0.001 and starts
+counting toward `n_classified`. And the floor must stay far below any real cutoff, or it would stop
+a stringer being subtracted by quietly promoting it into reservoir instead.
+
+## Pittman's table, and the two rows that were never in it (2026-08-01)
+
+Finding 9, closed with the paper in hand: Pittman, E. D., 1992, AAPG Bulletin v. 76 no. 2,
+p. 191–198, **Table 1** (p. 196). Two of the nine shipped rows were wrong — PR50 carried Table 1's
+**r45** coefficients, and PR75 matched **no published equation at all**. r10 through r40 were
+correct.
+
+**The mechanism is the lesson.** Pittman publishes FOURTEEN rows in 5 % steps; `rocktyping.rs`
+writes nine. r10–r40 are contiguous, so reading straight down the paper works — until the first
+skip, after which every line below is read one high. A slip between two ADJACENT rows would have
+produced a plausible number with no symptom whatever; the only reason this one was caught is that it
+made the family non-monotone, and it inverted across **65 %** of the paper's own sample range,
+including ordinary 25 % porosity sand.
+
+So the fix is not two corrected numbers. **`PITTMAN_TABLE1` holds the published table in full and
+`PITTMAN_RX` carries no coefficients at all** — only a mnemonic and a saturation, with the numbers
+resolved by `pittman_coef`. There is one copy of the paper's arithmetic in this repo and the shipped
+subset cannot drift from it; adding r45/r55/r60/r65/r70 as outputs is a line plus a `log_out`, never
+a re-reading of the paper. `every_shipped_pittman_row_is_a_published_one` is the check that was
+missing. `pittman_coef` returns a NaN triple rather than panicking on an unpublished saturation —
+release builds are `panic = "abort"`, and NaN coefficients yield MISSING, which is the module's own
+word for "no answer".
+
+**The published table is not monotone either, below about 11 % porosity, and that is NOT
+corrected.** Found while writing the test meant to close the finding. The rows are INDEPENDENT
+regressions whose porosity exponent steepens down the table (−0.385 at r10 to −2.626 at r75 —
+Pittman notes the porosity term is statistically insignificant through r35 and significant from
+r40), so as porosity falls the high-saturation rows climb faster and overtake the low ones. At 5 %
+porosity and 1 mD the family falls correctly to r40 = 0.767 µm and then turns back UP through
+PR50 = 0.862 and PR75 = 1.108. Measured over the paper's own range, the shipped set is strictly
+monotone at every permeability once porosity reaches **11.16 %**.
+
+Forcing the ordering — a running minimum, a refit — would report radii Pittman never published,
+which is the move the provenance rules exist to prevent. What ships instead is the boundary, stated
+in the module doc: use a LOW apex (r25–r35, where the porosity term is insignificant) in tight rock,
+and treat PR50/PR75 there as extrapolation. The doc also carries the paper's own caution that
+accuracy diminishes above the 55th percentile (R falls from 0.926 at r20 to 0.820 at r75), and that
+k must be UNCORRECTED air permeability.
+`the_published_pittman_rows_cross_over_in_tight_rock_and_that_is_the_papers_own_arithmetic` pins the
+crossover, the 12 % boundary and the old table's inversion at 25 % sand side by side — so "still not
+perfectly monotone" can never be read as "the correction did not work".
+
+## The Organic design system (2026-08-01 — the standing UI mindset)
+
+Jauhar delivered a high-fidelity redesign handoff and made it the STANDING design scenario:
+every UI change from here works inside it. The authority is **`docs/design_organic/`**
+(README.md = the spec, organic-tokens.css = the token sheet — read values from it, never
+eyeball; the .dc.html mockups carry options 1a–1g and client skins 2a–2b). Increment 1
+(the foundation) and increment 2 (1b Field Dashboard: Caprasimo header + scope tag,
+segmented Flag/Metric pills — the `.seg`/`.seg-opt` component is now the app's segmented
+control, KPI cards reading the EXISTING aggregation helpers, uninterpreted zones greyed
+in the grid with gross kept and judged cells dashed — the workbook's blank-is-not-zero
+rule) shipped 2026-08-01, and increment 3 (1d module pane: initial chip + Caprasimo
+title + in-pane Help off spec.doc, `wellScope` restyled as the RUN ON segmented pill —
+shared, so every batch dialog inherited it, args in a responsive 2-col grid with units
+RIGHT of numeric inputs, sage zone-precedence callout, "Run <short>" footer) shipped the
+same day. Increments 4–5 (2026-08-01) closed the set: 1g start surfaces (boot overlay =
+identity column; the blank canvas is `startSheet.ts` — New/Open ARE the ribbon tools by
+id-click, recent rows route through the ribbon's switchProject guard via the
+`sandibumi:open-recent-project` event), 1e import rail + provenance footer on
+`importSetDialog`, 1f report buttons (Render primary, saves secondary) + page-on-rail
+preview, 1c plot surfaces via the `--plot-bg`/`--plot-grid` tokens read by
+`plotCanvas.readTheme` (warm neutral area, WHITE gridlines on light; dark overrides the
+gridline; log-view tracks untouched), plus the harmonization sweep (`form-run-btn`,
+`lp-btn`, guard dialogs → pills/16px). **Deliberate deviations, both FEATURES not
+restyles, awaiting Jauhar's word: the 1d "Preview one well" ghost button, and 1e's
+3-step mnemonic-mapping wizard (mnemonics map automatically in Rust).**
+
+**The brand is NOT the accent** (Jauhar, 2026-08-01: "sandibumi logo and color should be
+preserved anywhere"). `--brand: #c67139` is declared once at `:root` and must never appear
+in a `[data-theme]` block — dark included, where it still clears 4.5:1. The wordmark had
+been painted with `--accent`, so every client skin re-rolled it and SandiBumi read
+Halliburton red on that theme: a skin recolours the APPLICATION, never the product's own
+mark, and a client-facing screenshot showing the operator's red as our identity
+misattributes the software. Three surfaces consume it — `.ribbon-brand`, `.boot-title`,
+`.start-wordmark` — and all three are `data-no-i18n`, because the product name is no more
+translatable than a well name. The logo mark carries its own baked cream tile (`#F3D5B9`
+in the SVG) and that tile is what keeps the mark's colours intact on any ground; it is
+ROUNDED rather than removed (5px at 18px, 18–20px at 72px) so it reads as a logo tile
+instead of a bare square on a non-cream skin.
+
+**The split that governs everything: chrome goes Organic, data stays dense.** The ribbon,
+dialogs, buttons, tags and panel frames take the warm rounded look; log tracks, grids,
+trees and tables keep their professional density — engineers on small screens are the
+audience, so never add air to data UI (dock gap 7px, dock inset 8–10px are deliberate).
+
+What the foundation established, and the rules that keep it coherent:
+
+- **Tokens**: default `:root` is now the Organic theme — cream ground `#f5ead8`, WHITE
+  panel cards, terracotta `#c67139` + sage `#7a8a5e`. Mapping from the handoff ramps:
+  `--border`/`--border-strong` = neutral-200/300, `--text-dim` = neutral-600,
+  `--accent-dim` = accent-700, the `-soft` pair = the 100 tints. Dark theme and the five
+  client skins keep their own colour blocks untouched.
+- **Shape is theme-INDEPENDENT** (client skins recolor, never reshape): pills
+  (`--r-pill`) for buttons, ribbon tabs, segments and chips; 12px (`--r-lg`) panel cards;
+  16px (`--r-xl`) dialogs; `--r-sm`/`--r-md` for dense inline controls unchanged.
+- **Type**: Caprasimo (weight 400 ALWAYS) on exactly four surfaces — brand wordmark,
+  screen/dialog titles, KPI numerals, start-screen wordmark — never data cells, axis
+  labels or track headers. Figtree is the body/UI face (`--font-body`, and first in
+  `--font-canvas`). **Fonts are BUNDLED** in `public/fonts/` (`figtree-var.woff2` is the
+  variable font, 300–900, so the app's base weight 500 renders true) — never a runtime
+  @import: field machines are offline, and the fallback would land on exactly the
+  machines client work happens on.
+- **Interaction**: hover is a TINT from the accent ramp (`--accent-soft`), never grey;
+  pressed is one ramp step darker (mix toward `--accent-dim`, so client skins get their
+  step for free); focus is a 2px accent outline at offset 2. Transitions stay paint-only.
+- **Load-bearing details**: `.ribbon-body` is 82px, not 80 — the card's 1px borders
+  would otherwise clip the tool captions. The unsaved-state dot goes panel-white on the
+  ACTIVE ribbon tab (`--warn` red on the terracotta pill is invisible, and that dot is
+  the only warning visible without opening the Project tab). Dock cards clip with
+  `overflow: hidden`; every floating menu is `position: fixed` and escapes — keep new
+  menus that way. The dock gap lives in `workspace.ts` (dockview theme `gap: 7`), not CSS.
+
+## A packed core-display plate, and the conversion as its own tool (2026-08-01)
+
+A whole-core delivery is not a folder of core-box photographs. It is a **core-display plate**: four
+COLUMNS of core side by side on a page, each column a separate barrel labelled with its own top and
+base, with preserved intervals and part-filled last columns between them, a depth ruler down the
+left, a title block above and a caption below. Read as one continuous span divided into four equal
+parts — all the old lane count could do — every sample below the first gap lands at the wrong depth.
+
+**`extract_core_log` now reads LANES, and a lane is a barrel.** `Lane {start, end, depth_top,
+depth_base}` carries fractions of the across-core axis plus the barrel's own interval;
+`PlateLayout {span, lanes}` adds the fraction of the down-core axis that is core, so the title block
+is not read as the shallowest rock in the well. Both are per PICTURE (`CoreLogSpec.layouts`, keyed
+by image id), because every plate of a delivery carries different barrels, and they are held by the
+frontend as a `corelanes` document — the `platelabels` precedent: a list anyone can read and correct
+beats a blob.
+
+Four rules, all in `plan_lanes`, which is deliberately split out so they can be pinned without a
+Python subprocess:
+
+- **Depths are ALL-OR-NOTHING across a picture's lanes.** Half a plate labelled is REFUSED, because
+  the only way to place the unlabelled columns is to assume the core runs on without a break — which
+  is exactly what the preserved interval on the same plate disproves. The dialog says so as you
+  type, not after a run.
+- **With no depths the picture's interval is shared out by lane LENGTH**, not into equal parts. On
+  equal lanes those are the same number, which is what keeps every pre-set-era core-box run
+  byte-identical; on a detected lay-out with a part-filled last column, only the length version is
+  still true.
+- **`reverse` flips the down axis and reverses the lane ORDER, rather than mirroring the frame.**
+  The old 180° rotation was equivalent for these three measures (a per-slab mean or standard
+  deviation does not care which way the across axis runs) and is the version that survives explicit
+  spans, which are stated on the picture as the user sees it. The order is only reversed where no
+  lane carries depths — where they do, the order carries no information and reversing it would
+  silently re-order a labelled plate.
+- **A plate whose columns carry depths needs no interval of its own.** It has already said where its
+  rock is; requiring an envelope nobody uses would be a second place to get it wrong.
+
+**`detect_core_lanes` proposes and never applies.** The split is Otsu on the picture's own
+across-axis mean brightness — core is darker than the page it is printed on and the bench it is shot
+against, and mean rather than any texture measure because printed captions and ruler ticks are
+textured too. The whole PROFILE comes back and is drawn, the `registration.rs` rule: four clean
+columns and a smear the threshold happened to cut in four are the same answer and completely
+different situations. **The DEPTHS are never guessed** — nothing in the pixels says what depth a
+column of rock came from.
+
+**The conversion is its own tool** (Jauhar, 2026-08-01: *"for core image conversion to log, separate
+it from core photos tools, it should have independent tools"*). `coreTraceDialog.ts` → Advance ▸
+Core Imaging ▸ **Photo Log…**; conditioning keeps `coreConditionDialog.ts`. Two jobs with two
+lifetimes: conditioning is done once per delivery and finished, a trace is read, checked against GR,
+re-laid-out and read again.
+
+**`recommend_core_recipe` measures a picture and proposes conditioning, with the reason for every
+value.** Read off the IMPORT, never the conditioned copy (advice about an already-corrected picture
+would correct it twice); the values land in the same sliders the user would have moved and Apply is
+still Apply. Five rules:
+
+- **The neutral is the brightest UNCLIPPED, LEAST COLOURED part of the frame**, never grey-world.
+  Averaging the whole picture to grey would treat a genuinely red-stained core as a cast and scrub
+  the stain out — the trap the thin-section correction avoids by anchoring on the matrix.
+- **The gain is normalised so the largest is 1**, so it can only DARKEN: pushing a channel past
+  white clips exactly the brightest pixels and twists their hue. A blue cast pulls BLUE down, which
+  reads backwards at a glance — the gain is the reciprocal of how bright the channel already is.
+- **With nothing neutral in frame it declines and names the fix** rather than balancing off rock.
+- **Detail is NEVER recommended.** Clarity, Sharpen and Denoise rearrange a pixel's neighbours,
+  which is what the trace is read from — local contrast roughly halves the darkness contrast
+  `CPHOTO_DARK` measures. Where the picture would benefit the advice SAYS so and leaves the slider
+  alone, so a user reaching for it knows the cost.
+- **A UV plate is recognised and left alone.** Very dark AND with essentially no neutral surface, it
+  is a different measurement rather than a badly exposed one: it is MEANT to be dark, the background
+  IS the answer, and lifting the exposure to a mid-grey median drowns the fluorescence the plate
+  exists to show. A UV lamp is not white light, so there is nothing to make neutral. The control
+  test — a dim white-light frame with a tray in it still gets lifted — is what stops the rule
+  degenerating into "give up on dark pictures".
+
+**PDF import is NOT being built** (Jauhar, 2026-08-05: *"dont try to import pdf, user will just
+provide photo"*). He exports the plates himself and imports them as ordinary pictures. Recorded in
+`docs/plan_core_photo.md` §4a with the design kept in a `<details>` block, because the reason is a
+workflow choice rather than a technical verdict. What it costs: a hand export loses the captions, so
+the barrel depths are TYPED into Photo Log's column table, and which folder is white light and which
+is UV is declared at import as two datasets.
+
+Still to come, from Jauhar's UV question (2026-08-01): a DISCRETE sand/shale curve off the
+white-light trace (`CPHOTO_LITH`), and an "unfold" that shears each slab to the bed's apparent dip
+before averaging, so a dipping contact is not smeared across the core's width.
+
+## Fluorescence off the UV frame (2026-08-05)
+
+`CPHOTO_FLUOR` — Photo Log ▸ **Light: Ultraviolet**. Same `extract_core_log`, not a second function:
+the lanes, the barrel depths, the resampling onto the well's frame and the write discipline are one
+code path, so the two lights can never disagree about where a barrel is. `CoreLogSpec` gains `light`
+(`"white"` default — anything unrecognised is white light, so a typo cannot silently switch the
+measurement) and `fluor: Vec<FluorClass>`; the runner's wire format became ONE `cols` map keyed by
+curve name for the same reason. Curves: `CPHOTO_FLUOR` (fraction of each slab in any band),
+`CPHOTO_FLUOR_I` (its mean brightness), plus `CPHOTO_FLUOR_<NAME>` per class **only when there is
+more than one** — with a single band the per-class curve would be a byte-identical copy of the
+total, and two names for one answer is how a report ends up unable to say which it quoted.
+
+**It is an INFERRED SHOW and the notes say so on every run.** Mineral fluorescence, drilling-fluid
+additives and dead oil all fluoresce, and a drained slab shows nothing. The `CPHOTO` prefix is what
+stops any module reading it as a saturation — the `GRAIN_D50_APP` argument.
+
+**The light is DECLARED, never detected.** A UV frame is dark; so is a daylight photograph of dark
+shale in a shadowed box, and the evidence for "this is ultraviolet" would be the brightness about to
+be measured — the same circle that makes an impregnated thin section something the user states.
+
+**`FluorClass` carries a saturation CEILING, and that is not decoration.** Fluorescence is routinely
+described as *dull blue-white*, and white is the ABSENCE of colour — it cannot be written as a
+floor. Same type distinction that makes `StainBand` carry one so dolomite is identified by staying
+colourless. `default_fluor` ships ONE generic band, deliberately: splitting bright yellow-green from
+dull blue-white would assert an INTERPRETATION (that the hue split means live versus dead oil) this
+repo has no source for, so the run says a second class can be added and leaves the reading to
+whoever writes the show reports.
+
+**`fluor_band_is_saturated` is the guard, and it is deliberately NOT `petrography::scene_dominated`.**
+The obvious transfer — is this picture's own median pixel inside the band — was written first and the
+round-trip test refused a slab that was exactly half fluorescing, which is the answer the measure
+exists to give. "Rock is mostly rock" is true; "a UV frame is mostly background" is NOT, because an
+oil-soaked box glows over most of its length. Worse, per-picture it would drop the one heavily
+stained box in a clean delivery. So the test is the whole run's **P10 > 0.95**: the band is condemned
+only when it claimed nearly everything nearly everywhere, which carries no depth information whatever
+the light was. Measured, shown and previewed either way — what is refused is the WRITE, the pore
+rule's split exactly. **There is no mirror guard**, and that asymmetry is the point: a core with no
+fluorescence is the ordinary answer and is what gives the box above it meaning.
+
+**The two lights watch different halves of the conditioning recipe.** `CoreRecipe::touches_light()`
+(gain/warmth/tint/exposure/contrast/saturation) is reported on a UV run because `CPHOTO_FLUOR` counts
+pixels against an ABSOLUTE brightness floor; `touches_detail()` stays the white-light warning because
+`CPHOTO_DARK` is read comparatively and a correlation does not feel a uniform scale. **And the
+darkness-sign note is white-light only** — clay is both dark and radioactive so DARK and GR should
+agree, but an oil show sits in the clean sand, so a negative correlation there is ordinary and
+printing that paragraph would send the user to reverse a lay-out that was already right.
+
+UI: `colourBand.ts` is reused unchanged (a `PoreColorBand` is structurally a `FluorClass` minus the
+name and ceiling), so the fluorescence band and the pore band cannot drift about what a wrapped band
+means; the pale limit is one extra slider. Bugs worth remembering: a delete handler must read every
+card BEFORE filtering, or removing the first of two reads each survivor off its neighbour's control —
+right-looking when you delete the last, silently swapped when you delete the first. And the
+round-trip's daylight control must be COLOURED, not grey: a neutral-grey frame is rejected by the
+saturation floor on its own merit, which would have made the test pass while testing nothing.
+
+## A fluid contact is identified by three things (2026-08-01)
+
+Every calculation parameter in this app already lives at MARKER level: `zone_params`
+`(well_id, zone_name, param_name)`, where `zone_name = '*'` is the whole well and a named zone is a
+top (`db::zones_from_tops` builds one zone per marker, named after it). RHO_SH, NPHI_SH, A_CAP,
+B_QV, C0, RSF, M, N, RW, FWL, the cutoffs — all of them, resolved by `workflow::resolve_param_arrays`
+as manifest default → dialog value → `*` → named marker.
+
+**Fluid contacts were the exception, and it cost numbers.** `fluid_contacts` carried no marker at
+all, so `check_contact_consistency` pooled every contact of a type across the project. Three fixes,
+each closing a way of pooling surfaces that are not the same surface:
+
+- **`contact_zones` is a link table, not a column.** The relationship is many-to-one in BOTH
+  directions a field is built: two stacked sands can each have their own contact, and several
+  stacked sands in one hydraulic unit can SHARE one. A single column says the first and not the
+  second, and a comma-separated list in a column is not a list. No rows = no marker stated, which
+  stays a real answer — a field-wide datum cuts across markers, which is why the plane fit exists.
+- **`fluid_contacts.compartment`** names the fault block. Two compartments are not in pressure
+  communication and have no reason to sit on the same contact; pooled, the fit lands between them
+  and flags BOTH blocks. Pinned by `two_compartments_are_two_contacts_even_in_the_same_sand`, whose
+  control asserts the pooled version really is wrong (rms > 10) — otherwise an implementation that
+  had stopped fitting anything would pass.
+- **The QC group is `(type, compartment, marker SET)`**, and the markers are SORTED in `group_key`,
+  so a contact entered as [B, A] and one entered as [A, B] are one group. Passing none checks the
+  contacts that state none — it never means "all of them".
+
+`db::migrate_fluid_contact_zone` is ADD COLUMN + CREATE TABLE, no rebuild, no backup. Existing
+contacts get a NULL compartment and no marker rows: nothing in a stored contact says which sand or
+block it was picked in, and inventing the association would be worse than admitting there is none.
+
+**The two FWLs, which is the defect this was really for.** A free-water level lived in
+`fluid_contacts` (drawn on the correlation panel) AND in `zone_params` (what `sw_height` computes
+from), with nothing reconciling them — so the log could show one surface while every saturation in
+the report came from another, both entirely plausible. `contacts::check_fwl_agreement` measures the
+gap and `apply_fwl_to_zone_params` copies the pick across. Four rules:
+
+- **An explicit copy, never a live read.** Having `sw_height` resolve its FWL from the contact table
+  at run time would give the project two sources of truth reconciled invisibly at the moment of
+  calculation, and no stored run could afterwards say which it used. Same shape as every other
+  calibration here: look, Apply, one transaction, one undo.
+- **A contact governing SEVERAL markers produces one row per marker**, because the parameter is per
+  marker — one row for the contact would hide a sand whose parameter had drifted.
+- **An MD contact is reported, never converted.** The stored parameter carries no reference of its
+  own (`satheight.rs` documents FWL as "the same reference as the vertical-depth input", a property
+  of the RUN), so converting to force a comparison would assert something the project never said.
+- **A contact with no marker is skipped**, not matched against `*` — one pick must not silently
+  rewrite every zone.
+
+UI: Plot ▸ Multi-Well ▸ **Fluid Contacts…** (`fluidContactsPanel.ts`), a pane so it sits beside the
+correlation panel it is about. The stored table with per-row editing, the QC group by group, and the
+FWL reconcile with its undo.
+
+## The launch screen (2026-08-01)
+
+`bootOverlay.ts` is a portrait launch card — artwork, mark, wordmark, edition and copyright — the
+shape every subsurface application uses. **It never delays the launch** (Jauhar: *"dont make start
+longer, its filler while waiting"*): it appears only after `SHOW_AFTER_MS` so a fast open cannot
+flash it, and `finish()` removes it the instant the database is live. There is deliberately no
+minimum display time, which is what turns a splash from a courtesy into an obstacle.
+
+The version line reads from `package.json`, so a bump cannot leave the launch screen claiming an
+older build; the YEAR is the edition, the way IP 2018 and Petrel 2024 are. The artwork is INLINE SVG
+in the BRAND's own colours — a launch screen that waits on an asset is the one screen that must
+never fail to appear, and a client skin must not re-roll the product's identity (the
+brand-is-not-accent rule).
 
 ## Provenance discipline (2026-07-31)
 
@@ -1716,6 +3148,24 @@ corruption this code defends against.
   the active tab's content).
 - Any CSS `display` rule overrides the `hidden` attribute — always pair with
   `[hidden] { display: none }` (this bit us twice: ribbon panels, ribbon menus).
+- **A rounded `overflow: hidden` group does NOT round its TOP corners.** dockview
+  puts a `transform` on `.dv-tabs-container` to scroll the tab strip, and a
+  COMPOSITED descendant (transform or will-change) is not clipped by an ancestor's
+  border-radius — measured: a plain child and a scrolling child clip correctly, a
+  transformed one leaks. So the tab strip painted square corners over every panel
+  card. Fix is `clip-path` on `.dv-tabs-and-actions-container`, which is not subject
+  to it. Keep it SCOPED to the strip: clip-path also makes an element a containing
+  block for fixed/absolute descendants, so on the group it would trap any future
+  `position: fixed` child (the menu trap above, again). Bottom corners need nothing —
+  a `<canvas>`, WebGPU included, clips normally.
+- **dockview writes `outline: none` as an INLINE style on every `.dv-groupview`**
+  (they are `tabindex="-1"` and it suppresses the browser focus ring), and inline
+  beats any selector however specific — so the active-group edge needs
+  `!important`. The tell when it silently stops working: `outline-offset` keeps
+  applying while the shorthand does not, because only the shorthand is set inline.
+  A `box-shadow` ring would avoid `!important` but cannot be used — `.dv-view`,
+  the group's parent, is `overflow: auto` and clips anything drawn outside the
+  border box. `height`/`width`/`overflow` are inline on the group too.
 - `group.api.moveTo({position})` with no target group auto-creates a grid group and
   moves the panels in (the ⇱ dock-back button); the old group and its header-actions
   renderer are disposed — don't hold element refs across it.
@@ -1748,7 +3198,7 @@ no Tauri backend needed. In vite-only preview every `invoke` error
    copyrighted, NOT in the repo; point the `CHARTBOOK_PDF` environment variable at
    your own copy). Only needed to digitize NEW charts — the
    extracted data is already committed in `src/ui/chartOverlays.ts`.
-6. Codex auto-memory is machine-local — everything durable lives in this file,
+6. Claude auto-memory is machine-local — everything durable lives in this file,
    `docs/`, `ROADMAP.md`, `REVIEW.md`, `AUDIT-*.md`. Trust the repo over memory.
 
 ### Reference machine (ARUNIKA / D:\XX. SandiBumi)
@@ -1779,9 +3229,12 @@ npm run tauri dev             # full desktop app (use the pinned command above)
 npx tsc --noEmit              # fast frontend type check
 cd src-tauri && cargo check   # fast Rust-only compile check (no vcvars needed)
 npm run tauri build           # production bundle (size-optimized [profile.release])
+powershell -ExecutionPolicy Bypass -File tools\check.ps1   # THE GREEN GATE: npm build + cargo test (vcvars-pinned), non-zero on first failure
 ```
 
-Verify every change: `npx tsc --noEmit` + `cargo check` + a browser functional test.
+Verify every change: `npx tsc --noEmit` + `cargo check` + a browser functional test — and
+before a commit that claims "verified", `tools\check.ps1` is the one-command version of the
+full bar (`-SkipRust`/`-SkipFrontend` for the inner loop only; green means the FULL gate).
 
 Two hard runtime rules (both learned the painful way):
 - **Never force-kill `npm run tauri dev`** (task-kill, shell timeout) — an unclean kill
@@ -1791,8 +3244,6 @@ Two hard runtime rules (both learned the painful way):
 
 ## Delegating work to subagents
 
-(Tool-specific form of this rule lives in `CLAUDE.md` — keep the principle in sync.)
-
 Split by **task shape, not task size**. The cost driver in this repo is the verify loop
 (`cargo check` through vcvars, ~minutes), not tokens: a cheap-model edit that fails to
 compile twice costs more wall-clock than one correct expensive-model pass.
@@ -1801,21 +3252,32 @@ compile twice costs more wall-clock than one correct expensive-model pass.
 = bad. Never delegate to a cheaper model when a wrong answer would be SILENT** — a number
 that is wrong but compiles ships into a client report, and no `cargo check` catches it.
 
-- **Cheapest tier** — read-only retrieval, inventory and grep sweeps. Verification is free.
-- **Mid tier** — mechanical edits behind a compiler gate: renames, Tauri command wrappers,
-  docs, test scaffolding, TS/dockview plumbing, i18n entries.
-- **Strongest tier (default)** — anything numeric or convention-bound: `equations.rs`,
-  `multimin.rs`/`multimin2.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`,
-  `hfu.rs`, `montecarlo.rs`, chart overlays, the theme var contract, dockview layout.
+| Task shape | Model | Why |
+|---|---|---|
+| Read-only retrieval — "which modules lack tests", "find every call site of `phie`", inventory/grep sweeps | **haiku** | Verification is free: you read the answer |
+| Mechanical edits with a compiler gate — renames, a Tauri command wrapper, docs, test scaffolding, TS/dockview plumbing, i18n dictionary entries | **sonnet** | `cargo check` / `npx tsc --noEmit` is the verifier; a wrong answer is caught, not shipped |
+| Anything numeric or convention-bound — `equations.rs`, `multimin.rs`/`multimin2.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`, `hfu.rs`, `montecarlo.rs`, chart overlays, the theme var contract, dockview layout | **session model (default)** | Silent numeric/behavioural wrongness that no compiler catches |
 
-Reduce reasoning effort before dropping a tier on domain work — lower effort keeps the
-petrophysics judgment, a tier drop discards it. A delegated edit is not done until
-`npx tsc --noEmit` + `cargo check` pass; never report a subagent's result as verified on
-the subagent's own say-so. **Physics defaults** (must trace to `docs/` or a cited source)
-and **anything touching the DuckDB write discipline** stay with the main agent regardless
-of size.
+The ladder is session-relative. On an **opus** session the strong tier IS the session model.
+On a **fable** session, **opus** additionally becomes a mid-strong delegation tier — full
+domain judgment at half fable's rate — for domain-aware work the main agent will
+independently re-check (second-opinion reviews of numeric modules, domain test suites);
+final judgment and sign-off still never leave the session model.
 
-## Collaboration protocol (Jauhar ↔ Codex)
+Mechanics:
+
+- The `Agent` tool takes `model: haiku | sonnet | opus | fable`. Subagents otherwise
+  inherit the session model.
+- Only `Workflow` scripts expose per-agent `effort`. **Lower effort before downgrading the
+  model** on domain work — `opus` at `effort: "low"` keeps the petrophysics judgment while
+  cutting emitted tokens; downgrading the model throws the judgment away.
+- Whatever the tier, a delegated edit is not done until `npx tsc --noEmit` + `cargo check`
+  pass. Do not report a subagent's result as verified on the subagent's own say-so.
+- Two things stay with the main agent regardless of size: **physics defaults** (they must
+  be traced to `docs/` or a cited source per collaboration rule 5) and **anything touching
+  the DuckDB write discipline** (the PK-less `computed_curves` contract).
+
+## Collaboration protocol (Jauhar ↔ Claude)
 
 Jauhar is a petrophysicist (Mahakam Delta, Indonesia) and a beginner programmer — explain
 in petrophysics terms, not programming jargon. The working rhythm, on every machine:
@@ -1825,10 +3287,13 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
    add a `REVIEW.md` checklist entry → commit (and push once a remote exists) → send a
    completion report that leads with outcomes and proposes the next increment.
 2. Jauhar replies **"go ahead"** to accept the proposal; anything else redirects.
-3. He field-verifies against real well data via `REVIEW.md` (`[o]` OK / `[x]` wrong /
-   `[ ]` untested) — check for new `[x]` marks at session start.
-4. **Git/GitHub**: the repo is private; credentials are Jauhar's own. Codex NEVER runs
-   `gh auth login` or handles tokens/passwords — he authenticates himself, then Codex
+3. He field-verifies against real well data via `REVIEW.md`: **`[x]` = accepted** (clicked
+   through, works as described) / `[ ]` = not yet checked. If something is wrong he says so
+   directly rather than marking it — it then gets fixed and logged in `ROADMAP.md` §4. Check
+   for new `[x]` marks at session start. (The single legacy `[o]` at `REVIEW.md:4317` is the
+   original mark style, superseded by `[x]`; do not read `[x]` as "wrong".)
+4. **Git/GitHub**: the repo is private; credentials are Jauhar's own. Claude NEVER runs
+   `gh auth login` or handles tokens/passwords — he authenticates himself, then Claude
    may create repos/push using his session. Commit messages: plain descriptive, avoid
    embedded double quotes (PowerShell 5.1 quoting).
 5. Physics defaults come from documented sources (the reference suite `.info` exports, his studies,
@@ -1840,12 +3305,10 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 - `src-tauri/` — Rust backend: DuckDB access, parsers, IPC commands, petrophysics engine.
 - `src/` — TypeScript frontend: WebGPU log canvas renderer, Tauri IPC calls.
 - `src-tauri/icons/` — app icon set + brand assets: `logo.png` (master), `logo-mark.svg`/`logo-mark.png` (square monogram), `logo-full.svg`/`logo-full.png` (full lockup). Frontend favicon/ribbon assets in `public/`.
-- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction). Portable knowledge lives here, not in machine-local memory. **`docs/plan_image_analysis.md` (2026-07-31) is the phase plan for core depth registration + plate digitizing** (ROADMAP C2 item 8) — read it before touching `images.rs`, `shift_core_depths` or anything that pairs a core sample with a log depth.
+- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction), plus five reusable prompts, boundaries kept sharp (the table in `stewardship_prompt.md` is authoritative): `maintenance_scaling_prompt.md` (one increment — expand / debug / maintain), `engineering_review_prompt.md` (whole-app behaviour sweeps F1–F5), `qc_audit_prompt_template.md` (one tool end-to-end), `stewardship_prompt.md` (whole-repo structure + onboarding), `product_definition_prompt.md` (what the product IS — PRD, target architecture, v1.0 gate; licensed-product posture). Portable knowledge lives here, not in machine-local memory. Separate family, not in that table: the one-shot vendor-intelligence prompts (`sandibumi_maturation_prompt.md`, `techlog_ingest_prompt.md`, `sonar_ingest_adopt_prompt.md`). **`docs/FUTURE_PLAN.md` (2026-07-31) is the cross-product strategic layer above `ROADMAP.md`** — competitive scan vs Geolog/Techlog/IP, the three positioning axes, credibility floor, OSDU, and the tier sequencing across SandiBumi *and* SegaraBumi (`D:\XX. SegaraBumi`, P6 gate closed, its own PRD/ARCHITECTURE/SEGARA-CONTRACT). **`docs/plan_image_analysis.md` (2026-07-31) is the phase plan for core depth registration + plate digitizing** (ROADMAP C2 item 8) — read it before touching `images.rs`, `shift_core_depths` or anything that pairs a core sample with a log depth; its §4 lists the four decisions still open, of which only D1 (does he receive core gamma?) blocks the first increment.
 - `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
 - `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). Listed in `.gitignore`, but the PDF was **committed before that rule was added and is still tracked** — a gitignore entry never untracks a file that is already in. It DOES exist on a fresh clone. Untracking it is an open decision (provenance sweep 2026-07-31, finding 3).
 
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
-
-Planning artifacts live in .castforge/ (plan.md, research.md, decisions.md, ui-spec.md, verification.md); peer work-logs live in .castforge/roles/; per-phase records (plan slice, completion summary, verification verdict) live in .castforge/phases/<phase>/; investigation notes live in .castforge/debug/. Read them before starting work.

@@ -162,8 +162,50 @@ pub fn list_core_references(conn: &Connection, well_id: &str) -> Result<Vec<Core
         });
     }
 
+    // The core photograph's own proxy trace. Not a general curve-vs-curve registration: these are
+    // the only curves in the project that are MEASURED ON THE CORE, so they carry the core's depth
+    // error and a shift found from them is a shift for the plugs.
+    //
+    // And they are the best reference this dialog has. A plug table gives a few dozen samples a
+    // foot apart; a photograph gives a reading every few millimetres down the whole cored interval,
+    // which is what a cross-correlation wants — the same reason a wireline log is the thing being
+    // registered against rather than a set of picks.
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT curve_name, COUNT(*) FROM computed_curves
+          WHERE well_id = ?1 AND curve_name LIKE 'CPHOTO%'
+          GROUP BY curve_name ORDER BY curve_name",
+    ) {
+        if let Ok(rows) = stmt.query_map(duckdb::params![well_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize))
+        }) {
+            for row in rows.flatten() {
+                let (item, n) = row;
+                out.push(CoreReference {
+                    kind: "curve".into(),
+                    dataset: String::new(),
+                    label: format!("Core photo — {item} ({n} sample(s))"),
+                    family: reference_family(&item).unwrap_or_default().into(),
+                    item,
+                    n,
+                });
+            }
+        }
+    }
+
     out.retain(|r| r.n >= MIN_PAIRS);
     Ok(out)
+}
+
+/// References whose SIGN against a shale indicator is known, unlike a general proxy.
+///
+/// A photograph's darkness is not a gamma reading, so the shift is still chosen on |r| like any
+/// other proxy — two different quantities have no business being forced onto one line. But the
+/// expected sign is not a mystery: clay is dark and clay is radioactive, so both rise into shale.
+/// A winning peak that is NEGATIVE therefore says the box is laid out the other way up, and
+/// Register Depth cannot tell that apart from a genuine shift. Accepting it would bake an
+/// upside-down photograph into the core's depths, where nothing downstream could find it.
+fn expects_to_rise_with_shale(item: &str) -> bool {
+    item.eq_ignore_ascii_case("CPHOTO_DARK")
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +335,21 @@ pub fn propose_registration(db_mx: &Mutex<Connection>, req: &RegistrationRequest
                 core.push(RegPoint { depth, value });
             }
         }
+    } else if req.ref_kind == "curve" {
+        reference_label = req.ref_item.clone();
+        match fetch_curve_frame(&conn, &req.well_id, &[req.ref_item.clone()]) {
+            Ok((d, map)) => match map.get(&req.ref_item.to_uppercase()) {
+                Some(v) if v.len() == d.len() => {
+                    for (depth, value) in d.iter().zip(v.iter()) {
+                        if value.is_finite() {
+                            core.push(RegPoint { depth: *depth, value: *value });
+                        }
+                    }
+                }
+                _ => return fail(format!("the well carries no curve called {}", req.ref_item)),
+            },
+            Err(e) => return fail(e.to_string()),
+        }
     } else {
         reference_label = format!("{} {}", req.ref_dataset, req.ref_item);
         let rows = match crate::db::list_aux_data(&conn, &req.well_id, Some(&req.ref_dataset)) {
@@ -411,12 +468,25 @@ pub fn propose_registration(db_mx: &Mutex<Connection>, req: &RegistrationRequest
         ));
     }
     if !like_for_like && best.r < 0.0 {
-        notes.push(
-            "Matched on an INVERSE relationship, which is what a porosity-type reference against a \
-             gamma-type log should show. If you expected them to rise together, the reference is \
-             probably not the one you meant."
-                .into(),
-        );
+        if expects_to_rise_with_shale(&req.ref_item) {
+            // The one proxy in this dialog whose sign is not a mystery — see the helper.
+            notes.push(format!(
+                "The best match is NEGATIVE ({:+.2}), and darkness should RISE with {} because clay \
+                 is both dark and radioactive. That almost always means the photographs are laid \
+                 out the other way up rather than that the core is shifted - try Deepest end first \
+                 in Condition Core Photos, save the trace again, and re-run this. Do not accept \
+                 this shift until the sign is positive: a registration is not able to tell an \
+                 upside-down box from a genuine depth error.",
+                best.r, req.log_curve
+            ));
+        } else {
+            notes.push(
+                "Matched on an INVERSE relationship, which is what a porosity-type reference \
+                 against a gamma-type log should show. If you expected them to rise together, the \
+                 reference is probably not the one you meant."
+                    .into(),
+            );
+        }
     }
     if best.r.abs() < 0.5 {
         notes.push(format!(
@@ -601,6 +671,71 @@ mod tests {
             res.current_r,
             res.correlation
         );
+    }
+
+    /// The core photograph's own trace is the densest reference this dialog has — and the one
+    /// proxy whose SIGN is not a mystery.
+    ///
+    /// Two claims. **A `CPHOTO_*` curve can anchor a registration at all**: those curves are the
+    /// only ones in the project measured ON the core, so they carry the core's depth error, and a
+    /// photograph gives a reading every few millimetres where a plug table gives a few dozen a foot
+    /// apart. **And a negative winning peak is refused in words rather than accepted quietly.**
+    /// Darkness rises with gamma because clay is both dark and radioactive, so a negative best
+    /// match means the box is laid out the other way up — which a correlogram cannot tell apart
+    /// from a genuine shift, and accepting it would bake an upside-down photograph into the core's
+    /// depths where nothing downstream could find it.
+    #[test]
+    fn the_photograph_trace_can_anchor_a_shift_and_says_when_the_box_is_upside_down() {
+        for upside_down in [false, true] {
+            let conn = mem();
+            let (well, _, _) = synth(&conn, 2.0, false);
+            // The trace as `extract_core_log` now stores it: on the WELL'S depth frame, carrying
+            // the core's own depth error — the photograph was taken of the core, so a feature the
+            // log shows at 1030 appears in the picture at the depth the core report gave it, 1032.
+            let (frame, map) = fetch_curve_frame(&conn, &well, &["GR".into()]).unwrap();
+            let gr = map.get("GR").cloned().unwrap();
+            let dark: Vec<f32> = frame
+                .iter()
+                .map(|d| {
+                    let v = (crate::tops::interp(&frame, &gr, d - 2.0) - 40.0) / 120.0;
+                    // Upside down: the same shale reads LIGHT. What a box read the wrong way up
+                    // produces against this log, and the case the note has to catch.
+                    if upside_down { 1.0 - v } else { v }
+                })
+                .collect();
+            let refs: Vec<(&str, &[f32])> = vec![("CPHOTO_DARK", dark.as_slice())];
+            crate::equations::write_computed_curves_batch(&conn, &well, &frame, &refs).unwrap();
+
+            let listed = list_core_references(&conn, &well).unwrap();
+            let mine = listed.iter().find(|r| r.item == "CPHOTO_DARK").expect("offered as a reference");
+            assert_eq!(mine.kind, "curve");
+            assert!(mine.label.contains("Core photo"), "{}", mine.label);
+            assert!(mine.family.is_empty(), "darkness is not a gamma reading — it must stay a proxy");
+
+            let db = Mutex::new(conn);
+            let res = propose_registration(&db, &req(&well, "curve", "", "CPHOTO_DARK"));
+            assert!(res.error.is_none(), "{:?}", res.error);
+            assert!(!res.like_for_like);
+
+            let warned = res.notes.iter().any(|n| n.contains("other way up"));
+            if upside_down {
+                assert_eq!(res.matched_on, "inverse", "r = {}", res.correlation);
+                assert!(
+                    warned,
+                    "an inverted photograph must be named, not accepted: {:?}",
+                    res.notes
+                );
+            } else {
+                assert_eq!(res.matched_on, "direct", "r = {}", res.correlation);
+                assert!(res.correlation > 0.95, "r = {}", res.correlation);
+                assert!(
+                    (res.proposed_delta + 2.0).abs() < 0.2,
+                    "should recover about -2 m, got {}",
+                    res.proposed_delta
+                );
+                assert!(!warned, "nothing to warn about here: {:?}", res.notes);
+            }
+        }
     }
 
     /// The case he has the rest of the time. Core porosity against GR is a PROXY, and the two

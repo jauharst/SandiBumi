@@ -2474,6 +2474,79 @@ mod las_depth_tests {
         );
     }
 
+    /// T-IMP-08. A repeated plug depth must be dropped at PARSE time, first occurrence kept.
+    ///
+    /// `depth_keep_indices` is shared with the LAS path and is well tested there — but a shared
+    /// helper being correct says nothing about this caller being wired to it. Remove the dedup
+    /// call from `parse_core_csv` and every existing test still passes, while a real core table
+    /// with one repeated depth aborts the whole well's import on the `core_data (well_id, depth)`
+    /// primary key. One duplicated row in a 3000-plug delivery, and none of it lands.
+    ///
+    /// **First occurrence wins and file order is kept.** A laboratory that lists a plug twice is
+    /// almost always repeating the same measurement, not reporting a second plug at the identical
+    /// depth — two plugs cannot occupy one depth. Taking the last would silently prefer whichever
+    /// copy the typist edited most recently, which is not a rule anyone can reason about.
+    #[test]
+    fn a_repeated_plug_depth_is_dropped_not_a_failed_import() {
+        let path = std::env::temp_dir().join("sandibumi_core_dup_depth.csv");
+        // Row 3 repeats row 1's depth with a DIFFERENT porosity, so which one survives is visible.
+        std::fs::write(
+            &path,
+            "DEPTH,CPOR,CPERM\n\
+             2000.00,18.0,50.0\n\
+             2000.50,20.0,80.0\n\
+             2000.00,31.0,999.0\n\
+             2001.00,22.0,120.0\n",
+        )
+        .unwrap();
+        let cols = parse_core_csv(&path).expect("a duplicated depth must not fail the parse");
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(cols.depth, vec![2000.0, 2000.5, 2001.0], "the repeat is dropped, order kept");
+        assert_eq!(cols.depth.len(), 3, "four rows in, three plugs out");
+        // Percent input converts to v/v, so 18% is the survivor to look for — not 31%.
+        assert!(
+            (cols.cpor[0] - 0.18).abs() < 1e-4,
+            "the FIRST occurrence must win: got {} where 0.18 was expected",
+            cols.cpor[0]
+        );
+        assert!(
+            (cols.cperm[0] - 50.0).abs() < 1e-3,
+            "and every companion column must follow the same kept row, not slide: {}",
+            cols.cperm[0]
+        );
+    }
+
+    /// T-IMP-12's other half. A repeated station MD is dropped so it cannot abort the survey on
+    /// the `well_path (well_id, md)` primary key — the same argument as the plug depth above, and
+    /// a duplicated station carries no geometry the first one did not.
+    ///
+    /// The duplicate here has a **different inclination**, so silently keeping the wrong one would
+    /// bend the well: minimum curvature integrates station to station, and an inclination swapped
+    /// at one station moves every TVD below it. TVD then feeds saturation-height, so this does not
+    /// stay in the survey.
+    #[test]
+    fn a_repeated_survey_station_is_dropped_not_a_failed_survey() {
+        let path = std::env::temp_dir().join("sandibumi_dev_dup_md.csv");
+        std::fs::write(
+            &path,
+            "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n2000,5,45\n3000,60,45\n",
+        )
+        .unwrap();
+        let survey = parse_deviation_csv(&path).expect("a duplicated MD must not fail the parse");
+        std::fs::remove_file(&path).ok();
+
+        let mds: Vec<f32> = survey.md.clone();
+        assert_eq!(mds, vec![0.0, 1000.0, 2000.0, 3000.0], "the repeated station is dropped");
+        let at_2000 = mds.iter().position(|m| *m == 2000.0).unwrap();
+        assert!(
+            (survey.inc[at_2000] - 60.0).abs() < 1e-3,
+            "the FIRST station at 2000 m must win — the 5 deg copy would straighten the well \
+             and move every TVD below it, got {}",
+            survey.inc[at_2000]
+        );
+    }
+
     #[test]
     fn sanitize_dedups_signed_zero_depths() {
         // +0.0 and -0.0 have distinct bit patterns but DuckDB's FLOAT PK treats them equal,

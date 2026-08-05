@@ -728,6 +728,291 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
 
 ## B1. Hardening backlog (§4b)
 
+**Correctness — OPEN, awaiting Jauhar's method decision (found 2026-07-31)**
+
+- [ ] **A per-zone TEMP_GRAD override makes a STEP in FTEMP, not a kink.** `precalc` computes
+      every sample as `SURF_TEMP + gradient(sample) × depth(sample)` — the gradient is applied
+      **from surface**, never integrated down through the zones above it. So the moment a lower
+      zone carries its own gradient, the temperature profile is discontinuous at the boundary.
+      Measured on a 0.03 °C/m well with 0.035 below 1500 m: **67.0 °C at 1400 m, 77.5 °C at
+      1500 m — a 10.5 °C jump where the undisturbed trend rises 3.0.** Rock temperature is
+      continuous, so the profile is not physical, and it does not stay in FTEMP: the Arps
+      correction turns temperature into Rw, and Rw goes into Sw. T-PREP-05's own expected result
+      says the trend should *kink* with "no discontinuity artifacts", so the plan and the code
+      disagree and the plan describes the physical answer.
+
+      **Pinned as-is, not fixed** — `a_per_zone_gradient_override_reaches_exactly_its_own_samples`
+      (`workflow.rs`) asserts the 10.5 °C step explicitly, so it cannot drift or be changed
+      silently. The fix is method math, not a refactor: integrating per zone means choosing what
+      temperature each zone *starts* at (carry the zone above's value down, or re-anchor on
+      surface), and that needs a cited source. Same question applies to PGRAD, which is computed
+      the same way. Logged in `docs/review_triage.md` finding 6 and in T-PREP-05's known-issue line.
+
+- [ ] **A well with NO permeability is EXEMPTED from an active PERM cutoff.** `classify_sample`
+      correctly fails a *sample* whose PERM is missing, and there is a confirmed `[x]` for that.
+      But `run_pay_summary` decides whether the cutoff runs at all per WELL —
+      `perm_min.is_some() && perm.iter().any(|v| !v.is_nan())` — so a well carrying no permeability
+      anywhere switches it off for itself. Measured on two wells of identical rock at PERM ≥ 1000:
+      **the well that measured 1 mD reported net 0; the well that measured nothing reported all of
+      it.** The less data a well has, the more pay it books, and `n_classified` is non-zero for
+      both, so no consumer downstream — dashboard, workbook, PDF — can tell them apart.
+
+      **Pinned as-is, not fixed** — `a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff`
+      (`workflow.rs`). Exclude or exempt is a petrophysical decision that changes reserves.
+      `docs/review_triage.md` finding 7; T-BATCH-08 carries the known-issue line.
+
+- [ ] **Adding a permeability model to a Monte Carlo chain switches off the permeability cutoff.**
+      Already in AUDIT-2026-07-21, but the trigger is broader than recorded there. PERM reaches
+      `has_perm_cut` only if a step CONSUMES it and none PRODUCES it, so the cutoff works on a
+      chain ending in Rock Typing and goes dead the moment `perm_coates` is inserted ahead of it —
+      which is exactly the study whose permeability cutoff matters. Pinned as-is by
+      `adding_a_permeability_model_to_a_chain_switches_off_the_permeability_cutoff`
+      (`montecarlo.rs`), with the working chain beside it as the control. Finding 8.
+
+- [ ] **Pittman PR75 exceeds PR50 above about 79 mD.** Mercury enters the widest throats first, so
+      the 75 % radius must be the smaller one. The nine rows are independent regressions, and
+      `PR50 − PR75 = −0.634 − 0.066·log k + 0.543·log φ%` changes sign in ordinary good sand.
+      Measured at φ = 25 %, k = 100 mD: **PR50 2.907 µm against PR75 2.953 µm.** PR10–PR50 stay
+      monotone, which narrows it to the PR75 row. `pittman_rx_spec`'s own doc already flags the
+      table *verify before field release* — this is that verification failing. **Not fixed:
+      correcting a published coefficient needs Pittman 1992 in hand, and inventing one to make the
+      ordering come out right is precisely what the provenance rules forbid.** Pinned by
+      `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand`. Finding 9.
+
+- [ ] **A failed run still writes its empty curves into the Curve Catalog.** Phase 2 of
+      `run_workflow_module_into` writes for any well whose outcome is `Computed` with a non-empty
+      output map, and an all-MISSING map is still non-empty. rocktyping on a well with porosity but
+      no permeability reports its error **and versions all eight outputs** as curves blank from top
+      to bottom. The values are honestly MISSING, so nothing is corrupted — but the catalog stops
+      distinguishing "never run" from "run and could not answer", and a log-set version is spent
+      recording the second as an interpretation. Pinned both halves by
+      `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (`workflow.rs`).
+      Suppressing the write is one filter, but it changes behaviour for every module. Finding 10.
+
+- [ ] **Two wells with one name overwrite each other's report, and the batch count says
+      otherwise.** `export_report_batch` builds each filename from the well NAME with every
+      non-alphanumeric mapped to `_`, and `well_name` has no uniqueness constraint — an import with
+      attach OFF creates a duplicate by design, and `SANDI/1` / `SANDI 1` collide as well. The
+      second write silently replaces the first while BOTH paths are pushed onto `written`, so a
+      3-well batch reports "wrote 3 file(s)" over 2 files and the surviving report carries the
+      wrong well's name. The same function identifies wells two ways — the success path looks the
+      name up for the filename, the failure path reports the raw UUID — which is the same gap seen
+      from the other side. Pinned as-is by
+      `two_wells_with_one_name_silently_overwrite_each_others_report` (`report.rs`). **Not fixed:
+      suffixing the duplicate or falling back to the well id both change what lands in a client
+      folder.** Finding 12.
+
+- [ ] **A Rhai equation that raises on only SOME samples reports a clean success.** A Rhai error is
+      caught per sample and written as MISSING, and the all-MISSING guard — the only thing that
+      turns a script error into a reported failure — fires only when EVERY sample failed. So a
+      half-raising script yields a curve with holes and the full row count, indistinguishable from
+      a curve whose inputs were absent there, which is the ordinary innocent case. Same shape as
+      finding 10: the honest signal exists but is gated on the failure being total. Pinned as-is by
+      `a_script_that_raises_on_only_some_samples_still_reports_a_clean_success` (`equations.rs`),
+      with a control that raises everywhere and IS caught. The Python path is unaffected — it runs
+      the whole well's array at once, verified by
+      `a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact`. **Not fixed: counting the
+      raises changes the run summary, and whether a partially failed curve should be written at all
+      is a judgement about how the equation editor is used.** Finding 13.
+
+- [x] **T-ADV-13's TVD no-op is FIXED — the plan step is what is stale. CLOSED 2026-07-31.**
+      AUDIT-2026-07-21 said `sw_height`'s TVD input had no producer anywhere in the app, and the
+      test-plan step still instructs "Mark Fail — known". `ingest::materialize_tvd_curves` IS that
+      producer: it resamples the deviation survey onto the well's log depth grid and writes
+      TVD/TVDSS as fetchable curves on every deviation import. Verified end to end rather than read
+      off the code by `a_deviated_wells_height_is_measured_from_the_survey_not_along_hole`
+      (`workflow.rs`), which imports a survey, runs the module through the real input resolution and
+      reads HAFWL back from the database — FWL − TVD at every sample, >500 m above the along-hole
+      answer at TD, with a no-survey control pinning the MD fallback. Both HALVES had tests the whole
+      time it was broken (`sw_height_uses_tvd_and_allows_tvdss_fwl`,
+      `deviation_import_materializes_tvd_tvdss_curves`); nothing tested the joint, which is where the
+      finding lived. Plan annotated. Finding 14.
+
+- [ ] **The report's table pages carry no footer, unlike every other deliverable surface.**
+      T-REP-06 expects "Made in SandiBumi" on each table page. It is emitted by the report cover,
+      every composite page, the Word document and the PowerPoint deck — but `table_pages` and
+      `note_page` emit no footer at all, so the methodology, zone-parameter and pay-summary pages of
+      the PDF are the only unmarked surface in the set. A reader who extracts the pay summary gets
+      an unattributed page. Pinned as-is inside
+      `a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table`
+      (`report.rs`), which asserts the cover IS marked and no table page is. **Not fixed: whether
+      the mark belongs on every page or only the cover is a branding decision on a client
+      document.** Finding 15.
+
+- [ ] **HPV is not guaranteed non-negative — a dense stringer is subtracted from the SAND row.**
+      T-REP-06 lists HPV ≥ 0 as a domain check, but `run_pay_summary` sums PHIE·(1−SWE)·h with no
+      floor, so the row inherits the sign of PHIE. A tight carbonate streak reads low GR, clears the
+      VSH cutoff and is flagged SAND, while a density porosity on a sandstone matrix reads slightly
+      negative there — a routine vendor-PHIE artefact, not a corrupt curve. Measured: 2.5 m of
+      streak at PHIE = −0.05 through a 5 m zone understates the SAND row's HPV by over 20%.
+      RESERVOIR and PAY are byte-identical either way (the streak fails the porosity cutoff), so the
+      two rows a reader checks first agree while the SAND row quietly does not, and the error is in
+      the safe direction so nothing looks alarming. Pinned as-is by
+      `a_dense_stringer_is_subtracted_from_the_sand_rows_hpv` (`report.rs`). **Not fixed: the fix has
+      two candidate homes — clamp PHIE at 0 where the porosity modules write it, or floor the HPV
+      contribution here — and those are different statements about whose job it is to reject a
+      non-physical porosity.** Finding 16.
+
+- [ ] **A chain whose worker thread dies jams the project switch for the rest of the session.**
+      T-SHELL-09's guard itself is correct and has no window: `chain::register` runs at
+      `lib.rs:2428`, before the worker thread is spawned at `:2468`, so Open Project is already
+      refused the instant Run returns; completing and cancelling both release it. What has no
+      release is a worker that dies without reaching one of the three terminal `set_status` calls.
+      **Nothing ever removes an entry from the chain registry** — `register` inserts, `set_status`
+      mutates, and there is no prune (contrast `jobs.rs`, which prunes finished jobs and has a test
+      for it). The job stays Queued/Running forever and `any_active` keeps answering true, so Open
+      Project, New Project and Compact Project are all refused from that moment on, each telling the
+      user to wait for a job that will never finish; only an app restart clears it, which on a field
+      project means paying the reopen cost again. `lib.rs:2466` already documents that a panic in
+      `run_chain` "simply stops reporting progress" — it does more than that. Pinned as-is by
+      `a_chain_that_never_reports_a_terminal_status_jams_the_guard_permanently` (`chain.rs`).
+      **Not fixed: the mechanical part is easy (`catch_unwind` around the `run_chain` call setting
+      `ChainStatus::Failed` — the variant exists and is `#[allow(dead_code)]` precisely because
+      nothing emits it), but what the user should be told, and whether a project should be
+      switchable at all after a chain died mid-write, is a judgement about failure semantics.**
+      Finding 17.
+
+- [ ] **The report cover states the composite's PRINT WINDOW, not the logged interval.** The
+      cover's "Interval: … – … m" is read straight off the composite pagination (`report.rs:319`),
+      which honours the render's depth window — so setting one re-dates the whole report, including
+      the tables the window never touched. `run_pay_summary` works per zone and knows nothing about
+      the composite window, so a report rendered over 1005–1010 m carries a pay table covering every
+      zone in the well under a cover announcing a 5 m interval; on a **tables-only** render there
+      are no log pages left to show the reader that the window was only a print setting. Pinned
+      as-is by `a_composite_depth_window_re_dates_a_cover_whose_tables_ignore_it` (`report.rs`).
+      **The same line explains the audit's tables-only slowness and constrains its fix.**
+      AUDIT-2026-07-21 (Viz/reporting #3) reads as a missing `if` — the composite is rendered
+      unconditionally at `:314` and skipped only when appending at `:463` — but `:312` says why:
+      "Composite pages (also gives the true interval for the cover)". Skip it naively and the cover
+      falls to `unwrap_or(0.0)` and prints "Interval: 0.0 – 0.0 m" on a client document. **Not
+      fixed, and both halves want the same fix: give the cover its own cheap logged-interval
+      (MIN/MAX depth) query, which makes tables-only genuinely fast and lets a print window be
+      stated separately. Whether the cover should name the window at all is a document-design
+      decision.** Correct tables-only behaviour otherwise is pinned by
+      `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock`. Finding 18.
+
+- [ ] **Curve Edit's "coerce invalid input to 0.0" is HALF fixed — the surviving half is one line
+      of TypeScript.** The backend guard is correct and tested: `apply_op` refuses a non-finite
+      constant outright (`curve_edit.rs:417`), writing nothing, pinned by
+      `a_set_constant_refuses_a_value_that_is_not_a_number`. It is also unreachable for the case
+      the audit reported. `curveEditDialog.ts:88` reads every numeric field through
+      `Number.isFinite(v) ? v : dflt`, so an empty Value field or `abc` becomes **0** — finite,
+      accepted, and written over the interval as a real reading. The comment there shows the
+      narrowing was deliberate and stopped one step short: it was added so `1e999` could not set a
+      curve to +Inf and poison catalog min/max and plot autoscale, and it fixed that half only;
+      `1e999` now writes 0.0 instead. **The sharp version: 0 is the identity for every field where
+      it is the default except this one** — an empty `add` falls back to 0 and an empty `mul` to 1,
+      both no-ops, which is why nobody noticed, and there is no identity for "set a constant".
+      **Not fixed: refusing Apply with a hint is a UI decision. Passing the non-finite value
+      through to the existing backend refusal is one character and gives a worse message.**
+      Finding 19.
+
+- [ ] **The Wells grid's editor has no 0-row check, unlike the other three.**
+      `update_standard_sample`, `update_computed_sample` and `update_core_sample` all check the
+      UPDATE's row count and error with the depth named — the fix for the audit's "DB-inspector
+      edit reports success on a 0-row update", now pinned by
+      `an_inspector_edit_on_a_row_that_moved_fails_instead_of_reporting_success`.
+      `update_well_field` (`db.rs:5140`) validates the COLUMN and then updates without checking
+      that anything matched, so an edit against a well that is no longer there returns `Ok`. The
+      route is the Wells grid left open while the well is deleted in the Wells & Tops pane: the
+      cell shows the new value, the status bar reports the edit, and an undo entry is pushed for a
+      change that never happened. Rarer than a moved curve sample and the same silent outcome.
+      **Not fixed, though nearly mechanical: the `n == 0` check the other three already carry,
+      with a message naming the well rather than a depth.** Finding 20.
+
+- [ ] **T-PETRO-02's Larionov labels are reversed, and the OPT_GR dropdown gives no rock age.**
+      The code is right: `LARINOV1` is `0.33*(2^(2*IGR) - 1)`, Larionov (1969) for **older rocks /
+      Mesozoic and older**, giving 0.330 at IGR 0.5; `LARINOV2` is `0.083*(2^(3.7*IGR) - 1)`, the
+      **Tertiary / unconsolidated** form, giving 0.216. Those are the published coefficient sets.
+      The manual plan has them swapped — step 1 calls LARINOV1 "Larionov Tertiary" and its Expected
+      pairs Tertiary with ≈0.33 and older with ≈0.22. **Mahakam Delta is Miocene, so the transform
+      this work wants is LARINOV2**; picking LARINOV1 on the plan's label overstates shale volume by
+      more than half through the whole intermediate-GR interval, which is exactly where the VSH
+      cutoff decides net pay, and the curve looks entirely normal. The dropdown cannot settle it
+      either: `OPT_GR`'s choices are bare ids with no rock age, coefficient or tooltip, so the plan
+      is the only place a user is told which is which. Now pinned by
+      `every_vsh_gr_transform_lands_on_its_published_coefficient` (`modules.rs`), which evaluates
+      all eight options by hand at IGR 0.5 so the mapping cannot drift again silently.
+      **Two separable calls: correcting the plan text is free; labelling the dropdown
+      ("LARINOV2 — Larionov, Tertiary") is a small UI change — but the option IDS are stored in
+      `params_json` on every saved run and must not be renamed.** A second correction to the same
+      Expected line: "endpoints 0 and 1 unchanged" does not hold for the Larionov forms, which are
+      empirical fits never normalised to close at 1 (LARINOV1 stops at 0.99, LARINOV2 at 0.9957,
+      LARINOV3 overshoots to 1.133; VSH clamps, VSH_GR keeps the raw value). Not a defect, but it
+      reads as one against the plan as written. Finding 21.
+
+- [x] **The end-to-end harness was driving a Vite dev server, not the built app — FIXED
+      2026-08-01.** `cargo build --release` compiles the same Rust as `npm run tauri build` but
+      bakes in `tauri.conf.json`'s `devUrl`, so the binary loads `http://localhost:1420` instead of
+      its own embedded frontend. Same name, same size, nothing to tell them apart — and with a dev
+      server running the wrong one **passes every test**, while driving a different build of the
+      frontend from the one in the binary. It only surfaced when the dev server stopped between two
+      runs and the webview landed on `chrome-error://chromewebdata/`. The `before` hook in
+      `e2e/wdio.conf.mjs` now reads `location.href` and refuses anything that is not
+      `tauri://` / `http://tauri.localhost`, naming the correct build command and telling the reader
+      NOT to work around it by starting a dev server; `e2e/run.mjs`'s missing-binary message names
+      `npm run tauri build -- --no-bundle` for the same reason. **Leaves one doubt worth closing:**
+      the triage records T-SHIP-01 (packaged app under the hardened CSP) as machine-verified once on
+      2026-07-29 by this same route, and the CSP exists only in a packaged build — which binary that
+      run used is not recorded. Finding 22.
+
+- [ ] **An ordinary SQL comment breaks the read-only console, two ways — STARTER FIXED 2026-08-01,
+      the guard is your call.** `db::run_readonly_query` tests whether the TRIMMED text starts with
+      `select`/`with`, so a leading `--` line hides the keyword and a valid SELECT is refused with
+      *"only SELECT queries are allowed here"*. The panel's own starter opened that way, so the
+      first thing a new user clicked there was refused with a message saying their SELECT was not a
+      SELECT. Separately, the query runs WRAPPED as `SELECT * FROM ({sql}) __sandibumi_q LIMIT n`,
+      so a TRAILING `--` swallows the closing paren and the limit and DuckDB reports *"syntax error
+      at end of input"* against a query that is valid on its own — the more confusing half, since
+      nothing says the query was rewritten. Both found by the end-to-end harness running the
+      starter through the pane's Run button; neither reachable by a Rust test. **Fixed:** the
+      starter now begins with `SELECT` and explains itself in a closed `/* … */` block (frontend
+      text only). **Open, both small:** skip leading `--`/blank lines before the keyword test (which
+      makes the guard STRICTER, not looser — it would test the first real token), and put the
+      wrapper's suffix on a new line. Pinned as-is in `panels.e2e.mjs`. Finding 23.
+
+- [ ] **T-MLEQ-14's Mask note is stale a SECOND time — PLAN ONLY, no code change.** Step 3 tells
+      you to search the ML pane for a mask picker, expects not to find one, and instructs you to log
+      it against the dialog. **The control is there:** `mlDialog.ts` builds a `maskSel` and adds a
+      "Mask (exclude)" row, kept visible for ALL tasks because it also governs the unsupervised fit
+      pool. The note was already corrected once on 2026-07-31 (the BACKEND half turned out to be
+      pinned by `run_ml_mask_excludes_apply_samples` / `run_ml_mask_excludes_training_outlier`), and
+      that correction left behind "what is still missing is only the Mask picker in mlDialog.ts",
+      which is now also untrue. The cost is not small: the note tells the reader what conclusion to
+      draw, so the likeliest outcome is a defect filed against working code. Fix: correct step 3's
+      Expected and delete the known-issue note. Now pinned from the other side by `ml.e2e.mjs`,
+      which goes red the day the control is removed. Finding 24.
+
+- [ ] **T-IMP-05 is marked Fail and the behaviour has since been fixed — PLAN ONLY, but it carries
+      Jauhar's own mark.** Its Expected says every no-well-selected tool refuses with status
+      `Select a well first (Wells & Tops panel)` and that **no dialog opens**. `src/ui/needWell.ts`
+      (2026-07-31, after the mark) replaced that quiet status line with a NAMED REFUSAL DIALOG — so
+      "no dialog opens" is now wrong by design, and the wording is
+      `"<action> needs a well — select one in the Wells & Tops pane"`. The helper's own header reads
+      like the complaint that produced the Fail: *a status-bar line is the wrong place to refuse a
+      click … what they got was nothing, with the reason in a corner of the window nobody was
+      looking at*. Callers are exactly T-IMP-05's list. **Correct the Expected and re-run it — the
+      item is very likely a Pass now, and the Fail is the only record saying otherwise.** Not
+      covered by the harness: nothing reachable from the DOM clears `appState.selectedWell` once a
+      well has been clicked, and adding a test-only path to do so would be a change to the product
+      to serve the tests. Finding 25.
+
+- [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
+      still lists this among the findings awaiting a decision because it would change
+      interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`
+      blocks it, the solver body is gone — so that instance cannot occur. The concern was inherited
+      by SandiMin and is inherent rather than fixable: with as many equations as components the
+      solve reproduces the logs exactly whatever the endpoints are, so the residual carries no
+      information about them. SandiMin **detects** it (`dof == 0`) and returns `dof_note` telling
+      the user RECON is forced to ~0 and to add an input log. Measured on one well, one set of
+      logs, correct endpoints throughout: **dof 0 → RECON ~0.00; dof 2 → RECON 0.62**; with a
+      0.4 g/cc endpoint error the square case still reports ~0 while the clay volume moves, and the
+      dof-2 case goes 0.62 → 1.22. Pinned by
+      `an_exactly_determined_model_hides_a_wrong_endpoint_and_only_the_dof_note_says_so`
+      (`multimin2.rs`). **Remaining work is bookkeeping plus one UI judgement:** drop the item from
+      REVIEW.md's sign-off list, and check during click-through that the SandiMin pane makes the
+      note hard to miss. `docs/review_triage.md` finding 11; T-RT-18 carries a superseded block.
+
 **Performance (was "P2") — speed at field scale (100+ wells)** — all 6 mapped by a read-only
 investigation wave (file:line + risk). **5 of 6 shipped: #127 (crossplot memoize), #128 (long
 commands off the event loop), #130 (batch curve reads), #131 (raw-IPC ArrayBuffers), #132
@@ -1379,10 +1664,24 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       interactive dip picking (5 modes → true dip), dip datasets + classification, auto-dip, stereonet/rose/
       walkout/cumulative plots, structural dip removal, fracture counting w/ Terzaghi, aperture
       (Luthi-Souhaite), image porosity + binarization + sand count. → `ref_image_core.md`.
-- [ ] **(7) Core photo digitization.** Non-destructive recipe model: crop/deskew/perspective, color-card +
-      white-balance, CLAHE/denoise/sharpen, depth registration + stitched strip pyramid, core-to-log shift
-      (photo-proxy-log cross-correlation vs GR), WL/UV pairs, log-view strip track. Absorbs the §4
-      New-capability "core image input" stub. → `ref_image_core.md`.
+- [x] **(7) Core photo digitization** — **STARTED 2026-07-31**, `coreimage.rs` +
+      `coreConditionDialog.ts` (Data ▸ Tools ▾ ▸ Condition Core Photos…).
+      **Shipped**: the non-destructive recipe model (crop / deskew / colour-card white balance /
+      tone), baked into `data` with the import kept in `source_data` + `source_meta` so a restore
+      returns the photograph AND its shape; and `extract_core_log`, the proxy trace
+      (`CPHOTO_DARK` / `_RED` / `_TEX`) with a signed agreement against a real curve, which is the
+      photo-proxy-log half of the core-to-log shift. Every control is the picture itself — thumbnail
+      strip, drag-to-crop, click-a-grey, gradient-tracked sliders (Jauhar, 2026-07-31: "geologist see
+      image not text"). **2026-08-01**: perspective rectification (four draggable corners, output
+      proportions from the quadrilateral) and the detail group — CLAHE local contrast, median
+      denoise, unsharp sharpen, radius as a fraction of the long edge — with `touches_detail`
+      naming any photograph the trace was read off that carries one of them. **2026-08-01**:
+      `build_core_strips` + the built-in **Core** layout — each box cut into its rows and stacked
+      into one tall depth-registered picture, so the log-view strip track is an ordinary image track
+      and no renderer needed new geometry; `ImageStyle.fit` gained "stretch" for it. Also fixed here:
+      `reverse` flipped only the down-core axis, so a multi-row box was read with its rows in the
+      original order. **2026-08-01**: the trace anchors a registration (`registration.rs` reference kind `curve`), and saving it now lands on the well's depth frame instead of the photograph's, which had made the curves unreadable. WL/UV pairs (hold-to-see the paired frame, matched on depth interval; editable strip target so both lights get their own strips). **Item (7) is COMPLETE.** Absorbs the
+      §4 New-capability "core image input" stub. → `ref_image_core.md`.
 - [ ] **(8) Depth registration, then plate digitizing** — scoped 2026-07-31 at Jauhar's direction
       ("all of those, it should be depth registered first, then the quantification or qualitative
       analysis"). **The plan is `docs/plan_image_analysis.md`**; it supersedes the loose OpenCV note
@@ -1652,11 +1951,161 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
 - [ ] **Magnification → field of view** would need a per-delivery camera sensor width and tube
       factor. Both are properties of the laboratory's microscope, not of the plate, so they are a
       declaration — ask whether that beats measuring a scale bar.
+- [x] **Run the whole road end to end, and check it against an independent measurement** —
+      **SHIPPED 2026-07-31**. `petrography::field_tests::a_delivered_book_measures_against_the_
+      petrographers_own_point_count` drives workbook → plates → pore area → `plugqc` on a real
+      delivery, checked against the petrographer's own point-counted visible porosity (the SAME
+      picture, so only the measurement is under test — helium porosity would confound it with the
+      depth registration). Fixture: `SANDIBUMI_FIELD_FIXTURES` with `workbooks/` and `petrography/`.
+      **The measurement does NOT agree on this delivery**: 35 pairs, counted median 14%, measured
+      median 6.8%, Pearson −0.300, Spearman −0.092, and no band in the 180–260…220–260 sweep moves
+      either coefficient off zero. Cause: the plates' own median hue spans **289°** across one core
+      and one report, and the rule tracks the cast (green-cast plate 0.04% against a counted 15%;
+      blue-cast plate 31% against a counted 9%). **Within the colour-consistent blue-cast group with
+      a band tuned to it: Pearson 0.643, Spearman 0.616 on 10 plates** — the method is sound and
+      "measure a delivery in groups" is a real instruction. **Sharpest result: on the green-cast
+      group a band can be tuned until the measured median matches the counted median (15.72 vs
+      15.00) while per-plate rank agreement stays at −0.10** — tuning until the average looks right
+      is exactly the wrong way to tune it.
+- [x] **A vector plate book was importing as zero plates** — **SHIPPED 2026-07-31**, found by the
+      run above. `openpyxl` DROPS WMF/EMF with a warning nothing downstream sees, so a book of 53
+      sheets and 106 photomicrographs produced nothing and almost no notes (`ws._images` empty →
+      `if not imgs: continue`). `WORKBOOK_RUNNER` now reads pictures from the PACKAGE (workbook →
+      sheet part → drawing part → media part, every step an explicit relationship file; document
+      order is anchor order) and leaves openpyxl to read the cells — removing the failure mode by
+      construction rather than patching around it. `sniff` recognises EMF (` EMF` at offset 40, not
+      the far-too-weak record type; `rclBounds` is inclusive) so a recovered plate is never called
+      unreadable by the importer that just extracted it; without Pillow it says "EMF needs Pillow"
+      by name. A worksheet holding no picture is counted and reported once per file. Measured:
+      **258 plates where there had been 152**, 242 imported and measured. Pinned by
+      `the_workbook_reader_takes_its_pictures_from_the_package_not_from_openpyxl` (fails if
+      `_images` returns) and `an_enhanced_metafile_plate_is_recognised_rather_than_called_unreadable`
+      (with the control that the record type alone is not enough).
+- [x] **SHIPPED (2026-07-31) — one band, many lamps.** `PoreSpec.reference_image_id` names the
+      plate the band was tuned on and every other plate is colour-corrected onto it before the band
+      is applied: a per-channel (von Kries) gain putting each plate's matrix colour where the
+      reference's sits, anchored on the delivery's own ROCK rather than on grey — grey-world would
+      normalize away the porosity signal itself, since a blue-epoxy section is genuinely blue and
+      the more porous the more so. The matrix colour is a channel-wise median, which is legal
+      exactly where `scene_dominated` passes, so the guard and the correction hold each other up.
+      The gain is scaled so no channel clips; the stain and the preview are read off the same
+      corrected picture. A reference plate that is itself scene-dominated refuses the whole run by
+      name. Verified by `the_same_rock_under_a_different_lamp_reads_as_the_same_rock`: a plate shot
+      through a 2.0x-green / 0.55x-blue lamp reads under 1% uncorrected against its identical twin's
+      25%, and the same quarter once corrected.
+- [x] **SHIPPED (2026-07-31) — the empty-measurement refusal, conditionally** (Jauhar: "yes but
+      conditional"). `band_missed` refuses a plate whose band claimed less than one resolvable
+      pore's worth of pixels, **only on a normalized run**. That is where the condition comes from
+      rather than from a threshold: without a reference there is no evidence the band finds epoxy
+      anywhere in the delivery, so an empty answer might only mean it has never been tuned. "Empty"
+      is the user's own `min_pore_px`, not a new constant. `cast_shift` (`hue_delta`, the short way
+      round the wheel) rides beside every result as a diagnostic and is shown in the table; the
+      column is hidden on an uncorrected run rather than shown empty. Pinned by
+      `an_empty_measurement_is_refused_only_once_a_reference_plate_says_the_band_works` and
+      `the_cast_shift_measures_the_short_way_round_the_colour_wheel`.
+- [x] **SHIPPED (2026-07-31) — the anchor was the whole plate and had to be the matrix.** Running
+      the point-count comparison on the real delivery showed every coefficient turning NEGATIVE
+      with the correction on. Cause: the whole-plate median moves with how much epoxy is in the
+      field of view, so anchoring on it partly cancels the porosity contrast — the grey-world trap
+      reached by a different route. Now anchored on the pixels the band did not claim, resolved in
+      one terminating iteration. Measured over 45 plugs with the two fields of view averaged: rank
+      agreement 0.19 uncorrected, 0.05 whole-plate anchor, 0.20 matrix anchor; best of 57 bands
+      0.25 against 0.15-0.36. Also closed a hole the fix exposed: a plate whose band claimed the
+      whole picture has no matrix to anchor on, and was falling through to be stored at nearly 1.0
+      — it is now the scene-dominance refusal. Pinned by
+      `a_plate_corrected_onto_one_lit_the_same_way_is_left_alone`, whose fixture scatters pore
+      through a gradient-lit frame so that it can discriminate the two anchors at all.
+- [ ] **The colour cast is not only the lamp, and that caps what any correction can do.** The same
+      delivery photographed two fields of view per plug; they agree with EACH OTHER at rank 0.85
+      but differ in whole-plate median hue by 66 degrees at p90, and shifts of 180 degrees appear
+      across the delivery. A white balance cannot do that — auto white balance on the camera would.
+      Worth asking the laboratory before building anything further, because it is a setting rather
+      than a re-shoot.
+- [x] **A colour band is not yet a substitute for a point count on this rock** — **ANSWERED
+      2026-07-31 by the helium arm, and the premise was wrong.** The point count is not a yardstick:
+      it agrees with the laboratory's ambient helium porosity at only **Spearman 0.505** on the same
+      45 plugs, reading a median 14.5% against helium's 24.8%. That is the microporosity difference
+      showing up directly — a count ticks pores VISIBLE under an optical grid, helium fills every
+      connected pore — so 0.505 is about the ceiling for this rock and "disagrees with the point
+      count" was never on its own evidence of an error.
+- [x] **Does the colour rule track helium better than the point count?** — **MEASURED 2026-07-31.**
+      Across the whole delivery, yes: 0.575 uncorrected and 0.67–0.69 corrected against 0.505. **But
+      that headline is inflated and must not be quoted** — the delivery spans a ~25% carbonate and a
+      ~5% one, and separating two cores is not the same as ranking plugs within one. Scored INSIDE
+      each cored interval against helium: shallow core 0.01 uncorrected -> 0.19 corrected against
+      the count's 0.51; deep core 0.27 -> 0.49 with no count to compare. **The correction earns its
+      place on independent data** (it lifts both intervals, roughly doubling the deep one), and the
+      colour rule still loses to the petrographer where both exist. Method note: the two fields of
+      view per plug are AVERAGED, never pooled — pooling counts each plug twice and inflates n with
+      no independent rock.
+- [x] **A comma decimal put a seventh of a delivery on the wrong rock** — **SHIPPED 2026-07-31**,
+      found while pairing plates against core. 18 of one book's 129 plate sheets write `7016,54 FT`
+      where 103 write `6980.71 FT`. The comma split the number, `7016` was dropped for carrying no
+      unit and `54 FT` matched, so those plates stored at **54 feet on rock cored at 7,000** — a
+      plausible shallow depth, no failure, nothing downstream able to tell. `as_number` in
+      `WORKBOOK_RUNNER` now reads both conventions: rightmost separator wins where both appear, a
+      single separator is a decimal unless the token is validly grouped, and the honestly ambiguous
+      `1,234` is read as a decimal AND reported. Pinned by
+      `a_comma_decimal_depth_is_read_as_one_number_not_two`, executed through the discovered
+      interpreter rather than asserted against the source.
+- [ ] **One sheet in 129 still reads its depth wrong, and no safe rule fixes it.** It writes
+      `7033,50/354 FT (CORE)`, putting the unit on the PLUG number, and reads 354 ft. "Prefer the
+      first number" would fix it and break `PLATE 12, DEPTH 4633.50 FT`. Left to the import wizard's
+      editable depth table, where a 354 among 7,000s is visible. Revisit only if a delivery turns up
+      where this shape is the majority.
+- [x] **WHICH plate is the reference matters more than the band does.** ANSWERED and served
+      (2026-07-31): the Pore Area dialog now scores each run against an independent plug
+      measurement (`PoreSpec.check_against` → `plugqc::score_against_plugs`) and keeps a table of
+      every setting tried this session, so the spread below is visible while tuning rather than
+      only in a study afterwards. Still open underneath it: nothing yet warns BEFORE a run that a
+      delivery's hue spread makes one reference hopeless — the per-interval reference below has
+      since shipped.
+- [x] **The measurement behind it, kept for the numbers.** Sweeping three references drawn from a
+      cored interval's own plates, scored inside that interval against helium: shallow core 0.110 /
+      0.237 / 0.203, deep core 0.297 / **0.530** / 0.152. That is a 3.5x spread in the deep core
+      from a choice the user makes by eye, and the worst of the three (0.152) is WORSE than not
+      correcting at all (0.270). Quoting the best of a sweep is the same overfitting trap this
+      delivery already taught, so the honest statement is the spread — which is why the dialog now
+      shows every setting tried rather than announcing a winner.
+- [x] **Per-interval references beat one reference for the delivery, modestly** — **SHIPPED
+      2026-07-31.** `PoreSpec.reference_zones` + the Per-interval references editor in Pore Area:
+      each depth range names its own plate, overruling the delivery-wide one where it reaches. The
+      measurement that motivated it, giving each cored interval its own reference: shallow 0.237
+      against 0.193 for a delivery-wide one, deep 0.530 against 0.494. So "measure them in groups"
+      was real advice rather than a hedge — a refinement, not the missing piece, and now one
+      **Check against** settles on the well in hand rather than being taken on trust. Rules:
+      intervals may TOUCH but never cross (an overlap is refused up front, a shared depth goes to
+      the one listed first — the `apply_core_run_shifts` rule); a section no interval reaches falls
+      back to the delivery-wide plate and is REFUSED BY NAME where there is none, because
+      `band_missed` only fires on a corrected plate and an uncorrected one in the same saved
+      delivery would have silently lost that guard; every reference is scene-checked in a
+      colour-harvest pass before any other plate is decoded, and one bad reference condemns the run.
+      `PlatePore.reference_name` rides beside `cast_shift` and its column appears only when more
+      than one plate served. Pinned by `reference_intervals_may_touch_but_never_cross`,
+      `a_plate_takes_its_own_intervals_reference_then_the_delivery_wide_one` and the round trip
+      `each_interval_is_corrected_onto_its_own_reference`, whose two lamps are deliberately not a
+      pure channel gain apart — the deep sections are lost onto a shallow reference and read their
+      true quarter onto their own.
+- [ ] **Nothing yet warns BEFORE a run that no single reference can serve a delivery.** The hue
+      spread is reported afterwards; with per-interval references now available, the useful version
+      would be to propose where the interval boundaries should fall from the plates' own hues.
+- [ ] **The deep core has no point count and the colour rule reaches 0.49 there.** That is the one
+      interval in this delivery where the tool is doing work nobody did by hand, and it is the
+      natural place to ask Jauhar whether the numbers look like the rock.
+- [ ] **Can ONE reference serve a 289-degree delivery?** The correction gets less exact the further
+      a plate has to move, and nothing yet says how far is too far. Deliberately not invented: the
+      answer has to come from Jauhar reporting the largest Shift on a plate whose preview still
+      looked right. Until then the shift column and the preview are the judgement.
 - [ ] **A colour rule over a greyscale SEM plate returns 0.000** — the mirror of the 0.97 case, and
       more dangerous because it looks like a tight rock rather than an absurdity. A delivery mixes
       thin sections, SEM plates and scale graphics in one folder. The obvious test (saturation) did
       NOT separate them on the real data (p99 saturation ≥ 0.34 on every plate, including the ones
       that are grey with a coloured annotation), so nothing shipped rather than a guessed threshold.
+- [ ] **A point-count table need not carry its own total.** One delivered table left the *Total
+      porosity* column EMPTY on every row with the six components filled in, and several component
+      cells read `trace` — a word, not a number. The core-import wizard has no notion of "sum these
+      columns", so the independent measurement had to be assembled by hand. Worth a mapping role if
+      point-count tables are going to be a routine import.
 
 ## C3. Trust & reproducibility — Phase 11 (§3)
 

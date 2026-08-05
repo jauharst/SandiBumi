@@ -14,7 +14,7 @@
     <div id="app-shell">
       <div id="ribbon">
         <div class="ribbon-tabstrip" role="tablist">
-          <span class="ribbon-brand"><img class="ribbon-logo" src="/logo-mark.svg" alt="SandiBumi" width="20" height="20" />SandiBumi</span>
+          <span class="ribbon-brand" data-no-i18n><img class="ribbon-logo" src="/logo-mark.svg" alt="SandiBumi" width="20" height="20" />SandiBumi</span>
           <!-- The old icon-only quick-access strip lived here. Every one of its buttons is now
                a LABELLED tool in the Project tab (Project / Session / Edit / Monitor / Help
                groups) — the tabstrip is 24px tall, so a caption never fit; the ribbon body is
@@ -180,6 +180,37 @@
               </div>
               <span class="ribbon-group-caption">Import / Export</span>
             </div>
+            <!-- Core depth work, surfaced as its own group rather than buried in Tools ▾:
+                 registering, shifting and choosing which delivery is live are one job done
+                 in sequence, and "where is that menu?" is the cost of hiding them. -->
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="register-depth-btn" class="ribbon-btn" title="Find the core-to-log depth shift by matching a core measurement against a log, with the correlogram to judge it by (proposes; you accept)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 2.5v15M15 2.5v15"/>
+                    <path d="M5 7h4M5 12h4M11 5h4M11 10h4M11 15h4"/>
+                    <path d="M9 9.5 11 7.5" stroke-dasharray="2 1.5"/>
+                  </svg>
+                  <span class="ribbon-label">Register Depth…</span>
+                </button>
+                <button id="shift-core-btn" class="ribbon-btn" title="Shift the selected well's core plugs by a constant depth you already know (core-to-log alignment; undoable)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="6" y="3" width="8" height="10" rx="1"/>
+                    <path d="M10 14.5v3M8 16l2 1.5 2-1.5"/>
+                  </svg>
+                  <span class="ribbon-label">Shift Core…</span>
+                </button>
+                <button id="data-sets-btn" class="ribbon-btn" title="Every core, SCAL, survey and point-data delivery imported for the selected well — switch which one is active, or delete one">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <ellipse cx="10" cy="5" rx="6" ry="2.4"/>
+                    <path d="M4 5v10c0 1.3 2.7 2.4 6 2.4s6-1.1 6-2.4V5"/>
+                    <path d="M4 10c0 1.3 2.7 2.4 6 2.4s6-1.1 6-2.4"/>
+                  </svg>
+                  <span class="ribbon-label">Data Sets…</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Core</span>
+            </div>
             <div class="ribbon-group">
               <div class="ribbon-btn-row">
                 <button id="open-wells-btn" class="ribbon-btn" title="Open the Wells &amp; Tops panel">
@@ -342,8 +373,44 @@
               </button>
               <span class="ribbon-group-caption">Machine Learning</span>
             </div>
+            <!-- Core photographs are an interpretation method, not a data-management chore:
+                 conditioning the picture, reading CPHOTO_DARK/RED/TEX off it and stacking
+                 depth strips all produce evidence. They sit with the other in-house methods. -->
             <div class="ribbon-group">
               <div class="ribbon-btn-row">
+                <button id="condition-core-btn" class="ribbon-btn" title="Straighten, crop and colour-correct a core slab photograph, and have the app measure what it needs and say why — judged on the picture, and always reversible">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2.5" y="4.5" width="15" height="11" rx="1.5"/>
+                    <path d="M2.5 12.5 6.5 9l3 2.5L13 7.5l4.5 4"/>
+                    <circle cx="6.5" cy="7.5" r="1.1" fill="currentColor" stroke="none"/>
+                  </svg>
+                  <span class="ribbon-label">Core Photos…</span>
+                </button>
+                <!-- Its own tool, not a section of the conditioning workspace (Jauhar, 2026-08-01):
+                     conditioning is done once per delivery and finished, a trace is read, checked
+                     against GR, re-laid-out and read again. -->
+                <button id="core-trace-btn" class="ribbon-btn" title="Read CPHOTO darkness/redness/texture down the core and build depth strips. Handles a packed core-display plate: detect the columns, give each barrel its own depths.">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2.5" y="3" width="4" height="14" rx="1"/>
+                    <path d="M10 3.5c1.6 1.8-1.6 3.4 0 5.2s-1.6 3.4 0 5.2 -1.6 2.1 0 2.6"/>
+                    <path d="M14.5 3.5c1.6 1.8-1.6 3.4 0 5.2s-1.6 3.4 0 5.2 -1.6 2.1 0 2.6"/>
+                  </svg>
+                  <span class="ribbon-label">Photo Log…</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Core Imaging</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+              <button id="plate-condition-btn" class="ribbon-btn" title="Straighten, crop and colour-correct thin sections — the same workspace the core photographs use. What you apply here is what Pore Area measures.">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="2.5" y="3.5" width="15" height="13" rx="1.5"/>
+                  <path d="M2.5 9h15" stroke-dasharray="2 2"/>
+                  <circle cx="6.5" cy="6.5" r="1.6"/>
+                  <path d="M11 12.5h5M11 14.5h3.5" stroke-linecap="round"/>
+                </svg>
+                <span class="ribbon-label">Condition Plates…</span>
+              </button>
               <button id="pore-area-btn" class="ribbon-btn" title="Pore area from blue-dyed epoxy on thin sections. Dimensionless, so it needs no scale — only plates declared as impregnated.">
                 <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
                   <rect x="2.5" y="3.5" width="15" height="13" rx="1.5"/>
@@ -373,6 +440,14 @@
                   <circle cx="14.5" cy="5.5" r="1.3" fill="currentColor" stroke="none"/>
                 </svg>
                 <span class="ribbon-label">Plug QC…</span>
+              </button>
+              <button id="plate-details-btn" class="ribbon-btn" title="Re-register pictures already imported — shift a whole delivery, or correct one plate's depth, scale, preparation or stain (undoable)">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2.5" y="4" width="10" height="12" rx="1.5"/>
+                  <path d="M5 8h5M5 11h5M5 14h3"/>
+                  <path d="M15.5 6v8M14 7.5 15.5 6 17 7.5M14 12.5 15.5 14 17 12.5"/>
+                </svg>
+                <span class="ribbon-label">Plate Details…</span>
               </button>
               </div>
               <span class="ribbon-group-caption">Petrography</span>
@@ -462,6 +537,18 @@
                     <path d="M7 7l6 2M7 12l6 1" stroke-linecap="round" stroke-dasharray="2 1.5"/>
                   </svg>
                   <span class="ribbon-label">Correlation</span>
+                </button>
+                <!-- Beside Correlation because that is where a contact is picked and read, and it
+                     is a PANE so it can sit open next to the panel it is about. -->
+                <button id="fluid-contacts-btn" class="ribbon-btn" title="Every fluid contact in the project: the markers it governs, its compartment, and whether the wells sharing it agree on one surface — plus whether the FWL you picked is the one a saturation-height run computes from">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                    <path d="M2.5 7.5h15"/>
+                    <path d="M2.5 12.5h15" stroke-dasharray="2.5 2"/>
+                    <path d="M5 4.5v11M15 4.5v11" stroke-width="1"/>
+                    <circle cx="5" cy="7.5" r="1.4" fill="currentColor" stroke="none"/>
+                    <circle cx="15" cy="7.5" r="1.4" fill="currentColor" stroke="none"/>
+                  </svg>
+                  <span class="ribbon-label">Fluid Contacts…</span>
                 </button>
               </div>
               <span class="ribbon-group-caption">Multi-Well</span>

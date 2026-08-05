@@ -10,11 +10,16 @@ import {
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { pushUndo } from "../undo";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 import { buildPlateDetails } from "./plateDetails";
 import { openScaleBarDialog, scaleBarAppliedToAll } from "./scaleBarDialog";
 
-/** Plate depth, scale and preparation editing (Data ▸ Tools ▾ ▸ Plate Details…).
+/** Plate depth, scale and preparation editing (Advance ▸ Petrography ▸ Plate Details…).
+ *
+ *  A dock PANE, not a popup. This is a table worked through plate by plate against the delivery
+ *  itself — a scale measured off one plate's bar, a preparation corrected on another — and the
+ *  scale-bar measurement opens from a row, so the table has to survive it. Standing rule from
+ *  Jauhar (2026-08-01): tools open as working panes.
  *
  *  `update_well_image` has existed and been tested since the image track shipped, and nothing
  *  called it: a thin section delivered at the wrong depth could only be corrected by deleting the
@@ -32,17 +37,17 @@ import { openScaleBarDialog, scaleBarAppliedToAll } from "./scaleBarDialog";
  *  exception. It is also the only practical form: a core-photograph delivery is routinely hundreds
  *  of plates.
  */
-export async function openPlateDepthDialog(): Promise<void> {
+export async function buildPlateDetailsContent(): Promise<{ el: HTMLElement }> {
   const well = appState.selectedWell.get();
   const wrap = document.createElement("div");
-  openModal(well ? `Plates — ${well.well_name}` : "Plates", wrap, 900);
+  wrap.className = "module-pane";
 
   if (!well) {
     const none = document.createElement("div");
     none.className = "eq-note";
-    none.textContent = "Select a well in the Wells pane first.";
+    none.textContent = "Select a well in the Wells pane first — plates are edited one well at a time.";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   const intro = document.createElement("div");
@@ -73,7 +78,7 @@ export async function openPlateDepthDialog(): Promise<void> {
     none.style.color = "var(--warn)";
     none.textContent = "This well has no pictures yet. Import some with Data ▸ Import ▸ Images…";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   // ---- bulk shift ---------------------------------------------------------
@@ -391,4 +396,5 @@ export async function openPlateDepthDialog(): Promise<void> {
 
   dsSel.addEventListener("change", () => void refresh());
   await refresh();
+  return { el: wrap };
 }

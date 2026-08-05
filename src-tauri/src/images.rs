@@ -112,6 +112,25 @@ pub fn sniff(bytes: &[u8]) -> Option<RasterMeta> {
         };
         return Some(RasterMeta { mime: "image/webp", width: w, height: h, components: 0 });
     }
+    if bytes.len() >= 44 && bytes[0..4] == [1, 0, 0, 0] && &bytes[40..44] == b" EMF" {
+        // Enhanced metafile — how a petrography laboratory delivers a vector-illustrated plate
+        // book. The four-byte record type is far too weak a magic on its own, so the signature
+        // at offset 40 is what identifies it.
+        //
+        // `rclBounds` is the bounding rectangle in DEVICE units and is inclusive, so a picture
+        // 1103 pixels across reads 0..1102. Pillow does the decoding (Windows GDI); reading the
+        // size here is what lets a decoration be told from a plate before anything is decoded.
+        let l = le32(bytes, 8) as i32;
+        let t = le32(bytes, 12) as i32;
+        let r = le32(bytes, 16) as i32;
+        let b = le32(bytes, 20) as i32;
+        return Some(RasterMeta {
+            mime: "image/emf",
+            width: (r - l + 1).max(0) as u32,
+            height: (b - t + 1).max(0) as u32,
+            components: 0,
+        });
+    }
     if bytes.len() >= 8 && (bytes.starts_with(b"II\x2a\x00") || bytes.starts_with(b"MM\x00\x2a")) {
         // TIFF dimensions live in IFD tags that can sit anywhere in the file; Pillow reads
         // them. Recognising the format is still worth it so the wizard can say "needs
@@ -464,7 +483,8 @@ pub const MIN_PLATE_PX: u32 = 400;
 pub const WORKBOOK_HEADER_ROWS: u32 = 14;
 
 const WORKBOOK_RUNNER: &str = r#"
-import sys, json, os, re, io
+import sys, json, os, re, io, zipfile, posixpath
+import xml.etree.ElementTree as ET
 
 try:
     import openpyxl
@@ -483,13 +503,15 @@ os.makedirs(out_dir, exist_ok=True)
 # A DEPTH IS A NUMBER WITH A UNIT ON IT. Never a bare number: the same header block carries the
 # plate number and the plug number, and on this delivery the depth cell reads "4633.50 FT/ 108" -
 # taking the bare number would be a coin toss between a depth and a plug. Absent means absent.
-DEPTH = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b", re.I)
+#
+# The number may be written with EITHER decimal separator - see as_number below.
+NUM = r"[0-9]+(?:[.,][0-9]+)*"
+DEPTH = re.compile(r"(%s)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b" % NUM, re.I)
 # A range in one cell: "4626.00 - 4641.00 FT".
 RANGE = re.compile(
-    r"([0-9]+(?:\.[0-9]+)?)\s*[-–]\s*([0-9]+(?:\.[0-9]+)?)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b",
-    re.I,
+    r"(%s)\s*[-–]\s*(%s)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b" % (NUM, NUM), re.I
 )
-MAG = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*[xX]\s*$")
+MAG = re.compile(r"^\s*(%s)\s*[xX]\s*$" % NUM)
 
 FT = ("FT", "FEET", "FEE T")
 
@@ -499,6 +521,47 @@ def unit_of(tok):
     return "ft" if t.startswith("F") else "m"
 
 
+def as_number(tok):
+    """One depth, written under either decimal convention.
+
+    `4633.50 FT` and `7016,54 FT` are the same statement made by two people in the SAME delivery -
+    18 of one book's 129 sheets used the comma. Reading only the dot convention did not FAIL on
+    those, which is what made it dangerous: the comma split the number, `7016` was discarded for
+    carrying no unit, and `54 FT` matched instead, so the plate was stored at 54 feet on rock cored
+    at 7,000. A plausible shallow depth on entirely the wrong sand.
+
+    Same family as read_text_file's encoding rule: bytes must be interpreted rather than assumed,
+    and so must numbers.
+
+    Returns (value, ambiguous). `ambiguous` is set only where the token could honestly be read
+    either way; the caller REPORTS it rather than resolving it silently.
+    """
+    dot, comma = tok.rfind("."), tok.rfind(",")
+    if dot >= 0 and comma >= 0:
+        # Both appear, so one is grouping and the other is the decimal point, and the RIGHTMOST is
+        # the decimal. That is true of `1,234.56` and of `1.234,56` alike and needs no guess about
+        # which locale typed it.
+        dec, group = (".", ",") if dot > comma else (",", ".")
+        return float(tok.replace(group, "").replace(dec, ".")), False
+    sep = "." if dot >= 0 else ("," if comma >= 0 else None)
+    if sep is None:
+        return float(tok), False
+    parts = tok.split(sep)
+    if len(parts) > 2:
+        # `1.234.567` - a number has one decimal point, so every separator here is grouping.
+        return float("".join(parts)), False
+    # ONE separator. It can only be grouping if the token is VALIDLY grouped: 1-3 digits, then
+    # exactly 3. `7016,54` is not (two digits follow) so it reads as a decimal, which is the fix
+    # this delivery needed; `4633.500` is not either (four digits lead), so three decimal places
+    # still read as three decimal places rather than becoming 4,633,500.
+    if not (len(parts[0]) <= 3 and len(parts[1]) == 3):
+        return float(parts[0] + "." + parts[1]), False
+    # `1,234` could be one thousand two hundred and thirty-four, or 1.234, and nothing in the token
+    # says which. Read as a DECIMAL, because the wrong answer is then ABSURD (1.234 ft) rather than
+    # plausible (1234 ft) - an absurd depth gets looked at, a plausible one gets used. Reported.
+    return float(parts[0] + "." + parts[1]), True
+
+
 def scan(ws, max_rows):
     """Depth, unit and magnification from one plate sheet.
 
@@ -506,6 +569,7 @@ def scan(ws, max_rows):
     search invites a stray number further down the sheet. The magnification is looked for over the
     WHOLE sheet, because it is captioned under each panel rather than in the header."""
     depth = base = unit = None
+    unsure = []
     for row in ws.iter_rows(min_row=1, max_row=max_rows):
         for c in row:
             if c.value is None:
@@ -513,11 +577,16 @@ def scan(ws, max_rows):
             t = str(c.value)
             m = RANGE.search(t)
             if m:
-                depth, base, unit = float(m.group(1)), float(m.group(2)), unit_of(m.group(3))
+                depth, a = as_number(m.group(1))
+                base, b = as_number(m.group(2))
+                unit = unit_of(m.group(3))
+                unsure = [g for g, f in ((m.group(1), a), (m.group(2), b)) if f]
                 break
             m = DEPTH.search(t)
             if m:
-                depth, unit = float(m.group(1)), unit_of(m.group(2))
+                depth, a = as_number(m.group(1))
+                unit = unit_of(m.group(2))
+                unsure = [m.group(1)] if a else []
                 break
         if depth is not None:
             break
@@ -533,7 +602,85 @@ def scan(ws, max_rows):
     # which without guessing from where the caption sits, and a magnification on the wrong plate is
     # worse than none.
     mag = next(iter(mags)) if len(mags) == 1 else None
-    return depth, base, unit, mag, sorted(mags)
+    return depth, base, unit, mag, sorted(mags), unsure
+
+
+REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+
+
+def _resolve(base_dir, target):
+    """A relationship Target, which may be package-absolute or relative to its own part."""
+    if target.startswith("/"):
+        return target.lstrip("/")
+    return posixpath.normpath(posixpath.join(base_dir, target))
+
+
+def _rels(zf, part):
+    """{Id: (Type, resolved target)} for one part, or {} when it has no relationships."""
+    name = posixpath.join(posixpath.dirname(part), "_rels", posixpath.basename(part) + ".rels")
+    try:
+        root = ET.fromstring(zf.read(name))
+    except Exception:
+        return {}
+    base = posixpath.dirname(part)
+    out = {}
+    for r in root:
+        rid, typ, tgt = r.get("Id"), r.get("Type", ""), r.get("Target", "")
+        if rid and tgt and r.get("TargetMode") != "External":
+            out[rid] = (typ, _resolve(base, tgt))
+    return out
+
+
+def sheet_pictures(zf):
+    """{sheet name: [picture bytes, ...]} in anchor order, read from the PACKAGE.
+
+    openpyxl is the wrong tool for this half. It DROPS the picture formats it cannot decode -
+    WMF and EMF - with a warning that nothing downstream sees, so a delivery of vector plates
+    arrives as a workbook that simply appears to hold no pictures. That is a silent subset, and a
+    silent subset reads as a complete answer.
+
+    The bytes and the sheet association are both in the package, and unlike the old .xls the
+    association is EXPLICIT: workbook -> sheet part -> drawing part -> media part, each step a
+    relationship file. So openpyxl is left to do what it is good at - reading the cells the depth
+    is written in - and the pictures are read from the zip.
+    """
+    out = {}
+    try:
+        book = ET.fromstring(zf.read("xl/workbook.xml"))
+    except Exception:
+        return out
+    book_rels = _rels(zf, "xl/workbook.xml")
+    for sheets in book.iter():
+        if not sheets.tag.endswith("}sheets"):
+            continue
+        for sh in sheets:
+            name = sh.get("name")
+            rid = sh.get(REL_NS + "id")
+            if not name or rid not in book_rels:
+                continue
+            part = book_rels[rid][1]
+            blobs = []
+            for typ, tgt in _rels(zf, part).values():
+                if not typ.endswith("/drawing"):
+                    continue
+                try:
+                    dr = ET.fromstring(zf.read(tgt))
+                except Exception:
+                    continue
+                dr_rels = _rels(zf, tgt)
+                # Document order IS anchor order, which is the order the panels appear.
+                for blip in dr.iter():
+                    if not blip.tag.endswith("}blip"):
+                        continue
+                    embed = blip.get(REL_NS + "embed")
+                    if embed not in dr_rels:
+                        continue
+                    try:
+                        blobs.append(zf.read(dr_rels[embed][1]))
+                    except Exception:
+                        pass
+            out[name] = blobs
+    return out
 
 
 rows = []
@@ -545,19 +692,30 @@ for path in req["paths"]:
     except Exception as e:
         notes.append("%s: cannot be read (%s)" % (os.path.basename(path), e))
         continue
+    try:
+        pics = sheet_pictures(zipfile.ZipFile(path))
+    except Exception as e:
+        notes.append("%s: pictures cannot be read (%s)" % (os.path.basename(path), e))
+        pics = {}
     units = set()
     mags = set()
     n_sheets = 0
+    bare = 0
     for sname in wb.sheetnames:
         ws = wb[sname]
-        imgs = list(getattr(ws, "_images", []))
+        imgs = pics.get(sname, [])
         if not imgs:
+            bare += 1
             continue
         n_sheets += 1
-        depth, base, unit, mag, sheet_mags = scan(ws, req.get("header_rows", 14))
+        depth, base, unit, mag, sheet_mags, unsure = scan(ws, req.get("header_rows", 14))
         if unit:
             units.add(unit)
         mags.update(sheet_mags)
+        for tok in unsure:
+            # Read as a decimal and SAID so, rather than resolved silently either way.
+            notes.append("sheet %s: depth written %s - read as a decimal point; if that separator "
+                         "meant thousands the depth is %s" % (sname, tok, tok.replace(",", "").replace(".", "")))
         if len(sheet_mags) > 1:
             notes.append("sheet %s: states %s - no magnification attached, it cannot be told which "
                          "picture is which" % (sname, " and ".join(sheet_mags)))
@@ -567,12 +725,8 @@ for path in req["paths"]:
         # because only the user can say which is which.
         kept = 0
         dropped = 0
-        for im in imgs:
-            try:
-                blob = im._data()
-            except Exception:
-                continue
-            if blob is None:
+        for blob in imgs:
+            if not blob:
                 continue
             # A workbook holds DECORATIONS as well as plates: scale-bar graphics, logos, north
             # arrows, the laboratory's letterhead. The floor is in PIXELS rather than bytes because
@@ -615,6 +769,11 @@ for path in req["paths"]:
             notes.append("sheet %s: no depth in the header - a bare number is not read as one" % sname)
     if n_sheets == 0:
         notes.append("%s: no worksheet carries a picture" % os.path.basename(path))
+    elif bare:
+        # A cover sheet or a summary table legitimately holds no picture. Said once per file
+        # rather than once per sheet: it is a tally, not a fault, but a delivery whose plates
+        # failed to come through would show up here as a large number.
+        notes.append("%s: %d worksheet(s) hold no picture" % (os.path.basename(path), bare))
     if len(units) > 1:
         notes.append("%s: sheets state more than one depth unit (%s)" % (
             os.path.basename(path), ", ".join(sorted(units))))
@@ -644,6 +803,20 @@ sys.stdout.write(json.dumps({"rows": rows, "notes": notes}))
 /// beside a stated fact is a bug waiting to happen. It is also read only where a UNIT follows it,
 /// because the same header carries the plate number and the plug number — on a real delivery the
 /// cell reads `4633.50 FT/ 108`, and taking the bare number would be a coin toss.
+///
+/// **That number is read under EITHER decimal convention.** One delivered book wrote 103 of its
+/// sheets `6980.71 FT` and 18 of them `7016,54 FT` — one laboratory, one report, two people. The
+/// comma reading did not fail: it split the number, `7016` was dropped for carrying no unit and
+/// `54 FT` matched instead, so a seventh of the delivery was stored at 54 feet on rock cored at
+/// 7,000. A plausible shallow depth on entirely the wrong sand, which is the failure this module
+/// exists to refuse. See the runner's `as_number`; the same family as `parsers::read_text_file`,
+/// where bytes must be interpreted rather than assumed.
+///
+/// **Known limit, found on the same delivery and deliberately not patched around.** One sheet in
+/// 129 writes `7033,50/354 FT (CORE)`, putting the unit on the PLUG number rather than the depth,
+/// and reads 354 ft. Every rule that would fix it breaks a commoner shape — "prefer the first
+/// number" misreads `PLATE 12, DEPTH 4633.50 FT` — so the defence stays the import wizard's
+/// editable table, where a 354 among 7,000s is visible before anything is stored.
 ///
 /// **A magnification is not a field of view and is never converted into one.** Turning `10x` into
 /// micrometres needs the camera sensor width and the tube factor, both properties of the
@@ -1179,7 +1352,84 @@ mod workbook_tests {
         assert!(!src.contains("fov_um"), "a magnification must never be turned into a field of view");
         // stdin.buffer, never stdin - the standing rule for every runner in this repo.
         assert!(src.contains("sys.stdin.buffer"), "a piped child's text stdin is cp1252 here");
+        // ...and the number carrying that unit accepts EITHER decimal separator. Asserted here as
+        // well as executed below, so a machine with no interpreter still notices if it goes.
+        assert!(
+            src.contains(r"[0-9]+(?:[.,][0-9]+)*"),
+            "a depth may be written 7016,54 as readily as 7016.54"
+        );
     }
+
+    /// A depth written with a comma decimal is ONE number, not two.
+    ///
+    /// Found on a real delivery: 18 of one book's 129 plate sheets wrote the depth the Indonesian
+    /// way, `7016,54 FT`, alongside 103 that wrote `6980.71 FT`. Reading only the dot convention did
+    /// not FAIL on them, which is what made it dangerous — the comma split the number, `7016` was
+    /// discarded for carrying no unit, and `54 FT` matched instead, so those plates were stored at
+    /// 54 feet on rock cored at 7,000. A plausible shallow depth on entirely the wrong sand.
+    ///
+    /// Same family as `parsers::read_text_file`'s encoding rule: bytes must be interpreted rather
+    /// than assumed, and so must numbers.
+    ///
+    /// EXECUTED rather than asserted against the source, because the rule is real arithmetic and a
+    /// source match would keep passing over a regex that no longer works. It needs only the Python
+    /// standard library — the number section is sliced out ahead of the runner's openpyxl import —
+    /// and skips with a printed reason where there is no interpreter at all, the `field_fixtures`
+    /// pattern, so a fresh clone stays green.
+    #[test]
+    fn a_comma_decimal_depth_is_read_as_one_number_not_two() {
+        let Some(python) = find_python() else {
+            eprintln!("skipped: no python interpreter on this machine");
+            return;
+        };
+        let after = WORKBOOK_RUNNER.split("NUM = ").nth(1).expect("the number section");
+        let defs = &after[..after.find("def scan(").expect("scan follows the number section")];
+        let script = String::from("import re\nNUM = ") + defs + DRIVER;
+
+        let out = Command::new(&python)
+            .args(["-c", &script])
+            .output()
+            .expect("failed to run python");
+        assert!(
+            out.status.success() && String::from_utf8_lossy(&out.stdout).contains("OK"),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Drives the runner's own `as_number`, `DEPTH` and `RANGE` over both decimal conventions.
+    const DRIVER: &str = r#"
+CASES = [
+    (":  7016,54 FT / 337", 7016.54, "ft"),   # the delivery that found this
+    (": 6980.71 FT/ 301",   6980.71, "ft"),   # ...and the 103 sheets beside it, unchanged
+    ("4633.500 FT",          4633.5, "ft"),   # three decimals stay three decimals
+    ("4633,500 FT",          4633.5, "ft"),   # ...under either convention
+    ("4,633.50 FT",          4633.5, "ft"),   # both separators: the rightmost is the decimal
+    ("4.633,50 FT",          4633.5, "ft"),   # ...whichever locale typed it
+    ("1.234.567 M",       1234567.0,  "m"),   # more than one separator is grouping
+    ("6980 FT",             6980.0,  "ft"),
+    ("2145,75 M",           2145.75,  "m"),
+]
+for text, want, unit in CASES:
+    m = DEPTH.search(text)
+    assert m, "no depth found in %r" % text
+    got, _ = as_number(m.group(1))
+    assert abs(got - want) < 1e-6, "%r read as %s, wanted %s" % (text, got, want)
+    assert unit_of(m.group(2)) == unit, "%r read the wrong unit" % text
+
+# `1,234` could honestly be either. Read as a DECIMAL, because the wrong answer is then absurd
+# (1.234 ft) rather than plausible (1234 ft) - and FLAGGED, so the caller can say so.
+v, unsure = as_number("1,234")
+assert unsure, "an honestly ambiguous separator must be reported"
+assert abs(v - 1.234) < 1e-9, v
+
+# A range in one cell, comma decimals throughout.
+m = RANGE.search("4626,00 - 4641,00 FT")
+assert m, "the range regex must accept comma decimals too"
+assert (as_number(m.group(1))[0], as_number(m.group(2))[0]) == (4626.0, 4641.0)
+
+print("OK")
+"#;
 
     /// The decoration floor is in PIXELS and round — the `min_pore_px` argument. A workbook carries
     /// scale-bar graphics and letterheads anchored beside the plates; on a real delivery those ran
@@ -1189,6 +1439,62 @@ mod workbook_tests {
         assert_eq!(MIN_PLATE_PX % 100, 0, "a round number, not somebody's tuned threshold");
         assert!(MIN_PLATE_PX >= 200 && MIN_PLATE_PX <= 800);
         assert!(WORKBOOK_HEADER_ROWS >= 5 && WORKBOOK_HEADER_ROWS <= 40);
+    }
+
+    /// The pictures come from the PACKAGE, never from openpyxl's own list.
+    ///
+    /// openpyxl DROPS the formats it cannot decode — WMF and EMF — with a warning nothing
+    /// downstream sees. A delivered book of vector plates then arrives as a workbook that
+    /// appears to hold no pictures at all, which is a silent subset, and a silent subset reads as
+    /// a complete answer. Reading the zip is what makes that impossible rather than merely
+    /// reported.
+    #[test]
+    fn the_workbook_reader_takes_its_pictures_from_the_package_not_from_openpyxl() {
+        let src = WORKBOOK_RUNNER;
+        assert!(src.contains("def sheet_pictures("), "the package reader is gone");
+        assert!(
+            !src.contains("_images"),
+            "openpyxl's own picture list is back — it silently drops WMF and EMF"
+        );
+        // The association is what makes this safe and the old .xls unsafe: every step of
+        // workbook -> sheet -> drawing -> media is an explicit relationship file.
+        assert!(src.contains("xl/workbook.xml"));
+        assert!(src.contains("_rels"));
+        // A worksheet holding nothing is counted rather than skipped in silence.
+        assert!(src.contains("hold no picture"));
+    }
+
+    /// An EMF plate must be RECOGNISED, or the importer calls a delivered plate an unreadable file.
+    ///
+    /// The four-byte record type is far too weak a magic on its own — plenty of files begin with a
+    /// little-endian 1 — so the ` EMF` signature at offset 40 is what identifies it. `rclBounds`
+    /// is inclusive, so a picture 1103 device units across reads 0..1102.
+    #[test]
+    fn an_enhanced_metafile_plate_is_recognised_rather_than_called_unreadable() {
+        let mut v = vec![0u8; 88];
+        v[0] = 1; // iType = EMR_HEADER
+        let put = |v: &mut Vec<u8>, at: usize, n: i32| {
+            v[at..at + 4].copy_from_slice(&n.to_le_bytes());
+        };
+        put(&mut v, 8, 0); // rclBounds left
+        put(&mut v, 12, 0); // top
+        put(&mut v, 16, 1102); // right, inclusive
+        put(&mut v, 20, 791); // bottom, inclusive
+        v[40..44].copy_from_slice(b" EMF");
+
+        let m = sniff(&v).expect("an EMF is a recognised delivery format");
+        assert_eq!(m.mime, "image/emf");
+        assert_eq!(m.width, 1103);
+        assert_eq!(m.height, 792);
+        // It is not something the WebView can draw, so without Pillow the importer must say so by
+        // name rather than store a plate nothing can display.
+        assert!(!browser_decodable(m.mime));
+
+        // The control: the same leading bytes without the signature are NOT an EMF. Without this
+        // the check would claim any file starting with a little-endian 1.
+        let mut fake = v.clone();
+        fake[40..44].copy_from_slice(b"junk");
+        assert!(sniff(&fake).is_none(), "the record type alone is not enough to claim EMF");
     }
 }
 

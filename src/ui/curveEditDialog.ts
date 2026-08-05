@@ -73,6 +73,15 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
   opSel.addEventListener("change", syncVisibility);
   syncVisibility();
 
+  // Refusing a bad field HERE rather than in the status bar, for the `needWell.ts` reason: the
+  // user is looking at this dialog, and a message in a corner of the window is one they will not
+  // read before clicking Apply again.
+  const errEl = document.createElement("div");
+  errEl.className = "form-hint";
+  errEl.style.color = "var(--warn)";
+  errEl.style.display = "none"; // not the `hidden` attribute — a `display` rule would beat it
+  content.appendChild(errEl);
+
   const applyBtn = document.createElement("button");
   applyBtn.className = "lp-btn";
   applyBtn.textContent = "Apply";
@@ -85,10 +94,37 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
       const op = opSel.value as CurveEditRequest["op"];
       // `x || 0` lets a non-finite through (Infinity is truthy — "1e999" or "Infinity" would set
       // the constant to +Inf and poison catalog min/max + plot autoscale). Require finite.
+      //
+      // But narrowing to finite only fixed the Infinity half, and the surviving half is worse:
+      // an empty or unparseable field falls back to the default, and for three of these fields
+      // 0 is NOT the identity (`docs/review_triage.md` finding 19). `1e999` stopped writing +Inf
+      // and started writing 0.0 — a perfectly finite number that clears the backend's own guard
+      // and lands on the log as a real reading. 0.0 gAPI over an interval does not look like an
+      // error; it looks like a measurement of very clean rock. An empty Top is the same trap by a
+      // different route: it does not mean "no interval", it means from surface.
+      //
+      // `mul` (1) and `add` (0) keep the fallback — there the default really is the identity, so
+      // the worst case is an op that does nothing and says so.
       const num = (s: string, dflt = 0): number => {
         const v = parseFloat(s);
         return Number.isFinite(v) ? v : dflt;
       };
+      const REQUIRED: Partial<Record<keyof typeof rows, [HTMLInputElement, string]>> = {
+        top: [topInput, "Top (m)"],
+        bottom: [bottomInput, "Bottom (m)"],
+        value: [valueInput, "Value"],
+      };
+      const missing = VISIBLE[op]
+        .map((k) => REQUIRED[k])
+        .filter((f): f is [HTMLInputElement, string] => !!f && !Number.isFinite(parseFloat(f[0].value)));
+      if (missing.length > 0) {
+        const labels = missing.map(([, label]) => label);
+        errEl.textContent = `${labels.join(" and ")} need${labels.length > 1 ? "" : "s"} a number — nothing was written.`;
+        errEl.style.display = "";
+        missing[0][0].focus();
+        return;
+      }
+      errEl.style.display = "none";
       const req: CurveEditRequest = {
         well_id: wellId,
         curve: curveName,

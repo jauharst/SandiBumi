@@ -10,12 +10,19 @@ import {
   type ImageInfo,
   type PlateLabel,
 } from "../ipc";
+import { buildPlateStrip } from "./plateStrip";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { faciesColor } from "./plotCanvas";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 
 /** Mineral classifier from your own point counts (Petrophysics ▸ Petrography ▸ Mineral Classifier…).
+ *
+ *  A dock PANE, not a popup. Point counting is not a thing you do once and dismiss — you work
+ *  through a delivery plate by plate, and you need the Wells pane and the plate's own tracks
+ *  reachable while you do it. A modal covers the workspace and cannot be left open beside it.
+ *  Standing rule from Jauhar (2026-08-01): tools open as working panes; a popup only where he
+ *  asks for one.
  *
  *  Quartz against feldspar in plane light is not a colour problem, and any code claiming otherwise
  *  produces numbers with the shape of a modal analysis and none of the content. So there is no
@@ -30,17 +37,17 @@ import { formRow, openModal } from "./modal";
  *  refitted from them, seeded, on every run. A stored model blob cannot be read, argued with, or
  *  corrected; a list of clicks can be all three, and the answer stays reproducible from it.
  */
-export async function openMineralClassDialog(): Promise<void> {
+export async function buildMineralClassContent(): Promise<{ el: HTMLElement; dispose?: () => void }> {
   const well = appState.selectedWell.get();
   const wrap = document.createElement("div");
-  openModal(well ? `Mineral classifier — ${well.well_name}` : "Mineral classifier", wrap, 900);
+  wrap.className = "module-pane";
 
   if (!well) {
     const none = document.createElement("div");
     none.className = "eq-note";
     none.textContent = "Select a well in the Wells pane first — plates are classified one well at a time.";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   const intro = document.createElement("div");
@@ -59,7 +66,7 @@ export async function openMineralClassDialog(): Promise<void> {
       "This needs numpy, Pillow, scipy and scikit-learn in the Python the app uses " +
       "(pip install numpy pillow scipy scikit-learn). Nothing else in the app is affected.";
     wrap.appendChild(warn);
-    return;
+    return { el: wrap };
   }
 
   const dsSel = document.createElement("select");
@@ -78,7 +85,7 @@ export async function openMineralClassDialog(): Promise<void> {
     none.style.color = "var(--warn)";
     none.textContent = "This well has no pictures. Import some with Data ▸ Import ▸ Images…";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   // ---- classes ------------------------------------------------------------
@@ -169,6 +176,7 @@ export async function openMineralClassDialog(): Promise<void> {
     labels.push({ image_id: plateSel.value, x, y, mineral: minerals[active] });
     drawDots();
     drawClasses();
+    countLabels();
   });
 
   let objectUrl: string | null = null;
@@ -189,6 +197,20 @@ export async function openMineralClassDialog(): Promise<void> {
     drawDots();
   };
 
+  // The delivery as PICTURES, and each tile carrying its own click count. Point counting means
+  // moving through a delivery plate by plate, and "which ones have I done" is the question a list
+  // of filenames cannot answer — you would have to open each one to find out.
+  const filmstrip = buildPlateStrip((id) => {
+    plateSel.value = id;
+    filmstrip.mark(id);
+    void loadPlate();
+  });
+  const countLabels = (): void =>
+    filmstrip.annotate((p) => {
+      const n = labels.filter((l) => l.image_id === p.image_id).length;
+      return n ? `${n} click${n > 1 ? "s" : ""}` : null;
+    });
+
   const loadPlates = async (): Promise<void> => {
     plates = await listWellImages(well.well_id, dsSel.value).catch(() => [] as ImageInfo[]);
     plateSel.textContent = "";
@@ -199,6 +221,9 @@ export async function openMineralClassDialog(): Promise<void> {
       plateSel.appendChild(o);
     }
     if (plates.length) plateSel.value = plates[0].image_id;
+    filmstrip.load(plates);
+    filmstrip.mark(plateSel.value);
+    countLabels();
     await loadPlate();
   };
 
@@ -221,13 +246,23 @@ export async function openMineralClassDialog(): Promise<void> {
     active = 0;
     drawClasses();
     drawDots();
+    // The counts come from the labels, which load AFTER the strip is built — so the strip is
+    // re-annotated here rather than only when a click is placed, or a delivery reopened would show
+    // every tile as uncounted.
+    countLabels();
   };
 
   dsSel.addEventListener("change", () => {
     void loadPlates().then(loadLabels);
   });
-  plateSel.addEventListener("change", () => void loadPlate());
-  wrap.appendChild(formRow("Label on plate", plateSel, "Click anywhere on the picture to place a label."));
+  plateSel.addEventListener("change", () => {
+    filmstrip.mark(plateSel.value);
+    void loadPlate();
+  });
+  wrap.appendChild(filmstrip.el);
+  wrap.appendChild(
+    formRow("Label on plate", plateSel, "Or click one in the strip above. Then click anywhere on the picture to place a label.")
+  );
   wrap.appendChild(stage);
   await loadPlates();
   await loadLabels();
@@ -405,4 +440,14 @@ export async function openMineralClassDialog(): Promise<void> {
   saveBtn.addEventListener("click", () => void go(true));
 
   drawClasses();
+  // The filmstrip holds an IntersectionObserver and one object URL per thumbnail it has fetched —
+  // a delivery is hundreds of plates — and the big plate holds one more. As a popup there was no
+  // hook to release them from; the pane has one.
+  return {
+    el: wrap,
+    dispose: () => {
+      filmstrip.dispose();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    },
+  };
 }

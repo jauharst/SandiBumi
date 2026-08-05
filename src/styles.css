@@ -10,23 +10,51 @@
 }
 
 /* --------------------------------------------------------------------------
+   Bundled display + body faces ("Organic" redesign, 2026-08-01).
+   Self-hosted, never fetched at runtime: a field machine can be offline, so a
+   Google Fonts @import would silently fall back to Segoe on exactly the
+   machines client work happens on. figtree-var.woff2 is the VARIABLE font
+   (one file serves 300–900); Caprasimo ships in its only weight, 400.
+   -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Caprasimo";
+  src: url("/fonts/caprasimo-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Figtree";
+  src: url("/fonts/figtree-var.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* --------------------------------------------------------------------------
    Theme variables
    -------------------------------------------------------------------------- */
 
 :root {
-  --bg-app: #f2ebdc;
-  --bg-panel: #fbf7ee;
-  --bg-panel-alt: #e9dfc8;
-  --bg-hover: #f1ddc4;
-  --border: #ddd0af;
-  --border-strong: #c2ac81;
-  --text: #332a1f;
-  --text-dim: #7c6b52;
-  --accent: #b5651d;
-  --accent-dim: #8f4d15;
-  --accent-soft: #f1ddc4;
-  --accent2: #5f7350;
-  --accent2-soft: #e2e8d5;
+  /* "Organic" default theme (design handoff 2026-08-01): cream ground,
+     white panel cards, terracotta accent + sage secondary. Values are read
+     from the handoff's organic-tokens.css ramps, never eyeballed:
+     border/border-strong = neutral-200/300, text-dim = neutral-600,
+     accent-dim = accent-700, the -soft pair = the 100 tints. */
+  --bg-app: #f5ead8;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #efe9dc;
+  --bg-hover: #fff2eb;
+  --border: #eee7db;
+  --border-strong: #dcd3c4;
+  --text: #201e1d;
+  --text-dim: #82796a;
+  --accent: #c67139;
+  --accent-dim: #8c491a;
+  --accent-soft: #fff2eb;
+  --accent2: #7a8a5e;
+  --accent2-soft: #f0fae1;
   --warn: #a83e2c;
   /* Semantic QC status colours (pass / warn / fail) — deliberately NOT the brand
      --accent/--accent2/--warn tokens, so a client skin can never re-roll the meaning of the
@@ -35,10 +63,39 @@
   --qc-ok: #2e7d32;
   --qc-warn: #c07000;
   --qc-alert: #c62828;
-  --track-hd: #ece1c8;
+  --track-hd: #efe9dc;
+
+  /* ------------------------------------------------------------------
+     BRAND IDENTITY — theme-independent, and deliberately NOT --accent.
+     The wordmark was painted with --accent, so every client skin re-rolled
+     it: SandiBumi read Halliburton red on that theme and SLB blue on the
+     next. A skin recolours the APPLICATION, never the product's own mark —
+     a deliverable-adjacent screenshot that shows the operator's red as our
+     identity misattributes the software. This token must never appear in a
+     [data-theme] block, dark included: #c67139 clears 4.5:1 on the dark
+     ground, so one value genuinely serves every theme.
+     The logo mark carries its own baked cream tile (#F3D5B9 in the SVG),
+     which is what keeps the mark's own colours intact on any background —
+     it is rounded rather than removed, so it reads as an intentional logo
+     tile instead of a bare square on a non-cream skin.
+     ------------------------------------------------------------------ */
+  --brand: #c67139;
+
+  /* Plot-area surface (Organic design 1c): the shared PlotCanvas draws its
+     data area on the warm neutral with WHITE gridlines, so the plot reads as
+     a card-on-card. Follows each theme's own alt tint via var(); dark themes
+     override the gridline (white would glare on near-black). */
+  --plot-bg: var(--bg-panel-alt);
+  --plot-grid: #ffffff;
   /* Typography tokens (theme-independent unless a branded skin overrides them): every
-     canvas ctx.font and mono field derives from these, never from per-file literals. */
-  --font-canvas: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+     canvas ctx.font and mono field derives from these, never from per-file literals.
+     Organic redesign: Figtree is the body/UI face (Segoe stays as the fallback until
+     the woff2 is parsed); Caprasimo is the DISPLAY face and is reserved for the brand
+     wordmark, screen/dialog titles and KPI numerals — never data cells, axis labels
+     or track headers (design handoff rule). */
+  --font-heading: "Caprasimo", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-canvas: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Code", Consolas, monospace;
 
   /* ------------------------------------------------------------------
@@ -52,12 +109,15 @@
      invisible on near-black.
      ------------------------------------------------------------------ */
 
-  /* Corner radius — 3 steps + a pill. Semantic, not by size:
-     sm = swatches/dots/dense inline controls, md = buttons/inputs/boxes,
-     lg = floating surfaces (dialogs, menus), pill = chips and badges. */
+  /* Corner radius — 4 steps + a pill. Semantic, not by size:
+     sm = swatches/dots/dense inline controls, md = boxes/dense menus,
+     lg = panel cards + floating surfaces, xl = dialogs, pill = chips,
+     buttons, ribbon tabs and segmented controls (Organic shape language —
+     theme-INDEPENDENT: the client skins recolor but never reshape). */
   --r-sm: 3px;
   --r-md: 5px;
-  --r-lg: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
   --r-pill: 999px;
 
   /* Spacing — 2px base, matching the existing dense petrophysics rhythm. */
@@ -68,13 +128,16 @@
   --s-5: 12px;
   --s-6: 16px;
 
-  /* Type scale — no half-pixel steps. */
+  /* Type scale — no half-pixel steps. 2xl is the Organic screen-title size
+     (Caprasimo surfaces); the handoff's 11.5px table cells land on --fs-sm,
+     inside its stated 11–12.5px data-grid range. */
   --fs-2xs: 9px;
   --fs-xs: 10px;
   --fs-sm: 11px;
   --fs-md: 12px;
   --fs-lg: 13px;
   --fs-xl: 16px;
+  --fs-2xl: 20px;
 
   /* Motion. Only PAINT properties are ever transitioned through these
      (background/border/colour/shadow) — never transform, width or
@@ -88,9 +151,11 @@
      literals — several tuned to the light theme's brown (51, 42, 31) and
      left unchanged on dark, where they read as a muddy halo. Tokenising
      lets each theme set its own. */
-  --el-1: 0 2px 8px rgba(51, 42, 31, 0.2); /* tooltips, small hover cards */
-  --el-2: 0 6px 18px rgba(51, 42, 31, 0.18); /* menus, popovers */
-  --el-3: 0 12px 40px rgba(51, 42, 31, 0.28); /* dialogs, floating panels */
+  /* Warm ink-tinted shadows tuned to the cream ground (organic-tokens
+     --shadow-sm/md/lg; the ink is the handoff's neutral-900 #2e2b25). */
+  --el-1: 0 1px 2px rgba(46, 43, 37, 0.14); /* tooltips, small hover cards */
+  --el-2: 0 3px 10px rgba(46, 43, 37, 0.16); /* menus, popovers */
+  --el-3: 0 12px 32px rgba(46, 43, 37, 0.22); /* dialogs, floating panels */
 
   /* One focus ring for everything. The pattern already existed on form
      fields (.field-row input:focus) but never reached buttons. */
@@ -107,6 +172,7 @@
 }
 
 :root[data-theme="dark"] {
+  --plot-grid: #3d3223;
   --bg-app: #1c1610;
   --bg-panel: #241d15;
   --bg-panel-alt: #2e2519;
@@ -141,6 +207,7 @@
      #ffffff (~2:1 contrast) in the Results-QC scorecard of a client deliverable.
      An explicit theme choice must ignore the OS preference entirely. */
   :root:not([data-theme]) {
+    --plot-grid: #3d3223;
     --bg-app: #1c1610;
     --bg-panel: #241d15;
     --bg-panel-alt: #2e2519;
@@ -314,7 +381,7 @@
    where box-shadows are dropped. */
 :where(button, [role="button"]):focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 /* Dialog entry. Opacity ONLY, no transform: the modal is drag-positioned
@@ -339,10 +406,10 @@ body {
   padding: 0;
   height: 100%;
   overflow: hidden;
-  /* "Segoe UI Variable Text" (Win 11) honors weight 500 for real; static Segoe UI
-     would snap 500 down to 400 and make this a no-op. Base weight raised for
+  /* Figtree is a variable font, so weight 500 renders as a true instance (the
+     reason "Segoe UI Variable Text" was chosen before it). Base weight raised for
      readability — de-emphasis now uses 400 explicitly, emphasis stays 600/700. */
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: var(--fs-md);
   font-weight: 500;
   color: var(--text);
@@ -369,6 +436,12 @@ body {
   min-height: 0;
   min-width: 0;
   position: relative;
+  /* Organic: panels float as white cards on the cream ground. The 7px gap
+     BETWEEN groups is the dockview theme's `gap` (workspace.ts); this padding
+     is the inset from the window edge. Tight on purpose — engineers on small
+     screens are the audience (design 1a). */
+  padding: 0 10px 8px;
+  background: var(--bg-app);
 }
 
 /* Blank content placeholder — shown only when every real content pane is closed, so the fixed
@@ -380,30 +453,186 @@ body {
   justify-content: center;
   background: var(--bg-app);
 }
-.canvas-empty {
+/* --- Start sheet (Organic design 1g), on the blank-canvas placeholder ------ */
+.start-sheet {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+  justify-content: center;
+  width: min(720px, 92%);
+  max-height: 92%;
+  user-select: none;
+}
+.start-side {
+  flex: 0 0 260px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  opacity: 0.4;
-  user-select: none;
-  text-align: center;
-  padding: 20px;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px 6px;
 }
-.canvas-logo {
-  filter: grayscale(0.2);
-  opacity: 0.7;
+.start-logo {
+  border-radius: 18px;
+  margin-bottom: 4px;
 }
-.canvas-hint {
+.start-wordmark {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 34px;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: var(--brand);
+}
+.start-desc {
   font-size: var(--fs-md);
   color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.start-action {
+  width: 200px;
+  padding: 7px 16px;
+  margin-bottom: 4px;
+}
+.start-recents {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 14px 16px;
+  overflow: auto;
+}
+.start-heading {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.start-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.start-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 5px 8px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  font-size: var(--fs-md);
+}
+.start-recent-row:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.start-recent-row:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.start-db-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: var(--bg-panel-alt);
+  color: var(--text-dim);
+}
+.start-recent-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.start-recent-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.start-recent-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.start-recent-tag {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  background: var(--accent2-soft);
+  color: color-mix(in srgb, var(--accent2) 70%, var(--text));
+}
+.start-empty {
+  font-size: var(--fs-md);
+  font-style: italic;
+  color: var(--text-dim);
+  padding: 8px 2px;
+}
+.start-tip {
+  margin-top: auto;
+  background: var(--bg-panel-alt);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+/* --- Import LAS set dialog (Organic design 1e) ----------------------------- */
+.import-file-list {
+  background: var(--bg-panel-alt);
+  border-radius: var(--r-lg);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.import-file-count {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.import-file-row {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-file-more {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+.import-prov-note {
+  background: var(--accent2-soft);
+  color: color-mix(in srgb, var(--accent2) 60%, var(--text));
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: var(--fs-sm);
+  margin: 10px 0 4px;
 }
 
 #status-bar {
   padding: 3px 12px;
   font-size: var(--fs-sm);
   color: var(--text-dim);
-  background: var(--bg-panel-alt);
+  /* Organic: a white strip, matching the panel cards above it. */
+  background: var(--bg-panel);
   border-top: 1px solid var(--border);
   white-space: nowrap;
   overflow: hidden;
@@ -423,19 +652,23 @@ textarea {
    Ribbon (Techlog/Office style)
    -------------------------------------------------------------------------- */
 
+/* Organic chrome: the ribbon sits directly on the cream ground — the tabstrip
+   is text pills, the tool body below is a white rounded card inset from the
+   window edge (design 1a). */
 #ribbon {
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-strong);
+  background: transparent;
+  border-bottom: none;
+  padding: 0 10px 8px;
   user-select: none;
 }
 
 .ribbon-tabstrip {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 8px;
-  background: var(--bg-panel-alt);
-  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  padding: 5px 0 6px;
+  background: transparent;
+  border-bottom: none;
   /* Narrow the app and the brand + quick-access + tabs stay reachable by scroll instead of
      being clipped — the whole chrome adjusts to the window like an Office ribbon. */
   overflow-x: auto;
@@ -447,38 +680,46 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-weight: 700;
-  font-size: var(--fs-md);
-  color: var(--accent);
+  /* The wordmark is one of the four sanctioned Caprasimo surfaces (brand,
+     screen/dialog titles, KPI numerals) — weight 400 always, the face carries
+     the emphasis itself. */
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-lg);
+  color: var(--brand);
   padding: 0 14px 0 4px;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.2px;
 }
 
 .ribbon-logo {
   width: 18px;
   height: 18px;
-  border-radius: var(--r-sm);
+  /* The mark's own cream tile rounded to read as a logo tile on any skin —
+     at --r-sm it was a 3px-cornered square, invisible on the cream ground
+     and a bare block on Halliburton's grey. */
+  border-radius: 5px;
   flex: 0 0 auto;
 }
 
 .ribbon-tab {
   border: none;
   background: none;
-  padding: 6px 14px;
+  padding: 4px 14px;
   font-size: var(--fs-md);
   color: var(--text-dim);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--r-pill);
 }
 
+/* Tinted hover, never grey (Organic interaction rule). */
 .ribbon-tab:hover {
-  color: var(--accent);
+  color: var(--accent-dim);
+  background: var(--accent-soft);
 }
 
 .ribbon-tab.active {
-  color: var(--text);
-  background: var(--bg-panel);
-  border-bottom-color: var(--accent);
+  color: var(--bg-panel);
+  background: var(--accent);
   font-weight: 600;
 }
 
@@ -492,19 +733,33 @@ textarea {
 .ribbon-tab.ribbon-tab-dirty::after {
   content: "";
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 3px;
+  right: 6px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--warn);
 }
+/* On the active tab the pill is solid accent — --warn red on terracotta is
+   nearly invisible, and this dot is the only unsaved-work warning visible
+   without opening the Project tab. Panel-white keeps it readable there. */
+.ribbon-tab.active.ribbon-tab-dirty::after {
+  background: var(--bg-panel);
+}
 
 /* Fixed height so every tab's groups share the same bottom edge; positioning context for
-   the overflow chevrons. */
+   the overflow chevrons. 82px, not 80: the Organic card adds a 1px border top and
+   bottom, and with border-box sizing the tool groups' content box must stay 80px
+   or the small-caps captions clip. overflow:hidden clips the square overflow
+   chevrons to the rounded corners — the dropdown menus are position:fixed and
+   escape it (see .ribbon-menu). */
 .ribbon-body {
-  height: 80px;
+  height: 82px;
   position: relative;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
 }
 
 .ribbon-panel {
@@ -752,7 +1007,9 @@ textarea {
 
 .dockview-theme-sandibumi {
   --dv-group-view-background-color: var(--bg-panel);
-  --dv-tabs-and-actions-container-background-color: var(--bg-panel-alt);
+  /* Organic: the panel header strip is part of the white card, not a grey
+     band — hidden-panel tabs keep the warm-neutral chip colour below. */
+  --dv-tabs-and-actions-container-background-color: var(--bg-panel);
   --dv-tabs-and-actions-container-height: 28px;
   --dv-tabs-and-actions-container-font-size: var(--fs-sm);
   --dv-activegroup-visiblepanel-tab-background-color: var(--bg-panel);
@@ -772,9 +1029,81 @@ textarea {
   --dv-icon-hover-background-color: var(--bg-hover);
   --dv-floating-box-shadow: var(--el-3);
   --dv-background-color: var(--bg-app);
-  --dv-border-radius: var(--r-sm);
+  --dv-border-radius: var(--r-lg);
   height: 100%;
   width: 100%;
+}
+
+/* Organic: every dock group is a white card — 12px radius, no outline of its
+   own — replacing dockview's default square chrome. overflow:hidden clips the
+   square tab strip and panel content to the rounded corners; floating menus
+   spawned from a group (.dock-add-menu, context menus) are position:fixed and
+   escape.
+
+   NO BORDER, deliberately. Each card used to draw its own 1px hairline, so two
+   neighbours put two facing lines across a 7px gap and the rounded corners made
+   the pair read as one doubled, overlapping edge. The card is stated by its FILL
+   against the ground, and the line is spent where it carries information: on the
+   pane being worked in. Removing it also made the tab strip's clip concentric
+   with the card — with a border the strip's 12px arc sat 1px proud of the card's
+   own 11px inner arc, which was part of the same smeared corner. */
+.dockview-theme-sandibumi .dv-groupview {
+  border: none;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+/* The pane you are working in is the one thing that carries an edge.
+
+   The colour is the NEUTRAL strong-border token, never `--accent`. This asks
+   to be read as the card's own border drawn heavier — which is what it is —
+   and an accent ring instead turned into a hard saturated frame on the client
+   skins (deep #0033a0 around a whole panel on Schlumberger). The accent is
+   for controls the user acts on; a pane is a surface, not a control. It also
+   keeps the workspace quiet: with no hairline on the other cards this is the
+   only line on screen, so it does not need colour to be found.
+
+   `outline` rather than a border on purpose: it costs NO layout, so panel
+   content cannot shift by a pixel as focus moves between groups (a border
+   would reflow every track and canvas inside on every click), and it follows
+   border-radius. The negative offset draws it just inside the card edge, and
+   outlines paint above descendants, so it stays visible over the tab strip.
+
+   `!important` is load-bearing and is NOT decoration: dockview writes
+   `outline: none` as an INLINE style on every group (they are tabindex="-1"
+   and it suppresses the browser focus ring), and an inline declaration beats
+   any stylesheet selector however specific. The tell, if this ever silently
+   stops working: `outline-offset` keeps applying while the shorthand does
+   not, because dockview sets only the shorthand inline. A box-shadow ring
+   would not need this, but cannot be used — `.dv-view`, the group's parent,
+   is `overflow: auto` and would clip a ring drawn outside the border box. */
+.dockview-theme-sandibumi .dv-groupview.dv-active-group {
+  outline: 2px solid var(--border-strong) !important;
+  outline-offset: -2px;
+}
+
+/* …but `overflow: hidden` alone does NOT round the group's TOP corners, and
+   every panel read as an unfinished square-topped box because of it.
+   dockview puts a `transform` on `.dv-tabs-container` (that is how the tab
+   strip scrolls), and a COMPOSITED descendant — anything carrying transform
+   or will-change — is not clipped by an ancestor's border-radius. Measured
+   in the browser rather than assumed: with a rounded `overflow: hidden`
+   parent, a plain child and a SCROLLING child are both clipped correctly, a
+   transformed child and a will-change child both leak. So the tab strip
+   painted its own square corners straight over the card's rounded ones.
+
+   `clip-path` is not subject to that, so the strip clips itself. Scoped to
+   the strip rather than put on the whole group ON PURPOSE: clip-path also
+   makes an element a containing block for fixed/absolute descendants, and on
+   the group that would quietly trap any future `position: fixed` child —
+   the trap this codebase already hit twice with menus. Nothing inside the
+   strip needs to escape (the ＋ add-panel menu is appended to <body>, like
+   every other floating menu here).
+
+   The BOTTOM corners need nothing: the content side holds no transformed
+   element, and a <canvas> — WebGPU log view included — is clipped normally. */
+.dockview-theme-sandibumi .dv-tabs-and-actions-container {
+  clip-path: inset(0 round var(--r-lg) var(--r-lg) 0 0);
 }
 
 /* Float / maximize buttons on each dock group's tab bar. */
@@ -839,6 +1168,22 @@ textarea {
 .dock-wells,
 .dock-inspector {
   padding: 6px 8px;
+}
+
+/* Panes converted from dialogs need the gutter a dialog got from .modal-body —
+   without it their form labels sit flush against the card edge and read as
+   clipped. Any new tool pane belongs in this list. */
+.dock-plug-qc,
+.dock-mineral-class,
+.dock-pore-area,
+.dock-plate-details,
+.dock-core-condition,
+.dock-core-trace,
+.dock-fluid-contacts,
+.dock-depth-reg,
+.dock-rtc-fit,
+.dock-sfactor-fit {
+  padding: 10px 12px;
 }
 
 /* --------------------------------------------------------------------------
@@ -1640,11 +1985,15 @@ textarea {
   gap: 6px;
 }
 
+/* Organic buttons: pills. Secondary = white with a warm hairline; primary =
+   solid accent. Hover is a TINT from the accent ramp, never grey; pressed is
+   one ramp step darker (approximated by mixing toward --accent-dim, so every
+   client skin gets its own ramp step for free). */
 .btn {
-  background: var(--bg-panel-alt);
+  background: var(--bg-panel);
   color: var(--text);
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-md);
+  border-radius: var(--r-pill);
   padding: 5px 14px;
   font-size: var(--fs-md);
   font-weight: 600;
@@ -1652,8 +2001,11 @@ textarea {
   transition: background 0.12s ease, border-color 0.12s ease;
 }
 .btn:hover {
-  background: var(--bg-hover);
+  background: var(--accent-soft);
   border-color: var(--accent);
+}
+.btn:active {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-panel));
 }
 .btn.btn-accent {
   background: var(--accent);
@@ -1661,7 +2013,12 @@ textarea {
   color: #fff;
 }
 .btn.btn-accent:hover {
-  filter: brightness(1.08);
+  background: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
+}
+.btn.btn-accent:active {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
 }
 
 .eq-status {
@@ -1801,7 +2158,8 @@ textarea {
   flex-direction: column;
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-lg);
+  /* Dialogs sit one radius step above panel cards (Organic: cards 12, dialogs 16). */
+  border-radius: var(--r-xl);
   box-shadow: var(--el-3);
   animation: sb-dialog-in var(--dur-base) var(--ease);
 }
@@ -1812,8 +2170,8 @@ textarea {
   justify-content: space-between;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel-alt);
-  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--bg-panel);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
   cursor: move;
   user-select: none;
 }
@@ -2041,21 +2399,24 @@ textarea {
   justify-content: center;
 }
 
+/* Organic harmonization: the dialog-action twin of .btn — pill, white ground,
+   tinted hover, ramp-step press. */
 .lp-btn {
   font-family: inherit;
   font-size: var(--fs-md);
   font-weight: 500;
-  padding: 6px 12px;
-  border-radius: var(--r-md);
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--border-strong);
-  background: var(--bg-panel-alt);
+  background: var(--bg-panel);
   color: var(--text);
   cursor: pointer;
 }
 
 .lp-btn:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dim);
 }
 
 .lp-btn.primary {
@@ -2065,7 +2426,8 @@ textarea {
 }
 
 .lp-btn.primary:hover {
-  filter: brightness(1.08);
+  background: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
   color: #fff;
 }
 
@@ -2078,7 +2440,12 @@ textarea {
 
 .modal-head h3 {
   margin: 0;
-  font-size: var(--fs-lg);
+  /* Dialog titles are a sanctioned Caprasimo surface (Organic type rule):
+     display face, weight 400 always — the face carries the emphasis. */
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-xl);
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 
@@ -2303,18 +2670,24 @@ textarea {
   border-color: var(--accent);
 }
 
+/* Organic harmonization: every remaining primary action (composite, cutoffs,
+   map, Monte Carlo, Pickett picks…) goes pill in one rule — no TS churn. */
 .form-run-btn {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: var(--r-md);
+  border-radius: var(--r-pill);
   padding: 6px 18px;
   font-size: var(--fs-md);
+  font-weight: 600;
   cursor: pointer;
   margin-top: 6px;
 }
 
 .form-run-btn:hover {
+  background: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
+}
+.form-run-btn:active {
   background: var(--accent-dim);
 }
 
@@ -2471,14 +2844,46 @@ textarea {
   min-height: 0;
 }
 
+/* Header row (design 1b): Caprasimo title + scope tag, actions right-aligned. */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 0;
+  flex-wrap: wrap;
+}
+.dashboard-title {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-2xl);
+  letter-spacing: -0.01em;
+}
+.dash-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--fs-sm);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--accent2-soft);
+  color: color-mix(in srgb, var(--accent2) 70%, var(--text));
+}
+.dashboard-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* Cutoff strip: one rounded warm-neutral band holding the inputs and the
+   Flag/Metric segmented pills (design 1b). */
 .dashboard-controls {
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 10px 12px;
+  margin: 10px 14px 0;
+  padding: 8px 12px 10px;
   background: var(--bg-panel-alt);
-  border-bottom: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
 
 .dash-field {
@@ -2493,32 +2898,118 @@ textarea {
 }
 .dash-num,
 .dash-sel {
-  background: var(--bg-app);
+  background: var(--bg-panel);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
-  padding: 4px 6px;
+  padding: 4px 8px;
   font-size: var(--fs-md);
   font-family: inherit;
 }
 .dash-num {
-  width: 68px;
+  width: 74px;
 }
-.dashboard-controls .btn {
-  align-self: flex-end;
+
+/* Segmented pill control (Organic): one bordered pill, options inside; the
+   active option is a solid accent pill. Buttons, not radios — same one-value
+   semantics the old <select>s had. */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+.seg-opt {
+  border: none;
+  background: transparent;
+  padding: 4px 12px;
+  font-size: var(--fs-md);
+  font-weight: inherit;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.seg-opt + .seg-opt {
+  border-left: 1px solid var(--border);
+}
+.seg-opt:hover {
+  background: var(--accent-soft);
+  color: var(--accent-dim);
+}
+.seg-opt[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* KPI cards (design 1b): tinted rounded cards, small-caps label, the value in
+   the display face. Caprasimo numerals are one of its four sanctioned uses. */
+.dash-kpis {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0 0;
+  flex-wrap: wrap;
+}
+.kpi-card {
+  flex: 1 1 120px;
+  min-width: 116px;
+  border-radius: 14px;
+  padding: 12px 16px;
+}
+.kpi-label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.kpi-value {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 27px;
+  line-height: 1.15;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-suffix {
+  font-family: var(--font-body);
+  font-size: var(--fs-md);
+  color: var(--text-dim);
+}
+.kpi-accent {
+  background: var(--accent-soft);
+}
+.kpi-accent .kpi-label {
+  color: var(--accent-dim);
+}
+.kpi-accent .kpi-value {
+  color: color-mix(in srgb, var(--accent-dim) 65%, var(--text));
+}
+.kpi-accent2 {
+  background: var(--accent2-soft);
+}
+.kpi-accent2 .kpi-label {
+  color: color-mix(in srgb, var(--accent2) 70%, var(--text));
+}
+.kpi-accent2 .kpi-value {
+  color: color-mix(in srgb, var(--accent2) 45%, var(--text));
+}
+.kpi-neutral {
+  background: var(--bg-panel-alt);
+}
+.kpi-neutral .kpi-label {
+  color: var(--text-dim);
 }
 
 .dashboard-status {
   font-size: var(--fs-sm);
   color: var(--text-dim);
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 6px 14px 0;
 }
 
 .dashboard-body {
   flex: 1;
   overflow: auto;
-  padding: 4px 12px 16px;
+  padding: 4px 14px 16px;
 }
 
 .dashboard-section {
@@ -2539,12 +3030,42 @@ textarea {
   color: var(--text-dim);
 }
 
+/* Interval grid (design 1b): 11px tabular-nums cells (the handoff's 11.5px
+   lands on --fs-sm — data grids stay 11–12.5px), header row on the warm
+   neutral with a 2px accent underline. */
+.dashboard-grid {
+  font-size: var(--fs-sm);
+}
+.dashboard-grid th {
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+}
 .dashboard-grid th.sortable {
   cursor: pointer;
   user-select: none;
 }
 .dashboard-grid th.sortable:hover {
   color: var(--accent);
+}
+/* Every row of this grid shares the selected flag, so the shared per-flag tint
+   (.summary-table tr.flag-pay) would paint the WHOLE grid — the mock shows a
+   plain grid with only the top row of the current sort highlighted. */
+.dashboard-grid tr.row-top td {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+/* Excluded zones: in the grid, greyed, and in none of the numbers. */
+.dashboard-grid tr.row-excluded td {
+  color: var(--text-dim);
+  font-style: italic;
+  opacity: 0.8;
+}
+
+.dashboard-footnote {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  margin-top: 4px;
 }
 
 /* Box plots (inline SVG, theme-aware). */
@@ -2563,19 +3084,22 @@ textarea {
   font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
 }
+/* Organic box plots (design 1b): fill = accent ramp-200, stroke = ramp-700,
+   median ramp-800 at 2.2px, whiskers 1.4px. The ramp steps are mixed from the
+   two accent tokens so every client skin gets its own ramp for free. */
 .dashboard-boxplot .bp-box {
-  fill: var(--accent2-soft);
-  stroke: var(--accent);
+  fill: color-mix(in srgb, var(--accent) 22%, var(--bg-panel));
+  stroke: var(--accent-dim);
   stroke-width: 1;
 }
 .dashboard-boxplot .bp-median {
-  stroke: var(--accent);
-  stroke-width: 2;
+  stroke: color-mix(in srgb, var(--accent-dim) 70%, var(--text));
+  stroke-width: 2.2;
 }
 .dashboard-boxplot .bp-whisker,
 .dashboard-boxplot .bp-cap {
   stroke: var(--text-dim);
-  stroke-width: 1;
+  stroke-width: 1.4;
 }
 
 /* --------------------------------------------------------------------------
@@ -3511,20 +4035,23 @@ textarea {
   background-clip: content-box;
 }
 
-/* Composite log preview: scrollable page surface inside the export dialog. */
+/* Composite log preview: scrollable page surface inside the export dialog.
+   Organic 1f: the neutral rail the rendered page floats on — the page itself
+   stays white, so what is previewed is the paper. */
 .composite-preview {
   margin-top: 8px;
   max-height: 46vh;
   overflow: auto;
   background: var(--bg-panel-alt);
-  padding: 8px;
-  border-radius: var(--r-md);
+  padding: 10px;
+  border-radius: var(--r-lg);
   display: flex;
   justify-content: center;
 }
 .composite-preview svg {
   max-width: 100%;
   background: #fff;
+  box-shadow: var(--el-1);
 }
 
 /* ---------- Workflow Builder dialog ---------- */
@@ -4538,11 +5065,13 @@ textarea {
   padding: 1px 4px;
 }
 
+/* Organic (design 1d): the scope reads RUN ON — small-caps label, the modes as
+   a segmented pill (the .seg shape shared with the dashboard), the live count
+   as a tag. One control, every batch dialog inherits the look. */
 .well-scope {
   margin: 8px 0 12px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  padding: 8px 10px;
+  border-radius: var(--r-lg);
   background: var(--bg-panel-alt);
 }
 .well-scope-head {
@@ -4552,43 +5081,52 @@ textarea {
   gap: 8px;
 }
 .well-scope-label {
-  font-size: var(--fs-md);
-  font-weight: 600;
-  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
 .well-scope-modes {
   display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--bg-panel);
   overflow: hidden;
 }
 .well-scope-mode {
   border: none;
   border-right: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: transparent;
   color: var(--text-dim);
   font-size: var(--fs-md);
-  padding: 3px 9px;
+  padding: 3px 11px;
   cursor: pointer;
 }
 .well-scope-mode:last-child {
   border-right: none;
 }
 .well-scope-mode:hover {
-  background: var(--bg-hover);
+  background: var(--accent-soft);
+  color: var(--accent-dim);
 }
 .well-scope-mode-active {
   background: var(--accent);
   color: #fff;
+  font-weight: 600;
 }
 .well-scope-count {
   margin-left: auto;
-  font-size: var(--fs-md);
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--accent);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent-dim);
   cursor: default;
 }
 .well-scope-count-zero {
+  background: color-mix(in srgb, var(--warn) 14%, var(--bg-panel));
   color: var(--warn);
 }
 .well-scope-detail {
@@ -5111,7 +5649,9 @@ input[type="number"].num-editing:focus {
   background: var(--bg-panel);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  /* Dialog-tier radius (Organic: cards 12, dialogs 16) — this is the crash/
+     startup dialog family, and it should not look like a foreign app's. */
+  border-radius: var(--r-xl);
   box-shadow: var(--el-3);
   max-width: 420px;
   padding: 16px 18px;
@@ -5288,11 +5828,137 @@ input[type="number"].num-editing:focus {
 .autocorr-pane {
   max-width: 620px;
 }
+/* …but a PICTURE pane is not a form column. A filmstrip, a plate preview, a correlogram and an
+ * eight-column plate table all need the pane's real width, and capping them at a form column is
+ * what makes a docked tool look "not proportional" — a narrow strip of controls in a wide pane.
+ * These opt out; the fits keep the cap, because they genuinely are a column of fields. */
+.dock-pore-area .module-pane,
+.dock-plate-details .module-pane,
+.dock-core-condition .module-pane,
+.dock-core-trace .module-pane,
+.dock-fluid-contacts .module-pane,
+.dock-depth-reg .module-pane,
+.dock-mineral-class .module-pane {
+  max-width: none;
+}
+
+/* --- Module pane, Organic (design 1d) -------------------------------------- */
+.module-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.module-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-dim);
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-xl);
+}
+.module-title {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-2xl);
+  letter-spacing: -0.01em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.module-help {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  padding: 3px 12px;
+}
+
+/* Labeled fields in a responsive two-column grid: label ABOVE its control
+   (11px/700 small caps), so the 180px side-label never squeezes a half-width
+   column. Collapses to one column in a narrow pane on its own. */
+.module-args {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 14px;
+  margin-bottom: 10px;
+}
+.module-args .form-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  margin-bottom: 0;
+  min-width: 0;
+}
+.module-args .form-label {
+  flex: none;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.module-args .form-control {
+  width: 100%;
+  min-width: 0;
+}
+
+/* A numeric value and its unit read as one fact: unit to the RIGHT of the input. */
+.input-unit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.input-unit .form-control {
+  flex: 1;
+  min-width: 0;
+}
+.unit-suffix {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+/* Sage callout: the zone-precedence rule, stated beside the fields it governs. */
+.module-callout {
+  background: var(--accent2-soft);
+  color: color-mix(in srgb, var(--accent2) 60%, var(--text));
+  border-radius: var(--r-lg);
+  padding: 8px 12px;
+  font-size: var(--fs-sm);
+  margin-bottom: 10px;
+}
+
+.module-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.module-status {
+  margin-top: 0; /* .modal-result's 10px would misalign it inside the flex footer */
+  margin-left: auto;
+  text-align: right;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
 
 /* --- P1-b crash safe-mode + unsaved indicators ----------------------------- */
 .guard-confirm-title {
   font-weight: 600;
   margin-bottom: 6px;
+}
+.guard-confirm-row button {
+  border-radius: var(--r-pill);
+  padding: 5px 14px;
 }
 .guard-confirm button.primary {
   background: var(--accent);
@@ -5744,22 +6410,70 @@ input[type="number"].num-editing:focus {
   background: var(--bg-app);
 }
 
+/* A PORTRAIT launch card — artwork above, identity below — the shape every subsurface
+   application uses, and the one that reads as "the product is starting" rather than as a dialog.
+   Fixed width rather than a viewport fraction: a splash is a poster, and a poster that reflows
+   with the window is not one. */
 .boot-card {
-  min-width: 320px;
-  max-width: 68vw;
-  padding: 28px 34px;
+  width: 380px;
+  overflow: hidden;
   text-align: center;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.18);
+  border-radius: var(--r-xl);
+  box-shadow: var(--el-3);
+}
+
+/* The artwork is in the BRAND's colours and never the accent, so a client skin cannot re-roll the
+   launch screen into the operator's own palette — the same rule the wordmark follows. */
+.boot-art {
+  height: 168px;
+  border-bottom: 1px solid var(--border);
+}
+.boot-art svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.boot-body {
+  padding: 18px 30px 16px;
+}
+
+/* Organic 1g: the launch identity — rounded logo, display-face wordmark. */
+.boot-logo {
+  border-radius: 14px;
+  margin-bottom: 6px;
+}
+
+.boot-foot {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.boot-version {
+  font-weight: 600;
+  color: var(--text);
+}
+.boot-copy {
+  margin-top: 2px;
 }
 
 .boot-title {
-  font-size: 1.35rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--accent);
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: var(--brand);
+}
+
+.boot-desc {
+  margin-top: 2px;
+  font-size: var(--fs-md);
+  color: var(--text-dim);
 }
 
 .boot-msg {
@@ -5804,4 +6518,259 @@ input[type="number"].num-editing:focus {
   color: var(--text-dim);
   font-size: var(--fs-sm);
   line-height: 1.45;
+}
+
+/* ---------------------------------------------------------------------------
+   Core slab photograph conditioning (coreConditionDialog.ts)
+
+   A geologist judges a photograph by looking at it, so the controls here are the
+   picture itself wherever they can be: a strip of thumbnails to choose from, a
+   drag on the image to crop, a click on a grey patch to set the white balance,
+   and sliders whose TRACK carries the gradient they move along. A number beside
+   a plain grey bar says nothing about which way to drag.
+   --------------------------------------------------------------------------- */
+
+.cond-strip {
+  display: flex;
+  gap: var(--s-2);
+  overflow-x: auto;
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.cond-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 92px;
+  height: 62px;
+  border: 2px solid transparent;
+  border-radius: var(--r-sm);
+  background: var(--bg-panel-alt) center/cover no-repeat;
+  cursor: pointer;
+}
+
+.cond-thumb.is-current { border-color: var(--accent); }
+
+/* A plate the tool cannot measure — greyed and explained on hover, never hidden. Still clickable:
+   previewing what the band WOULD claim is how you decide whether to declare the plate. */
+.cond-thumb.is-blocked { filter: grayscale(1) brightness(0.6); }
+.cond-thumb.is-blocked .cond-thumb-label { color: var(--warn); }
+
+/* A dot, not a word: the strip is scanned, not read. */
+.cond-thumb.is-conditioned::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent2);
+  box-shadow: 0 0 0 2px var(--bg-panel);
+}
+
+.cond-thumb-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 1px 3px;
+  font-size: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cond-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  /* Room for the corner handles to sit ON the picture's edge without being clipped away — a
+     handle you cannot grab is a corner you cannot place. */
+  padding: 14px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.cond-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: 46vh;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.cond-stage.is-picking { cursor: crosshair; }
+.cond-stage.is-cropping { cursor: cell; }
+
+/* The crop rectangle is drawn as a hole in a dim overlay, so what is being kept reads as the
+   bright part — the way every photo tool has done it since darkrooms. */
+.cond-crop {
+  position: absolute;
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+/* The colour band, as a colour. The wheel is dimmed and the SELECTED arc is the bright part —
+   the crop-rectangle idiom, so what is kept reads as what is lit. */
+.cband { margin: 4px 0 8px; }
+
+/* One kind of fluorescence in the Photo Log pane: a name, the shared colour band, and the pale
+   limit a PoreColorBand has no room for. Carded so two kinds read as two things rather than as one
+   long column of controls. */
+.fluor-class {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 8px 10px;
+  margin: 6px 0;
+  background: var(--panel);
+}
+.fluor-class-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.fluor-class-head .field-label { flex: 1; }
+
+.cband-wheel {
+  position: relative;
+  height: 30px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  cursor: ew-resize;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.cband-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.cband-handle {
+  position: absolute;
+  top: -3px;
+  width: 12px;
+  height: 36px;
+  margin-left: -6px;
+  border-radius: var(--r-sm);
+  border: 2px solid var(--bg-panel);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 3;
+}
+
+.cband-nums {
+  display: flex;
+  gap: var(--s-3);
+  align-items: center;
+  margin-top: var(--s-2);
+}
+
+.cband-num {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.cband-num input { width: 5rem; }
+
+.cband-swatch {
+  display: inline-block;
+  width: 30px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+}
+
+/* The four corners of the core box. The outline is drawn as an SVG polygon rather than four
+   rotated borders so a genuinely skewed quadrilateral closes properly. */
+.cond-quad {
+  position: absolute;
+  inset: 0;
+}
+
+.cond-quad svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cond-quad polygon {
+  fill: rgba(255, 255, 255, 0.08);
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.cond-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  touch-action: none;
+}
+
+.cond-handle:active { cursor: grabbing; }
+
+.cond-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  outline: none;
+  cursor: ew-resize;
+}
+
+.cond-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  border: 2px solid var(--accent);
+  cursor: ew-resize;
+}
+
+.cond-row {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr 3.2rem 1.6rem;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-2);
+}
+
+.cond-row .cond-val {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.cond-swatch {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  vertical-align: middle;
 }

@@ -22,6 +22,504 @@ claim that test makes is pinned by arithmetic on synthetic data. Pile C does not
 automated"; it means automatable, and 64 of the 147 carry a blocker that has to be solved first.
 Pile D is the number that matters: **37 tests, about one in seven, genuinely need you.**
 
+## Progress — what has actually been retired
+
+**Updated 2026-08-05.** This is the section to check. Everything below is written, passing in
+`tools\check.ps1` (piles A and B) or in `npm run test:e2e` (pile C), and committed — so these
+manual tests no longer need your evening.
+
+| Pile | Done | Remaining |
+|---|---|---|
+| **A** — was already pinned before this work started | **21** | — |
+| **B** — a Rust test now checks it | **43** | **0** (of 43 — T-IMP-06 and T-RT-18 regraded out) |
+| **C** — a machine now drives it | **30 tests across 20 specs** | 56 unblocked (+61 blocked) |
+
+**The row that matters is not in this table.** Piles describe where a test COULD be checked;
+what you want to know is which tests are still entirely yours. That count lives in
+`docs/manual_test_plan.md` under **Start here**, and every heading there now carries a
+`[YOURS]` / `[PART-AUTOMATED]` / `[GATE-PINNED]` tag so it can be scanned rather than
+cross-referenced against this document. As of 2026-08-05: **138 still yours**, 40
+part-automated, 52 gate-pinned, 20 already marked.
+
+Two things that count differently and are easy to confuse. A pile-C `[x]` is one manual TEST
+driven end to end; the 20 spec FILES cover 39 test ids in all, because several specs reach a
+guard that appears in more than one test (`moduledialog.e2e.mjs` alone covers the shared
+frontend refusals inside five). And a covered test is rarely a retired one — every end-to-end
+line ends by naming what it does **not** reach, which is nearly always the display, and the
+display is what a click-through is for.
+
+### Pile A — the checklist
+
+These were already covered when the triage was written; nothing here was work I did. The
+checklist exists so you can see at a glance which are **fully** pinned and which carry a
+**residual** — a part of the manual test the automated one does not reach. A `~` is not a
+failure; it means the test makes most of the claim and the rest is still yours if you want it.
+
+**Fully pinned (15)** — you can stop hand-checking these.
+
+- [x] T-SHIP-04 — project format stamp (fresh, legacy, and a refused future format)
+- [x] T-SHIP-05 — destructive migration backs up first; a normal open writes nothing
+- [x] T-PREP-03 — FTEMP negative: TD_BHT ≤ 0 → MISSING, never ±Infinity
+- [x] T-PREP-09 — GR hole-size correction, including the no-caliper pass-through
+- [x] T-PREP-10 — density hole-size correction, in-gauge and beyond
+- [x] T-PREP-15 — MASK machinery: flagged samples leave the percentiles *and* the output
+- [x] T-PETRO-05 — vsh_dn degenerate triangle → MISSING, not ±Infinity
+- [x] T-PETRO-08 — phi_son Wyllie/RHG + the opt-in compaction correction
+- [x] T-PETRO-09 — phimax constant ceiling and the TVDSS-trend ceiling
+- [x] T-PETRO-12 — RT ≤ 0 → MISSING in both Archie and Indonesia
+- [x] T-ADV-07 — SSPW porosity ladder (PHIE = PHIT − CBW) and the clean-sand end
+- [x] T-IMP-01 — LAS batch import: 3 files, names, curves, units, NULL sentinel
+- [x] T-IMP-03 — malformed LAS: duplicated depth imports with a warning
+- [x] T-IMP-11 — aux import: PERFORATION and XRD land per well, replace on re-import
+- [x] T-WELL-17 — degenerate zone override reports honestly rather than "✓ N samples"
+
+**Pinned with a residual (6)** — the arithmetic holds; the noted part is not asserted.
+
+- [~] T-INT-02 / T-IMP-02 — duplicate LAS warns and stays a separate record. **Residual:** the
+  display surface (status line, History row) is untested — that is the delivery, not the claim.
+- [~] T-PETRO-08 — *also* listed above as full, with one caveat worth knowing: it pins the
+  **current un-gated** compaction behaviour, i.e. the audited defect. If the DT_SH > 100 µs/ft
+  gate is ever added, this test must change with it — it is not a vote that the behaviour is right.
+- [~] T-BATCH-10 — cutoff sensitivity: NTG stays ≤ 1 across a mid-sample zone base.
+  **Residual:** step 3's sweep-vs-Pay-Summary agreement is not itself asserted.
+- [~] T-BATCH-14 — Monte Carlo seed reproducibility at seed 42, plus the zero-variance case.
+  **Residual:** the seed-43 "differs but P50 stays close" step is not asserted.
+- [~] T-MLEQ-09 — facies on a well with no usable curve reports an error, with a live control.
+  **Residual:** it does not separately check that no FACIES version row was written.
+- [~] T-IMP-14 — SCAL import: multi-file, auto-detect, Leverett-J fit, zero-row refusal.
+  **Residual:** the sigma guard is a frontend string, not backend arithmetic.
+
+### Pile B — the checklist
+
+**`[x]` here means a Rust test now checks it and runs on every gate. It is NOT your
+verification mark** — that lives in `docs/manual_test_plan.md` and nothing automated ever
+touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
+your wells.
+
+**Done (43 of 43) — pile B is CLOSED**
+
+- [x] **T-PETRO-02** — vsh_gr nonlinear options + version N+1 · `every_vsh_gr_transform_lands_on_its_published_coefficient` (`modules.rs`) + `re_running_a_module_bumps_the_set_version_and_keeps_every_earlier_run` (`equations.rs`). All eight transforms evaluated by hand against their published closed forms. **Found that the plan's Larionov labels are reversed** — see finding 21, which is the most consequential thing this pile turned up.
+- [x] **T-ADV-17** — SandiMin re-run, lowercase prefix, no shadow rows · `a_re_run_under_a_lowercase_prefix_leaves_no_shadow_rows` (`multimin2.rs`). Both halves of the fix hold: the prefix is canonicalized and the case-insensitive DELETE reclaims prior-casing rows. Clean.
+- [x] **T-REP-14** — DB Inspector: browse all 8 tables, page through · `every_inspector_table_returns_the_columns_it_declares` + `the_inspector_pager_lands_exactly_on_the_last_partial_page` (`db.rs`). Every `TABLE_SPECS` entry, and the pager checked on a count that does not divide evenly by the page size.
+- [x] **T-REP-16** — DB Inspector negatives: bad input, stale row, read-only Aux · `an_inspector_edit_on_a_row_that_moved_fails_instead_of_reporting_success` + `aux_data_can_be_browsed_but_no_editor_will_write_to_it` (`db.rs`). The three sample editors all guard the 0-row case; the wells editor does not — see finding 20.
+- [x] **T-PLOT-19** — Curve Edit negatives (invalid input, stale undo) · `a_set_constant_refuses_a_value_that_is_not_a_number` + `an_undo_replayed_after_the_curve_was_rewritten_splices_stale_values` (`curve_edit.rs`). Both audit findings re-examined: the invalid-input one is half fixed (finding 19), the stale-undo one is fully open and now pinned as-is.
+- [x] **T-REP-02** — Composite render: layout, print scale, page size, pagination · `a_metre_of_formation_occupies_its_declared_millimetres_on_the_page` + `the_page_count_follows_the_print_scale_and_the_page_size` (`composite.rs`). The scale is now measured in the ARTWORK — the emitted depth labels — not just asserted as arithmetic.
+- [x] **T-REP-09** — "Tables only" mode · `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock` + `a_composite_depth_window_re_dates_a_cover_whose_tables_ignore_it` (`report.rs`). One residual — see finding 18, which also explains why the audit's slowness is not a missing `if`.
+- [x] **T-AUX-07** — Well-diagram track in Composite/Report + old layouts · `a_well_diagram_draws_its_strings_shoes_and_perforations_at_the_declared_depths` + `a_well_diagram_track_is_redrawn_on_every_composite_page` + `a_layout_saved_before_well_diagram_tracks_opens_as_curves` (`composite.rs`). Clean.
+- [x] **T-SHELL-09** — NEGATIVE: project switch refused while a chain runs · `a_registered_chain_holds_the_project_switch_shut_until_it_is_really_finished` + `a_chain_that_never_reports_a_terminal_status_jams_the_guard_permanently` (`chain.rs`). The guard is correct and closes its own pre-flight window. One residual — see finding 17.
+- [x] **T-SHELL-07** — Save Project As = backup copy · `save_as_writes_a_backup_copy_and_leaves_the_app_on_the_original` (`project.rs`). Backup-copy semantics confirmed from both sides: the copy is a snapshot, the later edit lands in the original only.
+- [x] **T-PREP-18** — Splice Curves at depth · `a_gap_in_the_contributing_run_stays_a_gap` + `a_sample_with_no_depth_is_not_assigned_to_a_side` (`modules.rs`), beside the existing `splice_switches_at_depth`. Clean — a gap in the contributing run is never filled from the other run.
+- [x] **T-ADV-13** — Saturation-Height on a deviated well (TVD wiring) · `a_deviated_wells_height_is_measured_from_the_survey_not_along_hole` (`workflow.rs`). **The audit finding is FIXED and the plan step is stale** — `ingest::materialize_tvd_curves` is the producer the audit said did not exist. See finding 14.
+- [x] **T-PETRO-13** — zone parameter override: RW in one zone only · `a_zone_parameter_override_moves_that_zone_and_leaves_the_rest_untouched` (`workflow.rs`)
+- [x] **T-REP-06** — Report render: cover, methodology, zone params, pay summary · `a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table` + `a_dense_stringer_is_subtracted_from_the_sand_rows_hpv` (`report.rs`). Two residuals — see findings 15 and 16.
+
+- [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
+- [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
+- [x] **T-IMP-15** — LAS export: NaN→null, computed curves, mixed-case name · `export_writes_missing_as_null_and_carries_mixed_case_computed_curves` (`export.rs`)
+- [x] **T-IMP-16** — export → re-import round trip · `an_exported_las_reimports_with_the_same_values` (`export.rs`)
+- [x] **T-INT-03** — tops → zones, + empty-well negative · `zones_from_tops_are_contiguous_and_absent_tops_make_no_zones` + `a_top_below_the_logged_interval_never_makes_an_inverted_zone` (`db.rs`)
+- [x] **T-INT-11** — restore v1, downstream consumes it · `a_restored_log_set_version_feeds_the_next_module_run` (`workflow.rs`)
+- [x] **T-PREP-14** — GR normalization anchors per well · `gr_normalization_anchors_each_well_on_its_own_percentiles` (`workflow.rs`)
+- [x] **T-PREP-02** — Formation Temperature: both modes land on their anchors · `formation_temperature_lands_on_both_of_its_anchors` (`modules.rs`)
+- [x] **T-PREP-11** — a raw degF FTEMP never satisfies the computed-only input · `a_raw_ftemp_never_satisfies_the_computed_only_contract` (`workflow.rs`)
+- [~] **T-PREP-13** — Gas Correction negatives · `the_empty_flag_refusal_names_the_users_curve_and_its_remedy_works` (`modules.rs`). **Graded honestly:** I put this in pile B and most of it was already in pile A — `gascorr_guards_stay_missing_or_error` and `gascorr_flag_gate_and_missing_inputs` already pinned the refusal and the all-MISSING-without-precalc behaviour. What was genuinely uncovered, and is now pinned, is the message TEXT (it must name the curve you picked) and the remedy it recommends (EVERYWHERE must actually work).
+
+- [x] **T-PREP-05** — a per-zone gradient override reaches exactly its own samples · `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (`workflow.rs`). **Found a defect while writing it** — see finding 6.
+- [x] **T-WELL-16** — a per-zone override actually drives a module run · same test (it is the same claim, so one test retires both)
+- [x] **T-PREP-16** — synthetic log: gap fill, raw kept, downward-only repair, and the masked-washout case · `a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward` (`modules.rs`) + `a_masked_washout_defeats_the_very_module_meant_to_repair_it` (`workflow.rs`). The second **pins the audited defect as-is**, not as correct behaviour.
+
+- [x] **T-IMP-04** — malformed LAS: all-null depth **and** the truncated last row · `malformed_las_exemplars_fail_the_documented_way` (already existed) + `a_truncated_las_refuses_rather_than_importing_what_survived` (`example_data_test.rs`). **Your Blocked mark is now answerable** — there was no truncated exemplar to import, so `dataset for test/examples/bad_truncated.las` was added to the generator.
+- [x] **T-IMP-08** — a repeated plug depth is dropped, first kept, import never aborts · `a_repeated_plug_depth_is_dropped_not_a_failed_import` (`parsers.rs`)
+- [x] **T-IMP-10** — tops CSV: multi-well, unmatched, **blank WELL cells** · `tops_import_multiwell_and_default` (already existed) + `a_blank_well_cell_is_skipped_rather_than_charged_to_the_selected_well` (`ingest.rs`)
+- [x] **T-IMP-12** — deviation: TVD/TVDSS **and** duplicate MD · `deviation_import_materializes_tvd_tvdss_curves` + `deviation_import_versions_surveys_and_switching_rebuilds_tvd` (both already existed) + `a_repeated_survey_station_is_dropped_not_a_failed_survey` (`parsers.rs`)
+
+- [x] **T-BATCH-08** — Pay Summary negatives: PERM cutoff, bare well, per-well isolation ·
+  `a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff` +
+  `one_unusable_well_cannot_zero_the_whole_pay_summary` (`workflow.rs`). **Found a defect while
+  writing it** — see finding 7; the plan's Expected for step 1 was describing behaviour the code
+  does not have, and now carries a Known issue line.
+- [x] **T-BATCH-16** — Monte Carlo PERM cutoff with chain-produced PERM ·
+  `adding_a_permeability_model_to_a_chain_switches_off_the_permeability_cutoff` (`montecarlo.rs`).
+  **Pins the audited defect as-is**, with the working chain beside it as the control. Sharpens the
+  audit's trigger — see finding 8.
+- [x] **T-BATCH-17** — Monte Carlo vs chain with a bad-hole MASK ·
+  `the_monte_carlo_chain_ignores_a_step_mask_the_real_chain_honours` (`montecarlo.rs`). **Pins the
+  audited defect as-is.** Like T-PREP-16's masked washout it turns out to have **two causes**:
+  `run_realization` never blanks, and `build_plans` never even fetches the flag curve, because the
+  external-input set is built from LogIn args and MASK is an Option. Both are asserted, so a
+  half-fix that touches only the executor will still fail.
+
+- [~] **T-PETRO-14** — Wyllie-Rose variants ·
+  `the_wyllie_rose_variants_carry_their_own_constants_and_two_are_one_equation` (`modules.rs`).
+  **Graded honestly:** the edge cases were already pile A — `perm_wyllie_rose_edges` and
+  `perm_wyllie_rose_negative_phie_missing_across_all_variants` pin PHIE = 0, missing and negative.
+  What was genuinely uncovered is that OPT_WR selects different physics at all: the four constants
+  at the plan's own domain point, TIXIER being byte-identical to MORRIS_BIGGS_OIL, the decade
+  between oil and gas, and the silent fallback to TIMUR on an unknown variant.
+- [x] **T-RT-05** — rocktyping with no permeability curve ·
+  `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (`workflow.rs`), with the
+  same well plus permeability as the control. **Found a defect while writing it** — see finding 10.
+- [x] **T-RT-07** — RT_LOG ladder and the inconsistent-cutoff case ·
+  `an_inverted_cutoff_ladder_is_accepted_and_scatters_the_middle_class` (`rocktyping.rs`). Step 4
+  asked what an inverted ladder does; it is worse than silent acceptance — the middle class splits,
+  half promoted to BEST and half demoted to non-net in the same run. Pinned as-is.
+- [~] **T-RT-08** — Pittman r10–r75 family and the APEX selector ·
+  `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand` (`rocktyping.rs`). **Graded
+  honestly:** `pittman_r35_matches_published_regression`, `pittman_apex_selector_switches_controlling_radius`
+  and `pittman_missing_inputs_stay_missing` already pinned RAPEX, the selector and the port class.
+  New here: step 3's monotone-ordering claim, which **fails** (finding 9), and that an invalid
+  sample blanks all ELEVEN outputs rather than the three the old test checked.
+
+- [~] **T-ADV-10** — RtC/IMTS on an SSPW-only well ·
+  `the_sspw_fallback_covers_imts_and_chooses_sample_by_sample` (`lrlc.rs`). **Graded honestly:**
+  `rtc_falls_back_to_sspw_curve_names` already pinned the sw_rtc half. New here: **sw_imts**, which
+  the manual test asks you to repeat and which nothing checked, and that `prefer` chooses per
+  SAMPLE — a section reprocessed through SSPW leaves SSC curves above and below it, and a
+  curve-level fallback would either ignore the new work or throw away the old. The fallback is also
+  asserted to land on the SAME answer as the SSC path, not merely on *an* answer.
+- [~] **T-ADV-11** — RtC with no porosity curve: honest failure ·
+  `rtc_without_porosity_under_either_name_is_reported_not_returned_as_success` (`workflow.rs`).
+  **Graded honestly:** `all_nan_module_output_reports_error_not_success` already pinned the guard
+  on vsh_gr and electrofacies. New here: sw_rtc, which is the case the guard was written for and
+  the nastier one — RES_DEEP is healthy, so a full-length SWT_RTC comes back MISSING at every
+  depth, and on a saturation curve that is the difference between "no answer" and "no
+  hydrocarbon". The control gives the well porosity under the FALLBACK name only, so the refusal
+  is provably about absent porosity rather than the module failing to look for the second name.
+  Note finding 10 applies here too: the blank curves are still written.
+
+- [x] **T-REP-03** — composite depth window + invalid window ·
+  `a_depth_window_that_selects_no_rock_is_refused_rather_than_rendered` (`composite.rs`).
+  Four ways to select no rock — top below bottom, wholly under TD, wholly above the logged top,
+  zero thickness — all refused. The test also pins the two behaviours the pane's page labels
+  depend on: a window that OVERLAPS the data is honoured over the overlap rather than refused
+  (1150 → 9000 renders 1150 → 1199.5, and the labels say 1199.5, because you cannot render rock
+  that was never logged), and a NaN in one field is absorbed to the data bound by `f32::max`/`min`
+  before the guard sees it — identical to leaving that field blank, and unreachable over IPC
+  anyway since JSON has no NaN literal.
+
+- [x] **T-REP-12** — batch export with a broken well in scope ·
+  `one_unrenderable_well_costs_only_itself_in_a_batch_export` (`report.rs`).
+  The broken well is listed FIRST, so a loop that gave up on first failure would fail this test.
+  Both healthy wells get their own complete PDF, byte-different from each other; the broken well
+  leaves no file at all, because `std::fs::write` is only reached after the render returns bytes.
+  Also pins the UUID-not-name failure message the plan itself flagged as UX feedback — see
+  finding 12 for the second, sharper defect this turned up.
+
+- [x] **T-AUX-17** — equation runtime error mid-batch, per-well isolation ·
+  `one_failing_well_does_not_poison_a_multi_well_equation_run` (`equations.rs`),
+  `a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact` (`python_engine.rs`),
+  `a_script_that_raises_on_only_some_samples_still_reports_a_clean_success` (`equations.rs`).
+  **Both language paths, because they are different functions** — `lib.rs:1073` dispatches on
+  `equation.language`, so the Rhai test says nothing about Python. Isolation holds in both, and
+  is checked in the DATABASE rather than only in the return value: the failing well leaves zero
+  rows, not an all-MISSING curve. The Python test runs for real on any machine with numpy (it
+  skips with a printed reason elsewhere, matching its neighbours) and confirms the user's OWN
+  `raise` message reaches the run summary. The third test records finding 13. What stays yours
+  is step 3 — that the Processing panel *renders* those per-well ✗ marks; the progress calls
+  behind it are already pinned by `python_equation_reports_progress_on_every_terminal_branch`.
+
+All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
+
+**Regraded out of pile B (2)**
+
+- **T-IMP-06 (DLIS)** moves to **pile D — genuinely yours.** It needs a real `.dlis` file and the
+  `dlisio` package; `dlis.rs::import_real_dlis` already exists for it but is `#[ignore]`d behind
+  `SANDIBUMI_TEST_DLIS`, because DLIS is a binary vendor format and there is no honest way to
+  synthesise a fixture that exercises sentinel screening and mnemonic collision. Point the
+  variable at one of your own files and `cargo test -- --ignored` runs it; nothing automated can
+  retire it.
+
+- **T-RT-18 (legacy Multimin RECON_ERR at 3 tools)** cannot be run **or** pinned as written: the
+  module it tests is **retired**. `modules::run_module` blocks `multimin` through
+  `retired_module`, the solver body was deleted with it, and the spec survives only so a saved
+  chain resolves by name. Following the test's steps today gets a loud "use SandiMin" refusal at
+  step 3, not a RECON_ERR to read. Already covered by `multimin_is_retired_but_still_cataloged`.
+  The *concern* is not obsolete, though, and is now pinned on the module that ships — see
+  finding 11.
+
+Pile B is therefore 43 items, not 45.
+
+**Open (0)** — every pile-B item now has a Rust test running on the green gate.
+
+### Pile C — the checklist
+
+`npm run test:e2e` (see `docs/e2e_harness.md`) drives the built app. Optional; **never part of the
+green gate**, and never will be — it needs a built binary and a WebDriver stack, and a gate that
+can fail for reasons unrelated to the code is a gate people learn to ignore.
+
+**`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
+mark** — same rule as pile B.
+
+**Done (30 of 86)**
+
+- [x] **T-AUX-03** — Well Header: a TD-only edit must not lose the surface coordinates ·
+      `wellheader.e2e.mjs`. A regression guard on a confirmed bug with an unusually quiet failure
+      mode: `appState.selectedWell` is a SNAPSHOT that is not re-broadcast on a data change, the
+      dialog writes every field unconditionally, so building it from that snapshot meant opening
+      the header to fix a TD and silently erasing the easting, northing and UTM zone. Nothing
+      downstream complains — the well just stops appearing on the map and the TVD work loses its
+      datum. The test asserts the REOPENED FORM already shows the stored coordinates, which catches
+      the bug one step before the damage, and then that a TD-only save leaves all three intact.
+
+- [x] **T-REP-07** — The methodology table persists as a `report_template` document ·
+      `report.e2e.mjs`. Asserted on the STORED DOCUMENT and on a freshly REBUILT pane, not on the
+      textarea still holding what was typed: the field is populated from the document at build
+      time, so only a rebuild tests the read path. The stored rows must keep their pipe-separated
+      FIELDS — storing each line verbatim would still round-trip through this pane and then render
+      as one column in the PDF, turning a methodology table into a list of sentences.
+
+- [x] **T-BATCH-07** — Cutoffs & Pay Summary: the table and **the row invariants the triage flagged
+      as worth testing** · `paysummary.e2e.mjs`. Net ≤ Gross, N/G within 0..1, PAY-net ≤
+      RESERVOIR-net ≤ SAND-net, and HPV ≤ net × avg PHIE. **The test never picks a cutoff** — it
+      runs the pane with whatever the pane prefills, because the invariants hold for ANY cutoff and
+      inventing a VSH/PHIE/SWE value here would put an unsourced petrophysical number in the repo.
+      Two guards make the coverage real rather than vacuous: the nesting check counts the
+      comparisons it made and fails if none were available, and the HPV check does the same. An
+      uninterpreted row (`n_classified == 0`, shown as "—") is SKIPPED rather than read as 0, which
+      is the convention's whole point — a 0 net is byte-identical to a genuine wet zone.
+      **Deliberately NOT asserted: that HPV is non-negative.** It is not guaranteed (finding 16, a
+      dense stringer inside the net interval is subtracted), so asserting it would either fail on
+      correct behaviour or encode a claim the code does not make. **Not covered:** the History
+      entry, the status line and the PAYFLAG catalog version.
+
+- [x] **T-RT-01** — Rock Typing ribbon group lists its modules and opens their panes ·
+      `rocktyping.e2e.mjs`. The expected titles come from the MANIFESTS, not from a hard-coded
+      list, so a rename moves both sides together. The menu is compared as a SET BOTH WAYS: every
+      catalogued module offered, and nothing else — a menu with an extra entry is a module the
+      catalog does not know about, which is how a retired one comes back. Step 5's singleton claim
+      is pinned because a duplicate pane is not cosmetic: two panes for one module each carry their
+      own scope and parameters, so editing one and running the other produces a run nobody
+      configured, with nothing in the result to say which pane it came from.
+
+- [x] **T-MLEQ-01** — ML pane opens with the full form · `ml.e2e.mjs`. Task and Algorithm (which
+      drive the algorithm list and the output name), and the "Save model as" field — the control
+      that makes a fitted model an ARTIFACT rather than a by-product, which is the whole point of
+      `ml_models`, since a refit on different data is a different model.
+
+- [x] **T-MLEQ-02** — The Inspector names the Python engine it found · `equations.e2e.mjs`. The
+      note is checked against `python_status`'s own answer, so it cannot drift into naming an
+      interpreter the run would not use. It also pins the distinction that is easy to lose in a
+      refactor: **missing scipy is a NOTE, missing Python is a WARNING** — scipy is optional and the
+      engine is fully usable without it, so calling its absence a warning would send the user
+      installing something they may not need. The no-Python branch must name numpy AND
+      `SANDIBUMI_PYTHON`, the only fix when discovery fails.
+- [x] **T-MLEQ-05** — Equation negatives · steps 2–3 were already pinned in Rust
+      (`python_reports_script_errors`, `worker_survives_a_script_error`,
+      `equation_all_nan_output_reports_error`); step 1's "Save the equation before running it" is
+      now `equations.e2e.mjs`. Frontend-only by construction: `run_equation` takes an id and there
+      is no id to pass, so without the guard the run would fail deeper with a message about a
+      missing id, which tells the user nothing. Also checks the refusal writes nothing.
+
+- [x] **T-SHELL-13** — Undo/Redo with live labels · `undo.e2e.mjs`, driven through a real Database
+      Inspector cell edit (the cheapest genuinely undoable action). The claim is not that the
+      buttons exist: the tooltip must NAME what will be reversed, because "Undo (Ctrl+Z)" alone is
+      the empty-stack wording and a button that will not say what it undoes is a dare rather than a
+      tool. And the VALUE round trip is asserted, not just the button state — an undo that fires
+      its callback without changing the data is indistinguishable from a working one until someone
+      reads the number.
+
+- [x] **T-SHELL-15** — History attribution: single-well vs batch module run · `history.e2e.mjs`.
+      The contract in `workspace.ts` is sharper than it looks — a single-well run is attributed BY
+      NAME, a batch to no well at all, and **neither is ever the globally selected well**. The test
+      is built around that last clause: it selects well A, scopes the run to well B alone, and
+      requires the row to name B. Attributing to the selected well would be right most of the time
+      and silently wrong exactly when it matters, since the History is what answers "where did this
+      curve come from" months later — and a row naming a well the run never covered is a wrong
+      answer that looks authoritative.
+
+- [x] **T-WELL-03** — A multi-selection feeds a batch pane's Selection scope, LIVE ·
+      `scope.e2e.mjs`. The word live is the claim: the pane must follow a selection growing AND
+      shrinking without being reopened, because a scope that only reads the selection at open time
+      is T-WELL-06's bug one level down. Also checks that Selection with nothing selected resolves
+      to NOTHING rather than quietly falling back to All — the dangerous default, where the user
+      believes they are running on a handful and covers the whole field.
+
+- [x] **T-BATCH-01** — Workflow Builder smoke, step picker clean · `workflow.e2e.mjs`. The picker
+      is grouped by category and offers the catalog; the retired `multimin` is absent under both its
+      id and its old display name. A chain built today that quietly wired it up would be refused at
+      RUN time by `modules::retired_module` — after the user had arranged the whole recipe.
+- [x] **T-BATCH-04** — Save, reload and delete the chain as a `workflow` document · same spec. The
+      round trip is asserted on the STORED JSON, not on the dialog looking right: two steps in a
+      deliberate order, cleared from the builder, reloaded, re-saved, and the ordered step list
+      compared. **Order is the whole content of a chain** — VSH before porosity, porosity before
+      saturation — so a round trip that kept the set and lost the sequence would run a different
+      recipe and look identical in the list. Both save refusals also check that NO document is left
+      behind; a half-saved chain is worse than none.
+
+- [x] **T-WELL-04** — Well Groups manager: create, membership, rename, delete · `wellgroupmanager
+      .e2e.mjs`. The rename test asserts the group ID SURVIVES: a rename that quietly created a new
+      group and dropped the old one would look identical in the list while silently emptying the
+      membership, and every batch dialog scoped to it would then run on nothing. Delete asserts the
+      WELLS survive — a group is a view over wells, never a container of them. Caveat: rename goes
+      through `window.prompt`, a browser dialog the driver cannot answer, so it is stubbed for the
+      click; what is verified is the rename path behind the prompt, not the prompt.
+- [x] **T-WELL-05** — Active group scopes the tree and freshly opened batch panes · same spec. The
+      tree must show exactly the members, not merely the right NUMBER of rows. The "freshly opened"
+      half needs a module NO other spec has opened: module panes are singletons, so asking for one
+      already open re-focuses it with whatever scope it was left carrying.
+- [x] **T-WELL-06** — NEGATIVE: an already-open batch pane does NOT re-scope · same spec, and it
+      asserts the WRONG behaviour on purpose. AUDIT-2026-07-21 records that `wellScope.ts` does not
+      follow a group change once a pane is built, so the pane shows the old group's count while the
+      user believes they have re-scoped and the run covers the wrong wells. **The day this is fixed
+      the test goes red — that is the alarm. Flip the assertion then; do not delete it.**
+
+- [x] **T-REP-17** — SQL Query console · `panels.e2e.mjs`. Opens the pane, requires a runnable
+      starter and RUNS it. **This is what caught finding 23** — the starter shipped opening with
+      `--` comment lines and the read-only guard tests the first keyword, so the panel's own first
+      click was refused. Fixed here; the guard's blindness to comments is pinned as-is and left to
+      you. The provenance join in step 2 is not covered.
+- [x] **T-AUX-01** — Performance monitor · `panels.e2e.mjs`. Every gauge must be labelled AND show
+      a value: a gauge rendering an empty string reads as "measured, and it is nothing" rather than
+      "not measured". The live tick and the leak watch stay yours.
+- [x] **T-AUX-02** — Help tool · `panels.e2e.mjs`. The modal carries real text and names NO vendor,
+      which is the provenance rule checked where a user actually reads it. The right-click route is
+      not covered.
+
+- [x] **T-SHELL-10** — Sessions: save, list, delete · `sessions.e2e.mjs`. The snapshot is asserted
+      FIELD BY FIELD rather than "it is valid JSON": a snapshot that lost `layout` still parses,
+      still restores without error, and simply rebuilds nothing — the workspace comes back empty
+      and it looks like the save never worked. `well` must be PRESENT even when null, since its
+      absence is how a session silently stops restoring the well it was taken on. Also checks the
+      dialog CLOSES on success — one that stays open reads as a save that did not happen.
+
+- [x] **T-MLEQ-16** — Curve Catalog: rows, live search, header sorting · `catalog.e2e.mjs`. The
+      rows come from the backend and are pinned there; what is checked is the three things that
+      exist only in the panel. The filter must NARROW to matching rows (a filter that merely
+      highlights, or drops the wrong rows, also shrinks the table, so a count alone would not catch
+      it) and must be reversible — a filter that cannot be cleared leaves a panel stuck on a subset,
+      which reads exactly like a well that lost its curves. Sorting is asserted on the SECOND click
+      reversing the first exactly, because one click can coincide with the order already there, and
+      a header that only draws an arrow looks sorted without being sorted. Found on the way: with no
+      active well the catalog renders a plausible static placeholder (GR, RES_DEEP, NPHI, RHOB, DT,
+      SP) with no search box — so the spec waits on `#catalog-filter`, not on a row count.
+
+- [x] **T-PREP-01** — Module dialog machinery smoke · `moduledialog.e2e.mjs`. The pane is opened
+      the way a user opens it — Petrophysics tab, ribbon dropdown, menu item — and the item is
+      found by the module's own manifest TITLE read from `list_modules`, so a rename moves both
+      sides together. Asserts the scope control, the numeric parameters, the Outputs note (the
+      only place a user is told what a run will write before pressing Run) and the leading
+      "(none)" on a curve picker — a picker that lost it would bind the first curve in the list
+      instead, and the module would run on a curve nobody chose.
+- [x] **T-INT-06** — Negative trio · leg 1 was already pinned in Rust
+      (`all_nan_module_output_reports_error_not_success`); legs 2 and 3 are now
+      `moduledialog.e2e.mjs`. Both are frontend-only and could not be pinned in Rust: the backend
+      computes happily with an out-of-range parameter and reports success on an empty well list,
+      so nine lines in a click handler are the only thing stopping either. **The assertion that
+      matters in both is that NO RUN STARTED** — compared as a project-wide `computed_curves`
+      fingerprint before and after, because a dialog that prints a complaint and then runs anyway
+      looks identical from the message alone.
+
+- [x] **T-WELL-15** — Zones pane: add/update/delete, invalid input, per-well isolation ·
+      `zones.e2e.mjs` (steps 2–5; From Tops, the History entries and Convert-to-zone are not
+      covered). Two of these are FRONTEND-ONLY contracts that no Rust test could pin:
+      `db::upsert_zone` has no validation whatsoever and would store an inverted zone, so
+      `bottom <= top` is refused by the dialog alone. The refusal being silent is why the
+      assertion compares every stored zone byte-for-byte rather than looking for a message — an
+      inverted write keeps the name and the row count and swaps only the interval.
+
+- [x] **T-WELL-02** — Multi-select: Ctrl-click, Shift-click range, ⇄ invert, plain-click clear ·
+      `wells.e2e.mjs`. All four gestures against the real pane, plus the two things a naive version
+      of this test would miss: that ctrl-click is a TOGGLE (a second one removes), and that it does
+      not move the active well — which is the whole point of the gesture, since every open view
+      follows the active well. Shift takes a range of two out of three deliberately, so an
+      implementation that selected everything visible would fail rather than pass.
+
+- [x] **T-INT-09** — Well-group scoping end-to-end · `wellgroups.e2e.mjs`. Create/activate,
+      exactly-one-active, membership-replaces, and a group-scoped run that writes to members while
+      leaving the outsider's curves byte-identical. A 2-of-3 group rather than the plan's 3-of-4,
+      because test data stays the repo's own three example wells; the exclusion claim is the same.
+- [x] **T-SHELL-01** — App launch · `shell.e2e.mjs`. Every declared tab has a panel and no panel is
+      orphaned, the status bar exists, the dockview workspace was created.
+- [x] **T-SHELL-02** — Ribbon tab walk · `shell.e2e.mjs`. Exactly one panel visible per tab, exactly
+      one `.active`, every group captioned. Asserted on `checkVisibility()` rather than the `hidden`
+      attribute — a CSS `display` rule has overridden `hidden` on these very panels twice, and the
+      attribute reads correct in both of those bugs. **The overflow-chevron leg is NOT covered**: it
+      needs a window resize, which is a native window operation.
+- [x] **T-SHELL-03** — Language EN → ID → SU → JV → EN · `shell.e2e.mjs`. Keyed on "Project", whose
+      four forms differ only by diacritics (Project / Proyek / Proyék / Proyèk), so the assertion
+      proves the RIGHT dictionary was selected. "Petrophysics" would have proved nothing — it is
+      "Petrofisika" in all three translations. Also checks an untranslated term stays English.
+- [x] **T-ADV-01** — Advance tab smoke · `shell.e2e.mjs`. All five promoted manifests render, plus
+      SandiMin / Calibrate RtC / Calibrate S / ML Models. Tooltip text and the chevron leg are not
+      covered.
+- [x] **T-SHIP-06** — The green gate from your own shell · `tools\check.ps1` is the test; it is run
+      before every commit in this series and its `GATE GREEN` line is the assertion.
+
+**Partially covered**
+
+- [ ] **T-WELL-01** — Object tree: click activates, 📌 pin drives the workspace. `wells.e2e.mjs`
+      covers the plain-click activation (exactly one row marked) and the ★ **favourite** pin,
+      asserting it reached the project via `list_pinned_wells` rather than that a class toggled —
+      a star that looks set and was never written gives a run scope that silently empties on the
+      next launch. **Not covered:** the 📌 global well LOCK (a different control from the ★), the
+      panel titles following the selection, and ★ persistence across a relaunch.
+
+- [ ] **T-REP-01** — Composite & Report panes open and follow the selected well. `report.e2e.mjs`
+      covers the opening half for both. **Not covered:** that they follow the selected well, and the
+      placeholder text.
+
+- [ ] **T-MLEQ-14** — ML negatives + the bad-hole Mask. `ml.e2e.mjs` covers step 1 (the
+      no-input-curve refusal, plus that nothing was written) and step 3 — **which is where it found
+      the plan is stale for the second time; see finding 24.** The Mask control EXISTS; the test
+      pins it as present so its removal goes red. **Not covered:** step 2, the blind-well
+      comparison needing two training wells.
+
+- [ ] **T-REP-15** — DB Inspector edits persist, refresh, undo. `undo.e2e.mjs` covers the edit
+      reaching the project, the undo restoring the old value and the redo reapplying it. **Not
+      covered:** the status text, the Log View repaint, and the survives-a-restart check.
+
+- [ ] **T-SHELL-12** — Dirty ● indicators. **NOT covered, and worth knowing why.** A first attempt
+      asserted that a Database Inspector edit lights the Project tab's dot. It does not, and that is
+      correct: `dirty.ts` tracks **named-save freshness** — workspace arrangement and log-view
+      layout edits, the things a Session captures — while a data edit goes straight to DuckDB and is
+      already persisted. Marking it dirty would train the user to ignore the dot, which is the only
+      warning that their PANE ARRANGEMENT is unsaved. `undo.e2e.mjs` pins the inverse instead (a
+      data edit must NOT report unsaved work) plus the placement rule, which holds either way: the
+      dot must be a CLASS, never a text prefix, or the tabstrip reflows and shifts every other tab
+      under the cursor. Covering the real claim needs a workspace change and a session save, and it
+      is order-dependent across specs because `muteDirty()` runs after a save.
+
+- [ ] **T-AUX-15** — Pinned wells as a batch-run scope. `scope.e2e.mjs` covers the ★ scope
+      resolving to the pinned set and following a second pin without the pane being reopened, plus
+      the mirror case: an emptied pinned set must resolve to nothing, never to All. **Not covered:**
+      persistence across a relaunch, and which wells got fresh curves after a run. Note the pins are
+      set by CLICKING THE STAR, not by `set_well_pin` — the scope resolves against
+      `appState.pinnedWellIds`, which only the tree updates, so invoking the command writes the
+      project and leaves the pane reading an empty set.
+
+- [ ] **T-BATCH-06** — Workflow negatives. `workflow.e2e.mjs` covers the two SAVE refusals (no
+      name, no steps), both frontend-only — `save_document` would store either quite happily — and
+      checks neither leaves a document behind. **Not covered:** the empty-scope refusal on a run,
+      and the Processing panel's per-well ⚠/✗ list for one broken well.
+
+- [ ] **T-PETRO-03** — vsh_gr invalid parameters. `moduledialog.e2e.mjs` covers step 1's range
+      refusal — the same guard, reached through vsh_gr's own pane — including that the message
+      NAMES the parameter and its bounds, since a bare "invalid input" is true and useless on a
+      form with several numeric fields. **Not covered:** step 2, the `GR_MA >= GR_SH` guard
+      reaching the all-NaN honest-report path. That one is a cheap pile-B test on its own.
+
+- [ ] **T-SHELL-11** — Quiet Ctrl+S re-save + Escape closes ribbon menus. `sessions.e2e.mjs`
+      covers the Ctrl+S half: once the session has a name, Ctrl+S must write it again WITHOUT
+      putting a dialog in the way, and must name it in the status line. A save that re-prompts
+      every time is one people stop using, and the unsaved-state dot then stops meaning anything.
+      **Not covered:** Escape closing ribbon menus.
+
+- [ ] **T-RT-16** — Legacy Multimin filtered from the step picker. Now covered at BOTH ends:
+      `workflow.e2e.mjs` covers steps 1–3 (the Workflow Builder's own picker offers no `multimin`,
+      under either name) and `shell.e2e.mjs` covers step 5 (the ribbon cross-check), and covers it
+      well: the retirement rests on two independent
+      mechanisms — membership of `ADVANCED_MODULE_IDS`, which filters it out of the Petrophysics
+      dropdowns, and a META caption outside `groupOrder`, which keeps it out of the Advance tab —
+      so breaking either one puts the button back somewhere, and the test sweeps the whole ribbon.
+      **Only step 4 is left** — that SandiMin is not offered as a chain step either.
+
+### Where else to look
+
+- **`git log`** — every increment's commit says what it pinned and why.
+- **`tools\check.ps1`** — the count in `test result: ok. N passed` is the whole suite.
+- **`tools\testplan-tally.ps1`** — still scores only YOUR marks in the manual plan, deliberately.
+  Nothing automated ever ticks a box there.
+
 ## Two rules this document follows
 
 **It does not touch your marks.** `REVIEW.md` and `manual_test_plan.md` are unchanged. A `[x]`
@@ -295,12 +793,13 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Four things the triage found that are worth fixing regardless
+## Twenty-five things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
-not taken on a subagent's word.
+not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
+under each.** A fourth of the same shape was found later and is recorded as finding 5.
 
-### 1. The plan still teaches a client calibration that no longer ships
+### 1. The plan still teaches a client calibration that no longer ships — **FIXED 2026-07-31**
 
 `manual_test_plan.md` lines 1470, 1472 and 4723 tell the tester to keep
 `GR_LOW_REF 53.68 / GR_HIGH_REF 133.93 — the Rokan 562-well calibration` and to expect GRN's P3
@@ -317,7 +816,10 @@ still sitting in a committed document as an instruction — which is the exact t
 `CLAUDE.md`'s provenance discipline forbids in source. The sweep covered the code; it did not
 cover this plan.
 
-### 2. A known-issue line will make a passing feature look broken
+**Fixed 2026-07-31.** Both places in the plan now say 20/120 with a dated inline note, and the
+stale `workflow.rs:1625` comment is corrected. Instruction text only — no mark was touched.
+
+### 2. A known-issue line will make a passing feature look broken — **FIXED 2026-07-31**
 
 T-MLEQ-14 carries: *"run_ml has no bad-hole/flag MASK support at all… Expect step 3 to Fail."*
 
@@ -326,10 +828,18 @@ It does have it, and two tests run in the gate proving it — `run_ml_mask_exclu
 is only the missing Mask picker in `mlDialog.ts`. As written, the plan tells you to log a working
 backend as a known failure.
 
-### 3. `export.rs` has zero tests
+**Fixed 2026-07-31.** T-MLEQ-14's known-issue line now says the backend has MASK and names the
+two tests, and points the failure at the missing dialog control instead. The distinction matters:
+"the capability is absent" tells you not to trust ML over washout, "the picker is absent" tells
+you to add a picker.
+
+### 3. `export.rs` has zero tests — **FIXED 2026-07-31**
 
 4.4 KB of export code, no test of any kind. T-IMP-15 and T-IMP-16 both landed in pile B because
 of it — meaning LAS export is currently proven only by you clicking it.
+
+**Fixed.** Two tests now: `export_writes_missing_as_null_and_carries_mixed_case_computed_curves`
+and `an_exported_las_reimports_with_the_same_values`. Both pile-B items retired.
 
 ### 4. The plan cannot cover what shipped after it was written
 
@@ -340,7 +850,921 @@ So the 250 tests are not 250 out of 250. The petrography suite, the office deliv
 calibrations, the depth registration and the image tracks have **no systematic test coverage in
 this plan at all** — they exist only as prose claims in `REVIEW.md`.
 
+### 5. A second stale known-issue line — found and **FIXED 2026-07-31**
+
+Found while writing T-PREP-13. It said the Round-4 fix for "module runs report ✓ success even
+when every output sample is MISSING" was *"uncommitted, in the working tree"* and told you to log
+a green ✓ against that known finding rather than as new. It has been committed for some time and
+is pinned by `all_nan_module_output_reports_error_not_success`.
+
+**This is the same defect as findings 1 and 2, and three instances is a pattern worth naming.**
+The plan was written at a moment when several fixes were in flight, and it froze that moment.
+Every "known issue" line in it is a claim about the code that was true on 2026-07-22 and has been
+decaying since — and each one costs you the same way, by telling you to accept a real failure or
+to log a working feature as broken. The three found here were the ones the triage happened to
+walk past. **Nothing has swept the rest.** If a step tells you to expect a failure, check the
+claim before you believe it.
+
+The corrected line also adds the case that makes T-PREP-13 subtle: if your gas flag covers only
+part of the interval, the unflagged samples pass real densities through, the run is *not*
+all-MISSING, and a green ✓ is then **correct**. Step 2 only holds where the flag covers
+everything you ran.
+
+**And one that was checked and is still TRUE.** T-PREP-16's known-issue line — the masked
+washout — was verified against the current code rather than assumed stale like the other three.
+The output masking in `workflow.rs` is still unconditional. It stands as written, and is now
+pinned by a test. Three of four stale is not four of four; check, don't assume in either
+direction.
+
+### 6. Overriding a temperature gradient per zone makes a STEP, not a kink — **FIXED 2026-08-01**
+
+Found while writing T-PREP-05, and it is the first thing in this whole exercise that changes
+numbers rather than documentation.
+
+`precalc` computes each sample as `SURF_TEMP + gradient(sample) × depth(sample)`. The gradient is
+applied **from surface**, not integrated down through the zones above it. So the moment you give a
+lower zone its own gradient, the temperature profile jumps at the boundary instead of bending.
+
+With a 0.03 °C/m well and a 0.035 override below 1500 m, measured in the test:
+
+| depth | FTEMP |
+|---|---|
+| 1400 m | 67.0 °C |
+| 1500 m | **77.5 °C** |
+
+A **10.5 °C step across 100 m**, where the undisturbed trend rises 3.0 °C. Rock temperature is
+continuous — a 10 °C discontinuity at a formation top is not a thing the earth does. And it does
+not stay in FTEMP: the Arps correction turns temperature into Rw, and Rw goes straight into Sw.
+
+T-PREP-05's own expected result says the trend should **kink**, with *"no discontinuity
+artifacts"*. So the plan and the code disagree, and the plan is describing the physical answer.
+
+**Answered 2026-08-01 — "temperature is curves only."** The geothermal trend belongs to the WELL
+and its product is a curve, so there is no per-zone gradient to integrate and the question of what
+temperature each zone *starts* at never arises. That is a better answer than either of the two the
+finding offered: it removes the discontinuity by removing the thing that made it, and it needs no
+new method math.
+
+`ArgSpec.well_scope` (`#[serde(default)]`) marks a parameter that describes one trend for the whole
+well. `precalc`'s SURF_TEMP / TEMP_GRAD and `ftemp_grad`'s TSURF / TGRAD / BHT / TD_BHT carry it.
+
+Four rules.
+
+**A named-zone override is REFUSED by name, with the fix, not silently ignored.** Quietly dropping
+it would change the well's temperature — and so its Rw, and so its Sw — with nothing on the log to
+say why, which is the failure this whole rule exists to prevent.
+
+**The `*` well-wide scope still applies, and that distinction is the whole rule.** `*` gives the
+well ONE value, which is what a geothermal trend has; a named zone gives it a different value part
+way down, and since the trend is evaluated from surface at every sample that is a step rather than
+a bend. It also means the per-well parameter grid keeps working, which matters — wells in one field
+genuinely do have different gradients.
+
+**Only an override that would actually apply is refused.** One naming a zone the well does not have
+never did anything, and must not start failing runs.
+
+**PSURF / PGRAD are deliberately NOT well-scoped, and the asymmetry is the physics.** A pressure
+step at a formation top is a pressure compartment, which is a real thing rock does; a 10 °C step is
+not. `a_per_zone_pressure_gradient_reaches_exactly_its_own_samples` (the old T-PREP-05 test, moved
+onto pressure) is what stops someone tidying that away, and
+`a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well` pins all four rules above.
+
+### 7. A well with no permeability is EXEMPTED from the permeability cutoff — **FIXED 2026-08-01**
+
+Found while writing T-BATCH-08, and like finding 6 it changes numbers rather than documentation.
+
+`classify_sample` is emphatic about this at the sample level, and there is a confirmed `[x]` in
+`REVIEW.md` for it: *a sample with missing PERM must FAIL an active PERM cutoff, not silently
+pass.* But whether the cutoff is active at all is decided one line earlier, per WELL:
+
+```rust
+let has_perm_cut = req.perm_min.is_some() && perm.iter().any(|v| !v.is_nan());
+```
+
+A well carrying **no permeability anywhere** makes that false and switches the cutoff off for
+itself. Measured in the test, two wells of identical rock, cutoff PERM ≥ 1000 mD:
+
+| well | permeability | net pay |
+|---|---|---|
+| measured 1 mD | 1 mD | **0** — correctly excluded |
+| measured none | — | **full** — cutoff never applied |
+
+So the two halves of the same rule disagree, and in the damaging direction: **the less permeability
+data a well has, the more pay it books.** Both wells report `n_classified > 0`, so nothing
+downstream — not the Field Dashboard, not the workbook, not the client PDF — can tell the exempted
+row from the honest one. In a field roll-up they simply add together.
+
+T-BATCH-08's own Expected says the opposite of what the code does, so that test would have been
+logged as a new failure; its instruction now carries a Known issue line pointing here.
+
+**Answered 2026-08-01 — "no relation between em, wells still can have perm curves."** Whether a
+cutoff applies has no relation to whether this particular well was cored, and permeability can be
+MODELLED where it was not measured (`perm_coates`, `perm_timur`, the rocktyping family), so lacking
+a measured PERM is not a reason to be let off. The well-level test is gone:
+
+```rust
+let has_perm_cut = req.perm_min.is_some();   // was: && perm.iter().any(|v| !v.is_nan())
+```
+
+`classify_sample`'s rule — a sample that cannot be SHOWN to pass, fails — is now the only one in
+play, and the two halves agree. **This moves reserves**: an uncored well against an active PERM
+cutoff now books zero net pay where it used to book full.
+
+**The flag survives with its meaning inverted**, because the reader's problem is unchanged and only
+its direction moved. `PaySummaryRow.perm_cutoff_no_data` (renamed from `perm_cutoff_skipped`) is
+true exactly when a cutoff is active and the well carries no PERM anywhere.
+
+Three rules, two of them unchanged from when the flag meant the opposite:
+
+- **It means "a cutoff was requested and this well has nothing to answer it with", not "this well
+  has no permeability".** With no cutoff asked for there is nothing to report, and a flag that
+  fired anyway would appear on every report anyone ever ran without one.
+- **It is surfaced where the number is READ.** A well booking zero across every zone looks exactly
+  like a wet well. The client PDF prints a note under the pay table saying the zero records an
+  absence of evidence rather than a dry reservoir; the Field Dashboard names the wells whose zeros
+  are being averaged in. A flag living only in the row struct would fix nothing a reader can see.
+- **`n_classified` could never have carried this.** The well is fully interpreted, so it is above
+  zero either way — which is what made the old exemption silent and now makes the new zero
+  ambiguous, and why a SECOND discriminator is needed rather than a cleverer reading of the first.
+
+Pinned by `a_well_with_no_perm_fails_the_cutoff_and_says_why`, which asserts BOTH halves — the
+exclusion and the note — because the safe-looking half is only half.
+
+The Word document, the workbook and the deck do not carry it yet. The field is on every row, so
+adding it there is mechanical.
+
+### 8. The Monte Carlo PERM cutoff — the audit's wording understates the trigger — **FIXED 2026-08-01**
+
+Not a new finding: AUDIT-2026-07-21 already has it, and T-BATCH-16 carries the Known issue line.
+What writing the test refined is **when** it fires.
+
+The audit says the cutoff is ignored "whenever PERM is produced by the Monte Carlo chain itself
+(not read from the DB)". The actual discriminator is `build_plans`'s external-input set: PERM
+reaches `has_perm_cut` only if some step CONSUMES it and **no step produces it**. So the failure
+is not a corner case of an unusual chain — it is triggered by *adding a permeability model*:
+
+| chain | PERM cutoff |
+|---|---|
+| `vsh_gr → phi_dn → sw_indo → rocktyping` (reads PERM from the project) | works |
+| the same chain with `perm_coates` inserted ahead of it | **silently dead** |
+
+A study that models permeability is precisely the study whose permeability cutoff matters.
+
+**Fixed 2026-08-01**: `has_perm_cut` now asks `produced` as well as `raw_pool`. This is not turning
+a cutoff on with no data behind it — the realization pool carries produced curves, so PERM really
+is there when `zone_metrics` reads it.
+
+Both chains stay in `a_permeability_cutoff_survives_a_chain_that_models_permeability`, because
+chain A is the control: without it, the assertions on B would pass just as well against a cutoff
+that was broken everywhere. A third case was added for the opposite failure — a cutoff the modelled
+permeability CLEARS must leave the pay alone, or setting `has_perm_cut` unconditionally would
+satisfy every other assertion in the test.
+
+I also asserted, wrongly, that no module reads PERM as an input — a grep for `log_in("PERM"` misses
+`rocktyping.rs` and `satheight.rs`, which sit in their own files. Because it was written as an
+assertion rather than a comment, the build rejected it immediately. Worth repeating as a habit:
+**a claim about the codebase belongs in an assertion, where it can be wrong out loud.**
+
+### 9. Pittman's r50 and r75 cross over in ordinary sand — **FIXED 2026-08-01, and it was worse than the finding said**
+
+Found while writing T-RT-08. The physics is not in question: mercury enters the widest throats
+first, so the radius quoted at 75 % saturation must be SMALLER than the one at 50 %. `PR75 < PR50`,
+always, in rock.
+
+The nine Pittman rows are nine **independent regressions**, not a nested family, so nothing in the
+arithmetic makes them obey that. In log space,
+
+```
+PR50 − PR75 = −0.634 − 0.066·log k + 0.543·log φ%
+```
+
+which changes sign at about **79 mD at 25 % porosity**. Measured at φ = 25 %, k = 100 mD:
+
+| | radius |
+|---|---|
+| PR50 | 2.907 µm |
+| PR75 | **2.953 µm** ← larger, which cannot happen |
+
+At 1 mD the same pair is the right way round, so this is not one bad sample — it is the
+coefficients. PR10 through PR50 stay monotone throughout, which narrows it to the PR75 row (or,
+less likely, PR50).
+
+T-RT-08's Expected says the ordering "holds everywhere both curves are populated". It does not, and
+the well where it fails is a good one. It also reaches the outputs: someone selecting `r75` as APEX
+in fine rock — which is exactly what the module doc recommends for fine rock — gets RAPEX and
+RT_PITT built on the inverted value.
+
+**The paper arrived 2026-08-01** (Pittman, E. D., 1992, AAPG Bulletin v. 76 no. 2, p. 191–198) and
+settles it outright. TWO rows were wrong, not one:
+
+| shipped as | carried | which is |
+|---|---|---|
+| PR50 | 0.609, 0.608, −0.974 | Table 1's **r45** |
+| PR75 | 1.243, 0.674, −1.517 | **no published equation at all** |
+
+r10 through r40 were all correct.
+
+**The mechanism is worth keeping, because it is what the fix now defends against.** Pittman
+publishes FOURTEEN rows in 5 % steps; the module writes nine. r10–r40 are contiguous, so reading
+straight down the paper works — until the first skip, after which every subsequent line is read one
+high. That put r45's coefficients under the PR50 label and left the tail free-floating. A slip
+between two ADJACENT rows would have produced a plausible number with no symptom at all; the only
+reason this one was ever noticed is that it made the family non-monotone.
+
+So the fix is not just two corrected numbers. **Table 1 now lives in the code in full
+(`PITTMAN_TABLE1`) and `PITTMAN_RX` carries no coefficients at all** — only the mnemonic and the
+saturation, with the numbers looked up. There is one copy of the paper's arithmetic in this repo
+and the shipped subset cannot drift from it. `every_shipped_pittman_row_is_a_published_one` is the
+check that was missing.
+
+Correcting the rows moved the inversion from **65 % of the paper's own sample range** (φ 3.3–28 %,
+k 0.05–998 mD) down to about 10 %.
+
+#### 9b. …but the PUBLISHED table is not monotone either, below ~11 % porosity — **NEW, and not corrected**
+
+Found while writing the test that was supposed to close 9. The published rows are fourteen
+INDEPENDENT regressions and the porosity exponent steepens down the table (−0.385 at r10 to −2.626
+at r75 — Pittman notes the porosity term is statistically insignificant through r35 and significant
+from r40). So as porosity falls, the high-saturation rows climb much faster than the low ones and
+overtake them. At 5 % porosity and 1 mD the shipped family reads:
+
+```
+r10 1.548  r15 1.238  r20 1.014  r25 0.911  r30 0.834  r35 0.775  r40 0.767   <- falls correctly
+r50 0.862 ^  r75 1.108 ^                                                       <- then turns back up
+```
+
+Measured across the paper's own sample range, the shipped set is strictly monotone at every
+permeability once porosity reaches **11.16 %**. Every inversion below that is in tight rock.
+
+**Not corrected, deliberately.** Forcing the ordering — a running minimum, a refit — would put
+radii in a client's report that Pittman never published. What shipped instead is the boundary,
+stated: the module doc now tells you to use a LOW apex (r25–r35, where Pittman's own porosity term
+is insignificant) in tight rock and treat PR50/PR75 there as extrapolation.
+`the_published_pittman_rows_cross_over_in_tight_rock_and_that_is_the_papers_own_arithmetic` pins
+both the crossover and the 12 % boundary, and asserts the old table's inversion at 25 % sand
+alongside — so "still not perfectly monotone" can never be read as "the fix did not work".
+
+**One thing for you.** The APEX doc used to recommend r50–r75 for fine rock, which is exactly the
+advice that is unsafe below 11 % porosity. It now says the opposite for tight rock. If any of your
+studies picked `r75` as APEX in a tight interval, RAPEX and RT_PITT there were built on a row that
+had turned back upward — worth a re-run.
+
+### 10. A run that fails still writes its empty curves into the catalog — **FIXED 2026-08-01**
+
+Found while writing T-RT-05. `all_nan_module_output_reports_error_not_success` already pins the
+honest half: an all-MISSING run reports an error and a zero sample count instead of a green ✓. What
+nobody had checked is what reaches the database.
+
+Phase 2 of `run_workflow_module_into` writes for any well whose outcome is `Computed` with a
+non-empty output map — and an all-MISSING output map is still non-empty. So rocktyping on a well
+with porosity but no permeability reports its failure **and versions the whole family** — RQI,
+PHIZ, FZI, R35, PGEOM, PSTRUC, RT, PERM_RT — into the Curve Catalog as curves that are blank from
+top to bottom. Measured: rows written for all eight, finite values in none.
+
+T-RT-05's Expected says the catalog must gain no FZI/RT rows and no half-written curves. It gains
+eight of them. The cost is not corruption — the values are honestly MISSING — it is that the
+catalog stops distinguishing *"this was never run"* from *"this was run and could not answer"*, and
+a log-set version is burned recording the second as though it were an interpretation.
+
+**Fixed 2026-08-01.** The rule chosen is not "drop blank curves" — it is **a run that reports
+failure must not also version an interpretation.** That ties the write to the error the run already
+reports, so the two can no longer disagree, and it is the same `any finite` test the Processing
+panel was already using to choose between a green tick and a warning. One helper (`answered`) now
+decides all four things that have to agree: the panel's item state, whether a log-set version is
+allocated, whether anything is WRITTEN, and what the result reports.
+
+**A single all-MISSING output ALONGSIDE finite ones is still written**, deliberately. A flag curve
+nothing triggered is a real answer, and dropping one output of a run would leave the written set
+inconsistent with the one the module declares. The gate is over the whole output map, never per
+curve.
+
+One ordering detail worth keeping: the all-MISSING case is checked BEFORE the set/write branches in
+the result assembly, because that well is now deliberately given no output set — falling through
+would report "no output set allocated for well", which names the mechanism instead of the cause.
+
+The record that a run happened is not lost. The run reports its error and the Processing history
+holds it; what the catalog now says is only what it can support.
+
+### 11. The held legacy-multimin RECON_ERR item is already answered — **CLOSED 2026-08-01**
+
+`REVIEW.md` lists "legacy-multimin RECON_ERR at 3 tools" among the findings **awaiting your
+sign-off because they would change interpretation numbers**. It does not need your sign-off. It
+was resolved twice over while nobody updated the list, and T-RT-18 still instructs you to run a
+module that refuses to start.
+
+**First, the module is gone.** Legacy `multimin` is retired: `run_module` blocks it via
+`retired_module`, the solver body was deleted, and the spec survives only so a saved chain
+resolves by name and can show its stored parameters while you redo it in SandiMin. T-RT-18 step 3
+gets a "use SandiMin" refusal, not a RECON_ERR.
+
+**Second, the concern is real, it was inherited, and SandiMin already handles it.** The blindness
+is not a bug anyone can fix — it is linear algebra. With as many equations as components the solve
+reproduces the measurements exactly whatever the endpoints are, so the residual says nothing about
+them. What SandiMin adds is that it *detects* the condition (`dof == 0`) and returns `dof_note`
+saying RECON is forced to ~0 and telling the user to add an input log.
+
+Measured on one well, one set of logs, one set of components, **correct endpoints throughout**:
+
+| tools | dof | RECON |
+|---|---|---|
+| RHOB + NPHI (+ unity) | 0 | **~0.00** |
+| + DT + GR | 2 | **0.62** |
+
+The square figure is arithmetic, not fit quality. Add the 0.4 g/cc illite density error from the
+existing endpoint test and the square case still reports ~0 while the clay volume moves materially;
+at dof 2 the same error takes RECON from 0.62 to 1.22.
+
+`dof_note_set_when_exactly_determined` already checked the note appears. It never checked the
+reason it must be there, which is the whole of T-RT-18 — so
+`an_exactly_determined_model_hides_a_wrong_endpoint_and_only_the_dof_note_says_so` now pins it,
+with the over-determined run as the control.
+
+**Nothing to decide, and nothing to fix.** What is left is bookkeeping: drop the item from
+REVIEW.md's sign-off list, and T-RT-18's instruction now carries a superseded block pointing at
+SandiMin. The one judgement worth making is a UI one — the note is returned, and whether the
+SandiMin pane makes it hard to miss is worth a look during your click-through, because a warning
+nobody reads is the same as no warning.
+
+### 12. Two wells with one name overwrite each other's report, and the count says otherwise — **FIXED 2026-08-01**
+
+`export_report_batch` names each file from the well NAME, sanitized (`report.rs:527`). `well_name`
+carries no uniqueness constraint, so two wells can share one — and an import with attach OFF
+creates a second record under the same name by design. The sanitizer widens the collision
+further: every non-alphanumeric maps to `_`, so `SANDI/1` and `SANDI 1` land on one filename too.
+
+When they collide the second write **silently overwrites the first**, and both paths are still
+pushed onto `written` — so a 3-well batch reports "wrote 3 file(s)" over 2 files on disk, and the
+report you keep is the last well's under the first well's name. Nothing in the status line, the
+Processing panel or the folder says a well is missing. Pinned as-is by
+`two_wells_with_one_name_silently_overwrite_each_others_report`.
+
+The **same function identifies wells two different ways**, which is the root of it: the success
+path looks up the name for the filename (`:518`), the failure path never does and reports the raw
+UUID (`:535`). So a failure you can't attribute and a success that silently replaced a file are
+the same underlying gap. Your plan already flagged the UUID half as UX feedback.
+
+**Fixed 2026-08-01 by suffixing** — `SANDI-1_report.pdf`, `SANDI-1_2_report.pdf`. It does change
+what lands in a client folder, but only in the case where a file was previously being LOST, so
+there is no delivery it makes worse.
+
+Four rules:
+
+- **The first well of a colliding pair keeps the plain name.** A folder delivered to a client must
+  not suddenly rename the well anybody was expecting.
+- **Only collisions WITHIN one batch are suffixed.** Re-running a batch into the same folder should
+  overwrite its own previous output, which is what the user means by running it again; suffixing
+  around files already on disk would grow a folder of `_2`, `_3`, `_4` every time they pressed the
+  button.
+- **The name is resolved BEFORE the render, so both paths identify the well the same way.** That is
+  the root the finding names: the success path looked the name up for the filename and the failure
+  path reported the raw UUID, so an error you could not attribute and a success that silently
+  replaced a file were one gap. One lookup now serves both.
+- **A name that sanitizes to nothing falls back to the well id.** `_report.pdf` is not a
+  deliverable, and two such wells would collide on it.
+
+The test fixture carries BOTH collision routes — two wells with the identical name, and two whose
+distinct names sanitize onto one stem. A fix that only compared names would still write over a file
+and would look entirely correct in a test that used identical names only.
+
+### 13. A script that raises on only SOME samples reports a clean success — **FIXED 2026-08-01**
+
+A Rhai error is caught per sample and written as MISSING (`equations.rs:1116`,
+`Ok(_) | Err(_) => NAN`). The only thing that converts a script error into a reported failure is
+the all-MISSING guard at `:1124` — and it fires **only when every sample failed**.
+
+So a script that raises on half the depths produces a curve with holes and reports success with
+the full row count. Nothing tells the user their script threw. Worse, the result is
+indistinguishable from a curve whose inputs were simply absent there, which is the ordinary
+innocent case — so there is nothing on the log to prompt a second look. Pinned as-is by
+`a_script_that_raises_on_only_some_samples_still_reports_a_clean_success`, whose control raises
+everywhere and IS caught: the difference between reported and silent is only ever coverage.
+
+Same shape as finding 10 (a failed run still writes its empty curves): in both, the honest signal
+exists but is gated on the failure being total.
+
+**Fixed 2026-08-01, as a WARNING beside a successful run.** The raises are counted at the
+evaluator and reported as `EquationRunResult.note` — a third channel next to `error`, surfaced by
+`summarizeRun` as "Warnings:" and by the Processing panel as `ItemState::Warned`.
+
+Three judgements, and the reasons they went this way:
+
+- **A warning, not an error.** The run did produce data, and an equation guarded by a domain check
+  legitimately refuses some depths. Calling that a failure would train the user to ignore the
+  channel.
+- **The curve is still written.** A partial answer is often the answer wanted; what was
+  indefensible was silence.
+- **Counted at the evaluator, never from the output.** Counting MISSING output samples would flag
+  every equation ever run over a washout, the warning would fire constantly, and a warning that
+  always fires is one nobody reads — at which point the real half-failed script goes past
+  unnoticed again. Samples whose inputs were already MISSING never reach the evaluator (the
+  `has_nan` short-circuit), which is exactly what makes the count mean something: these are depths
+  where the script had real numbers and still could not answer. Pinned from both sides by
+  `a_script_that_raises_on_only_some_samples_says_so_without_calling_the_run_a_failure` and its
+  control `a_curve_holed_by_missing_inputs_is_not_reported_as_a_script_failure`.
+
+A non-finite result (`exp(1000)`) is counted separately and worded separately — it is an overflow,
+not a raise, and telling the user their script threw when it did not would send them reading the
+wrong line.
+
+Worth saying what this is NOT: the Python path is fine. `run_python_equation` runs the whole
+well's array in one call, so a `raise` fails that well outright and the user's own message reaches
+the summary — verified, not assumed, by
+`a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact`. This is specific to Rhai's
+per-sample evaluation.
+
+### 14. T-ADV-13 tells you to expect a failure that was fixed — **PLAN CORRECTED 2026-08-01, no code change needed**
+
+The step says the TVD dropdown on SW — Saturation-Height is a false affordance, that no producer
+for a TVD curve exists anywhere in the app, and that you should **"Mark Fail — known"**.
+
+That is no longer true. `ingest::materialize_tvd_curves` (`ingest.rs:469`) resamples the deviation
+survey onto the well's log depth grid and writes TVD and TVDSS as fetchable curves, and
+`import_deviation_csv` calls it on every import. So a deviated well with its survey loaded gets a
+real TVD, `sw_height` consumes it, and HAFWL is measured from true vertical depth.
+
+Verified end to end rather than inferred from the code:
+`a_deviated_wells_height_is_measured_from_the_survey_not_along_hole` imports a survey (vertical to
+1000 m, building to 60° by 2000 m), runs the module through `run_workflow_module`'s own input
+resolution, and reads HAFWL back out of the database. It lands on FWL − TVD at every sample, and
+at TD sits more than 500 m above the along-hole answer.
+
+Worth noting **why the suite did not already say so**. Both halves had tests the whole time:
+`sw_height_uses_tvd_and_allows_tvdss_fwl` hands the module a TVD array by hand, and
+`deviation_import_materializes_tvd_tvdss_curves` checks the survey reaches the log grid. Neither
+touches the joint between them, which is precisely where the finding lived. A suite organised by
+file tests halves by default.
+
+**Action is on the plan, not the code**: strike the Known-issue paragraph from the T-ADV-13 step so
+you do not mark a passing feature as a failure out of deference to it.
+
+### 15. The report's table pages carry no footer, unlike every other surface — **FIXED 2026-08-01**
+
+T-REP-06 expects **"Each table page footer: 'Made in SandiBumi'"**. They have none.
+
+The mark is emitted by the report COVER (`report.rs:289`), by every composite page
+(`composite.rs:609`), by the Word document (`office.rs:827`) and by the PowerPoint deck
+(`office.rs:1332`). But `table_pages` and `note_page` emit no footer at all — so the methodology,
+zone-parameter and pay-summary pages of the PDF are the only unmarked surface in the whole
+deliverable set. A reader who extracts or photocopies the pay summary gets an unattributed page.
+
+Pinned as-is by `a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table`,
+which asserts the cover IS marked and no table page is. Everything else in that step checks out:
+page order is cover → methodology → zone parameters → pay summary, `tables_only` genuinely stops
+there, the zone override is listed by name and value, and the printed nets match the computed ones.
+
+**Fixed 2026-08-01 by marking every table page**, which is the direction the rest of the code was
+already pointing: four of the five surfaces carried the mark, so the table pages were the anomaly
+rather than the rule. It stays a branding decision and it is one line to revert — but "the mark
+belongs on client pages" is a statement this codebase has already made four times, and the concrete
+harm named here (an extracted pay summary with no attribution) is real.
+
+Two details. The mark is added **after pagination**, once per finished page, rather than at either
+`pages.push` — there are two of those, and a mark added at one would silently miss every
+continuation page of a long pay summary, which is exactly the page most likely to be extracted on
+its own. And it is smaller and paler than the cover's: a footer that competes with the table is
+worse than no footer.
+
+The test now asserts the mark on EVERY page rather than sampling one. The failure mode here is a
+page type being missed, and a spot check is how it stayed missed.
+
+### 16. HPV is not guaranteed non-negative — a dense stringer is subtracted — **FIXED 2026-08-01**
+
+T-REP-06 lists **HPV ≥ 0** as a domain check. It is not an invariant. The pay summary sums
+`PHIE * (1 - SWE) * h` over net with no floor (`workflow.rs:717`), so the row inherits the sign of
+PHIE.
+
+The route is ordinary. A tight carbonate streak reads low GR, clears the VSH cutoff and is flagged
+SAND; a density porosity computed on a sandstone matrix reads slightly NEGATIVE there, which is a
+routine artefact of a vendor PHIE rather than a corrupt curve. Its contribution is then subtracted
+from the SAND row's hydrocarbon column.
+
+Measured, not asserted: `a_dense_stringer_is_subtracted_from_the_sand_rows_hpv` puts 2.5 m of
+streak at PHIE = −0.05 through a 5 m zone and the SAND row's HPV comes back **more than 20% below**
+the same well with the streak floored at zero.
+
+Two things make it easy to miss. The streak fails the porosity cutoff, so **RESERVOIR and PAY are
+byte-identical either way** — the two rows anyone checks first agree with each other while the SAND
+row quietly does not. And the understatement is in the safe direction, so nothing looks alarming.
+Flipping the printed sign takes a porosity far outside anything a log produces, which is why the
+test claims the understatement and not a negative number.
+
+**Answered 2026-08-01 — "always limit phie to 0.001."** `modules::PHIE_FLOOR`, and *always* is
+doing real work in that sentence: the finding offered two homes and the answer needs BOTH, because
+the motivating case is a **vendor** PHIE arriving by LAS, which never passes through a porosity
+module at all. So the floor is applied where the curve is written AND where a pay number is
+computed.
+
+Four rules.
+
+**0.001 v/v rather than 0.0**, which is his call and not an arbitrary epsilon. A hard zero is a
+legitimate reading — shale has no effective porosity and the ≥95 % VSH branch says so — so
+flooring at zero would make "no porosity here" and "the arithmetic went below zero"
+indistinguishable. 0.1 pu is below anything a log resolves and above anything an interpretation
+would claim, so a PHIE sitting exactly on it is legible AS the floor.
+
+**The floor lands on `PHIE`; `PHIE_DEN` and `PHIE_DN` stay unclamped.** Those are the declared
+unlimited twins, and the negative excursion is the evidence for the judgement they exist to
+support — it is how you find out RHO_MA is wrong. Clamping both would hide the reason to look.
+
+**One helper for every pay path** (`workflow::floored_phie`), used by the summary and by the cutoff
+SWEEP. The two must agree at the same cutoffs, and two copies is two places to drift. Applied once
+per well, so `hpv`, `avg_phie` and the classifier cannot end up disagreeing about the porosity at
+a depth.
+
+**The NaN guard in it is load-bearing, not defensive**: `f32::max` returns the OTHER side when one
+is NaN, so without the guard a MISSING porosity becomes a real 0.001 and starts counting toward
+`n_classified` — the one field that says whether the well was interpreted at all. Pinned by
+`flooring_phie_leaves_missing_missing`.
+
+`a_dense_stringer_no_longer_subtracts_from_the_sand_rows_hpv` asserts HPV ≥ 0 as an invariant now,
+that an absurd −5.0 lands on the same floor as −0.05 (a floor, not a proportional correction), and
+— the one that keeps the floor honest — that a floored streak still FAILS the porosity cutoff. A
+floor set anywhere near `phie_min` would stop a stringer being subtracted by quietly promoting it
+into reservoir instead, which is a worse answer wearing a better-looking number.
+
+### 17. A chain whose worker thread dies jams the project switch for the rest of the session — **FIXED 2026-08-01**
+
+The guard T-SHELL-09 exercises is correct: `chain::register` is called at `lib.rs:2428`, BEFORE
+the worker thread is spawned at `:2468`, so the switch is already shut the instant Run is clicked
+— there is no window where the command has returned and nothing is registered. Completing and
+cancelling both release it. That is all pinned by
+`a_registered_chain_holds_the_project_switch_shut_until_it_is_really_finished`.
+
+What has no release is a worker that dies without reaching one of the three terminal `set_status`
+calls. **Nothing ever removes an entry from the chain registry** — `register` inserts, `set_status`
+mutates, and there is no prune (contrast `jobs.rs`, which prunes finished jobs and has a test for
+it). So the job stays `Queued`/`Running` in the map forever and `any_active` keeps answering true.
+
+`lib.rs:2466` already documents the case: a panic inside `run_chain` "stays on this thread (it
+can't abort the process); the job simply stops reporting progress". It does more than stop
+reporting. **Open Project, New Project and Compact Project are all refused from that moment on**,
+each telling the user to wait for a job that will never finish, and the only way out is to restart
+the app — which on a field project means paying the reopen cost again.
+
+Pinned as-is by `a_chain_that_never_reports_a_terminal_status_jams_the_guard_permanently`.
+
+**Fixed 2026-08-01.** `catch_unwind` around the `run_chain` call reports the panic on BOTH
+registries — `chain::failed` for the Workflow Builder's poll, `job.failed` for the Processing panel
+— and the `Failed` variant lost its `#[allow(dead_code)]`.
+
+Three judgements:
+
+- **The project switch OPENS.** A chain that died mid-write left a half-written log set, which is
+  bad; refusing to let the user open another project until they restart the app does not un-write
+  it, and on a field project costs them the reopen. The message says the results are incomplete,
+  which is the thing they actually need to act on.
+- **The entry is still not pruned, deliberately.** It has to survive so `get_chain_status` can say
+  WHY the run stopped. What changed is that a dead worker now reaches a terminal status, so the
+  guard opens while the reason stays readable.
+- **The panic's own message is carried through**, because "the workflow stopped unexpectedly" with
+  no detail is a bug report nobody can act on. `panic!("literal")` carries a `&str` and
+  `panic!("{x}")` a `String`; anything else has no readable message, and the note says so rather
+  than printing a type name.
+
+**One honest limit, recorded in the code.** If the panic happened while the DB mutex was held, that
+mutex is now poisoned and the next `lock().unwrap()` anywhere panics in turn — catching here cannot
+rescue that case. It rescues every panic that was not holding the lock, and makes the rest report.
+Pinned by `a_dead_chain_worker_reports_failure_and_releases_the_project_switch`, which also checks
+Completed and Cancelled still release the guard so the fix did not narrow it to one exit.
+
+### 18. The report cover states the composite's PRINT WINDOW, not the logged interval — **FIXED 2026-08-01 (correctness half)**
+
+The cover's "Interval: … – … m" is read straight off the composite pagination
+(`report.rs:319` — `composite_pages.first().top` / `.last().bot`), and that pagination honours the
+render's depth window. So setting a print window re-dates the whole report, **including the tables
+the window never touched**: `run_pay_summary` works per zone and knows nothing about the composite
+window. A report rendered over 1005–1010 m carries a pay table covering every zone in the well
+under a cover announcing a 5 m interval. On a **tables-only** render there are no log pages left to
+show the reader that the window was only ever a print setting.
+
+Pinned as-is by `a_composite_depth_window_re_dates_a_cover_whose_tables_ignore_it` (`report.rs`),
+which renders a 1005–1010 window over a well whose only zone is 1012–1019 and finds that zone
+reported in full under the narrowed cover.
+
+**The same line explains the audit's tables-only slowness, and constrains its fix.**
+AUDIT-2026-07-21 (Viz/reporting #3) reads as though `report_pages` forgot an `if`: the composite is
+rendered unconditionally at `:314` and only skipped when appending at `:463`. It did not forget.
+The comment at `:312` says why — "Composite pages (also gives the true interval for the cover)" —
+so the expensive render is what supplies the cover's one remaining fact. Skip it naively and the
+cover falls to the `unwrap_or(0.0)` default and prints **"Interval: 0.0 – 0.0 m"** on a client
+deliverable.
+
+**Fixed 2026-08-01.** `db::logged_interval` is that cheap query — two aggregates over the leading
+column of a primary key, standard curves first and computed curves as the fallback for a well
+carrying only derived logs. The cover dates itself to the LOG.
+
+Three rules:
+
+- **The window is stated BESIDE the interval, never instead of it** — "Log pages printed over
+  1005.0 – 1010.0 m". A cover that quotes the window as the interval describes a study nobody did,
+  and the tables on the next page contradict it.
+- **Only when it genuinely narrows, and never on a tables-only render.** On tables-only the window
+  describes nothing in the document; on an unwindowed render there is nothing to say. A line that
+  always appeared would train the reader to skip it.
+- **The pagination is still the fallback** for a well with no curve rows at all, which prints the
+  same 0.0 – 0.0 it always did rather than inventing a new failure mode.
+
+The test now runs one fixture three ways — tables-only, full render with the window, and no window
+— because the window means a different thing in each and one assertion cannot say so. Its single
+zone sits ENTIRELY outside the window, so a cover quoting the window would contradict the pay table
+on the next page. The correct behaviour of tables-only otherwise is still pinned by
+`tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock`.
+
+**The perf half is now unblocked but NOT done.** With the cover no longer needing the composite,
+`report_pages` could skip the render on a tables-only report — the audit's known slowness. It still
+renders it, because `pw`/`ph` and the well name come out of the same call and taking them from
+`spec.composite` is a separate change with its own page-size questions. The prerequisite the finding
+named is in place; the skip is a follow-on.
+
+### 19. Curve Edit's "coerce to 0.0" is HALF fixed, and the surviving half is one line of TypeScript — **FIXED 2026-08-01**
+
+The BACKEND guard is correct and tested: `apply_op` refuses a non-finite constant outright
+(`curve_edit.rs:417`), writing nothing — pinned by
+`a_set_constant_refuses_a_value_that_is_not_a_number`. It is also unreachable for the case the
+audit reported.
+
+`curveEditDialog.ts:88` reads every numeric field through
+`const v = parseFloat(s); return Number.isFinite(v) ? v : dflt;`. An empty Value field, or `abc`,
+gives NaN, which is not finite, so the helper returns its default of **0** — a perfectly finite
+number that passes the backend guard and is written over the interval as a real reading. The
+comment above that line shows the narrowing was deliberate and stopped one step short: it was
+added so `1e999` could not set a curve to +Inf and poison catalog min/max and plot autoscale. It
+fixed the Infinity half. `1e999` now writes **0.0** instead, which is the audit's own finding
+arriving by the new route.
+
+**The sharp version: 0 is the identity for every field where it is the default except this one.**
+An empty `add` falls back to 0 and an empty `mul` to 1 — both no-ops, which is why nobody noticed.
+There is no identity for "set a constant", and 0.0 gAPI over an interval does not look like an
+error; it looks like a measurement of very clean rock.
+
+**Fixed 2026-08-01 by refusing Apply**, not by passing the non-finite value down. The one-character
+version (`dflt` to `NaN`) would have produced a backend refusal reading "value must be a number"
+with nothing saying WHICH field — and this dialog has six.
+
+Three things the fix does that the narrow version would not:
+
+- **It refuses `top` and `bottom` too.** An empty Top is the same trap by another route: it does
+  not mean "no interval", it means from surface, so a Set-constant or Blank meant for 2 m of log
+  silently covers everything above it. The finding named `value` because that is where 0 is a
+  reading; the interval fields are where 0 is a different operation.
+- **`mul` and `add` keep the fallback**, because there the default really IS the identity (1 and
+  0). The worst case is an op that does nothing and reports "nothing changed" — loud, not silent.
+  That asymmetry is the finding's own sharp version, applied rather than just noted.
+- **The message lands in the DIALOG**, in `var(--warn)`, naming every offending field and focusing
+  the first. This is `needWell.ts`'s rule: the user is looking at this dialog, and a refusal in a
+  corner of the window is one they will not read before clicking Apply again.
+
+Verified in the browser: an empty Value sends **no** `edit_curve` at all and reads "Value needs a
+number — nothing was written."; an empty Top with `abc` in Value names both; `blank` accepts an
+empty Value because it does not use it; and real numbers go through unchanged.
+
+### 20. The Wells grid's editor has no 0-row check, unlike the other three — **FIXED 2026-08-01**
+
+`update_standard_sample`, `update_computed_sample` and `update_core_sample` all check the UPDATE's
+row count and return an error naming the depth when nothing matched — the fix for the audit's
+"DB-inspector edit reports success on a 0-row update", and now pinned by
+`an_inspector_edit_on_a_row_that_moved_fails_instead_of_reporting_success`.
+
+`update_well_field` (`db.rs:5140`) does not. It validates the COLUMN and then runs the UPDATE
+without checking that anything matched, so an edit against a well that is no longer there returns
+`Ok`. The route is the Wells grid left open while the well is deleted in the Wells & Tops pane:
+the cell shows the new value, the status bar reports the edit, and an undo entry is pushed for a
+change that never happened.
+
+Rarer than a moved curve sample — a well_id does not drift the way a depth does — and the same
+silent outcome. Pinned as-is in the test above.
+
+**Fixed 2026-08-01** with the `n == 0` check the other three already carry.
+
+One deliberate difference in the message. The siblings name the depth, because a depth is
+something the user is looking at. The identity here is a `well_id` UUID they have never seen, so
+naming it would help nobody — the message says what happened and what to do instead ("that well is
+no longer in the project — it may have been deleted; refresh the Wells grid"). The column check
+stays a separate refusal, because a bad column is a programming error and a missing row is a stale
+grid. Both halves are asserted in the same test.
+
+### 21. T-PETRO-02's Larionov labels are reversed, and the dropdown gives no rock age — **BOTH FIXED 2026-08-01**
+
+The CODE is right. `modules.rs:349-350`:
+
+- `LARINOV1` = `0.33 * (2^(2*IGR) - 1)` — Larionov (1969) for **older rocks / Mesozoic and older**. At IGR 0.5 it gives **0.330**.
+- `LARINOV2` = `0.083 * (2^(3.7*IGR) - 1)` — Larionov (1969) for **Tertiary / unconsolidated**. At IGR 0.5 it gives **0.216**.
+
+Those are the published coefficient sets, and they match the numbers in this document's own pile-B
+row. The manual plan has them the other way round: step 1 reads "change `OPT_GR` to **LARINOV1**
+(Larionov Tertiary)", and its Expected pairs "Larionov-Tertiary ≈0.33, Larionov-older ≈0.22". Both
+associations are backwards relative to what the code computes.
+
+**Why this is the one worth reading.** Mahakam Delta is Miocene deltaic — Tertiary — so the
+transform this work usually wants is `LARINOV2`. Selecting `LARINOV1` on the plan's label returns
+0.33 where 0.216 belongs: a shale volume more than half again too high through the whole
+intermediate-GR interval, which is exactly where the VSH cutoff decides net pay. The curve looks
+entirely normal, both endpoints are fine, and nothing downstream can catch it.
+
+**The dropdown cannot settle it either.** `OPT_GR`'s choices are the bare strings `LARINOV1`,
+`LARINOV2`, `LARINOV3`, `STIEBER1..3` — no rock age, no coefficient, no tooltip. The plan is the
+only place a user is told which is which, and it is wrong.
+
+Now pinned by `every_vsh_gr_transform_lands_on_its_published_coefficient`, which evaluates all
+eight transforms by hand at IGR 0.5 and asserts each lands on its published closed form, so the
+mapping cannot drift again without failing.
+
+**Both calls made 2026-08-01, and they were separable.** The plan text is corrected in place (step
+1 and the Expected line both name the right rock age; the correction block stays as the record).
+And `ArgSpec` gained `choice_labels`, so the dropdown is self-describing: `LARINOV1 — Larionov,
+Mesozoic and older`, `LARINOV2 — Larionov, Tertiary / unconsolidated`. **The ids are unchanged and
+every label LEADS with its own id**, because `params_json` stores the id on every saved run and a
+user reading a stored run has to be able to match the two.
+
+Two details:
+
+- **`LARINOV3` is stated by its coefficients, not attributed.** Nothing in the repo cites a source
+  for `0.127·(3.15^(2·IGR) − 1)`, and inventing a rock age to make the dropdown look complete would
+  read exactly as authoritative as the two that are real — the move the provenance rules forbid.
+- **The label and the arithmetic are pinned to each other** by
+  `the_vsh_gr_labels_agree_with_the_coefficients_they_describe`. The older test ties the code to the
+  closed forms; this ties the closed forms to what the user is told. A label claiming Tertiary over
+  a Mesozoic coefficient set is the same defect one layer out, and just as invisible.
+
+`opt_labelled` is available to every other module with an option dropdown; only `vsh_gr` uses it so
+far, because it is the one the finding proved was dangerous.
+
+**A second correction to the same Expected line.** It says "endpoints 0 and 1 unchanged". At pure
+shale that is true for LINEAR, all three Stieber forms and Clavier (which cancels exactly), but
+the Larionov forms are empirical fits that were never normalised to close at 1: `LARINOV1` stops
+at **0.99**, `LARINOV2` at **0.9957**, and `LARINOV3` overshoots to **1.133**. `VSH` clamps all of
+them to 0–1; `VSH_GR` keeps the raw value, which is what that pair of outputs is for. Not a defect
+— but read against the plan as written it looks like one.
+
+### 22. The end-to-end harness was driving a dev server, not the built app — **FIXED 2026-08-01**
+
+The harness's opening line claims it drives "the REAL BUILT DESKTOP APP", and that claim was
+false for as long as the harness has existed.
+
+`src-tauri/target/release/sandibumi.exe` can be produced two ways. `npm run tauri build` embeds
+`../dist` into the binary; a bare `cargo build --release` compiles exactly the same Rust and bakes
+in `tauri.conf.json`'s **`devUrl`** instead, so the webview loads `http://localhost:1420`. The
+second binary is not distinguishable from the first by size, by name, or by anything the harness
+looked at.
+
+**With a Vite dev server up it passes every test.** That is the whole problem: the run is green,
+the assertions are real, and what was actually driven is the dev server's frontend — a different
+build of the frontend from the one in the binary, with none of the packaged app's CSP or asset
+pipeline. Everything the harness is FOR is the difference between those two.
+
+It surfaced only because the dev server happened to stop between one run and the next, at which
+point the webview landed on `chrome-error://chromewebdata/` and every test failed at once. Until
+then it had passed 10 of 10 twice that morning. A harness that silently tests the wrong artefact
+is worse than no harness, and this one gave no signal in either direction.
+
+**The fix is a refusal, not a rebuild.** The `before` hook now reads `location.href` and aborts
+unless the app is serving its own embedded frontend (`tauri://` / `http://tauri.localhost`),
+naming the cause and the correct build command. A dev-pointing binary can no longer produce a
+green run, and — deliberately — the message tells the reader NOT to fix it by starting a dev
+server. `e2e/run.mjs`'s "no binary" message now names `npm run tauri build -- --no-bundle` for the
+same reason: a bare cargo build is the trap, so the instruction has to rule it out explicitly.
+
+**One thing to re-check, which this casts doubt on.** The pile C note for **T-SHIP-01** ("packaged
+app launches under the hardened CSP") records it as *already machine-verified once on 2026-07-29
+by exactly this route*. The CSP exists only in a packaged build, so if that verification ran
+against a dev-pointing binary it verified nothing. Which binary it used is not recorded, so this
+is a doubt rather than a finding — but T-SHIP-01 is cheap to re-run now that the harness refuses
+the wrong artefact.
+
+### 23. An ordinary SQL comment breaks the read-only console, two different ways — **STARTER FIXED 2026-08-01, the guard is your call**
+
+The SQL console mishandles `--` comments at BOTH ends of a query, and neither failure is the
+user's fault.
+
+**A leading comment is refused.** `db::run_readonly_query` decides whether a query is a read by
+lower-casing the trimmed text and testing whether it **starts with** `select` or `with`. A `--`
+line in front hides the keyword, so a perfectly valid SELECT comes back *"only SELECT queries are
+allowed here"*.
+
+That is what shipped the panel's own starter query broken: it opened with two comment lines naming
+the project's tables, so **the first thing a new user clicked in that panel was refused, with a
+message telling them their SELECT was not a SELECT.**
+
+**A trailing comment corrupts the query.** The console executes what you typed WRAPPED:
+
+```
+SELECT * FROM ({your sql}) __sandibumi_q LIMIT n
+```
+
+so a `--` at the end swallows the closing paren and the limit, and DuckDB reports *"syntax error at
+end of input"* — against a query that is valid on its own. This is the more confusing half: nothing
+on screen says the query was rewritten before it ran.
+
+Both were found by the end-to-end harness, which runs the starter through the pane's own Run
+button. Neither is reachable by a Rust test: the guard is pinned by
+`readonly_query_refuses_every_write_shape_including_a_cte_prefix` and behaves correctly by its own
+definition, the wrapper is an implementation detail no test inspects, and the starter is frontend
+text nothing was checking.
+
+**Fixed here:** the starter now begins with `SELECT` and carries its explanation as a closed
+`/* … */` block comment, which is safe at both ends. Frontend text only; the write discipline is
+untouched.
+
+**NOT fixed, and it is your call**, because both fixes touch a write-discipline path and rule 6
+puts that in your hands:
+
+- The leading case wants the guard to skip leading `--` lines and blank lines before testing the
+  first keyword. Note this makes it **stricter**, not looser — it would then test the first REAL
+  token, and `-- x⏎DELETE …` is rejected either way.
+- The trailing case wants the wrapper to put its suffix on a NEW LINE (`…
+) __sandibumi_q LIMIT n`),
+  which costs nothing and fixes it outright.
+
+Current behaviour is pinned as-is in `panels.e2e.mjs`, with instructions to delete whichever half
+gets fixed rather than restoring it.
+
+### 24. T-MLEQ-14's Mask note is stale a SECOND time — **PLAN IS STALE, no code change needed**
+
+Step 3 of T-MLEQ-14 tells you to search the ML pane for a mask picker, expects not to find one,
+explains that flagged washout samples therefore "silently bias the scaler, cluster centers, trained
+models and PCs", and instructs you to log it against the dialog.
+
+**The control is there.** `mlDialog.ts` builds a `maskSel` and adds a **"Mask (exclude)"** form row,
+with a comment saying it is kept visible for ALL tasks because it also governs the unsupervised fit
+pool.
+
+This note has now been wrong twice in different ways. It originally said the BACKEND had no mask
+support at all; that was corrected on 2026-07-31 when `run_ml_mask_excludes_apply_samples` and
+`run_ml_mask_excludes_training_outlier` turned out to pin exactly that. The correction left behind
+"what is still missing is only the Mask picker in `mlDialog.ts`" — which is now also untrue.
+
+The cost is the usual one for a stale plan line, and it is not small: a tester following it looks
+for a control, finds it, and has to decide whether the plan or their own eyes are right. Worse, the
+note tells them what conclusion to draw ("log it against the dialog"), so the likeliest outcome is a
+defect filed against working code.
+
+**Fix: correct step 3's Expected and delete the known-issue note.** No code change. Now pinned from
+the other side by `ml.e2e.mjs`'s "has a Mask control" test, which goes red the day the control is
+removed — the failure mode the note was worried about, caught properly rather than described.
+
+### 25. T-IMP-05 is marked **Fail**, and the behaviour it failed on has since been fixed — **PLAN IS STALE, and worth your attention because your own mark is on it**
+
+`manual_test_plan.md` T-IMP-05 carries **`[x] Fail`** — your mark, from clicking through the
+no-well-selected guards. Its Expected reads: *every tool refuses with status `Select a well first
+(Wells & Tops panel)` — no dialog opens*.
+
+**Both halves of that sentence are now wrong, and the second one is wrong on purpose.**
+`src/ui/needWell.ts` (added 2026-07-31, after your mark) replaced the quiet status line with a
+NAMED REFUSAL DIALOG. Its own header explains why in terms that read like the complaint that
+produced your Fail:
+
+> A status-bar line is the wrong place to refuse a click. The user picked "Import SCAL…" and
+> expected a file dialog; what they got was nothing, with the reason in a corner of the window
+> nobody was looking at.
+
+So the step now: shows a modal naming the action and telling you to pick a well, AND still writes
+to the status line — because the message belongs in the record of what was attempted, it just
+cannot be the only place it appears. The wording is
+`"<action> needs a well — select one in the Wells & Tops pane"`, not the string the plan quotes.
+The callers are exactly T-IMP-05's list: Export LAS, Import DLIS, Import SCAL, Import deviation,
+Import Aux, Import pictures, Data Sets, Shift Core, Well header.
+
+**Two things to do.** Correct T-IMP-05's Expected — "no dialog opens" must become "a named refusal
+dialog opens" — and then re-run it, because **the item is very likely a Pass now and your Fail is
+the only record saying otherwise.** Nothing else in the plan tracks that a marked item was fixed
+afterwards, which is precisely how a fixed defect stays on the books.
+
+**Not covered by the harness**, and the reason is worth stating: driving it needs the app in a
+no-well-selected state, and nothing reachable from the DOM clears `appState.selectedWell` once a
+well has been clicked. Every other spec selects a well by design. A test-only "clear selection"
+path would be a change to the product to serve the tests — the same decision the harness declined
+over `driverProvider: 'embedded'` — so it is left to you.
+
 ---
+
+## The findings, as of 2026-08-01
+
+Of the 25, **twenty-two are now closed**: 1, 2, 3, 5, 22 and the starter half of 23 were fixed as
+they were found; 8, 10, 12, 13, 15, 17, 18, 19, 20 and 21 were fixed on 2026-08-01, and **6, 7, 9
+and 16 followed the same day once Jauhar answered them**; 11 and 14 were bookkeeping and are
+struck; 4, 24 and 25 are statements about the plan rather than defects.
+
+**The four answers, and what each moved.**
+
+| # | His answer | What changed |
+|---|---|---|
+| **6** | *"temperature is curves only"* | The geothermal trend is a WELL property. A named-zone override of SURF_TEMP / TEMP_GRAD (and `ftemp_grad`'s four) is refused by name; `*` still applies. PSURF/PGRAD stay zoneable — a pressure compartment is real, a 10 °C step is not. |
+| **7** | *"no relation between em, wells still can have perm curves"* | A requested PERM cutoff is always active. **Moves reserves**: an uncored well now books zero net pay where it booked full. The flag survives inverted, so the zero is readable as "not measured" rather than "not pay". |
+| **9** | the paper | Two rows were wrong — PR50 carried r45's coefficients, PR75 matched nothing published. Table 1 now lives in the code in full and the shipped set carries no coefficients of its own. See **9b** below. |
+| **16** | *"always limit phie to 0.001"* | `PHIE_FLOOR`, applied both where a porosity module writes the curve and where any pay path reads it — the motivating case is a vendor PHIE that never passes a module. HPV ≥ 0 is an invariant now. The unlimited `_DEN`/`_DN` twins stay unclamped for QC. |
+
+**One new finding came out of answering 9, and it is 9b above**: with the published coefficients the
+family is still not monotone below about 11 % porosity, because Pittman's rows are independent
+regressions whose porosity exponent steepens down the table. That is the paper's arithmetic, not a
+transcription error, so nothing is clamped — the module doc now states the boundary and tells you
+to use a low APEX in tight rock. **If any study picked `r75` as APEX in a tight interval, its
+RAPEX and RT_PITT are worth re-running.**
+
+**One item still sits with you**: finding **23**'s remaining half. Both fixes touch the read-only
+SQL guard, and rule 6 puts write discipline in your hands. Worth noting the trailing-comment one is
+arguably NOT a guard change at all — putting the wrapper's `) __sandibumi_q LIMIT n` on a new line
+cannot turn a non-SELECT into a SELECT, because the guard reads your text before the wrapping. It
+is one line and it fixes a valid query being corrupted.
 
 ## What to do with this
 

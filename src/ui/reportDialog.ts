@@ -152,7 +152,7 @@ export async function buildReportContent(
     /* no template yet */
   }
   const saveTplBtn = document.createElement("button");
-  saveTplBtn.className = "form-run-btn";
+  saveTplBtn.className = "btn";
   saveTplBtn.textContent = "Save Template";
   saveTplBtn.addEventListener("click", async () => {
     try {
@@ -177,25 +177,25 @@ export async function buildReportContent(
   const btnRow = document.createElement("div");
   btnRow.className = "pick-row";
   const renderBtn = document.createElement("button");
-  renderBtn.className = "form-run-btn";
+  renderBtn.className = "btn btn-accent";
   renderBtn.textContent = "Render";
   const pdfBtn = document.createElement("button");
-  pdfBtn.className = "form-run-btn";
+  pdfBtn.className = "btn";
   pdfBtn.textContent = "Save PDF…";
   pdfBtn.disabled = true;
   const pngBtn = document.createElement("button");
-  pngBtn.className = "form-run-btn";
+  pngBtn.className = "btn";
   pngBtn.textContent = "Save PNG (page)…";
   pngBtn.disabled = true;
   // The Word twin needs no Render first: it carries no composite pages, only the tables, so
   // there is nothing to preview that the pane is not already showing.
   const docxBtn = document.createElement("button");
-  docxBtn.className = "form-run-btn";
+  docxBtn.className = "btn";
   docxBtn.textContent = "Save Word…";
   docxBtn.title =
     "Editable .docx twin: cover, methodology, zone parameters and pay summary. The composite log pages stay in the PDF — they are drawn at a true print scale, which a resized picture would silently break.";
   const batchBtn = document.createElement("button");
-  batchBtn.className = "form-run-btn";
+  batchBtn.className = "btn";
   batchBtn.textContent = `Batch (${scope.getWellIds().length} wells)…`;
   const batchFmt = document.createElement("select");
   batchFmt.className = "form-control";

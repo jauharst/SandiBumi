@@ -535,6 +535,117 @@ pub fn run_plug_qc(conn: &Connection, req: &PlugQcRequest) -> Result<PlugQcResul
     Ok(res)
 }
 
+/// One measurement the caller already has in hand, not yet stored.
+///
+/// Deliberately a bare depth-and-value rather than anything petrographic. The pairing below is
+/// about depths; a scoring routine that knew what a pore fraction *was* would have to be written
+/// again for the next measurement that wants checking.
+#[derive(Debug, Clone, Copy)]
+pub struct MeasuredSample {
+    pub depth: f32,
+    pub value: f32,
+}
+
+/// How a run agrees with a measurement this app did not produce.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Agreement {
+    pub reference_label: String,
+    /// Plugs carrying BOTH. Not the number of plates measured, and the difference is the point:
+    /// two runs that refused different plates are scored on different rock and their coefficients
+    /// are not directly comparable. Reported beside every number for that reason.
+    pub n_pairs: usize,
+    /// Measurements on either side that found no partner inside the tolerance.
+    pub n_unpaired: usize,
+    /// Straight-line agreement — the right question when both axes are porosity.
+    pub pearson: f32,
+    /// Rank agreement — "does it order the plugs the way the laboratory does". The question to
+    /// read when choosing between two settings, because it survives the systematic offset a
+    /// section-versus-plug comparison always carries (a point count reads well below helium on a
+    /// microporous carbonate without being wrong about which plug is the better rock).
+    pub spearman: f32,
+    pub measured_median: f32,
+    pub reference_median: f32,
+    pub notes: Vec<String>,
+}
+
+/// Scores measurements the caller is holding against a stored plug measurement, in one well.
+///
+/// The same pairing rule as [`run_plug_qc`] and literally the same code — closest pair first, each
+/// side consumed once, nothing snapped beyond the tolerance. The only difference is that one axis
+/// arrives as a slice instead of a database read, which is what lets a run be scored BEFORE it is
+/// stored: tuning that had to be saved first would leave a trail of half-judged answers in the
+/// project, which is the same reason `set_name` is optional on a pore run.
+pub fn score_against_plugs(
+    conn: &Connection,
+    well_id: &str,
+    measured: &[MeasuredSample],
+    reference: &PlugSource,
+    depth_tol: f32,
+) -> Result<Agreement, String> {
+    let tol = if depth_tol.is_finite() && depth_tol > 0.0 {
+        depth_tol
+    } else {
+        DEFAULT_DEPTH_TOL
+    };
+    let mut res = Agreement {
+        reference_label: label_for(reference),
+        ..Default::default()
+    };
+
+    let mut excluded = Vec::new();
+    let refs = samples_for(conn, well_id, reference, &mut excluded)?;
+    if refs.is_empty() {
+        res.notes.push(format!(
+            "This well carries no {}, so there is nothing to check the run against.",
+            res.reference_label
+        ));
+        return Ok(res);
+    }
+
+    let mut xs: Vec<Sample> = measured
+        .iter()
+        .filter(|m| m.depth.is_finite() && m.value.is_finite())
+        .map(|m| Sample { depth: m.depth, value: m.value })
+        .collect();
+    xs.sort_by(|a, b| a.depth.partial_cmp(&b.depth).unwrap_or(Ordering::Equal));
+
+    let pairs = pair_samples(&xs, &refs, tol);
+    res.n_pairs = pairs.len();
+    res.n_unpaired = xs.len() + refs.len() - 2 * pairs.len();
+    if pairs.is_empty() {
+        // The tolerance is NOT the thing to widen. A core off by a whole sample interval passes any
+        // tolerance check, so a looser one quietly pairs each section with its neighbour's plug and
+        // returns a confident number about the wrong rock.
+        res.notes.push(format!(
+            "No plate found a plug within {tol}. If the sections and the plugs came from different \
+             depth references, register the core first (Data ▸ Tools ▾ ▸ Register Depth…) rather \
+             than widening the tolerance."
+        ));
+        return Ok(res);
+    }
+
+    let xv: Vec<f32> = pairs.iter().map(|(i, _)| xs[*i].value).collect();
+    let yv: Vec<f32> = pairs.iter().map(|(_, j)| refs[*j].value).collect();
+    res.pearson = crate::tops::pearson(&xv, &yv).0;
+    res.spearman = crate::tops::pearson(&ranks(&xv), &ranks(&yv)).0;
+    if !res.pearson.is_finite() {
+        res.notes.push(format!(
+            "{} plug(s) — an agreement needs at least four, so both are left blank.",
+            pairs.len()
+        ));
+    }
+    // Reported for the same reason `run_plug_qc` reports them: point data is stored verbatim, so a
+    // 0.12 beside a 24.8 is a fraction-versus-percent delivery visible at a glance. It does NOT
+    // move the rank agreement, which is why that is the number to choose a setting on.
+    let mut xs_sorted = xv.clone();
+    let mut ys_sorted = yv.clone();
+    xs_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    ys_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+    res.measured_median = distribution::percentile(&xs_sorted, 50.0);
+    res.reference_median = distribution::percentile(&ys_sorted, 50.0);
+    Ok(res)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -761,6 +872,125 @@ mod tests {
         );
         assert!(res.y_label.contains("35% mercury"), "{}", res.y_label);
         assert!(res.points[0].y > 0.0 && res.points[0].y < 100.0, "µm, not psi: {}", res.points[0].y);
+    }
+
+    /// Scoring a run the user has NOT saved must give the same answer as saving it and plotting it.
+    ///
+    /// This is the whole reason `score_against_plugs` sits in this module instead of in the
+    /// petrography dialog. Two pairing implementations would drift, and the drift would be silent —
+    /// both return a plausible correlation, and nothing on screen says which rule produced it. The
+    /// test is the proof that there is one rule: identical values, one read from the project and
+    /// one held in hand, must come out identical to the last decimal.
+    #[test]
+    fn scoring_a_run_in_hand_matches_scoring_it_after_it_is_saved() {
+        let (conn, w) = mem();
+        let depths: [f32; 8] = [2000.0, 2001.0, 2002.0, 2003.0, 2004.0, 2005.0, 2006.0, 2007.0];
+        let por = [0.20, 0.24, 0.18, 0.26, 0.15, 0.22, 0.29, 0.11];
+        core(&conn, &w, &depths, &por);
+        // What the plates measured — near the plugs, and not on top of them.
+        let plate_depths: [f32; 8] =
+            [2000.02, 2001.0, 2002.05, 2003.01, 2004.0, 2005.03, 2006.02, 2007.01];
+        let plate_values = [0.19, 0.25, 0.17, 0.25, 0.14, 0.21, 0.27, 0.12];
+
+        let stored: Vec<(f32, f32)> =
+            plate_depths.iter().zip(&plate_values).map(|(d, v)| (*d, *v)).collect();
+        aux(&conn, &w, "VPORE_TS", &stored);
+        let saved = run_plug_qc(
+            &conn,
+            &PlugQcRequest {
+                well_ids: vec![w.clone()],
+                x: src_aux("VPORE_TS"),
+                y: src_core("CPOR"),
+                depth_tol: DEFAULT_DEPTH_TOL,
+            },
+        )
+        .unwrap();
+
+        let in_hand: Vec<MeasuredSample> = plate_depths
+            .iter()
+            .zip(&plate_values)
+            .map(|(d, v)| MeasuredSample { depth: *d, value: *v })
+            .collect();
+        let live = score_against_plugs(&conn, &w, &in_hand, &src_core("CPOR"), DEFAULT_DEPTH_TOL)
+            .unwrap();
+
+        assert_eq!(live.n_pairs, saved.n_pairs, "same pairing");
+        assert_eq!(live.n_pairs, 8);
+        assert!((live.pearson - saved.pearson).abs() < 1e-6, "{} vs {}", live.pearson, saved.pearson);
+        assert!((live.spearman - saved.spearman).abs() < 1e-6);
+        assert!((live.reference_median - saved.y_median).abs() < 1e-6);
+    }
+
+    /// A plate with no plug inside the tolerance is DROPPED and COUNTED, never snapped to the
+    /// nearest one — the rule the rest of this module already follows, inherited rather than
+    /// rewritten. Snapping is how a core that needs registering gets silently accepted, and here it
+    /// would be worse than usual: the number is being used to decide whether a setting is good, so
+    /// a pairing that is wrong for every plate would still look like a verdict.
+    #[test]
+    fn a_plate_that_found_no_plug_is_counted_not_snapped() {
+        let (conn, w) = mem();
+        core(&conn, &w, &[2000.0, 2001.0], &[0.20, 0.24]);
+        let in_hand = [
+            MeasuredSample { depth: 2000.0, value: 0.19 },
+            MeasuredSample { depth: 2400.0, value: 0.31 },
+        ];
+        let res =
+            score_against_plugs(&conn, &w, &in_hand, &src_core("CPOR"), DEFAULT_DEPTH_TOL).unwrap();
+        assert_eq!(res.n_pairs, 1);
+        assert_eq!(res.n_unpaired, 2, "the stranded plate and the plug it left behind");
+        // Four pairs are the floor both correlations inherit, and a blank with no reason reads as
+        // a bug rather than as "not enough plugs".
+        assert!(!res.pearson.is_finite());
+        assert!(res.notes.iter().any(|n| n.contains("at least four")), "{:?}", res.notes);
+    }
+
+    /// The number a setting is chosen on has to survive the offset this comparison always carries.
+    ///
+    /// A section's pore area and a plug's helium porosity are not the same measurement: helium
+    /// fills micropores an optical section cannot resolve, so on a carbonate it reads far higher.
+    /// A delivery stored as a percent instead of a fraction does the same thing again, a hundred
+    /// times over. Neither says the tool ordered the plugs wrongly — which is why the RANK
+    /// agreement is the one the dialog leads with, and why the two medians are reported: they are
+    /// what makes a unit mismatch visible instead of mysterious.
+    #[test]
+    fn a_scale_difference_moves_the_medians_and_not_the_rank_agreement() {
+        let (conn, w) = mem();
+        let depths: Vec<f32> = (0..8).map(|i| 2000.0 + i as f32).collect();
+        let por = [0.20, 0.24, 0.18, 0.26, 0.15, 0.22, 0.29, 0.11];
+        core(&conn, &w, &depths, &por);
+
+        let mk = |scale: f32| -> Vec<MeasuredSample> {
+            depths
+                .iter()
+                .zip(&por)
+                // Same ordering, systematically lower, and curved — a section under-reads most on
+                // the most microporous rock.
+                .map(|(d, v)| MeasuredSample { depth: *d, value: v.powf(1.4) * scale })
+                .collect()
+        };
+        let a = score_against_plugs(&conn, &w, &mk(1.0), &src_core("CPOR"), DEFAULT_DEPTH_TOL)
+            .unwrap();
+        let b = score_against_plugs(&conn, &w, &mk(100.0), &src_core("CPOR"), DEFAULT_DEPTH_TOL)
+            .unwrap();
+
+        assert!((a.spearman - 1.0).abs() < 1e-4, "the ordering is perfect: {}", a.spearman);
+        assert!((a.spearman - b.spearman).abs() < 1e-6, "and a unit change does not touch it");
+        assert!(a.pearson < 0.999, "while the straight-line fit does feel the curvature");
+        // The medians are what show the user which of the two they are looking at.
+        assert!(b.measured_median > 50.0 * a.measured_median);
+        assert!((a.reference_median - b.reference_median).abs() < 1e-6);
+    }
+
+    /// A well with no core carries no verdict, and says so instead of returning a zero. A 0.00
+    /// agreement would read as "this setting is useless" rather than "nothing was compared".
+    #[test]
+    fn a_well_with_nothing_to_check_against_says_so() {
+        let (conn, w) = mem();
+        let in_hand = [MeasuredSample { depth: 2000.0, value: 0.2 }];
+        let res =
+            score_against_plugs(&conn, &w, &in_hand, &src_core("CPOR"), DEFAULT_DEPTH_TOL).unwrap();
+        assert_eq!(res.n_pairs, 0);
+        assert!(res.notes.iter().any(|n| n.contains("nothing to check")), "{:?}", res.notes);
     }
 
     /// Tied values share a mid-rank, so a run of equal readings cannot invent an ordering that a

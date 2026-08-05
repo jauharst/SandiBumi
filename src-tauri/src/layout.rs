@@ -140,8 +140,17 @@ pub struct ImageStyle {
     /// Width as a fraction of the track (0.05..1.0, default 0.9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<f32>,
-    /// "contain" (default) fits the whole picture inside its box, "cover" crops it to fill.
-    /// There is deliberately no "stretch": a distorted thin section misstates grain shape.
+    /// "contain" (default) fits the whole picture inside its box, "cover" crops it to fill,
+    /// "stretch" fills it exactly.
+    ///
+    /// **"stretch" exists for depth STRIPS and nothing else.** A thin section is never stretched,
+    /// because its delivered shape is the truth and a squashed plate misstates grain shape — that
+    /// is the whole reason `contain` and `cover` are the only two honest choices for a plate. A
+    /// depth strip is the opposite case: its vertical axis IS depth, set by the print scale, and
+    /// its width IS the track. Neither is the picture's own, so there is no true aspect ratio to
+    /// preserve, and `contain` would leave a strip as a hairline down the middle of the track while
+    /// `cover` would show a couple of per cent of it blown up. Reserve it for pictures whose two
+    /// axes are both imposed from outside.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fit: Option<String>,
     /// "left" | "center" (default) | "right" within the track.
@@ -171,6 +180,7 @@ impl ImageStyle {
     pub fn fit_kind(&self) -> &str {
         match self.fit.as_deref() {
             Some("cover") => "cover",
+            Some("stretch") => "stretch",
             _ => "contain",
         }
     }
@@ -539,7 +549,79 @@ pub fn facies_layout() -> Layout {
     }
 }
 
+/// The built-in "Core" layout: the core photograph itself, running down the page beside the log it
+/// has to be registered against.
+///
+/// The picture track points at `CORE STRIP`, which Condition Core Photos ▸ Build depth strips
+/// writes; a well without strips simply shows an empty track rather than failing, exactly as a
+/// track naming a curve the well lacks does.
+///
+/// `CPHOTO_DARK` sits BESIDE gamma rather than on top of it. Overlaying the two would need a shared
+/// scale, and there isn't one — darkness is dimensionless and gamma is API units — so a common axis
+/// would be a picture of a calibration nobody has done. Side by side, the eye does the comparison
+/// and the run's own signed correlation puts a number on it.
+pub fn core_layout() -> Layout {
+    Layout {
+        name: "Core".into(),
+        tracks: vec![
+            Track {
+                title: "GR".into(),
+                width_weight: 1.0,
+                scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
+                points: Vec::new(),
+                arrays: Vec::new(),
+                images: Vec::new(),
+                curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
+            },
+            Track {
+                title: "Core".into(),
+                width_weight: 1.2,
+                scale_type: ScaleType::Linear,
+                kind: TrackKind::Image,
+                points: Vec::new(),
+                arrays: Vec::new(),
+                images: vec![ImageStyle {
+                    dataset: "CORE STRIP".into(),
+                    mode: Some("depth".into()),
+                    size: Some(1.0),
+                    fit: Some("stretch".into()),
+                    align: None,
+                    // No label: a strip fills its whole depth interval, so a name printed above it
+                    // would land on top of the box before it.
+                    label: Some(false),
+                    border: Some(true),
+                }],
+                curves: Vec::new(),
+            },
+            Track {
+                title: "CPHOTO_DARK".into(),
+                width_weight: 0.7,
+                scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
+                points: Vec::new(),
+                arrays: Vec::new(),
+                images: Vec::new(),
+                curves: vec![filled("CPHOTO_DARK", "#6b5a48", 0.0, 1.0, "left", 0.25)],
+            },
+            Track {
+                title: "NPHI / RHOB".into(),
+                width_weight: 1.0,
+                scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
+                points: Vec::new(),
+                arrays: Vec::new(),
+                images: Vec::new(),
+                curves: vec![
+                    crossover("NPHI", "#3d6a9e", 0.45, -0.15, "RHOB", "#9aa5ad", "#e8c33a"),
+                    curve("RHOB", "#b5651d", 1.95, 2.95),
+                ],
+            },
+        ],
+    }
+}
+
 /// All built-in layouts (user-saved layouts live in the `documents` table).
 pub fn list_layouts() -> Vec<Layout> {
-    vec![standard_layout(), interpretation_layout(), facies_layout()]
+    vec![standard_layout(), interpretation_layout(), facies_layout(), core_layout()]
 }

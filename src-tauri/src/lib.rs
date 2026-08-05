@@ -1,6 +1,7 @@
 mod chain;
 mod composite;
 mod contacts;
+mod coreimage;
 mod curve_edit;
 mod curves;
 mod db;
@@ -1873,6 +1874,8 @@ fn upsert_fluid_contact(
     is_tvdss: bool,
     color: Option<String>,
     label: Option<String>,
+    compartment: Option<String>,
+    zones: Option<Vec<String>>,
 ) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
     db::upsert_fluid_contact(
@@ -1885,6 +1888,8 @@ fn upsert_fluid_contact(
         is_tvdss,
         color.as_deref(),
         label.as_deref(),
+        compartment.as_deref(),
+        &zones.unwrap_or_default(),
     )
     .map_err(|e| e.to_string())
 }
@@ -2200,6 +2205,110 @@ async fn run_plug_qc(
     plugqc::run_plug_qc(&conn, &req)
 }
 
+/// Are numpy and Pillow reachable? Probed once so the conditioning workspace can say what is
+/// missing before a photograph is opened rather than after a slider is moved.
+#[tauri::command]
+async fn core_image_support() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(coreimage::core_image_support)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// One core photograph rendered at preview size under a recipe, with the un-conditioned proxy and
+/// a histogram beside it. Writes nothing — tuning must not leave half-judged pictures in a project.
+#[tauri::command]
+async fn preview_core_image(
+    db: tauri::State<'_, DbState>,
+    image_id: String,
+    recipe: coreimage::CoreRecipe,
+    pick_x: Option<f32>,
+    pick_y: Option<f32>,
+) -> Result<coreimage::CorePreview, String> {
+    let conn = db.0.lock().unwrap();
+    let pick = pick_x.zip(pick_y);
+    coreimage::preview_core_image(&conn, &image_id, &recipe, pick)
+}
+
+/// Bakes recipes into pictures, keeping each import so the conditioning stays reversible.
+#[tauri::command]
+async fn bake_core_images(
+    db: tauri::State<'_, DbState>,
+    items: Vec<coreimage::BakeItem>,
+) -> Result<coreimage::BakeResult, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::bake_core_images(&conn, &items)
+}
+
+/// Reads the proxy measures off a well's live core-photograph delivery, and (optionally) writes
+/// them as curves. Long enough on a full core to be worth keeping off the event loop.
+#[tauri::command]
+async fn extract_core_log(
+    db: tauri::State<'_, DbState>,
+    spec: coreimage::CoreLogSpec,
+) -> Result<coreimage::CoreLogResult, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::extract_core_log(&conn, &spec)
+}
+
+/// Proposes where the runs of core are inside one packed photograph — the columns of a core-display
+/// plate, the rows of a core box. Proposes only: the lay-out lands in an editable table.
+#[tauri::command]
+async fn detect_core_lanes(
+    db: tauri::State<'_, DbState>,
+    image_id: String,
+    axis: String,
+    reverse: bool,
+) -> Result<coreimage::LaneDetection, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::detect_core_lanes(&conn, &image_id, &axis, reverse)
+}
+
+/// Measures a delivery and proposes conditioning for each picture, with the reason for every value.
+/// Decodes every picture, so it stays off the event loop.
+#[tauri::command]
+async fn recommend_core_recipe(
+    db: tauri::State<'_, DbState>,
+    image_ids: Vec<String>,
+) -> Result<Vec<coreimage::RecipeAdvice>, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::recommend_core_recipe(&conn, &image_ids)
+}
+
+/// Cuts a core-photograph delivery into rows and stacks each box into one depth-registered strip.
+/// Decodes and re-encodes every picture in the delivery, so it stays off the event loop.
+#[tauri::command]
+async fn build_core_strips(
+    db: tauri::State<'_, DbState>,
+    spec: coreimage::StripSpec,
+) -> Result<coreimage::StripResult, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::build_core_strips(&conn, &spec)
+}
+
+/// Copies one photograph's look across a whole live delivery, keeping each picture's own framing.
+#[tauri::command]
+async fn apply_core_look(
+    db: tauri::State<'_, DbState>,
+    well_id: String,
+    dataset: String,
+    look: coreimage::CoreRecipe,
+) -> Result<coreimage::BakeResult, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::apply_look_to_delivery(&conn, &well_id, &dataset, &look)
+}
+
+/// The conditioning recipe of every picture in a dataset's live delivery. Never reads a blob, so
+/// the workspace can show which photographs have been touched without fetching any of them.
+#[tauri::command]
+fn list_image_recipes(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+) -> Result<Vec<(String, String)>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_image_recipes(&conn, &well_id, &dataset).map_err(|e| e.to_string())
+}
+
 /// One plate's field of view and preparation. Every value is written as given, `null` included —
 /// a scale typed by mistake has to be clearable.
 #[tauri::command]
@@ -2345,16 +2454,53 @@ fn suggest_contacts(
     Ok(contacts::suggest_contacts(&conn, &req))
 }
 
-/// Cross-well consistency for a contact type: fits a flat-TVDSS surface through the picked
-/// contacts and flags wells that disagree. Read-only.
+/// Cross-well consistency for one contact type IN ONE MARKER: fits a flat-TVDSS surface through
+/// the picked contacts and flags wells that disagree. `zone_name` omitted checks the contacts that
+/// state no marker — it does not mean "every marker". Read-only.
 #[tauri::command]
 fn check_contact_consistency(
     db: tauri::State<DbState>,
     contact_type: String,
+    compartment: Option<String>,
+    zones: Option<Vec<String>>,
     flag_abs: Option<f32>,
 ) -> Result<contacts::ContactConsistency, String> {
     let conn = db.0.lock().unwrap();
-    Ok(contacts::check_contact_consistency(&conn, &contact_type, flag_abs.unwrap_or(3.0)))
+    Ok(contacts::check_contact_consistency(
+        &conn,
+        &contact_type,
+        compartment.as_deref(),
+        &zones.unwrap_or_default(),
+        flag_abs.unwrap_or(3.0),
+    ))
+}
+
+/// Every (contact type, marker) pair in the project, so a QC pane can check them all.
+#[tauri::command]
+fn contact_groups(db: tauri::State<DbState>) -> Result<Vec<contacts::ContactGroup>, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(contacts::contact_groups(&conn))
+}
+
+/// Compares each marker-tagged FWL contact against the parameter a saturation-height run reads.
+#[tauri::command]
+fn check_fwl_agreement(
+    db: tauri::State<DbState>,
+    tolerance: Option<f32>,
+) -> Result<Vec<contacts::FwlCheck>, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(contacts::check_fwl_agreement(&conn, tolerance.unwrap_or(0.1)))
+}
+
+/// Copies picked FWL contacts into `zone_params`, so the arithmetic reads what the panel draws.
+/// One transaction per marker, and undoable from the caller like any other parameter write.
+#[tauri::command]
+fn apply_fwl_to_zone_params(
+    db: tauri::State<DbState>,
+    picks: Vec<(String, String, f32)>,
+) -> Result<usize, String> {
+    let mut conn = db.0.lock().unwrap();
+    contacts::apply_fwl_to_zone_params(&mut conn, &picks)
 }
 
 /// Per-depth water-saturation envelope across the app's Sw models (Archie/Simandoux/Indonesia/
@@ -2463,20 +2609,43 @@ fn run_workflow_chain(
     // the instant Run is clicked. std::thread has no runtime-context requirement. run_chain is
     // ordinary blocking code and every captured value (Arc DB handle, Arc registry, Arc cancel
     // flag, the owned Vecs) is Send + 'static; the DB connection is already used off-thread by
-    // rayon under this same Mutex, so cross-thread use is sound. A panic inside stays on this
-    // thread (it can't abort the process); the job simply stops reporting progress.
+    // rayon under this same Mutex, so cross-thread use is sound.
+    //
+    // A panic inside stays on this thread (it can't abort the process) — but "the job simply
+    // stops reporting progress" understated it badly. The chain registry has no prune, so an
+    // entry that never reaches a terminal status stays Running forever and `chain::any_active`
+    // shuts Open/New/Compact Project for the rest of the session (review_triage finding 17). So
+    // catch it: report the panic on both registries, which tells the user AND releases the guard.
+    //
+    // Honest limit: if the panic happened while the DB mutex was held, that mutex is now poisoned
+    // and the next `lock().unwrap()` anywhere panics in turn. Catching here cannot rescue that
+    // case — it rescues every panic that was not holding the lock, and makes the rest report.
     std::thread::spawn(move || {
-        chain::run_chain(
-            &db,
-            &registry,
-            uuid,
-            &cancel,
-            &steps,
-            &well_ids,
-            output_set.as_deref(),
-            input_set.as_deref(),
-            Some(&job),
-        );
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            chain::run_chain(
+                &db,
+                &registry,
+                uuid,
+                &cancel,
+                &steps,
+                &well_ids,
+                output_set.as_deref(),
+                input_set.as_deref(),
+                Some(&job),
+            );
+        }));
+        if let Err(payload) = outcome {
+            // `panic!("literal")` carries a &str, `panic!("{x}")` a String; anything else has no
+            // readable message at all. Say so rather than printing a type name.
+            let detail = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "no message".to_string());
+            let msg = format!("the workflow stopped unexpectedly ({detail}) — its results are incomplete");
+            chain::failed(&registry, uuid, msg.clone());
+            job.failed(msg);
+        }
     });
     Ok(())
 }
@@ -2816,6 +2985,15 @@ pub fn run() {
             apply_core_run_shifts,
             list_core_registrations,
             set_image_details,
+            core_image_support,
+            preview_core_image,
+            bake_core_images,
+            apply_core_look,
+            extract_core_log,
+            detect_core_lanes,
+            recommend_core_recipe,
+            build_core_strips,
+            list_image_recipes,
             set_image_delivery_details,
             pore_support,
             run_pore_area,
@@ -2837,6 +3015,9 @@ pub fn run() {
             autocorrelate_multi,
             suggest_contacts,
             check_contact_consistency,
+            contact_groups,
+            check_fwl_agreement,
+            apply_fwl_to_zone_params,
             sw_method_spread,
             run_query,
             export_las,

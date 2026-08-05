@@ -390,6 +390,13 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- Scope: well_id set -> that well only; field_name set (well_id NULL) -> every well in
         -- that field; both NULL -> a global datum applied to every well. Keyed by a
         -- client-generated id so several contacts (and duplicates) may coexist freely.
+        --
+        -- `compartment` names the fault block or segment the contact belongs to, and it is the
+        -- other half of what makes a contact identifiable. Two compartments of one field routinely
+        -- sit on different contacts because they are not in pressure communication -- so pooling
+        -- them into one plane fit produces a surface neither is on and then flags every well as
+        -- disagreeing with it, which is the opposite of what a QC is for. NULL means not stated,
+        -- which stays a real answer: an undivided field has no compartments to name.
         CREATE TABLE IF NOT EXISTS fluid_contacts (
             contact_id   VARCHAR NOT NULL,
             field_name   VARCHAR,           -- field scope (NULL when well-scoped or global)
@@ -399,7 +406,22 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             is_tvdss     BOOLEAN NOT NULL,  -- true = depth is TVDSS (flat across wells), false = MD
             color        VARCHAR,
             label        VARCHAR,
+            compartment  VARCHAR,           -- named fault block / segment; NULL = not stated
             PRIMARY KEY (contact_id)
+        );
+
+        -- Which MARKERS a contact governs. A link table rather than a column on the contact,
+        -- because the relationship is genuinely many-to-one in BOTH the ways a field is built:
+        -- two stacked sands can each have their own contact, and several stacked sands in one
+        -- hydraulic unit can share ONE contact. A single column can say the first and not the
+        -- second, and a comma-separated list in a column is not a list, it is a bug waiting.
+        --
+        -- No rows for a contact = no marker stated, which stays a real answer: a field-wide datum
+        -- cuts across markers, and that is the whole reason the plane fit exists.
+        CREATE TABLE IF NOT EXISTS contact_zones (
+            contact_id VARCHAR NOT NULL,
+            zone_name  VARCHAR NOT NULL,
+            PRIMARY KEY (contact_id, zone_name)
         );
 
         -- Core plug measurements (routine core analysis), sparse/irregular depths that do
@@ -582,6 +604,30 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             fov_um      FLOAT,
             prepared    VARCHAR,   -- '' / NULL = unknown | 'blue_epoxy' | 'plain'
             stain       VARCHAR,   -- as the lab report names it; NULL = none or not stated
+            -- Core-photograph conditioning (crop, deskew, white balance, tone). NON-DESTRUCTIVE,
+            -- and the two columns together are what makes that true rather than a claim.
+            --
+            -- `recipe` is the settings as JSON; NULL/'' means the picture is exactly as imported.
+            -- `source_data` holds the UN-conditioned display copy and is written once, the first
+            -- time a recipe is baked. Everything afterwards is rendered FROM it, so a recipe can
+            -- be edited any number of times without conditioning an already-conditioned picture,
+            -- and clearing it restores the import byte for byte.
+            --
+            -- The conditioned pixels go into `data` — they are BAKED rather than applied at
+            -- render time, and that is not laziness. Every reader downstream already takes `data`
+            -- as the picture, and the PDF exporter embeds those bytes UNTOUCHED through a
+            -- /DCTDecode XObject: a render-time recipe would leave the print showing the
+            -- unconditioned photograph while the screen showed the corrected one, silently.
+            -- Baking also means the log view, the composite and the PDF cannot disagree, because
+            -- there is nothing left for them to disagree about.
+            --
+            -- `source_meta` carries the kept copy's own `WxH;mime`. Without it a restore would
+            -- leave `width`/`height` describing the cropped picture while `data` held the whole
+            -- one, and every renderer would draw the plate at the wrong aspect ratio — the one
+            -- thing this app never does to a photograph.
+            recipe      VARCHAR,
+            source_data BLOB,
+            source_meta VARCHAR,
             PRIMARY KEY (well_id, dataset, set_name, image_id)
         );
 
@@ -1198,6 +1244,26 @@ pub fn migrate_delivery_depth_basis(conn: &Connection) -> DbResult<()> {
 /// and existing plates get NULL, which is the honest answer: nothing in a stored JPEG says how
 /// wide the field of view was or whether the section was impregnated, so an older delivery is
 /// UNKNOWN rather than assumed calibrated or assumed plain.
+/// Adds the core-photograph conditioning columns. ADD COLUMN only — no rebuild, so no backup, the
+/// [`migrate_plate_scale_and_prep`] precedent. Existing pictures get NULL, which reads as "exactly
+/// as imported" and is the honest answer for a delivery nobody has conditioned.
+///
+/// They must stay the LAST columns for the same reason every other late column here does.
+pub fn migrate_core_image_recipe(conn: &Connection) -> DbResult<()> {
+    for (col, ty) in [("recipe", "VARCHAR"), ("source_data", "BLOB"), ("source_meta", "VARCHAR")] {
+        let has: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM duckdb_columns()
+             WHERE table_name = 'well_images' AND column_name = ?1",
+            params![col],
+            |r| r.get(0),
+        )?;
+        if has == 0 {
+            conn.execute_batch(&format!("ALTER TABLE well_images ADD COLUMN {col} {ty};"))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn migrate_plate_scale_and_prep(conn: &Connection) -> DbResult<()> {
     for (col, ty) in [("fov_um", "FLOAT"), ("prepared", "VARCHAR"), ("stain", "VARCHAR")] {
         let has: i64 = conn.query_row(
@@ -1210,6 +1276,36 @@ pub fn migrate_plate_scale_and_prep(conn: &Connection) -> DbResult<()> {
             conn.execute_batch(&format!("ALTER TABLE well_images ADD COLUMN {col} {ty};"))?;
         }
     }
+    Ok(())
+}
+
+/// Gives an existing project's fluid contacts a compartment and a marker link.
+///
+/// ADD COLUMN plus a CREATE TABLE — no rebuild, so unlike `migrate_point_data_sets` it needs no
+/// backup. Existing contacts get a NULL compartment and no marker rows, which is the honest answer
+/// rather than the safe-looking one: nothing in a stored contact says which sand or which fault
+/// block it was picked in, and inventing an association would be worse than admitting there is
+/// none. An unassigned contact is its own QC group, never a member of every group.
+///
+/// `compartment` must stay the LAST column — `create_schema` puts it last too, so a fresh database
+/// and a migrated one agree about column order.
+pub fn migrate_fluid_contact_zone(conn: &Connection) -> DbResult<()> {
+    let has: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'fluid_contacts' AND column_name = 'compartment'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        conn.execute_batch("ALTER TABLE fluid_contacts ADD COLUMN compartment VARCHAR;")?;
+    }
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS contact_zones (
+            contact_id VARCHAR NOT NULL,
+            zone_name  VARCHAR NOT NULL,
+            PRIMARY KEY (contact_id, zone_name)
+        );",
+    )?;
     Ok(())
 }
 
@@ -2135,6 +2231,101 @@ pub fn get_well_image(conn: &Connection, image_id: &str) -> DbResult<(String, Ve
     Ok(row)
 }
 
+/// The picture conditioning must start from: the un-conditioned display copy where one was kept,
+/// otherwise the picture itself.
+///
+/// **Never `data` when a recipe has been baked.** Editing a recipe means re-rendering from the
+/// import, not stacking a second correction on top of the first — a brightness raised twice by
+/// eye is a photograph nobody can get back to, and that is exactly what "non-destructive" has to
+/// rule out.
+pub fn get_well_image_source(conn: &Connection, image_id: &str) -> DbResult<(String, Vec<u8>)> {
+    let row = conn.query_row(
+        "SELECT mime, COALESCE(source_data, data) FROM well_images WHERE image_id = ?1",
+        params![image_id],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)),
+    )?;
+    Ok(row)
+}
+
+/// Bakes a conditioned picture, keeping the import.
+///
+/// The kept copy and its `WxH;mime` are filled only the FIRST time, by the `COALESCE`s below rather
+/// than by a read-then-write: two applies in flight could otherwise both see them empty and the
+/// second would file the first's output as the original, quietly making that correction permanent.
+pub fn bake_image_conditioned(
+    conn: &Connection,
+    image_id: &str,
+    recipe: &str,
+    data: &[u8],
+    mime: &str,
+    width: i32,
+    height: i32,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        "UPDATE well_images
+            SET source_data = COALESCE(source_data, data),
+                source_meta = COALESCE(source_meta, width || 'x' || height || ';' || mime),
+                data = ?2, recipe = ?3, mime = ?4, width = ?5, height = ?6
+          WHERE image_id = ?1",
+        params![image_id, data, recipe, mime, width, height],
+    )?)
+}
+
+/// Puts a conditioned picture back exactly as it was imported, and drops the kept copy — a picture
+/// with nothing left to undo should not carry a second blob for the life of the project.
+///
+/// **`width`, `height` and `mime` are restored from `source_meta`, not left as they were.** A crop
+/// changes the picture's shape, so leaving the baked dimensions behind would have every renderer
+/// draw the restored plate at the wrong aspect ratio — the one thing this app never does to a
+/// photograph. A row with no kept copy was never conditioned and is left alone.
+pub fn clear_image_conditioning(conn: &Connection, image_id: &str) -> DbResult<usize> {
+    let meta: Option<String> = conn
+        .prepare("SELECT source_meta FROM well_images WHERE image_id = ?1 AND source_data IS NOT NULL")?
+        .query_map(params![image_id], |r| r.get::<_, Option<String>>(0))?
+        .next()
+        .transpose()?
+        .flatten();
+    let Some(meta) = meta else {
+        // Nothing kept means nothing baked. Still clear any stray recipe, so a row cannot claim a
+        // conditioning that was never applied to its pixels.
+        return Ok(conn.execute(
+            "UPDATE well_images SET recipe = NULL WHERE image_id = ?1 AND source_data IS NULL",
+            params![image_id],
+        )?);
+    };
+    let (dims, mime) = meta.split_once(';').unwrap_or((meta.as_str(), "image/jpeg"));
+    let (w, h) = dims.split_once('x').unwrap_or(("0", "0"));
+    let (w, h) = (w.parse::<i32>().unwrap_or(0), h.parse::<i32>().unwrap_or(0));
+    Ok(conn.execute(
+        "UPDATE well_images
+            SET data = source_data, source_data = NULL, source_meta = NULL, recipe = NULL,
+                mime = ?2, width = ?3, height = ?4
+          WHERE image_id = ?1",
+        params![image_id, mime, w, h],
+    )?)
+}
+
+/// The conditioning recipes of one dataset's live delivery, keyed by picture. Empty string where a
+/// picture is exactly as imported. Never reads a blob.
+pub fn list_image_recipes(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+) -> DbResult<Vec<(String, String)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT CAST(i.image_id AS VARCHAR), COALESCE(i.recipe, '')
+         FROM well_images i
+         WHERE i.well_id = ?1 AND i.dataset = ?2 AND i.set_name = {ACTIVE_IMAGE_SET}
+         ORDER BY i.depth_top, i.name"
+    ))?;
+    let rows = stmt.query_map(params![well_id, dataset], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 /// Every printable picture of one dataset in a depth window, pixels included — the composite
 /// exporter's read path. Non-printable rows come back too (with their bytes) so the exporter
 /// can draw a labelled placeholder rather than silently dropping a plate.
@@ -2911,13 +3102,19 @@ pub struct FluidContact {
     pub is_tvdss: bool,
     pub color: Option<String>,
     pub label: Option<String>,
+    /// The fault block or segment this contact belongs to. `None` = not stated.
+    pub compartment: Option<String>,
+    /// The markers this contact governs, sorted. EMPTY = no marker stated, which is a real answer:
+    /// a field-wide datum cuts across markers. SEVERAL = stacked sands in one hydraulic unit
+    /// sharing one contact, which a single column could not express.
+    pub zones: Vec<String>,
 }
 
 /// Every fluid contact in the project. There are few of these (one per reservoir/field),
 /// so the correlation view fetches them all and decides per well which apply.
 pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
     let mut stmt = conn.prepare(
-        "SELECT contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label
+        "SELECT contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment
          FROM fluid_contacts ORDER BY depth",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -2930,11 +3127,27 @@ pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
             is_tvdss: row.get(5)?,
             color: row.get(6)?,
             label: row.get(7)?,
+            compartment: row.get(8)?,
+            zones: Vec::new(),
         })
     })?;
     let mut contacts = Vec::new();
     for r in rows {
         contacts.push(r?);
+    }
+    // One scan of the link table rather than a query per contact: there are few contacts, but a
+    // per-row query is how a list turns into N round trips on a field-scale project.
+    let mut zstmt = conn.prepare("SELECT contact_id, zone_name FROM contact_zones ORDER BY zone_name")?;
+    let links = zstmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let mut by_id: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for l in links {
+        let (id, zone) = l?;
+        by_id.entry(id).or_default().push(zone);
+    }
+    for c in &mut contacts {
+        if let Some(z) = by_id.remove(&c.contact_id) {
+            c.zones = z;
+        }
     }
     Ok(contacts)
 }
@@ -2950,20 +3163,39 @@ pub fn upsert_fluid_contact(
     is_tvdss: bool,
     color: Option<&str>,
     label: Option<&str>,
+    compartment: Option<&str>,
+    zones: &[String],
 ) -> DbResult<()> {
     conn.execute(
-        "INSERT INTO fluid_contacts (contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "INSERT INTO fluid_contacts (contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT (contact_id) DO UPDATE SET
              field_name = excluded.field_name, well_id = excluded.well_id,
              contact_type = excluded.contact_type, depth = excluded.depth,
-             is_tvdss = excluded.is_tvdss, color = excluded.color, label = excluded.label",
-        params![contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label],
+             is_tvdss = excluded.is_tvdss, color = excluded.color, label = excluded.label,
+             compartment = excluded.compartment",
+        params![contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment],
     )?;
+    // Replace the marker links wholesale. An upsert that only ADDED would make removing a marker
+    // impossible, and a contact silently governing a sand the user took it off is the same class
+    // of error as a parameter that cannot be cleared.
+    conn.execute("DELETE FROM contact_zones WHERE contact_id = ?1", params![contact_id])?;
+    for z in zones {
+        let z = z.trim();
+        if z.is_empty() {
+            continue;
+        }
+        conn.execute(
+            "INSERT INTO contact_zones (contact_id, zone_name) VALUES (?1, ?2)
+             ON CONFLICT (contact_id, zone_name) DO NOTHING",
+            params![contact_id, z],
+        )?;
+    }
     Ok(())
 }
 
 pub fn delete_fluid_contact(conn: &Connection, contact_id: &str) -> DbResult<()> {
+    conn.execute("DELETE FROM contact_zones WHERE contact_id = ?1", params![contact_id])?;
     conn.execute("DELETE FROM fluid_contacts WHERE contact_id = ?1", params![contact_id])?;
     Ok(())
 }
@@ -3713,6 +3945,122 @@ mod inspector_tests {
         assert!(run_readonly_query(&conn, "SELECT 1; DROP TABLE wells", 100).is_err());
     }
 
+    /// `zones_from_tops` had no test at all, and it is what turns a tops delivery into the zone
+    /// intervals every module's per-zone parameters resolve against. Four claims.
+    ///
+    /// **Zones are contiguous top-down**: each zone's base is the NEXT top's depth. A gap would
+    /// leave rock belonging to no zone, so a cutoff or an override would silently skip it.
+    ///
+    /// **The last zone runs to TD**, taken from the deepest logged sample — otherwise the
+    /// deepest interval, often the reservoir, would have no bottom at all.
+    ///
+    /// **A well with no tops yields NO zones** — not one phantom zone spanning the well, and not
+    /// a panic. A phantom would quietly become "the whole well is one zone" in every summary.
+    ///
+    /// **It REBUILDS rather than appends.** Re-running after a tops edit must not leave the old
+    /// intervals behind beside the new ones; two overlapping zones would make "which zone is this
+    /// sample in?" unanswerable.
+    #[test]
+    fn zones_from_tops_are_contiguous_and_absent_tops_make_no_zones() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-Z", None, None, None).unwrap();
+        let well = id.to_string();
+
+        // No tops yet — and this must not invent one.
+        assert!(
+            zones_from_tops(&conn, &well).unwrap().is_empty(),
+            "a well with no tops must produce no zones at all"
+        );
+
+        // Logged interval 2000..2050, so TD for the last zone is 2050.
+        let n = 101usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        insert_standard_curves(
+            &conn,
+            id,
+            depth,
+            vec![50.0; n],
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan,
+        )
+        .unwrap();
+
+        upsert_top(&conn, &well, "A", 2005.0, None).unwrap();
+        upsert_top(&conn, &well, "B", 2020.0, None).unwrap();
+        upsert_top(&conn, &well, "C", 2035.0, None).unwrap();
+
+        let zones = zones_from_tops(&conn, &well).unwrap();
+        assert_eq!(zones.len(), 3);
+        assert_eq!(zones[0].zone_name, "A");
+        assert_eq!(zones[0].top_depth, 2005.0);
+        assert_eq!(zones[0].bottom_depth, 2020.0, "a zone's base is the next top");
+        assert_eq!(zones[1].bottom_depth, 2035.0);
+        assert_eq!(zones[2].bottom_depth, 2050.0, "the last zone runs to TD");
+
+        // Contiguous: no rock between two zones belongs to neither.
+        for pair in zones.windows(2) {
+            assert_eq!(
+                pair[0].bottom_depth, pair[1].top_depth,
+                "zones must meet exactly, leaving no unassigned interval"
+            );
+        }
+
+        // Rebuild, don't append: move a top and drop one, then re-run.
+        upsert_top(&conn, &well, "B", 2025.0, None).unwrap();
+        conn.execute("DELETE FROM tops WHERE well_id = ?1 AND top_name = 'C'", params![&well])
+            .unwrap();
+        let rebuilt = zones_from_tops(&conn, &well).unwrap();
+        assert_eq!(rebuilt.len(), 2, "the removed top must not leave its zone behind");
+        assert_eq!(rebuilt[0].bottom_depth, 2025.0, "the moved top must move its neighbour's base");
+        assert_eq!(rebuilt[1].bottom_depth, 2050.0);
+
+        let stored = list_zones(&conn, &well).unwrap();
+        assert_eq!(stored.len(), 2, "the zones TABLE must be rebuilt, not accumulated");
+    }
+
+    /// A top deeper than anything logged must not produce an INVERTED zone. `max_depth.max(top)`
+    /// is what prevents it, and a base above its own top would make every thickness negative —
+    /// net pay would come out negative and sum against the other zones.
+    #[test]
+    fn a_top_below_the_logged_interval_never_makes_an_inverted_zone() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-ZD", None, None, None).unwrap();
+        let well = id.to_string();
+
+        let n = 11usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        insert_standard_curves(
+            &conn,
+            id,
+            depth,
+            vec![50.0; n],
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan,
+        )
+        .unwrap();
+
+        // Logged to 2010; this top is below every sample.
+        upsert_top(&conn, &well, "DEEP", 2099.0, None).unwrap();
+        let zones = zones_from_tops(&conn, &well).unwrap();
+        assert_eq!(zones.len(), 1);
+        assert!(
+            zones[0].bottom_depth >= zones[0].top_depth,
+            "a zone's base must never sit above its own top (got {} above {})",
+            zones[0].bottom_depth,
+            zones[0].top_depth,
+        );
+    }
+
     /// The SQL panel is the one place a user types raw SQL, and rule 6 says it is read-only.
     /// `readonly_query_selects_and_rejects` proves a bare `DELETE` and a `;`-smuggled `DROP`
     /// are refused; it does NOT cover the other write verbs, nor the shape that actually gets
@@ -3840,6 +4188,215 @@ mod inspector_tests {
 
         assert!(get_table_page(&conn, "pg_shadow", None, 0, 10).is_err(), "non-whitelisted table must fail");
         assert!(update_standard_sample(&conn, &ids, 1000.0, "well_id", 0.0).is_err(), "key columns must not be editable");
+    }
+
+    /// T-REP-14. `table_page_reads_and_cell_updates` above browses ONE table. The inspector's
+    /// dropdown offers every entry in `TABLE_SPECS`, and a table whose query is malformed does
+    /// not degrade — it throws, and the grid shows an error where the user expected their data.
+    ///
+    /// So every spec is exercised: each returns exactly the columns it declares, in order, and
+    /// the well-scoped ones refuse rather than silently returning the whole project. That last
+    /// point is the one worth a test: a well-scoped read that quietly dropped its filter would
+    /// show one well's grid full of another well's samples, which looks like data, not an error.
+    #[test]
+    fn every_inspector_table_returns_the_columns_it_declares() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-INSP", Some("Sandi Field"), Some(2000.0), Some(25.0)).unwrap();
+        let w = id.to_string();
+
+        for (table, columns, well_scoped, _order) in TABLE_SPECS {
+            let scope = if *well_scoped { Some(w.as_str()) } else { None };
+            let page = get_table_page(&conn, table, scope, 0, 200)
+                .unwrap_or_else(|e| panic!("table '{table}' failed to browse: {e}"));
+            assert_eq!(
+                page.columns,
+                columns.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
+                "table '{table}' returned the wrong column set"
+            );
+            assert!(!page.truncated, "the paginated path always knows its true count");
+
+            if *well_scoped {
+                assert!(
+                    get_table_page(&conn, table, None, 0, 200).is_err(),
+                    "well-scoped table '{table}' must refuse rather than return the whole project"
+                );
+            }
+        }
+    }
+
+    /// T-REP-14, the pager. Off-by-one arithmetic here is not cosmetic: a last page that drops
+    /// its final row hides a sample, and one that repeats a row makes the grid disagree with the
+    /// count printed above it. Checked on a count that does NOT divide evenly by the page size,
+    /// because a total that happens to be a multiple passes both mistakes.
+    #[test]
+    fn the_inspector_pager_lands_exactly_on_the_last_partial_page() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-PAGE", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // 250 samples, paged 100 at a time: 100 + 100 + 50.
+        let n = 250usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        insert_standard_curves(
+            &conn, id, depth.clone(), vec![50.0; n], nan.clone(), nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+
+        let page = |offset: usize| get_table_page(&conn, "standard_curves", Some(&w), offset, 100).unwrap();
+        assert_eq!(page(0).total_rows, n, "the count is the whole table, not the page");
+        assert_eq!(page(0).rows.len(), 100);
+        assert_eq!(page(100).rows.len(), 100);
+        assert_eq!(page(200).rows.len(), 50, "the last page is the remainder, not a full one");
+        assert!(page(250).rows.is_empty(), "one page past the end is empty, not an error");
+
+        // Every sample appears exactly once across the three pages, in depth order — no row
+        // dropped at a boundary and none repeated.
+        let mut seen: Vec<String> = Vec::new();
+        for off in [0usize, 100, 200] {
+            for row in page(off).rows {
+                seen.push(row[0].clone().expect("depth is never NULL"));
+            }
+        }
+        assert_eq!(seen.len(), n);
+        let mut sorted = seen.clone();
+        sorted.dedup();
+        assert_eq!(sorted.len(), n, "a depth appeared on two pages");
+        for pair in seen.windows(2) {
+            let (a, b) = (pair[0].parse::<f64>().unwrap(), pair[1].parse::<f64>().unwrap());
+            assert!(a < b, "depths must increase across the page boundary: {a} then {b}");
+        }
+    }
+
+    /// T-REP-16. A cell edit whose row is no longer there must FAIL, not report success having
+    /// changed nothing. The grid on screen is a snapshot: a module re-run, a depth shift or a
+    /// re-import between the read and the double-click leaves the user editing a row that has
+    /// moved. A silent 0-row UPDATE is the worst outcome — the cell shows the new value, the
+    /// status bar says it was written, an undo entry is pushed for a change that never happened,
+    /// and the database still holds the old number.
+    ///
+    /// All three sample editors are checked, because they are three separate `execute` calls
+    /// with three separate guards, and one of them regressing would be invisible.
+    #[test]
+    fn an_inspector_edit_on_a_row_that_moved_fails_instead_of_reporting_success() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-STALE", None, None, None).unwrap();
+        let w = id.to_string();
+        let nan = vec![f32::NAN; 2];
+        insert_standard_curves(
+            &conn, id, vec![1000.0, 1000.5], vec![55.0, 60.0], nan.clone(), nan.clone(),
+            nan.clone(), nan.clone(), nan,
+        )
+        .unwrap();
+        crate::equations::write_computed_curve(&conn, &w, &[1000.0, 1000.5], "VSH", &[0.3, 0.4])
+            .unwrap();
+        insert_core_data(
+            &conn, &w, "RAW", None, &[1000.0], &[0.20], &[50.0], &[f32::NAN], &[f32::NAN],
+        )
+        .unwrap();
+
+        // The depth that IS there edits cleanly — the control for all three refusals below.
+        update_standard_sample(&conn, &w, 1000.0, "gr", 77.0).unwrap();
+        update_computed_sample(&conn, &w, 1000.0, "VSH", 0.55).unwrap();
+        update_core_sample(&conn, &w, 1000.0, "cpor", 0.25).unwrap();
+
+        // A depth that is not. Half a sample off — exactly what a re-run on a shifted grid
+        // leaves behind, and close enough that nothing about the request looks wrong.
+        for (what, err) in [
+            ("standard", update_standard_sample(&conn, &w, 1000.25, "gr", 77.0)),
+            ("computed", update_computed_sample(&conn, &w, 1000.25, "VSH", 0.55)),
+            ("core", update_core_sample(&conn, &w, 1000.25, "cpor", 0.25)),
+        ] {
+            let e = match err {
+                Ok(()) => panic!("{what}: a 0-row update must not report success"),
+                Err(e) => e,
+            };
+            assert!(
+                e.contains("1000.25") && e.contains("refresh"),
+                "{what}: the message must name the depth and say what to do: {e}"
+            );
+        }
+
+        // A curve name that does not exist takes the same path — the user's grid can be stale
+        // about WHICH curves a well has, not only about where its samples are.
+        assert!(update_computed_sample(&conn, &w, 1000.0, "PHIE", 0.2).is_err());
+
+        // The FOURTH editor the inspector uses — `update_well_field`, behind the Wells grid —
+        // used to be the gap: it validated the COLUMN and then ran the UPDATE without checking
+        // that anything matched, so an edit against a well that is no longer there reported
+        // success and wrote nothing (`docs/review_triage.md` finding 20, fixed 2026-08-01).
+        //
+        // The route is the Wells grid left open while the well is deleted in the Wells & Tops
+        // pane. Rarer than a moved curve sample — a well_id does not drift the way a depth does
+        // — and the same silent outcome: the cell shows the new value and an undo entry is
+        // pushed for a change that never happened.
+        update_well_field(&conn, &w, "field_name", Some("SANDI FIELD")).expect("the well that IS there edits");
+        let e = update_well_field(&conn, "00000000-0000-0000-0000-000000000000", "field_name", Some("x"))
+            .expect_err("editing a well that does not exist must not report success");
+        assert!(
+            e.contains("no longer in the project") && e.contains("refresh"),
+            "the message must say what happened and what to do — the identity here is a UUID the \
+             user never sees, so naming it would help nobody: {e}"
+        );
+        // The column check still works, and is a DIFFERENT refusal — a bad column is a
+        // programming error, a missing row is a stale grid.
+        assert!(update_well_field(&conn, &w, "depth", Some("x")).unwrap_err().contains("not editable"));
+    }
+
+    /// T-REP-16 step 4. Aux Data is browsable but not editable, and that is a data-integrity
+    /// rule rather than a missing feature: a point sample is what a laboratory reported, so
+    /// correcting it means re-importing the delivery, which keeps the set model and the
+    /// provenance intact. The inspector offers no editable column for it — and there is no
+    /// backend writer either, which is what makes the rule hold rather than merely be observed.
+    ///
+    /// Pinned by exhaustion over the whitelist: every column `aux_data` exposes is rejected by
+    /// every sample editor that exists. A new editor accepting one of these names would fail
+    /// here rather than quietly making a lab result editable in place.
+    #[test]
+    fn aux_data_can_be_browsed_but_no_editor_will_write_to_it() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-AUX", None, None, None).unwrap();
+        let w = id.to_string();
+        insert_aux_data(
+            &conn,
+            &w,
+            "XRD",
+            "RAW",
+            None,
+            &[AuxRow {
+                dataset: "XRD".into(), depth_top: 1000.0, depth_base: None,
+                item: "ILLITE".into(), value_num: Some(12.5), value_text: None,
+            }],
+        )
+        .unwrap();
+
+        let page = get_table_page(&conn, "aux_data", Some(&w), 0, 200).unwrap();
+        assert_eq!(page.total_rows, 1, "the row is readable");
+        let item_idx = page.columns.iter().position(|c| c == "item").unwrap();
+        assert_eq!(page.rows[0][item_idx].as_deref(), Some("ILLITE"));
+
+        // Nothing writes to it. The numeric editors reject every one of its columns by name,
+        // including `value_num`, which is the one a reader would assume is editable.
+        let aux_columns = TABLE_SPECS.iter().find(|(t, ..)| *t == "aux_data").unwrap().1;
+        for col in aux_columns {
+            assert!(
+                update_standard_sample(&conn, &w, 1000.0, col, 1.0).is_err(),
+                "the standard-curve editor accepted aux column '{col}'"
+            );
+            assert!(
+                update_core_sample(&conn, &w, 1000.0, col, 1.0).is_err(),
+                "the core editor accepted aux column '{col}'"
+            );
+            assert!(
+                update_well_field(&conn, &w, col, Some("x")).is_err(),
+                "the wells editor accepted aux column '{col}'"
+            );
+        }
     }
 
     fn pk_count(conn: &Connection, table: &str) -> i64 {
@@ -4135,6 +4692,68 @@ mod inspector_tests {
             data: bytes.to_vec(),
             ..Default::default()
         }
+    }
+
+    /// Conditioning a core photograph must be reversible to the byte, and reversible to the SHAPE.
+    ///
+    /// Three claims, and the third is the one that would have shipped broken. The import is kept
+    /// the first time and never again, so editing a recipe re-renders from the photograph rather
+    /// than stacking a second correction on the first. Clearing restores those exact bytes. And it
+    /// restores `width`/`height`/`mime` as well — a crop changes the picture's shape, so a restore
+    /// that left the cropped dimensions behind would have every renderer draw the whole photograph
+    /// into the cropped one's box, at the wrong aspect ratio.
+    #[test]
+    fn conditioning_keeps_the_import_and_a_restore_puts_back_its_shape() {
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-CP", None, None, None).unwrap();
+        let w = wid.to_string();
+        let import: &[u8] = b"\xFF\xD8the-photograph-as-delivered\xFF\xD9";
+        insert_well_images(&conn, &w, "CORE PHOTO", "RUN1", None, &[a_plate("BOX-1", 1000.0, Some(1003.0), import)])
+            .unwrap();
+        let id = list_well_images(&conn, &w, None).unwrap()[0].image_id.clone();
+
+        // Nothing conditioned yet: the source IS the picture, and the recipe is empty.
+        assert_eq!(get_well_image_source(&conn, &id).unwrap().1, import);
+        assert_eq!(list_image_recipes(&conn, &w, "CORE PHOTO").unwrap(), vec![(id.clone(), String::new())]);
+
+        bake_image_conditioned(&conn, &id, r#"{"exposure":0.4}"#, b"first-bake", "image/jpeg", 700, 500)
+            .unwrap();
+        assert_eq!(get_well_image(&conn, &id).unwrap().1, b"first-bake");
+        assert_eq!(get_well_image_source(&conn, &id).unwrap().1, import, "the import is kept");
+        let info = &list_well_images(&conn, &w, None).unwrap()[0];
+        assert_eq!((info.width, info.height), (700, 500));
+
+        // A second bake re-renders from the IMPORT. If the kept copy moved, the correction would be
+        // permanent and the next edit would be conditioning an already-conditioned photograph.
+        bake_image_conditioned(&conn, &id, r#"{"exposure":0.9}"#, b"second-bake", "image/jpeg", 640, 480)
+            .unwrap();
+        assert_eq!(get_well_image_source(&conn, &id).unwrap().1, import, "kept once, never again");
+        assert_eq!(
+            list_image_recipes(&conn, &w, "CORE PHOTO").unwrap()[0].1,
+            r#"{"exposure":0.9}"#,
+            "the recipe on the row is the one its pixels were made with"
+        );
+
+        clear_image_conditioning(&conn, &id).unwrap();
+        assert_eq!(get_well_image(&conn, &id).unwrap().1, import, "back to the delivered bytes");
+        let info = &list_well_images(&conn, &w, None).unwrap()[0];
+        assert_eq!((info.width, info.height), (800, 600), "and back to the delivered shape");
+        assert_eq!(info.mime, "image/jpeg");
+        assert_eq!(list_image_recipes(&conn, &w, "CORE PHOTO").unwrap()[0].1, "");
+        // The kept copy is dropped, so a photograph with nothing to undo stops carrying two blobs.
+        let kept: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM well_images WHERE image_id = ?1 AND source_data IS NOT NULL",
+                params![id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, 0);
+
+        // Clearing a picture nobody conditioned is a no-op, not an error and not a wipe.
+        clear_image_conditioning(&conn, &id).unwrap();
+        assert_eq!(get_well_image(&conn, &id).unwrap().1, import);
     }
 
     /// Pictures follow the universal delivery-set rule: a second delivery lands BESIDE the
@@ -5021,12 +5640,40 @@ mod inspector_tests {
 }
 
 /// Edits one wells-table field (name/field/utm_zone as text, td/kb as f32, surface_x/y as f64).
+/// The depth range the well is actually LOGGED over — `MIN`/`MAX` across its standard curves,
+/// falling back to its computed curves for a well that carries only derived logs.
+///
+/// The report cover used to read its interval off the composite PAGINATION, which honours the
+/// render's depth window — so setting a print window re-dated the whole report, including the
+/// tables the window never touched (`docs/review_triage.md` finding 18). A pay table covering every
+/// zone in the well would sit under a cover announcing 5 m, and on a tables-only render there were
+/// no log pages left to show the reader that the window was only ever a print setting.
+///
+/// Cheap on purpose: two aggregates over the leading column of a primary key. That is also what
+/// lets a tables-only report state a real interval without rendering a composite it then discards.
+pub fn logged_interval(conn: &Connection, well_id: &str) -> Option<(f32, f32)> {
+    for table in ["standard_curves", "computed_curves"] {
+        let got: Option<(Option<f32>, Option<f32>)> = conn
+            .query_row(
+                &format!("SELECT CAST(MIN(depth) AS FLOAT), CAST(MAX(depth) AS FLOAT) FROM {table} WHERE well_id = ?1"),
+                params![well_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+        // An empty table gives one row of NULLs, not zero rows — hence the inner Options.
+        if let Some((Some(lo), Some(hi))) = got {
+            return Some((lo, hi));
+        }
+    }
+    None
+}
+
 pub fn update_well_field(conn: &Connection, well_id: &str, field: &str, value: Option<&str>) -> Result<(), String> {
-    match field {
+    let n = match field {
         "well_name" | "field_name" | "utm_zone" => {
             let text = value.map(str::trim).filter(|s| !s.is_empty());
             conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![text, well_id])
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())?
         }
         "td" | "kb" => {
             let num: Option<f32> = match value {
@@ -5034,7 +5681,7 @@ pub fn update_well_field(conn: &Connection, well_id: &str, field: &str, value: O
                 _ => None,
             };
             conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![num, well_id])
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())?
         }
         "surface_x" | "surface_y" => {
             let num: Option<f64> = match value {
@@ -5042,9 +5689,18 @@ pub fn update_well_field(conn: &Connection, well_id: &str, field: &str, value: O
                 _ => None,
             };
             conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![num, well_id])
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())?
         }
         other => return Err(format!("field '{other}' is not editable")),
+    };
+    // The same 0-row check `update_standard_sample`, `update_computed_sample` and
+    // `update_core_sample` carry. Without it an edit against a well that has since been deleted
+    // in the Wells & Tops pane returns Ok: the cell shows the new value, the status bar reports
+    // the edit, and an undo entry is pushed for a change that never happened
+    // (`docs/review_triage.md` finding 20). The message names what to DO rather than what row was
+    // missed — the identity here is a UUID the user never sees.
+    if n == 0 {
+        return Err("that well is no longer in the project — it may have been deleted; refresh the Wells grid".into());
     }
     Ok(())
 }

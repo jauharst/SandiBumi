@@ -38,8 +38,11 @@ export function readTheme(el: HTMLElement): PlotTheme {
   if (!s.getPropertyValue("--bg-app").trim()) s = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => s.getPropertyValue(name).trim() || fallback;
   return {
-    bg: v("--bg-app", "#f2ebdc"),
-    grid: v("--border", "#ddd0af"),
+    // Organic 1c: the plot area sits on its own surface tokens (warm neutral
+    // ground, white gridlines on light themes); older fallbacks keep a canvas
+    // readable if a stripped-down page ever lacks the token.
+    bg: v("--plot-bg", "") || v("--bg-app", "#f2ebdc"),
+    grid: v("--plot-grid", "") || v("--border", "#ddd0af"),
     axis: v("--border-strong", "#c2ac81"),
     text: v("--text-dim", "#7c6b52"),
     accent: v("--accent", "#b5651d"),

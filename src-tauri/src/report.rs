@@ -131,10 +131,24 @@ fn page_header(ops: &mut Vec<DrawOp>, pw: f64, section: &str, well: &str) -> f64
     MARGIN + 10.0
 }
 
+/// The "Made in SandiBumi" mark, in the bottom margin.
+///
+/// Every other surface in the deliverable set already carried it — the report cover, every
+/// composite page, the Word document and the PowerPoint deck — and the PDF's TABLE pages were the
+/// one exception, so a reader who extracted or photocopied the pay summary got an unattributed
+/// page (`docs/review_triage.md` finding 15). Applied per page rather than per table, because a
+/// long pay summary paginates and the mark has to survive being read one page at a time.
+///
+/// Deliberately smaller and paler than the cover's: a footer that competes with the table is
+/// worse than no footer.
+fn page_footer(ops: &mut Vec<DrawOp>, pw: f64, ph: f64) {
+    text(ops, pw / 2.0, ph - MARGIN + 5.0, 2.4, Anchor::Middle, false, "#999999", "Made in SandiBumi");
+}
+
 /// A single page carrying just a section header and a wrapped note line — used when a section has
 /// no table to show (a compute/storage error, or a legitimately empty result) so a deliverable
 /// never silently drops the section: the header still appears, with an explicit reason underneath.
-fn note_page(section: &str, well: &str, note: &str, pw: f64) -> Vec<DrawOp> {
+fn note_page(section: &str, well: &str, note: &str, pw: f64, ph: f64) -> Vec<DrawOp> {
     let mut ops: Vec<DrawOp> = Vec::new();
     let y = page_header(&mut ops, pw, section, well);
     let size = 3.0;
@@ -142,14 +156,22 @@ fn note_page(section: &str, well: &str, note: &str, pw: f64) -> Vec<DrawOp> {
     for (i, line) in wrap(note, max_chars).into_iter().enumerate() {
         text(&mut ops, MARGIN, y + size + i as f64 * size * LINE_H_FACTOR, size, Anchor::Start, false, "#222222", line);
     }
+    page_footer(&mut ops, pw, ph);
     ops
 }
 
 /// Paginated table: fixed column widths (mm), wrapped cells, header row repeated on
 /// every page. Returns one `Vec<DrawOp>` per page.
+///
+/// `caveat` is a line about the table's own trustworthiness — today, a permeability cutoff that
+/// could not be applied. It is drawn under the header on EVERY page of the table, not only the
+/// first: a pay summary paginates, and a page read on its own must carry the reason its numbers
+/// are not comparable with the next well's.
+#[allow(clippy::too_many_arguments)]
 fn table_pages(
     section: &str,
     well: &str,
+    caveat: Option<&str>,
     cols: &[(&str, f64, Anchor)],
     rows: &[Vec<String>],
     pw: f64,
@@ -188,9 +210,24 @@ fn table_pages(
         y + h
     };
 
+    const CAVEAT_SIZE: f64 = 2.6;
+    let start_page = |ops: &mut Vec<DrawOp>| -> f64 {
+        let mut y = page_header(ops, pw, section, well);
+        if let Some(c) = caveat {
+            let max_chars = ((pw - 2.0 * MARGIN) / (CHAR_W * CAVEAT_SIZE)) as usize;
+            let lines = wrap(c, max_chars);
+            for (i, line) in lines.iter().enumerate() {
+                let ly = y + CAVEAT_SIZE + i as f64 * CAVEAT_SIZE * LINE_H_FACTOR;
+                text(ops, MARGIN, ly, CAVEAT_SIZE, Anchor::Start, false, "#8a3b2a", line.clone());
+            }
+            y += lines.len() as f64 * CAVEAT_SIZE * LINE_H_FACTOR + 2.0;
+        }
+        y
+    };
+
     let mut pages: Vec<Vec<DrawOp>> = Vec::new();
     let mut ops: Vec<DrawOp> = Vec::new();
-    let mut y = page_header(&mut ops, pw, section, well);
+    let mut y = start_page(&mut ops);
     y = header_row(&mut ops, y);
 
     for row in rows {
@@ -208,7 +245,7 @@ fn table_pages(
 
         if y + row_h > y_max {
             pages.push(std::mem::take(&mut ops));
-            y = page_header(&mut ops, pw, section, well);
+            y = start_page(&mut ops);
             y = header_row(&mut ops, y);
         }
 
@@ -237,6 +274,12 @@ fn table_pages(
     // Column separators are drawn per page via the outer rects only — vertical rules:
     // (drawn last on the final page of each table page above; simple approach: skip.)
     pages.push(ops);
+    // Marked here, after pagination, rather than at each `pages.push` — there are two of those
+    // and a mark added at one of them would silently miss every continuation page of a long pay
+    // summary, which is exactly the page most likely to be extracted on its own.
+    for p in &mut pages {
+        page_footer(p, pw, ph);
+    }
     pages
 }
 
@@ -244,10 +287,15 @@ fn table_pages(
 // Pages
 // ---------------------------------------------------------------------------
 
+/// `interval` is the LOGGED interval — the rock this study covers. `window` is the composite's
+/// print window when one was set and narrows it, stated separately rather than replacing the
+/// interval: the tables ignore the window entirely, so quoting it as the interval would date the
+/// whole report to a display setting (`docs/review_triage.md` finding 18).
 fn cover_page(
     spec: &ReportSpec,
     header: &composite::WellHeader,
     interval: (f32, f32),
+    window: Option<(f32, f32)>,
     pw: f64,
     ph: f64,
 ) -> Vec<DrawOp> {
@@ -273,6 +321,9 @@ fn cover_page(
         y += 6.0;
     }
     let mut meta = format!("Interval: {:.1} – {:.1} m", interval.0, interval.1);
+    if let Some((wt, wb)) = window {
+        meta.push_str(&format!("   ·   Log pages printed over {wt:.1} – {wb:.1} m"));
+    }
     if let Some(td) = header.td {
         meta.push_str(&format!("   ·   TD: {td:.1} m"));
     }
@@ -304,27 +355,42 @@ fn report_pages(
     db: &Mutex<Connection>,
     spec: &ReportSpec,
 ) -> Result<(Vec<Vec<DrawOp>>, f64, f64, String), String> {
-    let (composite_pages, pw, ph, well_name, header, zones, zparams) = {
+    let (composite_pages, pw, ph, well_name, header, zones, zparams, logged) = {
         let conn = db.lock().unwrap();
         let header = composite::fetch_header(&conn, &spec.composite.well_id)?;
         let zones = db::list_zones(&conn, &spec.composite.well_id).map_err(|e| e.to_string())?;
         let zparams = db::list_zone_params(&conn, &spec.composite.well_id).map_err(|e| e.to_string())?;
-        // Composite pages (also gives the true interval for the cover). The lock is
-        // released at the end of this block — run_pay_summary takes it itself.
+        // The cover's interval, taken from the LOG rather than from the composite pagination —
+        // see `db::logged_interval`. The lock is released at the end of this block —
+        // run_pay_summary takes it itself.
+        let logged = db::logged_interval(&conn, &spec.composite.well_id);
         let (cpages, pw, ph, name) = composite::render_pages(&conn, &spec.composite)?;
-        (cpages, pw, ph, name, header, zones, zparams)
+        (cpages, pw, ph, name, header, zones, zparams, logged)
     };
 
     {
-        let interval = (
+        // What the composite actually paginated. Equal to the logged interval unless a depth
+        // window was set on the render.
+        let printed = (
             composite_pages.first().map(|p| p.top).unwrap_or(0.0),
             composite_pages.last().map(|p| p.bot).unwrap_or(0.0),
         );
+        // The study's rock. Falls back to the pagination only for a well with no curve rows at
+        // all, which is the same 0.0 – 0.0 this always printed rather than a new failure mode.
+        let interval = logged.unwrap_or(printed);
+        // A print window is a display setting, and the tables ignore it: `run_pay_summary` works
+        // per zone and knows nothing about it. So it is stated BESIDE the interval, never instead
+        // of it — a cover that quotes the window as the interval describes a study nobody did.
+        // Only shown when it genuinely narrows, and never on a tables-only render, where there
+        // are no log pages for it to describe.
+        let window = (!spec.tables_only
+            && logged.is_some_and(|(lo, hi)| printed.0 > lo + 0.05 || printed.1 < hi - 0.05))
+            .then_some(printed);
 
         let mut pages: Vec<Vec<DrawOp>> = Vec::new();
 
         // 1 — cover
-        pages.push(cover_page(spec, &header, interval, pw, ph));
+        pages.push(cover_page(spec, &header, interval, window, pw, ph));
 
         // 2 — methodology table
         let rows_src = if spec.methodology.is_empty() { default_methodology(spec) } else { spec.methodology.clone() };
@@ -338,7 +404,7 @@ fn report_pages(
             ("Method", usable * 0.38, Anchor::Start),
             ("Remarks", usable * 0.38, Anchor::Start),
         ];
-        pages.extend(table_pages("Methodology", &well_name, &m_cols, &m_rows, pw, ph, 2.7));
+        pages.extend(table_pages("Methodology", &well_name, None, &m_cols, &m_rows, pw, ph, 2.7));
 
         // 3 — per-zone parameter table (zones without params still listed)
         let mut z_rows: Vec<Vec<String>> = Vec::new();
@@ -377,7 +443,7 @@ fn report_pages(
                 ("Parameter", usable * 0.28, Anchor::Start),
                 ("Value", usable * 0.20, Anchor::End),
             ];
-            pages.extend(table_pages("Zone Parameters", &well_name, &z_cols, &z_rows, pw, ph, 2.7));
+            pages.extend(table_pages("Zone Parameters", &well_name, None, &z_cols, &z_rows, pw, ph, 2.7));
         }
 
         // 4 — pay summary (locks internally). Emit the section header unconditionally: a storage
@@ -402,6 +468,22 @@ fn report_pages(
             },
         ) {
             Ok(pay_rows) if !pay_rows.is_empty() => {
+                // A permeability cutoff this well has nothing to answer with. Stated on the page
+                // rather than only in the row struct, because the deliverable is where a reader
+                // actually meets the number: every zone reports zero net pay, which on the page is
+                // indistinguishable from a wet well (`docs/review_triage.md` finding 7).
+                let pay_caveat = pay_rows
+                    .iter()
+                    .any(|r| r.perm_cutoff_no_data)
+                    .then(|| {
+                        format!(
+                            "Note: this well carries no permeability curve, so every sample fails the \
+                             PERM ≥ {:.1} mD cutoff for want of data. The zero net pay below records an \
+                             absence of evidence, not a dry reservoir — compute or import a permeability \
+                             curve, or lift the cutoff, before reading these rows.",
+                            spec.perm_min.unwrap_or(0.0)
+                        )
+                    });
                 let p_rows: Vec<Vec<String>> = pay_rows
                     .iter()
                     .map(|r| {
@@ -438,7 +520,7 @@ fn report_pages(
                     ("SWE", usable * 0.07, Anchor::End),
                     ("HPV (m)", usable * 0.12, Anchor::End),
                 ];
-                pages.extend(table_pages(&pay_section, &well_name, &p_cols, &p_rows, pw, ph, 2.4));
+                pages.extend(table_pages(&pay_section, &well_name, pay_caveat.as_deref(), &p_cols, &p_rows, pw, ph, 2.4));
             }
             // Ran cleanly but produced no rows: the well has no curve frame, or its zones could not
             // be read. Show the header + an explicit note rather than a blank gap.
@@ -447,6 +529,7 @@ fn report_pages(
                 &well_name,
                 "No pay summary — this well has no curve data to classify.",
                 pw,
+                ph,
             )),
             // The pay numbers were computed in memory but a storage-side error (read-only DB, disk
             // full, appender failure) failed the FLAG_* write. Surface it in the document instead of
@@ -456,6 +539,7 @@ fn report_pages(
                 &well_name,
                 &format!("Pay Summary unavailable — {e}"),
                 pw,
+                ph,
             )),
         }
 
@@ -510,37 +594,756 @@ pub fn export_report_batch(
 ) -> Result<(Vec<String>, Vec<String>), String> {
     let mut written = Vec::new();
     let mut errors = Vec::new();
+    // Stems already claimed by THIS batch. Only within-batch collisions are suffixed: re-running
+    // a batch into the same folder should overwrite its own previous output, which is what the
+    // user expects, and suffixing around files already on disk would grow a folder of _2, _3, _4
+    // every time they pressed the button.
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
     for wid in well_ids {
+        // Resolved BEFORE the render, so the success and failure paths identify the well the same
+        // way. They did not: the success path looked the name up for the filename and the failure
+        // path reported the raw UUID, so an error you could not attribute and a success that
+        // silently replaced a file were the same gap (`docs/review_triage.md` finding 12).
+        let name = {
+            let conn = db.lock().unwrap();
+            conn.query_row("SELECT well_name FROM wells WHERE well_id = ?1", duckdb::params![wid], |r| {
+                r.get::<_, String>(0)
+            })
+            .unwrap_or_else(|_| wid.clone())
+        };
         let mut s = spec.clone();
         s.composite.well_id = wid.clone();
         match render_report_pdf(db, &s) {
             Ok(bytes) => {
-                let name = {
-                    let conn = db.lock().unwrap();
-                    conn.query_row(
-                        "SELECT well_name FROM wells WHERE well_id = ?1",
-                        duckdb::params![wid],
-                        |r| r.get::<_, String>(0),
-                    )
-                    .unwrap_or_else(|_| wid.clone())
-                };
-                let safe: String =
-                    name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
-                let path = format!("{}/{}_report.pdf", dest_dir.trim_end_matches(['/', '\\']), safe);
+                let path =
+                    format!("{}/{}_report.pdf", dest_dir.trim_end_matches(['/', '\\']), unique_stem(&mut used, &name, wid));
                 match std::fs::write(&path, &bytes) {
                     Ok(()) => written.push(path),
                     Err(e) => errors.push(format!("{name}: {e}")),
                 }
             }
-            Err(e) => errors.push(format!("{wid}: {e}")),
+            Err(e) => errors.push(format!("{name}: {e}")),
         }
     }
     Ok((written, errors))
 }
 
+/// One filename stem per well, never two wells on one stem.
+///
+/// `well_name` carries no uniqueness constraint — two wells can share one, and an import with
+/// attach OFF creates a second record under the same name by design. The sanitizer widens the
+/// collision further, because every non-alphanumeric maps to `_`, so `SANDI/1` and `SANDI 1` land
+/// on one stem too. When they collided the second write silently OVERWROTE the first and both
+/// paths were still reported as written, so a 3-well batch said "wrote 3 file(s)" over 2 files on
+/// disk and the report kept was the last well's under the first well's name. Nothing in the status
+/// line, the Processing panel or the folder said a well was missing.
+///
+/// A name that sanitizes to nothing at all falls back to the well id — a file called `_report.pdf`
+/// is not a deliverable, and the id is at least resolvable.
+fn unique_stem(used: &mut std::collections::HashSet<String>, name: &str, well_id: &str) -> String {
+    let sanitize = |s: &str| -> String {
+        s.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
+    };
+    let base = {
+        let s = sanitize(name);
+        if s.trim_matches('_').is_empty() { sanitize(well_id) } else { s }
+    };
+    if used.insert(base.clone()) {
+        return base;
+    }
+    // `_2` for the second well of that name, matching how a duplicate is usually written by hand.
+    for n in 2u32.. {
+        let candidate = format!("{base}_{n}");
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+    }
+    unreachable!("u32 exhausted")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::db;
+    use crate::equations;
+    use uuid::Uuid;
+
+    /// A well with curves renders; one without is the "broken well" the batch step puts in
+    /// scope. Deliberately the same shape as the composite tests' fixture so the two agree
+    /// about what a renderable well is.
+    fn seed_batch_well(conn: &Connection, name: &str, with_curves: bool) -> String {
+        let wid = Uuid::new_v4();
+        db::insert_well(conn, wid, name, Some("Sandi Field"), Some(1300.0), Some(20.0)).unwrap();
+        if with_curves {
+            let n = 40;
+            let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+            db::insert_standard_curves(
+                conn,
+                wid,
+                depths,
+                vec![50.0; n],
+                vec![2.0; n],
+                vec![0.25; n],
+                vec![2.4; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+            )
+            .unwrap();
+        }
+        wid.to_string()
+    }
+
+    fn batch_spec() -> ReportSpec {
+        ReportSpec {
+            composite: composite::CompositeSpec {
+                well_id: String::new(),
+                layout: crate::layout::standard_layout(),
+                depth_top: None,
+                depth_bottom: None,
+                scale: 500,
+                page_size: composite::PageSize::A4,
+            },
+            title: "Petrophysical Evaluation".into(),
+            author: "Tester".into(),
+            methodology: vec![],
+            vsh_max: 0.5,
+            phie_min: 0.1,
+            swe_max: 0.6,
+            perm_min: None,
+            tables_only: true,
+        }
+    }
+
+    /// A scratch directory that deletes itself, so a failing assertion never leaves files in
+    /// the user's temp folder.
+    struct ScratchDir(std::path::PathBuf);
+    impl ScratchDir {
+        fn new() -> Self {
+            let p = std::env::temp_dir().join(format!("sandibumi_report_batch_{}", Uuid::new_v4()));
+            std::fs::create_dir_all(&p).unwrap();
+            ScratchDir(p)
+        }
+        fn path(&self) -> String {
+            self.0.to_string_lossy().to_string()
+        }
+        fn files(&self) -> Vec<String> {
+            let mut v: Vec<String> = std::fs::read_dir(&self.0)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+                .collect();
+            v.sort();
+            v
+        }
+    }
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// T-REP-12. One unrenderable well in scope must cost exactly that well. Every healthy
+    /// well still gets its own complete PDF, and the broken one leaves NO file behind — not
+    /// an empty one, not a truncated one — because `std::fs::write` is only reached after
+    /// `render_report_pdf` has returned bytes.
+    ///
+    /// The broken well is listed FIRST on purpose: a loop that gave up on the first failure
+    /// would pass a test that put it last.
+    #[test]
+    fn one_unrenderable_well_costs_only_itself_in_a_batch_export() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let broken = seed_batch_well(&conn, "SANDI-BATCH-BROKEN", false);
+        let a = seed_batch_well(&conn, "SANDI-BATCH-A", true);
+        let b = seed_batch_well(&conn, "SANDI-BATCH-B", true);
+        let dbm = Mutex::new(conn);
+
+        let dir = ScratchDir::new();
+        let (written, errors) =
+            export_report_batch(&dbm, &batch_spec(), &[broken.clone(), a, b], &dir.path()).unwrap();
+
+        assert_eq!(written.len(), 2, "both healthy wells must be written: {written:?}");
+        assert_eq!(errors.len(), 1, "exactly one failure expected: {errors:?}");
+        assert_eq!(
+            dir.files(),
+            vec!["SANDI-BATCH-A_report.pdf".to_string(), "SANDI-BATCH-B_report.pdf".to_string()],
+            "the broken well must leave no file at all"
+        );
+
+        // The failure names the WELL, not its UUID. It used to report the raw id, because the
+        // success path looked the name up for the filename and the error path did not — so the
+        // status line read "failed: 3f2a…: no curve data" and the user could not tell which well
+        // that was (`docs/review_triage.md` finding 12). One lookup before the render now serves
+        // both paths, which is what makes them agree rather than merely both being correct.
+        assert!(errors[0].starts_with("SANDI-BATCH-BROKEN"), "the error identifies the well: {}", errors[0]);
+        assert!(errors[0].contains("no curve data for this well"), "and states the reason: {}", errors[0]);
+        assert!(!errors[0].contains(&broken), "and does not make the reader resolve a UUID: {}", errors[0]);
+
+        // Each file is a real PDF for ITS OWN well, not two copies of the first.
+        for f in dir.files() {
+            let bytes = std::fs::read(self_path(&dir, &f)).unwrap();
+            assert!(bytes.starts_with(b"%PDF"), "{f} is not a PDF");
+            assert!(bytes.len() > 500, "{f} is too small to be a report");
+        }
+        let pa = std::fs::read(self_path(&dir, "SANDI-BATCH-A_report.pdf")).unwrap();
+        let pb = std::fs::read(self_path(&dir, "SANDI-BATCH-B_report.pdf")).unwrap();
+        assert_ne!(pa, pb, "each well's report must be its own — identical bytes means the cover well never changed");
+    }
+
+    fn self_path(dir: &ScratchDir, name: &str) -> std::path::PathBuf {
+        dir.0.join(name)
+    }
+
+    /// T-REP-12, second half. Two wells whose names sanitize to the SAME string used to write to
+    /// one path: the second silently overwrote the first, yet BOTH paths were returned as written,
+    /// so the status line reported "wrote 3 file(s)" over 2 files on disk and the report kept was
+    /// the last well's under the first well's name (`docs/review_triage.md` finding 12, fixed
+    /// 2026-08-01 by suffixing).
+    ///
+    /// Not hypothetical — `well_name` carries no uniqueness constraint, and an import with
+    /// attach OFF creates a second record under the same name by design. The sanitizer widens
+    /// it further: every non-alphanumeric maps to `_`, so `SANDI/DUP` and `SANDI DUP` land on one
+    /// stem even though the names are distinct.
+    ///
+    /// BOTH routes are in this fixture, deliberately. A fix that only compared well NAMES would
+    /// still let the sanitizer collision write over a file, and would look entirely correct in a
+    /// test that only used identical names.
+    #[test]
+    fn two_wells_with_one_name_each_get_their_own_report_file() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wells = [
+            seed_batch_well(&conn, "SANDI-DUP", true),  // -> SANDI-DUP
+            seed_batch_well(&conn, "SANDI/DUP", true),  // -> SANDI_DUP
+            seed_batch_well(&conn, "SANDI-DUP", true),  // same NAME       -> SANDI-DUP_2
+            seed_batch_well(&conn, "SANDI DUP", true),  // same STEM only  -> SANDI_DUP_2
+        ];
+        let dbm = Mutex::new(conn);
+
+        let dir = ScratchDir::new();
+        let (written, errors) = export_report_batch(&dbm, &batch_spec(), &wells, &dir.path()).unwrap();
+
+        assert!(errors.is_empty(), "all four wells render: {errors:?}");
+        assert_eq!(written.len(), 4, "four wells, four reports");
+        assert_eq!(
+            dir.files().len(),
+            4,
+            "and four files on disk — the count the caller is given must be true: {:?}",
+            dir.files()
+        );
+        assert_eq!(
+            written.iter().collect::<std::collections::HashSet<_>>().len(),
+            4,
+            "no two wells may share a path: {written:?}"
+        );
+
+        // The FIRST well of a colliding pair keeps the plain name, so a folder delivered to a
+        // client does not suddenly rename the well anybody was expecting.
+        for (i, stem) in ["SANDI-DUP", "SANDI_DUP", "SANDI-DUP_2", "SANDI_DUP_2"].iter().enumerate() {
+            assert!(written[i].ends_with(&format!("{stem}_report.pdf")), "well {i}: {}", written[i]);
+        }
+
+        // Each file really is its own well's render rather than a copy of the first — checked on
+        // the pair whose NAMES differ, since the cover carries the name. (Wells 0 and 2 share a
+        // name and identical synthetic curves, so identical bytes there is correct, not a bug.)
+        let bytes: Vec<Vec<u8>> = written.iter().map(|p| std::fs::read(p).unwrap()).collect();
+        assert_ne!(bytes[0], bytes[1], "the loop must re-render per well, not copy the first");
+    }
+
+    /// A permeability cutoff a well has no data for is stated ON the pay page.
+    ///
+    /// Since 2026-08-01 the cutoff applies to every well it is asked for (`docs/review_triage.md`
+    /// finding 7, Jauhar: *"no relation between em, wells still can have perm curves"*), so a well
+    /// carrying no PERM books zero pay rather than full pay. That is the defensible answer and it
+    /// creates its own reading problem: on the page, zero pay for want of a curve looks exactly
+    /// like zero pay because the reservoir is wet. The note is what separates them, and it belongs
+    /// in the deliverable rather than only in the row struct, because the deliverable is where a
+    /// client actually meets the number.
+    #[test]
+    fn a_perm_cutoff_the_well_has_no_data_for_is_stated_on_the_pay_page() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-NOPERM", None, None, None).unwrap();
+        let w = wid.to_string();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+        // Pay rock, and deliberately NO PERM curve anywhere in the well.
+        for (name, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
+            equations::write_computed_curve(&conn, &w, &depth, name, &vec![v; n]).unwrap();
+        }
+
+        let dbm = Mutex::new(conn);
+        let mut spec = batch_spec();
+        spec.composite.well_id = w;
+        spec.tables_only = true;
+
+        let pay_text = |spec: &ReportSpec| -> String {
+            let (pages, _pw, _ph, _n) = report_pages(&dbm, spec).expect("render");
+            pages
+                .last()
+                .unwrap()
+                .iter()
+                .filter_map(|op| match op {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+
+        // Control first: with no cutoff requested there is nothing to say, and a note that
+        // appeared anyway would be on every report anyone ever ran.
+        spec.perm_min = None;
+        let quiet = pay_text(&spec);
+        assert!(!quiet.contains("no permeability curve"), "no cutoff requested, no note: {quiet}");
+
+        spec.perm_min = Some(1000.0);
+        let noted = pay_text(&spec);
+        assert!(noted.contains("no permeability curve"), "the reason must be stated: {noted}");
+        assert!(noted.contains("1000.0 mD"), "and name the cutoff it could not answer: {noted}");
+        assert!(
+            noted.contains("absence of evidence"),
+            "and say what the zero below actually means, which is the whole point: {noted}"
+        );
+        // The zero it is explaining must really be there — a note about a number the page does not
+        // print would be worse than no note.
+        assert!(noted.contains("PAY"), "the pay row is on the page: {noted}");
+    }
+
+    /// A well whose name sanitizes to nothing at all still gets a usable filename. `_report.pdf`
+    /// is not a deliverable, and two such wells would collide on it.
+    #[test]
+    fn a_well_whose_name_sanitizes_to_nothing_falls_back_to_its_id() {
+        let mut used = std::collections::HashSet::new();
+        let stem = unique_stem(&mut used, "###", "3f2a-9910");
+        assert_eq!(stem, "3f2a-9910", "the id is at least resolvable: {stem}");
+        assert_ne!(unique_stem(&mut used, "!!!", "3f2a-9910"), stem, "and two of them still differ");
+    }
+
+    /// T-REP-09. "Tables only" must produce a document that is COMPLETE without the composite
+    /// pages — which means the cover still has to state a real logged interval. A cover reading
+    /// "Interval: 0.0 – 0.0 m" would be a client deliverable that says the well was never logged.
+    ///
+    /// This also pins the shape of the audit's known slowness. `report_pages` renders the
+    /// composite UNCONDITIONALLY at `report.rs:314` and only skips APPENDING it at `:463`, which
+    /// looks like a missing `if` — and is not. The comment at `:312` says why: "Composite pages
+    /// (also gives the true interval for the cover)". The interval is read straight off the
+    /// composite pagination (`:319`), so the expensive render is what supplies the cover's one
+    /// remaining fact. Anyone making tables-only fast has to give the cover its own cheap source
+    /// (a MIN/MAX depth query) FIRST, or the fix trades a slow report for a wrong one.
+    #[test]
+    fn tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-REP-09", Some("Sandi Field"), Some(1300.0), Some(20.0)).unwrap();
+        let w = wid.to_string();
+
+        // Logged 1000.0 .. 1019.5 — deliberately not starting at zero, so a cover that lost the
+        // interval cannot pass by accident.
+        let n = 40usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+        for (name, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
+            equations::write_computed_curve(&conn, &w, &depth, name, &vec![v; n]).unwrap();
+        }
+        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let text_of = |ops: &Vec<DrawOp>| -> String {
+            ops.iter()
+                .filter_map(|op| match op {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+
+        let mut spec = batch_spec();
+        spec.composite.well_id = w.clone();
+        spec.tables_only = true;
+        let (tables, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("tables-only render");
+        let t_texts: Vec<String> = tables.iter().map(text_of).collect();
+
+        // Exactly the four sections, in order, and nothing after the pay summary.
+        assert_eq!(tables.len(), 4, "cover + methodology + zone params + pay summary: {t_texts:#?}");
+        assert!(t_texts[0].contains("Well: SANDI-REP-09"), "page 1 is the cover: {}", t_texts[0]);
+        assert!(t_texts[1].contains("Methodology"), "{}", t_texts[1]);
+        assert!(t_texts[2].contains("Zone Parameters"), "{}", t_texts[2]);
+        assert!(t_texts[3].contains("Pay Summary"), "{}", t_texts[3]);
+
+        // The cover dates the study to the rock that was actually logged.
+        assert!(
+            t_texts[0].contains("Interval: 1000.0 \u{2013} 1019.5 m"),
+            "the cover must state the true logged interval: {}",
+            t_texts[0]
+        );
+        assert!(t_texts[0].contains("TD: 1300.0 m") && t_texts[0].contains("KB: 20.0 m"));
+
+        // The control: with the composite ON, those same four pages are still the first four and
+        // the log pages come after. Without this, a tables-only mode that silently dropped a
+        // table would pass every assertion above.
+        let mut full = spec.clone();
+        full.tables_only = false;
+        let (all, _pw, _ph, _n) = report_pages(&dbm, &full).expect("full render");
+        assert!(all.len() > tables.len(), "the composite pages must actually be appended");
+        for i in 0..4 {
+            assert_eq!(text_of(&all[i]), t_texts[i], "page {i} differs between the two modes");
+        }
+    }
+
+    /// The cover's interval used to be read off the COMPOSITE pagination, which honours the
+    /// render's depth window — so setting one re-dated the whole report, including the tables the
+    /// window never touched (`docs/review_triage.md` finding 18, fixed 2026-08-01).
+    ///
+    /// The pay summary is computed per ZONE by `run_pay_summary` and knows nothing about the
+    /// composite window, so a report rendered over 1005–1010 carried a pay table covering every
+    /// zone in the well under a cover announcing a 5 m interval — and on a tables-only render
+    /// there were no log pages left to show the reader that the window was only ever a print
+    /// setting. That is the case this fixture builds: its one zone sits ENTIRELY outside the
+    /// window, so a cover that quoted the window would contradict the table on the next page.
+    ///
+    /// Both modes are checked, because the window means different things in them: on a full
+    /// render it describes log pages that exist and is worth stating; on tables-only it describes
+    /// nothing in the document and would be noise.
+    #[test]
+    fn a_cover_dates_itself_to_the_log_and_states_a_print_window_separately() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-REP-09B", None, None, None).unwrap();
+        let w = wid.to_string();
+        let n = 40usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+        for (name, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
+            equations::write_computed_curve(&conn, &w, &depth, name, &vec![v; n]).unwrap();
+        }
+        // One zone, wholly OUTSIDE the print window below.
+        db::upsert_zone(&conn, &w, "DEEP", 1012.0, 1019.0).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let mut spec = batch_spec();
+        spec.composite.well_id = w;
+        spec.tables_only = true;
+        spec.composite.depth_top = Some(1005.0);
+        spec.composite.depth_bottom = Some(1010.0);
+
+        let joined = |page: &Vec<DrawOp>| -> String {
+            page.iter()
+                .filter_map(|op| match op {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+
+        let (pages, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("render");
+        let cover = joined(&pages[0]);
+
+        assert!(
+            cover.contains("Interval: 1000.0 \u{2013} 1019.5 m"),
+            "the cover dates itself to the LOGGED interval, not the 1005-1010 print window: {cover}"
+        );
+        assert!(
+            !cover.contains("printed over"),
+            "and on tables-only the window describes nothing in the document, so it is not stated: {cover}"
+        );
+        // The table underneath now AGREES with the cover: zone DEEP (1012-1019) sits inside the
+        // stated interval, where before it fell outside the 5 m the cover announced.
+        assert!(joined(&pages[3]).contains("DEEP"), "the pay table reports zone DEEP: {}", joined(&pages[3]));
+
+        // Same window, full render: the log pages exist, so the window is worth stating — beside
+        // the interval, never instead of it.
+        spec.tables_only = false;
+        let (full, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("full render");
+        let cover = joined(&full[0]);
+        assert!(cover.contains("Interval: 1000.0 \u{2013} 1019.5 m"), "{cover}");
+        assert!(
+            cover.contains("printed over 1005.0 \u{2013} 1010.0 m"),
+            "a print window is stated as what it is: {cover}"
+        );
+
+        // And with no window at all there is nothing to state — a report that always carried the
+        // line would train the reader to skip it.
+        spec.composite.depth_top = None;
+        spec.composite.depth_bottom = None;
+        let (plain, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("unwindowed render");
+        assert!(!joined(&plain[0]).contains("printed over"), "{}", joined(&plain[0]));
+    }
+
+    /// T-REP-06. The report is the client deliverable, so its structure and its pay numbers are
+    /// checked together: the page ORDER the plan describes (cover, methodology, zone parameters,
+    /// pay summary), and the domain invariants the reader relies on to trust the table —
+    /// Net <= Gross, 0 <= NTG <= 1, HPV >= 0, and PAY within RESERVOIR within SAND.
+    ///
+    /// The nesting is guaranteed at the SAMPLE level by `classify_sample` (pay is defined as
+    /// reservoir AND ..., reservoir as sand AND ...), but the printed rows are thickness sums
+    /// with their own zone clamping, so the property has to be re-checked where it is read.
+    #[test]
+    fn a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-REP-06", Some("Sandi Field"), Some(1300.0), Some(20.0)).unwrap();
+        let w = wid.to_string();
+
+        // 40 samples at 0.5 m over two 10 m zones. Every fourth sample is deliberately stopped
+        // at a different cutoff, so the three flags cannot collapse onto each other: a fixture
+        // where SAND == PAY would let a broken nesting rule pass.
+        let n = 40usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+
+        let mut vsh = Vec::with_capacity(n);
+        let mut phie = Vec::with_capacity(n);
+        let mut swe = Vec::with_capacity(n);
+        for i in 0..n {
+            match i % 4 {
+                0 => { vsh.push(0.80); phie.push(0.20); swe.push(0.30); } // shale — fails SAND
+                1 => { vsh.push(0.20); phie.push(0.05); swe.push(0.30); } // tight — fails RESERVOIR
+                2 => { vsh.push(0.20); phie.push(0.20); swe.push(0.90); } // wet   — fails PAY
+                _ => { vsh.push(0.20); phie.push(0.20); swe.push(0.30); } // pay
+            }
+        }
+        for (name, values) in [("VSH", &vsh), ("PHIE", &phie), ("SWE", &swe)] {
+            equations::write_computed_curve(&conn, &w, &depth, name, values).unwrap();
+        }
+        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+        db::upsert_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
+        db::set_zone_param(&conn, &w, "UPPER", "RW", Some(0.02), None).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let mut spec = batch_spec();
+        spec.composite.well_id = w.clone();
+        spec.title = "Petrophysical Evaluation".into();
+        spec.author = "Tester".into();
+
+        // --- the numbers, before asking what they look like on the page ---
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                well_ids: vec![w.clone()],
+                vsh_max: spec.vsh_max,
+                phie_min: spec.phie_min,
+                swe_max: spec.swe_max,
+                perm_min: spec.perm_min,
+                skip_version: true,
+                stats_only: true,
+            },
+        )
+        .expect("pay summary");
+        assert_eq!(rows.len(), 6, "two zones x three flags");
+
+        for r in &rows {
+            assert!(r.net <= r.gross + 1e-3, "{} {}: net {} exceeds gross {}", r.zone, r.flag, r.net, r.gross);
+            assert!((0.0..=1.0).contains(&r.ntg), "{} {}: NTG out of range: {}", r.zone, r.flag, r.ntg);
+            assert!(r.hpv >= 0.0, "{} {}: negative HPV {}", r.zone, r.flag, r.hpv);
+            assert!(r.n_classified > 0, "{} {}: the fixture is interpreted everywhere", r.zone, r.flag);
+        }
+
+        for zone in ["UPPER", "LOWER"] {
+            let net = |flag: &str| -> f32 {
+                rows.iter().find(|r| r.zone == zone && r.flag == flag).unwrap().net
+            };
+            let (sand, res, pay) = (net("SAND"), net("RESERVOIR"), net("PAY"));
+            // Strictly decreasing, not merely non-increasing: each cutoff must actually be
+            // rejecting something, or the invariant is being satisfied by an inert fixture.
+            assert!(sand > res && res > pay, "{zone}: SAND {sand} > RESERVOIR {res} > PAY {pay}");
+            assert!((sand - 7.5).abs() < 1e-3, "{zone}: three of every four samples are sand: {sand}");
+            assert!((res - 5.0).abs() < 1e-3, "{zone}: two of every four clear the porosity cutoff: {res}");
+            assert!((pay - 2.5).abs() < 1e-3, "{zone}: one of every four is pay: {pay}");
+        }
+
+        // --- and now the document ---
+        let (pages, _pw, _ph, well_name) = report_pages(&dbm, &spec).expect("render");
+        assert_eq!(well_name, "SANDI-REP-06");
+        let text_of = |ops: &Vec<DrawOp>| -> String {
+            ops.iter()
+                .filter_map(|op| match op {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+        let texts: Vec<String> = pages.iter().map(text_of).collect();
+        let first_with = |needle: &str| -> usize {
+            texts
+                .iter()
+                .position(|t| t.contains(needle))
+                .unwrap_or_else(|| panic!("no page carries {needle:?}; pages were {texts:#?}"))
+        };
+
+        // Page 1 is the cover.
+        assert!(texts[0].contains("Petrophysical Evaluation"), "cover title: {}", texts[0]);
+        assert!(texts[0].contains("Well: SANDI-REP-06"), "cover well: {}", texts[0]);
+        assert!(texts[0].contains("Prepared by: Tester"), "cover author: {}", texts[0]);
+
+        // Then methodology, zone parameters, pay summary — in that order. Located by first
+        // occurrence rather than by index, so a table that paginates does not break the check.
+        let pay_section = "Pay Summary  (VSH \u{2264} 0.50, PHIE \u{2265} 0.10, SWE \u{2264} 0.60)";
+        let (m, z, p) = (first_with("Methodology"), first_with("Zone Parameters"), first_with(pay_section));
+        assert!(0 < m && m < z && z < p, "page order was cover {m} methodology, {z} zones, {p} pay");
+
+        // The zone parameter the run was made with has to be ON the page — a report that states
+        // its cutoffs but not its overrides cannot be reproduced from itself.
+        assert!(texts[z].contains("RW"), "the RW override must be listed: {}", texts[z]);
+        assert!(texts[z].contains("0.02"), "the override VALUE must be listed: {}", texts[z]);
+        assert!(texts[z].contains("LOWER"), "a zone with no override is still listed: {}", texts[z]);
+
+        // And the printed pay table carries the numbers checked above, so the invariants are
+        // pinned to what SHIPS rather than to an intermediate the reader never sees.
+        assert!(texts[p].contains("SAND") && texts[p].contains("RESERVOIR") && texts[p].contains("PAY"));
+        for net in ["7.5", "5.0", "2.5"] {
+            assert!(texts[p].contains(net), "printed net {net} missing from: {}", texts[p]);
+        }
+        // EVERY page carries the "Made in SandiBumi" mark, which is what T-REP-06 always asked
+        // for. The table pages used to be the one unmarked surface in the whole deliverable set —
+        // the cover has it, so does every composite page, the Word document and the PowerPoint
+        // deck — so a reader who extracted or photocopied the pay summary got an unattributed
+        // page (`docs/review_triage.md` finding 15, fixed 2026-08-01).
+        //
+        // Asserted over every page rather than a sample, because the failure mode is one page
+        // type being missed, and a spot check is how it stayed missed.
+        for (i, t) in texts.iter().enumerate() {
+            assert!(t.contains("Made in SandiBumi"), "page {i} carries no mark: {t}");
+        }
+
+        // tables_only keeps the composite out, so the document ends at the pay summary.
+        assert_eq!(p, pages.len() - 1, "tables_only must not append composite pages");
+    }
+
+    /// T-REP-06, second half. "HPV >= 0" is listed as a domain check the reader applies to the
+    /// printed table, and until 2026-08-01 it was merely true of tidy data rather than an
+    /// invariant: the pay summary summed `PHIE * (1 - SWE) * h` with no floor, so the SAND row
+    /// inherited the sign of PHIE.
+    ///
+    /// The route is ordinary rather than exotic. A tight carbonate streak reads low GR, so it
+    /// clears the VSH cutoff and is flagged SAND; a density porosity computed on a sandstone
+    /// matrix reads slightly NEGATIVE there, which is a routine artefact of a vendor PHIE and
+    /// not a corrupt curve. Its contribution was then subtracted from the SAND row's HPV —
+    /// measured at more than 20 % below the floored answer, in the reassuring direction, while
+    /// RESERVOIR and PAY stayed byte-identical because the streak fails the porosity cutoff. The
+    /// two rows anyone checks first agreed with each other while the third quietly did not.
+    ///
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 16): *"always limit phie to
+    /// 0.001"*. `workflow::floored_phie` applies it to every pay calculation, so a curve from ANY
+    /// source is covered — the porosity modules floor what they write, but a vendor PHIE never
+    /// passes through one, and the vendor curve is the whole scenario.
+    ///
+    /// The last assertion is the one that keeps the floor honest: a floored streak must still FAIL
+    /// the porosity cutoff. A floor set anywhere near `phie_min` would stop a dense stringer being
+    /// subtracted by quietly promoting it into reservoir instead, which is a worse answer wearing
+    /// a better-looking number.
+    #[test]
+    fn a_dense_stringer_no_longer_subtracts_from_the_sand_rows_hpv() {
+        let build = |phie_streak: f32| -> Vec<crate::workflow::PaySummaryRow> {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            let wid = Uuid::new_v4();
+            db::insert_well(&conn, wid, "SANDI-STRINGER", None, None, None).unwrap();
+            let w = wid.to_string();
+            let n = 10usize;
+            let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, wid, depth.clone(), vec![30.0; n], vec![2.0; n], vec![0.2; n],
+                vec![2.4; n], nan.clone(), nan,
+            )
+            .unwrap();
+            // Clean throughout — every sample clears the VSH cutoff — with a 2.5 m tight streak
+            // through the middle. Only its porosity differs between the two runs.
+            let mut phie = vec![0.20f32; n];
+            for p in phie.iter_mut().take(8).skip(3) {
+                *p = phie_streak;
+            }
+            equations::write_computed_curve(&conn, &w, &depth, "VSH", &vec![0.10f32; n]).unwrap();
+            equations::write_computed_curve(&conn, &w, &depth, "PHIE", &phie).unwrap();
+            equations::write_computed_curve(&conn, &w, &depth, "SWE", &vec![0.30f32; n]).unwrap();
+            db::upsert_zone(&conn, &w, "SAND-A", 1000.0, 1005.0).unwrap();
+            let dbm = Mutex::new(conn);
+            run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    well_ids: vec![w],
+                    vsh_max: 0.5,
+                    phie_min: 0.1,
+                    swe_max: 0.6,
+                    perm_min: None,
+                    skip_version: true,
+                    stats_only: true,
+                },
+            )
+            .expect("pay summary")
+        };
+        let hpv = |rows: &[crate::workflow::PaySummaryRow], flag: &str| -> f32 {
+            rows.iter().find(|r| r.flag == flag).unwrap().hpv
+        };
+
+        // A tight streak at zero porosity: contributes no hydrocarbon, which is the honest answer.
+        let floored = build(0.0);
+        // The same streak as a vendor PHIE actually delivers it.
+        let negative = build(-0.05);
+        // And an absurd one, to show the floor does not scale with how wrong the input was.
+        let absurd = build(-5.0);
+
+        assert!(hpv(&floored, "SAND") > 0.0, "control SAND HPV: {}", hpv(&floored, "SAND"));
+        assert_eq!(
+            hpv(&negative, "SAND"),
+            hpv(&floored, "SAND"),
+            "a negative PHIE inside net sand must not be subtracted from HPV"
+        );
+        assert_eq!(
+            hpv(&absurd, "SAND"),
+            hpv(&floored, "SAND"),
+            "the floor is a floor, not a proportional correction"
+        );
+
+        // "HPV >= 0" is now an invariant rather than a hope, which is what T-REP-06 asserts.
+        for rows in [&floored, &negative, &absurd] {
+            for r in rows.iter() {
+                assert!(r.hpv >= 0.0, "HPV must never be negative, was {} on {}", r.hpv, r.flag);
+            }
+        }
+
+        // RESERVOIR and PAY are untouched, as they always were — the streak fails the porosity
+        // cutoff. This was the reason the SAND-row error was easy to miss, and it stays true:
+        // the floor must NOT smuggle the streak into reservoir.
+        assert_eq!(hpv(&negative, "RESERVOIR"), hpv(&floored, "RESERVOIR"));
+        assert_eq!(hpv(&negative, "PAY"), hpv(&floored, "PAY"));
+        let net = |rows: &[crate::workflow::PaySummaryRow], flag: &str| -> f32 {
+            rows.iter().find(|r| r.flag == flag).unwrap().net
+        };
+        assert!(
+            net(&negative, "SAND") > net(&negative, "RESERVOIR"),
+            "a floored streak is still 0.001 v/v and must stay well below the 0.1 porosity cutoff"
+        );
+    }
 
     #[test]
     fn wrap_respects_width_and_splits_long_words() {
@@ -557,7 +1360,7 @@ mod tests {
             [("A", 60.0, Anchor::Start), ("B", 100.0, Anchor::Start)];
         let rows: Vec<Vec<String>> =
             (0..200).map(|i| vec![format!("row {i}"), "some content that is short".into()]).collect();
-        let pages = table_pages("Test", "WELL-1", &cols, &rows, 210.0, 297.0, 2.7);
+        let pages = table_pages("Test", "WELL-1", None, &cols, &rows, 210.0, 297.0, 2.7);
         assert!(pages.len() > 1, "200 rows must overflow one A4 page");
         // Every page carries a header row (the shaded rect) and at least one text op.
         for p in &pages {
@@ -574,6 +1377,7 @@ mod tests {
             "SANDI-001",
             "Pay Summary unavailable — read-only database",
             210.0,
+            297.0,
         );
         let texts: Vec<String> = ops
             .iter()
@@ -610,7 +1414,7 @@ mod tests {
             td: Some(900.0),
             kb: Some(15.0),
         };
-        let ops = cover_page(&spec, &header, (400.0, 850.0), 210.0, 297.0);
+        let ops = cover_page(&spec, &header, (400.0, 850.0), None, 210.0, 297.0);
         let texts: Vec<String> = ops
             .iter()
             .filter_map(|op| match op {

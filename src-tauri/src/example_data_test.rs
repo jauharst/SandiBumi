@@ -107,6 +107,55 @@ fn malformed_las_exemplars_fail_the_documented_way() {
     let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
 }
 
+/// T-IMP-04's other half: a LAS whose last data row was cut mid-line. Until 2026-07-31 there
+/// was no exemplar for this at all, which is why the manual test could only be marked Blocked.
+///
+/// **A file that ends early looks exactly like a file that was always that short.** Nothing in
+/// the ASCII block says "more was coming" — so the only evidence is arithmetic: the leftover
+/// tokens do not divide into whole rows. Miss that and the tokens shift every subsequent value
+/// one column left, putting GR into the resistivity slot and resistivity into neutron. The
+/// numbers stay in range, the curves still plot, and the well is simply wrong.
+///
+/// Here the truncation is on the LAST row, so the shift has nothing after it to corrupt — and
+/// the import still refuses, which is the point. Importing 39 good rows and quietly dropping the
+/// 40th would leave a well nobody knows is incomplete. The check is on the file, not on the
+/// damage the file happened to do.
+#[test]
+fn a_truncated_las_refuses_rather_than_importing_what_survived() {
+    let db_path = std::env::temp_dir().join("sandibumi_example_trunclas_test.duckdb");
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+    let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db");
+
+    let res = &crate::ingest::import_las_files(&conn, &[example("bad_truncated.las")], None)[0];
+    let err = res.error.as_deref().unwrap_or("");
+    assert!(!err.is_empty(), "a truncated ASCII block must be an error, not a warning");
+    assert!(
+        err.contains("leftover token"),
+        "the message must say what is actually wrong so the user can look at the file: {err}"
+    );
+    assert!(
+        err.contains("truncated or corrupt"),
+        "and name the likely cause: {err}"
+    );
+    assert!(res.well_id.is_none(), "no well row may be committed from a file that failed");
+    assert_eq!(res.rows, 0, "no partial rows either — 39 of 40 is a well nobody knows is short");
+
+    let wells: i64 = conn
+        .query_row("SELECT count(*) FROM wells WHERE well_name = 'SANDI-BAD-TRUNC'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(wells, 0, "no orphan well");
+    let samples: i64 =
+        conn.query_row("SELECT count(*) FROM curve_samples", [], |r| r.get(0)).unwrap();
+    assert_eq!(samples, 0, "and nothing in the generic store either");
+
+    drop(conn);
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+}
+
 #[test]
 fn core_csv_example_parses() {
     let cols = parsers::parse_core_csv(example("core_rcal_SANDI-01.csv")).unwrap();

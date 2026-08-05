@@ -66,6 +66,7 @@ fn resolve_param_arrays(
     // already-declared ArgSpec range can actually be enforced. Spec defaults are trusted and not
     // re-validated; only values a user or caller supplied are checked.
     let mut bad: Vec<String> = Vec::new();
+    let mut zoned: Vec<String> = Vec::new();
     for arg in spec.args.iter().filter(|a| a.kind == ArgKind::Param) {
         let range = || match (arg.min, arg.max) {
             (Some(lo), Some(hi)) => format!("valid {lo} to {hi}"),
@@ -101,6 +102,21 @@ fn resolve_param_arrays(
             .unwrap_or(f64::NAN);
         let mut arr = vec![base; depth.len()];
 
+        // A well-scoped parameter refuses a NAMED zone override and accepts the well-wide one.
+        // The distinction is the whole rule: `*` gives the well one value, which is what a
+        // geothermal trend has, while a named zone gives it a different value part way down —
+        // and since the trend is evaluated from surface at every sample, that is a STEP at the
+        // formation top rather than a bend (see `ArgSpec::well_scope`). Only an override that
+        // would actually apply is refused; one naming a zone this well does not have is inert
+        // today and must not start failing runs.
+        if arg.well_scope {
+            for zp in zone_params.iter().filter(|z| z.param_name == arg.name && z.zone_name != "*") {
+                if zp.value_num.is_some() && zone_range.contains_key(zp.zone_name.as_str()) {
+                    zoned.push(format!("{} in zone '{}'", arg.name, zp.zone_name));
+                }
+            }
+        }
+
         // Well-wide default first, then named zones override it.
         for zp in zone_params.iter().filter(|z| z.param_name == arg.name) {
             let Some(v) = zp.value_num else { continue };
@@ -125,6 +141,19 @@ fn resolve_param_arrays(
             "parameter value(s) outside the module's declared range: {}. A common cause is \
              entering a v/v fraction as a percentage. Fix the value or clear the zone override.",
             bad.join("; ")
+        ));
+    }
+    // Refused by name with the fix, rather than ignored. Silently dropping the override would
+    // change the well's temperature — and so its Rw, and so its Sw — with nothing on the log to
+    // say why, which is the failure this whole rule exists to prevent.
+    if !zoned.is_empty() {
+        return Err(format!(
+            "these parameters describe one trend for the whole well and cannot be set per zone: \
+             {}. The trend is computed from surface at every sample, so a value that changes part \
+             way down makes the curve JUMP at that formation top instead of bending — and \
+             formation temperature reaches Sw through Rw. Set it once for the well (the '*' scope \
+             in the per-well parameter grid, which is still honoured) or clear the zone override.",
+            zoned.join("; ")
         ));
     }
     Ok(out)
@@ -209,6 +238,25 @@ pub fn run_workflow_module_into(
         Skipped,
         Failed(String),
         Computed { depth: Vec<f32>, outputs: HashMap<String, Vec<f32>> },
+    }
+
+    /// Did the run answer ANYWHERE? An output map that is present but entirely MISSING is a run
+    /// that could not answer, not an interpretation.
+    ///
+    /// One helper because this decides four things that must agree: the Processing panel's item
+    /// state, whether a log-set version is allocated, whether anything is WRITTEN, and what the
+    /// result reports. Phase 2 used to write for any well whose outcome was `Computed` with a
+    /// non-empty output map — and an all-MISSING map is still non-empty — so rocktyping on a well
+    /// with porosity but no permeability reported its failure AND versioned the whole family
+    /// (RQI, PHIZ, FZI, R35, PGEOM, PSTRUC, RT, PERM_RT) into the Curve Catalog as curves blank
+    /// from top to bottom (`docs/review_triage.md` finding 10).
+    ///
+    /// The rule is not "drop blank curves" — it is **a run that reports failure must not also
+    /// version an interpretation**. A single all-MISSING output ALONGSIDE finite ones is kept, and
+    /// deliberately: a flag curve nothing triggered is a real answer, and dropping one output of a
+    /// run would leave the written set inconsistent with the one the module declares.
+    fn answered(outputs: &HashMap<String, Vec<f32>>) -> bool {
+        outputs.values().any(|v| v.iter().any(|x| x.is_finite()))
     }
 
     let outcomes: Vec<Outcome> = req
@@ -351,9 +399,7 @@ pub fn run_workflow_module_into(
                     // A run whose outputs are all MISSING (e.g. gascorr with no precalc, or a
                     // module fed an all-NaN input) did no real work — flag it Warned, not a green
                     // Ok, so the panel doesn't read as a successful correction.
-                    Outcome::Computed { outputs, .. }
-                        if outputs.values().any(|v| v.iter().any(|x| x.is_finite())) =>
-                    {
+                    Outcome::Computed { outputs, .. } if answered(outputs) => {
                         p.finish_item(well_id, crate::jobs::ItemState::Ok, None)
                     }
                     Outcome::Computed { .. } => {
@@ -378,7 +424,7 @@ pub fn run_workflow_module_into(
         .iter()
         .zip(outcomes.iter())
         .filter_map(|(w, o)| match o {
-            Outcome::Computed { outputs, .. } if !outputs.is_empty() => Some(w.clone()),
+            Outcome::Computed { outputs, .. } if answered(outputs) => Some(w.clone()),
             _ => None,
         })
         .collect();
@@ -415,7 +461,7 @@ pub fn run_workflow_module_into(
     let mut writes: Vec<equations::WellWrite> = Vec::with_capacity(succ_ids.len());
     for (well_id, o) in req.well_ids.iter().zip(outcomes.iter()) {
         if let Outcome::Computed { depth, outputs } = o {
-            if outputs.is_empty() {
+            if !answered(outputs) {
                 continue;
             }
             if let Some(set_id) = set_ids.get(well_id) {
@@ -469,6 +515,25 @@ pub fn run_workflow_module_into(
             Outcome::Computed { depth, outputs } => {
                 if outputs.is_empty() {
                     ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: None }
+                } else if !answered(outputs) {
+                    // Every output sample MISSING (e.g. gascorr with no precalc, rocktyping with
+                    // no permeability). Checked BEFORE the set/write branches, because this well
+                    // was deliberately given no output set — reporting "no output set allocated"
+                    // would name the mechanism instead of the cause.
+                    //
+                    // A green "N samples → …" line here would be indistinguishable from a real
+                    // result and would total into History as a success; nothing is written either,
+                    // so the catalog can still tell "never run" from "ran and could not answer".
+                    let mut names: Vec<String> = outputs.keys().cloned().collect();
+                    names.sort();
+                    ModuleRunResult {
+                        well_id: well_id.clone(),
+                        rows_written: 0,
+                        output_curves: names,
+                        error: Some(
+                            "no finite output — every sample is missing (check inputs, e.g. precalc not run)".into(),
+                        ),
+                    }
                 } else if let Some(e) = &set_err {
                     ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some(e.clone()) }
                 } else if !set_ids.contains_key(well_id) {
@@ -478,17 +543,7 @@ pub fn run_workflow_module_into(
                 } else {
                     let mut names: Vec<String> = outputs.keys().cloned().collect();
                     names.sort();
-                    // Every output sample MISSING (e.g. gascorr with no precalc): a green
-                    // "N samples → …" line is indistinguishable from a real result and would be
-                    // totalled into History as success, so surface it distinctly instead of a
-                    // bare success with the full depth count. Mirrors SandiMin's "no solvable
-                    // samples" error for a zero-useful run.
-                    let any_finite = outputs.values().any(|v| v.iter().any(|x| x.is_finite()));
-                    if any_finite {
-                        ModuleRunResult { well_id: well_id.clone(), rows_written: depth.len(), output_curves: names, error: None }
-                    } else {
-                        ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: names, error: Some("no finite output — every sample is missing (check inputs, e.g. precalc not run)".into()) }
-                    }
+                    ModuleRunResult { well_id: well_id.clone(), rows_written: depth.len(), output_curves: names, error: None }
                 }
             }
         })
@@ -547,9 +602,58 @@ pub struct PaySummaryRow {
     /// result, which the identical `net`/`ntg`/`hpv` zeros cannot distinguish on their own.
     /// Consumers must render "—" rather than 0.00 when this is 0.
     pub n_classified: usize,
+    /// **A permeability cutoff is active and this well carries no PERM at all**, so every sample
+    /// failed it for want of data and the zero below is an absence of evidence, not a dry zone.
+    /// Per well, so it is the same on every zone row of that well.
+    ///
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 7): *"no relation between em,
+    /// wells still can have perm curves"* — whether a cutoff applies has no relation to whether
+    /// this particular well was cored, and permeability can be MODELLED where it was not measured
+    /// (`perm_coates`, `perm_timur`, the rocktyping family), so lacking a measured PERM is not a
+    /// reason to be let off. The cutoff is now active whenever it is requested.
+    ///
+    /// That settles a rule the code used to hold in two contradictory halves. At the SAMPLE level
+    /// a missing PERM correctly FAILED an active cutoff — confirmed `[x]` in `REVIEW.md` — but a
+    /// well with no PERM anywhere switched the cutoff off for ITSELF one line earlier. Two wells
+    /// of identical rock reported 0 and full net pay with `n_classified > 0` on both, and in a
+    /// field roll-up they simply added together: **the less permeability data a well had, the more
+    /// pay it booked.** The well-level test is gone and the sample-level rule now does the work.
+    ///
+    /// The flag survives the change with its meaning inverted, because the reader's problem is
+    /// unchanged and only its direction moved. A well that books zero net pay across every zone
+    /// looks exactly like a wet well; this is what says the interpretation never had the curve the
+    /// cutoff asks about. **It means "a cutoff was requested and this well has nothing to answer it
+    /// with", never "this well has no permeability"** — with no cutoff asked for there is nothing
+    /// to report, and a flag that fired anyway would appear on every report anyone ever ran.
+    #[serde(default)]
+    pub perm_cutoff_no_data: bool,
 }
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
+
+/// PHIE as a pay calculation is allowed to read it: never negative, MISSING preserved.
+///
+/// The porosity modules already floor what they WRITE (`modules::PHIE_FLOOR`), but the motivating
+/// case never passes through one — `docs/review_triage.md` finding 16. A vendor PHIE arriving by
+/// LAS reads slightly negative over a tight carbonate streak, which is a routine artefact of a
+/// sandstone-matrix density porosity rather than a corrupt curve. That streak reads low GR, clears
+/// the VSH cutoff and is flagged SAND, and its `PHIE·(1−SWE)·h` is then SUBTRACTED from the SAND
+/// row's hydrocarbon column. Measured, that took HPV more than 20 % below the floored answer while
+/// RESERVOIR and PAY stayed byte-identical — so the two rows anyone checks first agreed with each
+/// other while the third quietly did not, and the understatement was in the reassuring direction.
+///
+/// Applied ONCE per well so every consumer downstream sees one number: `hpv`, `avg_phie` and the
+/// classifier cannot end up disagreeing about what the porosity at a depth was.
+///
+/// **`f32::max` returns the other side when one is NaN**, so the guard is load-bearing rather than
+/// defensive: without it a MISSING sample would become a real 0.001 and start counting toward
+/// `n_classified`, which is the one field that says whether the well was interpreted at all.
+///
+/// One function rather than a copy in each pay path — the cutoff SWEEP and the summary must agree
+/// at the same cutoffs, and two copies is two places for the rule to drift.
+fn floored_phie(raw: &[f32]) -> Vec<f32> {
+    raw.iter().map(|&v| if v.is_nan() { v } else { v.max(modules::PHIE_FLOOR as f32) }).collect()
+}
 
 /// Computes the pay summary per well per zone and writes FLAG_SAND / FLAG_RESERVOIR /
 /// FLAG_PAY curves. Wells without zones get a single whole-well "ALL" zone.
@@ -590,10 +694,15 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
 
         let n = depth.len();
         let vsh = &columns["VSH"];
-        let phie = &columns["PHIE"];
+        let phie_col = floored_phie(&columns["PHIE"]);
+        let phie = &phie_col;
         let swe = &columns["SWE"];
         let perm = &columns["PERM"];
-        let has_perm_cut = req.perm_min.is_some() && perm.iter().any(|v| !v.is_nan());
+        // A requested cutoff is ALWAYS active — see `PaySummaryRow::perm_cutoff_no_data` for why
+        // the well-level "does this well have any PERM?" test was removed. `classify_sample` fails
+        // a sample whose PERM is missing, which is now the only rule in play.
+        let has_perm_cut = req.perm_min.is_some();
+        let perm_cutoff_no_data = has_perm_cut && !perm.iter().any(|v| !v.is_nan());
 
         // Sample thickness: forward depth difference, last sample reuses the previous step.
         let mut step = vec![0.0f32; n];
@@ -738,6 +847,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     avg_swe: if sum_phie_w > 0.0 { (sum_phie_swe / sum_phie_w) as f32 } else { f32::NAN },
                     hpv: hpv as f32,
                     n_classified,
+                    perm_cutoff_no_data,
                 });
             }
         }
@@ -1086,7 +1196,8 @@ pub fn run_cutoff_sweep(
 
         let n = depth.len();
         let vsh = &columns["VSH"];
-        let phie = &columns["PHIE"];
+        let phie_col = floored_phie(&columns["PHIE"]);
+        let phie = &phie_col;
         let swe = &columns["SWE"];
         let perm = &columns["PERM"];
 
@@ -1256,6 +1367,329 @@ mod tests {
         }
     }
 
+    /// A clean, porous, low-Sw sand where every sample passes VSH/PHIE/SWE on its own, so the
+    /// only thing that can exclude a sample is the PERM cutoff. `perm` is the permeability the
+    /// well MEASURED — `None` means the well carries none at all, which is the case under test.
+    fn seed_pay_well(conn: &duckdb::Connection, name: &str, perm: Option<f32>) -> String {
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(conn, id, name, Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n], vec![2.35; n],
+            nan.clone(), nan,
+        )
+        .unwrap();
+        for (curve, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
+            equations::write_computed_curve(conn, &well, &depth, curve, &vec![v; n]).unwrap();
+        }
+        if let Some(k) = perm {
+            equations::write_computed_curve(conn, &well, &depth, "PERM", &vec![k; n]).unwrap();
+        }
+        well
+    }
+
+    /// T-BATCH-08 (1) — a permeability cutoff applies to every well it is asked for, including the
+    /// ones with no permeability.
+    ///
+    /// `classify_sample` is emphatic that a SAMPLE with no PERM cannot demonstrate it passes an
+    /// active cutoff, so it fails (`classify_sample_nan_propagation` pins that, and it is a
+    /// confirmed `[x]` in REVIEW.md). Until 2026-08-01 whether the cutoff was active at all was
+    /// decided per WELL one line earlier — `perm_min.is_some() && perm.iter().any(|v| !v.is_nan())`
+    /// — so a well carrying NO permeability anywhere switched the cutoff off for itself and
+    /// reported its full pay. Two halves of one rule, disagreeing in the damaging direction: the
+    /// well that measured 1 mD against a 1000 mD cutoff was excluded while the well that measured
+    /// nothing sailed through, and in a field roll-up those rows added together.
+    ///
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 7): *"no relation between em,
+    /// wells still can have perm curves"* — a cutoff's applicability has no relation to whether
+    /// this well happened to be cored, and permeability can be modelled where it was not measured.
+    /// The well-level test is gone; the sample-level rule is the only one left.
+    ///
+    /// Both halves of the outcome are asserted, because the reason this needed a decision at all is
+    /// that the safe-looking half is only half: the uncored well now books zero, which on a page is
+    /// indistinguishable from a wet well. `perm_cutoff_no_data` is what separates them, and it is
+    /// asserted here rather than left to the report to remember.
+    #[test]
+    fn a_well_with_no_perm_fails_the_cutoff_and_says_why() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        // Identical rock. The ONLY difference is whether permeability was measured.
+        let no_perm = seed_pay_well(&conn, "PAY-NOPERM", None);
+        let low_perm = seed_pay_well(&conn, "PAY-LOWPERM", Some(1.0));
+        let dbm = Mutex::new(conn);
+
+        let summary = |perm_min: Option<f64>| -> Vec<PaySummaryRow> {
+            run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    well_ids: vec![no_perm.clone(), low_perm.clone()],
+                    vsh_max: 0.5,
+                    phie_min: 0.1,
+                    swe_max: 0.6,
+                    perm_min,
+                    skip_version: false,
+                    stats_only: true,
+                },
+            )
+            .expect("summary runs")
+        };
+        let pay = |rows: &[PaySummaryRow], w: &str| -> PaySummaryRow {
+            rows.iter().find(|r| r.well_id == w && r.flag == "PAY").expect("a PAY row per well").clone()
+        };
+
+        // Baseline: with no PERM cutoff at all, both wells are full pay. This is the control —
+        // it establishes the rock is identical, so anything below is the cutoff's doing.
+        let open = summary(None);
+        let base_no_perm = pay(&open, &no_perm).net;
+        let base_low_perm = pay(&open, &low_perm).net;
+        assert!(base_no_perm > 0.0, "the test rock must be pay before any cutoff is applied");
+        assert_eq!(base_no_perm, base_low_perm, "both wells must start as the same rock");
+
+        // Now a cutoff nothing in either well could pass.
+        let cut = summary(Some(1000.0));
+
+        // The well that MEASURED permeability, at 1 mD, is correctly excluded.
+        assert_eq!(pay(&cut, &low_perm).net, 0.0, "1 mD cannot pass a 1000 mD cutoff");
+
+        // And so is the well that measured none — it cannot be SHOWN to pass, which is the same
+        // test the sample-level rule already applied. The two halves now agree.
+        assert_eq!(
+            pay(&cut, &no_perm).net,
+            0.0,
+            "a well with no PERM must fail an active cutoff, not be exempted from it"
+        );
+        assert_eq!(pay(&cut, &no_perm).hpv, 0.0, "and it books no hydrocarbon volume on missing data");
+
+        // Both wells were fully interpreted, so `n_classified` is > 0 on both and cannot say why
+        // either one came back at zero. It never could — which is why a SECOND discriminator was
+        // needed rather than a cleverer reading of this one.
+        assert!(pay(&cut, &no_perm).n_classified > 0);
+        assert!(pay(&cut, &low_perm).n_classified > 0);
+
+        // `perm_cutoff_no_data` is that discriminator, and it is the whole reason a zero here is
+        // readable: the uncored well's zero means "nothing to judge with", the cored well's means
+        // "judged and failed". Identical numbers, opposite statements.
+        assert!(pay(&cut, &no_perm).perm_cutoff_no_data, "the well with no data must be marked");
+        assert!(!pay(&cut, &low_perm).perm_cutoff_no_data, "the well that was judged must not be");
+
+        // And it means "a cutoff was requested and this well has nothing to answer it with" — not
+        // "this well has no permeability". With no cutoff asked for there is nothing to report, and
+        // a flag that fired anyway would appear on every report anyone ever ran without one.
+        assert!(!pay(&open, &no_perm).perm_cutoff_no_data, "no cutoff requested, nothing to say");
+        assert_eq!(pay(&open, &no_perm).net, base_no_perm, "and with no cutoff the pay is untouched");
+    }
+
+    /// T-RT-05 — rocktyping on a well that has porosity but no permeability must fail by name and
+    /// write NOTHING.
+    ///
+    /// The dangerous outcome is not a crash, it is a quiet success: every output would be NaN at
+    /// every depth, the run would report ✓, and the Curve Catalog would gain FZI/RT rows that are
+    /// empty from top to bottom. A later reader has no way to tell that from a well where the
+    /// rock genuinely had no answer. The control below runs the same module on the same well with
+    /// permeability present, so the failure is provably the missing curve and not a broken module.
+    #[test]
+    fn rocktyping_without_a_permeability_curve_fails_and_writes_no_curves() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "RT-NOPERM", Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n], vec![2.35; n],
+            nan.clone(), nan,
+        )
+        .unwrap();
+        // Porosity, but deliberately no permeability of any name.
+        equations::write_computed_curve(&conn, &well, &depth, "PHIE", &vec![0.20f32; n]).unwrap();
+        let dbm = Mutex::new(conn);
+
+        let run = || {
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "rocktyping".into(),
+                    well_ids: vec![well.clone()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::new(),
+                    opts: HashMap::new(),
+                    output_set: None,
+                    input_set: None,
+                },
+            )
+        };
+        let outputs = ["RQI", "PHIZ", "FZI", "R35", "PGEOM", "PSTRUC", "RT", "PERM_RT"];
+        let written = |name: &str| -> i64 {
+            let conn = dbm.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND UPPER(curve_name) = ?2",
+                duckdb::params![well, name],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+
+        // Counted in Rust, deliberately. DuckDB gives NaN a TOTAL ordering — `NaN = NaN` is true
+        // there, so an SQL `value = value` filter counts every MISSING sample as a real one and
+        // this test would have reported the opposite of the truth.
+        let finite = |name: &str| -> usize {
+            let conn = dbm.lock().unwrap();
+            let mut st = conn
+                .prepare("SELECT value FROM computed_curves WHERE well_id = ?1 AND UPPER(curve_name) = ?2")
+                .unwrap();
+            let rows: Vec<Option<f32>> = st
+                .query_map(duckdb::params![well, name], |r| r.get(0))
+                .unwrap()
+                .map(|v| v.unwrap())
+                .collect();
+            rows.iter().filter(|v| v.is_some_and(f32::is_finite)).count()
+        };
+
+        let res = run();
+        assert_eq!(res.len(), 1);
+
+        // The API half is honest, and that much is already pinned by
+        // `all_nan_module_output_reports_error_not_success`.
+        assert!(res[0].error.is_some(), "a missing permeability curve must be reported, not absorbed");
+        assert_eq!(res[0].rows_written, 0, "the failed run must not report a sample count");
+
+        // And the catalog half is now honest too (`docs/review_triage.md` finding 10, fixed
+        // 2026-08-01). Phase 2 used to write for any well whose outcome was `Computed` with a
+        // non-empty output map — and an all-MISSING map is still non-empty — so the whole
+        // rocktyping family was versioned in as curves blank end to end. The cost was not corrupt
+        // values (they were honestly MISSING); it was that the catalog stopped distinguishing
+        // "this was never run" from "this was run and could not answer", and burned a log-set
+        // version recording the second as though it were an interpretation. T-RT-05's Expected
+        // says the catalog must gain no FZI/RT rows, and now it does not.
+        for name in outputs {
+            assert_eq!(written(name), 0, "{name}: a run that reported failure must not version a curve");
+        }
+
+        // Control: give the well a permeability and the identical call succeeds and writes the
+        // family. Without this the assertions above would also pass on a module that never works.
+        {
+            let conn = dbm.lock().unwrap();
+            equations::write_computed_curve(&conn, &well, &depth, "PERM", &vec![100.0f32; n]).unwrap();
+        }
+        let ok = run();
+        assert!(ok[0].error.is_none(), "with permeability present it must run: {:?}", ok[0].error);
+        assert!(ok[0].rows_written > 0);
+        for name in outputs {
+            assert!(finite(name) > 0, "{name} must carry real values after the successful run");
+        }
+    }
+
+    /// T-ADV-11 — RtC on a well that has resistivity but no porosity of ANY name must be reported,
+    /// not returned as a green run.
+    ///
+    /// `all_nan_module_output_reports_error_not_success` pins the guard on vsh_gr and
+    /// electrofacies. This is the case the guard was actually written for, and it is nastier than
+    /// a dead well: RES_DEEP is present and healthy, so the run has real data to chew on and comes
+    /// back with a full-length SWT_RTC curve that happens to be MISSING at every depth. On a
+    /// saturation curve that is the difference between "no answer" and "no hydrocarbon".
+    ///
+    /// The control matters especially here because sw_rtc has the SSPW fallback: the failure must
+    /// be the absence of porosity under EITHER name, not the module failing to look for the
+    /// second one. So the same well is then given PHIT_SSPW only — the fallback curve, never the
+    /// primary — and must succeed.
+    #[test]
+    fn rtc_without_porosity_under_either_name_is_reported_not_returned_as_success() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "RTC-NOPHI", Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        // A raw well: real deep resistivity, no porosity interpretation of any kind.
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![60.0; n], vec![8.0; n], nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+
+        let run = || {
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "sw_rtc".into(),
+                    well_ids: vec![well.clone()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::new(),
+                    opts: HashMap::new(),
+                    output_set: None,
+                    input_set: None,
+                },
+            )
+        };
+
+        let res = run();
+        assert!(
+            res[0].error.is_some(),
+            "a saturation run with no porosity must be reported, not returned as a success"
+        );
+        assert_eq!(res[0].rows_written, 0, "and must not claim a sample count");
+
+        // Control: give it porosity under the FALLBACK name only. If this failed too, the test
+        // above would be pinning a broken module rather than an honest refusal.
+        {
+            let conn = dbm.lock().unwrap();
+            equations::write_computed_curve(&conn, &well, &depth, "PHIT_SSPW", &vec![0.25f32; n]).unwrap();
+            equations::write_computed_curve(&conn, &well, &depth, "CAPBW_SSPW", &vec![0.08f32; n]).unwrap();
+        }
+        let ok = run();
+        assert!(ok[0].error.is_none(), "the SSPW fallback alone must be enough to run: {:?}", ok[0].error);
+        assert!(ok[0].rows_written > 0, "and it must write real samples");
+    }
+
+    /// T-BATCH-08 (3) — one unusable well must not zero the whole response.
+    ///
+    /// `run_pay_summary` `continue`s past a well whose curve frame or zone read fails instead of
+    /// `?`-aborting the batch. The bare well is listed FIRST here on purpose: an abort would take
+    /// the good well's rows with it, and a test that put the good well first would pass either way.
+    #[test]
+    fn one_unusable_well_cannot_zero_the_whole_pay_summary() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        // A well record with no curve data at all — an import that failed, or a well created by hand.
+        let bare_id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, bare_id, "PAY-BARE", Some("Synthetic"), None, None).unwrap();
+        let bare = bare_id.to_string();
+        let good = seed_pay_well(&conn, "PAY-GOOD", Some(500.0));
+        let dbm = Mutex::new(conn);
+
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                well_ids: vec![bare.clone(), good.clone()],
+                vsh_max: 0.5,
+                phie_min: 0.1,
+                swe_max: 0.6,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+            },
+        )
+        .expect("a bare well must not fail the batch");
+
+        let good_pay = rows.iter().find(|r| r.well_id == good && r.flag == "PAY").expect("the good well still reports");
+        assert!(good_pay.net > 0.0, "the good well keeps its full answer: {good_pay:?}");
+
+        // The bare well contributes NO rows — it is skipped, not reported as a zero. A zero row
+        // would be indistinguishable from a genuinely wet zone in the Field Dashboard.
+        assert!(
+            !rows.iter().any(|r| r.well_id == bare),
+            "a well with no curves must be absent, not present with zeros"
+        );
+    }
+
     /// A zone override beats the module dialog by design, so it also skips the dialog's range
     /// check — `moduleDialog.ts` validates against ArgSpec.min/max, `zonesDialog.ts` does not,
     /// and the DB Inspector edits `zone_params.value_num` raw. A petrophysicist entering
@@ -1304,6 +1738,100 @@ mod tests {
         assert!(good.is_ok(), "an in-range override must pass: {good:?}");
         let arr = &good.unwrap()["SWT_IRR"];
         assert!(arr.iter().all(|v| (*v - 0.25).abs() < 1e-9), "override applied well-wide");
+    }
+
+    /// T-PREP-05 — a geothermal gradient belongs to the WELL, so a per-zone override is refused.
+    ///
+    /// `precalc` computes `SURF_TEMP + TEMP_GRAD × TVDSS` from surface at EVERY sample rather than
+    /// integrating down through the zones above it. Giving a lower zone its own gradient therefore
+    /// did not bend the temperature profile, it STEPPED it: a 0.03 °C/m well with a 0.035 override
+    /// below 1500 m jumped **10.5 °C across 100 m** where the undisturbed trend rises 3.0. Rock
+    /// temperature is continuous — a 10 °C discontinuity at a formation top is not something the
+    /// earth does — and it does not stay in FTEMP, because the Arps correction turns temperature
+    /// into Rw and Rw goes straight into Sw.
+    ///
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 6): *"temperature is curves
+    /// only"* — the trend belongs to the well and its product is a curve, so there is no per-zone
+    /// gradient to integrate and the question of what temperature each zone STARTS at never arises.
+    ///
+    /// REFUSED rather than silently ignored, which is the half worth defending: quietly dropping
+    /// the override would change the well's temperature, and so its Sw, with nothing on the log to
+    /// say why. And refused per NAMED zone only — `*` still applies, because that gives the well
+    /// one trend, which is exactly what a geothermal gradient is. Wells in one field genuinely do
+    /// have different gradients, and the per-well parameter grid writes `*`.
+    #[test]
+    fn a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-TEMP", Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let depth: Vec<f32> = (0..5).map(|i| 1400.0 + i as f32 * 50.0).collect();
+        db::upsert_zone(&conn, &well, "LOWER", 1500.0, 2000.0).unwrap();
+
+        let spec = modules::list_modules()
+            .into_iter()
+            .find(|s| s.name == "precalc")
+            .expect("precalc is a registered module");
+        assert!(
+            spec.args.iter().find(|a| a.name == "TEMP_GRAD").expect("declared").well_scope,
+            "TEMP_GRAD must be declared well-scoped, or nothing below this line is being tested"
+        );
+
+        // Baseline: an unmodified run resolves.
+        assert!(resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth).is_ok());
+
+        // The override that made the step.
+        db::set_zone_param(&conn, &well, "LOWER", "TEMP_GRAD", Some(0.035), None).unwrap();
+        let err = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+            .expect_err("a named-zone gradient must be refused, not silently dropped");
+        assert!(err.contains("TEMP_GRAD"), "the message must name the parameter: {err}");
+        assert!(err.contains("LOWER"), "and the zone it is on: {err}");
+        assert!(err.contains('*'), "and the scope that does still work: {err}");
+
+        // Cleared, it resolves again — the guard is not blanket-blocking.
+        db::set_zone_param(&conn, &well, "LOWER", "TEMP_GRAD", None, None).unwrap();
+        assert!(resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth).is_ok());
+
+        // An override naming a zone this well does not have never applied and must not start
+        // failing runs — only an override that would actually bite is refused.
+        db::set_zone_param(&conn, &well, "NOT-A-ZONE-HERE", "TEMP_GRAD", Some(0.05), None).unwrap();
+        assert!(
+            resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth).is_ok(),
+            "an inert override must stay inert rather than becoming a new failure"
+        );
+
+        // The well-wide scope survives, and applies everywhere.
+        db::set_zone_param(&conn, &well, "*", "TEMP_GRAD", Some(0.035), None).unwrap();
+        let good = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+            .expect("a well-wide gradient is one trend and must be honoured");
+        assert!(
+            good["TEMP_GRAD"].iter().all(|v| (*v - 0.035).abs() < 1e-9),
+            "the '*' scope must reach every sample"
+        );
+
+        // PGRAD has the identical shape and is deliberately NOT well-scoped: a pressure step at a
+        // formation top is a pressure compartment, which is a real thing rock does. The asymmetry
+        // is the physics, and asserting it here is what stops someone "tidying" it away.
+        db::set_zone_param(&conn, &well, "LOWER", "PGRAD", Some(0.5), None).unwrap();
+        let mixed = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+            .expect("a per-zone pressure gradient stays legal");
+        assert!((mixed["PGRAD"][0] - 0.433).abs() < 1e-9, "above the zone, the trend default");
+        assert!((mixed["PGRAD"][4] - 0.5).abs() < 1e-9, "inside it, the override");
+    }
+
+    /// The NaN guard in `floored_phie` is load-bearing rather than defensive: `f32::max` returns
+    /// the OTHER side when one is NaN, so without it a MISSING porosity would come back as a real
+    /// 0.001 and start counting toward `n_classified` — the one field that says whether the well
+    /// was interpreted at all.
+    #[test]
+    fn flooring_phie_leaves_missing_missing() {
+        let out = floored_phie(&[-0.05, 0.0, f32::NAN, 0.25]);
+        let floor = modules::PHIE_FLOOR as f32;
+        assert_eq!(out[0], floor, "a negative porosity is floored");
+        assert_eq!(out[1], floor, "and so is a hard zero — the floor is 0.001, not 0.0");
+        assert!(out[2].is_nan(), "MISSING must stay MISSING");
+        assert_eq!(out[3], 0.25, "a real porosity is untouched");
     }
 
     /// Sweeping the VSH (sand) cutoff upward can only admit more pay, so the metric is
@@ -1622,7 +2150,7 @@ mod tests {
             module: "gr_normalize".into(),
             well_ids: vec![w.clone()],
             log_inputs: HashMap::new(),
-            params: HashMap::new(), // defaults: P3/P97, refs 53.68/133.93
+            params: HashMap::new(), // manifest defaults: P3/P97, generic refs 20/120
             opts: [("MASK".to_string(), "BADHOLE".to_string())].into_iter().collect(),
             output_set: None,
             input_set: None,
@@ -1850,6 +2378,650 @@ mod tests {
         }
     }
 
+    /// GR normalization anchors on EACH WELL'S OWN percentiles, not on the batch's pooled ones.
+    ///
+    /// That is the entire point of the module: two wells logged by different tools, or in
+    /// different mud, read different absolute GR in the same shale, and normalizing is what makes
+    /// one VSH cutoff mean the same rock in both. Pooling the percentiles across the run would
+    /// still produce a plausible-looking GRN — the FIELD would anchor on the references while
+    /// each individual well drifted off them by however much its own distribution differs from
+    /// the pool. Nothing on the log says so, and the wells would then disagree exactly where the
+    /// module was supposed to make them agree.
+    ///
+    /// So the two wells here are deliberately given very different GR characters and run in ONE
+    /// batch. Each must come back with its own P3 and P97 on the shared references.
+    ///
+    /// The reference values are read from the manifest rather than typed in, because they are
+    /// generic defaults held by `gr_normalize_reference_defaults_are_generic_not_a_field_calibration`
+    /// and must never be restated as literals here — a second copy is a second thing to go stale.
+    #[test]
+    fn gr_normalization_anchors_each_well_on_its_own_percentiles() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        // Two wells, same rock, very different absolute GR: B reads roughly twice A and is
+        // shifted. Pooled percentiles would sit between them and fit neither.
+        let n = 101usize;
+        let mk = |name: &str, base: f32, span: f32| -> uuid::Uuid {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, None, None, None).unwrap();
+            let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+            // A deterministic saw-tooth spread over the span: a real distribution, not a ramp
+            // that would make every percentile trivially exact.
+            let gr: Vec<f32> = (0..n)
+                .map(|i| base + span * (((i * 37) % n) as f32 / (n - 1) as f32))
+                .collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn,
+                id,
+                depth,
+                gr,
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan,
+            )
+            .unwrap();
+            id
+        };
+        let a = mk("SANDI-GRA", 15.0, 60.0);
+        let b = mk("SANDI-GRB", 70.0, 150.0);
+
+        // The shipped reference endpoints, taken from the manifest.
+        let spec = modules::list_modules()
+            .into_iter()
+            .find(|m| m.name == "gr_normalize")
+            .expect("gr_normalize must be in the catalog");
+        let default_of = |name: &str| -> f32 {
+            spec.args
+                .iter()
+                .find(|x| x.name == name)
+                .expect("arg present")
+                .default
+                .parse()
+                .expect("numeric default")
+        };
+        let (lo_ref, hi_ref) = (default_of("GR_LOW_REF"), default_of("GR_HIGH_REF"));
+        let (p_lo, p_hi) = (default_of("P_LOW"), default_of("P_HIGH"));
+
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "gr_normalize".into(),
+            well_ids: vec![a.to_string(), b.to_string()],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+        };
+        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert_eq!(results.len(), 2);
+        for r in &results {
+            assert!(r.error.is_none(), "gr_normalize failed: {:?}", r.error);
+        }
+
+        let grn_of = |well: &uuid::Uuid| -> Vec<f32> {
+            let c = dbm.lock().unwrap();
+            let mut stmt = c
+                .prepare(
+                    "SELECT value FROM computed_curves
+                     WHERE well_id = ?1 AND curve_name = 'GRN' ORDER BY depth",
+                )
+                .unwrap();
+            let v: Vec<f32> = stmt
+                .query_map(duckdb::params![well.to_string()], |r| r.get(0))
+                .unwrap()
+                .filter_map(|x| x.ok())
+                .collect();
+            v
+        };
+
+        for (name, id) in [("SANDI-GRA", &a), ("SANDI-GRB", &b)] {
+            let mut v = grn_of(id);
+            assert_eq!(v.len(), n, "{name}: every sample must be normalized");
+            v.sort_by(|x, y| x.partial_cmp(y).unwrap());
+
+            let got_lo = crate::distribution::percentile(&v, p_lo);
+            let got_hi = crate::distribution::percentile(&v, p_hi);
+            assert!(
+                (got_lo - lo_ref).abs() < 0.5,
+                "{name}: its OWN P{p_lo} must land on the low reference {lo_ref}, got {got_lo} \
+                 — percentiles look pooled across the batch rather than per well"
+            );
+            assert!(
+                (got_hi - hi_ref).abs() < 0.5,
+                "{name}: its OWN P{p_hi} must land on the high reference {hi_ref}, got {got_hi}"
+            );
+        }
+
+        // The control: before normalizing, these two wells were nowhere near each other. If the
+        // raw curves already agreed, the assertions above would pass without the module doing
+        // anything at all.
+        let raw_spread = (70.0f32 - 15.0).abs();
+        assert!(raw_spread > 1.0, "the two wells must start with genuinely different GR");
+    }
+
+    /// T-PREP-05 and T-WELL-16 together: a per-zone parameter override must reach **every sample
+    /// inside its zone and no sample outside it**, through the real runner.
+    ///
+    /// This is the interval-parameter model's whole promise. A module that read a parameter once
+    /// before its loop instead of per sample would ignore every zone override ever entered, and
+    /// nothing would say so — the run succeeds, the curve is smooth, and the only symptom is that
+    /// the numbers are the whole-well answer wearing a zoned label.
+    ///
+    /// The boundary is HALF-OPEN (`>= top`, `< bottom`), which is what stops a sample sitting
+    /// exactly on a shared boundary from belonging to both zones and taking whichever happened to
+    /// be listed last. That is pinned here, at the boundary sample itself.
+    ///
+    /// **The parameter under test is PGRAD, and the choice is the point.** This test used to drive
+    /// TEMP_GRAD, and doing so exposed finding 6: `precalc` computes each sample as
+    /// `intercept + grad(i) * depth(i)` from SURFACE rather than integrating down through the zones
+    /// above, so a per-zone gradient produced a STEP at the boundary rather than a kink — 10.5 degC
+    /// across 100 m where the trend rises 3.0. Rock temperature is continuous and that reaches Sw
+    /// through Rw, so as of 2026-08-01 a per-zone TEMPERATURE gradient is refused outright
+    /// (`a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well`).
+    ///
+    /// PRESSURE is the same arithmetic and the opposite physics: a pressure step at a formation top
+    /// is a pressure compartment, which is a real thing rock does. So PGRAD stays zoneable, and it
+    /// is the honest subject for a test of the interval-parameter model — the discontinuity it
+    /// produces is the answer rather than an artefact.
+    #[test]
+    fn a_per_zone_pressure_gradient_reaches_exactly_its_own_samples() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-ZP1", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+
+        // Vertical well, no TVDSS curve — precalc falls back to measured depth as a whole curve.
+        let depths: Vec<f32> = (0..11).map(|i| 1000.0 + i as f32 * 100.0).collect();
+        let n = depths.len();
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            depths.clone(),
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+
+        // Two zones meeting at 1500 m; only the deeper one carries an override.
+        let (boundary, base_grad, deep_grad, psurf) = (1500.0f32, 0.433f64, 0.5f64, 0.0f64);
+        db::upsert_zone(&conn, &w, "SHALLOW", 1000.0, boundary).unwrap();
+        db::upsert_zone(&conn, &w, "DEEP", boundary, 2100.0).unwrap();
+        db::set_zone_param(&conn, &w, "DEEP", "PGRAD", Some(deep_grad as f32), None).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "precalc".into(),
+            well_ids: vec![w.clone()],
+            log_inputs: HashMap::new(),
+            params: [("PSURF".to_string(), psurf), ("PGRAD".to_string(), base_grad)]
+                .into_iter()
+                .collect(),
+            opts: [("OPT_TU".to_string(), "degC".to_string())].into_iter().collect(),
+            output_set: None,
+            input_set: None,
+        };
+        let r = run_workflow_module(&dbm, &req);
+        assert!(r[0].error.is_none(), "precalc: {:?}", r[0].error);
+
+        let conn = dbm.lock().unwrap();
+        let (d, cols) = equations::fetch_curve_frame(&conn, &w, &["FPRESS".into()]).unwrap();
+        let fp = &cols["FPRESS"];
+        assert_eq!(d.len(), n);
+
+        for i in 0..n {
+            let grad = if d[i] >= boundary { deep_grad } else { base_grad };
+            let expect = psurf + grad * d[i] as f64;
+            assert!(
+                (fp[i] as f64 - expect).abs() < 1e-2,
+                "sample {i} at {} m: FPRESS {} != {expect} — the {} gradient did not reach it",
+                d[i],
+                fp[i],
+                if d[i] >= boundary { "zone" } else { "well" }
+            );
+        }
+
+        // The boundary sample belongs to DEEP and to DEEP only. A closed interval on both sides
+        // would let SHALLOW and DEEP both claim 1500 m, and which one won would be list order.
+        let at_boundary = d.iter().position(|v| *v == boundary).expect("1500 m is a sample");
+        assert!(
+            (fp[at_boundary] as f64 - (psurf + deep_grad * boundary as f64)).abs() < 1e-2,
+            "a sample exactly on the boundary must take the zone whose TOP it is"
+        );
+        assert!(
+            (fp[at_boundary - 1] as f64 - (psurf + base_grad * (boundary - 100.0) as f64)).abs() < 1e-2,
+            "and the sample above it must be untouched by that zone"
+        );
+
+        // The step across the boundary, which here is the ANSWER rather than an artefact — a
+        // pressure compartment. Recorded so the deliberate temperature/pressure asymmetry is
+        // visible from this end too, not only from the refusal test.
+        let step = fp[at_boundary] - fp[at_boundary - 1];
+        let within_zone = fp[at_boundary - 1] - fp[at_boundary - 2];
+        assert!(
+            step > 3.0 * within_zone,
+            "a zoned pressure gradient must still step at the boundary: {step} across it against \
+             {within_zone} within the zone above"
+        );
+
+        // The control: without the override every sample would sit on one line, so all of the
+        // above would pass on a runner that ignored zone parameters entirely.
+        assert!(
+            (fp[at_boundary] as f64 - (psurf + base_grad * boundary as f64)).abs() > 1.0,
+            "the override never took effect — this well is still on the whole-well gradient"
+        );
+    }
+
+    /// T-PREP-16 step 3, pinned as the audited defect rather than as correct behaviour.
+    ///
+    /// `log_predict`'s MAX_RAW mode exists for exactly one purpose: to repair a density log inside
+    /// a washout, where the tool read mud instead of rock. The mask exists for the opposite
+    /// purpose: to remove washout samples from everything. Run them together — which is precisely
+    /// what the module's own documentation tells you to do — and the mask wins, so the one curve
+    /// built to fill the bad hole comes back MISSING inside the bad hole.
+    ///
+    /// **There are TWO blanks, not one, and the audit finding names only the second.** The runner
+    /// blanks the flagged samples in the module's INPUTS before the run (so the predictor is gone
+    /// and the module cannot even attempt a prediction), and blanks them again in the OUTPUTS
+    /// after. Exempting `log_predict` from the output pass alone would leave RHOB_SYN exactly as
+    /// MISSING as it is now, and the symptom would look unfixed. That is asserted below, so
+    /// whoever takes this on knows before they start.
+    ///
+    /// The unmasked control is what makes this a defect report rather than a complaint: the same
+    /// well, the same washout, no mask — and the repair happens. The module works. The runner
+    /// throws the answer away.
+    #[test]
+    fn a_masked_washout_defeats_the_very_module_meant_to_repair_it() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-WO1", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+
+        // A clean density-gamma relation, and one washed-out sample reading far too light.
+        let n = 20usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let gr: Vec<f32> = (0..n).map(|i| 20.0 + i as f32 * 5.0).collect();
+        let rhob_true: Vec<f32> = gr.iter().map(|g| 2.70 - 0.003 * g).collect();
+        let washout = 10usize;
+        let mut rhob = rhob_true.clone();
+        rhob[washout] = 1.95; // mud, not rock
+
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            depths.clone(),
+            gr.clone(),
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            rhob.clone(),
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let mut flag = vec![0.0f32; n];
+        flag[washout] = 1.0;
+        equations::write_computed_curve(&conn, &w, &depths, "BADHOLE", &flag).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let run = |mask: Option<&str>| -> Vec<ModuleRunResult> {
+            let mut opts: HashMap<String, String> =
+                [("OPT_COMBINE".to_string(), "MAX_RAW".to_string())].into_iter().collect();
+            if let Some(m) = mask {
+                opts.insert("MASK".to_string(), m.to_string());
+            }
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "log_predict".into(),
+                    well_ids: vec![w.clone()],
+                    log_inputs: [("TARGET".to_string(), "RHOB".to_string())].into_iter().collect(),
+                    params: [("K".to_string(), 5.0)].into_iter().collect(),
+                    opts,
+                    output_set: None,
+                    input_set: None,
+                },
+            )
+        };
+        let syn_of = || -> Vec<f32> {
+            let conn = dbm.lock().unwrap();
+            let (_, cols) =
+                equations::fetch_curve_frame(&conn, &w, &["RHOB_SYN".to_string()]).unwrap();
+            cols["RHOB_SYN"].clone()
+        };
+
+        // Control first: no mask, and the washout IS repaired.
+        let r = run(None);
+        assert!(r[0].error.is_none(), "unmasked log_predict: {:?}", r[0].error);
+        let unmasked = syn_of();
+        assert!(
+            !unmasked[washout].is_nan() && unmasked[washout] > rhob[washout] + 0.2,
+            "the module failed to repair the washout even unmasked ({}); the rest of this test \
+             would then be measuring the wrong thing",
+            unmasked[washout]
+        );
+        assert!(
+            (unmasked[washout] - rhob_true[washout]).abs() < 0.1,
+            "the repair should land near the trend: {} for a true {}",
+            unmasked[washout],
+            rhob_true[washout]
+        );
+
+        // Now with the mask the module's own documentation recommends.
+        let r = run(Some("BADHOLE"));
+        assert!(r[0].error.is_none(), "masked log_predict: {:?}", r[0].error);
+        let masked = syn_of();
+        assert!(
+            masked[washout].is_nan(),
+            "AUDIT-2026-07-21 (Prep statistical #1) says the repaired value is re-blanked at the \
+             masked depth, and T-PREP-16 tells the tester to expect that. It returned {} instead \
+             — if this was fixed deliberately, update this test and T-PREP-16's known-issue line \
+             together.",
+            masked[washout]
+        );
+        assert!(
+            masked.iter().enumerate().any(|(i, v)| i != washout && !v.is_nan()),
+            "the masked run wrote nothing anywhere — that is a different failure"
+        );
+
+        // The second blank. Feeding the module a context where only the PREDICTOR is missing at
+        // the washout — which is what the input-side mask does — already yields MISSING, before
+        // the output pass ever runs. So exempting log_predict from output masking would not fix
+        // this on its own.
+        let mut gr_masked = gr.clone();
+        gr_masked[washout] = f32::NAN;
+        let ctx = modules::ModuleContext {
+            n,
+            logs: [
+                ("TARGET".to_string(), rhob.clone()),
+                ("P1".to_string(), gr_masked),
+                ("DEPTH".to_string(), depths.clone()),
+            ]
+            .into_iter()
+            .collect(),
+            params: [("K".to_string(), vec![5.0; n])].into_iter().collect(),
+            opts: [
+                ("OPT_COMBINE".to_string(), "MAX_RAW".to_string()),
+                ("__IN_TARGET".to_string(), "RHOB".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+            depth_unit: Default::default(),
+        };
+        let out = modules::run_module("log_predict", &ctx).unwrap();
+        assert!(
+            out["RHOB_SYN"][washout].is_nan(),
+            "with the predictor blanked the module cannot predict — so an output-masking \
+             exemption alone would leave RHOB_SYN missing anyway"
+        );
+    }
+
+    /// T-PREP-11. A raw imported curve called FTEMP must NEVER satisfy a computed-only input.
+    ///
+    /// `nphi_env_corr` reads FTEMP in degC. Commercial LAS exports routinely carry an FTEMP in
+    /// degF, and it lands in the RAW import store under exactly that mnemonic. Consume it and the
+    /// temperature term is computed from a number roughly twice too large — a correction of a few
+    /// thousandths v/v instead of a few ten-thousandths. Nothing about that is visible: NPHI_EC
+    /// still tracks NPHI, still looks like a neutron log, and the error rides into porosity.
+    ///
+    /// `gascorr_spec_shape` asserts the FLAG on gascorr's arguments. This asserts the BEHAVIOUR,
+    /// on the module whose manual test names it, through the real runner — which is where the
+    /// contract is actually enforced (`workflow.rs` re-resolves computed-only inputs after the
+    /// ordinary curve frame has already fallen back to RAW). The flag and the re-resolution loop
+    /// are two separate things and either alone is silently useless.
+    ///
+    /// The three states, in the order a user meets them:
+    ///
+    /// 1. RAW FTEMP present, nothing computed → the temperature term must be ABSENT, leaving only
+    ///    salinity. Not an error, by design: the module documents FTEMP as optional.
+    /// 2. Run Formation Temperature → the term appears.
+    /// 3. With BOTH present the computed one must win — the case that actually bites, because a
+    ///    user who ran precalc reasonably assumes they are covered.
+    #[test]
+    fn a_raw_ftemp_never_satisfies_the_computed_only_contract() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-EC1", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+
+        let depths = vec![1000.0f32, 1500.0, 2000.0];
+        let n = depths.len();
+        let nphi_in = 0.30f32;
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            depths.clone(),
+            vec![f32::NAN; n],   // GR
+            vec![f32::NAN; n],   // RES_DEEP
+            vec![nphi_in; n],    // NPHI
+            vec![f32::NAN; n],   // RHOB
+            vec![f32::NAN; n],   // DT
+            vec![f32::NAN; n],   // SP
+        )
+        .unwrap();
+
+        // The trap: a RAW-set curve called FTEMP carrying degF numbers, exactly as a vendor LAS
+        // delivers it. 220 degF is 104.4 degC — a perfectly ordinary deep temperature in either
+        // unit, which is what makes it undetectable by any range check.
+        let raw_degf = 220.0f32;
+        {
+            let id = db::upsert_curve_meta(
+                &conn, &w, "RAW", "FTEMP", Some("degF"), Some("FTEMP"), Some("test"), None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &id, &depths, &vec![raw_degf; n]).unwrap();
+        }
+
+        let dbm = Mutex::new(conn);
+        let run = |module: &str, params: &[(&str, f64)]| -> Vec<ModuleRunResult> {
+            let req = RunModuleRequest {
+                module: module.into(),
+                well_ids: vec![w.clone()],
+                log_inputs: HashMap::new(),
+                params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+                opts: HashMap::new(),
+                output_set: None,
+                input_set: None,
+            };
+            run_workflow_module(&dbm, &req)
+        };
+        let curve = |name: &str| -> Vec<f32> {
+            let conn = dbm.lock().unwrap();
+            let (_, cols) = equations::fetch_curve_frame(&conn, &w, &[name.to_string()]).unwrap();
+            cols[name].clone()
+        };
+
+        // Manifest defaults, read rather than retyped — a second copy is a second thing to drift.
+        let spec = crate::modules::list_modules()
+            .into_iter()
+            .find(|s| s.name == "nphi_env_corr")
+            .expect("nphi_env_corr must be in the manifest");
+        let dflt = |name: &str| -> f64 {
+            spec.args.iter().find(|a| a.name == name).unwrap().default.parse().unwrap()
+        };
+        let (k_temp, t_ref, k_sal, salw) =
+            (dflt("K_TEMP"), dflt("T_REF"), dflt("K_SAL"), dflt("SALW"));
+        let ec_params = [("K_TEMP", k_temp), ("T_REF", t_ref), ("K_SAL", k_sal), ("SALW", salw)];
+        let salinity_only = nphi_in as f64 + k_sal * salw / 100000.0;
+
+        // (1) Only the raw degF FTEMP exists. The temperature term must not appear.
+        let r = run("nphi_env_corr", &ec_params);
+        assert!(r[0].error.is_none(), "nphi_env_corr: {:?}", r[0].error);
+        let ec = curve("NPHI_EC");
+        for (i, v) in ec.iter().enumerate() {
+            assert!(
+                (*v as f64 - salinity_only).abs() < 1e-6,
+                "sample {i}: a RAW degF FTEMP was consumed — NPHI_EC {v} is not the \
+                 salinity-only {salinity_only}"
+            );
+        }
+        // Stated the other way round, so the failure message says what went wrong rather than
+        // only that a number moved: the degF value must not have driven the correction.
+        let if_degf_consumed = salinity_only + k_temp * (raw_degf as f64 - t_ref);
+        assert!(
+            (ec[0] as f64 - if_degf_consumed).abs() > 1e-5,
+            "NPHI_EC landed exactly where consuming the raw degF FTEMP would put it"
+        );
+
+        // (2) Run Formation Temperature — now a genuine degC FTEMP exists in computed provenance.
+        let r = run(
+            "ftemp_grad",
+            &[("TSURF", 26.7), ("TGRAD", 0.03), ("BHT", 100.0), ("TD_BHT", 2000.0)],
+        );
+        assert!(r[0].error.is_none(), "ftemp_grad: {:?}", r[0].error);
+        let ftemp = curve("FTEMP");
+
+        // (3) Re-run with BOTH present. The computed one must win, sample by sample.
+        let r = run("nphi_env_corr", &ec_params);
+        assert!(r[0].error.is_none(), "nphi_env_corr rerun: {:?}", r[0].error);
+        let ec = curve("NPHI_EC");
+        for i in 0..n {
+            let expect = salinity_only + k_temp * (ftemp[i] as f64 - t_ref);
+            assert!(
+                (ec[i] as f64 - expect).abs() < 1e-6,
+                "sample {i}: NPHI_EC {} must follow the COMPUTED FTEMP {} (expected {expect})",
+                ec[i],
+                ftemp[i]
+            );
+        }
+
+        // The control. Every assertion above would also pass on a module that ignored FTEMP
+        // altogether, so the computed run must genuinely differ from the salinity-only one.
+        assert!(
+            (ec[2] as f64 - salinity_only).abs() > 1e-6,
+            "the temperature term never appeared even with a computed FTEMP — this test would \
+             pass on a module that ignored FTEMP entirely"
+        );
+    }
+
+    /// Restoring an earlier log-set version must change what the NEXT module run computes.
+    ///
+    /// `db::log_set_versioning_never_overwrites` proves the restore itself: the archive keeps
+    /// both generations and the current store goes back to version 1's values. What it does not
+    /// prove is that anything downstream then READS those values — and that is the whole point
+    /// of being able to restore. A restore that quietly left modules computing on version 2
+    /// would be the worst possible outcome: the catalog, the version history and the curve on
+    /// screen would all say version 1, while every number derived from it came from the run you
+    /// deliberately rolled back.
+    ///
+    /// phi_den is the downstream module here because it takes VSH as an input curve, so its
+    /// PHIE moves whenever VSH does. The control is that the two PHIE results must DIFFER —
+    /// without it, a phi_den that ignored VSH entirely would satisfy every other assertion.
+    #[test]
+    fn a_restored_log_set_version_feeds_the_next_module_run() {
+        use crate::equations::{
+            create_log_set, restore_log_set, write_computed_curves_versioned, LogSetSpec,
+        };
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-VER", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // RHOB is phi_den's other input; hold it constant so VSH is the only thing that moves.
+        let n = 3usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![60.0; n],
+            nan.clone(),
+            nan.clone(),
+            vec![2.35f32; n],
+            nan.clone(),
+            nan,
+        )
+        .unwrap();
+
+        let spec = LogSetSpec {
+            set_name: "INTERP".into(),
+            module: "vsh_gr".into(),
+            params_json: "{}".into(),
+            inputs_json: "[\"GR\"]".into(),
+        };
+
+        // Version 1: a clean sand. Version 2: very shaly. Same curve, same well.
+        let (set1, v1) = create_log_set(&conn, &w, &spec).unwrap();
+        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.10f32, 0.10, 0.10])], &set1)
+            .unwrap();
+        let (set2, v2) = create_log_set(&conn, &w, &spec).unwrap();
+        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.80f32, 0.80, 0.80])], &set2)
+            .unwrap();
+        assert_eq!((v1, v2), (1, 2));
+
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "phi_den".into(),
+            well_ids: vec![w.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+        };
+        let phie_at = |d: f32| -> f32 {
+            let c = dbm.lock().unwrap();
+            c.query_row(
+                "SELECT value FROM computed_curves
+                 WHERE well_id = ?1 AND curve_name = 'PHIE' AND depth = ?2",
+                duckdb::params![w, d],
+                |r| r.get(0),
+            )
+            .expect("phi_den must have written PHIE")
+        };
+
+        // Run against the CURRENT version (2, the shaly one).
+        let r = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert!(r[0].error.is_none(), "phi_den on v2: {:?}", r[0].error);
+        let phie_v2 = phie_at(1000.0);
+
+        // Roll back to version 1 and run again. Nothing else changed.
+        {
+            let c = dbm.lock().unwrap();
+            restore_log_set(&c, &set1).unwrap();
+        }
+        let r = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert!(r[0].error.is_none(), "phi_den on restored v1: {:?}", r[0].error);
+        let phie_v1 = phie_at(1000.0);
+
+        assert!(
+            (phie_v1 - phie_v2).abs() > 1e-4,
+            "the restore changed nothing downstream: PHIE was {phie_v2} on v2 and {phie_v1} after \
+             restoring v1. Either the module is not reading the restored VSH, or it is not \
+             reading VSH at all"
+        );
+        // Direction, not just difference: less shale leaves more effective porosity, because
+        // phi_den subtracts the shale term VSH*(RHO_MA - RHO_SH)/(RHO_MA - RHO_FL).
+        assert!(
+            phie_v1 > phie_v2,
+            "restoring the cleaner VSH must RAISE PHIE (got {phie_v1} vs {phie_v2})"
+        );
+    }
+
     /// Cancel responsiveness: with the chain cancel flag already set, run_workflow_module_into
     /// skips every well (no fetch/compute/write) and returns clean no-ops — so a Cancel drains a
     /// running step's remaining wells in ~a well or two instead of grinding through all of them.
@@ -1898,6 +3070,221 @@ mod tests {
         let results2 = run_workflow_module_into(&dbm, &req, None, None, None);
         assert!(results2[0].error.is_none(), "uncancelled: {:?}", results2[0].error);
         assert!(results2[0].rows_written > 0, "uncancelled run must write VSH");
+    }
+
+    /// T-ADV-13. The audit finding was that `sw_height`'s TVD input had NO PRODUCER anywhere in
+    /// the app: the deviated-well fix was unit-tested at the module level, the deviation survey
+    /// was imported and stored, and nothing connected the two — so the TVD dropdown was a false
+    /// affordance and every height silently came back measured along hole, overstating the column
+    /// by ~1/cos(inc).
+    ///
+    /// Both HALVES have had tests for a while — `satheight`'s `sw_height_uses_tvd_and_allows_
+    /// tvdss_fwl` hands the module a TVD array directly, and `ingest`'s `deviation_import_
+    /// materializes_tvd_curves` checks the survey lands on the log grid. Neither says anything
+    /// about the JOINT, which is exactly where the finding lived. This runs the real path:
+    /// import a survey, then run the module through `run_workflow_module`'s own input
+    /// resolution and read HAFWL back out of the database.
+    #[test]
+    fn a_deviated_wells_height_is_measured_from_the_survey_not_along_hole() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        // Two identical wells on the same MD grid. Only one gets a deviation survey, so the
+        // other is the control: it must still fall back to measured depth.
+        let depth: Vec<f32> = vec![0.0, 500.0, 1000.0, 1500.0, 2000.0, 2500.0, 3000.0];
+        let n = depth.len();
+        let mk = |name: &str| -> String {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, None, None, None).unwrap();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, id, depth.clone(), vec![50.0; n], nan.clone(), vec![0.2; n],
+                vec![2.4; n], nan.clone(), nan,
+            )
+            .unwrap();
+            let w = id.to_string();
+            // sw_height needs PHIE; PERM keeps the LEVERETT branch alive so SWH is real too.
+            equations::write_computed_curve(&conn, &w, &depth, "PHIE", &vec![0.25f32; n]).unwrap();
+            equations::write_computed_curve(&conn, &w, &depth, "PERM", &vec![100.0f32; n]).unwrap();
+            w
+        };
+        let dev = mk("SANDI-DEV");
+        let vert = mk("SANDI-VERT");
+
+        // Vertical to 1000 m MD, build to 60 deg by 2000, hold to TD. At 60 deg inclination a
+        // metre of hole buys half a metre of true depth, so by TD the two references are
+        // hundreds of metres apart — far too large to be confused with interpolation slop.
+        let csv = std::env::temp_dir().join(format!("sandibumi_devheight_{dev}.csv"));
+        std::fs::write(&csv, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
+        let imported = ingest::import_deviation_csv(&conn, &dev, csv.to_str().unwrap(), Some(25.0), None);
+        std::fs::remove_file(&csv).ok();
+        assert!(imported.error.is_none(), "survey import failed: {:?}", imported.error);
+
+        // What the survey actually put on the log grid — the test never re-derives minimum
+        // curvature, it asserts that the module CONSUMED whatever the survey produced.
+        let tvd = equations::fetch_curve_frame(&conn, &dev, &["TVD".into()]).unwrap().1["TVD"].clone();
+        assert!(
+            tvd.iter().all(|v| v.is_finite()),
+            "the survey must materialize a TVD curve on the log grid: {tvd:?}"
+        );
+
+        const FWL: f64 = 2600.0;
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "sw_height".into(),
+            well_ids: vec![dev.clone(), vert.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("FWL".to_string(), FWL)]),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+        };
+        let results = run_workflow_module(&dbm, &req);
+        assert!(results.iter().all(|r| r.error.is_none()), "run errored: {results:?}");
+
+        let conn = dbm.lock().unwrap();
+        let hafwl = |w: &str| -> Vec<f32> {
+            equations::fetch_curve_frame(&conn, w, &["HAFWL".into()]).unwrap().1["HAFWL"].clone()
+        };
+        let (h_dev, h_vert) = (hafwl(&dev), hafwl(&vert));
+
+        // The deviated well's height is FWL minus TRUE vertical depth, at every sample.
+        for i in 0..n {
+            let want = FWL as f32 - tvd[i];
+            assert!(
+                (h_dev[i] - want).abs() < 0.1,
+                "sample {i} (MD {}): HAFWL {} should be FWL - TVD {} = {want}",
+                depth[i], h_dev[i], tvd[i]
+            );
+        }
+
+        // In the VERTICAL section TVD == MD, so the two references agree — which is what makes
+        // the deviated section's disagreement meaningful rather than an artefact of the fixture.
+        let i1000 = 2;
+        assert!(
+            (h_dev[i1000] - (FWL as f32 - depth[i1000])).abs() < 0.5,
+            "above the kick-off the survey and the driller's depth must agree: {}",
+            h_dev[i1000]
+        );
+
+        // At TD they must NOT. This is the assertion the audit finding would have failed:
+        // measured along hole the column reads hundreds of metres taller than it is.
+        let td = n - 1;
+        let along_hole = FWL as f32 - depth[td];
+        assert!(
+            (h_dev[td] - along_hole) > 500.0,
+            "at TD the survey height {} must sit far above the along-hole height {along_hole}",
+            h_dev[td]
+        );
+
+        // Control: no survey, no TVD curve — the module falls back to measured depth. That
+        // fallback is correct behaviour for a genuinely vertical well, and it is also exactly
+        // what the deviated well used to do.
+        for i in 0..n {
+            let want = FWL as f32 - depth[i];
+            assert!(
+                (h_vert[i] - want).abs() < 1e-3,
+                "a well with no survey measures height along hole: {} vs {want}",
+                h_vert[i]
+            );
+        }
+    }
+
+    /// T-PETRO-13. A `zone_params` override must beat the dialog value INSIDE its zone and
+    /// change nothing outside it. The failure this guards against is silent in both directions:
+    /// an override that leaks writes a wrong Sw over rock nobody calibrated, and one that never
+    /// applies leaves the calibration looking done while the numbers are unchanged.
+    ///
+    /// The arithmetic is checked against the plan's own expectation — with N = 2, dropping RW
+    /// from 0.1 to 0.02 scales SWT by sqrt(0.02/0.1) — rather than against whatever the code
+    /// happens to return.
+    #[test]
+    fn a_zone_parameter_override_moves_that_zone_and_leaves_the_rest_untouched() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-ZONE", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // 1000..1019 at 1 m. RT 4 ohmm and PHIT 0.25 put the baseline SWT at 0.632, so the
+        // overridden value (0.283) is nowhere near the [SWT_IRR, 1] clamp — a clamped answer
+        // would mask the very ratio under test.
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![50.0; n], vec![4.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+        for name in ["PHIT", "PHIE"] {
+            equations::write_computed_curve(&conn, &w, &depth, name, &vec![0.25f32; n]).unwrap();
+        }
+        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+        db::upsert_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let run = || -> Vec<f32> {
+            let req = RunModuleRequest {
+                module: "sw_arch".into(),
+                well_ids: vec![w.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([
+                    ("A".to_string(), 1.0),
+                    ("M".to_string(), 2.0),
+                    ("N".to_string(), 2.0),
+                    ("RW".to_string(), 0.1),
+                    ("SWT_IRR".to_string(), 0.0),
+                ]),
+                opts: HashMap::from([("OPT_RW".to_string(), "CONSTANT".to_string())]),
+                output_set: None,
+                input_set: None,
+            };
+            let r = run_workflow_module(&dbm, &req);
+            assert!(r[0].error.is_none(), "sw_arch failed: {:?}", r[0].error);
+            let conn = dbm.lock().unwrap();
+            equations::fetch_curve_frame(&conn, &w, &["SWT".into()]).unwrap().1["SWT"].clone()
+        };
+
+        let before = run();
+        assert!(before.iter().all(|v| v.is_finite()), "baseline SWT must be finite: {before:?}");
+
+        // The dialog still says RW = 0.1 on the re-run — the override is what has to win.
+        {
+            let conn = dbm.lock().unwrap();
+            db::set_zone_param(&conn, &w, "UPPER", "RW", Some(0.02), None).unwrap();
+        }
+        let after = run();
+
+        let ratio = (0.02f64 / 0.1).sqrt() as f32; // 0.4472
+        for i in 0..n {
+            let d = depth[i];
+            if d < 1010.0 {
+                let want = before[i] * ratio;
+                assert!(
+                    (after[i] - want).abs() < 1e-4,
+                    "inside UPPER at {d}: SWT {} should be {} x {ratio} = {want}",
+                    after[i], before[i]
+                );
+            } else {
+                // Sample-for-sample identical, not merely close: nothing in the LOWER zone saw
+                // a different parameter, so nothing about its arithmetic changed.
+                assert_eq!(
+                    after[i], before[i],
+                    "outside UPPER at {d}: SWT moved from {} to {}",
+                    before[i], after[i]
+                );
+            }
+        }
+
+        // The zone interval is half-open [top, bottom): the sample sitting exactly on 1010 is
+        // the LOWER zone's first sample, not the UPPER zone's last. Two adjacent zones written
+        // the way anyone writes them (1000-1010, 1010-1020) must not both claim it.
+        let boundary = depth.iter().position(|&d| d == 1010.0).unwrap();
+        assert_eq!(
+            after[boundary], before[boundary],
+            "the sample at the shared boundary belongs to the deeper zone"
+        );
     }
 
     /// Batched write (perf refactor): a module run over MANY wells writes each well's own curve

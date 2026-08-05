@@ -7,6 +7,500 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-05 — Fluorescence off the UV frame, and PDF import is off
+
+You said not to build PDF import — you will export the plates yourself. That is recorded in
+`docs/plan_core_photo.md` §4a with the design kept in a fold, and it unblocks everything else,
+so this increment is the UV measure you asked for: *"extract inferred payzone from UV"*.
+
+**Advance ▸ Core Imaging ▸ Photo Log… now has a Light choice.** Pick **🔦 Ultraviolet** and the
+three daylight measures are replaced by fluorescence.
+
+- [ ] Open **Photo Log…** on a well with a UV delivery. Is there a **Light** row with ☀ Daylight and
+      🔦 Ultraviolet, defaulting to Daylight?
+- [ ] Switch to Ultraviolet. Does a colour-band card appear — the same hue wheel the Pore Area tool
+      uses, plus a **Pale limit** slider?
+- [ ] Switch back to Daylight. Does the card disappear and the trace behave exactly as it did before?
+      **Nothing about the daylight path should have changed.**
+- [ ] Read the trace on the UV delivery. You should get **CPHOTO_FLUOR** (how much of each slab
+      fluoresces, 0–1) and **CPHOTO_FLUOR_I** (how bright it is).
+- [ ] Does the note say it is an **INFERRED SHOW, not a pay flag**? That sentence is the point of the
+      whole thing — minerals, drilling-fluid additives and dead oil all fluoresce.
+
+**Tune the band against ONE photograph, and judge it against your own show descriptions —
+never by whether the average looks about right.** That is not a platitude: on your petrography
+delivery a colour band could be tuned until its median landed within 5% of the petrographer's own
+count while the per-plate agreement stayed at −0.10.
+
+- [ ] Drag the hue ends and the brightness floor until the mask matches what you can see glowing.
+      Does the trace change shape sensibly, rather than just moving up and down?
+- [ ] Compare a bright interval against a show you already know about. Does it land in the right
+      place? **This is the only check that means anything.**
+
+**Two guards, and I want you to try to trip the second one.**
+
+- [ ] Point the Ultraviolet measures at your **DAYLIGHT** delivery on purpose. It should measure, show
+      you the numbers, and then **refuse to write**, saying the band claimed at least 95% of every
+      slab and naming the wrong-light cause. A daylight frame read as UV would otherwise store a core
+      that fluoresces end to end — which reads as a spectacular show.
+- [ ] Now the case that must NOT be refused: a **genuinely strong show** over most of a box. That has
+      to go through and be written. (My first version of this guard refused exactly that, and the
+      test caught it — a half-stained core is the answer this measure exists to give.)
+- [ ] A box with **no fluorescence at all** should also go through normally. No show is a real
+      reading, and it is what gives the box above it meaning.
+
+**If your show descriptions separate bright yellow-green from dull blue-white:**
+
+- [ ] Click **+ Another kind of fluorescence**. Name the two, and give the dull one a low **Pale
+      limit** — white is the absence of colour, so it cannot be set with the brightness floor.
+      Each kind gets its own curve (`CPHOTO_FLUOR_BRIGHT`, `CPHOTO_FLUOR_DULL`).
+- [ ] **Tell me whether that split is actually how you describe shows.** I deliberately ship ONE
+      generic band, because saying the hue split means live-versus-dead oil would be putting an
+      interpretation in the software that nothing in the repo can source. If it is your practice,
+      say so and I will make it the default.
+
+**One thing to watch:** if you have adjusted exposure, contrast or white balance on the UV
+photographs, the run says so by name. `CPHOTO_FLUOR` counts pixels above a fixed brightness, so half
+a stop moves the answer — and a white balance picked on a UV frame means nothing anyway, because
+there is nothing neutral under a UV lamp.
+
+- [ ] Condition a UV photograph's exposure, then read the trace. Does the note name that photograph?
+
+## 2026-08-01 — A fluid contact now knows its sand, its stack and its fault block
+
+You asked where the calculation parameters live and said they should be at marker level. **They
+already are** — RHO_SH, NPHI_SH, the RtC coefficients, M, N, RW, FWL, the cutoffs, all of them, in
+`zone_params` keyed by well and marker, with `*` for the whole well. Precedence is: the module's
+default → what you type in the dialog → the `*` value → the marker's own value.
+
+**Fluid contacts were the exception, and it was costing numbers.**
+
+- [ ] **A contact now carries the MARKERS it governs.** Two stacked sands with two different
+      oil-water contacts used to be pooled into one surface fit — which landed between them and
+      then flagged every well as disagreeing with a contact that was never there.
+- [ ] **Several sands can share ONE contact.** That was your second question, and it is why the
+      markers are a list rather than a single field: a hydraulic unit of three stacked sands is one
+      contact governing three markers, and the QC treats it as one surface. The order you type them
+      in does not matter.
+- [ ] **Compartments, named.** Two fault blocks are not in pressure communication and have no
+      reason to sit on the same contact. Give each its name and each is checked on its own.
+- [ ] Existing contacts in your projects keep working and get no marker and no compartment —
+      nothing stored says which sand or block they were picked in, and I would rather admit that
+      than invent it. Fill them in and the QC sharpens immediately.
+- [ ] **Plot ▸ Multi-Well ▸ Fluid Contacts…** — a working pane, so it sits beside the correlation
+      panel or a log view. Every stored contact in one table, editable in place: type, compartment,
+      markers, depth, TVDSS or measured, label. Add and delete, with undo on the delete.
+- [ ] **QC section** lists every contact as its own group — type, markers, compartment — and says
+      how many wells are on it, its mean level, the spread, and names any well off the surface with
+      how far. A group with only one pick says so rather than showing a blank.
+
+### The one that changes saturations
+
+- [ ] **A free-water level lived in two places and nothing checked them against each other**: the
+      contact you pick and draw, and the FWL parameter a saturation-height run actually computes
+      from. The panel could show one level while every Sw in the report came from another — both
+      perfectly plausible numbers.
+- [ ] The pane now measures the gap per well and marker, says which one the arithmetic is using,
+      and offers one button to copy your picked level across. **It is a copy, not a live link** —
+      so a run you did last month still says which number it used — and it is undoable.
+- [ ] **A contact picked on measured depth is refused rather than converted**, by name. The stored
+      parameter carries no reference of its own, so converting to force a comparison would be
+      asserting something the project never said. Re-pick in TVDSS, or set the parameter by hand.
+
+## 2026-08-01 — A four-column core plate, its own Photo Log tool, and a launch screen
+
+From the whole-core delivery you pointed me at. Two findings before anything else:
+
+- **It arrives as PDF**, one file per core, pages alternating white light (plate `1a`) and UV
+  (plate `1b`). Nothing in the app can import a PDF yet — that is the first thing standing
+  between this suite and your rock, and it is the next increment I would do. Plan in
+  `docs/plan_core_photo.md`.
+- **Each page is four columns of core, each its own barrel**, with `PRESERVED` gaps printed
+  between them and a short last column where recovery ran out. Splitting that into four equal
+  parts of one span — all the old "rows of core" setting could do — puts every sample below the
+  first gap at the wrong depth.
+
+- [ ] **Advance ▸ Core Imaging ▸ Photo Log…** is a NEW tool: reading the trace and building depth
+      strips moved out of Condition Core Photos, as you asked. Conditioning is done once per
+      delivery; a trace is read, checked against GR and read again.
+- [ ] **Detect columns** measures where the runs of core are and proposes them — it does not
+      apply anything, and it never guesses a depth, because nothing in the picture says what depth
+      a column of rock came from. The proposal lands in a table you edit, drawn over the picture.
+- [ ] **Each column takes its own depth top and base.** A preserved interval stays a GAP in the
+      curve instead of depth smeared across it, and a part-filled last column is a short barrel
+      rather than a quarter of the plate.
+- [ ] **Half a plate labelled is refused, as you type**, not after a run: placing the blank
+      columns would mean assuming the core runs on without a break, which is exactly what the
+      preserved interval on the same page disproves. Fill them all in, or clear them all.
+- [ ] The column table is saved with the project, so working through a delivery plate by plate
+      does not mean retyping it. The filmstrip tile says which plates are done.
+- [ ] Nothing changed for an ordinary core-box photograph: with no column table it is still
+      equal lanes over the picture's own interval, read in order.
+- [ ] **Condition Core Photos gains "Recommend conditioning"** — it measures the picture and
+      proposes a white balance, exposure and contrast, with the measurement behind each one
+      written out. Nothing is applied; Apply is still Apply, and your crop, rotation and corners
+      are never touched. "Recommend for the delivery" also tells you whether the run was shot
+      under one light or not, which is the question behind "apply this look to the whole run".
+- [ ] **It will not recommend Clarity, Sharpen or Denoise** even where the picture would clearly
+      benefit — it says so instead, and says what it would cost: local contrast roughly halves the
+      darkness contrast the trace is reading. Use them for the eye, not before a trace.
+- [ ] **A UV plate is recognised and left alone.** It is meant to be dark and there is nothing
+      neutral in it to balance against, so exposure and white balance are declined by name — a
+      lift would drown the fluorescence the plate exists to show. A dim white-light frame with a
+      tray in it still gets lifted, so it is not just giving up on dark pictures.
+- [ ] **A launch screen**: portrait card, artwork in our own colours, the mark, "SandiBumi 2026 ·
+      v0.1.0" and the copyright. It only fills the wait that already exists — it appears after
+      0.4 s so a fast open never flashes it, and it disappears the instant the project is open.
+      It cannot make a start slower.
+- [ ] Your UV question is answered as a plan rather than as code: `docs/plan_core_photo.md` §4
+      covers a fluorescence measure off the UV plate, a discrete sand/shale curve, and the
+      "unfold" shear for dipping beds — with three questions for you at the end.
+
+## 2026-08-01 — Every remaining tool that popped up is now a pane (your sweep)
+
+You asked me to check whether those tools still pop up and make them panes. Six dialogs,
+seven ribbon buttons. Verified in the browser: clicking all seven opened dock tabs and
+`#modal-root` stayed empty — nothing popped up.
+
+- [ ] **Advance ▸ Petrography ▸ Pore Area…** is a pane. Tune the band, look at the mask,
+      check the agreement figure, try another reference plate — all with the plate tracks
+      and the Wells pane still visible. The tried-settings table survives while you work.
+- [ ] **Advance ▸ Petrography ▸ Plate Details…** is a pane. The scale-bar measurement (⇹ on
+      a row) still opens as its own popup and the table stays put behind it.
+- [ ] **Advance ▸ Petrography ▸ Condition Plates…** and **Advance ▸ Core Imaging ▸ Core
+      Photos…** are **two separate panes**, not one. They are two deliveries with two
+      recipes, so opening one no longer loses your place in the other — you can have both
+      docked side by side. Verified: a layout save/restore rebuilds each on its own subject.
+- [ ] **Data ▸ Core ▸ Register Depth…** is a pane, so the correlogram sits beside the log
+      view the decision is actually made from. **One behaviour change here:** Apply used to
+      close the dialog. Now it clears the proposal and refreshes the barrel table and the
+      history instead — the core has moved, and pressing Apply again on a shift computed
+      against the old depths would have doubled it.
+- [ ] **Advance ▸ Calibration ▸ Calibrate RtC…** and **Calibrate S…** are panes. The Close
+      button is gone (the dock closes a pane); the Run button is unchanged.
+- [ ] All seven are in the ＋ menu too, and re-clicking a ribbon button focuses the open pane
+      rather than opening a second copy.
+- [ ] **A leak fixed on the way past.** The plate filmstrip holds an image-loading observer
+      and one object URL per thumbnail — a delivery is hundreds of plates at about a megabyte
+      each — and neither Pore Area nor the Mineral Classifier ever released them, because a
+      popup has no "closed" hook to release them from. A pane does. If the app used to feel
+      heavier the longer you worked through a petrography delivery, this is why.
+- [ ] **Picture panes now use the pane's real width.** Form panes are capped at a readable
+      column; a filmstrip, a plate preview, a correlogram and an eight-column plate table are
+      not forms, so those five opt out. This also widens the **Mineral Classifier**, which had
+      the same squeeze. Measured: 1156px of a 1180px pane, no horizontal scrolling.
+- [ ] **Still popups on purpose** — tell me if you want any of these moved too: the naming
+      prompts (Save Layout/Session As, Open Session), the import wizards (LAS/DLIS set, SCAL,
+      Aux, Deviation, Images, Well Locations), the exports (Workbook…, Deck…) and the short
+      forms (Shift Core…, Well Header…, Data Sets…). Each of those is filled in once and
+      dismissed rather than worked beside a log.
+
+## 2026-08-01 — Mineral Classifier is a pane, and Plug QC is proportional (your catches)
+
+- [ ] **Petrophysics ▸ Petrography ▸ Mineral Classifier…** now opens as a **working pane**,
+      not a popup — dock it, split it, leave it open beside the Wells pane while you click
+      through a delivery plate by plate. It is also in the ＋ menu as "Mineral Classifier
+      (point counts)". Everything it does is unchanged: labels, training, apply, save.
+- [ ] **Plug QC** was a pane wearing dialog-era layout — a fixed 180px label column against
+      a full-width control, in a pane with no gutter at all, so labels sat flush on the card
+      edge. It uses the same two-column form as the module panes now (labels above, controls
+      even), with the pane gutter every other tool pane has. Measured: both columns 303px,
+      everything inside the content box. The Mercury-saturation row still hides itself
+      unless an axis is the throat radius.
+- [ ] **Standing rule recorded**: tools open as working panes from now on. `openModal` stays
+      only for real interruptions — confirmations, refusals, Help — or when you ask for a
+      popup. **Still popups, and I did NOT convert them without your word: Pore Area… and
+      Condition Plates… / Condition Core Photos….** Say the word and they follow.
+## 2026-08-01 — Five tools come out of the Tools ▾ dropdown (your call)
+
+You asked where the core conditioning menu was — it was buried in Data ▸ Tools ▾, which is
+the answer to the question. Nothing is hidden in a dropdown any more if it is part of a
+workflow.
+
+- [ ] **Data ▸ Core** (new group): **Register Depth… · Shift Core… · Data Sets…** — the core
+      depth job in the order you do it, all three as labelled buttons.
+- [ ] **Advance ▸ Core Imaging** (new group): **Core Photos…** — conditioning, the CPHOTO
+      darkness/redness/texture traces and the depth strips. It is in Advance because reading
+      a log off a photograph is an interpretation method, not data management, and it sits
+      next to Petrography so the imaging work is together.
+- [ ] **Advance ▸ Petrography** gains **Plate Details…**, beside Condition Plates…, Pore
+      Area…, Mineral Classifier… and Plug QC….
+- [ ] All five must be GONE from Data ▸ Tools ▾ — that menu now holds Autocorrelate Tops…,
+      Well Header… and Compact Project… only. Check nothing you use daily is still in there.
+- [ ] Every moved button opens exactly what it opened before — same dialogs, same panes.
+- [ ] Note for the record: the Petrography group is in the **Advance** tab. My notes had said
+      Petrophysics, which was simply wrong; they are corrected.
+
+## 2026-08-01 — One edge, on the pane you are working in (your call)
+
+The hairline came off every card, and the active pane states itself instead.
+
+- [ ] No panel draws its own outline any more — the doubled line in the gap, and the
+      two arcs colliding at the rounded corners, are both gone.
+- [ ] **The pane you are working in carries a 2px edge, in the NEUTRAL strong-border
+      colour — not the accent.** Click between panels: the edge follows, and nothing
+      inside any panel shifts by a pixel while it does (it is an outline, not a
+      border, precisely so log tracks and canvases never reflow on a click).
+- [ ] It follows the 12px corner, and stays visible across the tab strip at the top.
+- [ ] **Check a client skin** — this is the one you flagged. The edge must read as the
+      card's own border drawn heavier, never a coloured frame: Schlumberger #a4b3cf
+      soft blue-grey rather than the deep #0033a0, Halliburton grey rather than red.
+      The accent stays for controls you act on; a pane is a surface, not a control.
+      It is also the only line on screen now, since no other card draws one — so it
+      does not need colour to be found. If it reads too faint on the cream default
+      (measured 1.5:1 against the white card, against 2.1:1 on the near-white skins),
+      one step darker is a one-line change.
+- [ ] **Worth your eye:** with no hairline, a card is now told apart from the ground by
+      its fill alone, and that is a small difference on the near-white skins —
+      measured 1.19:1 on the default cream, 1.11:1 on Halliburton, 1.08:1 on dark. The
+      7px gap still reads as a groove, but if panel boundaries feel too soft to you on
+      any skin, say so: a soft shadow or a hairline on the outer edge only is a
+      one-line follow-up, and I would rather you judge it on screen than have me guess.
+
+## 2026-08-01 — Panel top corners were square, not rounded (your catch)
+
+You were right that the corners looked unfinished — the top ones genuinely were square.
+The cards carry a 12px radius, but dockview puts a `transform` on the tab strip so it
+can scroll, and a composited element like that is NOT clipped by its parent's rounded
+corners. The strip painted its own square corners straight over the card.
+
+- [ ] Every panel — Wells, Tops, Processing, Log View, Inspector, and any you open —
+      should now show a clean 12px round at **all four** corners, with the cream ground
+      visible through them. The top two are the ones that changed.
+- [ ] Check it after **splitting** a window and after **dragging a panel** into another
+      group: new groups get the same treatment.
+- [ ] The ＋ add-panel menu, right-click menus and dialogs must still open normally and
+      must NOT be cut off by a panel edge (the fix is deliberately scoped to the tab
+      strip so nothing that needs to escape a panel can be trapped by it).
+- [ ] Bottom corners needed no change — measured as already correct, including under the
+      log view's WebGPU canvas. If any bottom corner still looks square to you, say so:
+      that would be a different cause and I'd want to see which panel.
+
+## 2026-08-01 — The brand stops changing colour with the skin (your catch)
+
+The wordmark was painted with `--accent`, so every client skin re-rolled it: SandiBumi
+read Halliburton red on that theme, SLB blue on the next. It is a `--brand` token now,
+theme-independent by construction and never repeated in any `[data-theme]` block.
+
+- [ ] Switch through **every** theme (Halliburton, Schlumberger, Pertamina, LAPI-ITB,
+      white, dark, default): the ribbon wordmark stays the SandiBumi terracotta — the
+      look in your image 2 — while the rest of the UI recolours as before.
+- [ ] Same on the **boot overlay** (relaunch) and the **start sheet** (close every pane).
+- [ ] The logo tile is rounded a little more (5px on the 18px ribbon mark), so its baked
+      cream square reads as an intentional logo tile on Halliburton's grey instead of a
+      bare block. The mark's own colours are untouched on every theme.
+- [ ] Switch **language to Bahasa Indonesia / Basa Sunda**: "SandiBumi" must stay
+      "SandiBumi" everywhere (the three surfaces are `data-no-i18n` now).
+
+## 2026-08-01 — Organic increment 5: LAS import, report pane, plot surfaces, and the sweep (1e · 1f · 1c)
+
+The last handoff screens plus the harmonization pass over components the handoff never
+named. Nothing functional changed anywhere in this batch.
+
+**Import LAS (1e).**
+- [ ] Import a delivery: the set dialog now lists the picked files as a rail (up to six,
+      then "+N more"), and carries the footer line "Every import is versioned with
+      provenance — re-importing never overwrites RAW." Set-name suggestion unchanged
+      (blso*_fprooh → FPROOH).
+- [ ] Deliberate deviation: the mockup's 3-step wizard with a mnemonic-mapping table is a
+      FEATURE (the app maps mnemonics in Rust, automatically) — not built. Want a manual
+      mapping step? That's its own increment, and worth discussing first.
+
+**Report pane (1f).**
+- [ ] **Render** is the one primary pill; Save PDF / Word / PNG / Template / Batch are
+      secondary pills. The rendered page now floats on the neutral rail with a soft
+      shadow — the page itself stays white, since what you preview is the paper.
+
+**Plot surfaces (1c).**
+- [ ] Histogram, crossplot, Pickett, the calibration QC scatters and the correlation
+      strips now draw their data area on the warm neutral with **white gridlines** —
+      card-on-card, like the mockup. Points, axes, overlays: identical.
+- [ ] **Dark theme**: plot areas keep dark surfaces and dark gridlines (no white glare).
+      Client skins take their own alt tint automatically. Check one plot in dark and one
+      in a client skin.
+- [ ] The log view's tracks are NOT touched — this is the plot suite only.
+
+**Harmonization sweep (components the handoff never named).**
+- [ ] Every remaining primary action button in the app (Composite, Cutoffs, Map apply,
+      Monte Carlo, Pickett picks, Zones add…) is a pill now — one shared rule, no
+      per-dialog change. Layout Properties buttons match. The crash/startup dialog is
+      16px like every other dialog, its buttons pills.
+
+## 2026-08-01 — Organic increment 4: start surfaces (design 1g)
+
+- [ ] Launch the app on a slow open: the boot overlay is the identity column now — 72px
+      rounded logo, "SandiBumi" in the display face, one-line description, then the same
+      progress bar, elapsed clock and one-time notes as before. A fast open still shows
+      nothing (the 400 ms rule is untouched).
+- [ ] Close every content pane: the blank canvas is a **start sheet** — wordmark + New
+      Project / Open Project pills on the left, RECENT PROJECTS on the right with the
+      current one tagged "open now" (disabled), a missing file marked and disabled, and
+      the sessions tip card at the bottom.
+- [ ] Click a recent project row: it must go through the SAME guard as Project ▸ Recent ▾
+      — a running chain still blocks the switch with the same message.
+- [ ] New Project / Open Project on the sheet behave exactly like the ribbon tools (they
+      are the ribbon tools).
+
+## 2026-08-01 — Organic increment 3: the module pane (design 1d)
+
+One pattern, every manifest-driven module — nothing was written per module (rule 9 holds:
+a new module still needs zero frontend work). **Same runner, same validation, same
+defaults**; only the form changed shape.
+
+- [ ] Open any module (e.g. **Petrophysics ▸ VSH**): header shows a 34px initial chip +
+      the title in the display face + a **? Help** button on the right that opens the
+      module's method note. The dockview tab title is unchanged.
+- [ ] The well scope now reads **RUN ON** with the modes as a segmented pill and the live
+      well count as a tag — this control is shared, so EVERY batch dialog (cutoffs,
+      exports, fits, Monte Carlo…) picked up the same look. Spot-check two others.
+- [ ] Parameters sit in a **two-column grid**, labels in small caps above each field, and
+      a numeric parameter's **unit sits to the right of its input** (it used to be inside
+      the label). Narrow the pane: the grid collapses to one column.
+- [ ] The sage callout states the precedence rule: values here are whole-well defaults,
+      Zones-pane parameters win inside their zones.
+- [ ] Footer: **Run VSH** (the module's short name) as a solid pill, last-run status
+      right-aligned beside it. Out-of-range values still refuse by name before any run.
+- [ ] Deliberate deviation from the mockup: **no "Preview one well" ghost button** — that
+      is a new feature (a run that writes nothing), not a restyle. Say the word if you
+      want it and it becomes its own increment.
+
+## 2026-08-01 — Organic increment 2: Field Dashboard (design 1b)
+
+The dashboard now matches your mockup. **Every number is the same arithmetic as before** —
+the KPI cards read the existing aggregation, they never recompute it. One behaviour
+refinement from the mockup: uninterpreted zones now appear GREYED at the bottom of the
+grid instead of vanishing with a count.
+
+- [ ] **Petrophysics ▸ Batch ▸ Field Dashboard…** — header row: "Field Dashboard" in the
+      display face, and after a Compute a sage tag saying which group and how many wells
+      the numbers describe. Export CSV and Compute are pills on the right.
+- [ ] Cutoff strip is one rounded band; **Flag and Metric are segmented pills** now
+      (active = solid terracotta). Same choices as the old dropdowns — click through
+      PAY/RESERVOIR/SAND and the metrics; everything re-renders from the held rows.
+- [ ] **Five KPI cards**: Total net (terracotta tint), Total HPV (sage tint), net-weighted
+      mean PHIE and SWE, and ZONES EXCLUDED. Check TOTAL NET and TOTAL HPV against the
+      By-zone table's Σ columns — they must agree exactly (same helpers).
+- [ ] **Uninterpreted zones are greyed at the grid's bottom** — gross keeps its number
+      (geometry), net/N-G/averages/HPV show "—" (a zero there would read as computed).
+      The footnote under the box plots says they are excluded, never averaged as zero.
+      The KPI card count, the greyed rows and the footnote must all agree.
+- [ ] CSV export still contains ONLY the interpreted rows — no dashes, no phantom zeros
+      in a spreadsheet that has no grey styling to explain them.
+- [ ] Top row of the grid (current sort) is highlighted; sorting still works from the
+      headers; the PERM no-data warning still appears when it applies.
+- [ ] Box plots: terracotta boxes, darker median (thicker than before) — still the same
+      quartiles.
+
+## 2026-08-01 — The Organic reskin, increment 1 (your redesign handoff, foundation)
+
+Your `SandiBumi UI Redesign.zip` is now the standing design system; the handoff is banked
+in-repo at `docs/design_organic/`. This increment is the foundation — tokens, fonts and
+chrome; the per-screen passes (dashboard KPI cards, LAS wizard step pills, report preview
+rail, start screen) come next. **No number changed anywhere** — this is look only.
+
+- [ ] The app opens on a **cream ground** with **white rounded panel cards** and visible gaps
+      between them. The active ribbon tab is a solid **terracotta pill with white text**; the
+      tool area below the tabs is a white rounded card. The brand and every dialog title are
+      in the display face (Caprasimo); everything else is Figtree.
+- [ ] Make something dirty (edit a value) with a tab other than Project active, then activate
+      **Project**: the unsaved dot must be **white on the terracotta pill** — visible, not
+      drowned. On the inactive tab it stays red.
+- [ ] Buttons are pills everywhere; hover is a **pale terracotta tint**, never grey; a dialog
+      has 16px corners and drags by its header as before.
+- [ ] Narrow the window: the ribbon overflow chevrons ‹ › still appear INSIDE the rounded
+      card and scroll the tools; nothing pokes out of the corners.
+- [ ] **Dark theme** keeps its own colours with the new shapes (pills, cards). The five client
+      skins (Pertamina/Halliburton/Schlumberger/LAPI-ITB/white) recolor the pills but keep
+      the shape — switch through them once.
+- [ ] Log tracks, grids, trees and tables kept their density — no new air in data surfaces.
+      Canvas text (track headers, axis labels) now renders in Figtree; if anything reads
+      worse at 10–11px than Segoe did, say so — the canvas face is one token.
+- [ ] Fonts are bundled (`public/fonts/`) — pull the network cable and restart: the faces
+      must not fall back.
+
+## 2026-08-01 — Your four answers, applied (numbers moved — check these first)
+
+All four change what a run computes, so these matter more than anything else on the list. The
+triage findings are 6, 7, 9 and 16 in `docs/review_triage.md`.
+
+**Temperature is a well property now (finding 6).**
+
+- [ ] **Pre-Calculation ▸ Zones…** — set TEMP_GRAD on a NAMED zone and Run. It must be **refused by
+      name**, naming the parameter, the zone, and telling you the `*` scope still works. Is the
+      message something you could act on without asking me?
+- [ ] Clear that, set TEMP_GRAD on scope **`*`** instead, Run. It must SUCCEED and shift the whole
+      trend. This is the route the per-well parameter grid uses, so it has to keep working.
+- [ ] Plot FTEMP vs depth: one straight line. No 10 °C step at a formation top any more.
+- [ ] **PGRAD on a named zone still works, deliberately** — FPRESS should step at the boundary,
+      because a pressure compartment is real. Set it and confirm. If you would rather pressure
+      behaved like temperature, say so; it is one flag.
+- [ ] Same rule on **Formation Temperature** (`ftemp_grad`): TSURF, TGRAD, BHT and TD_BHT are all
+      well-level now.
+
+**A permeability cutoff applies to every well it is asked for (finding 7).**
+
+- [ ] **Cutoffs & Pay Summary**, PERM ≥ something, on a well with **no PERM curve**. Net pay should
+      now be **0**, where it used to be full. This is the reserves change — confirm it is what you
+      meant.
+- [ ] That zero must not look like a wet well. The **Field Dashboard** should name the well above
+      the roll-up, and a **report** for it should print a note under the pay table saying the zero
+      records an absence of evidence. Both present?
+- [ ] With **no** PERM cutoff set, neither note appears and nothing changes.
+- [ ] A well that HAS permeability is unaffected, cutoff or not.
+
+**PHIE is floored at 0.001 (finding 16).**
+
+- [ ] Run **Porosity from Density** (or Density-Neutron) over an interval with a tight streak. The
+      `PHIE` curve must never go below 0.001 — but `PHIE_DEN` / `PHIE_DN` must still show the
+      negative excursion, because that is how you see RHO_MA is wrong. Both true?
+- [ ] Pay Summary on the same well: the SAND row's HPV should now be higher than before, and no HPV
+      anywhere may be negative.
+- [ ] A floored streak must still **fail** the porosity cutoff — it must not have crept into
+      RESERVOIR. Compare the RESERVOIR and PAY rows before and after.
+- [ ] A well with no PHIE at all still reports "not interpreted", not a column of 0.001.
+
+**Pittman's radii, corrected against the paper (finding 9).**
+
+- [ ] **Rock Typing ▸ Pittman Pore-Throat Radii**, on good sand. PR10 > PR15 > … > PR50 > PR75, all
+      the way down now. At 25 % porosity / 100 mD expect PR50 ≈ 2.22 µm and PR75 ≈ 0.27 µm (it used
+      to return 2.95 µm for PR75, which was larger than PR50 — impossible in rock).
+- [ ] **PR50 changed by about 25 %** on every well you have ever run this on: it was carrying
+      Pittman's r45 coefficients. If a study quoted PR50, it needs re-running.
+- [ ] **On TIGHT rock the family still crosses over below about 11 % porosity, and that is the
+      paper's own arithmetic** — the rows are independent regressions. Try it on a tight interval
+      and you should see PR50/PR75 turn back upward. Nothing is clamped, because clamping would
+      report radii Pittman never published. Does the module doc's advice (use r25–r35 as APEX in
+      tight rock) read clearly enough to act on?
+- [ ] **Worth checking your own studies:** anything that picked `r75` as APEX in a tight interval
+      built RAPEX and RT_PITT on a row that had turned back up.
+
+## 2026-07-31 — A machine can now drive the real app end to end (optional)
+
+`npm run test:e2e` starts the **built** `sandibumi.exe` and drives it through Tauri's WebDriver
+route: a real LAS import, a real module run, a real export, against a real DuckDB file. Five
+tests, all passing. It is **optional and never part of the green gate** — `tools\check.ps1` stays
+green on a machine with none of it installed. Setup and the reasoning are in
+`docs/e2e_harness.md`.
+
+- [ ] **Run it.** `npm run test:e2e`. Expect five green ticks in about 30 seconds. First run on a
+      new machine needs `cargo install tauri-driver --locked` through the vcvars pin; msedgedriver
+      downloads itself.
+- [ ] **It did not touch your project.** This is the one that matters. While it runs, the app opens
+      a throwaway project in your temp folder — check the first line it prints (`e2e sandbox: …`).
+      Your `src-tauri/project.duckdb` must be untouched: same size, same timestamp. The harness
+      asks the running app which project it opened and aborts before any test if the answer is not
+      inside that sandbox.
+- [ ] **It refuses to run while SandiBumi is open.** Start the app, then run it — it should stop
+      immediately and say so, rather than risk confusing your session with a leftover process.
+- [ ] **Nothing was force-killed.** After a run there should be no new `.corrupt-backup-*` file in
+      `src-tauri/`. The harness checks this itself and fails the run if one appears, keeping the
+      sandbox as evidence.
+- [ ] **What it cannot do.** It cannot tell you a plot looks right — the log views are a WebGPU
+      canvas, and WebDriver sees a rectangle. There are deliberately no pixel assertions. If you
+      ever see one added, that is a bug.
+- [ ] **After changing the frontend, rebuild before believing it.** The built binary embeds the
+      frontend from build time, so a UI test can pass or fail against markup older than your repo.
+
 ## 2026-07-31 — Trained models are kept, named and re-runnable
 
 Until now a model died with the run: you could not train on your cored wells and apply **that
@@ -3474,9 +3968,19 @@ Deferred / needs your call (see the summary I sent):
 - Report "Tables only" still computes the composite geometry (efficiency, not correctness) — a truly safe
   fix must reproduce the cover interval exactly, which needs the same expensive fetch. Held.
 - Low-value polish left: MC histogram theme-repaint; ml/wellScope dataVersion subscribe.
-- **6 findings that WOULD change interpretation numbers** await your sign-off (perm_coates default 100→70;
-  phi_son OPT_CP DT_SH>100 gate; log_predict masked-fill survival; legacy-multimin RECON_ERR at 3 tools;
-  MC PERM cutoff when chain-produced; MC MASK/computed_only parity).
+- **4 findings that WOULD change interpretation numbers** await your sign-off (perm_coates default 100→70;
+  phi_son OPT_CP DT_SH>100 gate; log_predict masked-fill survival; MC MASK/computed_only parity).
+  - ~~legacy-multimin RECON_ERR at 3 tools~~ — **CLOSED 2026-08-01, it never needed your sign-off**
+    (`docs/review_triage.md` finding 11). Legacy `multimin` is retired and refuses to start; the
+    concern is inherited linear algebra rather than a bug — with as many equations as components the
+    solve reproduces the measurements whatever the endpoints are — and SandiMin already DETECTS the
+    condition (`dof == 0`) and returns `dof_note` saying RECON is forced to ~0 and to add an input
+    log. Pinned by `an_exactly_determined_model_hides_a_wrong_endpoint_and_only_the_dof_note_says_so`.
+    The one thing still worth your eye is a UI question: does the SandiMin pane make that note hard
+    to miss? A warning nobody reads is the same as no warning.
+  - ~~MC PERM cutoff when chain-produced~~ — **FIXED 2026-08-01** (finding 8). Not a judgement call
+    after all: the cutoff was reading an external-input pool that a chain-produced PERM never enters,
+    so adding a permeability model switched it off. The realization pool has the values.
 
 ## Round 3 — Feature Wave B chain (2026-07-22): fluid contacts, ML leaderboard, well-diagram, rock typing + SHF
 
@@ -6750,3 +7254,799 @@ until you enter a real scale. The wizard says so rather than staying silent abou
 
 - [ ] Confirm you'd want a per-delivery "camera width and tube factor" setting that turns
       magnification into a scale automatically — or whether you'd rather always measure a bar.
+
+---
+
+## The whole road, run on your own core (2026-07-31)
+
+I ran the petrography suite end to end on a delivered carbonate photo book — workbook in, plates at
+their stated depths, pore area measured, then checked against the petrographer's own point-counted
+visible porosity for the same samples. Two things came out of it: one delivery format that was
+vanishing, and an honest answer about whether the measurement works.
+
+### Your vector plate books now import
+
+One of the two books holds its photomicrographs as **EMF** (vector) rather than JPEG. It was
+importing as **zero plates** — 53 sheets, 106 pictures, nothing, and almost no explanation. The
+library reading the workbook silently discards picture formats it cannot decode. It now reads the
+pictures straight out of the file instead, so they all come through.
+
+- [ ] Import the vector book (the one whose PDF twin shows magenta-stained plates). You should get
+      **106 plates** rather than an empty list.
+- [ ] Check the note block. Sheets whose header states no depth are counted and named — those
+      plates come in without a depth rather than borrowing one from the sheet above.
+- [ ] Confirm the plates display in the picture track and print in a composite.
+
+Both books together now give **258 plates** where you previously got 152.
+
+### The measurement does not yet agree with the petrographer, and here is the number
+
+On the blue-epoxy book: 35 samples paired against the point-count table. **Counted median 14%,
+measured median 6.8%, rank agreement -0.09.** No colour band anywhere in the range fixes it.
+
+The reason is that your plates are not colour-consistent. Across one core, one laboratory, one
+report, the plates' own median hue spans **289 degrees** — some fields are green-cast, some
+blue-cast. On a green-cast plate the rule found 0.04% where you counted 15%; on a blue-cast plate
+it found 31% where you counted 9%. It is measuring the photograph, not the rock.
+
+- [ ] Open Pore Area, tune the band on ONE plate with the preview, and look at how badly it fits
+      the next plate along. That is the problem in one click.
+
+**Where the plates ARE colour-consistent it works.** Restricted to the blue-cast group with a band
+tuned to them: rank agreement **0.62** on 10 plates. So the method is sound and the instruction is
+real: measure a delivery in colour groups, not in one pass.
+
+**One warning worth having.** On the green-cast group I could tune a band until the measured median
+landed on your counted median almost exactly — 15.7 against 15.0 — while the per-plate agreement
+stayed at -0.10. **Tuning until the average looks right is the wrong way to tune it.** Judge the
+band on the preview and on agreement, never on the mean.
+
+- [ ] Does this match your own experience of these plates — that the lighting varied between
+      sessions? If the laboratory can re-export them under one white balance, that is worth more
+      than anything I can do in software.
+
+### Still open, deliberately not guessed
+
+A plate cast AWAY from the band returns a fraction near zero — which looks exactly like a tight
+rock. I can see the signature (0.04% against your 15%) but I cannot pick the cut-off that separates
+it from a genuinely tight section without inventing a number.
+
+- [ ] Tell me whether you would rather it REFUSED a suspiciously empty measurement on a section you
+      declared impregnated, or kept storing it. Refusing costs you the odd real tight plate; keeping
+      it ships the odd wrong number that looks fine.
+
+## One band, many lamps — the colour fix (2026-07-31)
+
+You said "yes but conditional" to refusing an empty measurement, and asked for the colour problem
+fixed properly. Both are here.
+
+**The fix: name a reference plate.** Pore Area… now has a **Reference plate** picker under the
+tuning plate. Leave it at *none* and nothing changes — every plate is read exactly as delivered,
+which is right for a delivery shot in one session. Pick the plate your band reads correctly and
+every other plate is colour-corrected onto it before the band is applied.
+
+What that means in petrophysical terms: the app measures your reference plate's matrix colour and
+puts every other plate's matrix colour in the same place, then applies your band. It corrects the
+lamp, not the rock. It deliberately does **not** use the textbook grey-balance, because a
+blue-epoxy section genuinely is blue — the more porous the more so — and grey-balancing would
+flatten the porosity signal itself.
+
+- [ ] Open Pore Area, tune the band on one plate, set that plate as the Reference, then use **Tune
+      on plate** to preview a differently-cast plate. The band should now sit on its epoxy.
+- [ ] Run it over the delivery and look at the new **Shift** column — how far each plate's light
+      sat from your reference's. A plate that moved a long way is one to look at.
+- [ ] Compare the result against your petrographer's point count again. Before: rank agreement
+      -0.09 over 35 samples. If the correction is doing its job this should move.
+
+**The conditional refusal.** A plate whose band claims less than one pore's worth of pixels is now
+refused — but **only when you have named a reference plate.** Without one there is no evidence the
+band finds epoxy anywhere in the delivery, so an empty answer might just mean you haven't tuned it
+yet, and refusing would refuse your first click. Once a reference is named, that plate is your
+statement that the band works, and a plate showing nothing after being corrected onto it is either
+nonporous or mis-corrected — and the picture cannot say which.
+
+- [ ] Check the refused rows read sensibly (orange, with the reason on hover). If a genuinely tight
+      section of yours gets refused, tell me — that is the cost of the conservative call and I want
+      to know how often you actually pay it.
+
+**A reference plate that is itself mostly the colour you called pore is refused outright**, by
+name, before anything runs. Everything is anchored to it, so a mistake there would be inherited by
+the whole delivery and would look consistent everywhere.
+
+- [ ] Try setting a badly cast plate as the reference and confirm you get a clear refusal rather
+      than a delivery of plausible nonsense.
+
+### Still open
+
+Whether ONE reference can serve plates spanning 289 degrees at all. The correction gets less exact
+the further a plate has to move. How far is too far is a judgement to read off the Shift column and
+the preview — I have not invented a cut-off for it.
+
+- [ ] After a run, tell me the largest Shift you saw on a plate whose preview still looked right.
+      That is the number I would need before any automatic cut-off could exist.
+
+## What the correction was actually worth on your rock (2026-07-31)
+
+I ran the point-count comparison again with a reference plate, on your own delivery. Two things
+came out of it, and the first is a bug I had just shipped.
+
+**The correction was anchoring on the wrong thing.** I had it measure each plate's overall colour
+and correct that onto the reference. But a plate with more blue epoxy in the field of view HAS a
+bluer overall colour — so the correction was partly cancelling the porosity itself. It is now
+anchored on the matrix only: the pixels the band did not claim.
+
+The difference on your plates, against the petrographer's point count over 45 plugs:
+
+| | rank agreement |
+|---|---|
+| no correction | 0.19 |
+| corrected, anchored on the whole plate (this morning's version) | 0.05 |
+| corrected, anchored on the matrix (now) | 0.20 |
+
+- [ ] Nothing to click for this one — but if you ran Pore Area with a reference plate before
+      reading this, re-run it. The stored numbers came from the wrong anchor.
+
+**The honest verdict: it stops the measurement being wrong, it does not make it right.** Rank
+agreement with your petrographer is around 0.2, and sweeping 57 different bands the best I could
+reach was 0.25 without the correction and 0.36 with it — and that best-of number is fitted on the
+same data it is scored on, so it is a ceiling, not an accuracy.
+
+**But the measurement itself is repeatable.** Your delivery photographed two separate fields of
+view of every plug. The two agree with each other at **0.85**, while agreeing with the point count
+at 0.10–0.27. So the pictures are fine and the measurement is stable — the disagreement with the
+point count is systematic, not noise.
+
+- [ ] Does that match your expectation? A point count ticks visible pores under a grid; the colour
+      rule counts every blue pixel including microporous haze the counter would not tick. If you
+      think that is the whole gap, say so and I will stop trying to close it with colour.
+
+**One number that says the colour cast is not just a lamp.** Two photographs of the SAME plug,
+taken minutes apart, differ in overall colour by up to 66 degrees of hue. That is far more than a
+white balance can explain, and it is why a single reference plate cannot rescue the whole delivery.
+
+- [ ] If you can ask the laboratory anything about these plates, ask whether the camera was on
+      auto white balance. That would explain it exactly, and it is a setting, not a re-shoot.
+
+---
+
+## A seventh of a delivery was landing on the wrong rock (2026-07-31)
+
+Reading your petrography books to set up the helium comparison, 18 of one book's 129 plate sheets
+came out at depths of 33 to 71 feet — on a well cored at 4,600 and 7,000 feet.
+
+They are the sheets that write the depth the Indonesian way:
+
+```
+a sheet writing a decimal point   :  6980.71 FT/ 301     read as 6980.71 ft    correct
+a sheet writing a decimal comma   :  7016,54 FT / 337    read as 54 ft         wrong
+```
+
+The reader looks for a number with a unit after it. A comma decimal splits the number in two, so
+`7016` was thrown away for carrying no unit and `54 FT` matched instead. Nothing failed. The plate
+was simply stored at 54 feet, which is a perfectly plausible shallow depth, on rock 7,000 feet away.
+
+It now reads both conventions, and the 103 sheets that use a decimal point are untouched.
+
+- [ ] Re-import any petrography workbook you have already brought in, and check the depth column in
+      the wizard before you commit it. If a plate is sitting in the wrong sand, this is why.
+
+**One sheet in 129 still reads wrong and I have left it that way on purpose.** It writes
+`7033,50/354 FT (CORE)` — the unit sits on the plug number instead of the depth, so it reads 354 ft.
+Every rule that would fix that case breaks a commoner one (a cell reading `PLATE 12, DEPTH 4633.50
+FT` would then read 12). The wizard's editable depth table is the defence, and a 354 sitting among
+7,000s is easy to spot there.
+
+---
+
+## Your point count is not the yardstick I was treating it as (2026-07-31)
+
+I have been judging the colour rule against your petrographer's visible-porosity count and getting
+poor agreement. So I checked the count itself against the laboratory's helium porosity, on the same
+45 plugs. Neither of those measurements is mine.
+
+**They agree with each other at rank 0.505** — and the point count reads a median 14.5% against
+helium's 24.8%.
+
+That gap is the expected one: a point count ticks pores visible under an optical grid, while helium
+fills every connected pore including micropores far below what a microscope can resolve. In a
+carbonate that is a large difference. So 0.505 is roughly the ceiling for this rock, and
+"disagrees with the point count" was never on its own evidence that the colour rule is wrong.
+
+**Against helium, the colour rule reaches 0.575 with no correction and 0.67–0.69 with it** — better
+than the point count manages. But that headline is inflated and I want to be straight about it.
+
+- [ ] Nothing to click. This one is a number to know.
+
+### What survives when you look inside a single core
+
+Your delivery spans two cored intervals with very different rock — the shallow one runs about 25%
+helium porosity, the deep one about 5%. A correlation computed across both looks strong largely
+because it tells a porous carbonate from a tight one, which you already know before you start.
+
+Scored **inside** each interval, against helium:
+
+| | shallow core | deep core |
+|---|---|---|
+| colour rule, no correction | 0.01 | 0.27 |
+| colour rule, corrected | 0.19 | 0.49 |
+| your petrographer's count | 0.51 | not counted |
+
+So the honest reading is:
+
+- **The colour correction earns its place.** It lifts agreement inside both cores, measured against
+  an independent laboratory rather than against the point count. In the deep core it roughly
+  doubles, 0.27 to 0.49.
+- **It does not yet beat your petrographer where both exist.** In the shallow core the count reaches
+  0.51 and the colour rule 0.19.
+- **The cross-delivery 0.69 is mostly two different rocks.** Do not quote it.
+
+- [ ] The deep core has no point count at all, and there the colour rule reaches 0.49 against helium.
+      If that interval matters to you, this is the case where the tool is doing work nobody has done
+      by hand. Worth a look at those plates.
+
+### Which plate you pick as the reference matters more than the colour band
+
+This is the part I did not expect, and it is the most useful thing to come out of the run.
+
+Sweeping three reference plates drawn from each core's own plates, scored inside that core against
+helium:
+
+| reference plate | shallow core | deep core |
+|---|---|---|
+| a pale one | 0.11 | 0.30 |
+| a middling one | **0.24** | **0.53** |
+| a strongly cast one | 0.20 | 0.15 |
+| no correction at all | 0.01 | 0.27 |
+
+In the deep core that is a **three-and-a-half-fold spread** from one choice — and the worst pick
+(0.15) is worse than not correcting at all (0.27). So the reference plate is a bigger lever than the
+band you spend time tuning, and right now the dialog gives you nothing to pick it with except the
+preview.
+
+- [ ] When you next run Pore Area with a reference, try two or three different reference plates and
+      see how much the numbers move. If they move a lot, that is the tool telling you the delivery
+      needs splitting into groups, not that the band is wrong.
+
+Giving each core its own reference did beat using one for the whole delivery — 0.24 against 0.19 in
+the shallow core, 0.53 against 0.49 in the deep one. So **measure them in groups** is real advice.
+It is a refinement, though, not the missing piece.
+
+## You can now see which reference plate is the right one (2026-07-31)
+
+Last session's finding was that picking the reference plate moved the answer more than tuning the
+colour band did — 0.11 to 0.53 in your deep core, with the worst pick worse than not correcting at
+all — and that nothing in the dialog let you see that. It does now.
+
+**Check against** sits directly under Reference plate in Pore Area…, and defaults to your core
+porosity where the well has it. After each run you get a line like:
+
+> Agreement with CPOR — core plugs: rank 0.49 over 11 plug(s).
+
+and, once you have tried more than one setting, a small table of everything tried this session with
+the best in bold:
+
+| Setting tried | Plugs | Rank agreement |
+|---|---|---|
+| none · band 180–260° | 11 | 0.27 |
+| a strongly cast plate · band 180–260° | 11 | 0.15 |
+| **a mid-tone plate · band 180–260°** | 11 | **0.53** |
+
+Those three numbers are your deep core, from last session's sweep — no correction 0.27, a bad
+reference 0.15 which is worse than doing nothing, and a good one 0.53. Before this they all looked
+the same on screen. (The setting column names whichever plate you actually picked; the descriptions
+here are just so the row reads.)
+
+Three things to know about reading it.
+
+**Use the rank column, not the straight-line one.** A thin section always reads below the plug's
+helium porosity because helium finds micropores the microscope cannot see. That offset is real and
+it is not an error, and only the rank figure ignores it and asks the question you actually care
+about: does the tool put the plugs in the same order the laboratory does.
+
+**Watch the Plugs column.** If it changes when you change a setting, the two runs were scored on
+different rock — a different set of plates got refused — and the rows are not a fair comparison. The
+non-comparable rows go orange and are never bolded, so a number that only rose because the awkward
+plugs dropped out cannot be mistaken for an improvement.
+
+**Nothing is written by this.** It is measured on exactly the plates that a Save would store, but it
+runs whether you save or not, so you can tune freely.
+
+- [ ] Open Pore Area… on a well that has both plates and core porosity, and check that Check
+      against comes up already set to CPOR.
+- [ ] Run once with no reference plate, then two or three times with different references, and see
+      whether the table spreads the way your deep core did.
+- [ ] If a reference scores below the no-reference run, that reference is making things worse —
+      worth knowing before it goes into a report.
+- [ ] On a well with no core, check the run still works and simply says there is nothing to check
+      against.
+
+## Each cored interval can have its own reference plate (2026-07-31)
+
+Last session gave the reference plate a dial. This session gives it a second one, because the same
+numbers said one reference was not always enough: giving each of your cored intervals its own plate
+scored better than a single delivery-wide one in **both** of them (0.19 → 0.24 shallow, 0.49 → 0.53
+deep). That was measured before this existed, by running each interval as a separate job. Now it is
+one run — and Check against will tell you whether it helped on the well in front of you rather than
+you having to take my word for the two above.
+
+**Per-interval references** sits directly under Reference plate in Pore Area…. Press *+ Interval
+with its own reference*, type a depth range and pick the plate that range should be corrected onto.
+Leave either end blank for "from the top of the well" or "down to total depth" — that is how a cored
+interval at either end is actually described, and a blank is not a missing number.
+
+The plate table gains a **Reference** column whenever more than one plate served, beside the Shift
+column. A shift of 40° means nothing until you know which plate it is 40° from.
+
+**Intervals may touch but not cross.** `2000–2010` next to `2010–2020` is fine and the shared depth
+goes to whichever you listed first. A real overlap is refused before anything is measured, because
+inside it the reference a section got would come down to the order of the list — you would get two
+different answers from the same settings with nothing on screen saying why.
+
+**A section no interval reaches falls back to the Reference plate above.** If you have not set one,
+that section is refused **by name** rather than measured uncorrected. That is deliberate: the
+empty-answer guard only works on a corrected plate, so an uncorrected one sitting in the same saved
+delivery as corrected ones would have quietly lost it, and nothing downstream could tell them apart.
+
+**Fractions from two different intervals are only as comparable as their two reference plates are.**
+The run says so, and lists which plate served which range. Compare intervals on the agreement figure
+rather than by reading their medians against each other.
+
+- [ ] Set up two intervals matching your two cored sections, each with a mid-tone plate of its own,
+      and check the Reference column shows each section corrected onto its own interval's plate.
+- [ ] Compare that run against a single delivery-wide reference in the settings table, and see
+      whether the split earns its place on your rock the way it did on mine.
+- [ ] Leave a gap between the intervals with no Reference plate set, and check the sections in the
+      gap are named in Left out rather than quietly measured.
+- [ ] Type two overlapping intervals and check the run refuses with both ranges named, before it
+      measures anything.
+- [ ] Check that touching intervals (`…–2500` and `2500–…`) are accepted, and that a plate sitting
+      exactly on 2500 goes to the one listed first.
+
+## Core slab photographs: clean them up, then read a trace off them (2026-07-31)
+
+Two new things under Data ▸ Tools ▾ ▸ **Condition Core Photos…**, and they are meant to be used in
+that order.
+
+### Cleaning the photograph
+
+Everything is done by looking at the picture rather than typing numbers at it:
+
+- The delivery is a **strip of thumbnails** across the top. Click one to work on it. A green dot
+  marks the ones already conditioned **in the project** — not the one you are fiddling with now.
+- **Crop** by dragging a rectangle on the photograph. Drag again inside it to crop further.
+- **Pick a grey**, then click the colour card, the grey tray or a white label. Everything shifts so
+  that patch reads neutral, and the swatch beside the button shows what you clicked.
+- **Straighten, Brightness, Contrast, Colour, Warmth, Green/magenta** are sliders whose track shows
+  the gradient they move along — you can see which way amber is before you touch it.
+- **Hold to compare** shows the photograph as delivered for as long as you hold the button.
+- The **histogram** under the picture is the exposure check: a wall at either end is detail that is
+  now pure black or pure white and cannot come back.
+
+**Nothing is destroyed.** The photograph as imported is kept the first time you apply, everything
+afterwards is re-rendered from it, and **Reset this photo** puts it back byte for byte — including
+its shape, so a cropped picture goes back to its full frame rather than being stretched into the
+cropped one's box.
+
+**Apply this light to the whole run** copies the colour half only. Every picture keeps its own
+straightening and crop, because the box sits differently on the bench in every frame.
+
+### Reading a trace off it
+
+Below the sliders, **Read the trace** averages the pixels down the core and draws three tracks:
+
+- **DARK** — how dark the rock is. Follows shale in most clastic sections.
+- **RED** — redness, which picks up oxidation, red beds and some oil staining.
+- **TEX** — how much the colour varies across the core, which is a lamination and heterogeneity
+  measure.
+
+Tell it **which way depth runs** (across the picture or down it), whether the box was photographed
+**deepest-end-first**, and **how many rows of core** are in the frame. Then **Save as curves** writes
+them as `CPHOTO_DARK`, `CPHOTO_RED` and `CPHOTO_TEX`.
+
+**They are not called VSH, and they never will be.** Darkness follows shale without being a shale
+volume — the same dark band is organic mudstone in one core and oil stain in another. Anything named
+VSH is read by every module in the app as a shale volume, so an uncalibrated one under that name
+would be a wrong answer that computes and plots. Calibrate it against your own GR first.
+
+**Check against does exactly that**, and it defaults to GR. It reports a SIGNED number: darkness and
+gamma should both rise into shale, so a strongly NEGATIVE darkness is a finding rather than a weak
+result — usually the depth axis is the other way round. The run says so when it sees it.
+
+Two things worth knowing. **Crop to exactly the core before reading a trace** — the picture's top
+and base depths are taken to span the frame end to end, so a tray or a tape left in the crop is read
+as rock. And **equal rows are an approximation**: a real box has unequal rows and gaps, so for a
+careful job crop to one row and run it per row.
+
+- [ ] Open it on a well with core photographs and check the thumbnail strip fills in as you scroll,
+      and that clicking one loads that picture.
+- [ ] Pick a grey on a colour card or a grey tray and see whether the cast comes out the way you
+      would have corrected it by hand.
+- [ ] Crop a box down to just the core, apply, and check the picture in a log-view image track and
+      in a printed composite — they should both show the cropped, corrected version.
+- [ ] Press Reset this photo and check it comes back exactly as delivered, at its full size.
+- [ ] Apply this light to the whole run on a run shot in one session, and check each box keeps its
+      own crop.
+- [ ] Read a trace off a box with GR as the check. Does DARK agree with your gamma? If it comes back
+      strongly negative, try Deepest end first and see whether it flips.
+- [ ] On a four-row core box, compare 4 rows in one go against cropping to one row at a time — is
+      the equal-lane approximation good enough on your boxes?
+- [ ] Save the curves and put CPHOTO_DARK in a log track beside GR.
+
+## Square up a box shot from an angle, and three detail corrections (2026-08-01)
+
+Two more things in Data ▸ Tools ▾ ▸ **Condition Core Photos…**
+
+### Square up
+
+For a box photographed from one end rather than straight above. Press **Square up**, drag the four
+handles onto the corners of the core itself, then press **Done**. The picture is stretched back to
+the shape the box really is.
+
+This is not the same as Straighten and Straighten cannot do it. A box shot from an angle is a
+trapezoid — the far end is drawn shorter than the near end — so a depth read straight down the
+frame runs fast at one end and slow at the other, and every sample in between lands at a depth that
+is wrong by an amount which changes along the core. Rotating a trapezoid just gives you a tilted
+trapezoid.
+
+The squared-up picture is a different SHAPE from the one that arrived, and that is correct: the
+delivered shape was already wrong, and the new proportions are measured from the corners you
+placed. (This is deliberately the opposite of what happens to a thin section, whose delivered shape
+is the truth and is never stretched.)
+
+While you are dragging, the picture is shown as the camera framed it — otherwise you would be
+pointing at corners in a photograph that had already been squared up to them.
+
+### Detail: Local contrast, Denoise, Sharpen
+
+Three new sliders, grouped apart from the colour ones because they do something different.
+
+- **Local contrast** lifts the shadowed end of a box towards the lit end, tile by tile, instead of
+  brightening the whole picture. This is the one for a box lit from one side.
+- **Denoise** takes out speckle and dust without softening the grain boundary next to it.
+- **Sharpen** lifts real edges — bedding, grain boundaries, fractures.
+
+**They change what Read the trace measures, and there is a warning under them that turns orange
+when one is active.** Local contrast roughly HALVES the darkness contrast between clean sand and
+mudstone, so an equalised box and a plain one no longer read on the same scale — the trace still
+follows the rock, but a calibration against GR fitted on one will not hold on the other. Sharpening
+inflates TEX and denoising suppresses it. Read the trace off photographs corrected for light and
+framing only; use these three to make a picture readable.
+
+Read the trace also names any photograph carrying one of the three, so a run cannot quietly mix
+equalised and plain boxes.
+
+- [ ] Take a box photographed from one end, Square up, and check the core comes out as a rectangle
+      with the ends the same width.
+- [ ] Read the trace off that box before and after squaring up — does DARK agree with GR better
+      once the depth axis is linear?
+- [ ] Try Square up on a box that was already shot square: the handles start at the frame corners,
+      so leaving them there should change nothing.
+- [ ] Apply this light to the whole run on a photo you have squared up, and check the other boxes
+      did NOT get its corners.
+- [ ] Push Local contrast up on a box lit from one side. Does the shadowed end become readable?
+- [ ] Then Read the trace on that box and check the run names it in the notes.
+- [ ] Denoise a grainy photograph and check the grain boundaries are still sharp — if they soften,
+      say so, that would mean the filter is wrong.
+- [ ] Check a preview against the applied result: a denoise or sharpen judged on screen should look
+      the same once saved, not weaker.
+
+## The core photograph beside the logs (2026-08-01)
+
+**Condition Core Photos… ▸ Build depth strips**, then open a log view and choose the new **Core**
+layout.
+
+Build depth strips takes each box, cuts it into its rows of core, turns each row so it runs
+downwards, and stacks them into one tall picture covering that box's own depth interval. It uses the
+same **Depth runs / Rows of core / Deepest end first** settings as Read the trace, sitting right
+above it — get those right once and both the picture and the curve are right.
+
+The strips land in a new picture dataset called **CORE STRIP**. Building again replaces the last
+one, so you can try 4 rows, look at it, try 2, and not end up with a pile of half-built deliveries.
+
+The built-in **Core** layout shows GR, the strip, CPHOTO_DARK and the neutron-density crossover
+side by side. You can also add the strip to any layout of your own: add an Image track, set its
+dataset to CORE STRIP, mode to Depth and Fit to **Fill the track**.
+
+Two things worth knowing. **Crop to exactly the core first** — the strip is stretched over the
+box's depth interval end to end, so a tray or a tape left in the crop is drawn as rock. And
+**gaps stay gaps**: each box keeps its own interval, so a break between two core runs shows as a
+break rather than being closed up.
+
+- [ ] Build strips off a real core-photograph delivery and open the Core layout. Does the core run
+      the right way down the page?
+- [ ] Check a box you know — is row 2 below row 1, and does each row start where the last one
+      finished?
+- [ ] Scroll to a break between two core runs. Is the gap still there?
+- [ ] Print a composite with the Core layout. Does the printed strip match what the screen showed?
+- [ ] Try Deepest end first on a box that was photographed the other way up, rebuild, and check the
+      strip flips the whole box rather than just each row.
+- [ ] Rebuild with a different row count and confirm the old strips are replaced, not added to.
+- [ ] Put the strip beside GR and see whether the dark bands line up with the gamma peaks. If they
+      are shifted by a constant, that is a core depth shift — Data ▸ Tools ▾ ▸ Register Depth…
+
+## Register the core off its own photograph (2026-08-01)
+
+**Data ▸ Tools ▾ ▸ Register Depth…** now offers the core photograph's trace in the reference list,
+as **Core photo — CPHOTO_DARK**, alongside the plug columns and the point datasets.
+
+This is usually the best reference you have. Core plugs give you a few dozen samples a foot apart;
+the photograph gives a reading every few millimetres down the whole cored interval, which is what a
+cross-correlation actually wants. Read the trace and Save as curves first, then open Register
+Depth… and pick it.
+
+**If the result comes back negative, do not accept it.** Darkness should rise with gamma, because
+clay is both dark and radioactive. A negative best match nearly always means the boxes are laid out
+the other way up rather than that the core is shifted — go back to Condition Core Photos, tick
+Deepest end first, save the trace again, and re-run. The run says this in the notes rather than
+quietly proposing a shift, because a correlogram cannot tell an upside-down box from a real depth
+error.
+
+### Fixed at the same time
+
+**Saved trace curves were unreadable.** They were being stored at the photograph's own sampling
+rather than on the well's depth frame, and the app joins computed curves to that frame by an exact
+depth match — so CPHOTO_DARK was saved, was reported as saved, and then came back empty to every
+module, plot and log track. If you saved trace curves before today and could not find them
+anywhere, that was why. Save them again and they will be there.
+
+They are now written on the well's own depth frame, each sample being the average of the photograph
+samples inside it rather than one of them picked out. Depths outside the cored interval stay blank.
+
+- [ ] Read a trace, Save as curves, then check CPHOTO_DARK really appears — in a log track, in the
+      crossplot curve list, and in Register Depth…
+- [ ] Register a core against CPHOTO_DARK and compare the shift with what you get from the plug
+      porosity. Does the photograph give a sharper peak on the correlogram?
+- [ ] Deliberately set the wrong lay-out (untick Deepest end first on a reversed box), save, and
+      run Register Depth… — does it refuse in words rather than propose a shift?
+- [ ] Apply a shift found from the photograph and check the core plugs, the extras and the plates
+      all move with it.
+
+## The UV frame beside the white-light one (2026-08-01)
+
+In **Condition Core Photos…**, next to Hold to compare, there is now a delivery picker and a **Hold
+for the pair** button. Pick your UV delivery there (it opens on one automatically if its name says
+UV) and hold the button to see the same depth under ultraviolet.
+
+It matches on depth, not on filename, so it works whatever the two deliveries are called. Each frame
+is shown with its own conditioning — a UV frame under a white-light photograph's white balance would
+be a picture of the correction rather than of the fluorescence.
+
+**Build depth strips now shows the dataset it writes to**, pre-filled from the source name: build
+off CORE PHOTO and it suggests CORE STRIP, build off CORE PHOTO UV and it suggests CORE STRIP UV. So
+you can build both and put them in two tracks side by side in a log view — white light beside
+fluorescence, both at true depth.
+
+- [ ] Open a well with both deliveries. Does the pair picker land on the UV one by itself?
+- [ ] Hold for the pair on a box you know has a show. Is the fluorescence where you expect it?
+- [ ] Check a box where the two deliveries were framed differently — does it still find the right
+      UV frame?
+- [ ] Build strips off both deliveries into two dataset names, then put both in one log view beside
+      GR. Do they line up with each other and with the log?
+- [ ] Condition the UV delivery separately (it usually wants a different exposure) and check the
+      white-light one was not touched.
+
+## Thin sections get the core photographs' workspace (2026-08-01)
+
+**Petrophysics ▸ Petrography ▸ Condition Plates…** is the same workspace the core photographs use —
+thumbnail strip, drag to crop, click a grey to fix the cast, sliders whose tracks show the colour
+they move through, hold to compare, histogram. It opens on a thin-section delivery instead of a core
+one, and the trace and depth-strip section is hidden, because a section is cut from one plug and
+covers no interval.
+
+**Condition first, then measure.** Pore Area reads the conditioned plate, so a cast fixed here is a
+cast the measurement never has to fight.
+
+### Pore Area: the band is a colour now
+
+The four number boxes are gone. In their place:
+
+- A **hue wheel** with two draggable ends. The part of the wheel your band accepts is the bright
+  part; everything else is dimmed. Drag an end past the other and the band wraps through red, which
+  is allowed.
+- **At least this vivid** and **at least this bright** are sliders showing the colours they move
+  through, at your band's own hue.
+- A **swatch** of roughly what a pixel has to look like to be counted.
+- The numbers are still there beside them, and still typable.
+
+**Pick the pore colour** — press it, then click a pore on the plate below. The band re-centres on
+that colour keeping the width you set, and the floors drop just enough that the pixel you clicked is
+inside it. It reads the plate WITHOUT the red mask on it, so clicking inside the mask still samples
+the rock.
+
+**Hold to compare** shows the plate without the mask, so you can see what the band claimed against
+what is actually there.
+
+- [ ] Open Condition Plates… on a thin-section delivery. Does the filmstrip fill in, and does
+      cropping and white-balancing work the way it does on core photos?
+- [ ] Fix a plate's colour cast there, then run Pore Area on it. Is the band easier to set?
+- [ ] Use Pick the pore colour on a clear blue pore. Does the band land somewhere sensible?
+- [ ] Now click a grain by mistake — does the band move somewhere obviously wrong, so you can see
+      it did what you asked?
+- [ ] Drag the wheel's ends and watch the preview. Is it easier to judge than typing degrees?
+- [ ] Try a band wrapped through red (drag the high end below the low one) and check the preview
+      agrees with the wheel.
+- [ ] Hold to compare on a plate you are unsure about. Does the mask sit on the pores?
+
+## Pick a plate by looking at it (2026-08-01)
+
+Both **Pore Area…** and **Mineral Classifier…** now show the delivery as a strip of thumbnails
+above the picture, the same way Condition Plates… does. Click a tile to work on that plate; the
+dropdown is still there underneath if you prefer it.
+
+In **Pore Area**, a plate that cannot be measured is greyed out with the reason when you hover it —
+"not impregnated", or "preparation not stated". It is still clickable, so you can preview what the
+band would claim on it before deciding whether to declare it in Plate Details.
+
+In the **Mineral Classifier**, each tile shows how many clicks you have already placed on that
+plate. That is the thing a filename list cannot tell you: which plates you have counted and which
+you have not.
+
+- [ ] Open Pore Area on a mixed delivery. Are the undeclared plates obviously greyed?
+- [ ] Hover one — does it say why?
+- [ ] Click a greyed one and press Preview. You should still see what the band would claim, even
+      though it will not be stored.
+- [ ] In the Mineral Classifier, click through a few plates and place labels. Do the counts on the
+      tiles keep up?
+- [ ] Close the classifier and reopen it. Do the counts come back?
+- [ ] On a large delivery (a hundred plates or more), scroll the strip — does it stay responsive,
+      loading thumbnails as you go?
+
+## Four silent successes, from the triage (2026-08-01)
+
+From `docs/review_triage.md` — findings 13, 17, 19 and 20. All four were places where something
+reported success having done nothing, or half of something.
+
+**An equation script that throws on some depths now says so.** Run a Rhai equation that raises on
+part of the interval — the run still succeeds and the curve is still written, but the summary line
+now ends with a warning naming how many samples of how many threw. A curve that is simply holed
+because its inputs were missing does NOT warn, which is the point: the warning only fires where the
+script had real numbers and could not answer.
+
+- [ ] Write an equation that throws on part of a well (e.g. `if gr > 60.0 { throw "high" } gr/100`)
+      and run it. Does the status line say how many samples raised?
+- [ ] Run one that cannot throw over an interval with washed-out GR. Does it stay quiet?
+- [ ] Does the Processing panel show that well as a warning rather than a plain tick?
+
+**A workflow chain that dies no longer locks the project.** If a chain's worker stops
+unexpectedly, it now reports a failure instead of sitting at Running forever — and Open Project,
+New Project and Compact Project work again. Previously the only way out was restarting the app.
+
+- [ ] Run a chain to completion, then Open Project. (Control — this always worked.)
+- [ ] Cancel one mid-run, then Open Project.
+- [ ] If a chain ever does die on you, check the Workflow Builder says it stopped and that the
+      results are incomplete, rather than sitting at Running.
+
+**Curve Edit refuses an empty box instead of writing 0.** Right-click a curve in a log view →
+Edit. With "Set constant" chosen, clearing the Value box used to write **0.0** over the interval —
+a perfectly normal-looking reading of very clean rock. It now refuses, in the dialog, naming the
+field.
+
+- [ ] Edit → Set constant, clear Value, press Apply. Do you get a warning in the dialog and
+      nothing written?
+- [ ] Type `abc` in Value. Same?
+- [ ] Clear Top as well. Does the message name both fields?
+- [ ] Choose Blank (erase) and clear Value. It should go through — Blank does not use Value.
+- [ ] Type a real number. Does it still apply normally?
+
+**Editing a well that has been deleted now fails.** With the Wells grid open, delete that well in
+the Wells & Tops pane, then edit one of its cells. It used to report success and push an undo
+entry for a change that never happened.
+
+- [ ] Do exactly that. Do you get "that well is no longer in the project… refresh the Wells grid"?
+- [ ] Does the ordinary case — editing a well that IS there — still work?
+
+## Three things wrong with the report PDF, from the triage (2026-08-01)
+
+Findings 12, 15 and 18. All three were invisible to whoever exported the report.
+
+**A batch export no longer loses a well.** If two wells share a name — or two different names come
+out the same once the filename is cleaned up — the second used to overwrite the first, and the app
+still said it had written both. Now the second gets `_2` on the end and you get one file per well.
+The first one keeps the plain name.
+
+- [ ] Batch-export a report over a set of wells that includes two with the same name. Do you get
+      two files, one of them ending `_2_report.pdf`?
+- [ ] Does the count in the status line match the number of files in the folder?
+- [ ] If a well fails to render, does the error name the WELL now rather than a long id?
+
+**The cover states the interval the well is logged over.** It used to state whatever depth window
+the composite was printed at — so setting a 5 m window put "Interval: 1005.0 – 1010.0 m" on the
+cover of a report whose pay table still covered every zone in the well. If you set a print window,
+it is now stated separately underneath, as "Log pages printed over…".
+
+- [ ] Render a report with no depth window. Does the cover's interval match the well's logged
+      range?
+- [ ] Set a depth window and render again. Does the cover keep the full interval and add the
+      printed-over line?
+- [ ] Tick Tables only with a window set. The printed-over line should NOT appear — there are no
+      log pages for it to describe.
+
+**Every page carries the Made in SandiBumi mark.** The cover had it and the composite pages had
+it, but the methodology, zone-parameter and pay-summary pages did not — so a pay summary
+photocopied on its own was unattributed.
+
+- [ ] Render a report and look at the bottom of the methodology, zone-parameter and pay-summary
+      pages.
+- [ ] If the pay summary runs to more than one page, check the second page too.
+- [ ] Is it small and pale enough not to compete with the table? Say if you would rather it were
+      cover-only — it is one line to take back out.
+
+## Cutoffs and empty runs, from the triage (2026-08-01)
+
+Findings 8, 7 and 10.
+
+**A permeability cutoff now survives a chain that models permeability.** In Monte Carlo, adding a
+`perm_coates` step to a chain used to switch the PERM cutoff off silently — so the study most
+likely to want that cutoff was the one that never got it. The numbers looked like a cutoff that
+had been applied and simply not bitten.
+
+- [ ] Run a Monte Carlo chain that READS permeability from the project, with a PERM cutoff set
+      high enough to bite. Does the pay drop?
+- [ ] Insert a permeability model into the same chain and run it again with the same cutoff. Does
+      it bite the same way now?
+- [ ] Lower the cutoff below the modelled permeability. Does the pay come back?
+
+**A well with no permeability still escapes the PERM cutoff — but it now says so.** Whether an
+uncored well should be excluded from a permeability cutoff or exempted from it is your call and
+nothing about it has changed. What has changed is that the report and the dashboard now tell you
+which wells escaped, instead of adding their full pay in silently beside wells the cutoff was
+applied to.
+
+- [ ] Run a pay summary with a PERM cutoff over a mix of wells, some with a PERM curve and some
+      without. In the Field Dashboard, is there an orange line naming the wells with no
+      permeability?
+- [ ] Export a report for one of those wells with a PERM cutoff set. Is there a note under the pay
+      table saying the cutoff was not applied and its net pay is not comparable?
+- [ ] Export a report with no PERM cutoff at all. The note should NOT appear.
+- [ ] **Tell me which way you want the rule itself to go** — should an uncored well be excluded
+      from a permeability cutoff, or exempted from it? The flag makes either honest; only you can
+      say which is right.
+
+**A failed run no longer fills the Curve Catalog with blank curves.** Running rocktyping on a well
+with no permeability used to report the failure AND write all eight of its output curves into the
+catalog, blank from top to bottom. The catalog could then no longer tell "this was never run" from
+"this ran and could not answer".
+
+- [ ] Run rocktyping on a well with porosity but no permeability. Does it report the failure?
+- [ ] Check the Curve Catalog — are RQI/FZI/RT and the rest absent, rather than present and empty?
+- [ ] Give that well a permeability curve and run it again. Do all eight curves appear with real
+      values?
+- [ ] Check the Processing history still records the failed attempt — that is where the record of
+      "a run happened" belongs now.
+
+## The VSH dropdown now says which Larionov is which (2026-08-01)
+
+Finding 21, and the bookkeeping of 11 and 14.
+
+**The two Larionov options are the ones that matter.** They differ by a digit in their name and by
+more than half again in their answer at mid-range gamma — 0.330 against 0.216 at IGR 0.5 — which is
+right where the VSH cutoff decides net pay. The dropdown used to show bare ids, and the manual test
+plan (the only other place it was written down) had the rock ages the wrong way round.
+
+- [ ] Open **Petrophysics ▸ VSH ▾ ▸ VSH from Gamma Ray**. Does the method dropdown read
+      `LARINOV1 — Larionov, Mesozoic and older` and `LARINOV2 — Larionov, Tertiary / unconsolidated`?
+- [ ] Mahakam is Miocene, so `LARINOV2` should be the one you reach for. Does the label make that
+      obvious without looking anything up?
+- [ ] Run with one, then re-open the pane. Does it come back on the same choice?
+- [ ] Hover a saved run in the Curve Catalog — the tooltip lists params. Is the stored value still
+      the bare id (`LARINOV2`), so an old run still reads correctly?
+- [ ] Every other module's option dropdowns should be unchanged (bare ids). Check one, e.g. Porosity
+      ▸ Density-Neutron.
+- [ ] `LARINOV3` deliberately claims no rock age — it shows its coefficient instead, because nothing
+      in the repo cites a source for that form. Say if you know one and I will label it properly.
+
+**Two plan corrections, no code:**
+
+- [ ] T-PETRO-02 step 1 now names the right rock age, and its Expected line pairs 0.33 with
+      Larionov-older rather than Larionov-Tertiary.
+- [ ] T-ADV-13's "Mark **Fail — known**" instruction is struck. Saturation-Height on a deviated well
+      really does measure from the survey now, so following the old paragraph would have logged a
+      working feature as broken.
+
+**One item left your sign-off list:** legacy-multimin RECON_ERR. It never needed a decision — the
+module is retired and refuses to start, and SandiMin already detects the exactly-determined case and
+returns a note saying RECON is forced to zero. The one thing worth your eye:
+
+- [ ] Run SandiMin with only RHOB + NPHI (plus unity) so it is exactly determined. Is the `dof` note
+      hard to miss in the pane, or does it sit somewhere you would scroll past? A warning nobody
+      reads is the same as no warning.

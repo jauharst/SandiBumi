@@ -37,13 +37,14 @@ saturation-height tools (SCAL Pc → J-function fit → Sw(height)) have real in
 
 ## Malformed exemplars — for the failure-path tests (T-IMP-03 / T-IMP-04)
 
-These two files are BROKEN on purpose, so you can watch the app refuse them gracefully
+These three files are BROKEN on purpose, so you can watch the app refuse them gracefully
 instead of having to doctor a file yourself:
 
 | File | What's wrong | Expected on import |
 |------|--------------|--------------------|
 | `bad_dup_depth.las` | rows 10–14 repeat row 9's depth | Imports **with a warning** — status/History note says 5 row(s) dropped for duplicate depth; well SANDI-BAD-DUP appears with 35 rows. |
 | `bad_null_depth.las` | every depth is −999.25 | **Clean error**, nothing imported — no orphan SANDI-BAD-NULL well row appears in the Wells pane or the database. |
+| `bad_truncated.las` | the last data row is cut mid-line (RHOB missing, no trailing newline) | **Clean error** naming "leftover token(s) … truncated or corrupt LAS?" — nothing imported, not even the 39 rows that were intact. A well short by one row is a well nobody knows is short. |
 
 Delete SANDI-BAD-DUP afterwards if you imported it into a real project.
 

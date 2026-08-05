@@ -16,10 +16,15 @@ import {
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { pushUndo } from "../undo";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 import { fitCanvasBackingStore, readTheme, canvasFont } from "./plotCanvas";
 
 /** Core-to-log depth registration (Data ▸ Core ▸ Register Depth…).
+ *
+ *  A dock PANE, not a popup. Registration is a judgement made against the log — you read the
+ *  correlogram, look at the section in a log view, try a narrower interval, then work barrel by
+ *  barrel — and a modal covers the very view the decision is made from. Standing rule from Jauhar
+ *  (2026-08-01): tools open as working panes.
  *
  *  Core arrives on the driller's tally and the log on the wireline's; the difference is real,
  *  routine, and invisible afterwards. Until now the only tool for it was a number typed into
@@ -36,21 +41,17 @@ import { fitCanvasBackingStore, readTheme, canvasFont } from "./plotCanvas";
  *  plugs along with them, and which point datasets belong to this core is a core-handling
  *  judgement. The checkboxes name them; the app does not decide silently.
  */
-export async function openDepthRegDialog(): Promise<void> {
+export async function buildDepthRegContent(): Promise<{ el: HTMLElement }> {
   const well = appState.selectedWell.get();
   const wrap = document.createElement("div");
-  const close = openModal(
-    well ? `Register core depth — ${well.well_name}` : "Register core depth",
-    wrap,
-    720
-  );
+  wrap.className = "module-pane";
 
   if (!well) {
     const none = document.createElement("div");
     none.className = "eq-note";
     none.textContent = "Select a well in the Wells pane first — registration is judged one well at a time.";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   const intro = document.createElement("div");
@@ -568,7 +569,18 @@ export async function openDepthRegDialog(): Promise<void> {
           },
         });
         bumpDataVersion();
-        close();
+        // The modal used to close itself here. A pane stays, so the proposal it was made from has
+        // to go instead: the core has MOVED, and pressing Apply a second time on a shift computed
+        // against the old depths would double it. What replaces it is the record — the history
+        // below now carries this registration, which is the same refresh the barrel path does.
+        out.innerHTML = "";
+        const done = document.createElement("div");
+        done.className = "eq-note";
+        done.textContent =
+          `Applied ${sign}${delta}. The core is on its new depths — propose again to check where it landed.`;
+        out.appendChild(done);
+        await buildBarrels();
+        await buildHistory();
       })();
     });
     out.appendChild(applyBtn);
@@ -857,4 +869,5 @@ export async function openDepthRegDialog(): Promise<void> {
 
   await buildBarrels();
   await buildHistory();
+  return { el: wrap };
 }

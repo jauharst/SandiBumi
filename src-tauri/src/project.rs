@@ -185,6 +185,16 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
         .map_err(|e| format!("plate scale migration failed: {e}"))?;
     eprintln!("[boot] migrate_plate_scale_and_prep: {:?}", t.elapsed());
 
+    let t = std::time::Instant::now();
+    db::migrate_core_image_recipe(&conn)
+        .map_err(|e| format!("core image recipe migration failed: {e}"))?;
+    eprintln!("[boot] migrate_core_image_recipe: {:?}", t.elapsed());
+
+    let t = std::time::Instant::now();
+    db::migrate_fluid_contact_zone(&conn)
+        .map_err(|e| format!("fluid contact marker migration failed: {e}"))?;
+    eprintln!("[boot] migrate_fluid_contact_zone: {:?}", t.elapsed());
+
     // A long open is almost always the one-time storage upgrades above (each backs up the
     // whole project first). Tell the user so — from their chair a silent 15-minute open on
     // a field-scale file is indistinguishable from a hang.
@@ -493,6 +503,100 @@ mod tests {
             .unwrap();
         }
         drop(state);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// T-SHELL-07. "Save Project As…" is a BACKUP COPY, deliberately not the IP-style
+    /// switch-to-copy: the app keeps working on the original file. That distinction is invisible
+    /// in the moment — both write a file and both report success — and it is only discovered a
+    /// week later, when the work done after the Save As turns out to be in whichever file the
+    /// app actually stayed on. Getting it backwards silently splits a study across two projects.
+    ///
+    /// `save_project_as` (`lib.rs:168`) is the command, and the whole of its substance is
+    /// `engine_copy_to` plus the stale-destination cleanup — it never assigns `ProjectState`,
+    /// which is what makes it a backup. This drives that same sequence against a real file and
+    /// checks the claim from BOTH sides: the copy must hold the state at the moment it was
+    /// taken, and every later edit must land in the original and nowhere else.
+    #[test]
+    fn save_as_writes_a_backup_copy_and_leaves_the_app_on_the_original() {
+        let tmp = std::env::temp_dir().join(format!("sandibumi-saveas-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let original = tmp.join("study.duckdb").to_str().unwrap().to_string();
+        let backup = tmp.join("backup-uat.duckdb").to_str().unwrap().to_string();
+
+        let conn = db::init_db_resilient(&original).unwrap();
+        conn.execute_batch(
+            "INSERT INTO wells (well_id, well_name, field_name, td, kb)
+                 VALUES (gen_random_uuid(), 'SANDI-01', NULL, NULL, NULL);
+             -- Dead space of the kind a month of module re-runs leaves behind.
+             INSERT INTO computed_curves (well_id, depth, curve_name, value)
+                 SELECT (SELECT well_id FROM wells), 1000.0 + i * 0.1, 'PHIE', 0.2
+                 FROM range(200000) t(i);
+             DELETE FROM computed_curves;
+             INSERT INTO computed_curves (well_id, depth, curve_name, value)
+                 SELECT (SELECT well_id FROM wells), 1000.0 + i * 0.5, 'PHIE', 0.21
+                 FROM range(1000) t(i);
+             CHECKPOINT;",
+        )
+        .unwrap();
+        let state = DbState(std::sync::Arc::new(Mutex::new(conn)));
+
+        {
+            let conn = state.0.lock().unwrap();
+            db::engine_copy_to(&conn, &backup).expect("save as must write the copy");
+        }
+        assert!(Path::new(&backup).exists(), "the copy must exist at the chosen path");
+
+        // Step 3 of the plan: a small change made AFTER the Save As.
+        {
+            let conn = state.0.lock().unwrap();
+            conn.execute(
+                "INSERT INTO wells (well_id, well_name, field_name, td, kb)
+                     VALUES (gen_random_uuid(), 'SANDI-02-ADDED-AFTER', NULL, NULL, NULL)",
+                [],
+            )
+            .unwrap();
+        }
+
+        // The live connection is still the ORIGINAL file, and holds the change.
+        {
+            let conn = state.0.lock().unwrap();
+            let wells: i64 = conn.query_row("SELECT count(*) FROM wells", [], |r| r.get(0)).unwrap();
+            assert_eq!(wells, 2, "the app kept working on the original, so the change is here");
+        }
+
+        // Windows will not let a second connection open a file this process holds open for
+        // write, so close the live one before reading either file back.
+        drop(state);
+
+        // The copy is a valid project, opens through the normal path, and holds the state as
+        // it was WHEN IT WAS TAKEN — the later well is not in it.
+        let copy = open_and_migrate(&backup).expect("the copy must open as a project");
+        let wells: i64 = copy.query_row("SELECT count(*) FROM wells", [], |r| r.get(0)).unwrap();
+        assert_eq!(wells, 1, "the copy is a snapshot: the well added afterwards must not be in it");
+        let name: String =
+            copy.query_row("SELECT well_name FROM wells", [], |r| r.get(0)).unwrap();
+        assert_eq!(name, "SANDI-01");
+        let rows: i64 =
+            copy.query_row("SELECT count(*) FROM computed_curves", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 1000, "every live row crosses into the copy");
+        drop(copy);
+
+        // And the original really did keep the change — read back from disk, not from the
+        // connection that made it.
+        let reopened = open_and_migrate(&original).expect("the original must still be a project");
+        let wells: i64 =
+            reopened.query_row("SELECT count(*) FROM wells", [], |r| r.get(0)).unwrap();
+        assert_eq!(wells, 2, "the post-Save-As change is durable in the ORIGINAL file");
+        drop(reopened);
+
+        // A Save As is also a compaction: the engine copy writes live rows only, so 200k dead
+        // ones do not ride along into the backup.
+        let before = std::fs::metadata(&original).unwrap().len();
+        let after = std::fs::metadata(&backup).unwrap().len();
+        assert!(after < before, "the copy carries live rows only: {before} -> {after} bytes");
+
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

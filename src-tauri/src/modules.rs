@@ -33,8 +33,19 @@ pub struct ArgSpec {
     pub kind: ArgKind,
     /// Default numeric value (Param), default choice (Option), or default curve mnemonic (LogIn).
     pub default: String,
-    /// Valid choices for Option args.
+    /// Valid choices for Option args. **These are stored in `params_json` on every saved run, so
+    /// they must never be renamed** — that is what `choice_labels` is for.
     pub choices: Vec<String>,
+    /// Optional display text, parallel to `choices`. Empty means "show the id".
+    ///
+    /// `OPT_GR`'s choices are the bare strings `LARINOV1`, `LARINOV2`, … with no rock age, no
+    /// coefficient and no tooltip, so the only place a user was told which is which was the manual
+    /// test plan — and the plan had them the wrong way round (`docs/review_triage.md` finding 21).
+    /// Picking the wrong one returns 0.33 where 0.216 belongs: a shale volume more than half again
+    /// too high through the whole intermediate-GR interval, which is exactly where the VSH cutoff
+    /// decides net pay. The curve looks entirely normal and nothing downstream can catch it.
+    #[serde(default)]
+    pub choice_labels: Vec<String>,
     /// Validation range for Param args.
     pub min: Option<f64>,
     pub max: Option<f64>,
@@ -45,6 +56,28 @@ pub struct ArgSpec {
     /// curve with the same mnemonic (a commercial LAS export's degF FTEMP) would silently
     /// masquerade as the degC/psi curve the module assumes.
     pub computed_only: bool,
+    /// Param only: a NAMED-zone override of this parameter is REFUSED. The `*` well-wide scope
+    /// still applies, which is the point — the parameter has one value per well, not one per zone.
+    ///
+    /// For a parameter defining a TREND against depth this is a physical statement, not a
+    /// convenience. `precalc` computes `SURF_TEMP + TEMP_GRAD × TVDSS` from surface at every
+    /// sample rather than integrating down through the zones above it, so giving a lower zone its
+    /// own gradient makes the temperature profile JUMP at the boundary instead of bending: a 0.03
+    /// °C/m well with a 0.035 override below 1500 m stepped **10.5 °C across 100 m** where the
+    /// undisturbed trend rises 3.0. Rock temperature is continuous — a 10 °C discontinuity at a
+    /// formation top is not something the earth does — and it does not stay in FTEMP, because the
+    /// Arps correction turns temperature into Rw and Rw goes straight into Sw.
+    ///
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 6): *"temperature is curves
+    /// only"* — the geothermal trend belongs to the well and its product is a curve, so there is
+    /// no per-zone gradient to integrate and the question of what temperature each zone starts at
+    /// never arises.
+    ///
+    /// Deliberately NOT applied to `PSURF`/`PGRAD`, whose structure is identical: a pressure step
+    /// at a formation top is a pressure compartment, which is a real thing rock does. The
+    /// asymmetry is the physics, not an oversight.
+    #[serde(default)]
+    pub well_scope: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,10 +97,12 @@ pub(crate) fn param(name: &str, desc: &str, unit: &str, default: f64, min: f64, 
         kind: ArgKind::Param,
         default: default.to_string(),
         choices: vec![],
+        choice_labels: vec![],
         min: Some(min),
         max: Some(max),
         required: true,
         computed_only: false,
+        well_scope: false,
     }
 }
 
@@ -79,11 +114,25 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         kind: ArgKind::Option,
         default: default.into(),
         choices: choices.iter().map(|s| s.to_string()).collect(),
+        choice_labels: Vec::new(),
         min: None,
         max: None,
         required: true,
         computed_only: false,
+        well_scope: false,
     }
+}
+
+/// [`opt`] with display text per choice — same ids on the wire, a readable dropdown on screen.
+pub(crate) fn opt_labelled(
+    name: &str,
+    desc: &str,
+    default: &str,
+    choices: &[(&str, &str)],
+) -> ArgSpec {
+    let mut a = opt(name, desc, default, &choices.iter().map(|(id, _)| *id).collect::<Vec<_>>());
+    a.choice_labels = choices.iter().map(|(_, label)| (*label).to_string()).collect();
+    a
 }
 
 pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, required: bool) -> ArgSpec {
@@ -94,11 +143,25 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         kind: ArgKind::LogIn,
         default: default_curve.into(),
         choices: vec![],
+        choice_labels: vec![],
         min: None,
         max: None,
         required,
         computed_only: false,
+        well_scope: false,
     }
+}
+
+/// A [`param`] that cannot be overridden per zone (see [`ArgSpec::well_scope`]).
+///
+/// For parameters defining one trend against depth for the whole well — a geothermal gradient and
+/// its surface intercept, a bottom-hole temperature and the depth it was measured at. The `*`
+/// well-wide scope still applies, so the per-well parameter grid keeps working, which matters:
+/// wells in one field genuinely do have different gradients. What is refused is a value that
+/// changes PART WAY DOWN a well, because the trend is evaluated from surface at every sample and
+/// a mid-well change is a discontinuity rather than a bend.
+pub(crate) fn param_well(name: &str, desc: &str, unit: &str, default: f64, min: f64, max: f64) -> ArgSpec {
+    ArgSpec { well_scope: true, ..param(name, desc, unit, default, min, max) }
 }
 
 /// A [`log_in`] restricted to computed provenance (see [`ArgSpec::computed_only`]).
@@ -114,10 +177,12 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         kind: ArgKind::LogOut,
         default: String::new(),
         choices: vec![],
+        choice_labels: vec![],
         min: None,
         max: None,
         required: true,
         computed_only: false,
+        well_scope: false,
     }
 }
 
@@ -167,6 +232,29 @@ fn limit(v: f64, lo: f64, hi: f64) -> f64 {
 }
 
 const MISSING: f64 = f64::NAN;
+
+/// Lower bound on the LIMITED effective porosity every porosity module writes as `PHIE`
+/// (Jauhar, 2026-08-01: "always limit phie to 0.001" — docs/review_triage.md finding 16).
+///
+/// A shale-corrected density porosity reads slightly NEGATIVE over a tight streak — a dense
+/// carbonate stringer on a sandstone matrix is the ordinary case, not a corrupt curve. Nothing
+/// downstream treats that as an error, so the negative volume propagates: the pay summary sums
+/// `PHIE·(1−SWE)·h` over net, and the streak's contribution is SUBTRACTED from the zone's
+/// hydrocarbon column. Measured, that took a SAND row's HPV more than 20 % below the floored
+/// answer while RESERVOIR and PAY stayed byte-identical — the two rows anyone checks first agreed
+/// with each other while the third quietly did not.
+///
+/// **0.001 v/v rather than 0.0**, which is his call and not an arbitrary epsilon: a hard zero is a
+/// legitimate reading (shale has no effective porosity, and the ≥95 % VSH branch says so), so
+/// flooring at zero would make "no porosity here" and "the arithmetic went below zero"
+/// indistinguishable. 0.1 pu is below anything a log can resolve and above anything a physical
+/// interpretation would claim, so a PHIE sitting exactly on it is legible as the floor.
+///
+/// **The floor lands on `PHIE` only.** `PHIE_DEN` / `PHIE_DN` are the declared UNLIMITED twins and
+/// stay unclamped, so the negative excursion is still there to be plotted when the question is
+/// whether the matrix density is right. Clamping those too would hide the evidence for the very
+/// judgement the curve exists to support.
+pub(crate) const PHIE_FLOOR: f64 = 0.001;
 
 fn is_missing(v: f64) -> bool {
     v.is_nan()
@@ -304,11 +392,33 @@ fn vsh_gr_spec() -> ModuleSpec {
               (Stieber, Larionov, Clavier). VSH is the result limited to 0–1."
             .into(),
         args: vec![
-            opt(
+            // Labels, not renamed ids: the id is what `params_json` stores on every saved run, and
+            // it is what the label leads with so a user reading a stored run still recognises it.
+            //
+            // The two Larionov forms are the reason this exists. They differ only by a digit in
+            // their name and by a factor of more than 1.5 in their answer at mid-range gamma —
+            // 0.330 against 0.216 at IGR 0.5 — which lands squarely where the VSH cutoff decides
+            // net pay, on a curve that looks entirely normal. The rock-age attributions are the
+            // published ones (Larionov 1969) and are pinned against the closed forms by
+            // `every_vsh_gr_transform_lands_on_its_published_coefficient`.
+            //
+            // LARINOV3 is stated by its coefficients rather than attributed: nothing in the repo
+            // cites a source for that form, and inventing one is the move the provenance rules
+            // forbid.
+            opt_labelled(
                 "OPT_GR",
                 "VSH from gamma ray method",
                 "LINEAR",
-                &["LINEAR", "STIEBER1", "STIEBER2", "STIEBER3", "LARINOV1", "LARINOV2", "LARINOV3", "CLAVIER"],
+                &[
+                    ("LINEAR", "LINEAR — VSH = IGR"),
+                    ("STIEBER1", "STIEBER1 — Stieber, IGR/(3−2·IGR)"),
+                    ("STIEBER2", "STIEBER2 — Stieber, IGR/(2−IGR)"),
+                    ("STIEBER3", "STIEBER3 — Stieber, IGR/(4−3·IGR)"),
+                    ("LARINOV1", "LARINOV1 — Larionov, Mesozoic and older"),
+                    ("LARINOV2", "LARINOV2 — Larionov, Tertiary / unconsolidated"),
+                    ("LARINOV3", "LARINOV3 — 0.127·(3.15^(2·IGR) − 1)"),
+                    ("CLAVIER", "CLAVIER — Clavier et al."),
+                ],
             ),
             param("GR_MA", "Gamma ray matrix (clean)", "gapi", 20.0, 0.0, 200.0),
             param("GR_SH", "Gamma ray shale", "gapi", 120.0, 0.0, 1000.0),
@@ -523,7 +633,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
 
         if v >= 0.95 {
             phie_den[i] = 0.0;
-            phie_lim_out[i] = 0.0;
+            phie_lim_out[i] = PHIE_FLOOR as f32;
             phit_den[i] = phit_sh as f32;
             phit_lim_out[i] = phit_sh as f32;
             continue;
@@ -532,7 +642,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         let pe = (rho_ma - r) / (rho_ma - rho_fl) - v * (rho_ma - rho_sh) / (rho_ma - rho_fl);
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, 0.0, phie_lim);
+        let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
         phie_den[i] = pe as f32;
         phit_den[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -608,7 +718,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
 
         if v >= 0.95 {
             phie_dn[i] = 0.0;
-            phie_lim_out[i] = 0.0;
+            phie_lim_out[i] = PHIE_FLOOR as f32;
             phit_dn[i] = phit_sh as f32;
             phit_lim_out[i] = phit_sh as f32;
             continue;
@@ -628,7 +738,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let pe = phix * (1.0 - v);
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, 0.0, phie_lim);
+        let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
         phie_dn[i] = pe as f32;
         phit_dn[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -813,10 +923,11 @@ fn ftemp_grad_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_FT", "Temperature model", "GRADIENT", &["GRADIENT", "BHT"]),
-            param("TSURF", "Surface temperature", "degC", 26.7, 0.0, 50.0),
-            param("TGRAD", "Temperature gradient", "degC/m", 0.03, 0.005, 0.1),
-            param("BHT", "Bottom hole temperature", "degC", 100.0, 30.0, 250.0),
-            param("TD_BHT", "Depth of BHT measurement", "m", 2000.0, 100.0, 10000.0),
+            // All four define ONE temperature profile for the well — see ArgSpec::well_scope.
+            param_well("TSURF", "Surface temperature (whole well)", "degC", 26.7, 0.0, 50.0),
+            param_well("TGRAD", "Temperature gradient (whole well)", "degC/m", 0.03, 0.005, 0.1),
+            param_well("BHT", "Bottom hole temperature (whole well)", "degC", 100.0, 30.0, 250.0),
+            param_well("TD_BHT", "Depth of BHT measurement (whole well)", "m", 2000.0, 100.0, 10000.0),
             log_out("FTEMP", "Formation temperature", "degC"),
         ],
     }
@@ -879,8 +990,11 @@ fn precalc_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_TU", "Temperature unit for entered params", "degF", &["degF", "degC"]),
-            param("SURF_TEMP", "Surface temperature (intercept)", "degF|degC", 77.0, -50.0, 150.0),
-            param("TEMP_GRAD", "Temperature gradient per TVDSS unit", "deg/ft|m", 0.026, 0.0005, 0.2),
+            // The geothermal trend is one trend for the well — a named-zone override would step
+            // the temperature at a formation top rather than bend it. See ArgSpec::well_scope.
+            // PSURF/PGRAD below deliberately stay per-zone: a pressure compartment is real.
+            param_well("SURF_TEMP", "Surface temperature (intercept, whole well)", "degF|degC", 77.0, -50.0, 150.0),
+            param_well("TEMP_GRAD", "Temperature gradient per TVDSS unit (whole well)", "deg/ft|m", 0.026, 0.0005, 0.2),
             param("PSURF", "Formation pressure intercept", "psi", 0.0, -500.0, 5000.0),
             param("PGRAD", "Pressure gradient per TVDSS unit", "psi/ft|m", 0.433, 0.05, 5.0),
             opt("OPT_RMF", "RMF source", "ARPS", &["ARPS", "TREND"]),
@@ -2853,6 +2967,173 @@ mod tests {
         assert!((good["FTEMP"][0] as f64 - expect).abs() < 1e-3, "FTEMP {}", good["FTEMP"][0]);
     }
 
+    /// T-PREP-02. Both temperature models, pinned at the anchors that define them.
+    ///
+    /// GRADIENT is a straight line THROUGH the surface temperature: at zero depth it reads TSURF
+    /// exactly and every metre adds TGRAD. BHT is a different statement entirely — an
+    /// interpolation onto a temperature somebody MEASURED — so at TD_BHT it must land on BHT
+    /// exactly. That landing is the whole reason the mode exists; a BHT run that misses the
+    /// measurement it was handed is not a BHT run.
+    ///
+    /// The two are deliberately given parameters that DISAGREE below surface (86.7 against 100
+    /// degC at 2000 m), so an OPT_FT that stopped switching fails here rather than quietly
+    /// returning the gradient answer under a BHT label. Nothing on a log would show that: both
+    /// curves are smooth, monotonic and entirely plausible, and the error would only surface much
+    /// later as an Rw that is wrong by a few percent everywhere.
+    ///
+    /// Below TD_BHT the interpolation EXTRAPOLATES, and that is pinned rather than assumed. It is
+    /// the honest behaviour — the trend is all the evidence there is past the measurement — but it
+    /// means FTEMP below TD is no longer anchored on anything, and if that is ever clamped instead,
+    /// this test forces the decision into the open rather than letting it change silently.
+    #[test]
+    fn formation_temperature_lands_on_both_of_its_anchors() {
+        let depths = vec![0.0f32, 1000.0, 2000.0, 3000.0, f32::NAN];
+        let params = [("TSURF", 26.7), ("TGRAD", 0.03), ("BHT", 100.0), ("TD_BHT", 2000.0)];
+        let logs = [("DEPTH", depths)];
+        let n = 5;
+
+        let grad = ftemp_grad(&ctx_with(n, &logs, &params, &[("OPT_FT", "GRADIENT")]))["FTEMP"].clone();
+        assert!((grad[0] as f64 - 26.7).abs() < 1e-3, "surface must read TSURF, got {}", grad[0]);
+        assert!((grad[2] as f64 - 86.7).abs() < 1e-3, "TSURF + 0.03*2000, got {}", grad[2]);
+        let (d1, d2) = (grad[1] - grad[0], grad[2] - grad[1]);
+        assert!((d1 - d2).abs() < 1e-3, "GRADIENT must be a straight line: {d1} vs {d2}");
+
+        let bht = ftemp_grad(&ctx_with(n, &logs, &params, &[("OPT_FT", "BHT")]))["FTEMP"].clone();
+        assert!((bht[0] as f64 - 26.7).abs() < 1e-3, "both modes start at TSURF, got {}", bht[0]);
+        assert!(
+            (bht[2] as f64 - 100.0).abs() < 1e-3,
+            "BHT mode must land ON the measured BHT at TD_BHT, got {}",
+            bht[2]
+        );
+        assert!((bht[1] as f64 - 63.35).abs() < 1e-3, "half way is the mean, got {}", bht[1]);
+
+        // The control: the modes must actually disagree, or the switch proves nothing.
+        assert!(
+            (bht[2] - grad[2]).abs() > 10.0,
+            "OPT_FT stopped switching — both modes returned {} at TD",
+            grad[2]
+        );
+
+        // Past the measurement the trend simply continues: 26.7 + 73.3*1.5.
+        assert!((bht[3] as f64 - 136.65).abs() < 1e-2, "below TD_BHT it extrapolates, got {}", bht[3]);
+
+        // No depth, no temperature — in either mode.
+        assert!(grad[4].is_nan() && bht[4].is_nan(), "a missing depth must not produce a temperature");
+    }
+
+    /// T-PREP-16 steps 1, 2 and 4: the two combine rules that make a synthetic log usable, and
+    /// the refusal when there is not enough rock to learn from. (Step 3, the masked-washout case,
+    /// lives in `workflow.rs` — the re-blanking happens in the runner, not here.)
+    ///
+    /// A straight line between the predictor and the target is deliberate. KNN cannot be checked
+    /// against a closed form, so the fixture is chosen to make the right answer knowable: a
+    /// prediction that lands near the line is following the data, and one that does not is not.
+    ///
+    /// **FILL_MISSING must return the RAW value bit for bit where the log exists**, not the
+    /// prediction. A synthetic that quietly overwrote good measurements with its own smoothed
+    /// version would look better than the real log — smoother, no noise, no spikes — which is
+    /// exactly why it would never be questioned.
+    ///
+    /// **MAX_RAW is a one-sided rule and the asymmetry is the physics**: a washed-out hole reads
+    /// density LOW because the tool sees mud, never high, so where the prediction exceeds the
+    /// measurement the measurement is the suspect one — and where the measurement is higher it
+    /// stands, whatever the model thinks. A symmetric rule would let the model erase real tight
+    /// streaks, which are exactly the thin beds a synthetic log is worst at reproducing.
+    ///
+    /// **Under ten training samples writes nothing at all.** A five-point KNN fitted on nine
+    /// points is not a model of the formation, it is a model of nine points — and it would
+    /// return confident, plausible numbers across the whole well with no sign of how little it
+    /// was built from.
+    #[test]
+    fn a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward() {
+        // GR 20..115 by 5; DT = 50 + GR. One predictor is enough to make the relation checkable.
+        let gr: Vec<f32> = (0..20).map(|i| 20.0 + i as f32 * 5.0).collect();
+        let dt_true: Vec<f32> = gr.iter().map(|g| 50.0 + g).collect();
+        let opts = [("OPT_COMBINE", "FILL_MISSING"), ("__IN_TARGET", "DT")];
+
+        // A gap in the middle, so the neighbours straddle it rather than only sitting to one side.
+        let mut dt = dt_true.clone();
+        dt[9] = f32::NAN;
+        dt[10] = f32::NAN;
+        let out = log_predict(&ctx_with(
+            20,
+            &[("TARGET", dt.clone()), ("P1", gr.clone())],
+            &[("K", 5.0)],
+            &opts,
+        ));
+        let syn = &out["DT_SYN"];
+
+        for i in 0..20 {
+            if dt[i].is_nan() {
+                continue;
+            }
+            assert_eq!(
+                syn[i], dt[i],
+                "sample {i}: FILL_MISSING must hand back the measurement untouched"
+            );
+        }
+        let (lo, hi) = (dt_true[0], dt_true[19]);
+        for i in [9usize, 10] {
+            let v = syn[i];
+            assert!(!v.is_nan(), "the gap at {i} was not filled");
+            assert!(
+                v >= lo && v <= hi,
+                "sample {i}: {v} is outside the range it was trained on ({lo}..{hi}) — a KNN \
+                 average cannot leave the hull of its neighbours, so this is extrapolated nonsense"
+            );
+            assert!(
+                (v - dt_true[i]).abs() < 10.0,
+                "sample {i}: {v} does not track the relation it was given (true {})",
+                dt_true[i]
+            );
+        }
+
+        // MAX_RAW: one sample reading far too LOW (a washout) and one reading HIGH.
+        let mut dt = dt_true.clone();
+        let (washed, high) = (4usize, 14usize);
+        dt[washed] = 60.0; // true 90 — the hole, not the rock
+        dt[high] = 200.0; // true 140 — high, and therefore trusted
+        let out = log_predict(&ctx_with(
+            20,
+            &[("TARGET", dt.clone()), ("P1", gr.clone())],
+            &[("K", 5.0)],
+            &[("OPT_COMBINE", "MAX_RAW"), ("__IN_TARGET", "DT")],
+        ));
+        let syn = &out["DT_SYN"];
+        assert!(
+            syn[washed] > dt[washed] + 20.0,
+            "the depressed sample was not repaired: {} vs raw {}",
+            syn[washed],
+            dt[washed]
+        );
+        assert!(
+            (syn[washed] - dt_true[washed]).abs() < 15.0,
+            "the repair should land near the trend, got {} for a true {}",
+            syn[washed],
+            dt_true[washed]
+        );
+        assert_eq!(
+            syn[high], dt[high],
+            "a reading ABOVE the prediction must stand — bad hole only pushes the log down, so \
+             the model has no standing to pull a high measurement back to the trend"
+        );
+
+        // Under ten training samples: nothing is written, rather than a confident guess.
+        let out = log_predict(&ctx_with(
+            6,
+            &[
+                ("TARGET", dt_true[..6].to_vec()),
+                ("P1", gr[..6].to_vec()),
+            ],
+            &[("K", 5.0)],
+            &opts,
+        ));
+        assert!(
+            out["DT_SYN"].iter().all(|v| v.is_nan()),
+            "six samples is not a training set — the module must write nothing"
+        );
+    }
+
     #[test]
     fn perm_wyllie_rose_negative_phie_missing_across_all_variants() {
         // Negative PHIE is non-physical. TIMUR's fractional exponent already NaN'd it, but the
@@ -2879,6 +3160,53 @@ mod tests {
         assert!(s["PERM"][0].is_nan());
         let ok = perm_wyllie_rose(&ctx_with(1, &[("PHIE", vec![0.2])], &[("SWE_IRR", 0.2)], &[]));
         assert!(ok["PERM"][0].is_finite() && ok["PERM"][0] > 0.0);
+    }
+
+    /// T-PETRO-14 — each Wyllie-Rose variant must carry its OWN published constants, and two of
+    /// them are deliberately the same equation.
+    ///
+    /// `perm_wyllie_rose_edges` and `..._negative_phie_missing_across_all_variants` already pin the
+    /// guards; what was never checked is that OPT_WR actually selects different physics. A variant
+    /// wired to the wrong constants is the silent kind of wrong — permeability comes back finite,
+    /// positive, correctly shaped against porosity, and an order of magnitude off.
+    ///
+    /// Values hand-derived from PERM = (C·φ^D / Swirr^E)² at the plan's domain-sanity point
+    /// φ = 0.25, Swirr = 0.15, with the constants in the module doc:
+    ///   TIMUR              C=100 D=2.25 E=1 → (100·0.25^2.25 / 0.15)² = 868.06 mD
+    ///   MORRIS_BIGGS_OIL   C=250 D=3    E=1 → (250·0.015625 / 0.15)²  = 678.17 mD
+    ///   MORRIS_BIGGS_GAS   C=79  D=3    E=1 → (79·0.015625  / 0.15)²  =  67.72 mD
+    ///   TIXIER             C=250 D=3    E=1 → same equation as MORRIS_BIGGS_OIL
+    #[test]
+    fn the_wyllie_rose_variants_carry_their_own_constants_and_two_are_one_equation() {
+        let run = |variant: &str| -> f64 {
+            perm_wyllie_rose(&ctx_with(
+                1,
+                &[("PHIE", vec![0.25f32])],
+                &[("SWE_IRR", 0.15)],
+                &[("OPT_WR", variant)],
+            ))["PERM_WR"][0] as f64
+        };
+        let timur = run("TIMUR");
+        let oil = run("MORRIS_BIGGS_OIL");
+        let gas = run("MORRIS_BIGGS_GAS");
+        let tixier = run("TIXIER");
+
+        assert!((timur - 868.06).abs() < 0.5, "TIMUR {timur}");
+        assert!((oil - 678.17).abs() < 0.5, "MORRIS_BIGGS_OIL {oil}");
+        assert!((gas - 67.72).abs() < 0.5, "MORRIS_BIGGS_GAS {gas}");
+
+        // TIXIER is MORRIS_BIGGS_OIL in this port — identical to the last bit, not merely close.
+        // Documented in the module doc; asserted here so a future edit to one must touch both.
+        assert_eq!(oil, tixier, "TIXIER and MORRIS_BIGGS_OIL are the same C/D/E in this port");
+
+        // The gas variant sits a full decade below the oil one — (250/79)² = 10.01 — which is the
+        // whole reason the choice matters. Anything less than a decade means a variant is misread.
+        assert!(oil / gas > 9.9, "gas must be ~1 decade below oil: {oil} / {gas} = {}", oil / gas);
+        assert!(timur > oil, "TIMUR is the highest of the four at this point");
+
+        // An unknown OPT_WR falls back to TIMUR rather than failing. Pinned so the fallback stays
+        // a deliberate choice — a typo in a saved chain must not silently become a different rock.
+        assert_eq!(run("NOT_A_VARIANT"), timur, "an unrecognised variant falls back to TIMUR");
     }
 
     #[test]
@@ -3094,11 +3422,12 @@ mod tests {
         assert!((out["PHIT_DEN"][0] as f64 - (pe + 0.2 * phit_sh)).abs() < 1e-5, "PHIT_DEN");
         assert!((out["PHIE"][0] as f64 - pe).abs() < 1e-5, "unclamped below cap");
 
-        // VSH ≥ 0.95 → shale: PHIE 0, PHIT = PHIT_SH, on both limited and unlimited curves.
+        // VSH ≥ 0.95 → shale: no effective porosity, PHIT = PHIT_SH. The LIMITED curve carries the
+        // floor (finding 16) while the unlimited twin keeps the modelled hard zero.
         // (0.95_f32 rounds to 0.9499999_f64 which is just under the threshold, so use 0.96.)
         for v in [0.96f32, 1.0] {
             let out = phi_den(&ctx_with(1, &[("RHOB", vec![2.4]), ("VSH", vec![v])], &params, &[]));
-            assert_eq!(out["PHIE"][0], 0.0, "shale PHIE=0 at VSH={v}");
+            assert_eq!(out["PHIE"][0], PHIE_FLOOR as f32, "shale PHIE floored at VSH={v}");
             assert_eq!(out["PHIE_DEN"][0], 0.0);
             assert!((out["PHIT"][0] as f64 - phit_sh).abs() < 1e-6, "shale PHIT=PHIT_SH at VSH={v}");
             assert!((out["PHIT_DEN"][0] as f64 - phit_sh).abs() < 1e-6);
@@ -3115,6 +3444,51 @@ mod tests {
         // Missing input propagates to all outputs.
         let out = phi_den(&ctx_with(1, &[("RHOB", vec![f32::NAN]), ("VSH", vec![0.2])], &params, &[]));
         assert!(out["PHIE"][0].is_nan() && out["PHIT_DEN"][0].is_nan());
+    }
+
+    /// A dense stringer must not hand a NEGATIVE porosity to anything downstream — and must still
+    /// be visible as one to anybody asking whether the matrix density is right.
+    ///
+    /// A tight carbonate streak logged against a sandstone matrix reads RHOB above RHO_MA, so the
+    /// density porosity comes out below zero. That is a routine artefact of the matrix choice, not
+    /// a corrupt curve, and nothing downstream treated it as an error: the pay summary sums
+    /// `PHIE·(1−SWE)·h`, so the streak's negative volume was SUBTRACTED from its zone's
+    /// hydrocarbon column (`docs/review_triage.md` finding 16, Jauhar 2026-08-01: *"always limit
+    /// phie to 0.001"*).
+    ///
+    /// The split is the point of the test. `PHIE` is floored, because everything downstream reads
+    /// it as a physical volume. `PHIE_DEN` is the DECLARED unlimited twin and stays negative,
+    /// because the excursion is the evidence for the judgement the curve exists to support —
+    /// clamping both would hide the reason to go and check RHO_MA.
+    #[test]
+    fn a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin() {
+        let params = [
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+        ];
+        // RHOB 2.75 on a 2.645 matrix, clean: pe = (2.645−2.75)/1.645 ≈ −0.0638.
+        let out = phi_den(&ctx_with(1, &[("RHOB", vec![2.75]), ("VSH", vec![0.0])], &params, &[]));
+        assert!(out["PHIE_DEN"][0] < 0.0, "the unlimited twin must keep the artefact visible");
+        assert_eq!(out["PHIE"][0], PHIE_FLOOR as f32, "the limited curve is floored");
+        assert!(out["PHIT"][0] >= 0.0, "and PHIT follows it rather than staying negative");
+
+        // Same rock through the density-neutron route, which is the commoner one.
+        let dn_params = [
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+        ];
+        let dn = phi_dn(&ctx_with(
+            1,
+            &[("RHOB", vec![2.75]), ("NPHI", vec![-0.01]), ("VSH", vec![0.0])],
+            &dn_params,
+            &[],
+        ));
+        assert!(dn["PHIE_DN"][0] < 0.0, "unlimited twin negative here too");
+        assert_eq!(dn["PHIE"][0], PHIE_FLOOR as f32, "and the limited curve floored the same way");
+
+        // The floor must stay far below any porosity cutoff anyone would set, or it would stop a
+        // stringer being subtracted by quietly promoting it into reservoir instead.
+        assert!(PHIE_FLOOR < 0.01, "PHIE_FLOOR {PHIE_FLOOR} is too close to a real cutoff");
     }
 
     #[test]
@@ -3139,7 +3513,9 @@ mod tests {
         let sh = phi_dn(
             &ctx_with(1, &[("RHOB", vec![2.4]), ("NPHI", vec![0.4]), ("VSH", vec![0.97])], &params, &[]),
         );
-        assert_eq!(sh["PHIE"][0], 0.0);
+        // The limited curve carries the PHIE floor (finding 16); PHIT stays the shale's own total.
+        assert_eq!(sh["PHIE"][0], PHIE_FLOOR as f32);
+        assert_eq!(sh["PHIE_DN"][0], 0.0, "the unlimited twin keeps the modelled hard zero");
         assert!((sh["PHIT"][0] as f64 - phit_sh).abs() < 1e-6);
 
         // AVERAGE vs GAS_RMS diverge when PHID and NPHI differ (VSH 0 to isolate the combination).
@@ -3185,6 +3561,150 @@ mod tests {
         assert!((vsh[1] - 0.5).abs() < 1e-5);
         assert!((vsh[2] - 1.0).abs() < 1e-5); // limited from 1.3
         assert!((out["VSH_GR"][2] - 1.3).abs() < 1e-5); // unlimited
+    }
+
+    /// The dropdown LABEL and the arithmetic must agree about which Larionov is which.
+    ///
+    /// The test above ties the code to the closed forms; this ties the closed forms to what the
+    /// user is told. Between them the loop is closed, and it needs to be: the manual plan had the
+    /// two rock-age attributions the wrong way round, and the dropdown was the only other place a
+    /// user could learn which is which (`docs/review_triage.md` finding 21). A label claiming
+    /// Tertiary above a coefficient set published for Mesozoic rock is the same defect moved one
+    /// layer out — and just as invisible, because the curve looks entirely normal.
+    #[test]
+    fn the_vsh_gr_labels_agree_with_the_coefficients_they_describe() {
+        let spec = list_modules().into_iter().find(|m| m.name == "vsh_gr").unwrap();
+        let arg = spec.args.iter().find(|a| a.name == "OPT_GR").unwrap();
+        assert_eq!(arg.choices.len(), arg.choice_labels.len(), "every choice needs a label, or none do");
+
+        // Every label leads with its own id. The id is what `params_json` stores, so it is what a
+        // user reading a saved run has in front of them — a label that replaced it would leave
+        // them unable to match the two.
+        for (id, l) in arg.choices.iter().zip(&arg.choice_labels) {
+            assert!(l.starts_with(id), "{l} must lead with {id}");
+        }
+        let label = |id: &str| -> &str {
+            let i = arg.choices.iter().position(|c| c == id).expect(id);
+            arg.choice_labels[i].as_str()
+        };
+
+        // At mid-range IGR the older-rock set is the STEEPER one. That is the fact the two labels
+        // encode, and getting it backwards is worth more than half again in shale volume.
+        let v = 0.5f64;
+        let older = 0.33 * (2.0f64.powf(2.0 * v) - 1.0); // 0.330
+        let tertiary = 0.083 * (2.0f64.powf(3.7 * v) - 1.0); // 0.216
+        assert!(older > tertiary, "sanity: {older} vs {tertiary}");
+        assert!(label("LARINOV1").contains("Mesozoic and older"), "{}", label("LARINOV1"));
+        assert!(label("LARINOV2").contains("Tertiary"), "{}", label("LARINOV2"));
+        assert!(!label("LARINOV1").contains("Tertiary"), "both must not claim Tertiary");
+
+        // LARINOV3 claims no rock age, because nothing in the repo cites a source for that form.
+        // Inventing an attribution to make the dropdown look complete is the move the provenance
+        // rules forbid — it would read exactly as authoritative as the two that are real.
+        assert!(
+            !label("LARINOV3").contains("Mesozoic") && !label("LARINOV3").contains("Tertiary"),
+            "{}",
+            label("LARINOV3")
+        );
+        assert!(label("LARINOV3").contains("0.127"), "it states its coefficient instead: {}", label("LARINOV3"));
+    }
+
+    /// T-PETRO-02. Every `OPT_GR` transform at the same mid-range gamma ray, against the
+    /// published coefficient it implements. `vsh_gr_linear_and_limits` above covers LINEAR only,
+    /// and a wrong nonlinear transform is the archetype of what this pile exists to catch: VSH
+    /// comes out plausible at both endpoints and wrong through the whole shaly section, which is
+    /// exactly where the net-pay cutoff sits.
+    ///
+    /// The expected values are the closed forms in `vsh_gr` (`modules.rs:337-355`), which carry
+    /// the standard published coefficients and are inherited from Jauhar's own `vsh_gr.lls` —
+    /// they are re-derived here by hand rather than copied from a run, so this is a check and
+    /// not a snapshot.
+    ///
+    /// GR_MA 20 / GR_SH 120, so GR 70 is IGR = 0.5 exactly.
+    #[test]
+    fn every_vsh_gr_transform_lands_on_its_published_coefficient() {
+        let vsh_at = |method: &str, gr: f32| -> (f32, f32) {
+            let ctx = ctx_with(
+                1,
+                &[("GR", vec![gr])],
+                &[("GR_MA", 20.0), ("GR_SH", 120.0)],
+                &[("OPT_GR", method)],
+            );
+            let out = vsh_gr(&ctx);
+            (out["VSH"][0], out["VSH_GR"][0])
+        };
+
+        // At IGR = 0.5. Each expectation is the transform evaluated by hand.
+        let expected: [(&str, f64); 8] = [
+            ("LINEAR", 0.5),
+            // Stieber (1970) and its two variants: IGR / (k - (k-1)*IGR).
+            ("STIEBER1", 0.5 / (3.0 - 2.0 * 0.5)),           // 0.250000
+            ("STIEBER2", 0.5 / (2.0 - 0.5)),                 // 0.333333
+            ("STIEBER3", 0.5 / (4.0 - 3.0 * 0.5)),           // 0.200000
+            // Larionov (1969), OLDER rocks (Mesozoic and older): 0.33*(2^(2*IGR) - 1).
+            ("LARINOV1", 0.33 * (2.0f64.powf(1.0) - 1.0)),   // 0.330000
+            // Larionov (1969), TERTIARY / unconsolidated: 0.083*(2^(3.7*IGR) - 1).
+            ("LARINOV2", 0.083 * (2.0f64.powf(1.85) - 1.0)), // 0.216248
+            ("LARINOV3", 0.127 * (3.15f64.powf(1.0) - 1.0)), // 0.273050
+            // Clavier (1971): 1.7 - sqrt(3.38 - (IGR + 0.7)^2).
+            ("CLAVIER", 1.7 - (3.38f64 - 1.2f64.powi(2)).sqrt()), // 0.307161
+        ];
+        for (method, want) in expected {
+            let (vsh, _) = vsh_at(method, 70.0);
+            assert!(
+                (vsh as f64 - want).abs() < 1e-5,
+                "{method} at IGR 0.5 gave {vsh}, expected {want:.6}"
+            );
+        }
+
+        // The domain claim the plan makes: every correction is concave, so at intermediate GR
+        // every nonlinear form reads BELOW the linear one. A transform that came out above it
+        // would be overstating shale in exactly the interval the cutoff decides.
+        let linear = vsh_at("LINEAR", 70.0).0;
+        for (method, _) in expected.iter().skip(1) {
+            assert!(vsh_at(method, 70.0).0 < linear, "{method} must read below LINEAR at IGR 0.5");
+        }
+
+        // A clean matrix reads zero on every transform — including Clavier, where 1.7 - sqrt(2.89)
+        // cancels exactly rather than approximately.
+        for (method, _) in expected {
+            let (vsh, raw) = vsh_at(method, 20.0);
+            assert!(vsh.abs() < 1e-6, "{method} at IGR 0 gave {vsh}");
+            assert!(raw.abs() < 1e-6, "{method} at IGR 0 gave raw {raw}");
+        }
+
+        // The top endpoint is NOT 1.0 for the Larionov forms, and that is the published
+        // coefficients rather than a defect: they are empirical fits, never normalised to close
+        // at pure shale. LARINOV1 stops at 0.99, LARINOV2 at 0.9957, and LARINOV3 OVERSHOOTS to
+        // 1.133. VSH_GR keeps the raw number and VSH clamps it, which is the whole reason the
+        // module emits both.
+        for (method, want_raw) in [("LARINOV1", 0.99f64), ("LARINOV2", 0.995671), ("LARINOV3", 1.133155)] {
+            let (vsh, raw) = vsh_at(method, 120.0);
+            assert!((raw as f64 - want_raw).abs() < 1e-4, "{method} raw at IGR 1 gave {raw}");
+            assert!((0.0..=1.0).contains(&vsh), "{method} limited VSH left 0..1: {vsh}");
+        }
+        for method in ["LINEAR", "STIEBER1", "STIEBER2", "STIEBER3", "CLAVIER"] {
+            let (_, raw) = vsh_at(method, 120.0);
+            assert!((raw - 1.0).abs() < 1e-5, "{method} does close at 1.0 at pure shale: {raw}");
+        }
+
+        // Past pure shale every limited VSH stays inside 0..1 while the raw curve runs on.
+        for (method, _) in expected {
+            let (vsh, raw) = vsh_at(method, 200.0);
+            assert!((0.0..=1.0).contains(&vsh), "{method} limited VSH left 0..1 above GR_SH: {vsh}");
+            assert!(raw > 1.0 || method == "LARINOV1", "{method} raw {raw}");
+        }
+
+        // Monotone in GR: more gamma ray is never less shale. A transform with a sign or
+        // bracket slip can still hit the endpoints and fail only in between.
+        for (method, _) in expected {
+            let mut prev = f32::NEG_INFINITY;
+            for gr in [20.0f32, 40.0, 60.0, 80.0, 100.0, 120.0] {
+                let v = vsh_at(method, gr).1;
+                assert!(v > prev - 1e-6, "{method} is not monotone at GR {gr}: {v} after {prev}");
+                prev = v;
+            }
+        }
     }
 
     #[test]
@@ -3399,6 +3919,72 @@ mod tests {
         let s = &out["RES_RUN1_SPL"];
         assert_eq!(s[2], 1.0, "above the splice depth the top curve wins");
         assert_eq!(s[3], 2.0, "at/below the splice depth the bottom curve wins");
+    }
+
+    /// T-PREP-18. `splice_switches_at_depth` above pins the handover itself. The plan promises
+    /// something further: where the CONTRIBUTING run is missing, the output is missing — no fill
+    /// from the other run.
+    ///
+    /// That is worth a test even though `splice` has no fallback branch to get wrong, because
+    /// the tempting "helpful" rewrite is the wrong one. A gap in the top run above the splice
+    /// depth is rock that run did not log. Reaching down to the bottom run to fill it would be a
+    /// SECOND splice, at a depth the user never chose and cannot see on the log — and the joined
+    /// curve would look continuous, which is precisely why nothing downstream would catch it.
+    ///
+    /// Four quadrants, because only two of them are load-bearing: a gap in the run that is
+    /// contributing must survive, and a gap in the run that is NOT contributing must be
+    /// irrelevant. Both directions are checked, and in both the other run holds a real value at
+    /// that depth — a gap opposite a gap would prove nothing.
+    #[test]
+    fn a_gap_in_the_contributing_run_stays_a_gap() {
+        // 1000..1005 at 1 m, splice at 1003 → indices 0,1,2 take TOP; 3,4,5 take BOT.
+        let depths: Vec<f32> = (0..6).map(|i| 1000.0 + i as f32).collect();
+        //                    1000  1001(hole)  1002  1003  1004  1005
+        let top = vec![1.0, f32::NAN, 1.0, 1.0, 1.0, 1.0];
+        let bot = vec![2.0, 2.0, f32::NAN, 2.0, f32::NAN, 2.0];
+        let ctx = ctx_with(
+            6,
+            &[("DEPTH", depths), ("TOP_CURVE", top), ("BOT_CURVE", bot)],
+            &[("SPLICE_DEPTH", 1003.0)],
+            &[("__IN_TOP_CURVE", "RES_RUN1")],
+        );
+        let s = &splice(&ctx)["RES_RUN1_SPL"];
+
+        assert!(
+            s[1].is_nan(),
+            "the top run has no value at 1001 and the bottom run's 2.0 must NOT be borrowed to fill it"
+        );
+        assert_eq!(s[2], 1.0, "the bottom run's gap at 1002 is above the splice — it contributes nothing there");
+        assert!(
+            s[4].is_nan(),
+            "the bottom run has no value at 1004 and the top run's 1.0 must NOT be borrowed to fill it"
+        );
+        assert_eq!(s[0], 1.0);
+        assert_eq!(s[3], 2.0, "the sample exactly ON the splice depth belongs to the bottom run");
+        assert_eq!(s[5], 2.0);
+    }
+
+    /// A sample with no depth cannot be placed on either side of the splice, so it is missing —
+    /// never assigned to a side by default. Also pins the fallback output name: with no resolved
+    /// input mnemonic to build `<top>_SPL` from, the curve is plain `SPLICED` rather than a name
+    /// with an empty prefix (`_SPL`), which would collide across runs.
+    #[test]
+    fn a_sample_with_no_depth_is_not_assigned_to_a_side() {
+        let ctx = ctx_with(
+            3,
+            &[
+                ("DEPTH", vec![1000.0, f32::NAN, 1010.0]),
+                ("TOP_CURVE", vec![1.0, 1.0, 1.0]),
+                ("BOT_CURVE", vec![2.0, 2.0, 2.0]),
+            ],
+            &[("SPLICE_DEPTH", 1005.0)],
+            &[],
+        );
+        let out = splice(&ctx);
+        let s = &out["SPLICED"];
+        assert_eq!(s[0], 1.0);
+        assert!(s[1].is_nan(), "a sample with no depth is on neither side of the splice");
+        assert_eq!(s[2], 2.0);
     }
 
     #[test]
@@ -4029,6 +4615,75 @@ mod tests {
         );
         let out = gascorr(&ctx).unwrap();
         assert!(out["RHOB_GC"][0].is_nan() && out["PHIT_GC"][0].is_nan());
+    }
+
+    /// T-PREP-13, the half `gascorr_guards_stay_missing_or_error` leaves open: that refusal
+    /// only asserts `is_err()`. Two things about the message itself carry the weight.
+    ///
+    /// **It must name the curve the USER picked, not the slot.** The gate flag defaults to
+    /// XOVER_FLAG but any flag can be chosen, and someone sent to look at "GAS_FLAG" when they
+    /// selected something else is being sent to a curve that does not exist in their project.
+    /// They will conclude the message is wrong before they conclude their flag is empty.
+    ///
+    /// **The remedy the message offers must actually work.** It tells the user to set
+    /// OPT_GATE = EVERYWHERE, so that path is exercised with the same empty flag: it must
+    /// correct rather than refuse. A refusal that recommends a fix nobody tested is worse than
+    /// a bare refusal — it spends the user's trust on advice that sends them in a circle.
+    #[test]
+    fn the_empty_flag_refusal_names_the_users_curve_and_its_remedy_works() {
+        let params: &[(&str, f64)] = &[
+            ("RHO_MA", 2.65),
+            ("RHO_FL", 1.0),
+            ("SG_GAS", 0.65),
+            ("A", 1.0),
+            ("M", 2.0),
+            ("N", 2.0),
+            ("RW", 0.1),
+        ];
+        let logs = [
+            ("RHOB", vec![2.0f32]),
+            ("RT", vec![6.9444f32]),
+            ("FTEMP", vec![93.9f32]),
+            ("FPRESS", vec![2743.34f32]),
+            ("GAS_FLAG", vec![f32::NAN]),
+        ];
+
+        let err = gascorr(&ctx_with(
+            1,
+            &logs,
+            params,
+            &[("OPT_GATE", "FLAGGED"), ("OPT_RW", "CONSTANT"), ("__IN_GAS_FLAG", "MY_GAS_ZONES")],
+        ))
+        .expect_err("an empty flag under FLAGGED must refuse");
+        assert!(
+            err.contains("MY_GAS_ZONES"),
+            "the refusal must name the flag the user chose, got: {err}"
+        );
+        assert!(err.contains("EVERYWHERE"), "the refusal must state the remedy, got: {err}");
+
+        // Nothing chosen — the message falls back to the slot name rather than an empty quote.
+        let err = gascorr(&ctx_with(
+            1,
+            &logs,
+            params,
+            &[("OPT_GATE", "FLAGGED"), ("OPT_RW", "CONSTANT")],
+        ))
+        .expect_err("still a refusal with no chosen mnemonic");
+        assert!(err.contains("GAS_FLAG"), "no chosen curve must not leave a blank name: {err}");
+
+        // The remedy, on the same empty flag: EVERYWHERE corrects instead of refusing.
+        let out = gascorr(&ctx_with(
+            1,
+            &logs,
+            params,
+            &[("OPT_GATE", "EVERYWHERE"), ("OPT_RW", "CONSTANT"), ("__IN_GAS_FLAG", "MY_GAS_ZONES")],
+        ))
+        .expect("EVERYWHERE is the documented escape hatch — it must not refuse too");
+        assert!(
+            out["RHOB_GC"][0] > 2.0,
+            "the remedy must actually correct, got {}",
+            out["RHOB_GC"][0]
+        );
     }
 
     /// The shipped reference pair must stay GENERIC. Until 2026-07-31 it was one operator's

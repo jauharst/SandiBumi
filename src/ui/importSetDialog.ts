@@ -71,12 +71,31 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
   return new Promise((resolve) => {
     const wrap = document.createElement("div");
 
-    const summary = document.createElement("p");
-    summary.className = "form-hint";
-    const names = paths.slice(0, 3).map((p) => (p.replace(/\\/g, "/").split("/").pop() ?? p));
-    summary.textContent =
-      `${paths.length} file(s): ${names.join(", ")}${paths.length > 3 ? `, +${paths.length - 3} more` : ""}`;
-    wrap.appendChild(summary);
+    // Organic design 1e: the picked delivery as a file rail rather than one
+    // truncated line — the user is naming what these files ARE, so they should
+    // be able to see them. Filenames are user data: textContent + no-i18n.
+    const rail = document.createElement("div");
+    rail.className = "import-file-list";
+    rail.setAttribute("data-no-i18n", "");
+    const railHead = document.createElement("div");
+    railHead.className = "import-file-count";
+    railHead.textContent = `${paths.length} file${paths.length === 1 ? "" : "s"} picked`;
+    rail.appendChild(railHead);
+    const shown = paths.slice(0, 6);
+    for (const p of shown) {
+      const row = document.createElement("div");
+      row.className = "import-file-row";
+      row.textContent = p.replace(/\\/g, "/").split("/").pop() ?? p;
+      row.title = p;
+      rail.appendChild(row);
+    }
+    if (paths.length > shown.length) {
+      const more = document.createElement("div");
+      more.className = "import-file-more";
+      more.textContent = `+${paths.length - shown.length} more`;
+      rail.appendChild(more);
+    }
+    wrap.appendChild(rail);
 
     const setInput = document.createElement("input");
     setInput.type = "text";
@@ -118,6 +137,14 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
       "Off: every file creates its own well record, even when the name already exists. " +
       "A name matching several existing wells is always ambiguous — those import as separate records and say so.";
     wrap.appendChild(attachHint);
+
+    // The mock's footer line, and a true statement of the store's rules: sets
+    // auto-suffix (never overwrite) and RAW keeps absolute read priority.
+    const provNote = document.createElement("div");
+    provNote.className = "import-prov-note";
+    provNote.textContent =
+      "Every import is versioned with provenance — re-importing never overwrites RAW.";
+    wrap.appendChild(provNote);
 
     const actions = document.createElement("div");
     actions.className = "form-actions";

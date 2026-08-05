@@ -1265,6 +1265,83 @@ mod tests {
         assert!(out["SWE_RTC"][0] <= out["SWT_RTC"][0], "SWE <= SWT");
     }
 
+    /// T-ADV-10 — the SSPW fallback, for **sw_imts** and applied per SAMPLE.
+    ///
+    /// `rtc_falls_back_to_sspw_curve_names` covers sw_rtc on a wholly SSPW well. Two things it
+    /// does not: sw_imts, which the manual test asks to repeat in its own pane, and the fact that
+    /// `prefer` chooses per SAMPLE rather than per curve. The per-sample part is what matters on
+    /// a real well: a section reprocessed through SSPW leaves PHIT_SSC populated above and below
+    /// it and PHIT_SSPW only across the reprocessed interval, and a curve-level fallback would
+    /// either ignore the new work or discard the old.
+    ///
+    /// Three samples, one of each case, in one run:
+    ///   0 — SSC names only          → the primary is used
+    ///   1 — SSPW names only         → the fallback is used
+    ///   2 — BOTH present, differing → the primary must win
+    #[test]
+    fn the_sspw_fallback_covers_imts_and_chooses_sample_by_sample() {
+        let nan = f32::NAN;
+
+        // `prefer` itself, stated directly — the three cases above plus "neither" staying MISSING.
+        let picked = prefer(&[0.20, nan, 0.20, nan], &[0.30, 0.30, 0.30, nan]);
+        assert_eq!(picked[0], 0.20, "the primary wins where it exists");
+        assert_eq!(picked[1], 0.30, "the fallback fills where the primary is missing");
+        assert_eq!(picked[2], 0.20, "the primary still wins when both are present");
+        assert!(picked[3].is_nan(), "with neither curve the sample stays MISSING, never zero");
+
+        // sw_imts through the module, on the mixed well the manual test describes.
+        let spec = sw_imts_spec();
+        let ctx = ctx_with(
+            vec![
+                ("RT", vec![4.0, 4.0, 4.0]),
+                ("PHIT", vec![0.25, nan, 0.25]),
+                ("PHIT_SSPW", vec![nan, 0.25, 0.10]),
+                ("CBW", vec![0.03, nan, 0.03]),
+                ("CBW_SSPW", vec![nan, 0.03, 0.03]),
+                ("VKAOL", vec![0.10, 0.10, 0.10]),
+                ("VILL", vec![0.05, 0.05, 0.05]),
+            ],
+            &spec,
+            3,
+        );
+        let out = sw_imts(&ctx);
+        for i in 0..3 {
+            assert!(out["SWT_IMTS"][i].is_finite(), "sample {i}: SWT_IMTS must be computed, got NaN");
+            assert!(out["SWE_IMTS"][i] <= out["SWT_IMTS"][i], "sample {i}: SWE <= SWT");
+        }
+        // Samples 0 and 1 are the same rock reached by the two different curve names, so the
+        // fallback must land on the same answer rather than merely on *an* answer.
+        assert!(
+            (out["SWT_IMTS"][0] - out["SWT_IMTS"][1]).abs() < 1e-5,
+            "the SSPW fallback must reproduce the SSC result: {} vs {}",
+            out["SWT_IMTS"][0],
+            out["SWT_IMTS"][1]
+        );
+        // Sample 2 carries both, with a much tighter SSPW porosity. If the fallback ever took
+        // precedence this would move — 0.10 v/v porosity cannot give the same Sw as 0.25.
+        assert!(
+            (out["SWT_IMTS"][2] - out["SWT_IMTS"][0]).abs() < 1e-5,
+            "where both exist the SSC curve must win: {} vs {}",
+            out["SWT_IMTS"][2],
+            out["SWT_IMTS"][0]
+        );
+
+        // Control: an SSC-only well is byte-for-byte what it was before the fallback existed, so
+        // this cannot have changed any existing interpretation.
+        let ssc_only = sw_imts(&ctx_with(
+            vec![
+                ("RT", vec![4.0]),
+                ("PHIT", vec![0.25]),
+                ("CBW", vec![0.03]),
+                ("VKAOL", vec![0.10]),
+                ("VILL", vec![0.05]),
+            ],
+            &spec,
+            1,
+        ));
+        assert_eq!(ssc_only["SWT_IMTS"][0], out["SWT_IMTS"][0]);
+    }
+
     #[test]
     fn rtc_with_no_excess_terms_matches_archie() {
         let spec = sw_rtc_spec();

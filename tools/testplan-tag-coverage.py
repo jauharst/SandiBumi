@@ -1,0 +1,227 @@
+"""Tag every test in docs/manual_test_plan.md with what automation already covers.
+
+Each test's tag is derived from its OWN **Automated coverage** line — the per-test annotation
+written when a Rust test or an end-to-end spec was added — so the tag can never claim coverage
+that is not named somewhere in the file. There is no list of ids in this script to keep in sync.
+
+    [YOURS]           no Automated coverage line at all
+    [PART-AUTOMATED]  end-to-end, or pinned-with-a-residual
+    [GATE-PINNED]     pinned
+
+It also rewrites the "Start here" index. Idempotent: re-running strips the old tags and the old
+index first, so this is the one command to run after adding a test or an Automated coverage line.
+
+    py -3 tools/testplan-tag-coverage.py
+    py -3 tools/testplan-to-xlsx.py        # then reproject, so the Coverage column agrees
+
+The file is CRLF and full of em dashes, arrows and Greek letters: it is read and written with an
+explicit encoding and newline='' rather than round-tripped through a shell, which mangles both.
+"""
+
+import io
+import re
+import sys
+from collections import OrderedDict, defaultdict
+from pathlib import Path
+
+HEAD = re.compile(r"^### (T-[A-Za-z]+-\d+)\s*[—-]\s*(.*)$")
+SECT = re.compile(r"^# Section (\S+)")
+COV = re.compile(r"\*\*Automated coverage([^:]*):\*\*")
+TAG = re.compile(r"\s+\[(YOURS|PART-AUTOMATED|GATE-PINNED)\]\s*$")
+DONE = re.compile(r"^- \[[xX]\] Pass\s*$")
+
+YOURS, PART, PINNED = "YOURS", "PART-AUTOMATED", "GATE-PINNED"
+INDEX_HEAD = "## Start here — what is still yours"
+
+# Two tests are driven by a spec that never got an Automated coverage line written into the
+# plan. Kept here rather than silently tagged, so the exception is visible and can be deleted
+# the moment those lines exist.  (Both DO have lines as of 2026-08-05 — this is now empty.)
+FORCED = {}
+
+NAMES = {
+    "SHELL": "Shell & project lifecycle",
+    "IMP": "Data import & export",
+    "WELL": "Wells, groups, tops & zones",
+    "PREP": "Prep & conditioning modules",
+    "PETRO": "Core petrophysics modules",
+    "ADV": "Advance tab",
+    "RT": "Rock typing, HFU, Pc, SHF, facies",
+    "BATCH": "Batch & field-scale tools",
+    "MLEQ": "ML, equations & curve management",
+    "PLOT": "Plots, viewers & curve editing",
+    "REP": "Reporting & database access",
+    "AUX": "Cross-cutting & auxiliary",
+    "INT": "End-to-end integration",
+    "SHIP": "Shipping checks",
+}
+
+
+def classify(lines):
+    """id -> (tag, section, already-marked-pass), in document order."""
+    kind, section, passed = OrderedDict(), {}, set()
+    cur, sec = None, ""
+    for ln in lines:
+        ms = SECT.match(ln)
+        if ms:
+            sec = ms.group(1)
+            continue
+        mh = HEAD.match(ln)
+        if mh:
+            cur = mh.group(1)
+            section[cur], kind[cur] = sec, YOURS
+            continue
+        if cur is None:
+            continue
+        mc = COV.search(ln)
+        if mc:
+            k = mc.group(1)
+            if "end-to-end" in k or "residual" in k or "caveat" in k:
+                kind[cur] = PART
+            elif "pinned" in k:
+                kind[cur] = PINNED
+            # "none, and there will not be any" leaves it YOURS, which is the truth
+        if DONE.match(ln):
+            passed.add(cur)
+    for tid, tag in FORCED.items():
+        if tid in kind:
+            kind[tid] = tag
+    return kind, section, passed
+
+
+def runs(ids):
+    """T-PREP-02/03/04 -> T-PREP-02-04.
+
+    Grouped by ID PREFIX, not by section banner: section INT carries both T-INT-* and
+    T-PERF-*, and folding those into one range would name tests that do not exist.
+    """
+    if not ids:
+        return "-"
+    per = defaultdict(list)
+    for i in ids:
+        pre, num = i.rsplit("-", 1)
+        per[pre].append(int(num))
+    chunks = []
+    for pre in sorted(per):
+        nums = sorted(per[pre])
+        groups, start, prev = [], nums[0], nums[0]
+        for n in nums[1:]:
+            if n == prev + 1:
+                prev = n
+                continue
+            groups.append((start, prev))
+            start = prev = n
+        groups.append((start, prev))
+        chunks.append(pre + "-" + ", ".join(
+            "%02d" % a if a == b else "%02d-%02d" % (a, b) for a, b in groups))
+    return "; ".join(chunks)
+
+
+def index_block(kind, section, passed):
+    by_sec = defaultdict(lambda: defaultdict(list))
+    for tid, tag in kind.items():
+        by_sec[section[tid]]["done" if tid in passed else tag].append(tid)
+    order = list(NAMES)
+    seen = [s for s in order if s in by_sec] + [s for s in by_sec if s not in order]
+
+    n = defaultdict(int)
+    rows = []
+    for s in seen:
+        d = by_sec[s]
+        y, p, g, dn = len(d[YOURS]), len(d[PART]), len(d[PINNED]), len(d["done"])
+        n["y"] += y
+        n["p"] += p
+        n["g"] += g
+        n["d"] += dn
+        rows.append("| %s — %s | **%d** | %d | %d | %d | %d |"
+                    % (s, NAMES.get(s, s), y, p, g, dn, y + p + g + dn))
+
+    B = [
+        INDEX_HEAD + " (regenerated by `tools/testplan-tag-coverage.py`)",
+        "",
+        "Every test heading carries a tag saying what automation already covers, so you can scan",
+        "the file and skip what is checked. Three tags, and they are a priority order:",
+        "",
+        "- **`[YOURS]`** — nothing automated touches this. **Start here.** Either no test could",
+        "  reach it (it is a judgement about whether a picture looks right, or it needs your real",
+        "  field data), or one has not been written yet.",
+        "- **`[PART-AUTOMATED]`** — a test drives part of it against the built app, or pins most",
+        "  of the arithmetic. **The part that is still yours is named in the test's own Automated",
+        "  coverage line** — read that line and check only what it says is not covered.",
+        "- **`[GATE-PINNED]`** — the numbers are checked on every run of `tools\\check.ps1`. What a",
+        "  Rust test cannot prove is that the running app puts the answer on screen where you can",
+        "  see it, so a quick look is still worth something — but it is the lowest priority here.",
+        "",
+        "**A tag is never a pass.** It says a machine checked something, not that the tool is the",
+        "one you would reach for. Your tick is the only thing that says that.",
+        "",
+        # "Already passed", not "already marked": only a Pass leaves the queue. A Fail or a
+        # Blocked is open work, so it stays counted under its coverage tag — which is why the
+        # IMP row shows six still-yours while seven of its tests carry one of your marks.
+        "| Section | Still yours | Part-automated | Gate-pinned | Already passed | Total |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    B += rows
+    B.append("| | **%d** | **%d** | **%d** | **%d** | **%d** |"
+             % (n["y"], n["p"], n["g"], n["d"], n["y"] + n["p"] + n["g"] + n["d"]))
+    B += [
+        "",
+        "### The `[YOURS]` list, section by section",
+        "",
+        "These %d are the ones to work through first. Nothing in the repo checks any of them."
+        % n["y"],
+        "",
+    ]
+    for s in seen:
+        ids = by_sec[s][YOURS]
+        if ids:
+            B.append("- **%s** (%d) — %s" % (s, len(ids), runs(ids)))
+    B += [
+        "",
+        "If you are working in `manual_test_plan.xlsx` instead, the **Coverage** column carries the",
+        "same three values — filter it to `YOURS` and the sheet shows the work queue. That filter",
+        "returns **%d**, not %d: the tag describes coverage and stays on a test after you mark it,"
+        % (sum(1 for t in kind if kind[t] == YOURS), n["y"]),
+        "and the difference is tests you have already passed. The Summary sheet's **Yours left**",
+        "column is close to this table but not identical — it counts a `YOURS` row as left when",
+        "its Result is blank, so a test you marked **Fail** leaves that count while staying in the",
+        "table's Still-yours column. Both readings are right; a Fail is open work, not a queue.",
+        "",
+    ]
+    return B
+
+
+def main(md_path: Path):
+    src = io.open(md_path, encoding="utf-8", newline="").read()
+    lines = src.split("\r\n")
+    kind, section, passed = classify(lines)
+    if len(kind) != 250:
+        print("WARNING: found %d tests, expected 250" % len(kind))
+
+    lines = [("%s  [%s]" % (TAG.sub("", ln).rstrip(), kind[HEAD.match(ln).group(1)])
+              if HEAD.match(ln) else ln) for ln in lines]
+
+    block = index_block(kind, section, passed)
+    # Everything the generator owns runs from its heading to the first section banner; the
+    # hand-written "What you have already marked" table lives inside that span, so it is
+    # preserved rather than regenerated.
+    start = next((i for i, ln in enumerate(lines) if ln.startswith(INDEX_HEAD)), None)
+    first_sec = next(i for i, ln in enumerate(lines) if SECT.match(ln))
+    if start is None:
+        lines[first_sec:first_sec] = block + ["---", ""]
+    else:
+        keep_at = next((i for i in range(start, first_sec)
+                        if lines[i].startswith("### What you have already marked")), first_sec)
+        lines[start:keep_at] = block
+
+    io.open(md_path, "w", encoding="utf-8", newline="").write("\r\n".join(lines))
+    tally = defaultdict(int)
+    for t in kind.values():
+        tally[t] += 1
+    print("tagged %d tests: %s (%d already marked Pass)" % (
+        len(kind), ", ".join("%s %d" % (k, tally[k]) for k in (YOURS, PART, PINNED)),
+        len(passed)))
+
+
+if __name__ == "__main__":
+    root = Path(__file__).resolve().parent.parent
+    main(Path(sys.argv[1]) if len(sys.argv) > 1 else root / "docs" / "manual_test_plan.md")
