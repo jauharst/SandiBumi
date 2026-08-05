@@ -3064,6 +3064,169 @@ in the BRAND's own colours — a launch screen that waits on an asset is the one
 never fail to appear, and a client skin must not re-roll the product's identity (the
 brand-is-not-accent rule).
 
+## Intake, Statistics, Condition, Frame and Reframe (2026-08-05)
+
+Three tool families Jauhar asked for from Geolog screenshots — a table importer, a statistics list,
+a log-edit and sampling list — delivered under our own names, plus the log-set freedom he asked for
+in the same breath. The plan and every decision are in `docs/plan_data_tools.md`; this records only
+the contracts a future session must not break.
+
+**`condition.rs` (Condition) and `frame.rs` (Frame) are MODULES, not a bespoke editor.** A Rust fn
+plus a manifest buys multi-well rayon-parallel runs, zone-overridable parameters, chaining, the
+universal mask, log-set versioning and an auto-generated dialog. `curve_edit.rs` remains the
+interactive one-interval path. Four family rules: **a window is a THICKNESS, never a sample count**
+(a sample window silently changes how much rock it covers when a curve is resampled); **nothing
+invents a sample except Fill Gaps, which flags every one**; **the output is never the input's own
+mnemonic**; **a parameter that cannot have a generic value has no default** (`param_open`).
+
+**The Hampel filter's textbook form fails on the easiest case.** One spike among identical
+neighbours makes the MAD exactly zero, so `|v − m| > K·0` is false and the filter finds nothing on
+a flat curve with an obvious spike. `window_spread` falls back to the mean absolute deviation, and
+`MIN_HAMPEL_SAMPLES = 5` refuses a window too narrow to measure a spread against. The control test
+(a constant window must reject NOTHING) is what stops the fall-back becoming a spike detector that
+fires everywhere.
+
+**Upscaling permeability arithmetically gives a rock that does not exist**, and it is the one of
+the three means that always reads highest, so the error never looks like a problem: 1000 mD and
+0.01 mD are 500 mD arithmetically, 3.16 geometrically, 0.02 harmonically. `frame::block`'s
+`OPT_STAT` and `reframe`'s averaging both offer all three and the docs name the case for each;
+MEAN stays the default only because it is right for porosity and every volume fraction.
+Statistics' Curve Summary reports all three SIDE BY SIDE rather than as a setting — showing one is
+how a mean permeability gets quoted arithmetically — and withholds the two log-scale means
+entirely where any sample is non-positive, rather than computing them over the positive subset and
+putting a statistic about a different set of samples in the same row.
+
+### Every output name is decided in ONE place
+
+`ArgSpec.default` on a **LogOut** is the default NAME (`log_out_as("SYN", "{TARGET}_SYN", …)`), the
+exact parallel of its meaning on a LogIn. `workflow::resolve_output_names` expands the pattern,
+applies any `__OUT_<declared>` rename, and validates. **A module returns its DECLARED key and never
+builds a name of its own** — pinned by
+`every_module_returns_the_output_keys_its_manifest_declares`, which drives the whole catalog
+through one synthetic frame.
+
+Five modules used to `format!` their own names, so the manifest described a curve the run did not
+write: a dialog reading "Outputs: SYN" was untrue, and offering a rename would have meant a second
+copy of each module's naming rule. **The shadowing refusal moved here with it** — it lived in
+`condition.rs` and again in `frame.rs`, and the other forty modules had none, so a rename could
+have put a computed curve on `GR` and produced one nothing can read. `equations::STANDARD_COLUMNS`
+is now the single list. Two outputs resolving to one name are refused too: which survived would
+otherwise depend on hash order.
+
+The module pane's **Output curves** card is a row per declared output; the workflow builder has the
+same boxes in its per-step editor and as `→ NAME` columns in the grid. **No Set-all on an output
+name** — two steps writing their VSH under one name is the collision above. `OUT_PREFIX` composes
+on top (renames first, then the prefix) and **Monte Carlo refuses either form by name**, because
+its plan builder resolves cutoffs from the declared LogOut names and would otherwise return
+plausible percentiles computed from nothing.
+
+### A log set can carry its own sampling (`reframe.rs`)
+
+**Every curve read in this app is an exact depth match onto the well's standard grid** —
+`fetch_curve_frame` reads `standard_curves ORDER BY depth`, and the generic store and the log-set
+archive are then looked up with `by_depth.get(&d.to_bits())`. A 0.1524 m delivery attached to a
+well whose grid came from a 0.5 m LAS therefore contributes almost nothing: no error, no warning,
+a curve that reads mostly MISSING. Reframe (Data ▸ Sampling) resamples a source onto a declared
+sampling and writes a new set carrying its own depth column, marked `log_sets.frame = 'OWN'`
+(`db::migrate_log_set_frame`, ADD COLUMN only; existing sets are `'STANDARD'`, which is a fact
+rather than a guess since nothing could write anything else). `fetch_curve_frame_from_set` then
+makes that set's depths the RUN frame and resamples everything else onto it through
+`reframe::resample_onto` — the same function the tool uses, so the preview and the run cannot
+disagree.
+
+**Written to the ARCHIVE only.** `write_computed_curves_versioned` DELETEs a curve's current rows
+before appending, so a re-frame through the ordinary path would blank the readable interpretation
+and replace it with rows that align with nothing, reporting success as it went.
+
+Three rules the tests found rather than the code: **boxes are half-open `[lo, hi)`** (closed at
+both ends counts a boundary sample twice, worst where the sampling divides evenly); **a one-sample
+frame owns the whole source** rather than silently returning nothing; and **`looks_discrete` needs
+more than "small non-negative integers"** — a GR alternating 40 and 80 API is two such integers,
+and the first version mode-averaged it to 80 where the rock averages 60. Codes must also be dense
+in their own range, or small enough (`OBVIOUS_CLASS_CODE`) that no measurement could be mistaken
+for them. It stays a guess, which is why the resolved method is REPORTED per curve.
+
+### One Normalize, for any curve
+
+`condition::normalize` — any curve, three methods (percentile pair / min-max / z-score), LINEAR or
+LOG space. Jauhar, 2026-08-05: *"dont dupilcates, normalize tools here should be universal for all
+logs"*. `gr_normalize` DELEGATES to it and is hidden from the pickers
+(`Ribbon.SUPERSEDED_MODULE_IDS`, `DEPRECATED_STEP_MODULES`) — **still runnable**, unlike the
+retirement list in `modules.rs`, because the answer is unchanged and retiring it would fail every
+saved chain carrying the step.
+
+**The reference pair has no default and the run refuses without one**: a pair from one basin is the
+wrong pair in another, and normalized output looks plausible either way. MEAN_SD is the deliberate
+exception — mean 0, spread 1 is a definition. LOG works in log10 and inverts, which is the honest
+frame for a resistivity: three decades mapped linearly onto 1–100 put the geometric middle at 4
+instead of 10. Non-positive samples stay MISSING rather than being floored onto the low reference
+the whole map is anchored on.
+
+Found while writing it, and worth remembering: **`distribution::percentile` takes an
+ALREADY-SORTED slice.** The first version handed it samples in depth order and returned whatever
+sits 3% of the way down the WELL.
+
+### Intake replaces the table-shaped importers
+
+One pane (`intake.rs` + `intakePanel.ts`) for any delimited text. **An extractor and a front end,
+never a second write path**: it produces a `CoreMapping` and calls `ingest::import_core_table`, the
+plate-workbook precedent. Four rules: nothing is sniffed the user can state; the decimal convention
+is the workbook reader's (rightmost separator wins, `1,234` read as a decimal and flagged); **a
+column with no role is CARRIED, never dropped**; and the preview is a CHECK — every cell in a
+numeric column that did not parse is flagged before anything is stored.
+
+**Import Aux… is gone** (Jauhar: *"for other aux delete it, except core and scal"*). Two things had
+to close first, and the second was destructive: `follow_core` was on the form and on the IPC struct
+and `import_core_table` never took it, so the setting was dropped in flight; and **a table claiming
+no core measurement still went through `insert_core_data`, which registers its set and makes it
+ACTIVE** — so importing XRD or CEC through Intake replaced the well's real plugs with a set of
+empty ones, and every core reader follows the active set, so the φ-k cloud, Plug QC, Register Depth
+and the S-factor fit would all have gone quiet at once.
+
+**LONG / WIDE / BLOCK is DECLARED, never sniffed.** A wide table and a long one are both rectangles
+of numbers, and reading a long Pc table as wide would store a capillary-pressure curve made of
+column indices. WIDE is one row per sample with the HEADER ROW as the axis; BLOCK is stacked tables
+with the header repeated, which once stripped is the file it came from — a pre-pass over either of
+the others rather than a third way of reading a table. **A header that is not a number is dropped
+BY NAME** (a `TOTAL` column counted as a bin is a saturation at an invented pressure, at the end of
+the curve where a Thomeer fit is most sensitive), and **without the block flag a repeated header
+survives as a real-looking sample whose values are the axis numbers** — only its absent depth stops
+it being stored, which is luck rather than a guard. A block keyed by a LABEL LINE rather than a
+column is reported and left unread: which token is the depth cannot be told from which is the plug
+number.
+
+`array_logs` gained an **`axis` BLOB** (`db::migrate_array_log_axis`, ADD COLUMN, last column) —
+what each stored value is a measurement AT. NULL keeps its old meaning: a Monte Carlo realization
+is not a measurement at 7 of anything.
+
+**The `CURVE` role** writes a column to the generic curve store, the route a delimited file of logs
+had no way in by. It is never PROPOSED, only chosen: a column of numbers at depths is a plug
+measurement or a logged curve depending on how the file was sampled, and nothing in the numbers
+says which. Family and unit come from the delivered mnemonic and are left ABSENT where it is
+unrecognised.
+
+**An import never eats a delivery** (Jauhar: *"dont eat it, thats why i request user can define
+their intake cons, so it wont eat anything"*). Every set name auto-suffixes per well —
+`free_array_set` and `free_curve_set` join `resolve_core_set_name` and its siblings. This matters
+most for arrays, where `db::write_array_log` REPLACES by design: right for a Monte Carlo re-run,
+which must never union two runs' realizations, and wrong for an import.
+
+**Saved mappings** (`intaketmpl` documents) are applied by column **NAME, never by position** — a
+delivery that gains a column would otherwise shift every role one to the right, silently, and a
+saved mapping exists precisely for the deliveries nobody re-checks. Columns the mapping does not
+name keep their proposed role and are listed.
+
+### The one word for a log set
+
+The store, the backend, the docs and every other package say **log set**; the UI alone said
+"constellation", abbreviated to "cons", which is why Jauhar could not map it onto anything he had
+read. `src/ui/logSetPicker.ts` is now the ONE input/output control and every tool that reads or
+writes a curve carries it — before this, two surfaces of nineteen offered one, and three writers
+hardcoded where their output went. The input picker is a strict dropdown and the output an editable
+combobox: you can only read from a set that exists, while naming a new one is the ordinary act.
+A name already in use gets a new VERSION of that same set (`create_log_set`), which is what Jauhar
+described: *"it can replace with version number for logs, but for cons stiil same"*.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

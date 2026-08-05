@@ -8253,13 +8253,40 @@ columns into point data. Intake builds the mapping and calls it, so the two can 
 
 **Not yet built, and named rather than quietly missing:**
 
-- [ ] **Wide and Block array layouts** (a column per pressure step; a table per plug) — the SCAL,
-      MICP and NMR case. The pane reads the LONG layout today. Increment 2.
-- [ ] **Curve role** — a delimited file of continuous logs into the curve store. Today that route
-      is still Import LAS.
-- [ ] **Templates** — saving a mapping by name for a recurring delivery.
-- [ ] The old core/aux/SCAL/tops dialogs are still in the Data ribbon. They stay until you have
-      run Intake against your own deliveries and are happy with it; say the word and they go.
+- [x] **Wide and Block array layouts** — shipped, see below.
+- [x] **Curve role** — shipped, see below.
+- [x] **Templates** — shipped, see below.
+- [ ] Import Aux… is gone. Core, SCAL and Tops imports are still in the Data ribbon; say the word
+      and they go too, once Intake has earned it on your own deliveries.
+
+---
+
+## Intake: arrays, logs and saved mappings (2026-08-05)
+
+**Layout** is a new field, and it is a DECLARATION — a wide table and a long one are both
+rectangles of numbers and nothing in the characters says which is which.
+
+- [ ] **Wide**: a porous-plate Pc table, one row per plug, a column per pressure step. Mark the
+      DEPTH column, name the array (`PC_SW`), import. Every other column header is read as its own
+      axis value, so `0.5, 1, 2, 4, 8` become the pressures.
+- [ ] Put a `TOTAL` column on the end. It should be DROPPED and NAMED in the notes — counted as a
+      bin it would be a saturation at an invented pressure, right where a Thomeer fit is most
+      sensitive.
+- [ ] Try a header written `100 psi`. The unit should be stripped and the number read.
+- [ ] **Block**: several tables stacked with the header repeated. Import with Block ticked and the
+      repeats should be stripped. Import the SAME file WITHOUT it and you get one extra row whose
+      saturations are 1, 2, 4 — the header read as a measurement. That is what the flag prevents.
+- [ ] A block whose depth is on a label line above each table rather than in a column is NOT read,
+      and says so. If your deliveries look like that, tell me and it becomes the next increment.
+- [ ] Import the same array twice under one delivery name. The second must land as `NAME_1`, not
+      replace the first — check both are still there.
+- [ ] **Curve role**: a CSV of continuous logs (GR every 15 cm). Mark the column `Log curve` and
+      it goes to the curve store where modules can read it, not to point data. Check it appears in
+      the Wells pane under its delivery set and is selectable as a module input.
+- [ ] One file carrying BOTH logs and a lithology description should import as one delivery.
+- [ ] **Saved mapping**: set your roles, name it, Save. Read next quarter's file and Apply. It
+      matches by column NAME, so a delivery that gained a column does not shift every role one to
+      the right — and the new column is listed rather than silently ignored.
 
 ---
 
