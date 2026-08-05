@@ -40,6 +40,7 @@ dist-ssr
 # Local DB backups + personal reference PDFs (not for the shared repo)
 .db-backups/
 Prompt/
+literature/
 
 # Commercial strategy — pricing, partner structures, IP positions. Local-only by decision
 # (2026-07-31): it names a partner company and discusses IP risk, which is not shared-repo
