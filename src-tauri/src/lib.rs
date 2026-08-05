@@ -1,5 +1,6 @@
 mod chain;
 mod composite;
+mod condition;
 mod contacts;
 mod coreimage;
 mod curve_edit;

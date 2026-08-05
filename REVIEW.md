@@ -8050,3 +8050,52 @@ returns a note saying RECON is forced to zero. The one thing worth your eye:
 - [ ] Run SandiMin with only RHOB + NPHI (plus unity) so it is exactly determined. Is the `dof` note
       hard to miss in the pane, or does it sit somewhere you would scroll past? A warning nobody
       reads is the same as no warning.
+
+---
+
+## Condition — curve conditioning as modules (2026-08-05)
+
+Five new modules in a new **Condition** ribbon group: Despike, Smooth, Clip, Fill Gaps, Flip
+Polarity. Built as modules rather than as an editor, so they are multi-well, zone-overridable,
+chainable, mask-aware and log-set-versioned from the first run, with the dialog auto-generated.
+Full reasoning in `docs/plan_data_tools.md`.
+
+- [ ] **Petrophysics ribbon ▸ Condition ▾** — five entries, and the group sits before VSH. Does the
+      icon read as a spiky trace being flattened, or as noise?
+- [ ] Open **Despike**. WINDOW opens EMPTY with the placeholder "set a value" — your call, since
+      what counts as a spike rather than a thin bed has no value that is right in two basins. Press
+      Run without filling it: does it refuse in the pane, naming WINDOW, with the cursor landing in
+      that field?
+- [ ] The method dropdown offers all four rules you asked for. Do the labels say enough to pick one
+      without reading a manual?
+- [ ] Run HAMPEL on a GR with a known spike. **Set WINDOW narrower than the thinnest bed you mean to
+      keep** — that is the whole discriminator. Did the spike go and the beds stay?
+- [ ] Try a WINDOW of about two samples. It should REFUSE, not run: over three samples the spread
+      the test measures against is set by the spike itself. Does the refusal point you at ABS?
+- [ ] Every module writes `<input>_C` unless you type your own name in **OUT**. Type `GR_ED` and
+      check that is what lands in the Curve Catalog.
+- [ ] Type `GR` in OUT. It should be REFUSED. This one is worth reading: a curve stored under a
+      standard mnemonic is written, counted and reported, and then nothing reads it back — the raw
+      log wins. Is the message clear about why?
+- [ ] `<OUT>_SPK` is written beside each despiked curve, 1 where a sample was replaced. Put it on a
+      log view beside the curve. Is that the right way to see what the filter took, or would you
+      rather have a count in the run report?
+- [ ] **Smooth** — MEAN, MEDIAN and SAVGOL. Over an interval with real curvature, does SAVGOL keep
+      the peak where a MEAN flattens it?
+- [ ] Smooth a curve that has a hole in it. The hole must still be there afterwards: smoothing does
+      not fill gaps, on purpose. Confirm nothing appeared across it.
+- [ ] **Clip** defaults to BLANK rather than CLAMP — a reading outside the range is usually a
+      reading the tool could not make, and clamping leaves a real number where there is no
+      measurement. Is BLANK the right default for your work, or do you reach for CLAMP more?
+- [ ] Leave Clip's MAX empty and set only MIN. The upper side should genuinely not be a bound.
+- [ ] **Fill Gaps** — set MAX_GAP, run, then plot `<OUT>_FILL`. Every invented sample is marked and
+      nothing else is. Is the flag curve worth the extra entry in the catalog, or would you rather
+      it were optional-off?
+- [ ] Fill Gaps must never fill a hole at the very top or bottom of a curve — that is extrapolating
+      past where the tool logged. Check one.
+- [ ] **Flip Polarity** on an SP. `<OUT>_PIV` carries the pivot actually used. Flipping the result
+      again with the same pivot should give the original back exactly.
+- [ ] Put a Condition step into a **Workflow** chain and set a per-step OUT name in the grid. Does
+      the text cell behave like the other override cells (bold when overridden, Set-all working)?
+- [ ] Anything here you would rather have as a separate editor pane with a before/after preview —
+      that is the next increment, and this is the moment to redirect it.

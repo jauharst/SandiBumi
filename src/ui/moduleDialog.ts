@@ -86,6 +86,7 @@ export async function buildModuleContent(
   // --- Args from manifest ---
   const logSelects = new Map<string, HTMLSelectElement>();
   const optSelects = new Map<string, HTMLSelectElement>();
+  const textInputs = new Map<string, HTMLInputElement>();
   const paramInputs = new Map<string, HTMLInputElement>();
 
   /** `labels` is parallel to `names` and optional — a missing or short entry shows the id, which
@@ -142,12 +143,26 @@ export async function buildModuleContent(
       fillSelect(select, arg.choices, arg.default, arg.choice_labels);
       optSelects.set(arg.name, select);
       argsGrid.appendChild(formRow(arg.name, select, arg.desc));
+    } else if (arg.kind === "text") {
+      // Free-typed run option (ArgKind::Text) — the Condition family's user-named output curve.
+      const input = document.createElement("input");
+      input.className = "form-control";
+      input.type = "text";
+      input.value = arg.default;
+      // The description carries what a blank means, so it belongs in the field too — a
+      // placeholder is where a user looks before reading a hint.
+      input.placeholder = arg.desc.includes("blank") ? arg.desc.split("—").pop()!.trim() : "";
+      textInputs.set(arg.name, input);
+      argsGrid.appendChild(formRow(arg.name, input, arg.desc));
     } else if (arg.kind === "param") {
       const input = document.createElement("input");
       input.className = "form-control";
       input.type = "number";
       input.step = "any";
       input.value = arg.default;
+      // A manifest with NO default opens EMPTY on purpose (`modules::param_open`) — a despike
+      // window and a gap limit have no value that is right in two basins, so the user states one.
+      if (!arg.default) input.placeholder = arg.required ? "set a value" : "no bound";
       if (arg.min !== null) input.min = String(arg.min);
       if (arg.max !== null) input.max = String(arg.max);
       paramInputs.set(arg.name, input);
@@ -331,8 +346,20 @@ export async function buildModuleContent(
     // Validate numeric params against manifest ranges.
     const params: Record<string, number> = {};
     for (const [name, input] of paramInputs) {
-      const v = parseFloat(input.value);
       const arg = spec.args.find((a) => a.name === name)!;
+      // A blank field on a no-default param is a real state, not a parse failure. Required →
+      // refused BY NAME here, where the user is looking (the needWell.ts rule), rather than as N
+      // per-well failures in the Processing panel. Optional → omitted, and the module reads the
+      // absence as "no bound on this side" (Clip's MIN/MAX).
+      if (!input.value.trim()) {
+        if (arg.required) {
+          resultBox.textContent = `${name} must be set — ${arg.desc}`;
+          input.focus();
+          return;
+        }
+        continue;
+      }
+      const v = parseFloat(input.value);
       if (Number.isNaN(v) || (arg.min !== null && v < arg.min) || (arg.max !== null && v > arg.max)) {
         resultBox.textContent = `${name}: value must be between ${arg.min} and ${arg.max}.`;
         input.focus();
@@ -342,6 +369,10 @@ export async function buildModuleContent(
     }
     const opts: Record<string, string> = {};
     for (const [name, select] of optSelects) opts[name] = select.value;
+    // A blank Text arg is sent as a blank, not dropped: the module's own default (Condition's
+    // "<input>_C") is what an empty box means, and omitting the key would make a cleared field
+    // indistinguishable from one that was never on the dialog.
+    for (const [name, input] of textInputs) opts[name] = input.value.trim();
     if (maskSelect.value) opts.MASK = maskSelect.value;
     const logInputs: Record<string, string> = {};
     for (const [name, select] of logSelects) logInputs[name] = select.value;

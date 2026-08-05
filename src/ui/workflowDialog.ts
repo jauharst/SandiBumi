@@ -325,6 +325,22 @@ export async function buildWorkflowContent(
     return select;
   }
 
+  /** Free-typed run option (`ArgKind::Text`) — the Condition family's user-named output curve.
+   *  Stores only a value that DIFFERS from the manifest default, exactly as `optionControl` does,
+   *  so a chain saves overrides rather than a full copy of every step's settings. */
+  function textControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLInputElement {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = step.opts[arg.name] ?? arg.default;
+    input.addEventListener("change", () => {
+      const v = input.value.trim();
+      if (v === arg.default) delete step.opts[arg.name];
+      else step.opts[arg.name] = v;
+      onChanged();
+    });
+    return input;
+  }
+
   function paramControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLInputElement {
     const input = document.createElement("input");
     input.type = "number";
@@ -424,7 +440,7 @@ export async function buildWorkflowContent(
   // numeric params, then options, MASK last). A parameter shared by several modules
   // lines up in one column; a step that doesn't take a column's arg shows "—".
 
-  type GridKind = "log_in" | "param" | "option" | "mask";
+  type GridKind = "log_in" | "param" | "option" | "text" | "mask";
   interface GridCol {
     kind: GridKind;
     name: string;
@@ -450,9 +466,11 @@ export async function buildWorkflowContent(
       for (const arg of spec.args) {
         if (arg.kind === "log_out") continue;
         const key = `${arg.kind}:${arg.name}`;
+        // `log_out` is filtered above, so every remaining kind is a GridKind.
+        const kind = arg.kind as GridKind;
         let col = by.get(key);
         if (!col) {
-          col = { kind: arg.kind, name: arg.name, unit: arg.unit, desc: arg.desc, args: new Map() };
+          col = { kind, name: arg.name, unit: arg.unit, desc: arg.desc, args: new Map() };
           by.set(key, col);
         }
         for (const step of own) {
@@ -460,7 +478,7 @@ export async function buildWorkflowContent(
         }
       }
     }
-    const rank: GridKind[] = ["log_in", "param", "option"];
+    const rank: GridKind[] = ["log_in", "param", "option", "text"];
     const cols = [...by.values()].sort((a, b) => rank.indexOf(a.kind) - rank.indexOf(b.kind));
     cols.push({ kind: "mask", name: "MASK", unit: "", desc: MASK_DESC, args: new Map() });
     return cols;
@@ -489,7 +507,7 @@ export async function buildWorkflowContent(
         control.classList.remove("workflow-invalid");
       } else if (col.kind === "log_in" && arg) {
         control.value = step.log_inputs[arg.name] ?? arg.default;
-      } else if (col.kind === "option" && arg) {
+      } else if ((col.kind === "option" || col.kind === "text") && arg) {
         control.value = step.opts[arg.name] ?? arg.default;
       } else if (col.kind === "mask") {
         control.value = step.opts.MASK ?? "";
@@ -516,6 +534,7 @@ export async function buildWorkflowContent(
     if (col.kind === "mask") control = maskControl(step, onChanged);
     else if (col.kind === "log_in") control = logInControl(step, arg!, onChanged);
     else if (col.kind === "option") control = optionControl(step, arg!, onChanged);
+    else if (col.kind === "text") control = textControl(step, arg!, onChanged);
     else control = paramControl(step, arg!, onChanged);
     td.title = arg?.desc || col.desc;
     td.classList.toggle("workflow-grid-mod", hasOverride(step, col));

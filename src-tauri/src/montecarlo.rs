@@ -1058,11 +1058,12 @@ fn build_plans(
     for step in steps {
         let spec = &specs[&step.module];
 
-        // Options: manifest defaults, then step overrides, plus __IN_<arg> mnemonics.
+        // Options: manifest defaults, then step overrides, plus __IN_<arg> mnemonics. Text args
+        // travel here too — same channel as an Option, per `ArgKind::Text`.
         let mut opts: HashMap<String, String> = spec
             .args
             .iter()
-            .filter(|a| a.kind == ArgKind::Option)
+            .filter(|a| a.kind == ArgKind::Option || a.kind == ArgKind::Text)
             .map(|a| (a.name.clone(), a.default.clone()))
             .collect();
         for (k, v) in &step.opts {

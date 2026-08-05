@@ -19,6 +19,13 @@ pub enum ArgKind {
     Param,
     /// String option with fixed choices (global per run).
     Option,
+    /// Free text (global per run) — travels in `opts` exactly as [`ArgKind::Option`] does, but
+    /// renders as a typed field because the valid values are not a list the manifest can hold.
+    ///
+    /// Added for the Condition family, where the user names the output curve himself (Jauhar,
+    /// 2026-08-05). An Option cannot express that: the answer is a mnemonic, and the set of
+    /// mnemonics a project might want is the set of all strings.
+    Text,
     /// Input log curve (resolved from standard/computed curves).
     LogIn,
     /// Output log curve (written to computed_curves).
@@ -133,6 +140,49 @@ pub(crate) fn opt_labelled(
     let mut a = opt(name, desc, default, &choices.iter().map(|(id, _)| *id).collect::<Vec<_>>());
     a.choice_labels = choices.iter().map(|(_, label)| (*label).to_string()).collect();
     a
+}
+
+/// A [`param`] with NO default — the field opens EMPTY and the dialog refuses to run until a
+/// value is given (`required: true`), or accepts the blank as "no bound on this side"
+/// (`required: false`, and the module then sees NaN).
+///
+/// Jauhar's call for the despike window, 2026-08-05: *"No default — I set it every run."* The
+/// reasoning is the provenance rule with teeth. A despike window is a THICKNESS, and what counts
+/// as a spike rather than a thin bed is a property of the tool, the sampling and the rock — there
+/// is no number that is right in two basins. A shipped default would be somebody's field
+/// calibration wearing the authority of a manifest, and a despiked curve looks entirely plausible
+/// whichever window produced it. Same family as `gr_normalize`'s reference percentiles, which are
+/// pinned as generic precisely so nobody's regression result ships as the default.
+///
+/// The optional form exists for a genuine two-sided bound (Clip's MIN/MAX): leaving one side empty
+/// is a statement that the curve is unbounded there, not an omission.
+pub(crate) fn param_open(
+    name: &str,
+    desc: &str,
+    unit: &str,
+    min: f64,
+    max: f64,
+    required: bool,
+) -> ArgSpec {
+    ArgSpec { default: String::new(), required, ..param(name, desc, unit, 0.0, min, max) }
+}
+
+/// A free-text run option (see [`ArgKind::Text`]). Reaches the module through `opts`.
+pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
+    ArgSpec {
+        name: name.into(),
+        desc: desc.into(),
+        unit: String::new(),
+        kind: ArgKind::Text,
+        default: default.into(),
+        choices: vec![],
+        choice_labels: vec![],
+        min: None,
+        max: None,
+        required: false,
+        computed_only: false,
+        well_scope: false,
+    }
 }
 
 pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, required: bool) -> ArgSpec {
@@ -293,6 +343,11 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         thin_bed_ts_spec(),
         depth_shift_spec(),
         splice_spec(),
+        crate::condition::despike_spec(),
+        crate::condition::smooth_spec(),
+        crate::condition::clip_spec(),
+        crate::condition::fill_gaps_spec(),
+        crate::condition::flip_spec(),
         crate::multimin::multimin_spec(),
         crate::satheight::sw_height_spec(),
         crate::lithology::midplot_spec(),
@@ -371,6 +426,14 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "thin_bed_ts" => Ok(thin_bed_ts(ctx)),
         "depth_shift" => Ok(depth_shift(ctx)),
         "splice" => Ok(splice(ctx)),
+        // Condition — the curve-conditioning family. Each returns a Result of its own: a window
+        // that was never set, a bound that would be shadowed by a standard curve and a pivot
+        // taken as zero are all refusals rather than plausible-looking output.
+        "despike" => crate::condition::despike(ctx),
+        "smooth" => crate::condition::smooth(ctx),
+        "clip" => crate::condition::clip(ctx),
+        "fill_gaps" => crate::condition::fill_gaps(ctx),
+        "flip" => crate::condition::flip(ctx),
         "toc_passey" => Ok(crate::unconventional::toc_passey(ctx)),
         "kerogen" => Ok(crate::unconventional::kerogen(ctx)),
         "gip" => Ok(crate::unconventional::gip(ctx)),

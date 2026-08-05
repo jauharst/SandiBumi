@@ -554,6 +554,15 @@ export class Ribbon {
         "Data Cond & Prep",
         "M5 15c1.5-3 2-8 5-8s3.5 5 5 8M4 11h3M13 11h3",
       ],
+      // Condition — the curve-conditioning family (despike, smooth, clip, fill gaps, flip). Its
+      // own group rather than more entries in Data Prep: these act on ANY curve and are run
+      // before the interpretation starts, where Prep's members already assume a petrophysical
+      // role for their inputs. `Frame` (block, resample, regularize) is the companion category.
+      Condition: [
+        "Condition",
+        "Curve Conditioning",
+        "M3 13c2-6 3.2 3 5-4s2.6 6 4.4 1S16 12 17 10",
+      ],
       VSH: [
         "VSH",
         "Shale Volume",

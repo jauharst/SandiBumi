@@ -197,11 +197,13 @@ pub fn run_workflow_module_into(
         }
     };
 
-    // Options: dialog values over manifest defaults.
+    // Options: dialog values over manifest defaults. Text args ride the same channel — they are
+    // strings chosen per run, and the only difference is that their valid values are not a list
+    // the manifest could hold (see `ArgKind::Text`).
     let mut opts: HashMap<String, String> = spec
         .args
         .iter()
-        .filter(|a| a.kind == ArgKind::Option)
+        .filter(|a| a.kind == ArgKind::Option || a.kind == ArgKind::Text)
         .map(|a| (a.name.clone(), a.default.clone()))
         .collect();
     for (k, v) in &req.opts {

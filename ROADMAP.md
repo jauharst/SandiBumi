@@ -2131,6 +2131,37 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
 - **Done when**: a colleague installs SandiBumi from an installer, imports a DLIS, runs your shared Python
   module, and exports a PDF report — zero developer tools involved.
 
+## C4b. Intake, Statistics, Condition & Frame (2026-08-05)
+
+_Three tool families scoped with Jauhar in a twelve-question round on 2026-08-05. **The plan and
+every decision live in `docs/plan_data_tools.md`** — read it before touching any of the three; it
+records the answers that overruled the recommendation and why._
+
+- **Condition ✅ (2026-08-05, increment 1)** — `condition.rs`: `despike` (four rejection rules),
+  `smooth` (mean / median / Savitzky-Golay on the real depths), `clip`, `fill_gaps`, `flip`, in a
+  new **Condition** ribbon category. Modules rather than an editor, so multi-well, zone-overridable,
+  chainable, mask-aware and log-set-versioned on day one. Four family rules: a window is a
+  THICKNESS; nothing invents a sample except Fill Gaps, which flags every one; the output is never
+  the input's own mnemonic (a curve stored as `GR` is shadowed by `standard_curves` and read back as
+  the raw log — written, counted, reported, unreadable); and a parameter with no generic value has
+  NO default (`modules::param_open`). **`ArgKind::Text`** added to the manifest framework for the
+  user-named output. **The Hampel fix is load-bearing**: MAD is exactly zero for one spike among
+  identical neighbours, so the textbook test finds nothing on the cleanest case of the thing it is
+  for — `window_spread` falls back to the mean deviation, and `MIN_HAMPEL_SAMPLES` refuses a window
+  too narrow to measure a spread at all.
+- **Frame (increment 1b)** — `block` (four bed definitions), `resample`, `regularize`,
+  `align_multiwell`. Coarsening is a box average, never an interpolation; a blocked curve is written
+  `draw_style: "step"`. Reverse/Sort belong in Intake, not here.
+- **Statistics** — Curve Summary, Pair Summary, Fit (1..n predictors + blind-well CV, saveable as an
+  `ml_models` artifact), Versus (two log SETS — the first consumer of log-set provenance) and
+  Thickness. Thickness is its own tool on Jauhar's call (*"we talk about thickness not only in pay
+  summary"*) and **counts a condition rather than re-deriving one** — where that condition is pay it
+  reads `FLAG_PAY`. All five emit the workbook's `Sheet`/`Cell` model.
+- **Intake** — one importer replacing the five table-shaped dialogs (core, aux, SCAL, tops,
+  locations); LAS/DLIS keep their own path. The grid is the control; **Long / Wide / Block is
+  declared by the user**, not sniffed; preview IS the commit; the workbook's comma-decimal rule moves
+  into the shared parser.
+
 ## C5. New-capability misc (§4)
 
 _(field-review tier, was "P3"; longer-horizon items not already absorbed by a Wave above.)_

@@ -685,7 +685,9 @@ export async function getTrackData(wellId: string, curveNames: string[], targetP
 // Deterministic workflow: module manifests, zones, runner, pay summary
 // ---------------------------------------------------------------------------
 
-export type ArgKind = "param" | "option" | "log_in" | "log_out";
+/** `text` is a free-typed run option — same `opts` channel as `option`, but the valid values are
+ *  not a list the manifest can hold (the Condition family's user-named output curve). */
+export type ArgKind = "param" | "option" | "text" | "log_in" | "log_out";
 
 export interface ArgSpec {
   name: string;
