@@ -6,7 +6,6 @@
 //! columns predicted classes, and purity measures how cleanly each reference class maps to one
 //! predicted class.
 
-use crate::equations::fetch_curve_frame;
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -14,6 +13,12 @@ use std::sync::Mutex;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct FaciesConfusionRequest {
+    /// Read the curves this run consumes from THIS log set's stored values (latest version per
+    /// well) rather than from whatever the current values are. Curves the set never wrote fall
+    /// back to normal resolution; an empty name means "current values", which is what every
+    /// caller did before this existed (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     pub well_ids: Vec<String>,
     /// Predicted (log-domain) rock-type curve, e.g. RT_LOG.
     pub pred_curve: String,
@@ -176,7 +181,7 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
         let conn = db.lock().unwrap();
         let names = vec![pred.clone(), refc.clone()];
         for well_id in &req.well_ids {
-            let Ok((d, cols)) = fetch_curve_frame(&conn, well_id, &names) else { continue };
+            let Ok((d, cols)) = crate::equations::fetch_curve_frame_from_set(&conn, well_id, &names, req.input_set.as_deref(), None) else { continue };
             let (Some(pv), Some(rv)) = (cols.get(&pred), cols.get(&refc)) else { continue };
             let n = pv.len().min(rv.len());
             for i in 0..n {
@@ -288,7 +293,12 @@ mod tests {
         let db = Mutex::new(conn);
         let res = run_facies_confusion(
             &db,
-            &FaciesConfusionRequest { well_ids: vec![ids], pred_curve: "RT_LOG".into(), ref_curve: "RT_REF".into() },
+            &FaciesConfusionRequest {
+                well_ids: vec![ids],
+                pred_curve: "RT_LOG".into(),
+                ref_curve: "RT_REF".into(),
+                input_set: None,
+            },
         );
         assert!(res.error.is_none(), "err={:?}", res.error);
         // 6 valid plugs matched (the 2050 m plug has k<0 AND is out of range anyway).

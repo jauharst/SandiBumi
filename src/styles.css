@@ -1182,8 +1182,141 @@ textarea {
 .dock-fluid-contacts,
 .dock-depth-reg,
 .dock-rtc-fit,
+.dock-statistics,
+.dock-intake,
+.dock-reframe,
 .dock-sfactor-fit {
   padding: 10px 12px;
+}
+
+/* Reframe (reframePanel.ts): the report is a per-well table, so it opts out of the form-column
+   cap for the same reason Statistics does. */
+.dock-reframe .module-pane {
+  max-width: none;
+}
+/* Saved mapping bar: a picker, then the naming half, on one line. */
+.intake-template-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.intake-template-row select,
+.intake-template-row input {
+  min-width: 0;
+  flex: 1 1 130px;
+}
+
+/* The unfold correlogram. Drawn rather than reduced to its peak, so a flat scan looks flat. */
+.unfold-scan {
+  margin: 6px 0 10px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--plot-bg);
+}
+.unfold-scan-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 64px;
+}
+.unfold-scan-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  background: var(--accent-soft);
+  border-radius: 2px 2px 0 0;
+}
+/* Zero height and no fill: a candidate that could not be scored is an empty slot, not a poor one. */
+.unfold-scan-none {
+  align-self: stretch;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--border) 0 2px,
+    transparent 2px 5px
+  );
+}
+.unfold-scan-best {
+  background: var(--accent);
+}
+.unfold-scan-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.unfold-scan-note {
+  color: var(--text-dim);
+  font-size: 12px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.reframe-report {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+/* A well ALREADY at the target sampling: the answer the probe exists to give, and re-framing it
+   anyway resamples every curve for nothing. */
+.reframe-same {
+  color: var(--accent2);
+  font-weight: 600;
+}
+.reframe-error {
+  color: var(--warn);
+}
+
+/* --------------------------------------------------------------------------
+   Statistics pane (statisticsPanel.ts)
+
+   A table is the deliverable here, so the pane opts out of `.module-pane`'s 620px
+   form-column cap — the same reasoning that let the picture panes out of it. A
+   Curve Summary with six user percentiles is a wide table and squeezing it into a
+   form column is the "not proportional" complaint again.
+   -------------------------------------------------------------------------- */
+.dock-statistics .module-pane {
+  max-width: none;
+}
+
+.stats-table-wrap {
+  margin-top: 10px;
+  /* Wide content scrolls inside its own box; the pane itself must never scroll
+     sideways, which would take the well scope and the tabs off screen. */
+  overflow-x: auto;
+}
+
+.stats-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  /* Data UI stays DENSE — engineers on small screens are the audience, so this
+     keeps the ribbon's Organic air out of the table (the standing split). */
+  white-space: nowrap;
+}
+
+.stats-table th,
+.stats-table td {
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  text-align: right;
+}
+
+.stats-table th {
+  background: var(--panel-alt, var(--bg));
+  font-weight: 600;
+  text-align: center;
+  position: sticky;
+  top: 0;
+}
+
+/* The first three columns are labels (well / zone / item), not numbers. */
+.stats-table td:nth-child(-n + 3) {
+  text-align: left;
+}
+
+.stats-table tbody tr:hover {
+  background: var(--accent-soft);
 }
 
 /* --------------------------------------------------------------------------
@@ -5936,6 +6069,61 @@ input[type="number"].num-editing:focus {
   margin-bottom: 10px;
 }
 
+/* Output curves: every name this run will write, editable, before it runs. A card rather than
+   another row of the args grid — what a run PRODUCES is a different question from how it is
+   parameterised, and the names are what the user goes looking for afterwards. */
+.module-outputs {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 9px 12px 11px;
+  margin-bottom: 10px;
+}
+.module-outputs-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+.module-outputs-title {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.module-outputs-prefix {
+  margin-left: auto;
+  width: 150px;
+  font-size: var(--fs-xs);
+}
+.module-outputs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 14px;
+}
+.module-output-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.module-output-name {
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+}
+/* A refusal beside the box that caused it — a shadowed name, two outputs on one name. */
+.module-outputs-warn {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--warn);
+}
+.module-outputs-warn[hidden] {
+  display: none;
+}
+
 .module-footer {
   display: flex;
   align-items: center;
@@ -6773,4 +6961,80 @@ input[type="number"].num-editing:focus {
   border-radius: var(--r-sm);
   border: 1px solid var(--border-strong);
   vertical-align: middle;
+}
+
+
+/* --------------------------------------------------------------------------
+   Intake pane (intakePanel.ts)
+
+   The grid is the control, so it opts out of `.module-pane`'s 620px form-column
+   cap for the same reason the picture panes do: a delivery is fifteen columns
+   wide and squeezing it into a form column is the "not proportional" complaint.
+   -------------------------------------------------------------------------- */
+.dock-intake .module-pane {
+  max-width: none;
+}
+
+.intake-grid-wrap {
+  margin: 10px 0;
+  /* Wide content scrolls inside its own box; the pane must never scroll sideways,
+     which would take the role pickers off screen. Capped in height so the
+     destination fields and the Import button stay reachable without scrolling
+     past two hundred preview rows. */
+  overflow: auto;
+  max-height: 44vh;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 6px);
+}
+
+.intake-grid {
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.intake-grid th,
+.intake-grid td {
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  text-align: left;
+}
+
+.intake-grid thead th {
+  /* The header carries the role picker, so it has to stay visible while the rows
+     scroll — a mapping made against row 180 with the pickers off screen is a
+     mapping made blind. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+}
+
+.intake-grid thead tr:nth-child(2) th {
+  top: 34px;
+}
+
+.intake-col-name {
+  font-weight: 600;
+}
+
+.intake-col-kind {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.intake-role {
+  font-size: 11px;
+  padding: 1px 4px;
+  min-width: 96px;
+}
+
+/* A cell in a numeric column that did not read as a number. Outlined rather than filled, so the
+   role tint underneath is still legible — the two say different things and one must not hide the
+   other. */
+.intake-grid td.intake-bad {
+  outline: 2px solid var(--warn);
+  outline-offset: -2px;
+  color: var(--warn);
+  font-weight: 600;
 }

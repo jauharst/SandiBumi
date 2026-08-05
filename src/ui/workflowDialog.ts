@@ -4,8 +4,8 @@ import {
   getChainStatus,
   listCurveCatalog,
   listDocuments,
-  listLogSetNames,
   listModules,
+  moduleOutputNames,
   runWorkflowChain,
   saveDocument,
   type ArgSpec,
@@ -15,6 +15,7 @@ import {
   type ModuleSpec,
 } from "../ipc";
 import { bumpDataVersion } from "../state";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { maskCurveNames } from "./moduleDialog";
 import { recordProcess } from "../processLog";
@@ -157,7 +158,9 @@ export async function buildWorkflowContent(
   // Advance-tab pane) — keep it out of the chain step picker so new chains don't wire it up. A
   // saved chain that already references it still resolves via moduleByName (so its step renders)
   // but the backend now refuses to run it, pointing at SandiMin (`modules::retired_module`).
-  const DEPRECATED_STEP_MODULES = new Set(["multimin"]);
+  // `multimin` is retired (it no longer runs); `gr_normalize` is superseded but still runs, so a
+  // saved chain carrying either still renders — neither is offered for a NEW step.
+  const DEPRECATED_STEP_MODULES = new Set(["multimin", "gr_normalize"]);
   const byCategory = new Map<string, ModuleSpec[]>();
   for (const m of modules) {
     if (DEPRECATED_STEP_MODULES.has(m.name)) continue;
@@ -325,6 +328,22 @@ export async function buildWorkflowContent(
     return select;
   }
 
+  /** Free-typed run option (`ArgKind::Text`) — the Condition family's user-named output curve.
+   *  Stores only a value that DIFFERS from the manifest default, exactly as `optionControl` does,
+   *  so a chain saves overrides rather than a full copy of every step's settings. */
+  function textControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLInputElement {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = step.opts[arg.name] ?? arg.default;
+    input.addEventListener("change", () => {
+      const v = input.value.trim();
+      if (v === arg.default) delete step.opts[arg.name];
+      else step.opts[arg.name] = v;
+      onChanged();
+    });
+    return input;
+  }
+
   function paramControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLInputElement {
     const input = document.createElement("input");
     input.type = "number";
@@ -394,12 +413,45 @@ export async function buildWorkflowContent(
     }
     box.appendChild(editorRow("Mask (opt)", maskControl(step, onChanged), MASK_DESC));
 
-    const outputs = spec.args.filter((a) => a.kind === "log_out").map((a) => a.name);
+    // Output names, editable per step — the same freedom the module pane's grid gives, because a
+    // chain is where a trial run most needs to land beside the interpretation rather than on it.
+    // The placeholder is the name this step would write untouched, and it comes from the backend
+    // for the module pane's reason: expanding a `{CURVE}_C` pattern here would be a second copy of
+    // a naming rule.
+    const outArgs = spec.args.filter((a) => a.kind === "log_out");
+    if (outArgs.length) {
+      const placeholders = new Map<string, HTMLInputElement>();
+      for (const arg of outArgs) {
+        const input = document.createElement("input");
+        input.className = "workflow-editor-input";
+        input.type = "text";
+        input.spellcheck = false;
+        input.value = step.opts[`__OUT_${arg.name}`] ?? "";
+        input.placeholder = arg.name;
+        input.addEventListener("input", () => {
+          const typed = input.value.trim();
+          if (typed) step.opts[`__OUT_${arg.name}`] = typed;
+          else delete step.opts[`__OUT_${arg.name}`];
+          onChanged();
+        });
+        placeholders.set(arg.name, input);
+        box.appendChild(editorRow(`Write ${arg.name} as`, input, arg.desc));
+      }
+      void moduleOutputNames(step.module, step.log_inputs, step.opts)
+        .then((names) => {
+          for (const n of names) placeholders.get(n.arg)?.setAttribute("placeholder", n.name);
+        })
+        .catch(() => {
+          // A refusal here (a shadowed name) is reported when the chain runs; the declared name
+          // stays as the placeholder rather than the row going blank.
+        });
+    }
+
     const footer = document.createElement("div");
     footer.className = "workflow-editor-footer";
     const outNote = document.createElement("span");
     outNote.className = "workflow-editor-outputs";
-    outNote.textContent = outputs.length ? `Outputs: ${outputs.join(", ")}` : "";
+    outNote.textContent = "";
     const reset = miniButton("Reset", () => {
       step.params = {};
       step.log_inputs = {};
@@ -424,7 +476,9 @@ export async function buildWorkflowContent(
   // numeric params, then options, MASK last). A parameter shared by several modules
   // lines up in one column; a step that doesn't take a column's arg shows "—".
 
-  type GridKind = "log_in" | "param" | "option" | "mask";
+  // `log_out` is a real column here: the grid is where a chain's whole shape is read at once, and
+  // "which curve does each step write" is as much a part of that as which one it reads.
+  type GridKind = "log_in" | "param" | "option" | "text" | "log_out" | "mask";
   interface GridCol {
     kind: GridKind;
     name: string;
@@ -448,11 +502,11 @@ export async function buildWorkflowContent(
       const own = stepsByModule.get(spec.name);
       if (!own) continue;
       for (const arg of spec.args) {
-        if (arg.kind === "log_out") continue;
         const key = `${arg.kind}:${arg.name}`;
+        const kind = arg.kind as GridKind;
         let col = by.get(key);
         if (!col) {
-          col = { kind: arg.kind, name: arg.name, unit: arg.unit, desc: arg.desc, args: new Map() };
+          col = { kind, name: arg.name, unit: arg.unit, desc: arg.desc, args: new Map() };
           by.set(key, col);
         }
         for (const step of own) {
@@ -460,7 +514,7 @@ export async function buildWorkflowContent(
         }
       }
     }
-    const rank: GridKind[] = ["log_in", "param", "option"];
+    const rank: GridKind[] = ["log_in", "param", "option", "text", "log_out"];
     const cols = [...by.values()].sort((a, b) => rank.indexOf(a.kind) - rank.indexOf(b.kind));
     cols.push({ kind: "mask", name: "MASK", unit: "", desc: MASK_DESC, args: new Map() });
     return cols;
@@ -469,7 +523,27 @@ export async function buildWorkflowContent(
   function hasOverride(step: ChainStep, col: GridCol): boolean {
     if (col.kind === "param") return step.params[col.name] !== undefined;
     if (col.kind === "log_in") return step.log_inputs[col.name] !== undefined;
+    if (col.kind === "log_out") return step.opts[`__OUT_${col.name}`] !== undefined;
     return step.opts[col.kind === "mask" ? "MASK" : col.name] !== undefined;
+  }
+
+  /** A per-step output rename. Blank means the module's own default name, the same reading the
+   *  module pane's grid gives — clearing the box must give the original name back rather than
+   *  write an unnamed curve. */
+  function outNameControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLInputElement {
+    const input = document.createElement("input");
+    input.className = "workflow-editor-input";
+    input.type = "text";
+    input.spellcheck = false;
+    input.placeholder = arg.name;
+    input.value = step.opts[`__OUT_${arg.name}`] ?? "";
+    input.addEventListener("input", () => {
+      const typed = input.value.trim();
+      if (typed) step.opts[`__OUT_${arg.name}`] = typed;
+      else delete step.opts[`__OUT_${arg.name}`];
+      onChanged();
+    });
+    return input;
   }
 
   // Live grid controls, keyed by column then step, so a Set-all edit refreshes the
@@ -489,8 +563,10 @@ export async function buildWorkflowContent(
         control.classList.remove("workflow-invalid");
       } else if (col.kind === "log_in" && arg) {
         control.value = step.log_inputs[arg.name] ?? arg.default;
-      } else if (col.kind === "option" && arg) {
+      } else if ((col.kind === "option" || col.kind === "text") && arg) {
         control.value = step.opts[arg.name] ?? arg.default;
+      } else if (col.kind === "log_out" && arg) {
+        control.value = step.opts[`__OUT_${arg.name}`] ?? "";
       } else if (col.kind === "mask") {
         control.value = step.opts.MASK ?? "";
       }
@@ -514,8 +590,10 @@ export async function buildWorkflowContent(
     };
     let control: HTMLInputElement | HTMLSelectElement;
     if (col.kind === "mask") control = maskControl(step, onChanged);
+    else if (col.kind === "log_out") control = outNameControl(step, arg!, onChanged);
     else if (col.kind === "log_in") control = logInControl(step, arg!, onChanged);
     else if (col.kind === "option") control = optionControl(step, arg!, onChanged);
+    else if (col.kind === "text") control = textControl(step, arg!, onChanged);
     else control = paramControl(step, arg!, onChanged);
     td.title = arg?.desc || col.desc;
     td.classList.toggle("workflow-grid-mod", hasOverride(step, col));
@@ -576,6 +654,14 @@ export async function buildWorkflowContent(
       );
       values = [...extras, ...inputCurveNames];
     } else if (col.kind === "mask") values = ["(none)", ...maskCurveNames(curveNames)];
+    else if (col.kind === "log_out") {
+      // No Set-all on an output name, deliberately: two steps writing their VSH under one name
+      // is the collision `resolve_output_names` refuses, so offering to do it in one click would
+      // be offering to break the chain.
+      td.className = "workflow-grid-na";
+      td.textContent = "—";
+      return td;
+    }
     else {
       // Options only get a set-all control when every step offers the same choices.
       const lists = [...col.args.values()].map((a) => a.choices.join("\n"));
@@ -649,7 +735,9 @@ export async function buildWorkflowContent(
     headRow.appendChild(corner);
     for (const col of cols) {
       const th = document.createElement("th");
-      th.textContent = col.kind === "mask" ? "Mask" : col.name;
+      // An arrow marks an OUTPUT column, so a header reads as "what this step writes" rather
+      // than as another input with a similar name.
+      th.textContent = col.kind === "mask" ? "Mask" : col.kind === "log_out" ? `→ ${col.name}` : col.name;
       if (col.unit) {
         const u = document.createElement("span");
         u.className = "workflow-grid-unit";
@@ -700,60 +788,18 @@ export async function buildWorkflowContent(
   // --- Wells (scope, not a checklist) --------------------------------------
   content.appendChild(scope.el);
 
-  // --- Input cons: strict dropdown of existing constellations (you can only read from
-  // one that exists); blank = current values (chained outputs always resolve) ----------
-  const inSetSelect = document.createElement("select");
-  const inSetLatest = document.createElement("option");
-  inSetLatest.value = "";
-  inSetLatest.textContent = "(latest values)";
-  inSetSelect.appendChild(inSetLatest);
-  content.appendChild(
-    formRow(
-      "Input cons",
-      inSetSelect,
-      "Every step reads its inputs from this constellation where available (latest version per well). Blank = current values.",
-    ),
-  );
-
-  // --- Output cons (P1-c): one version per chain run, never overwriting. Editable
-  // combobox — pick an existing constellation or type a brand-new name. -----------------
-  const setInput = document.createElement("input");
-  setInput.type = "text";
-  setInput.value = "INTERP";
-  setInput.setAttribute("list", "log-cons-names");
-  let consList = document.querySelector<HTMLDataListElement>("#log-cons-names");
-  if (!consList) {
-    consList = document.createElement("datalist");
-    consList.id = "log-cons-names";
-    document.body.appendChild(consList);
-  }
-  content.appendChild(
-    formRow(
-      "Output cons",
-      setInput,
-      "The whole chain run is versioned into this constellation (re-run = version N+1). Pick an existing one or type a new name. Manage versions in the Curve Catalog.",
-    ),
-  );
-
-  // Fill both pickers from the project's existing constellation names. Input is strict
-  // (dropdown only); output offers them as datalist suggestions plus the common defaults.
-  void listLogSetNames()
-    .then((names) => {
-      for (const n of names) {
-        const o = document.createElement("option");
-        o.value = n;
-        o.textContent = n;
-        inSetSelect.appendChild(o);
-      }
-      const seeds = [...new Set(["INTERP", "FINAL", "TEST", ...names])];
-      consList!.innerHTML = "";
-      for (const n of seeds) {
-        const o = document.createElement("option");
-        o.value = n;
-        consList!.appendChild(o);
-      }
-    })
-    .catch(() => {});
+  // --- Input / output log set: the ONE shared control (`logSetPicker.ts`), so the chain and a
+  // single module run cannot describe the same choice in two different words.
+  const setPicker = buildLogSetPicker({
+    write: "INTERP",
+    readHint:
+      "Every step reads its inputs from this log set where available (latest version per well). " +
+      "Blank = whatever the current values are.",
+    writeHint:
+      "The whole chain run is versioned into this log set (re-run = version N+1). Pick an " +
+      "existing one or type a new name. Manage versions in the Curve Catalog.",
+  });
+  for (const row of setPicker.rows) content.appendChild(row);
 
   // --- Run bar -------------------------------------------------------------
   // No inline progress bar here — the universal Processing panel owns the live bar, per-well
@@ -847,8 +893,8 @@ export async function buildWorkflowContent(
       jobId,
       steps,
       wellIds,
-      setInput.value.trim() || undefined,
-      inSetSelect.value.trim() || undefined,
+      setPicker.outputSet(),
+      setPicker.inputSet(),
     ).catch((e) => {
       statusLine.textContent = `Error: ${e}`;
       finishRun();

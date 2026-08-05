@@ -156,7 +156,219 @@ fn resolve_param_arrays(
             zoned.join("; ")
         ));
     }
+
+    // A synthetic per-sample array naming which zone each sample falls in — ordinal by depth
+    // order, NaN outside every zone. Not a Param anyone can set: it rides the same channel
+    // because that channel already carries "one value per sample, resolved from this well's
+    // zones", which is exactly what this is.
+    //
+    // `frame::block` needs it to upscale marker-to-marker: a module has no database handle, so
+    // without this the only bed definitions expressible would be a fixed interval and a class
+    // curve, and "one value per zone" is the coarsening a zone-parameter table or a volumetrics
+    // summary actually consumes. Zones are sorted by top depth so the ordinal is monotone with
+    // depth — a block index that jumped around would make consecutive beds non-adjacent.
+    let mut ordered: Vec<_> = zones.iter().collect();
+    ordered.sort_by(|a, b| a.top_depth.partial_cmp(&b.top_depth).unwrap_or(std::cmp::Ordering::Equal));
+    let mut zone_index = vec![f64::NAN; depth.len()];
+    for (ord, z) in ordered.iter().enumerate() {
+        for (i, d) in depth.iter().enumerate() {
+            if *d >= z.top_depth && *d < z.bottom_depth {
+                zone_index[i] = ord as f64;
+            }
+        }
+    }
+    out.insert(ZONE_INDEX_ARG.to_string(), zone_index);
     Ok(out)
+}
+
+/// Name of the synthetic per-sample zone-ordinal array (see [`resolve_param_arrays`]). Prefixed
+/// like the `__IN_<arg>` mnemonics so it cannot collide with a manifest parameter.
+pub(crate) const ZONE_INDEX_ARG: &str = "__ZONE_INDEX";
+
+/// Run option carrying a prefix applied to every output curve name.
+///
+/// Universal like `MASK` rather than a per-module manifest arg: it is one rule about what a run
+/// writes. **Monte Carlo REFUSES a step that sets it** — its plan builder resolves cutoffs and
+/// fraction curves from the manifest's declared LogOut names, so a prefixed run would be planned
+/// against names it never writes, and the study would come back with plausible percentiles
+/// computed from nothing. Refusing by name beats a silently empty answer.
+pub(crate) const OUT_PREFIX_OPT: &str = "OUT_PREFIX";
+
+/// Run-option prefix carrying a per-output rename: `__OUT_VSH = VSHALE` makes the run write its
+/// `VSH` output as `VSHALE`.
+///
+/// Double-underscored like `__IN_<arg>` and `__ZONE_INDEX` because it is framework-reserved and
+/// can never collide with a manifest option. An absent or blank entry means "the manifest's own
+/// default name", which is what every existing run and every saved chain sends — so this is
+/// additive by construction.
+pub(crate) const OUT_NAME_PREFIX: &str = "__OUT_";
+
+/// The names a run will actually write, one per declared output, in declaration order.
+///
+/// This is the ONE place a module's output name is decided, and it exists because five modules
+/// used to build their own (`log_predict` returned `<target>_SYN`, `phi_cap` returned
+/// `<input>_CAP`, Condition returned whatever its `OUT` text field said). Three costs followed
+/// from that, and all three are what this closes:
+///
+/// * The manifest's declared LogOut described a curve the run did not write, so a dialog reading
+///   "Outputs: SYN" was telling the user something untrue.
+/// * There was no way to offer a rename without re-implementing each module's naming rule in the
+///   caller — a second copy that would drift, the standing `composite.rs`-versus-renderer warning.
+/// * Nothing checked the name before it was written. `condition.rs` and `frame.rs` each carried
+///   their own copy of the shadowing refusal; the other forty modules had none, so a rename could
+///   have put `VSH` on `GR` and produced a curve nothing can read.
+///
+/// Jauhar, 2026-08-05: *"naming each output curve in bulk when modules gonna run"* — the grid in
+/// the module pane is a row per entry returned here.
+pub(crate) fn resolve_output_names(
+    spec: &modules::ModuleSpec,
+    opts: &HashMap<String, String>,
+) -> Result<Vec<(String, String)>, String> {
+    let mut resolved: Vec<(String, String)> = Vec::new();
+    for arg in spec.args.iter().filter(|a| a.kind == ArgKind::LogOut) {
+        // A rename wins over the manifest default; a BLANK rename means "the default", the same
+        // reading a blank Text arg gets, so clearing the box returns the original name rather
+        // than writing an unnamed curve.
+        let typed = opts.get(&format!("{OUT_NAME_PREFIX}{}", arg.name)).map(|s| s.trim()).unwrap_or("");
+        let name = if !typed.is_empty() {
+            typed.to_uppercase()
+        } else if arg.default.is_empty() {
+            arg.name.clone()
+        } else {
+            expand_out_pattern(&arg.default, spec, opts, &resolved).unwrap_or_else(|| arg.name.clone())
+        };
+
+        // Whitespace and quotes would survive the write and then break every reader that parses a
+        // curve list — refused here, where the user typed it, rather than in a LAS export weeks on.
+        if name.chars().any(|c| c.is_whitespace() || c == '"' || c == '\'' || c == ',') {
+            return Err(format!(
+                "Output name '{name}' for {} contains a space or quote. A curve name is used \
+                 verbatim in exports and curve lists — use letters, digits and underscores.",
+                arg.name
+            ));
+        }
+        if crate::equations::STANDARD_COLUMNS.contains(&name.as_str()) {
+            return Err(format!(
+                "{} = {name} would be shadowed: {name} is read from the raw log first, so a \
+                 computed copy stored under that name is never the one anything reads. Give the \
+                 output its own name.",
+                arg.name
+            ));
+        }
+        if let Some((other, _)) = resolved.iter().find(|(_, n)| *n == name) {
+            return Err(format!(
+                "{} and {other} would both be written as {name}. Two outputs under one name means \
+                 one of them silently replaces the other — rename one.",
+                arg.name
+            ));
+        }
+        resolved.push((arg.name.clone(), name));
+    }
+    Ok(resolved)
+}
+
+/// The run options a module actually sees: manifest defaults, the caller's overrides on top, and
+/// each input's resolved mnemonic as `__IN_<arg>`.
+///
+/// Shared by the runner and by [`preview_output_names`] so a dialog is shown the names the run
+/// will really write. Two copies of this assembly would drift in exactly the way that matters —
+/// the preview would agree with the run until an argument was added, and then quietly stop.
+pub(crate) fn build_opts(
+    spec: &modules::ModuleSpec,
+    overrides: &HashMap<String, String>,
+    log_inputs: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut opts: HashMap<String, String> = spec
+        .args
+        .iter()
+        .filter(|a| a.kind == ArgKind::Option || a.kind == ArgKind::Text)
+        .map(|a| (a.name.clone(), a.default.clone()))
+        .collect();
+    for (k, v) in overrides {
+        opts.insert(k.clone(), v.clone());
+    }
+    for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogIn) {
+        let mnemonic = log_inputs.get(&a.name).cloned().unwrap_or_else(|| a.default.clone());
+        opts.insert(format!("__IN_{}", a.name), mnemonic.trim().to_uppercase());
+    }
+    opts
+}
+
+/// One declared output and the curve name a run with these settings would write it under.
+#[derive(Debug, Clone, Serialize)]
+pub struct OutputName {
+    pub arg: String,
+    pub desc: String,
+    pub unit: String,
+    pub name: String,
+}
+
+/// What the module pane's output grid is filled from: the names this module would write, given the
+/// inputs and renames chosen so far.
+///
+/// The dialog asks rather than working it out, because working it out means expanding
+/// [`modules::log_out_as`] patterns — and a second expansion in TypeScript would be a copy of a
+/// naming rule that has already been wrong once. The same question the runner asks, answered by
+/// the same code.
+pub fn preview_output_names(
+    module: &str,
+    log_inputs: &HashMap<String, String>,
+    overrides: &HashMap<String, String>,
+) -> Result<Vec<OutputName>, String> {
+    let spec = modules::list_modules()
+        .into_iter()
+        .find(|m| m.name == module)
+        .ok_or_else(|| format!("unknown module '{module}'"))?;
+    let opts = build_opts(&spec, overrides, log_inputs);
+    let resolved = resolve_output_names(&spec, &opts)?;
+    Ok(resolved
+        .into_iter()
+        .map(|(arg, name)| {
+            let a = spec.args.iter().find(|a| a.name == arg);
+            OutputName {
+                desc: a.map(|a| a.desc.clone()).unwrap_or_default(),
+                unit: a.map(|a| a.unit.clone()).unwrap_or_default(),
+                arg,
+                name,
+            }
+        })
+        .collect())
+}
+
+/// Expands `{ARG}` placeholders in a [`modules::log_out_as`] pattern.
+///
+/// A token names another arg of the same module: a LogIn expands to the mnemonic this run chose
+/// for it (already in `opts` as `__IN_<arg>`), an earlier LogOut to the name it resolved to,
+/// anything else to its option or text value. Returns `None` when a token is unknown or expands
+/// to nothing — an optional input the user cleared — and the caller then falls back to the
+/// declared name, which is exactly what `log_predict` did by hand.
+fn expand_out_pattern(
+    pattern: &str,
+    spec: &modules::ModuleSpec,
+    opts: &HashMap<String, String>,
+    resolved: &[(String, String)],
+) -> Option<String> {
+    let mut out = String::with_capacity(pattern.len());
+    let mut rest = pattern;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let close = rest[open..].find('}')? + open;
+        let token = &rest[open + 1..close];
+        let value = if let Some((_, name)) = resolved.iter().find(|(declared, _)| declared == token) {
+            name.clone()
+        } else if spec.args.iter().any(|a| a.name == token && a.kind == ArgKind::LogIn) {
+            opts.get(&format!("__IN_{token}"))?.trim().to_uppercase()
+        } else {
+            opts.get(token)?.trim().to_uppercase()
+        };
+        if value.is_empty() {
+            return None;
+        }
+        out.push_str(&value);
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    Some(out)
 }
 
 /// Runs one module across every well: parse inputs, resolve zone parameters, evaluate,
@@ -197,16 +409,11 @@ pub fn run_workflow_module_into(
         }
     };
 
-    // Options: dialog values over manifest defaults.
-    let mut opts: HashMap<String, String> = spec
-        .args
-        .iter()
-        .filter(|a| a.kind == ArgKind::Option)
-        .map(|a| (a.name.clone(), a.default.clone()))
-        .collect();
-    for (k, v) in &req.opts {
-        opts.insert(k.clone(), v.clone());
-    }
+    // Options: dialog values over manifest defaults, plus each input's resolved mnemonic as
+    // `__IN_<arg>` (which is how a `log_out_as` pattern names its curve after its input). Text
+    // args ride the same channel as Options — they are strings chosen per run, and the only
+    // difference is that their valid values are not a list the manifest could hold.
+    let opts = build_opts(&spec, &req.opts, &req.log_inputs);
 
     // The project's depth unit, read ONCE here rather than per well: it is a project-level
     // fact, and the wells below run under rayon where each lock acquisition would contend.
@@ -225,11 +432,24 @@ pub fn run_workflow_module_into(
             (a.name.clone(), mnemonic)
         })
         .collect();
-    // Expose each input's resolved mnemonic to the module as "__IN_<arg>", so modules
-    // that derive their output names from their input (depth_shift → GR_DS) can.
-    for (arg_name, mnemonic) in &log_args {
-        opts.insert(format!("__IN_{arg_name}"), mnemonic.trim().to_uppercase());
-    }
+    // The names this run will write, decided ONCE. Every input to the decision — the manifest, the
+    // chosen mnemonics, the renames — is well-independent, so a bad name is refused here as one
+    // message rather than as N identical per-well failures in the Processing panel.
+    let out_names = match resolve_output_names(&spec, &opts) {
+        Ok(n) => n,
+        Err(e) => {
+            return req
+                .well_ids
+                .iter()
+                .map(|w| ModuleRunResult {
+                    well_id: w.clone(),
+                    rows_written: 0,
+                    output_curves: vec![],
+                    error: Some(e.clone()),
+                })
+                .collect()
+        }
+    };
 
     // Phase 1 outcome per well. Outputs are held in memory so Phase 2 can write EVERY well in
     // one batched transaction (vs a fsync-bound delete+append transaction per well — the
@@ -374,6 +594,42 @@ pub fn run_workflow_module_into(
 
                 let ctx = ModuleContext { n: depth.len(), logs, params, opts: opts.clone(), depth_unit };
                 let mut outputs = modules::run_module(&req.module, &ctx)?;
+
+                // Declared key → the name this run writes (`resolve_output_names`). A module
+                // returns the key its manifest declares and never builds a name of its own, so
+                // this is a plain lookup — and an emitted key that no declared output claims is a
+                // module bug, left untouched here and caught by
+                // `every_module_returns_the_output_keys_its_manifest_declares`.
+                outputs = outputs
+                    .into_iter()
+                    .map(|(key, values)| {
+                        let name = out_names
+                            .iter()
+                            .find(|(declared, _)| *declared == key)
+                            .map(|(_, n)| n.clone())
+                            .unwrap_or(key);
+                        (name, values)
+                    })
+                    .collect();
+
+                // Universal output prefix — the bulk form of the same freedom (Jauhar,
+                // 2026-08-05: *"each tools or modules should give user freedom to define input
+                // and output log set ... and their own curves"*), applied AFTER the renames so
+                // the two compose: VSH renamed to VSHALE under prefix TEST_ is TEST_VSHALE.
+                //
+                // Handled HERE rather than per module, for the reason MASK is: it is one rule
+                // about what a run writes, and forty copies of it would be forty places to get it
+                // wrong.
+                //
+                // Empty means unchanged, which is what every existing run and every saved chain
+                // sends — so this is additive by construction.
+                if let Some(prefix) = opts.get(OUT_PREFIX_OPT).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    let prefix = prefix.to_uppercase();
+                    outputs = outputs
+                        .into_iter()
+                        .map(|(name, values)| (format!("{prefix}{name}"), values))
+                        .collect();
+                }
 
                 // Blank flagged samples in the OUTPUTS too, so a flagged depth's result is
                 // never trusted downstream.
@@ -565,6 +821,12 @@ pub struct PaySummaryRequest {
     pub swe_max: f64,
     /// Optional PERM >= perm_min added to the pay flag when PERM exists.
     pub perm_min: Option<f64>,
+    /// Read the curves this run consumes from THIS log set's stored values (latest version per
+    /// well) rather than from whatever the current values are. Curves the set never wrote fall
+    /// back to normal resolution; an empty name means "current values", which is what every
+    /// caller did before this existed (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     /// When true, FLAG_* curves are written in place without creating a versioned log set. Set
     /// by the report/composite render pass, whose pay flags are a render side-effect that must
     /// not churn the archive with a version per render. The explicit Cutoffs & Summary run
@@ -674,7 +936,11 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         // Per-well isolation: a well with no curves — or a transient fetch/zone read error — is
         // skipped, keeping every other well's rows, rather than `?`-aborting the whole batch (a
         // single bad well would otherwise zero the entire Field Dashboard / summary response).
-        let (depth, columns) = match equations::fetch_curve_frame(&conn, well_id, &curve_names) {
+        // The cutoffs decide net pay, so WHICH version of PHIE and SWE they read is part of the
+        // answer — a summary that cannot name its inputs' version cannot be reproduced.
+        let (depth, columns) = match equations::fetch_curve_frame_from_set(
+            &conn, well_id, &curve_names, req.input_set.as_deref(), None,
+        ) {
             Ok((d, c)) if !d.is_empty() => (d, c),
             _ => continue,
         };
@@ -1008,6 +1274,10 @@ fn compute_sweep(
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CutoffSweepRequest {
+    /// Sweep the cutoffs against THIS log set's stored curves rather than the current values —
+    /// the same freedom the pay summary it informs has (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     pub well_ids: Vec<String>,
     /// Which cutoff to sweep: "VSH" | "PHIE" | "SWE".
     pub property: String,
@@ -1165,7 +1435,9 @@ pub fn run_cutoff_sweep(
         // Per-well isolation: a transient fetch/zone/aux read error skips just this well (a
         // 0-sample legend row) instead of `?`-aborting the whole batch and discarding every
         // well already accumulated — same graceful degradation as run_workflow_module.
-        let (depth, columns) = match equations::fetch_curve_frame(&conn, well_id, &curve_names) {
+        let (depth, columns) = match equations::fetch_curve_frame_from_set(
+            &conn, well_id, &curve_names, req.input_set.as_deref(), None,
+        ) {
             Ok((d, c)) if !d.is_empty() => (d, c),
             _ => {
                 drop(conn);
@@ -1343,6 +1615,7 @@ mod tests {
 
         let dbm = Mutex::new(conn);
         let req = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![well.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -1425,6 +1698,7 @@ mod tests {
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    input_set: None,
                     well_ids: vec![no_perm.clone(), low_perm.clone()],
                     vsh_max: 0.5,
                     phie_min: 0.1,
@@ -1668,6 +1942,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                input_set: None,
                 well_ids: vec![bare.clone(), good.clone()],
                 vsh_max: 0.5,
                 phie_min: 0.1,
@@ -2205,6 +2480,7 @@ mod tests {
 
         let dbm = Mutex::new(conn);
         let req = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -2251,6 +2527,7 @@ mod tests {
 
         // Explicit run: versions the pay flags with the cutoffs recorded in provenance.
         let req = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -2277,6 +2554,7 @@ mod tests {
 
         // skip_version (report/composite render side-effect): writes FLAG_* in place, no new version.
         let req_skip = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -2325,6 +2603,7 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         let base = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -2515,6 +2794,224 @@ mod tests {
     /// exactly on a shared boundary from belonging to both zones and taking whichever happened to
     /// be listed last. That is pinned here, at the boundary sample itself.
     ///
+    /// **An output prefix renames every curve a run writes, and nothing else.**
+    ///
+    /// The general form of the Condition and Frame families' own OUT field (Jauhar, 2026-08-05:
+    /// *"each tools or modules should give user freedom to define ... their own curves"*). Most
+    /// modules produce a curve whose NAME is the answer — `VSH`, `PHIE` — so renaming them one at
+    /// a time is not the shape of the freedom; putting a whole trial run under a prefix is, and
+    /// it leaves the interpretation the field is already using untouched.
+    ///
+    /// Handled once in the runner rather than in forty modules, for the reason `MASK` is. The
+    /// control matters as much as the case: an EMPTY prefix must leave the names byte-identical,
+    /// or every saved chain and every layout in every existing project would be pointing at
+    /// curves that no longer exist.
+    #[test]
+    fn an_output_prefix_renames_every_curve_a_run_writes_and_an_empty_one_changes_nothing() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let run_with = |prefix: Option<&str>| -> Vec<String> {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            let wid = Uuid::new_v4();
+            db::insert_well(&conn, wid, "SANDI-PFX", None, None, Some(0.0)).unwrap();
+            let n = 5usize;
+            let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+            db::insert_standard_curves(
+                &conn,
+                wid,
+                depths,
+                (0..n).map(|i| 20.0 + i as f32 * 10.0).collect(), // GR
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+            )
+            .unwrap();
+            let dbm = Mutex::new(conn);
+            let mut opts: HashMap<String, String> = HashMap::new();
+            if let Some(p) = prefix {
+                opts.insert(OUT_PREFIX_OPT.to_string(), p.to_string());
+            }
+            let req = RunModuleRequest {
+                module: "vsh_gr".into(),
+                well_ids: vec![wid.to_string()],
+                log_inputs: HashMap::new(),
+                params: HashMap::new(),
+                opts,
+                output_set: None,
+                input_set: None,
+            };
+            let r = run_workflow_module(&dbm, &req);
+            assert!(r[0].error.is_none(), "vsh_gr: {:?}", r[0].error);
+            let mut names = r[0].output_curves.clone();
+            names.sort();
+            names
+        };
+
+        let plain = run_with(None);
+        assert!(!plain.is_empty(), "the module must write something for this test to mean anything");
+        assert!(plain.iter().any(|n| n == "VSH"), "unprefixed run writes VSH: {plain:?}");
+
+        // An empty prefix is the same as none — the case every existing project sends.
+        assert_eq!(run_with(Some("   ")), plain, "a blank prefix must change nothing at all");
+
+        let prefixed = run_with(Some("test_"));
+        assert_eq!(
+            prefixed,
+            plain.iter().map(|n| format!("TEST_{n}")).collect::<Vec<_>>(),
+            "every output is prefixed, upper-cased, and none is left behind"
+        );
+        assert!(
+            !prefixed.iter().any(|n| n == "VSH"),
+            "and the interpretation's own VSH is untouched — that is the whole point of a trial run"
+        );
+    }
+
+    /// **Every module writes the keys its manifest declares.** The invariant the whole naming
+    /// system rests on: [`resolve_output_names`] decides a name per DECLARED output and the runner
+    /// then looks the emitted key up, so a module that invents a key of its own is written under a
+    /// name no rename can reach and no dialog ever showed.
+    ///
+    /// Five modules used to do exactly that (`log_predict` returned `<target>_SYN`, `phi_cap`
+    /// `<input>_CAP`, `splice` `<top>_SPL`, `depth_shift` `<input>_DS`, and every Condition and
+    /// Frame module returned whatever its `OUT` text field said). The manifest said one thing and
+    /// the run wrote another, which is why a dialog reading "Outputs: SYN" was telling the user
+    /// something untrue. This is the check that stops it coming back — cheaply, because it needs
+    /// no database: every module runs against one synthetic frame and only its KEYS are examined.
+    #[test]
+    fn every_module_returns_the_output_keys_its_manifest_declares() {
+        let n = 8usize;
+        let mut checked = 0usize;
+        for spec in modules::list_modules() {
+            let declared: Vec<String> = spec
+                .args
+                .iter()
+                .filter(|a| a.kind == ArgKind::LogOut)
+                .map(|a| a.name.clone())
+                .collect();
+
+            // A frame every module can read something from: depth, plus a plausible ramp for each
+            // declared input under its own ARG name (which is how `ModuleContext::log` reads it).
+            let mut logs: HashMap<String, Vec<f32>> = HashMap::new();
+            logs.insert("DEPTH".into(), (0..n).map(|i| 1000.0 + i as f32).collect());
+            let mut params: HashMap<String, Vec<f64>> = HashMap::new();
+            let mut opts: HashMap<String, String> = HashMap::new();
+            for a in &spec.args {
+                match a.kind {
+                    ArgKind::LogIn => {
+                        logs.insert(a.name.clone(), (0..n).map(|i| 0.1 + i as f32 * 0.05).collect());
+                        opts.insert(format!("__IN_{}", a.name), a.default.to_uppercase());
+                    }
+                    ArgKind::Param => {
+                        let v = a.default.parse::<f64>().unwrap_or(1.0);
+                        params.insert(a.name.clone(), vec![v; n]);
+                    }
+                    ArgKind::Option | ArgKind::Text => {
+                        opts.insert(a.name.clone(), a.default.clone());
+                    }
+                    ArgKind::LogOut => {}
+                }
+            }
+            params.insert(ZONE_INDEX_ARG.to_string(), vec![0.0; n]);
+
+            let ctx = ModuleContext { n, logs, params, opts, depth_unit: Default::default() };
+            // A module is free to REFUSE this synthetic frame — a despike window of zero, a bed
+            // definition with no beds. What it may not do is answer under a name of its own.
+            let Ok(out) = modules::run_module(&spec.name, &ctx) else { continue };
+            checked += 1;
+            for key in out.keys() {
+                assert!(
+                    declared.contains(key),
+                    "{} wrote '{key}', which its manifest does not declare (declared: {declared:?}). \
+                     Return the declared key and give the arg a log_out_as pattern instead.",
+                    spec.name
+                );
+            }
+        }
+        assert!(checked > 20, "only {checked} modules actually ran — the check proved little");
+    }
+
+    /// **A pattern is the DEFAULT name; a rename replaces it; a blank rename means the default.**
+    ///
+    /// Jauhar, 2026-08-05: *"naming each output curve in bulk when modules gonna run"*. The three
+    /// states are separate on purpose — clearing the box has to give the original name back rather
+    /// than write an unnamed curve, which is what an "empty means empty" reading would do.
+    #[test]
+    fn an_output_pattern_is_the_default_name_and_a_rename_replaces_it() {
+        let spec = modules::list_modules().into_iter().find(|m| m.name == "log_predict").unwrap();
+        let named = |renames: &[(&str, &str)]| -> Vec<(String, String)> {
+            let mut opts: HashMap<String, String> = HashMap::new();
+            opts.insert("__IN_TARGET".into(), "RHOB".into());
+            for (k, v) in renames {
+                opts.insert(format!("{OUT_NAME_PREFIX}{k}"), (*v).to_string());
+            }
+            resolve_output_names(&spec, &opts).unwrap()
+        };
+
+        assert_eq!(named(&[])[0].1, "RHOB_SYN", "the pattern names it after the curve predicted");
+        assert_eq!(named(&[("SYN", "  ")])[0].1, "RHOB_SYN", "a blank rename is the default, not a blank name");
+        assert_eq!(named(&[("SYN", "perm_est")])[0].1, "PERM_EST", "a rename replaces the whole name");
+
+        // A pattern whose token has nothing behind it (an optional input the user cleared) falls
+        // back to the declared name rather than to a dangling `_SYN`.
+        let bare = resolve_output_names(&spec, &HashMap::new()).unwrap();
+        assert_eq!(bare[0].1, "SYN", "no input mnemonic, no pattern — the declared name stands");
+
+        // A pattern may name an earlier output, which is how a Condition flag rides its curve.
+        let despike = modules::list_modules().into_iter().find(|m| m.name == "despike").unwrap();
+        let mut opts: HashMap<String, String> = HashMap::new();
+        opts.insert("__IN_CURVE".into(), "GR".into());
+        let plain = resolve_output_names(&despike, &opts).unwrap();
+        assert_eq!(plain[0].1, "GR_C");
+        assert_eq!(plain[1].1, "GR_C_SPK", "the flag follows the curve it belongs to");
+        opts.insert(format!("{OUT_NAME_PREFIX}OUT_CURVE"), "GR_ED".into());
+        let renamed = resolve_output_names(&despike, &opts).unwrap();
+        assert_eq!(renamed[1].1, "GR_ED_SPK", "and follows it through a rename, rather than stranding GR_C_SPK");
+    }
+
+    /// **A name that would be shadowed, or collide, is refused BEFORE a single well runs.**
+    ///
+    /// `fetch_curve_frame` resolves the six standard mnemonics from `standard_curves` first, so a
+    /// computed curve stored as `GR` is written, counted, reported — and never the one anything
+    /// reads back. `condition.rs` and `frame.rs` each carried their own copy of this refusal and
+    /// the other forty modules had none; now there is one check in front of all of them, and it
+    /// runs on the spec rather than per well so the user gets one message instead of N.
+    ///
+    /// The collision half matters just as much: two outputs under one name means one silently
+    /// replaces the other, and which one survives depends on hash order.
+    #[test]
+    fn an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs() {
+        let despike = modules::list_modules().into_iter().find(|m| m.name == "despike").unwrap();
+        let with = |renames: &[(&str, &str)]| {
+            let mut opts: HashMap<String, String> = HashMap::new();
+            opts.insert("__IN_CURVE".into(), "GR".into());
+            for (k, v) in renames {
+                opts.insert(format!("{OUT_NAME_PREFIX}{k}"), (*v).to_string());
+            }
+            resolve_output_names(&despike, &opts)
+        };
+
+        let err = with(&[("OUT_CURVE", "gr")]).expect_err("a standard mnemonic must be refused");
+        assert!(err.contains("GR"), "the refusal names the curve: {err}");
+        assert!(err.contains("shadow"), "and says why: {err}");
+
+        let err = with(&[("OUT_FLAG", "rhob")]).expect_err("every output is checked, not just the first");
+        assert!(err.contains("RHOB"), "{err}");
+
+        let err = with(&[("OUT_FLAG", "GR_C")]).expect_err("two outputs on one name must be refused");
+        assert!(err.contains("GR_C"), "the refusal names the collision: {err}");
+
+        let err = with(&[("OUT_CURVE", "GR ED")]).expect_err("a space would survive into every export");
+        assert!(err.contains("space"), "{err}");
+
+        // And the control: an ordinary rename is accepted, so none of the above is a blanket ban.
+        assert_eq!(with(&[("OUT_CURVE", "gr_ed")]).unwrap()[0].1, "GR_ED");
+    }
+
     /// **The parameter under test is PGRAD, and the choice is the point.** This test used to drive
     /// TEMP_GRAD, and doing so exposed finding 6: `precalc` computes each sample as
     /// `intercept + grad(i) * depth(i)` from SURFACE rather than integrating down through the zones
@@ -2766,7 +3263,7 @@ mod tests {
         };
         let out = modules::run_module("log_predict", &ctx).unwrap();
         assert!(
-            out["RHOB_SYN"][washout].is_nan(),
+            out["SYN"][washout].is_nan(),
             "with the predictor blanked the module cannot predict — so an output-masking \
              exemption alone would leave RHOB_SYN missing anyway"
         );
@@ -3412,7 +3909,7 @@ mod tests {
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
-            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, skip_version: true, stats_only: false },
+            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, input_set: None, skip_version: true, stats_only: false },
         )
         .expect("pay summary failed");
         assert_eq!(rows.len(), well_ids.len() * 3); // SAND/RESERVOIR/PAY per well

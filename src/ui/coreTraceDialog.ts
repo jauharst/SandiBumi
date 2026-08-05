@@ -20,6 +20,7 @@ import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { loadCurveNames } from "./plotCommon";
 import { buildPlateStrip } from "./plateStrip";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 
 /**
@@ -195,6 +196,12 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
     formRow("Light", lightPick.el, "The two lights are two deliveries; pick the one this is.")
   );
 
+  // --- Output log set (`logSetPicker.ts`). The photograph traces were the one module output with
+  // no log set at all, so "which conditioning produced this CPHOTO_DARK" had no answer and each
+  // re-read silently replaced the last. Defaults to CPHOTO.
+  const setPicker = buildLogSetPicker({ read: false, write: "CPHOTO" });
+  for (const row of setPicker.rows) wrap.appendChild(row);
+
   const fluorBox = document.createElement("div");
   fluorBox.style.display = "none";
   let classes: FluorClass[] = [{ ...DEFAULT_FLUOR }];
@@ -301,8 +308,12 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
 
   const isUv = (): boolean => lightPick.get() === "uv";
   const readClasses = (): FluorClass[] => bands.map((b) => b.read());
+  // Declared later (the sand/shale row sits below), so it is called through a holder rather than
+  // by name — the light toggle has to reach both.
+  let syncLith: () => void = () => {};
   const syncLight = (): void => {
     fluorBox.style.display = isUv() ? "" : "none";
+    syncLith();
   };
   for (const b of Array.from(lightPick.el.querySelectorAll("button"))) {
     b.addEventListener("click", syncLight);
@@ -679,6 +690,87 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
     )
   );
 
+  // --- Unfold for dipping beds -----------------------------------------------
+  // A slab average runs ACROSS the core, so a contact crossing it diagonally is averaged with the
+  // rock either side over the whole width and comes back as a ramp. Stated as a depth DROP rather
+  // than an angle: an angle needs the core's diameter, which nothing here stores, while the drop
+  // is read straight off the picture by noting one contact's depth at each edge.
+  const unfoldIn = document.createElement("input");
+  unfoldIn.className = "form-control";
+  unfoldIn.type = "number";
+  unfoldIn.step = "0.01";
+  unfoldIn.placeholder = "0 — beds read flat";
+  // Proposing one, `registration.rs`'s way: scan a range of dips, score each by how sharply the
+  // core reads at it, and hand back the WHOLE scan. A peak is a proposal, never an application —
+  // the user types the number in, exactly as they accept a depth-registration shift.
+  const proposeBtn = document.createElement("button");
+  proposeBtn.type = "button";
+  proposeBtn.className = "btn";
+  proposeBtn.textContent = "Propose…";
+  const unfoldRow = document.createElement("div");
+  unfoldRow.className = "intake-template-row";
+  unfoldRow.append(unfoldIn, proposeBtn);
+  runBox.appendChild(
+    formRow(
+      "Unfold dipping beds",
+      unfoldRow,
+      "How much DEEPER the bedding sits at the RIGHT edge of the core than at the left, in the " +
+        "project's depth unit. Read it off the picture: note one contact's depth at each edge and " +
+        "subtract. Propose… scans a range of dips and shows how sharply the core reads at each — " +
+        "one peak means the dip is determined, a flat scan means this core has no bedding " +
+        "contrast to find one from and the maximum is noise.",
+    ),
+  );
+  // The scan lives under the field it fills, and is drawn rather than reduced to its peak: a
+  // sharp maximum and a flat plateau give the same number and mean completely different things.
+  const scanBox = document.createElement("div");
+  scanBox.className = "unfold-scan";
+  scanBox.hidden = true;
+  runBox.appendChild(scanBox);
+
+  // --- Sand/shale curve ------------------------------------------------------
+  // Jauhar's remaining item from the UV round: a DISCRETE curve off the white-light trace, because
+  // a correlation panel can consume a class curve and cannot consume a continuous proxy.
+  const lithChk = document.createElement("input");
+  lithChk.type = "checkbox";
+  const lithCut = document.createElement("input");
+  lithCut.className = "form-control";
+  lithCut.type = "number";
+  lithCut.step = "0.01";
+  lithCut.placeholder = "Otsu, from this core";
+  const lithRow = document.createElement("div");
+  lithRow.className = "intake-template-row";
+  const lithLab = document.createElement("label");
+  lithLab.style.display = "flex";
+  lithLab.style.alignItems = "center";
+  lithLab.style.gap = "6px";
+  lithLab.append(lithChk, document.createTextNode("Write CPHOTO_LITH"));
+  const lithMinBed = document.createElement("input");
+  lithMinBed.className = "form-control";
+  lithMinBed.type = "number";
+  lithMinBed.step = "0.01";
+  lithMinBed.min = "0";
+  lithMinBed.placeholder = "no minimum — every flicker kept";
+  lithRow.append(lithLab, lithCut, lithMinBed);
+  runBox.appendChild(
+    formRow(
+      "Sand / shale",
+      lithRow,
+      "A two-class curve cut out of the darkness trace — 0 lighter, 1 darker. It is a reading of " +
+        "DARKNESS, not a shale volume: the same dark band is mudstone in one core, oil stain in " +
+        "another, which is why it is never called VSH. Leave the cut blank and Otsu proposes one " +
+        "from this core's own trace. The third box is the thinnest bed to keep, in the project's " +
+        "depth unit — beds thinner than it are absorbed into the rock around them. Blank keeps " +
+        "every flicker: there is no thickness that is right in two cores, so none is assumed.",
+    ),
+  );
+  // Under UV the brightness IS the fluorescence, so there is no darkness to cut.
+  syncLith = (): void => {
+    const row = lithRow.closest<HTMLElement>(".form-row");
+    if (row) row.hidden = isUv();
+  };
+  syncLith();
+
   const readBtn = document.createElement("button");
   readBtn.className = "btn btn-accent";
   readBtn.textContent = "Read the trace";
@@ -818,6 +910,11 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
         light: isUv() ? "uv" : "white",
         fluor: isUv() ? readClasses() : [],
         compare_curve: cmpSel.value || null,
+        output_set: setPicker.outputSet(),
+        unfold: unfoldIn.value.trim() ? Number(unfoldIn.value) : null,
+        lith: lithChk.checked && !isUv(),
+        lith_cut: lithCut.value.trim() ? Number(lithCut.value) : null,
+        lith_min_bed: lithMinBed.value.trim() ? Number(lithMinBed.value) : null,
         write,
       });
       trace.hidden = false;
@@ -842,6 +939,101 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
 
   readBtn.addEventListener("click", () => void runRead(false));
   writeBtn.addEventListener("click", () => void runRead(true));
+
+  /**
+   * Draws the scan and offers its peak. Drawn, never reduced to a number: a sharp maximum and a
+   * flat plateau return the same figure and mean completely different things, which is the whole
+   * reason `registration.rs` returns its correlogram rather than only its shift.
+   *
+   * The score axis runs from ZERO rather than from the scan's own minimum. Cropping to the data
+   * makes a 2% wobble fill the box and read as a decisive peak — the same trap the depth
+   * registration's fixed −1..1 axis avoids.
+   */
+  const drawScan = (scan: NonNullable<CoreLogResult["unfold_scan"]>): void => {
+    scanBox.hidden = false;
+    scanBox.textContent = "";
+    const live = scan.scores.filter((s) => Number.isFinite(s));
+    const top = live.length ? Math.max(...live) : 1;
+    const bars = document.createElement("div");
+    bars.className = "unfold-scan-bars";
+    const bestAt = scan.best ?? null;
+    scan.drops.forEach((d, i) => {
+      const s = scan.scores[i];
+      const bar = document.createElement("div");
+      bar.className = "unfold-scan-bar";
+      // A candidate that sheared away too much core is not a low score, it is NO score — drawn as
+      // an empty slot rather than a short bar, which would read as "tried and poor".
+      if (!Number.isFinite(s)) {
+        bar.classList.add("unfold-scan-none");
+        bar.title = `${d.toFixed(2)} — not scored, too little core left at this shear`;
+      } else {
+        bar.style.height = `${Math.max(2, (s / (top || 1)) * 100)}%`;
+        bar.title = `${d.toFixed(2)} → ${s.toFixed(4)}`;
+        if (bestAt !== null && d === bestAt) bar.classList.add("unfold-scan-best");
+      }
+      bars.appendChild(bar);
+    });
+    scanBox.appendChild(bars);
+    const foot = document.createElement("div");
+    foot.className = "unfold-scan-foot";
+    if (bestAt !== null) {
+      const take = document.createElement("button");
+      take.type = "button";
+      take.className = "btn btn-accent";
+      take.textContent = `Use ${bestAt.toFixed(2)}`;
+      // Filling the box is the whole of "accept": the run still has to be pressed, so a proposal
+      // can never become a measurement by having been looked at.
+      take.addEventListener("click", () => {
+        unfoldIn.value = String(bestAt);
+        logNote.textContent = `Unfold set to ${bestAt.toFixed(2)} — read the trace to apply it.`;
+      });
+      foot.appendChild(take);
+    }
+    const why = document.createElement("span");
+    why.className = "unfold-scan-note";
+    why.textContent = scan.notes.join(" ");
+    foot.appendChild(why);
+    scanBox.appendChild(foot);
+  };
+
+  proposeBtn.addEventListener("click", () => {
+    void (async () => {
+      proposeBtn.disabled = true;
+      logNote.textContent = "Scanning for a dip…";
+      try {
+        // The search width: whatever is typed, or a tenth of the trace's own depth range, which is
+        // a dip steep enough to matter and shallow enough to leave most of every barrel intact.
+        const typed = Number(unfoldIn.value);
+        const width = Number.isFinite(typed) && typed !== 0 ? Math.abs(typed) * 2 : 0.5;
+        const res = await extractCoreLog({
+          well_id: well.well_id,
+          dataset: dsSel.value,
+          axis: axisPick.get() as "x" | "y",
+          reverse: revChk.checked,
+          lanes: Number(lanePick.get()) || 1,
+          layouts,
+          light: isUv() ? "uv" : "white",
+          fluor: isUv() ? readClasses() : [],
+          output_set: setPicker.outputSet(),
+          unfold_scan: width,
+          write: false,
+        });
+        if (res.unfold_scan) {
+          drawScan(res.unfold_scan);
+          logNote.textContent =
+            res.unfold_scan.best !== null && res.unfold_scan.best !== undefined
+              ? `Sharpest at ${res.unfold_scan.best.toFixed(2)}. ${res.unfold_scan.notes.join(" ")}`
+              : res.unfold_scan.notes.join(" ");
+        } else {
+          logNote.textContent = "Nothing came back to scan.";
+        }
+      } catch (e) {
+        logNote.textContent = String(e);
+      } finally {
+        proposeBtn.disabled = false;
+      }
+    })();
+  });
 
   stripBtn.addEventListener("click", () => {
     void (async () => {

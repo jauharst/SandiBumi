@@ -1,7 +1,6 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   exportLas,
-  importAuxData,
   importDeviationCsv,
   materializeTvd,
   importScalFiles,
@@ -288,6 +287,9 @@ export class Ribbon {
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
     q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => workspace.openRtcFit());
     q<HTMLButtonElement>("#sfactor-fit-btn")?.addEventListener("click", () => workspace.openSFactorFit());
+    q<HTMLButtonElement>("#intake-btn")?.addEventListener("click", () => workspace.openIntake());
+    q<HTMLButtonElement>("#statistics-btn")?.addEventListener("click", () => workspace.openStatistics());
+    q<HTMLButtonElement>("#reframe-btn")?.addEventListener("click", () => workspace.openReframe());
     q<HTMLButtonElement>("#dashboard-btn")?.addEventListener("click", () => workspace.openDashboard());
     q<HTMLButtonElement>("#results-qc-btn")?.addEventListener("click", () => workspace.openResultsQc());
     q<HTMLButtonElement>("#map-btn")?.addEventListener("click", () => workspace.openMap());
@@ -381,11 +383,6 @@ export class Ribbon {
           onPick: () => void this.handleImportTops(),
         },
         {
-          label: "Import Aux…",
-          doc: "Import petrography, XRD or perforation data (tops-style CSV/TXT) for the selected well",
-          onPick: () => this.handleImportAux(),
-        },
-        {
           label: "Import Images…",
           doc: "Import thin-section, core-photo or SEM pictures for the selected well — the depth in each file name is guessed and shown for confirmation before anything is stored",
           onPick: () => void this.handleImportImages(),
@@ -459,6 +456,14 @@ export class Ribbon {
    *  a saved workflow chain that still references it resolves by name but fails on run with a
    *  message directing to SandiMin (backend `modules::retired_module`), rather than running. */
   private static readonly ADVANCED_MODULE_IDS = ["ssc", "sspw", "sw_rtc", "sw_imts", "thin_bed_ts", "multimin"] as const;
+
+  /** Modules superseded by a more general one: still in the catalog and still RUNNABLE, so every
+   *  saved chain and every stored run resolves, but kept out of the pickers so the user is not
+   *  offered the same operation twice (Jauhar, 2026-08-05: *"dont dupilcates, normalize tools here
+   *  should be universal for all logs"*). `gr_normalize` is now a preset of Condition ▸ Normalize
+   *  and delegates to the same code. Distinct from ADVANCED_MODULE_IDS, which MOVES a module to
+   *  the Advance tab, and from the retirement list in `modules.rs`, which stops one running. */
+  private static readonly SUPERSEDED_MODULE_IDS = ["gr_normalize"] as const;
 
   /** Fetches the backend manifests once and fills both module areas: the Petrophysics
    *  tab (category dropdowns) and the Advance tab (the promoted flagship methods). */
@@ -543,8 +548,8 @@ export class Ribbon {
    *  automatically. "Prep" modules (formation temperature etc.) live in their own
    *  "Data Cond & Prep" group. Advance-tab methods are excluded here. */
   private renderCategoryModules(container: HTMLElement, modules: ModuleSpec[]): void {
-    const advanced = new Set<string>(Ribbon.ADVANCED_MODULE_IDS);
-    modules = modules.filter((spec) => !advanced.has(spec.name));
+    const hidden = new Set<string>([...Ribbon.ADVANCED_MODULE_IDS, ...Ribbon.SUPERSEDED_MODULE_IDS]);
+    modules = modules.filter((spec) => !hidden.has(spec.name));
     container.innerHTML = "";
 
     // category id -> [dropdown label, group caption, icon path data]
@@ -553,6 +558,23 @@ export class Ribbon {
         "Data Prep",
         "Data Cond & Prep",
         "M5 15c1.5-3 2-8 5-8s3.5 5 5 8M4 11h3M13 11h3",
+      ],
+      // Condition — the curve-conditioning family (despike, smooth, clip, fill gaps, flip). Its
+      // own group rather than more entries in Data Prep: these act on ANY curve and are run
+      // before the interpretation starts, where Prep's members already assume a petrophysical
+      // role for their inputs. `Frame` (block, resample, regularize) is the companion category.
+      Condition: [
+        "Condition",
+        "Curve Conditioning",
+        "M3 13c2-6 3.2 3 5-4s2.6 6 4.4 1S16 12 17 10",
+      ],
+      // Frame — depth sampling: upscaling a curve to beds, and finding the beds. Separate from
+      // Condition because conditioning changes a curve's VALUES while leaving every sample where
+      // it was, and blocking changes which samples say anything at all.
+      Frame: [
+        "Frame",
+        "Depth Sampling",
+        "M3 5h14M3 9h14M3 13h14M3 17h14M7 3v16M13 3v16",
       ],
       VSH: [
         "VSH",
@@ -1640,121 +1662,6 @@ export class Ribbon {
     } catch (err) {
       setStatus(`Tops import failed: ${err}`);
     }
-  }
-
-  /** "Import Aux…" — petrography / XRD / perforation (tops-style CSV/TXT) for the
-   *  selected well. Each import replaces the well's previous rows of that dataset. */
-  private handleImportAux(): void {
-    const well = requireWell("Import Aux");
-    if (!well) return;
-    const content = document.createElement("div");
-    const doc = document.createElement("p");
-    doc.className = "modal-doc";
-    doc.textContent =
-      "Tops-style data: a TOP/DEPTH column (plus optional BASE/TO for intervals); every other " +
-      "column becomes an item — mineral percentages, textural values, perforation status. " +
-      "A WELL column routes rows to each named well (multi-well files); without one, rows land " +
-      "on this well. Each import is a named DELIVERY: re-importing keeps the earlier one and " +
-      "makes the new one live, so nothing is ever overwritten.";
-    content.appendChild(doc);
-
-    const dsSelect = document.createElement("select");
-    dsSelect.className = "form-control";
-    for (const name of ["PETROGRAPHY", "XRD", "PERFORATION", "Custom…"]) {
-      const o = document.createElement("option");
-      o.value = name;
-      o.textContent = name;
-      dsSelect.appendChild(o);
-    }
-    content.appendChild(formRow("Dataset", dsSelect));
-    const customInput = document.createElement("input");
-    customInput.className = "form-control";
-    customInput.type = "text";
-    customInput.placeholder = "dataset name";
-    const customRow = formRow("Custom name", customInput);
-    customRow.style.display = "none";
-    content.appendChild(customRow);
-    dsSelect.addEventListener("change", () => {
-      customRow.style.display = dsSelect.value === "Custom…" ? "" : "none";
-    });
-
-    // The delivery name (T-IMP-08 applied to point data): a second XRD/CEC/oil-show
-    // delivery lands beside the first instead of replacing it.
-    const setInput = document.createElement("input");
-    setInput.className = "form-control";
-    setInput.type = "text";
-    setInput.value = "RAW";
-    content.appendChild(
-      formRow(
-        "Set",
-        setInput,
-        "Names this delivery. A name already used for this dataset on a well is suffixed (RAW → RAW_1) — an import never overwrites earlier rows. The new set becomes the live one; switch or delete in Tools → Data Sets…",
-      ),
-    );
-
-    const followCore = buildFollowCoreRow("the rows", "aux");
-    content.appendChild(followCore.el);
-
-    const pick = document.createElement("button");
-    pick.className = "form-run-btn";
-    pick.textContent = "Choose file & import…";
-    const resultBox = document.createElement("div");
-    resultBox.className = "modal-result";
-    content.appendChild(pick);
-    content.appendChild(resultBox);
-    openModal(`Import Aux Data — ${well.well_name}`, content, 460);
-
-    pick.addEventListener("click", async () => {
-      const dataset = dsSelect.value === "Custom…" ? customInput.value.trim() : dsSelect.value;
-      if (!dataset) {
-        resultBox.textContent = "Enter a dataset name.";
-        return;
-      }
-      let path: string | null;
-      try {
-        const selection = await open({
-          multiple: false,
-          filters: [{ name: "Tops-style CSV/TXT", extensions: ["csv", "txt", "asc", "dat"] }],
-        });
-        path = Array.isArray(selection) ? (selection[0] ?? null) : selection;
-      } catch (err) {
-        resultBox.textContent = `Import dialog unavailable: ${err}`;
-        return;
-      }
-      if (!path) return;
-      pick.disabled = true;
-      resultBox.textContent = `Importing ${dataset} for ${well.well_name}…`;
-      try {
-        const result = await importAuxData(
-          well.well_id,
-          dataset,
-          path,
-          setInput.value.trim() || "RAW",
-          followCore.checked(),
-        );
-        if (result.error) {
-          resultBox.textContent = `Import failed: ${result.error}`;
-          return;
-        }
-        // Multi-well files route by their WELL column (T-IMP-11); say where rows went
-        // and surface the routing story (unmatched names, blank cells) instead of
-        // pretending everything landed on the selected well.
-        const where = result.wells_imported > 1 ? `${result.wells_imported} wells (by WELL column)` : well.well_name;
-        const notes = result.notes ? ` — ${result.notes}` : "";
-        // Name the set, and especially a suffix: it means that well already had a
-        // delivery under the requested name and BOTH are now kept.
-        const setNote = result.sets.length ? ` Set ${result.sets.join(", ")}.` : "";
-        resultBox.textContent =
-          `Imported ${result.rows} value(s) into ${where} across ${result.items.length} column(s): ${result.items.join(", ")}.${setNote}${notes}`;
-        setStatus(`${result.dataset}: ${result.rows} values imported into ${where}.${setNote}${notes}`);
-        recordProcess("Import", `Imported ${result.dataset} (${result.rows} values, ${result.wells_imported} well(s))${notes} ← ${path}`, well.well_name);
-        this.workspace.notifyDataChanged();
-      } catch (err) {
-        resultBox.textContent = `Import failed: ${err}`;
-      } finally {
-        pick.disabled = false;
-      }
-    });
   }
 
   /** "Import Deviation…" — loads an MD/INC/AZI survey CSV and computes minimum-curvature

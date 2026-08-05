@@ -275,7 +275,15 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             curve_name  VARCHAR NOT NULL,
             depth       FLOAT NOT NULL,
             samples     BLOB NOT NULL,
-            PRIMARY KEY (well_id, set_name, curve_name, depth)
+            PRIMARY KEY (well_id, set_name, curve_name, depth),
+            -- What each value in `samples` IS a measurement AT: the pressure of a Pc step, the
+            -- T2 time of an NMR bin, the wavelength of a spectrum. NULL means the values are an
+            -- index-ordered set with no axis of their own (Monte Carlo realizations, which is
+            -- what this table held first) -- absent, never a made-up 0,1,2,....
+            --
+            -- Must stay the LAST column: `create_schema` and the migration have to agree, and a
+            -- migrated database gets it appended.
+            axis        BLOB
         );
 
         -- Long/tall store for module + equation outputs: one row per (well, depth, curve),
@@ -313,7 +321,11 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             module      VARCHAR NOT NULL,     -- module name, 'workflow (N steps)', 'equation:X', ...
             params_json VARCHAR,              -- parameters of the run
             inputs_json VARCHAR,              -- resolved input curve mnemonics
-            created_at  TIMESTAMP NOT NULL DEFAULT now()
+            created_at  TIMESTAMP NOT NULL DEFAULT now(),
+            -- 'STANDARD' = written on the well's own depth grid (every module).
+            -- 'OWN'      = the set carries its own depth column (reframe.rs), and every read
+            --              through it runs on that frame instead. Declared, never inferred.
+            frame       VARCHAR NOT NULL DEFAULT 'STANDARD'
         );
 
         -- Append-only history: every versioned run's full output rows, tagged by set_id.
@@ -1079,6 +1091,7 @@ pub fn write_array_log(
     curve_name: &str,
     depths: &[f32],
     samples: &[Vec<f32>],
+    axis: Option<&[f32]>,
 ) -> DbResult<usize> {
     if depths.len() != samples.len() {
         return Err(DbError::LengthMismatch(format!(
@@ -1092,14 +1105,19 @@ pub fn write_array_log(
         duckdb::params![well_id, set_name, curve_name],
     )?;
     let mut stmt = conn.prepare(
-        "INSERT INTO array_logs (well_id, set_name, curve_name, depth, samples) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO array_logs (well_id, set_name, curve_name, depth, samples, axis)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )?;
+    // The axis is stored on EVERY row rather than once per curve. One row is then self-describing
+    // — a reader that fetches a single depth has the axis in hand — and the cost is a few hundred
+    // bytes against a samples blob of the same order.
+    let axis_blob = axis.map(encode_samples);
     let mut written = 0usize;
     for (d, vals) in depths.iter().zip(samples) {
         if vals.is_empty() || !d.is_finite() {
             continue;
         }
-        stmt.execute(duckdb::params![well_id, set_name, curve_name, d, encode_samples(vals)])?;
+        stmt.execute(duckdb::params![well_id, set_name, curve_name, d, encode_samples(vals), axis_blob])?;
         written += 1;
     }
     Ok(written)
@@ -1236,6 +1254,49 @@ pub fn migrate_delivery_depth_basis(conn: &Connection) -> DbResult<()> {
                 "ALTER TABLE {table} ADD COLUMN on_core_depths INTEGER NOT NULL DEFAULT 0;"
             ))?;
         }
+    }
+    Ok(())
+}
+
+/// Adds `axis` to the array-log store: what each stored value is a measurement AT.
+///
+/// ADD COLUMN only, no rebuild, no backup. Existing rows get NULL, which is not a guess — the
+/// only writer before this was `montecarlo::persist_realizations`, whose values genuinely have no
+/// axis (realization 7 is not a measurement at 7 of anything).
+///
+/// It must stay the LAST column, the `depth_orig` rule: a migrated database gets it appended, and
+/// a fresh one is built by `create_schema`, so the two shapes have to agree.
+pub fn migrate_array_log_axis(conn: &Connection) -> DbResult<()> {
+    let has: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns() WHERE table_name = 'array_logs' AND column_name = 'axis'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        conn.execute_batch("ALTER TABLE array_logs ADD COLUMN axis BLOB;")?;
+    }
+    Ok(())
+}
+
+/// Adds `frame` to the log-set registry: `'STANDARD'` (the well's own depth grid, which is what
+/// every module writes on) or `'OWN'` (the set carries its own depth column — see
+/// [`crate::reframe`]).
+///
+/// ADD COLUMN only, no rebuild, no backup. Existing sets get `'STANDARD'`, which is not a guess:
+/// nothing before `reframe` could write a set on any other frame, so every row that exists really
+/// is on the well's grid.
+///
+/// **Explicit rather than inferred from the depths.** A set that happens to fall on the standard
+/// grid and one deliberately re-framed onto it hold identical rows, and reading the difference off
+/// the data would make the behaviour of every existing project depend on a coincidence.
+pub fn migrate_log_set_frame(conn: &Connection) -> DbResult<()> {
+    let has: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns() WHERE table_name = 'log_sets' AND column_name = 'frame'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        conn.execute_batch("ALTER TABLE log_sets ADD COLUMN frame VARCHAR NOT NULL DEFAULT 'STANDARD';")?;
     }
     Ok(())
 }

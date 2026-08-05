@@ -2683,7 +2683,7 @@ mod tests {
             vec![0.15, 0.25, 0.35],
             vec![], // nothing survived here
         ];
-        let n = db::write_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL", &depths, &vals).unwrap();
+        let n = db::write_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL", &depths, &vals, None).unwrap();
         assert_eq!(n, 2, "the empty depth is skipped, not stored as a zero-width distribution");
 
         let back = db::read_array_log(&conn, &w, Some("MONTECARLO"), "mc_phie_real").unwrap();
@@ -2695,7 +2695,7 @@ mod tests {
         assert_eq!(back[1].samples, vec![0.15, 0.25, 0.35]);
 
         // A re-run replaces its own output rather than unioning two runs' realizations.
-        db::write_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL", &[1000.0], &[vec![0.9, 0.8]]).unwrap();
+        db::write_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL", &[1000.0], &[vec![0.9, 0.8]], None).unwrap();
         let after = db::read_array_log(&conn, &w, None, "MC_PHIE_REAL").unwrap();
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].samples, vec![0.9, 0.8]);

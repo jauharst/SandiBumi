@@ -14,7 +14,6 @@
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 
-use crate::equations::fetch_curve_frame;
 use crate::multimin2::{
     fluid_calc, sw_archie, sw_dual_nonlinear, sw_indonesia, sw_juhasz, sw_simandoux,
     sw_waxman_smits, waxman_b, FluidProps,
@@ -25,6 +24,12 @@ const DEFAULT_DIVERGENCE: f64 = 0.10;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SwSpreadRequest {
+    /// Read the curves this run consumes from THIS log set's stored values (latest version per
+    /// well) rather than from whatever the current values are. Curves the set never wrote fall
+    /// back to normal resolution; an empty name means "current values", which is what every
+    /// caller did before this existed (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     pub well_id: String,
     #[serde(default)]
     pub depth_min: Option<f32>,
@@ -352,7 +357,8 @@ pub fn sw_method_spread(conn: &Connection, req: &SwSpreadRequest) -> Result<SwSp
     .collect();
 
     let (depth_all, map) =
-        fetch_curve_frame(conn, &req.well_id, &want).map_err(|e| e.to_string())?;
+        crate::equations::fetch_curve_frame_from_set(conn, &req.well_id, &want, req.input_set.as_deref(), None)
+            .map_err(|e| e.to_string())?;
     if depth_all.is_empty() {
         return Err("No curve data for this well".into());
     }

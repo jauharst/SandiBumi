@@ -6,6 +6,7 @@ import {
   type ShfFitResult,
   type ShfGroupFit,
 } from "../ipc";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { canvasFont, readTheme } from "./plotCanvas";
 import { preferredCurveSelect } from "./plotCommon";
@@ -148,6 +149,11 @@ export async function buildShfContent(
   scanLabel.className = "mc-field";
   scanLabel.append(scanCb, document.createTextNode(" Scan for FWL (Cuddy Eq 19)"));
   scanWrap.append(scanLabel, mkField("FWL lo", scanLo), mkField("FWL hi", scanHi), mkField("step", scanStep));
+  // --- Input log set (`logSetPicker.ts`): a saturation-height law fitted against one version of
+  // PHIE and SWE is not the same law as one fitted against another.
+  const setPicker = buildLogSetPicker({ write: false });
+  for (const row of setPicker.rows) content.appendChild(row);
+
   const scanRow = formRow("FWL scan", scanWrap, "When on, steps a common FWL over [lo, hi] and picks the tightest FOIL fit. Click the scan plot to pick a FWL by hand.");
   content.appendChild(scanRow);
 
@@ -217,6 +223,7 @@ export async function buildShfContent(
     try {
       if (method === "foil") {
         const res = await runCuddyFoil({
+          input_set: setPicker.inputSet(),
           ...common,
           scan: scanCb.checked,
           scan_lo: parseFloat(scanLo.value) || 0,
@@ -238,6 +245,7 @@ export async function buildShfContent(
         }
       } else {
         const res = await runShfFit({
+          input_set: setPicker.inputSet(),
           ...common,
           method: method as "brooks_corey" | "skelt" | "thomeer" | "leverett_j",
           perm_curve: method === "leverett_j" ? permSel.value : undefined,

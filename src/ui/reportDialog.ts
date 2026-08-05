@@ -18,6 +18,7 @@ import {
 } from "../ipc";
 import { appState, bumpDataVersion } from "../state";
 import { loadCutoffDefaults } from "./cutoffs";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
 
@@ -169,6 +170,12 @@ export async function buildReportContent(
   content.appendChild(formRow("Scale / page", scalePageWrap));
   content.appendChild(formRow("Cutoffs VSH/PHIE/SWE/PERM", cutoffWrap, "Pay summary flags: VSH ≤, PHIE ≥, SWE ≤, PERM ≥ (blank = off)"));
   content.appendChild(formRow("Tables only (no composite)", tablesOnly));
+
+  // --- Input log set (`logSetPicker.ts`). A client report that cannot name the version of the
+  // interpretation it quotes is a report nobody can reproduce.
+  const setPicker = buildLogSetPicker({ write: false });
+  for (const row of setPicker.rows) content.appendChild(row);
+
   content.appendChild(formRow("Methodology table", methodTa, "Parameter | Method | Remarks per line; blank = default"));
 
   // Scope for the Batch export below (Render/PDF/PNG act on this pane's single well).
@@ -267,6 +274,7 @@ export async function buildReportContent(
       phie_min: phie,
       swe_max: swe,
       perm_min: perm,
+      input_set: setPicker.inputSet(),
       tables_only: tablesOnly.checked,
     };
   };

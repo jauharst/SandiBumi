@@ -8050,3 +8050,419 @@ returns a note saying RECON is forced to zero. The one thing worth your eye:
 - [ ] Run SandiMin with only RHOB + NPHI (plus unity) so it is exactly determined. Is the `dof` note
       hard to miss in the pane, or does it sit somewhere you would scroll past? A warning nobody
       reads is the same as no warning.
+
+---
+
+## Condition — curve conditioning as modules (2026-08-05)
+
+Five new modules in a new **Condition** ribbon group: Despike, Smooth, Clip, Fill Gaps, Flip
+Polarity. Built as modules rather than as an editor, so they are multi-well, zone-overridable,
+chainable, mask-aware and log-set-versioned from the first run, with the dialog auto-generated.
+Full reasoning in `docs/plan_data_tools.md`.
+
+- [ ] **Petrophysics ribbon ▸ Condition ▾** — five entries, and the group sits before VSH. Does the
+      icon read as a spiky trace being flattened, or as noise?
+- [ ] Open **Despike**. WINDOW opens EMPTY with the placeholder "set a value" — your call, since
+      what counts as a spike rather than a thin bed has no value that is right in two basins. Press
+      Run without filling it: does it refuse in the pane, naming WINDOW, with the cursor landing in
+      that field?
+- [ ] The method dropdown offers all four rules you asked for. Do the labels say enough to pick one
+      without reading a manual?
+- [ ] Run HAMPEL on a GR with a known spike. **Set WINDOW narrower than the thinnest bed you mean to
+      keep** — that is the whole discriminator. Did the spike go and the beds stay?
+- [ ] Try a WINDOW of about two samples. It should REFUSE, not run: over three samples the spread
+      the test measures against is set by the spike itself. Does the refusal point you at ABS?
+- [ ] Every module writes `<input>_C` unless you type your own name in **OUT**. Type `GR_ED` and
+      check that is what lands in the Curve Catalog.
+- [ ] Type `GR` in OUT. It should be REFUSED. This one is worth reading: a curve stored under a
+      standard mnemonic is written, counted and reported, and then nothing reads it back — the raw
+      log wins. Is the message clear about why?
+- [ ] `<OUT>_SPK` is written beside each despiked curve, 1 where a sample was replaced. Put it on a
+      log view beside the curve. Is that the right way to see what the filter took, or would you
+      rather have a count in the run report?
+- [ ] **Smooth** — MEAN, MEDIAN and SAVGOL. Over an interval with real curvature, does SAVGOL keep
+      the peak where a MEAN flattens it?
+- [ ] Smooth a curve that has a hole in it. The hole must still be there afterwards: smoothing does
+      not fill gaps, on purpose. Confirm nothing appeared across it.
+- [ ] **Clip** defaults to BLANK rather than CLAMP — a reading outside the range is usually a
+      reading the tool could not make, and clamping leaves a real number where there is no
+      measurement. Is BLANK the right default for your work, or do you reach for CLAMP more?
+- [ ] Leave Clip's MAX empty and set only MIN. The upper side should genuinely not be a bound.
+- [ ] **Fill Gaps** — set MAX_GAP, run, then plot `<OUT>_FILL`. Every invented sample is marked and
+      nothing else is. Is the flag curve worth the extra entry in the catalog, or would you rather
+      it were optional-off?
+- [ ] Fill Gaps must never fill a hole at the very top or bottom of a curve — that is extrapolating
+      past where the tool logged. Check one.
+- [ ] **Flip Polarity** on an SP. `<OUT>_PIV` carries the pivot actually used. Flipping the result
+      again with the same pivot should give the original back exactly.
+- [ ] Put a Condition step into a **Workflow** chain and set a per-step OUT name in the grid. Does
+      the text cell behave like the other override cells (bold when overridden, Set-all working)?
+- [ ] Anything here you would rather have as a separate editor pane with a before/after preview —
+      that is the next increment, and this is the moment to redirect it.
+
+---
+
+## Every tool now names its log set — and the word is "log set" (2026-08-05)
+
+You said you had forgotten what a set refers to. The reason is that the UI never said it: the
+store, the backend and the docs all say **log set**, while the two dialogs that offered one
+called it a "constellation", abbreviated to "cons". One word now, everywhere.
+
+Before this, exactly two surfaces of nineteen let you choose a version. ML, SandiMin, the
+saturation-height fit, the cutoff sweep, the pay summary, the facies tie, Lorenz, results QC and
+every deliverable read whatever the current values happened to be — and ML, SandiMin and the core
+photo trace hardcoded where their output went (`ML`, `SANDIMIN`, nowhere).
+
+- [ ] **Petrophysics ▸ any module** — the two rows now read "Input log set" and "Output log set".
+      Does that connect with what the Curve Catalog shows, in a way "cons" did not?
+- [ ] **Curve Catalog** — the section heading now reads "Log sets", and the search box says so too.
+- [ ] Run a module into a log set called `TEST`, then run another module with **Input log set =
+      TEST**. Does the second read the first's values rather than the current ones?
+- [ ] **ML Models…** now has both rows. Train a model with Input log set = FINAL, then re-run your
+      porosity, then apply the saved model. It should still be reading FINAL — the whole reason
+      for saving a model is that it can be reapplied to the same rock.
+- [ ] ML output used to land in a set called `ML` with no way to change it. Type your own name.
+- [ ] **SandiMin** — same two rows; output used to be forced to `SANDIMIN`.
+- [ ] **Cutoffs & Summary**, **Report…**, **Workbook…**, **Deck…** — each has an Input log set.
+      This is the one that matters for a client deliverable: a report that cannot name the version
+      of the interpretation it quotes cannot be reproduced. Render the same report against two sets
+      and check the numbers actually differ.
+- [ ] **Photo Log…** now writes into a log set (default `CPHOTO`). Before, the trace curves had no
+      version at all, so each re-read silently replaced the last and nothing recorded which
+      conditioning produced them. Check the Curve Catalog shows a version after a Save.
+- [ ] **Calibrate S…**, **Plug QC…**, **Pore Area…** and the petrography family read point data and
+      pictures rather than curves, so they have no log set — say if you expected one there.
+- [ ] Anywhere the two rows appear in a place that reads awkwardly, say so — they are one shared
+      control, so moving them is one change rather than nineteen.
+
+---
+
+## Frame — blocking, and the permeability trap (2026-08-05)
+
+Two modules in a new **Frame** ribbon group: **Block (Upscale)** and **Bed Detect**.
+
+Resample and Regularize are deliberately NOT here. A module's outputs are written at the run's own
+depth frame, so changing how often a well is sampled cannot be a module — it would have to write a
+different depth column, which belongs to the well rather than to one curve. That comes with Intake.
+
+- [ ] **Petrophysics ribbon ▸ Frame ▾** — two entries. The group sits after Condition.
+- [ ] **Block** on PHIE with OPT_BEDS = INTERVAL and a 1 m interval. Every sample of a block should
+      carry that block's one value.
+- [ ] Put the blocked curve in a log track and **set its draw style to Step** (right-click the curve
+      → edit). Without that the view draws a diagonal between two block values, which is a gradient
+      the data never measured. Should Block set that automatically? It cannot today — the module
+      writes a curve, the layout owns the style — say if you want them linked.
+- [ ] **The one to check carefully: OPT_STAT on a permeability.** Block your PERM over a laminated
+      interval three times — MEAN, GEOMETRIC, HARMONIC. On a real sand-shale they should differ by
+      orders of magnitude, not percent, and MEAN should be the highest every time. An arithmetic
+      upscale hands a simulator a permeability the rock does not have and nothing downstream reads
+      as wrong. Is the dropdown wording enough to make somebody stop and think?
+- [ ] MEAN is the default because it is right for porosity and for every volume fraction. Say if
+      you would rather it had no default and refused until chosen, like the despike window.
+- [ ] **OPT_BEDS = CLASS** pointing at FACIES — each run of a constant class is one bed, so the
+      boundaries are where the rock changes. Check a facies boundary lines up with a block edge.
+- [ ] **OPT_BEDS = ZONES** — one value per marker interval, which is what a zone-parameter table
+      wants. Needs tops on the well; it refuses by name if there are none.
+- [ ] **OPT_BEDS = AUTO** — boundaries found from the curve itself. Run **Bed Detect** first and
+      put its output in a track as class blocks, so you can SEE the beds before anything is
+      averaged over them. Over-segmentation is what a step-finder gets wrong, and a blocked curve
+      computed from beds nobody checked looks perfectly reasonable.
+- [ ] MIN_BED has no default, same as the despike window. Does the refusal say enough?
+- [ ] `<OUT>_BED` rides beside the blocked curve, carrying the bed number. Useful, or clutter?
+
+---
+
+## Statistics — five tables (2026-08-05)
+
+**Petrophysics ▸ Batch ▸ Statistics…**, or the ＋ menu. One pane, five tabs, sharing a well scope,
+an input log set and a per-zone toggle. Every one is a pure read — nothing here writes a curve.
+
+- [ ] **Curve Summary** — one row per well × zone × curve. Pick several curves (Ctrl-click) and
+      set your own percentiles. Is the **Missing** column worth its width? It is there because a
+      mean over 12 samples of a 400-sample zone is not the zone's mean, and nothing else in the
+      row would say so.
+- [ ] Find a well that never entered a zone. Every statistic on that row should be **empty, not
+      zero** — Excel's AVERAGE and COUNT skip a blank and treat a zero as data.
+- [ ] **Pair Summary** — two curves against each other. Both Pearson and Spearman are reported
+      because they answer different questions: Pearson only makes sense when both axes are the
+      same quantity. Try PHIE against core porosity, then PHIE against PERM, and see which
+      coefficient you actually trust in each case.
+- [ ] **Fit** — least squares on as many predictors as you like, with log10 on either side. The
+      one to read is **R² (blind well)**: it refits leaving each well out in turn and scores on
+      the well it never saw. Compare it with the plain R² on a permeability transform — if the
+      gap is large the fit is memorising your wells.
+- [ ] Fit refuses two predictors that carry the same information rather than returning coefficients
+      nobody can interpret. Try PHIE and PHIT together.
+- [ ] With fewer than three wells the blind figure says "needs 3+ wells" rather than showing a
+      number. Is that clear enough, or should it refuse the run?
+- [ ] **Versus** — the same curves in two log sets. This is the first thing in the app that uses
+      log-set provenance for anything. Run a module, then compare its set against the previous one.
+      The **Only reference / Only this** columns are the ones to watch: a re-run that gained or
+      lost an interval matters more than one that shifted values slightly, and a mean difference
+      over the common depths says nothing about it.
+- [ ] **Thickness** — this is the one you asked to be its own tool. Four ways to count:
+      - FLAG on `FLAG_PAY` — check it agrees with the Cutoffs & Summary net. It should, because it
+        reads the same flag curve rather than re-applying the cutoffs.
+      - CLASS on FACIES — thickness per facies without writing a flag for each.
+      - CUTOFF — type a condition. Does one condition cover your work, or do you need several
+        ANDed? The backend already takes a list; the pane offers one.
+      - MARKER — gross between tops, for an isopach.
+- [ ] **Gross TVD / Net TVD are blank on a well with no survey**, and that is deliberate: a
+      vertical well and an unsurveyed deviated one look identical in the data. On a deviated well
+      check the TVD columns really are smaller than the MD ones — measured thickness overstates
+      true vertical by about 30% at 40 degrees, which is a reserves error that reads as a good well.
+- [ ] **Copy as CSV** under each table. Should these also go into the Workbook export as their own
+      sheets? The table definition is already in the shape `office.rs` renders.
+
+---
+
+## Intake — one importer, and the grid is the control (2026-08-05)
+
+**Data ribbon ▸ Intake…**, or the ＋ menu. Replaces the table-shaped importers: core tables, point
+data, and any delimited text with mixed column types. LAS and DLIS keep their own path — they are
+self-describing formats with headers and units built in, not tables.
+
+It is a FRONT END, not a second write path. `import_core_table` already owns well routing, the
+foot-to-metre conversion, the percent rule, per-well replace, depth dedup and carrying unclaimed
+columns into point data. Intake builds the mapping and calls it, so the two can never disagree.
+
+- [ ] **Data ▸ Intake…** — choose a real delivery. Does the grid read the file the way you would?
+- [ ] Each column header carries its **proposed role** and, on hover, the reason. Overrule one and
+      watch the tint follow. Are the nine roles the right nine, or is something missing?
+- [ ] The **Delimiter**, **Skip lines** and **Decimal** controls re-read the grid live. Try a file
+      with a title block above the headers and skip past it.
+- [ ] **The decimal control matters.** A delivery that writes `7016,54` alongside `6980.71` is not
+      hypothetical — one of your petrography workbooks did exactly that, and reading only the dot
+      convention put a seventh of it at 54 feet. Left on "(decide per value)" the rightmost
+      separator wins; a genuinely ambiguous `1,234` is read as 1.234 and reported.
+- [ ] **Cells outlined in red** sit in a numeric column and did not parse — a stray unit, a
+      spreadsheet's `#N/A`, the wrong decimal convention. An EMPTY cell is not flagged, because a
+      blank is a missing measurement. Is the outline visible enough on your themes?
+- [ ] A column no measurement role claims becomes **Point item** and is carried into `aux_data` at
+      the plug depths — lithology text, Kv/Kh, oil shows. Only **Ignore** drops one. Check they
+      land: Wells pane ▸ well ▸ Point data.
+- [ ] **Paste from clipboard** — copy a block out of Excel and paste. It takes the identical parse
+      and commit path as a file, so anything true of one is true of the other.
+- [ ] Choose several files at once. The mapping is confirmed ONCE, on the first, and applied by
+      header name to all of them — a delivery split across files is one delivery with one shape.
+      Say if you have deliveries where that is not true.
+- [ ] **Delivery set** — the files chosen together are one delivery, auto-suffixed per well so an
+      import never overwrites.
+- [ ] Without a DEPTH role the Import button stays disabled and the pane says why, rather than
+      failing after you press it.
+
+**Not yet built, and named rather than quietly missing:**
+
+- [x] **Wide and Block array layouts** — shipped, see below.
+- [x] **Curve role** — shipped, see below.
+- [x] **Templates** — shipped, see below.
+- [ ] Import Aux… is gone. Core, SCAL and Tops imports are still in the Data ribbon; say the word
+      and they go too, once Intake has earned it on your own deliveries.
+
+---
+
+## Intake: arrays, logs and saved mappings (2026-08-05)
+
+**Layout** is a new field, and it is a DECLARATION — a wide table and a long one are both
+rectangles of numbers and nothing in the characters says which is which.
+
+- [ ] **Wide**: a porous-plate Pc table, one row per plug, a column per pressure step. Mark the
+      DEPTH column, name the array (`PC_SW`), import. Every other column header is read as its own
+      axis value, so `0.5, 1, 2, 4, 8` become the pressures.
+- [ ] Put a `TOTAL` column on the end. It should be DROPPED and NAMED in the notes — counted as a
+      bin it would be a saturation at an invented pressure, right where a Thomeer fit is most
+      sensitive.
+- [ ] Try a header written `100 psi`. The unit should be stripped and the number read.
+- [ ] **Block**: several tables stacked with the header repeated. Import with Block ticked and the
+      repeats should be stripped. Import the SAME file WITHOUT it and you get one extra row whose
+      saturations are 1, 2, 4 — the header read as a measurement. That is what the flag prevents.
+- [ ] A block whose depth is on a label line above each table rather than in a column is NOT read,
+      and says so. If your deliveries look like that, tell me and it becomes the next increment.
+- [ ] Import the same array twice under one delivery name. The second must land as `NAME_1`, not
+      replace the first — check both are still there.
+- [ ] **Curve role**: a CSV of continuous logs (GR every 15 cm). Mark the column `Log curve` and
+      it goes to the curve store where modules can read it, not to point data. Check it appears in
+      the Wells pane under its delivery set and is selectable as a module input.
+- [ ] One file carrying BOTH logs and a lithology description should import as one delivery.
+- [ ] **Saved mapping**: set your roles, name it, Save. Read next quarter's file and Apply. It
+      matches by column NAME, so a delivery that gained a column does not shift every role one to
+      the right — and the new column is listed rather than silently ignored.
+
+---
+
+## Naming every output curve, at the run (2026-08-05)
+
+Every module pane gains an **Output curves** card: one box per curve the run will write, with the
+name it will be written under, plus a **prefix all** box for a trial run. This replaces the
+"Output prefix" field of the earlier increment and the "Output curve name" field the Condition and
+Frame families carried — one control, forty modules.
+
+- [ ] Open **Despike**. The two boxes should read `GR_C` and `GR_C_SPK` before you touch anything.
+      Change the input curve to RHOB and both should follow.
+- [ ] Type `GR_ED` into the first box. The flag box should follow to `GR_ED_SPK` rather than
+      stranding at `GR_C_SPK`.
+- [ ] Type `GR` into it. It should REFUSE, in the pane, naming the curve — GR is read from the raw
+      log first, so a conditioned copy stored under that name is never the one anything reads.
+- [ ] Clear the box. It should go back to `GR_C`, not to an unnamed curve.
+- [ ] Put `TEST_` in the prefix box and run. Every curve should land prefixed, the real ones
+      untouched.
+- [ ] A renamed or prefixed step in a **Monte Carlo** study should REFUSE by name — the study
+      resolves its cutoffs from the declared output names.
+- [ ] The same boxes are in the workflow builder's per-step editor (the ⚙ expander).
+
+---
+
+## Reframe — a set with its own sampling (2026-08-05)
+
+**Data ▸ Sampling ▸ Reframe…** This is the answer to the 0.1523 m well in a 0.5 m field.
+
+Worth knowing before you try it: **every curve read in this app is an exact depth match onto the
+well's standard grid**. A 0.1524 m delivery attached to a well whose grid came from a 0.5 m LAS
+therefore contributes almost nothing today — no error, no warning, just a curve that reads mostly
+MISSING. That is what this fixes, in both directions.
+
+- [ ] Press **Check sampling** first. It should tell you what each well is ALREADY sampled at —
+      a number nothing else in the app shows. A well already at the target is marked, because
+      re-framing it would resample every curve for nothing.
+- [ ] Re-frame a fine well onto 0.5 into a set of your own naming. The ORIGINAL must be untouched:
+      open the well's log view and confirm it still draws at its own sampling.
+- [ ] Point a module's **Input log set** at the new set and run it. The whole run should happen at
+      0.5 — including the standard curves, resampled onto it, so nothing pairs a 0.5 m PHIE with a
+      0.1524 m GR.
+- [ ] Check a laminated interval: a downsample should AVERAGE the interval, not pick one sample out
+      of it. A facies or flag curve should come back as one of its own classes.
+- [ ] Re-frame a permeability with **Geometric** and again with **Arithmetic** and compare. They
+      should differ by orders of magnitude on laminated rock, and arithmetic will always read
+      highest.
+- [ ] Re-framing to the SAME set name should give you a new VERSION of it, not a second set.
+
+---
+
+## Normalize — one tool, any curve (2026-08-05)
+
+**Petrophysics ▸ Curve Conditioning ▸ Normalize.** `GR Normalization` is gone from the pickers —
+it is now a preset of this and delegates to the same code, so saved chains still run.
+
+- [ ] Normalize a GR with the same reference pair you used before. The answer must be identical to
+      what `gr_normalize` gave.
+- [ ] Normalize an NPHI, a DT, an RHOB. Same tool, same fields.
+- [ ] Run it with **Space = LOG** on a resistivity. Compare against LINEAR: on a curve spanning
+      decades the linear map crushes the middle into the bottom of the range.
+- [ ] Leave `REF_LOW`/`REF_HIGH` blank. It must refuse, naming them — a reference pair from one
+      basin is the wrong pair in another and the output looks plausible either way.
+- [ ] **MEAN_SD** should run unconfigured: mean 0, spread 1 is a definition, not somebody's field
+      calibration.
+
+---
+
+## Intake replaces Import Aux (2026-08-05)
+
+**Import Aux… is gone.** Intake is the route for point data. Core and SCAL imports stay.
+
+- [ ] Import an XRD or CEC table through Intake with a dataset name of your own. It should land as
+      point data.
+- [ ] Now check the well's **core** afterwards — the plugs and the φ-k cloud must be exactly as
+      they were. Before this increment, importing a lab table through Intake wrote an empty core
+      delivery and made it ACTIVE, which would have silently emptied Plug QC, Register Depth and
+      the S-factor fit.
+- [ ] Tick **"These depths came from the core report"** on a well whose core you have registered.
+      The samples should land on the corrected depths, and the result should SAY it followed the
+      core. (This was read from the form and dropped by the backend until now.)
+- [ ] Anything the old Aux dialog did that Intake cannot — say so and it goes back on the list.
+
+---
+
+## Statistics: three means (2026-08-05)
+
+- [ ] Curve Summary now shows **Geom** and **Harm** beside **Mean**. On a permeability they should
+      differ by orders of magnitude; on a porosity they should be close.
+- [ ] A curve with a zero or negative sample should leave both blank rather than computing them
+      over the positive samples only.
+
+---
+
+## The sand/shale curve off the white-light trace (2026-08-05)
+
+The first of the two you parked from the UV round. **Photo Log ▸ Sand / shale ▸ Write CPHOTO_LITH.**
+
+- [ ] Read a white-light box with the box ticked and the cut left blank. It should propose a cut
+      from this core's own darkness (Otsu) and say so, with how many samples landed in the darker
+      class.
+- [ ] Look at it beside GR in the built-in **Core** layout. It is a blocks curve — 0 lighter,
+      1 darker — so a correlation panel can consume it.
+- [ ] Type your own cut and re-read. The note should say "as given" rather than "Otsu".
+- [ ] Switch Light to **Ultraviolet**. The row should disappear: under UV the brightness IS the
+      fluorescence, so cutting it in two would name an oil show a rock type.
+- [ ] Read a box of one lithology. It should REFUSE rather than invent a contact through the
+      middle of it.
+- [ ] It is called `CPHOTO_LITH` and never `VSH` or `LITH` — the same dark band is mudstone in one
+      core and oil stain in another, and a curve under a name every module reads as lithology
+      would be an uncalibrated answer that computes and plots.
+- [ ] Nothing smooths it. If it flickers sample to sample, run **Frame ▸ Block** with
+      OPT_STAT = MODE — the one upscale that carries a class code whole. Tell me if you would
+      rather it had its own minimum bed thickness.
+
+---
+
+## The unfold for dipping beds (2026-08-05)
+
+The second of the two. **Photo Log ▸ Unfold dipping beds**, stated as a depth DROP across the core
+rather than an angle — an angle needs the core's diameter, which nothing here stores, while the
+drop is read straight off the picture: note one contact's depth at each edge and subtract.
+
+- [ ] Find a box with an obviously dipping contact. Read it flat first and look at where
+      `CPHOTO_DARK` crosses — it should ramp across roughly the drop.
+- [ ] Enter the drop and read again. The ramp should collapse to a step. Measured on a synthetic
+      1 m dip it went to under a third of its width while both the sand and the mudstone read the
+      same either side — the correction changes where the boundary is, never what is beside it.
+- [ ] Sign: POSITIVE means the bedding sits deeper at the RIGHT edge. If the contact gets worse,
+      try the other sign before anything else.
+- [ ] The corner triangles at each barrel's ends have no rock in them and come back MISSING —
+      never filled from the edge row, never wrapped from the other end of the barrel.
+- [ ] It is DECLARED by default — and **Propose…** beside the field now scans a range of dips and
+      shows how sharply the core reads at each. See the next section.
+
+---
+
+## The three open items, closed (2026-08-05)
+
+Your "solve em" on the completion report. Each had been left as a stated limit; each is now done.
+
+### A block keyed by a label line — Intake ▸ Layout: Block
+
+A per-plug delivery that writes `PLUG 12  4633.5 ft` above each table instead of carrying the depth
+in a column now imports. The depth is **the number carrying a UNIT**, which is the rule a plate
+workbook's header cell is already read by — on a caption that also names a plug, nothing else tells
+the two apart.
+
+- [ ] Import a block-shaped Pc or NMR export whose blocks are captioned. Check each block's rows
+      land on the caption's depth, and that the captions themselves are not stored as samples.
+- [ ] A caption with no unit is refused BY NAME and the run says why. Confirm you get the reason
+      rather than a plausible wrong depth.
+- [ ] The control worth seeing once: read the same file WITHOUT Block and every row imports with
+      no depth at all — which looks like a clean read of plugs that never had depths. That silent
+      version is what this replaces.
+- [ ] If a caption carries an interval (`2103.4 m to 2104.1 m`) the FIRST depth is used and the run
+      tells you to look. Say if you would rather it took the mid-point or the top.
+
+### A minimum bed thickness — Photo Log ▸ Sand / shale, third box
+
+- [ ] Read `CPHOTO_LITH` with the box blank first: every one-sample flicker is kept, and the run
+      says so. That is still the default, because no thickness is right in two cores.
+- [ ] Enter your thinnest meaningful bed. Beds below it are absorbed into the rock around them and
+      the count is reported. Check the beds you would actually log survive.
+- [ ] A thin stretch with unphotographed core on BOTH sides is left alone and counted separately —
+      it is a short barrel, not a flicker, and there is no neighbouring rock to absorb it into.
+
+### Propose a dip — Photo Log ▸ Unfold dipping beds ▸ Propose…
+
+- [ ] Press it on a box with a dipping contact. You get the whole scan drawn, not just a number:
+      one sharp peak means the dip is determined.
+- [ ] **A flat scan is the answer that matters.** If the core has no bedding contrast, every
+      candidate scores alike, the run says FLAT, and the peak is noise. Leave the unfold at zero.
+- [ ] Hatched slots are candidates that sheared away too much core to be compared — not poor
+      scores. Without that floor, sliding the core off its own frame would win the scan.
+- [ ] **Use N** only fills the box. Nothing is applied until you read the trace, exactly like
+      accepting a depth-registration shift.
+- [ ] Measured on a synthetic 1 m dip it proposes 1.0, and on the same picture with a horizontal
+      contact it proposes 0.0.

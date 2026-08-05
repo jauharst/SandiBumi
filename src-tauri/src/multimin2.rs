@@ -34,6 +34,10 @@
 //! system is over-determined — the reported `dof` says whether that holds.
 
 use crate::equations::{fetch_curve_frame, write_computed_curves_versioned};
+
+/// The log set SandiMin output lands in when the caller names none — the value that used to be
+/// hardcoded, so an older payload writes exactly where it always did.
+const DEFAULT_SANDIMIN_SET: &str = "SANDIMIN";
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -407,6 +411,19 @@ pub struct MultiminRequest {
     pub apply_well_ids: Vec<String>,
     #[serde(default = "default_prefix")]
     pub output_prefix: String,
+    /// Read every tool curve from THIS log set's stored values (latest version per well) rather
+    /// than from whatever the current values are. Curves the set never wrote fall back to normal
+    /// resolution, and an empty name means "current values" — the behaviour before this existed.
+    ///
+    /// Jauhar, 2026-08-05. A mineral inversion is only as reproducible as the logs it was solved
+    /// from: re-run the porosity and the same components, endpoints and constraints return a
+    /// different mineralogy, with nothing in the stored run able to say which RHOB it saw.
+    #[serde(default)]
+    pub input_set: Option<String>,
+    /// Version the solved volumes into this log set. Defaults to `SANDIMIN` — the value that was
+    /// hardcoded — so an older payload writes exactly where it always did.
+    #[serde(default)]
+    pub output_set: Option<String>,
     #[serde(default = "default_true")]
     pub unity: bool,
     /// Required when CT or CXO is among the tools.
@@ -1248,7 +1265,9 @@ pub fn run_multimin(
             p.set_current(Some(format!("SandiMin: well {}/{}", wi + 1, n_wells)));
             p.start_item(well_id);
         }
-        let (depth, cols) = match fetch_curve_frame(&conn, well_id, &all_fetch) {
+        let (depth, cols) = match crate::equations::fetch_curve_frame_from_set(
+            &conn, well_id, &all_fetch, req.input_set.as_deref(), None,
+        ) {
             Ok(v) => v,
             Err(e) => {
                 if let Some(p) = progress {
@@ -1678,7 +1697,13 @@ pub fn run_multimin(
         }
         let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
         let spec = crate::equations::LogSetSpec {
-            set_name: "SANDIMIN".into(),
+            set_name: req
+                .output_set
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(DEFAULT_SANDIMIN_SET)
+                .to_string(),
             module: "sandimin".into(),
             params_json: serde_json::to_string(&serde_json::json!({
                 "components": req.components.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
@@ -2209,6 +2234,8 @@ mod tests {
             run_multimin(
                 &db,
                 &MultiminRequest {
+                    input_set: None,
+                    output_set: None,
                     components: comps,
                     tools: vec![
                         ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -2350,6 +2377,8 @@ mod tests {
             run_multimin(
                 &db,
                 &MultiminRequest {
+                    input_set: None,
+                    output_set: None,
                     components: comps,
                     tools: tools(),
                     apply_well_ids: vec![ids.clone()],
@@ -2431,6 +2460,8 @@ mod tests {
         let res = run_multimin(
             &db,
             &MultiminRequest {
+                input_set: None,
+                output_set: None,
                 components: vec![q, ill, wat],
                 tools: vec![
                     ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -2509,6 +2540,8 @@ mod tests {
             run_multimin(
                 &db,
                 &MultiminRequest {
+                    input_set: None,
+                    output_set: None,
                     components: comps,
                     tools,
                     apply_well_ids: vec![wid.to_string()],
@@ -2950,6 +2983,8 @@ mod tests {
         let mut wat = lib_get("Water Sxo");
         wat.zone = String::new();
         let req = MultiminRequest {
+            input_set: None,
+            output_set: None,
             components: vec![q, ill, cal, wat],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -3002,6 +3037,8 @@ mod tests {
             ws_b: 0.0,
         };
         let req = MultiminRequest {
+            input_set: None,
+            output_set: None,
             components: vec![q, ill, wx],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -3178,6 +3215,8 @@ mod tests {
                 tools.push(ToolSpec { key: "PEF".into(), curve: "PEF".into(), sigma: 0.3 });
             }
             let req = MultiminRequest {
+                input_set: None,
+                output_set: None,
                 components: comps.clone(),
                 tools,
                 apply_well_ids: vec![well_id.clone()],
@@ -3519,6 +3558,8 @@ mod tests {
             ws_b: 0.0,
         };
         let req = MultiminRequest {
+            input_set: None,
+            output_set: None,
             components: vec![q, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -3639,6 +3680,8 @@ mod tests {
         let db = Mutex::new(conn);
 
         let req = MultiminRequest {
+            input_set: None,
+            output_set: None,
             components: vec![q.clone(), w.clone()],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -3864,6 +3907,8 @@ mod tests {
             ws_b: 0.0,
         };
         let req = MultiminRequest {
+            input_set: None,
+            output_set: None,
             components: vec![q, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -3953,6 +3998,8 @@ mod tests {
             ws_b: 0.0,
         };
         let req = MultiminRequest {
+            input_set: None,
+            output_set: None,
             components: vec![q, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -4053,6 +4100,8 @@ mod tests {
             ws_b: 0.0,
         };
         let req = MultiminRequest {
+            input_set: None,
+            output_set: None,
             components: vec![q, clay, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -4186,6 +4235,8 @@ mod tests {
             ws_b: 0.0,
         };
         MultiminRequest {
+            input_set: None,
+            output_set: None,
             components: vec![
                 lib_get("Quartz"),
                 lib_get("Water Sxo"),

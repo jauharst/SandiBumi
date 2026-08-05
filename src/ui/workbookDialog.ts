@@ -3,6 +3,7 @@ import { exportWorkbook, officeSupport, type OfficeSupport } from "../ipc";
 import { appState, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { loadCutoffDefaults } from "./cutoffs";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow, openModal } from "./modal";
 import { buildWellScope } from "./wellScope";
 
@@ -69,6 +70,10 @@ export async function openWorkbookDialog(): Promise<void> {
   wrap.appendChild(formRow("PHIE min (v/v)", phieIn, "Reservoir cutoff"));
   wrap.appendChild(formRow("SWE max (v/v)", sweIn, "Pay cutoff"));
   wrap.appendChild(formRow("PERM min (mD)", permIn, "Optional — leave blank to not apply a permeability floor"));
+  // --- Input log set (`logSetPicker.ts`): which VERSION of the curves this reads.
+  const setPicker = buildLogSetPicker({ write: false });
+  for (const row of setPicker.rows) wrap.appendChild(row);
+
 
   const check = (label: string, hint: string): HTMLInputElement => {
     const el = document.createElement("input");
@@ -149,6 +154,7 @@ export async function openWorkbookDialog(): Promise<void> {
           phie_min: parseFloat(phieIn.value),
           swe_max: parseFloat(sweIn.value),
           perm_min: Number.isNaN(permRaw) ? null : permRaw,
+          input_set: setPicker.inputSet(),
           title: titleIn.value.trim(),
           include_pay: paySheet.checked,
           include_field: fieldSheet.checked,

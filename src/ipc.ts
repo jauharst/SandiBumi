@@ -411,6 +411,8 @@ export interface MethodRow {
 }
 
 export interface ReportSpec {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   composite: CompositeSpec;
   title: string;
   author: string;
@@ -454,6 +456,8 @@ export interface OfficeSupport {
 }
 
 export interface DeckSpec {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   vsh_max: number;
   phie_min: number;
@@ -480,6 +484,8 @@ export function exportDeck(spec: DeckSpec, destPath: string): Promise<DeckResult
 }
 
 export interface WorkbookSpec {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   vsh_max: number;
   phie_min: number;
@@ -541,6 +547,8 @@ export function savePlotPdf(destPath: string, content: string, widthPt: number, 
  *  (`{ spec }`), never the fields inside it; `rename_all` is used only on enums, for their
  *  string tag values. `netflag.rs` has a test that reads this interface and fails on drift. */
 export interface NetFlagSpec {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_id: string;
   x_curve: string;
   y_curve: string;
@@ -685,7 +693,9 @@ export async function getTrackData(wellId: string, curveNames: string[], targetP
 // Deterministic workflow: module manifests, zones, runner, pay summary
 // ---------------------------------------------------------------------------
 
-export type ArgKind = "param" | "option" | "log_in" | "log_out";
+/** `text` is a free-typed run option — same `opts` channel as `option`, but the valid values are
+ *  not a list the manifest can hold (the Condition family's user-named output curve). */
+export type ArgKind = "param" | "option" | "text" | "log_in" | "log_out";
 
 export interface ArgSpec {
   name: string;
@@ -736,6 +746,29 @@ export interface ModuleRunResult {
   rows_written: number;
   output_curves: string[];
   error: string | null;
+}
+
+/** One declared output and the curve name a run with the current settings would write it under. */
+export interface OutputName {
+  arg: string;
+  desc: string;
+  unit: string;
+  name: string;
+}
+
+/**
+ * The names a module would write, asked of the backend rather than worked out here.
+ *
+ * A module's default output name can be built from the run's own choices (`{CURVE}_C`,
+ * `{TARGET}_SYN`), and expanding those patterns in TypeScript would be a second copy of a naming
+ * rule — the preview would agree with the run right up until somebody changed one of them.
+ */
+export async function moduleOutputNames(
+  module: string,
+  logInputs: Record<string, string>,
+  opts: Record<string, string>,
+): Promise<OutputName[]> {
+  return invoke("module_output_names", { module, logInputs, opts });
 }
 
 export async function runWorkflowModule(req: RunModuleRequest): Promise<ModuleRunResult[]> {
@@ -1076,6 +1109,10 @@ export async function runMonteCarlo(req: McRequest): Promise<McResult> {
 // --- Machine learning (Phase 10-4) ---
 
 export interface MlRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
+  /** Version the outputs into this log set; omit for the tool's own default. */
+  output_set?: string;
   task: "regression" | "classification" | "clustering" | "reduction";
   algorithm: string;
   params: Record<string, number | string | boolean>;
@@ -1144,6 +1181,10 @@ export interface MlModelInfo {
 }
 
 export interface MlApplyRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
+  /** Version the outputs into this log set; omit for the tool's own default. */
+  output_set?: string;
   model_id: string;
   apply_well_ids: string[];
   output_curve: string;
@@ -1171,6 +1212,8 @@ export function deleteMlModel(modelId: string): Promise<void> {
 
 /** Model-comparison leaderboard (Wave B item 3). */
 export interface MlEvalRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   task: "regression" | "classification";
   feature_curves: string[];
   target_curve: string;
@@ -1217,6 +1260,8 @@ export function runMlEval(req: MlEvalRequest): Promise<MlEvalResult> {
 
 /** Cuddy FOIL / BVW saturation-height fit (Wave B item 8, SHF side). */
 export interface CuddyFoilRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   phie_curve: string;
   sw_curve: string;
@@ -1275,6 +1320,8 @@ export function runCuddyFoil(req: CuddyFoilRequest): Promise<CuddyFoilResult> {
 
 /** Height-domain SHF fit (Brooks-Corey / Skelt-Harrison) to the log-derived Sw-vs-height cloud. */
 export interface ShfFitRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   phie_curve: string;
   sw_curve: string;
@@ -1335,6 +1382,8 @@ export function runShfFit(req: ShfFitRequest): Promise<ShfFitResult> {
 
 /** Electrofacies tie-in QC: confusion matrix of a predicted log RT curve vs a reference/core RT. */
 export interface FaciesConfusionRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   pred_curve: string;
   ref_curve: string;
@@ -1454,6 +1503,10 @@ export interface MmFluidCalc {
 }
 
 export interface MultiminRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
+  /** Version the outputs into this log set; omit for the tool's own default. */
+  output_set?: string;
   components: MmComponent[];
   tools: MmTool[];
   apply_well_ids: string[];
@@ -1784,6 +1837,8 @@ export function applyFwlToZoneParams(picks: [string, string, number][]): Promise
  *  candidate list (first present wins) when a field is left blank. Qv/Swb curves are what pull the
  *  Waxman-Smits / Dual-Water models into the envelope; without them those two are skipped, never faked. */
 export interface SwSpreadRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_id: string;
   depth_min?: number | null;
   depth_max?: number | null;
@@ -1883,6 +1938,8 @@ export async function setZoneParamBatch(
 }
 
 export interface PaySummaryRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   vsh_max: number;
   phie_min: number;
@@ -1938,6 +1995,8 @@ export async function runPaySummary(req: PaySummaryRequest): Promise<PaySummaryR
 /** Cutoff-sensitivity sweep (Method 1 of the cutoff study): sweep one cutoff over a range,
  *  holding the other two fixed, and report the pay metric per well at each step. */
 export interface CutoffSweepRequest {
+  /** Sweep against this log set's stored curves; omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   property: "VSH" | "PHIE" | "SWE";
   vsh_max: number;
@@ -2851,6 +2910,8 @@ export function recommendCoreRecipe(imageIds: string[]): Promise<RecipeAdvice[]>
 }
 
 export interface CoreLogSpec {
+  /** Version the outputs into this log set; omit for the tool's own default. */
+  output_set?: string;
   well_id: string;
   dataset: string;
   /** Which way depth runs across the conditioned picture: "x" along the width, "y" down it. */
@@ -2875,8 +2936,48 @@ export interface CoreLogSpec {
   /** Report how each measure tracks this curve, usually GR. It is the only thing that says whether
    *  the trace is about the rock. */
   compare_curve?: string | null;
+  /** Also write `CPHOTO_LITH`, a two-class curve cut out of the darkness trace — 0 lighter,
+   *  1 darker. White light only: under UV the brightness IS the fluorescence. It is a reading of
+   *  DARKNESS and never a shale volume, which is why it keeps the CPHOTO prefix. */
+  lith?: boolean;
+  /** The darkness at which the class changes. Omitted proposes Otsu's cut on this core's own
+   *  trace — a method, not a calibration carried from anybody else's rock. */
+  lith_cut?: number | null;
+  /** Unfold for dipping beds: how much DEEPER the bedding sits at the right edge of the core than
+   *  at the left, in the project's depth unit. An angle would need the core's diameter, which
+   *  nothing here stores; the drop is read straight off the picture. */
+  unfold?: number | null;
+  /** The thinnest bed `CPHOTO_LITH` keeps, in the project's depth unit. Omitted leaves the cut
+   *  exactly as the threshold made it. No default on purpose: a minimum bed thickness is a
+   *  statement about the rock and about what the study is for, and no value is right in two
+   *  cores. Counted in samples, so an unphotographed gap adds no thickness. */
+  lith_min_bed?: number | null;
+  /** Propose an unfold: the widest drop to search, in the project's depth unit. Omitted runs no
+   *  scan. The whole scan comes back in `CoreLogResult.unfold_scan` and nothing is applied. */
+  unfold_scan?: number | null;
   /** Write the curves. Omit to measure without writing, so a lay-out can be tried first. */
   write?: boolean;
+}
+
+/**
+ * How sharply the core reads at each candidate dip — the whole curve, not only its peak.
+ *
+ * `registration.rs`'s contract, and it is the reason this is a shape rather than a number. One
+ * sharp peak means the dip is determined. A flat scan means the core carries no bedding contrast
+ * to find a dip from, so the maximum is whichever candidate the noise favoured. A comb of
+ * near-equal peaks means the section repeats. All three return a number.
+ */
+export interface UnfoldScan {
+  /** The candidate drops tried, in the project's depth unit. Signed: a bed can dip either way. */
+  drops: number[];
+  /** One score per candidate — the trace's own contrast. NaN where the candidate sheared away too
+   *  much of the core to be compared with the rest. */
+  scores: number[];
+  /** The best-scoring candidate. A PROPOSAL: read it beside the scan and type it in. */
+  best?: number | null;
+  /** Rival peaks within 5% of the best, away from it. */
+  rivals: number;
+  notes: string[];
 }
 
 /**
@@ -2938,6 +3039,8 @@ export interface CoreLogResult {
   written: string[];
   skipped: string[];
   notes: string[];
+  /** Present only when `unfold_scan` asked for a proposal. Never applied. */
+  unfold_scan?: UnfoldScan | null;
 }
 
 /** Reads the proxy measures off a well's live core-photograph delivery, and optionally writes them
@@ -4083,4 +4186,310 @@ export function listPlugChoices(wellIds: string[]): Promise<PlugChoice[]> {
 /** Pairs two plug-scale measurements by depth across the scoped wells. */
 export function runPlugQc(req: PlugQcRequest): Promise<PlugQcResult> {
   return invoke<PlugQcResult>("run_plug_qc", { req });
+}
+
+// ---------------------------------------------------------------------------
+// Statistics (statistics.rs) — the table-producing family. Every one is a pure read.
+// ---------------------------------------------------------------------------
+
+export interface CurveStatsRequest {
+  well_ids: string[];
+  curves: string[];
+  input_set?: string;
+  by_zone?: boolean;
+  /** Percentiles to report (0–100). Empty falls back to P10/P50/P90. */
+  percentiles?: number[];
+  mask_curve?: string | null;
+}
+
+export interface CurveStatsRow {
+  well: string;
+  zone: string;
+  curve: string;
+  n: number;
+  /** Samples inside the interval with no value — a mean over 12 of 400 is not the zone's mean. */
+  n_missing: number;
+  min: number | null;
+  max: number | null;
+  mean: number | null;
+  /** Geometric and harmonic means, beside the arithmetic one. Null where any sample is
+   *  non-positive — a geometric mean over "the samples that had a logarithm" describes a
+   *  different set from the arithmetic mean next to it, and the two get read straight across. */
+  mean_geom: number | null;
+  mean_harm: number | null;
+  std: number | null;
+  percentiles: (number | null)[];
+}
+
+/** Returns the rows and the percentile list actually used, so a table labels its own columns. */
+export async function statsCurveSummary(
+  req: CurveStatsRequest,
+): Promise<[CurveStatsRow[], number[]]> {
+  return invoke<[CurveStatsRow[], number[]]>("stats_curve_summary", { req });
+}
+
+export interface PairStatsRequest {
+  well_ids: string[];
+  x_curve: string;
+  y_curve: string;
+  input_set?: string;
+  by_zone?: boolean;
+  mask_curve?: string | null;
+}
+
+export interface PairStatsRow {
+  well: string;
+  zone: string;
+  n: number;
+  pearson: number | null;
+  spearman: number | null;
+  bias: number | null;
+  rms_diff: number | null;
+  slope: number | null;
+  intercept: number | null;
+}
+
+export async function statsPairSummary(req: PairStatsRequest): Promise<PairStatsRow[]> {
+  return invoke<PairStatsRow[]>("stats_pair_summary", { req });
+}
+
+export interface VersusRequest {
+  well_ids: string[];
+  curves: string[];
+  /** The reference version. */
+  set_a: string;
+  /** The version under test; omit for the current values. */
+  set_b?: string;
+}
+
+export interface VersusRow {
+  well: string;
+  curve: string;
+  n_common: number;
+  only_a: number;
+  only_b: number;
+  n_changed: number;
+  mean_diff: number | null;
+  max_abs_diff: number | null;
+}
+
+export async function statsVersusSets(req: VersusRequest): Promise<VersusRow[]> {
+  return invoke<VersusRow[]>("stats_versus_sets", { req });
+}
+
+export interface ThicknessCondition {
+  curve: string;
+  op: ">=" | "<=" | ">" | "<" | "==";
+  value: number;
+}
+
+export interface ThicknessRequest {
+  well_ids: string[];
+  mode: "FLAG" | "CLASS" | "CUTOFF" | "MARKER";
+  input_set?: string;
+  curve?: string | null;
+  conditions?: ThicknessCondition[];
+  by_zone?: boolean;
+}
+
+export interface ThicknessRow {
+  well: string;
+  zone: string;
+  item: string;
+  n: number;
+  gross_md: number;
+  net_md: number;
+  /** Blank where the well has no TVD curve — never a copy of the measured value. */
+  gross_tvd: number | null;
+  net_tvd: number | null;
+  ntg: number | null;
+}
+
+export async function statsThickness(req: ThicknessRequest): Promise<ThicknessRow[]> {
+  return invoke<ThicknessRow[]>("stats_thickness", { req });
+}
+
+export interface FitRequest {
+  well_ids: string[];
+  predictors: string[];
+  target: string;
+  input_set?: string;
+  log_target?: boolean;
+  log_predictors?: boolean;
+  mask_curve?: string | null;
+}
+
+export interface FitResult {
+  /** Intercept first, then one per predictor in the order given. */
+  coefficients: number[];
+  predictors: string[];
+  n: number;
+  r2: number;
+  rms: number;
+  /** Leave-one-WELL-out R² — the number to quote. Null with fewer than three wells. */
+  r2_blind: number | null;
+  wells_used: string[];
+  notes: string[];
+}
+
+export async function statsFit(req: FitRequest): Promise<FitResult> {
+  return invoke<FitResult>("stats_fit", { req });
+}
+
+// ---------------------------------------------------------------------------
+// Intake (intake.rs) — one importer for any delimited text.
+// ---------------------------------------------------------------------------
+
+export interface TableOptions {
+  /** "," ";" "\t" "ws" — omit to auto-detect. */
+  delimiter?: string;
+  /** Lines to skip before the header (a title block). */
+  skip_lines?: number;
+  /** "dot" | "comma" — omit to decide per token. */
+  decimal?: string;
+}
+
+export type IntakeRole =
+  | "WELL" | "DEPTH" | "DEPTH_BASE" | "CPOR" | "CPERM" | "CGD" | "CSW" | "ITEM" | "CURVE" | "IGNORE";
+
+export interface IntakeColumn {
+  header: string;
+  /** "number" | "text" | "empty" */
+  kind: string;
+  role: IntakeRole;
+  /** Why that role was proposed — a guess nobody can argue with is a guess that gets accepted. */
+  reason: string;
+  filled: number;
+}
+
+export interface IntakeProbe {
+  path: string;
+  columns: IntakeColumn[];
+  n_rows: number;
+  preview: string[][];
+  delimiter: string;
+  units_row_skipped: boolean;
+  depth_unit_guess: string | null;
+  decimal: string;
+  /** [row, column] of preview cells in a NUMBER column that did not parse — painted in the grid. */
+  preview_bad: [number, number][];
+  ambiguous_numbers: number;
+  notes: string[];
+}
+
+/** Writes pasted text to a temp file and returns its path, so a paste and a file take the
+ *  identical parse and commit path. */
+export async function intakePaste(text: string): Promise<string> {
+  return invoke<string>("intake_paste", { text });
+}
+
+export async function intakeProbe(path: string, opts: TableOptions): Promise<IntakeProbe> {
+  return invoke<IntakeProbe>("intake_probe", { path, opts });
+}
+
+export interface IntakeCommit {
+  paths: string[];
+  roles: string[];
+  depth_unit?: string;
+  set_name?: string;
+  extras_dataset?: string;
+  fallback_well_id?: string;
+  follow_core?: boolean;
+}
+
+export async function intakeCommit(req: IntakeCommit): Promise<CoreTableImportResult[]> {
+  return invoke<CoreTableImportResult[]>("intake_commit", { req });
+}
+
+// ---------------------------------------------------------------------------
+// Reframe — resampling a log set onto a different sampling as a new set
+// ---------------------------------------------------------------------------
+
+/** One curve carried onto the new frame, with the averaging that was actually used. */
+export interface ReframeCurve {
+  name: string;
+  method: string;
+  samples_in: number;
+  samples_out: number;
+}
+
+export interface ReframeResult {
+  well_id: string;
+  well_name: string;
+  /** Median spacing of the source — the number the decision turns on, and one nothing else shows. */
+  source_step: number;
+  target_step: number;
+  depth_top: number;
+  depth_base: number;
+  rows: number;
+  curves: ReframeCurve[];
+  version: number | null;
+  notes: string[];
+  error: string | null;
+}
+
+/** Resamples a set onto a different sampling as a NEW set. `preview: true` reports without writing. */
+export function runReframe(req: Record<string, unknown>): Promise<ReframeResult[]> {
+  return invoke<ReframeResult[]>("run_reframe", { req });
+}
+
+// ---------------------------------------------------------------------------
+// Intake — WIDE / BLOCK array layouts
+// ---------------------------------------------------------------------------
+
+/** What one wide/block import wrote. */
+export interface ArrayImportResult {
+  path: string;
+  curve: string;
+  wells: number;
+  samples: number;
+  bins: number;
+  /** The two ends of the axis read off the header row. */
+  axis_first: number;
+  axis_last: number;
+  /** Sets actually written — the suffixed name where the chosen one was already taken. */
+  sets: string[];
+  unmatched: string[];
+  notes: string[];
+  error: string | null;
+}
+
+export interface ArrayCommitRequest {
+  paths: string[];
+  roles: string[];
+  /** `"wide"` or `"block"`. Declared by the user, never sniffed. */
+  layout: string;
+  curve_name: string;
+  set_name?: string;
+  depth_unit?: string;
+  fallback_well_id?: string;
+}
+
+/** Imports a WIDE or BLOCK table into the array store, with the header row as its axis. */
+export function intakeCommitArrays(req: ArrayCommitRequest): Promise<ArrayImportResult[]> {
+  return invoke<ArrayImportResult[]>("intake_commit_arrays", { req });
+}
+
+export interface CurveCommitRequest {
+  paths: string[];
+  roles: string[];
+  set_name?: string;
+  depth_unit?: string;
+  fallback_well_id?: string;
+}
+
+export interface CurveImportResult {
+  path: string;
+  wells: number;
+  curves: string[];
+  samples: number;
+  sets: string[];
+  unmatched: string[];
+  notes: string[];
+  error: string | null;
+}
+
+/** Imports columns marked CURVE as continuous logs into the generic curve store. */
+export function intakeCommitCurves(req: CurveCommitRequest): Promise<CurveImportResult[]> {
+  return invoke<CurveImportResult[]>("intake_commit_curves", { req });
 }

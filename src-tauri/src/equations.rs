@@ -286,6 +286,18 @@ pub fn list_curve_catalog(conn: &Connection) -> duckdb::Result<Vec<CurveCatalogE
 
 type CurveFrame = (Vec<f32>, HashMap<String, Vec<f32>>);
 
+/// The `standard_curves` columns, which every curve read resolves FIRST.
+///
+/// A computed curve stored under one of these names is written, counted and reported — and then
+/// invisible, because [`fetch_curve_frame`] hands every reader the raw standard column instead. It
+/// is the same shape as the `CPHOTO_*` trace saved at the photograph's own sampling: a run that
+/// reports success and a project that holds a curve nothing can open.
+///
+/// ONE list, consulted by [`crate::workflow::resolve_output_names`] before a run writes anything.
+/// It lived in `condition.rs` and again in `frame.rs`, which is two places for a seventh standard
+/// column to be forgotten.
+pub(crate) const STANDARD_COLUMNS: [&str; 7] = ["DEPTH", "GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
+
 /// Reads the requested curve mnemonics for one well, aligned onto that well's standard
 /// depth grid. Non-standard names are looked up in `computed_curves` (so equations can
 /// chain off previously computed curves).
@@ -794,10 +806,29 @@ pub(crate) fn fetch_curve_frame_from_set(
     input_set: Option<&str>,
     own_set_id: Option<&str>,
 ) -> duckdb::Result<CurveFrame> {
-    let (depth, mut columns) = fetch_curve_frame(conn, well_id, curve_names)?;
+    let (mut depth, mut columns) = fetch_curve_frame(conn, well_id, curve_names)?;
     let Some(set_name) = input_set.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok((depth, columns));
     };
+
+    // A set that carries its OWN depth frame (`log_sets.frame = 'OWN'`, written by
+    // `reframe.rs`) REPLACES the run frame, and every curve resolved from elsewhere is
+    // resampled onto it.
+    //
+    // This is the whole point of re-framing. Without it a 0.5 m set on a 0.1523 m well would be
+    // read by the exact-depth join below and come back almost entirely MISSING — the same silent
+    // shape as the `CPHOTO_*` trace saved at the photograph's own sampling. And the standard
+    // curves have to come along, or a run against the re-framed set would read PHIE at 0.5 m and
+    // GR at 0.1523 m and quietly pair samples from different rock.
+    //
+    // Through `reframe::resample_onto`, the same code the tool itself uses, so what the user saw
+    // when they built the set and what a module reads out of it cannot differ.
+    if let Some(own) = crate::reframe::set_frame(conn, well_id, set_name)? {
+        for values in columns.values_mut() {
+            *values = crate::reframe::resample_onto(&depth, values, &own, crate::reframe::Method::Auto);
+        }
+        depth = own;
+    }
     let own_curves: std::collections::HashSet<String> = match own_set_id {
         Some(own) => {
             let mut stmt = conn.prepare(
@@ -1209,6 +1240,64 @@ pub(crate) fn write_equation_output(
 
 #[cfg(test)]
 mod tests {
+    /// **Every tool that reads or writes a curve offers a log set** (Jauhar, 2026-08-05:
+    /// *"each tools or modules should give user freedom to define input and output log set ...
+    /// and their own curves"*).
+    ///
+    /// Before this, exactly two surfaces of nineteen did — the module dialog and the workflow
+    /// builder — so ML, SandiMin, the saturation-height fit, the cutoff sweep, the pay summary,
+    /// the facies tie, Lorenz, the results QC and every deliverable read whatever the current
+    /// values happened to be, and the three writers among them hardcoded where their output
+    /// landed. None of that is visible in a result: a report quoting last week's porosity looks
+    /// exactly like one quoting today's.
+    ///
+    /// Checked against the SOURCE rather than by calling each command, because the failure this
+    /// guards is a request struct that quietly loses the field in a future refactor — which
+    /// compiles, runs, and silently reverts the tool to "current values".
+    #[test]
+    fn every_curve_consuming_request_still_offers_a_log_set() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        // (file, struct, needs an OUTPUT set as well as an input one)
+        let contracts: [(&str, &str, bool); 13] = [
+            ("ml.rs", "MlRequest", true),
+            ("ml.rs", "MlApplyRequest", true),
+            ("ml.rs", "MlEvalRequest", false),
+            ("multimin2.rs", "MultiminRequest", true),
+            ("coreimage.rs", "CoreLogSpec", true),
+            ("workflow.rs", "PaySummaryRequest", false),
+            ("workflow.rs", "CutoffSweepRequest", false),
+            ("netflag.rs", "NetFlagSpec", false),
+            ("shf_fit.rs", "ShfFitRequest", false),
+            ("shf_fit.rs", "CuddyFoilRequest", false),
+            ("facies_tie.rs", "FaciesConfusionRequest", false),
+            ("lorenz.rs", "LorenzRequest", false),
+            ("resultsqc.rs", "SwSpreadRequest", false),
+        ];
+        for (file, name, wants_output) in contracts {
+            let src = std::fs::read_to_string(dir.join(file))
+                .unwrap_or_else(|e| panic!("cannot read {file}: {e}"));
+            let head = format!("pub struct {name} {{");
+            let start = src.find(&head).unwrap_or_else(|| panic!("{file}: no {name}"));
+            // The struct body up to its closing brace at column 0 — enough to see its fields
+            // without pulling in the next declaration's.
+            let body = &src[start..];
+            let end = body.find("
+}").unwrap_or(body.len());
+            let body = &body[..end];
+            if wants_output {
+                assert!(
+                    body.contains("pub output_set:"),
+                    "{file}: {name} writes curves but no longer lets the caller name the log set                      they are versioned into — a hardcoded destination is what this replaced"
+                );
+            } else {
+                assert!(
+                    body.contains("pub input_set:"),
+                    "{file}: {name} reads curves but no longer takes an input_set, so it silently                      reads whatever the current values are"
+                );
+            }
+        }
+    }
+
     use super::*;
     use duckdb::Connection;
 

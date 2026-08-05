@@ -1058,11 +1058,41 @@ fn build_plans(
     for step in steps {
         let spec = &specs[&step.module];
 
-        // Options: manifest defaults, then step overrides, plus __IN_<arg> mnemonics.
+        // A step that renames its outputs writes curves the plan builder cannot see: cutoffs and
+        // the fraction-curve lists below are resolved from the manifest's declared LogOut names,
+        // so the study would be planned against names the run never produces and would return
+        // plausible percentiles computed from nothing.
+        //
+        // Both forms of the rename are refused, and BOTH have to be: a prefix and a per-curve name
+        // are one freedom offered two ways (`OUT_PREFIX_OPT`, `OUT_NAME_PREFIX`), so catching only
+        // the one that happened to ship first would leave the same silent failure reachable
+        // through the grid. Refused by name rather than ignored — a study is not the place to
+        // discover that a setting was quietly dropped.
+        let renamed = step
+            .opts
+            .iter()
+            .find(|(k, v)| k.starts_with(crate::workflow::OUT_NAME_PREFIX) && !v.trim().is_empty())
+            .map(|(k, _)| k.trim_start_matches(crate::workflow::OUT_NAME_PREFIX).to_string());
+        if step.opts.get(crate::workflow::OUT_PREFIX_OPT).is_some_and(|p| !p.trim().is_empty()) || renamed.is_some() {
+            let what = match &renamed {
+                Some(out) => format!("renames its {out} output"),
+                None => "sets an output prefix".to_string(),
+            };
+            return Err(format!(
+                "Step \"{}\" {what}, and a Monte Carlo study cannot follow that: its cutoffs and \
+                 volume curves are resolved from the module's declared output names, so it would \
+                 be planning against curves this run never writes. Clear the renaming on that \
+                 step, or run it outside the study.",
+                step.module
+            ));
+        }
+
+        // Options: manifest defaults, then step overrides, plus __IN_<arg> mnemonics. Text args
+        // travel here too — same channel as an Option, per `ArgKind::Text`.
         let mut opts: HashMap<String, String> = spec
             .args
             .iter()
-            .filter(|a| a.kind == ArgKind::Option)
+            .filter(|a| a.kind == ArgKind::Option || a.kind == ArgKind::Text)
             .map(|a| (a.name.clone(), a.default.clone()))
             .collect();
         for (k, v) in &step.opts {
@@ -1757,7 +1787,9 @@ pub fn run_monte_carlo(
                         // display reads and is replaced by its own re-run; the percentile CURVES
                         // it produced are what stay versioned and restorable.
                         for (name, ds, vals) in &arrays {
-                            match db::write_array_log(&conn, well_id, "MONTECARLO", name, ds, vals) {
+                            // No axis: realization 7 is not a measurement at 7 of anything, and writing an
+                            // index there would invite a reader to plot it against one.
+                            match db::write_array_log(&conn, well_id, "MONTECARLO", name, ds, vals, None) {
                                 Ok(rows) => {
                                     notes.push(format!(
                                         "{well_name}: stored {name} — {rows} depths x {} realizations",
@@ -2013,6 +2045,7 @@ mod tests {
         let chain_rows = crate::workflow::run_pay_summary(
             &dbm,
             &crate::workflow::PaySummaryRequest {
+                input_set: None,
                 well_ids: vec![well.clone()],
                 vsh_max: 0.5,
                 phie_min: 0.08,

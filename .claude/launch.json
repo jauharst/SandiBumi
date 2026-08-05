@@ -2,6 +2,18 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "kasir-next",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["D:\\XX. TB Jaya Bersama\\scripts\\dev-launcher.cjs"],
+      "port": 3000
+    },
+    {
+      "_comment": "Attaches to a kasir dev server that is ALREADY running (no command). Use this, not kasir-next, when port 3000 is taken: Next resolves .pglite/ from cwd, so a second instance would put two writers on one local database.",
+      "name": "kasir-attach",
+      "url": "http://localhost:3000",
+      "port": 3000
+    },
+    {
       "name": "arshilla-vite",
       "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
       "runtimeArgs": ["D:\\XX. SandiBumi\\node_modules\\vite\\bin\\vite.js", "D:\\XX. SandiBumi"],

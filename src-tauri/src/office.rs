@@ -359,6 +359,11 @@ pub struct WorkbookSpec {
     pub swe_max: f64,
     #[serde(default)]
     pub perm_min: Option<f64>,
+    /// Report the interpretation stored in THIS log set rather than whatever the current curve
+    /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
+    /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
+    #[serde(default)]
+    pub input_set: Option<String>,
     #[serde(default)]
     pub title: String,
     #[serde(default = "yes")]
@@ -651,6 +656,7 @@ pub fn export_workbook(
                 phie_min: spec.phie_min,
                 swe_max: spec.swe_max,
                 perm_min: spec.perm_min,
+                input_set: spec.input_set.clone(),
                 skip_version: true,
                 stats_only: true,
             },
@@ -975,6 +981,7 @@ pub fn build_report_blocks(
             phie_min: spec.phie_min,
             swe_max: spec.swe_max,
             perm_min: spec.perm_min,
+            input_set: spec.input_set.clone(),
             skip_version: true,
             stats_only: true,
         },
@@ -1432,6 +1439,11 @@ pub struct DeckSpec {
     pub swe_max: f64,
     #[serde(default)]
     pub perm_min: Option<f64>,
+    /// Report the interpretation stored in THIS log set rather than whatever the current curve
+    /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
+    /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
+    #[serde(default)]
+    pub input_set: Option<String>,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
@@ -1687,6 +1699,7 @@ pub fn export_deck(
             phie_min: spec.phie_min,
             swe_max: spec.swe_max,
             perm_min: spec.perm_min,
+            input_set: spec.input_set.clone(),
             skip_version: true,
             stats_only: true,
         },
@@ -1998,6 +2011,7 @@ sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], e
 
     fn deck_spec() -> DeckSpec {
         DeckSpec {
+            input_set: None,
             well_ids: vec!["id-A".into()],
             vsh_max: 0.5,
             phie_min: 0.1,

@@ -1,5 +1,6 @@
 mod chain;
 mod composite;
+mod condition;
 mod contacts;
 mod coreimage;
 mod curve_edit;
@@ -15,6 +16,8 @@ mod example_data_test;
 mod export;
 #[cfg(test)]
 mod field_fixtures;
+mod frame;
+mod reframe;
 mod facies;
 mod facies_tie;
 mod geo;
@@ -24,6 +27,7 @@ mod images;
 mod petrography;
 mod plugqc;
 mod ingest;
+mod intake;
 mod jobs;
 mod layout;
 mod lithology;
@@ -49,6 +53,7 @@ mod satheight;
 mod shf_fit;
 mod thomeer;
 mod ssc;
+mod statistics;
 mod python_engine;
 mod tops;
 mod unconventional;
@@ -422,6 +427,7 @@ fn import_core_table(
     fallback_well_id: Option<String>,
     extras_dataset: Option<String>,
     set_name: Option<String>,
+    #[allow(non_snake_case)] followCore: Option<bool>,
 ) -> Result<ingest::CoreTableImportResult, String> {
     let conn = db.0.lock().unwrap();
     Ok(ingest::import_core_table(
@@ -432,6 +438,7 @@ fn import_core_table(
         fallback_well_id.as_deref(),
         extras_dataset.as_deref(),
         set_name.as_deref(),
+        followCore.unwrap_or(false),
     ))
 }
 
@@ -1468,6 +1475,22 @@ fn well_items(conn: &duckdb::Connection, well_ids: &[String]) -> Vec<(String, St
         .collect()
 }
 
+/// The curve names a module would write, given the inputs and renames chosen so far — what the
+/// module pane's output grid is filled from.
+///
+/// A pure question about the manifest, so no database and no job: it is answered by the same code
+/// the runner uses (`workflow::preview_output_names`), which is the whole point. Expanding a
+/// `log_out_as` pattern in the frontend instead would be a second copy of a naming rule, and this
+/// app has the `composite.rs`-versus-renderer scar to show for that pattern.
+#[tauri::command]
+fn module_output_names(
+    module: String,
+    log_inputs: std::collections::HashMap<String, String>,
+    opts: std::collections::HashMap<String, String>,
+) -> Result<Vec<workflow::OutputName>, String> {
+    workflow::preview_output_names(&module, &log_inputs, &opts)
+}
+
 /// Runs one deterministic module across the given wells (rayon-parallel), resolving interval
 /// parameters per zone and writing outputs to computed_curves. Async + off-thread via the job
 /// registry, so it reports live per-well progress and a Cancel in the Processing panel and never
@@ -1489,6 +1512,180 @@ async fn run_workflow_module(
         workflow::run_workflow_module_into(&conn, &req, None, Some(&job.cancel), Some(&job))
     })
     .await
+}
+
+
+// --- Intake (intake.rs): one importer for any delimited text -------------------------------
+
+/// Writes pasted text to a temp file and hands back its path.
+///
+/// So a pasted table and the same table on disk take the IDENTICAL parse and commit path — one
+/// parser, one write, and no way for a paste to behave differently. Doing it in Rust also keeps
+/// the frontend free of a filesystem plugin it otherwise needs for nothing.
+#[tauri::command]
+async fn intake_paste(text: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut path = std::env::temp_dir();
+        // Named rather than randomised so a user who wants to look at what they pasted can, and
+        // so a second paste replaces the first instead of filling the temp folder.
+        path.push("sandibumi-intake-paste.txt");
+        std::fs::write(&path, text.as_bytes()).map_err(|e| e.to_string())?;
+        Ok(path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Reads a delimited file and reports everything the Intake pane needs to confirm a mapping —
+/// column kinds, proposed roles with their reasons, the decimal convention, a preview grid.
+/// **Writes nothing**, so a wrong guess is seen rather than discovered afterwards.
+#[tauri::command]
+async fn intake_probe(
+    path: String,
+    opts: intake::TableOptions,
+) -> Result<intake::IntakeProbe, String> {
+    tauri::async_runtime::spawn_blocking(move || intake::probe(&path, &opts).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Commits a confirmed mapping. Deliberately routed through `ingest::import_core_table` rather
+/// than a second write path: that function already owns well routing, the unit conversion, the
+/// percent rule, per-well replace, depth dedup and carrying every unclaimed column into
+/// `aux_data`. Two implementations of those rules would eventually disagree, silently.
+#[tauri::command]
+async fn intake_commit(
+    db: tauri::State<'_, DbState>,
+    req: intake::IntakeCommit,
+) -> Result<Vec<ingest::CoreTableImportResult>, String> {
+    let mapping = intake::mapping_from_roles(&req.roles)?;
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = conn.lock().map_err(|_| "database busy".to_string())?;
+        let mut out = Vec::new();
+        for path in &req.paths {
+            out.push(ingest::import_core_table(
+                &conn,
+                path,
+                &mapping,
+                req.depth_unit.as_deref(),
+                req.fallback_well_id.as_deref(),
+                req.extras_dataset.as_deref(),
+                req.set_name.as_deref(),
+                req.follow_core,
+            ));
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Imports a WIDE or BLOCK table into the array store (`intake::commit_arrays`).
+///
+/// Separate from `intake_commit` because the destination is a different store with a different
+/// shape, not because the front end is different — the pane, the grid and the roles are the same.
+/// The layout is the user's DECLARATION: a wide table and a long one are both rectangles of
+/// numbers and nothing in the characters says which is which.
+#[tauri::command]
+async fn intake_commit_arrays(
+    db: tauri::State<'_, DbState>,
+    req: intake::ArrayCommit,
+) -> Result<Vec<intake::ArrayImportResult>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = conn.lock().map_err(|_| "database busy".to_string())?;
+        Ok(intake::commit_arrays(&conn, &req))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Imports columns marked CURVE as continuous logs into the generic curve store.
+///
+/// The route a delimited file of logs had no way in by — Import LAS reads LAS, and everything else
+/// the pane produces is point data. A GR every 15 cm stored in `aux_data` would be invisible to
+/// every module, plot and export.
+#[tauri::command]
+async fn intake_commit_curves(
+    db: tauri::State<'_, DbState>,
+    req: intake::CurveCommit,
+) -> Result<Vec<intake::CurveImportResult>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = conn.lock().map_err(|_| "database busy".to_string())?;
+        Ok(intake::commit_curves(&conn, &req))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// --- Statistics (statistics.rs) -------------------------------------------------------------
+// Every one is a pure READ — nothing here writes a curve, a flag or a log set — so each runs
+// silently off-thread rather than posting a job card the user never asked for, the same rule a
+// stats-only pay summary already follows.
+
+/// One row per well x zone x curve: n, missing, min/max, mean, spread and the user's percentiles.
+/// Returns the percentile list actually used, so a table can label its own columns rather than
+/// assuming the default.
+#[tauri::command]
+async fn stats_curve_summary(
+    db: tauri::State<'_, DbState>,
+    req: statistics::CurveStatsRequest,
+) -> Result<(Vec<statistics::CurveStatsRow>, Vec<f32>), String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::curve_summary(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Two curves against each other per well x zone: Pearson, Spearman, bias, RMS and the OLS line.
+#[tauri::command]
+async fn stats_pair_summary(
+    db: tauri::State<'_, DbState>,
+    req: statistics::PairStatsRequest,
+) -> Result<Vec<statistics::PairStatsRow>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::pair_summary(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The same curves in two log sets — what a re-run actually changed, including where it gained
+/// or lost coverage.
+#[tauri::command]
+async fn stats_versus_sets(
+    db: tauri::State<'_, DbState>,
+    req: statistics::VersusRequest,
+) -> Result<Vec<statistics::VersusRow>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::versus_sets(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Thickness of whatever satisfies a condition — a flag, a class, a cutoff or a marker interval.
+#[tauri::command]
+async fn stats_thickness(
+    db: tauri::State<'_, DbState>,
+    req: statistics::ThicknessRequest,
+) -> Result<Vec<statistics::ThicknessRow>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::thickness(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Least squares on 1..n predictors, scored by leave-one-WELL-out.
+#[tauri::command]
+async fn stats_fit(
+    db: tauri::State<'_, DbState>,
+    req: statistics::FitRequest,
+) -> Result<statistics::FitResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::fit_curves(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Computes the cutoff/lumping pay summary per well per zone, writing FLAG_* curves.
@@ -2203,6 +2400,20 @@ async fn run_plug_qc(
 ) -> Result<plugqc::PlugQcResult, String> {
     let conn = db.0.lock().unwrap();
     plugqc::run_plug_qc(&conn, &req)
+}
+
+/// Resamples a log set onto a different sampling as a NEW set (`reframe.rs`).
+///
+/// `preview` computes and reports without writing, which is how the pane can show the source's own
+/// sampling beside the target before anything is committed — the number the user is actually
+/// deciding against, and one nothing else in the app displays.
+#[tauri::command]
+async fn run_reframe(
+    db: tauri::State<'_, DbState>,
+    req: reframe::ReframeRequest,
+) -> Result<Vec<reframe::ReframeResult>, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(reframe::run_reframe(&conn, &req))
 }
 
 /// Are numpy and Pillow reachable? Probed once so the conditioning workspace can say what is
@@ -2955,7 +3166,19 @@ pub fn run() {
             get_curve_data,
             list_modules,
             run_workflow_module,
+            module_output_names,
+            run_reframe,
             run_pay_summary,
+            stats_curve_summary,
+            stats_pair_summary,
+            stats_versus_sets,
+            stats_thickness,
+            stats_fit,
+            intake_probe,
+            intake_paste,
+            intake_commit,
+            intake_commit_arrays,
+            intake_commit_curves,
             run_cutoff_sweep,
             run_monte_carlo,
             list_zones,

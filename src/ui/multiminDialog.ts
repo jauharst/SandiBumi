@@ -1,3 +1,4 @@
+import { buildLogSetPicker } from "./logSetPicker";
 import {
   getCurveData,
   listWells,
@@ -1055,6 +1056,13 @@ export async function buildMultiminContent(
   optsRow.appendChild(reconLab);
   runSection.appendChild(optsRow);
 
+  // --- Input / output log set (`logSetPicker.ts`). A mineral inversion is only as reproducible
+  // as the logs it was solved from: the same components, endpoints and constraints over a
+  // re-run porosity return a different mineralogy. Output defaults to SANDIMIN, which is where
+  // the volumes always went.
+  const setPicker = buildLogSetPicker({ write: "SANDIMIN" });
+  for (const row of setPicker.rows) runSection.appendChild(row);
+
   // --- Run (distinct SandiMin-green button, set apart from other modules' accent runs) -------
   const runRow = document.createElement("div");
   runRow.className = "mc-run-row";
@@ -1101,6 +1109,8 @@ export async function buildMultiminContent(
       tools: activeTools,
       apply_well_ids: applyWells,
       output_prefix: prefixInp.value.trim() || "MM",
+      input_set: setPicker.inputSet(),
+      output_set: setPicker.outputSet(),
       unity: unityCb.checked,
       fluid: readFluid(),
       ftemp_curve: ftempCurveInp.value.trim() || undefined,
