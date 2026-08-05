@@ -3469,7 +3469,7 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 
 1. Work the backlog (`ROADMAP.md`, currently §4b audit items + queued increments) in
    **increments**. Each increment: implement → verify (tsc + cargo test + browser) →
-   add a `REVIEW.md` checklist entry → commit (and push once a remote exists) → send a
+   add a `REVIEW.md` checklist entry → **branch → commit → push → open a PR** → send a
    completion report that leads with outcomes and proposes the next increment.
 2. Jauhar replies **"go ahead"** to accept the proposal; anything else redirects.
 3. He field-verifies against real well data via `REVIEW.md`: **`[x]` = accepted** (clicked
@@ -3481,7 +3481,18 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
    `gh auth login` or handles tokens/passwords — he authenticates himself, then Claude
    may create repos/push using his session. Commit messages: plain descriptive, avoid
    embedded double quotes (PowerShell 5.1 quoting).
-5. Physics defaults come from documented sources (the reference suite `.info` exports, his studies,
+5. **Every change goes through a PR** (Jauhar, 2026-08-06: *"yes, all changes through PR
+   from now"*). No exceptions for docs, a one-line fix or a typo — a rule with a size
+   threshold is a rule someone has to judge every time, and the small change nobody
+   branched for is the one that lands unreviewed. Never `git push` to `master`.
+   **Claude opens the PR and stops there.** Merging is Jauhar's, because a PR he did not
+   look at is a commit with extra steps; he says "merge" (as on 2026-08-05) and only then
+   does `gh pr merge` run. Prefer `--rebase` on a single-commit PR so history stays linear,
+   `--merge` where the branch has its own arc worth keeping. Branch names are
+   `fix/` `feat/` `chore/` `docs/` + a short slug. **Check `master` has not moved before
+   branching** — the whole point of the PR is that GitHub answers "did this land on top of
+   something else?" before a conflict does.
+6. Physics defaults come from documented sources (the reference suite `.info` exports, his studies,
    the chartbook) — cite the source in a comment; when a method spec conflicts with
    code, the specs in `docs/` win.
 
