@@ -4265,3 +4265,68 @@ export interface FitResult {
 export async function statsFit(req: FitRequest): Promise<FitResult> {
   return invoke<FitResult>("stats_fit", { req });
 }
+
+// ---------------------------------------------------------------------------
+// Intake (intake.rs) — one importer for any delimited text.
+// ---------------------------------------------------------------------------
+
+export interface TableOptions {
+  /** "," ";" "\t" "ws" — omit to auto-detect. */
+  delimiter?: string;
+  /** Lines to skip before the header (a title block). */
+  skip_lines?: number;
+  /** "dot" | "comma" — omit to decide per token. */
+  decimal?: string;
+}
+
+export type IntakeRole =
+  | "WELL" | "DEPTH" | "DEPTH_BASE" | "CPOR" | "CPERM" | "CGD" | "CSW" | "ITEM" | "IGNORE";
+
+export interface IntakeColumn {
+  header: string;
+  /** "number" | "text" | "empty" */
+  kind: string;
+  role: IntakeRole;
+  /** Why that role was proposed — a guess nobody can argue with is a guess that gets accepted. */
+  reason: string;
+  filled: number;
+}
+
+export interface IntakeProbe {
+  path: string;
+  columns: IntakeColumn[];
+  n_rows: number;
+  preview: string[][];
+  delimiter: string;
+  units_row_skipped: boolean;
+  depth_unit_guess: string | null;
+  decimal: string;
+  /** [row, column] of preview cells in a NUMBER column that did not parse — painted in the grid. */
+  preview_bad: [number, number][];
+  ambiguous_numbers: number;
+  notes: string[];
+}
+
+/** Writes pasted text to a temp file and returns its path, so a paste and a file take the
+ *  identical parse and commit path. */
+export async function intakePaste(text: string): Promise<string> {
+  return invoke<string>("intake_paste", { text });
+}
+
+export async function intakeProbe(path: string, opts: TableOptions): Promise<IntakeProbe> {
+  return invoke<IntakeProbe>("intake_probe", { path, opts });
+}
+
+export interface IntakeCommit {
+  paths: string[];
+  roles: string[];
+  depth_unit?: string;
+  set_name?: string;
+  extras_dataset?: string;
+  fallback_well_id?: string;
+  follow_core?: boolean;
+}
+
+export async function intakeCommit(req: IntakeCommit): Promise<CoreTableImportResult[]> {
+  return invoke<CoreTableImportResult[]>("intake_commit", { req });
+}

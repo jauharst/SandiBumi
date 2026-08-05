@@ -1183,6 +1183,7 @@ textarea {
 .dock-depth-reg,
 .dock-rtc-fit,
 .dock-statistics,
+.dock-intake,
 .dock-sfactor-fit {
   padding: 10px 12px;
 }
@@ -6825,4 +6826,80 @@ input[type="number"].num-editing:focus {
   border-radius: var(--r-sm);
   border: 1px solid var(--border-strong);
   vertical-align: middle;
+}
+
+
+/* --------------------------------------------------------------------------
+   Intake pane (intakePanel.ts)
+
+   The grid is the control, so it opts out of `.module-pane`'s 620px form-column
+   cap for the same reason the picture panes do: a delivery is fifteen columns
+   wide and squeezing it into a form column is the "not proportional" complaint.
+   -------------------------------------------------------------------------- */
+.dock-intake .module-pane {
+  max-width: none;
+}
+
+.intake-grid-wrap {
+  margin: 10px 0;
+  /* Wide content scrolls inside its own box; the pane must never scroll sideways,
+     which would take the role pickers off screen. Capped in height so the
+     destination fields and the Import button stay reachable without scrolling
+     past two hundred preview rows. */
+  overflow: auto;
+  max-height: 44vh;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 6px);
+}
+
+.intake-grid {
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.intake-grid th,
+.intake-grid td {
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  text-align: left;
+}
+
+.intake-grid thead th {
+  /* The header carries the role picker, so it has to stay visible while the rows
+     scroll — a mapping made against row 180 with the pickers off screen is a
+     mapping made blind. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+}
+
+.intake-grid thead tr:nth-child(2) th {
+  top: 34px;
+}
+
+.intake-col-name {
+  font-weight: 600;
+}
+
+.intake-col-kind {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.intake-role {
+  font-size: 11px;
+  padding: 1px 4px;
+  min-width: 96px;
+}
+
+/* A cell in a numeric column that did not read as a number. Outlined rather than filled, so the
+   role tint underneath is still legible — the two say different things and one must not hide the
+   other. */
+.intake-grid td.intake-bad {
+  outline: 2px solid var(--warn);
+  outline-offset: -2px;
+  color: var(--warn);
+  font-weight: 600;
 }

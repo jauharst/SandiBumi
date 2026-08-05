@@ -26,6 +26,7 @@ mod images;
 mod petrography;
 mod plugqc;
 mod ingest;
+mod intake;
 mod jobs;
 mod layout;
 mod lithology;
@@ -1494,6 +1495,71 @@ async fn run_workflow_module(
     .await
 }
 
+
+// --- Intake (intake.rs): one importer for any delimited text -------------------------------
+
+/// Writes pasted text to a temp file and hands back its path.
+///
+/// So a pasted table and the same table on disk take the IDENTICAL parse and commit path — one
+/// parser, one write, and no way for a paste to behave differently. Doing it in Rust also keeps
+/// the frontend free of a filesystem plugin it otherwise needs for nothing.
+#[tauri::command]
+async fn intake_paste(text: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut path = std::env::temp_dir();
+        // Named rather than randomised so a user who wants to look at what they pasted can, and
+        // so a second paste replaces the first instead of filling the temp folder.
+        path.push("sandibumi-intake-paste.txt");
+        std::fs::write(&path, text.as_bytes()).map_err(|e| e.to_string())?;
+        Ok(path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Reads a delimited file and reports everything the Intake pane needs to confirm a mapping —
+/// column kinds, proposed roles with their reasons, the decimal convention, a preview grid.
+/// **Writes nothing**, so a wrong guess is seen rather than discovered afterwards.
+#[tauri::command]
+async fn intake_probe(
+    path: String,
+    opts: intake::TableOptions,
+) -> Result<intake::IntakeProbe, String> {
+    tauri::async_runtime::spawn_blocking(move || intake::probe(&path, &opts).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Commits a confirmed mapping. Deliberately routed through `ingest::import_core_table` rather
+/// than a second write path: that function already owns well routing, the unit conversion, the
+/// percent rule, per-well replace, depth dedup and carrying every unclaimed column into
+/// `aux_data`. Two implementations of those rules would eventually disagree, silently.
+#[tauri::command]
+async fn intake_commit(
+    db: tauri::State<'_, DbState>,
+    req: intake::IntakeCommit,
+) -> Result<Vec<ingest::CoreTableImportResult>, String> {
+    let mapping = intake::mapping_from_roles(&req.roles)?;
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = conn.lock().map_err(|_| "database busy".to_string())?;
+        let mut out = Vec::new();
+        for path in &req.paths {
+            out.push(ingest::import_core_table(
+                &conn,
+                path,
+                &mapping,
+                req.depth_unit.as_deref(),
+                req.fallback_well_id.as_deref(),
+                req.extras_dataset.as_deref(),
+                req.set_name.as_deref(),
+            ));
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 
 // --- Statistics (statistics.rs) -------------------------------------------------------------
 // Every one is a pure READ — nothing here writes a curve, a flag or a log set — so each runs
@@ -3033,6 +3099,9 @@ pub fn run() {
             stats_versus_sets,
             stats_thickness,
             stats_fit,
+            intake_probe,
+            intake_paste,
+            intake_commit,
             run_cutoff_sweep,
             run_monte_carlo,
             list_zones,

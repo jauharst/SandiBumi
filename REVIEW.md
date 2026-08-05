@@ -8213,3 +8213,50 @@ an input log set and a per-zone toggle. Every one is a pure read — nothing her
       true vertical by about 30% at 40 degrees, which is a reserves error that reads as a good well.
 - [ ] **Copy as CSV** under each table. Should these also go into the Workbook export as their own
       sheets? The table definition is already in the shape `office.rs` renders.
+
+---
+
+## Intake — one importer, and the grid is the control (2026-08-05)
+
+**Data ribbon ▸ Intake…**, or the ＋ menu. Replaces the table-shaped importers: core tables, point
+data, and any delimited text with mixed column types. LAS and DLIS keep their own path — they are
+self-describing formats with headers and units built in, not tables.
+
+It is a FRONT END, not a second write path. `import_core_table` already owns well routing, the
+foot-to-metre conversion, the percent rule, per-well replace, depth dedup and carrying unclaimed
+columns into point data. Intake builds the mapping and calls it, so the two can never disagree.
+
+- [ ] **Data ▸ Intake…** — choose a real delivery. Does the grid read the file the way you would?
+- [ ] Each column header carries its **proposed role** and, on hover, the reason. Overrule one and
+      watch the tint follow. Are the nine roles the right nine, or is something missing?
+- [ ] The **Delimiter**, **Skip lines** and **Decimal** controls re-read the grid live. Try a file
+      with a title block above the headers and skip past it.
+- [ ] **The decimal control matters.** A delivery that writes `7016,54` alongside `6980.71` is not
+      hypothetical — one of your petrography workbooks did exactly that, and reading only the dot
+      convention put a seventh of it at 54 feet. Left on "(decide per value)" the rightmost
+      separator wins; a genuinely ambiguous `1,234` is read as 1.234 and reported.
+- [ ] **Cells outlined in red** sit in a numeric column and did not parse — a stray unit, a
+      spreadsheet's `#N/A`, the wrong decimal convention. An EMPTY cell is not flagged, because a
+      blank is a missing measurement. Is the outline visible enough on your themes?
+- [ ] A column no measurement role claims becomes **Point item** and is carried into `aux_data` at
+      the plug depths — lithology text, Kv/Kh, oil shows. Only **Ignore** drops one. Check they
+      land: Wells pane ▸ well ▸ Point data.
+- [ ] **Paste from clipboard** — copy a block out of Excel and paste. It takes the identical parse
+      and commit path as a file, so anything true of one is true of the other.
+- [ ] Choose several files at once. The mapping is confirmed ONCE, on the first, and applied by
+      header name to all of them — a delivery split across files is one delivery with one shape.
+      Say if you have deliveries where that is not true.
+- [ ] **Delivery set** — the files chosen together are one delivery, auto-suffixed per well so an
+      import never overwrites.
+- [ ] Without a DEPTH role the Import button stays disabled and the pane says why, rather than
+      failing after you press it.
+
+**Not yet built, and named rather than quietly missing:**
+
+- [ ] **Wide and Block array layouts** (a column per pressure step; a table per plug) — the SCAL,
+      MICP and NMR case. The pane reads the LONG layout today. Increment 2.
+- [ ] **Curve role** — a delimited file of continuous logs into the curve store. Today that route
+      is still Import LAS.
+- [ ] **Templates** — saving a mapping by name for a recurring delivery.
+- [ ] The old core/aux/SCAL/tops dialogs are still in the Data ribbon. They stay until you have
+      run Intake against your own deliveries and are happy with it; say the word and they go.
