@@ -8419,6 +8419,50 @@ drop is read straight off the picture: note one contact's depth at each edge and
       try the other sign before anything else.
 - [ ] The corner triangles at each barrel's ends have no rock in them and come back MISSING —
       never filled from the edge row, never wrapped from the other end of the barrel.
-- [ ] It is DECLARED, not detected. Finding the dip in the pixels is a real image-processing job
-      and a wrong answer would smear the section differently rather than failing. Say if you would
-      rather it proposed one.
+- [ ] It is DECLARED by default — and **Propose…** beside the field now scans a range of dips and
+      shows how sharply the core reads at each. See the next section.
+
+---
+
+## The three open items, closed (2026-08-05)
+
+Your "solve em" on the completion report. Each had been left as a stated limit; each is now done.
+
+### A block keyed by a label line — Intake ▸ Layout: Block
+
+A per-plug delivery that writes `PLUG 12  4633.5 ft` above each table instead of carrying the depth
+in a column now imports. The depth is **the number carrying a UNIT**, which is the rule a plate
+workbook's header cell is already read by — on a caption that also names a plug, nothing else tells
+the two apart.
+
+- [ ] Import a block-shaped Pc or NMR export whose blocks are captioned. Check each block's rows
+      land on the caption's depth, and that the captions themselves are not stored as samples.
+- [ ] A caption with no unit is refused BY NAME and the run says why. Confirm you get the reason
+      rather than a plausible wrong depth.
+- [ ] The control worth seeing once: read the same file WITHOUT Block and every row imports with
+      no depth at all — which looks like a clean read of plugs that never had depths. That silent
+      version is what this replaces.
+- [ ] If a caption carries an interval (`2103.4 m to 2104.1 m`) the FIRST depth is used and the run
+      tells you to look. Say if you would rather it took the mid-point or the top.
+
+### A minimum bed thickness — Photo Log ▸ Sand / shale, third box
+
+- [ ] Read `CPHOTO_LITH` with the box blank first: every one-sample flicker is kept, and the run
+      says so. That is still the default, because no thickness is right in two cores.
+- [ ] Enter your thinnest meaningful bed. Beds below it are absorbed into the rock around them and
+      the count is reported. Check the beds you would actually log survive.
+- [ ] A thin stretch with unphotographed core on BOTH sides is left alone and counted separately —
+      it is a short barrel, not a flicker, and there is no neighbouring rock to absorb it into.
+
+### Propose a dip — Photo Log ▸ Unfold dipping beds ▸ Propose…
+
+- [ ] Press it on a box with a dipping contact. You get the whole scan drawn, not just a number:
+      one sharp peak means the dip is determined.
+- [ ] **A flat scan is the answer that matters.** If the core has no bedding contrast, every
+      candidate scores alike, the run says FLAT, and the peak is noise. Leave the unfold at zero.
+- [ ] Hatched slots are candidates that sheared away too much core to be compared — not poor
+      scores. Without that floor, sliding the core off its own frame would win the scan.
+- [ ] **Use N** only fills the box. Nothing is applied until you read the trace, exactly like
+      accepting a depth-registration shift.
+- [ ] Measured on a synthetic 1 m dip it proposes 1.0, and on the same picture with a horizontal
+      contact it proposes 0.0.

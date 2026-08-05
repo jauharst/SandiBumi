@@ -3494,6 +3494,91 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 - `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
 - `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). Listed in `.gitignore`, but the PDF was **committed before that rule was added and is still tracked** — a gitignore entry never untracks a file that is already in. It DOES exist on a fresh clone. Untracking it is an open decision (provenance sweep 2026-07-31, finding 3).
 
+## The three things that were still open (2026-08-05)
+
+Jauhar, on the completion report: *"solve em"*. Each had been left as a stated limit rather than a
+defect, and each is now closed.
+
+### A block keyed by a label line (`intake.rs`)
+
+A per-plug delivery writes `PLUG 12  4633.5 ft` above each block instead of carrying the depth in a
+column, and Intake reported that and read nothing. **The answer was already in this repo**:
+`images::WORKBOOK_RUNNER` met the same problem on a plate sheet's header cell and settled it by
+requiring a UNIT. `depth_from_label` borrows the rule whole — the depth is the number carrying a
+unit and no other. Taking the first number would read `PLUG 12` as 12 ft; taking the largest fails
+the moment a laboratory numbers its plugs into the thousands. A caption whose numbers carry no unit
+is still refused BY NAME.
+
+**A label line is reassembled with the DELIMITER, never with a space**, and that is the whole of why
+`split_table` now returns the separator. In a comma-delimited file `4640,0 ft` arrives as two cells;
+joined with a space the reader is handed `4640 0 ft`, where the number carrying the unit is ZERO —
+the plate workbooks' comma-decimal failure exactly, which put a seventh of one delivery at 54 feet on
+rock cored at 7,000. Pinned from both sides in `a_labels_depth_is_the_number_that_carries_a_unit`,
+which asserts what the space would have given so nobody "simplifies" the join back.
+
+**A unit is a WORD.** Trimming non-letters off both ends makes `2103.4M` read as the unit `M`, so the
+plug number before it becomes the depth — the one mistake the rule exists to prevent. Found by the
+test, not by reading it.
+
+A label line is identified by what it PARSES as (fewer than half the axis columns read as numbers),
+not by its length: written into a delimited file a caption usually keeps the delimiters and arrives
+full width. Rows above the first caption keep NO depth rather than taking the block below them. A
+DEPTH column still wins where a file carries both — it is per sample, the caption is per block.
+
+The control in `a_label_line_keys_its_block_by_the_number_that_carries_a_unit` is the important half
+and it is worse than a refusal: read without the block flag the captions parse as nothing across
+every bin, so the all-MISSING rule drops them silently and both blocks import with no depth at all —
+which looks like a clean read of a delivery whose plugs simply never had depths.
+
+### A minimum bed thickness for `CPHOTO_LITH` (`coreimage.rs`)
+
+`lith_min_bed`, **no default** (`param_open`'s rule): a minimum bed thickness is a statement about
+the rock and about what the study is for — 5 cm of shale is a bed a core description records and a
+flow simulator never sees — so a shipped value would silently rewrite everybody's lithology. Blank
+keeps every flicker and says so.
+
+Counted in SAMPLES (`thickness / step`), which is what makes a barrel gap harmless: unphotographed
+metres contribute no samples, so a bed either side of a gap is not credited with the gap.
+
+**Thinnest first, runs rebuilt after every absorption.** Absorbing a bed merges the rock either side
+into one thicker bed, which can lift a neighbour above the threshold — a single sweep keeps going
+and strips beds that had become legitimate. Thinnest-first is also the only order giving the same
+answer from either end of the core.
+
+**A stretch isolated between two MISSING gaps is LEFT and counted.** It is a short barrel, not a
+flicker: there is no neighbouring rock to absorb it into, and flipping it would invent a lithology.
+
+### The unfold proposes a dip (`coreimage.rs`)
+
+`unfold_scan` — the widest drop to search — returns an `UnfoldScan` and **nothing is applied**.
+`registration.rs`'s contract: the whole scan comes back, the peak is a proposal, the user types it
+in. One sharp peak means the dip is determined; a flat scan means the core carries no bedding
+contrast to find one from and the maximum is whichever candidate noise favoured; a comb means the
+section repeats. All three return a number, and only the SHAPE tells them apart — so the pane draws
+it, with the score axis anchored at zero because cropping to the data makes a 2% wobble fill the box.
+
+**The score is the trace's own contrast.** At the true dip every slab is one rock, so a contact comes
+back as a step and the spread is greatest; shear too little or too much and the same contact is
+averaged across, which fills the middle in. Peaked at the truth, falling away either side — a
+correlogram's shape, for a correlogram's reason. Scored per LANE, because the mean darkness genuinely
+differs between barrels and pooling them adds a between-barrel spread no shear can change, diluting
+the peak with a constant.
+
+**A candidate must keep 75% of the best-populated candidate's live samples** (`UNFOLD_MIN_COVERAGE`,
+the `MIN_PAIR_FRACTION` argument). Shearing empties every lane's corners, so the widest drops read
+the fewest slabs — and a handful of slabs can be spread wide by chance, which would make sliding the
+core off its own frame the winning move. An unscored candidate is drawn as an EMPTY slot, not a short
+bar: "not tried" and "tried and poor" are different statements.
+
+**One lane reader in the runner, shared by the measurement and the scan.** Two copies of the shear
+would be two things to keep in agreement, and a proposal computed by a shear the run does not apply
+is a number that looks right and is not. One decode, every candidate, first plane only.
+
+Pinned pure by `the_unfold_scan_proposes_a_peak_and_refuses_a_flat_one` (peak, flat, starved
+candidate, peak-at-the-edge) and end to end by the round trip, which recovers the 1 m dip that was
+drawn and — the half that matters — proposes exactly 0.0 on the same picture with a horizontal
+contact.
+
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

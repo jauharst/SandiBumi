@@ -2947,8 +2947,37 @@ export interface CoreLogSpec {
    *  at the left, in the project's depth unit. An angle would need the core's diameter, which
    *  nothing here stores; the drop is read straight off the picture. */
   unfold?: number | null;
+  /** The thinnest bed `CPHOTO_LITH` keeps, in the project's depth unit. Omitted leaves the cut
+   *  exactly as the threshold made it. No default on purpose: a minimum bed thickness is a
+   *  statement about the rock and about what the study is for, and no value is right in two
+   *  cores. Counted in samples, so an unphotographed gap adds no thickness. */
+  lith_min_bed?: number | null;
+  /** Propose an unfold: the widest drop to search, in the project's depth unit. Omitted runs no
+   *  scan. The whole scan comes back in `CoreLogResult.unfold_scan` and nothing is applied. */
+  unfold_scan?: number | null;
   /** Write the curves. Omit to measure without writing, so a lay-out can be tried first. */
   write?: boolean;
+}
+
+/**
+ * How sharply the core reads at each candidate dip — the whole curve, not only its peak.
+ *
+ * `registration.rs`'s contract, and it is the reason this is a shape rather than a number. One
+ * sharp peak means the dip is determined. A flat scan means the core carries no bedding contrast
+ * to find a dip from, so the maximum is whichever candidate the noise favoured. A comb of
+ * near-equal peaks means the section repeats. All three return a number.
+ */
+export interface UnfoldScan {
+  /** The candidate drops tried, in the project's depth unit. Signed: a bed can dip either way. */
+  drops: number[];
+  /** One score per candidate — the trace's own contrast. NaN where the candidate sheared away too
+   *  much of the core to be compared with the rest. */
+  scores: number[];
+  /** The best-scoring candidate. A PROPOSAL: read it beside the scan and type it in. */
+  best?: number | null;
+  /** Rival peaks within 5% of the best, away from it. */
+  rivals: number;
+  notes: string[];
 }
 
 /**
@@ -3010,6 +3039,8 @@ export interface CoreLogResult {
   written: string[];
   skipped: string[];
   notes: string[];
+  /** Present only when `unfold_scan` asked for a proposal. Never applied. */
+  unfold_scan?: UnfoldScan | null;
 }
 
 /** Reads the proxy measures off a well's live core-photograph delivery, and optionally writes them

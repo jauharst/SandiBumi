@@ -493,12 +493,13 @@ pub fn mapping_from_roles(roles: &[String]) -> Result<CoreMapping, String> {
 //   the repeated headers are stripped the rows are exactly the file they came from, so BLOCK is a
 //   pre-pass over either of the other two rather than a third way of reading a table.
 //
-// **A block keyed by a LABEL LINE is not read, and says so.** Some per-plug deliveries write
-// `PLUG 12  4633.5 ft` on its own line above each table instead of carrying the depth in a
-// column. Which token on that line is the depth and which is the plug number cannot be told apart
-// without guessing — the workbook reader met exactly this and answered it by requiring a unit — so
-// a block whose key is not in a column is REPORTED and left unread rather than attributed to rock
-// chosen by a coin toss.
+// **A block keyed by a LABEL LINE is read by the workbook reader's rule.** Some per-plug
+// deliveries write `PLUG 12  4633.5 ft` on its own line above each table instead of carrying the
+// depth in a column. Which token on that line is the depth and which is the plug number cannot be
+// told apart from the numbers alone — so it is not guessed at: the depth is the number that
+// carries a UNIT, exactly as `images::WORKBOOK_RUNNER` reads a plate sheet's header cell, and for
+// exactly the same reason. A label line whose numbers carry no unit is still REPORTED and left
+// unread rather than attributed to rock chosen by a coin toss.
 
 /// One array read out of a wide table: the sample it belongs to, and its values across the axis.
 #[derive(Debug, Clone, Serialize)]
@@ -539,8 +540,120 @@ fn join_blocks(table: &mut Vec<Vec<String>>, headers: &[String]) -> usize {
     before - table.len()
 }
 
+/// Depth units a label line may carry. Deliberately NOT bare `F`: on a line that also names a
+/// plug and a facies code, one letter is not evidence of anything.
+const LABEL_DEPTH_UNITS: [&str; 8] = ["FT", "FEET", "FOOT", "M", "MTR", "METER", "METRE", "METERS"];
+
+/// Reads the depth out of a label line — the number that carries a UNIT, and no other.
+///
+/// **The workbook reader's rule, borrowed whole** (`images::WORKBOOK_RUNNER`). A label line reads
+/// `PLUG 12  4633.5 ft` or `SAMPLE 7 / 2103,40 M (CORE)`, and it carries at least two numbers: the
+/// plug number and the depth. Nothing in the numbers themselves says which is which — taking the
+/// first would read plug 12 as a depth of 12 ft, and taking the largest would fail the moment a
+/// laboratory numbered its plugs into the thousands. The unit is the only thing on the line that
+/// identifies a depth AS a depth, and a delivery that omits it has genuinely not said where the
+/// rock is.
+///
+/// Returns the depth and how many DIFFERENT numbers carried a unit. More than one is reported by
+/// the caller rather than resolved: `2103.4 m to 2103.7 m` is a range, and picking an end is a
+/// judgement about what a block's depth means, not a parsing question.
+///
+/// The decimal convention is `parse_number`'s, so a European label line reads the same way a
+/// European data row does — the comma-decimal lesson from the plate workbooks, where a seventh of
+/// one delivery was stored at 54 feet on rock cored at 7,000.
+/// `sep` is the delimiter the file was split ON, and rejoining with it rather than with a space is
+/// load-bearing: in a comma-delimited file `4640,0 ft` arrives as TWO cells, and joining them with
+/// a space offers the tokenizer `4640 0 ft` — where `0` is the number carrying the unit, and the
+/// block is filed at zero feet. The plate workbooks' comma-decimal failure exactly, which put a
+/// seventh of one delivery at 54 feet on rock cored at 7,000. Reassembled as written, the
+/// comma-decimal rule in `parse_number` reads it as the one number it always was.
+fn depth_from_label(cells: &[String], decimal: Option<&str>, sep: char) -> (Option<f64>, usize) {
+    let line = cells.join(&sep.to_string());
+    let toks: Vec<&str> = line
+        .split(|c: char| c.is_whitespace() || matches!(c, '/' | '|' | '(' | ')' | '[' | ']' | ':'))
+        .filter(|t| !t.is_empty())
+        .collect();
+    // A unit is a WORD. Trimming non-letters off both ends instead would make `2103.4M` read as
+    // the unit `M`, so the plug number before it would be taken as the depth — which is the one
+    // mistake this whole rule exists to prevent.
+    let is_unit = |t: &str| {
+        let u = t.trim_end_matches(|c: char| !c.is_ascii_alphanumeric()).to_uppercase();
+        u.chars().all(|c| c.is_ascii_alphabetic()) && LABEL_DEPTH_UNITS.contains(&u.as_str())
+    };
+    let mut found: Vec<f64> = Vec::new();
+    for (i, t) in toks.iter().enumerate() {
+        // `4633.5FT` — the unit is glued to the number. Split at the first letter.
+        let split = t.find(|c: char| c.is_ascii_alphabetic());
+        let (num, glued) = match split {
+            Some(p) if p > 0 => (&t[..p], Some(&t[p..])),
+            _ => (*t, None),
+        };
+        let Some(v) = parse_number(num, decimal).0 else { continue };
+        let carried = match glued {
+            Some(u) => is_unit(u),
+            None => toks.get(i + 1).map(|n| is_unit(n)).unwrap_or(false),
+        };
+        if carried && !found.iter().any(|f| (*f - v).abs() < 1e-9) {
+            found.push(v);
+        }
+    }
+    (found.first().copied(), found.len())
+}
+
+/// Strips label lines from a stacked file and returns the depth each surviving row belongs to.
+///
+/// A label line is a row that is NOT a data row: too few of the table's own columns parse as
+/// numbers for it to be a sample. Testing what a row PARSES as rather than how long it is matters
+/// because a label line written into a delimited file usually keeps the delimiters, so it arrives
+/// the full width of the table with the words in the first cell or two.
+///
+/// Rows before the first label line carry `None`: they belong to no block, and inventing a depth
+/// for them from the block BELOW would attribute a header remnant to the first plug.
+fn read_label_keys(
+    table: &mut Vec<Vec<String>>,
+    bins: &[usize],
+    decimal: Option<&str>,
+    sep: char,
+) -> (Vec<Option<f64>>, usize, usize) {
+    let numeric_fraction = |r: &[String]| -> f32 {
+        if bins.is_empty() {
+            return 0.0;
+        }
+        let n = bins.iter().filter(|i| r.get(**i).and_then(|c| parse_number(c, decimal).0).is_some()).count();
+        n as f32 / bins.len() as f32
+    };
+    let mut keys: Vec<Option<f64>> = Vec::with_capacity(table.len());
+    let mut kept: Vec<Vec<String>> = Vec::with_capacity(table.len());
+    let (mut labels, mut ranged) = (0usize, 0usize);
+    let mut current: Option<f64> = None;
+    for r in table.drain(..) {
+        // Half the axis columns reading as numbers is a sample; a line of words with one depth on
+        // it is not. The threshold is deliberately loose — a block's last row is often ragged.
+        if numeric_fraction(&r) < 0.5 {
+            let (d, n) = depth_from_label(&r, decimal, sep);
+            if let Some(d) = d {
+                current = Some(d);
+                labels += 1;
+                if n > 1 {
+                    ranged += 1;
+                }
+            }
+            // A non-data line is dropped whether or not it yielded a depth: it is a caption, a
+            // rule, or a blank — never a sample of nothing.
+            continue;
+        }
+        keys.push(current);
+        kept.push(r);
+    }
+    *table = kept;
+    (keys, labels, ranged)
+}
+
 /// Splits a delimited file into a table, honouring the same options the long path uses.
-fn split_table(path: &str, opts: &TableOptions) -> ParseResult<Vec<Vec<String>>> {
+///
+/// Returns the separator alongside the table because a caption line has to be reassembled AS
+/// WRITTEN before a number can be read out of it — see `depth_from_label`.
+fn split_table(path: &str, opts: &TableOptions) -> ParseResult<(Vec<Vec<String>>, char)> {
     let text = parsers::read_text_file(path)?;
     let mut lines: Vec<&str> = text
         .lines()
@@ -580,7 +693,7 @@ fn split_table(path: &str, opts: &TableOptions) -> ParseResult<Vec<Vec<String>>>
             }
         }
     }
-    Ok(table)
+    Ok((table, delim.map_or(' ', |d| d as char)))
 }
 
 /// Reads the axis value out of one column header.
@@ -606,22 +719,13 @@ fn axis_of(header: &str, decimal: Option<&str>) -> Option<f64> {
 /// `roles` is the same per-column role list the long path uses. WELL, DEPTH and SAMPLE are
 /// claimed and everything else is an array bin whose header IS its axis value.
 pub fn read_wide(path: &str, opts: &TableOptions, roles: &[String], block: bool) -> ParseResult<ArrayProbe> {
-    let mut table = split_table(path, opts)?;
+    let (mut table, sep) = split_table(path, opts)?;
     if table.is_empty() {
         return Err(parsers::ParseError::Las("file is empty".into()));
     }
     let headers: Vec<String> = table.remove(0).iter().map(|h| h.trim().to_string()).collect();
     let mut notes = Vec::new();
     let blocks_joined = if block { join_blocks(&mut table, &headers) } else { 0 };
-    if block && blocks_joined == 0 {
-        notes.push(
-            "BLOCK was chosen but no repeated header was found, so the file was read as one \
-             table. A block keyed by a label line above each table rather than by a column is not \
-             read: which token on that line is the depth cannot be told from which is the plug \
-             number, and guessing would attribute the whole block to the wrong rock."
-                .into(),
-        );
-    }
 
     let role_at = |i: usize| roles.get(i).map(String::as_str).unwrap_or("");
     let well_col = (0..headers.len()).find(|i| role_at(*i) == "WELL");
@@ -670,9 +774,48 @@ pub fn read_wide(path: &str, opts: &TableOptions, roles: &[String], block: bool)
         );
     }
 
+    // The label-line key. Only reached where BLOCK was asked for and no repeated header was found,
+    // because a file that repeats its header has already said where each block starts and reading
+    // captions as well would be a second, weaker answer to a question already settled.
+    let mut label_keys: Vec<Option<f64>> = Vec::new();
+    if block && blocks_joined == 0 {
+        let (keys, labels, ranged) = read_label_keys(&mut table, &bins, decimal, sep);
+        label_keys = keys;
+        if labels == 0 {
+            notes.push(
+                "BLOCK was chosen but no repeated header was found and no line above a block \
+                 carries a depth with a UNIT, so the file was read as one table. A depth is only \
+                 taken from a label line when it says `4633.5 ft` or `2103,4 m`: on a line that \
+                 also carries a plug number, nothing but the unit tells the two apart, and \
+                 guessing would attribute a whole block to the wrong rock."
+                    .into(),
+            );
+        } else {
+            let orphan = label_keys.iter().filter(|k| k.is_none()).count();
+            notes.push(format!(
+                "{labels} block(s) keyed by a label line — the depth is the number carrying a \
+                 unit, the same rule a plate workbook's header cell is read by."
+            ));
+            if ranged > 0 {
+                notes.push(format!(
+                    "{ranged} label line(s) carry more than one depth with a unit — an interval, \
+                     probably. The FIRST is used and the rest are ignored: choosing an end of a \
+                     range is a judgement about what a block's depth means, so check those blocks."
+                ));
+            }
+            if orphan > 0 {
+                notes.push(format!(
+                    "{orphan} row(s) sit above the first label line and have no depth. They are \
+                     kept and stored without one rather than being given the depth of the block \
+                     BELOW them, which would attribute a stray row to the first plug."
+                ));
+            }
+        }
+    }
+
     let mut rows = Vec::new();
     let mut short = 0usize;
-    for r in &table {
+    for (ri, r) in table.iter().enumerate() {
         let cell = |i: usize| r.get(i).map(String::as_str).unwrap_or("");
         let values: Vec<f32> = bins
             .iter()
@@ -687,7 +830,12 @@ pub fn read_wide(path: &str, opts: &TableOptions, roles: &[String], block: bool)
         }
         rows.push(ArrayRow {
             well_name: well_col.map(|i| cell(i).to_string()).filter(|s| !s.is_empty()),
-            depth: depth_col.and_then(|i| parse_number(cell(i), decimal).0),
+            // A DEPTH column wins over the block's label line. The column is per SAMPLE and the
+            // label is per BLOCK, so where a file carries both the column is the more specific
+            // statement; the label fills in only where the column is absent or blank.
+            depth: depth_col
+                .and_then(|i| parse_number(cell(i), decimal).0)
+                .or_else(|| label_keys.get(ri).copied().flatten()),
             sample_no: sample_col.and_then(|i| parse_number(cell(i), decimal).0).map(|v| v as i64),
             values,
         });
@@ -1000,7 +1148,7 @@ pub fn commit_curves(conn: &Connection, req: &CurveCommit) -> Vec<CurveImportRes
             // row and, when one was detected, the units row under it are dropped so the rows here
             // line up with the columns the probe described.
             let mut rows = match split_table(path, &req.opts) {
-                Ok(r) => r,
+                Ok((r, _)) => r,
                 Err(e) => {
                     res.error = Some(e.to_string());
                     return res;
@@ -1374,6 +1522,89 @@ mod tests {
             "the limit must be stated rather than silently producing one block: {:?}",
             one.notes
         );
+    }
+
+    /// **A block keyed by a label line is read, and the depth is the number carrying a UNIT.**
+    ///
+    /// The rule is `images::WORKBOOK_RUNNER`'s, borrowed whole rather than re-invented: a caption
+    /// above each block carries the plug number AND the depth, and nothing in the numbers says
+    /// which is which. Taking the first would read `PLUG 12` as 12 ft.
+    ///
+    /// The control is the important half, and it is worse than a refusal. Read WITHOUT the block
+    /// flag the label lines parse as nothing across every bin, so the all-MISSING rule drops them
+    /// silently — and both blocks then import with NO depth at all, looking like a clean read of a
+    /// delivery whose plugs have simply lost their depths.
+    #[test]
+    fn a_label_line_keys_its_block_by_the_number_that_carries_a_unit() {
+        let path = std::env::temp_dir().join("sandi_block_label.csv");
+        std::fs::write(
+            &path,
+            "1,2,4,8\n\
+             PLUG 12  4633.5 ft\n\
+             0.9,0.7,0.5,0.4\n\
+             0.88,0.68,0.48,0.38\n\
+             PLUG 13  4640,0 ft\n\
+             0.8,0.6,0.4,0.3\n",
+        )
+        .unwrap();
+        let probe = read_wide(path.to_str().unwrap(), &TableOptions::default(), &[], true).expect("read");
+
+        assert_eq!(probe.axis, vec![1.0, 2.0, 4.0, 8.0], "the header row is still the axis");
+        assert_eq!(probe.rows.len(), 3, "the captions are keys, not samples");
+        assert_eq!(probe.rows[0].depth, Some(4633.5), "the number with the unit, never the plug number");
+        assert_eq!(probe.rows[1].depth, Some(4633.5), "and every row of a block takes its block's depth");
+        // The comma-decimal lesson from the plate workbooks: `4640,0` is one number, not two.
+        assert_eq!(probe.rows[2].depth, Some(4640.0), "a comma decimal reads as one number");
+        assert!(
+            probe.notes.iter().any(|n| n.contains("2 block(s) keyed by a label line")),
+            "and the run says how it read them: {:?}",
+            probe.notes
+        );
+
+        // The control: without the flag the captions vanish and the depths go with them.
+        let plain = read_wide(path.to_str().unwrap(), &TableOptions::default(), &[], false).expect("read");
+        assert_eq!(plain.rows.len(), 3, "the captions are dropped as all-MISSING rows");
+        assert!(
+            plain.rows.iter().all(|r| r.depth.is_none()),
+            "and every sample imports with no depth, which reads as a clean import of depthless plugs"
+        );
+
+        // A caption whose numbers carry NO unit is still refused: `PLUG 12  4633.5` could as
+        // easily be plug 4633 at 12 ft, and nothing on the line settles it.
+        let bare = std::env::temp_dir().join("sandi_block_label_bare.csv");
+        std::fs::write(&bare, "1,2,4\nPLUG 12  4633.5\n0.9,0.7,0.5\n").unwrap();
+        let no_unit = read_wide(bare.to_str().unwrap(), &TableOptions::default(), &[], true).expect("read");
+        assert!(no_unit.rows.iter().all(|r| r.depth.is_none()), "no unit, no depth");
+        assert!(
+            no_unit.notes.iter().any(|n| n.contains("carries a depth with a UNIT")),
+            "and the reason is named: {:?}",
+            no_unit.notes
+        );
+    }
+
+    /// The unit rule itself, including the two shapes a laboratory actually writes.
+    #[test]
+    fn a_labels_depth_is_the_number_that_carries_a_unit() {
+        let cells = |s: &str| vec![s.to_string()];
+        assert_eq!(depth_from_label(&cells("PLUG 12  4633.5 ft"), None, ' ').0, Some(4633.5));
+        assert_eq!(
+            depth_from_label(&cells("SAMPLE 7 / 2103.4M (CORE)"), None, ' ').0,
+            Some(2103.4),
+            "a glued unit, and the PLUG NUMBER before it must not be read as the depth"
+        );
+        assert_eq!(depth_from_label(&cells("PLUG 12  4633.5"), None, ' ').0, None, "no unit, no depth");
+        assert_eq!(depth_from_label(&cells("CORE DESCRIPTION"), None, ' ').0, None);
+        // An interval names two depths; the first is used and the caller is told to look.
+        let (d, n) = depth_from_label(&cells("BOX 3  2103.4 m to 2104.1 m"), None, ' ');
+        assert_eq!((d, n), (Some(2103.4), 2), "both are seen, so the ambiguity can be reported");
+        // A bare letter is not a unit: on a line naming a facies code, `F` is not evidence.
+        assert_eq!(depth_from_label(&cells("PLUG 12 4633.5 F"), None, ' ').0, None);
+        // The comma-decimal trap. A comma-delimited file splits `4640,0 ft` into two cells, and
+        // rejoining them with a SPACE hands the reader `4640 0 ft` — where the number carrying the
+        // unit is zero. Rejoined with the delimiter it is the one number it always was.
+        let split = vec!["PLUG 13  4640".to_string(), "0 ft".to_string()];
+        assert_eq!(depth_from_label(&split, None, ',').0, Some(4640.0), "reassembled as written");
+        assert_eq!(depth_from_label(&split, None, ' ').0, Some(0.0), "and this is what a space would have given");
     }
 
     /// **An import never eats a delivery already there.** Jauhar, 2026-08-05: *"dont eat it, thats

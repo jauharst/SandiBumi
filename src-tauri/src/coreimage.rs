@@ -670,6 +670,201 @@ fn lith_from_dark(dark: &[f32], cut: f32) -> Vec<f32> {
         .collect()
 }
 
+/// Turns the per-candidate tallies into a scan, a proposal, and the reasons not to trust it.
+///
+/// Split out from `extract_core_log` so the judgement can be pinned without a Python subprocess —
+/// the `plan_lanes` and `epoxy_check` precedent.
+fn score_unfold_scan(drops: &[f32], tally: &[(f64, f64, usize)]) -> UnfoldScan {
+    let mut out = UnfoldScan { drops: drops.to_vec(), ..Default::default() };
+    let widest = tally.iter().map(|t| t.2).max().unwrap_or(0);
+    let floor = (widest as f32 * UNFOLD_MIN_COVERAGE) as usize;
+    let mut dropped = 0usize;
+    out.scores = tally
+        .iter()
+        .map(|(sum, w, live)| {
+            // A candidate that read too little of the core is not compared. Shearing empties each
+            // lane's corners, so the widest drops read the fewest slabs — and a handful of slabs
+            // can be spread wide by chance, which would make sliding the core off its own frame
+            // the winning move.
+            if *w <= 0.0 || *live < floor {
+                dropped += 1;
+                return f32::NAN;
+            }
+            (sum / w) as f32
+        })
+        .collect();
+    let best_i = out
+        .scores
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.is_finite())
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map(|(i, _)| i);
+    let Some(bi) = best_i else {
+        out.notes.push(
+            "No candidate dip read enough of the core to be scored. There is nothing here to \
+             propose from — check the lane spans cover the core and not the page around it."
+                .into(),
+        );
+        return out;
+    };
+    let best = out.scores[bi];
+    out.best = Some(drops[bi]);
+    let live: Vec<f32> = out.scores.iter().copied().filter(|s| s.is_finite()).collect();
+    let worst = live.iter().copied().fold(f32::INFINITY, f32::min);
+
+    // A flat scan is the answer that matters most, and it looks exactly like a confident one if
+    // only the peak is reported: the core carries no contrast that a shear can sharpen, so the
+    // maximum is whichever candidate the noise favoured.
+    if !(best > 0.0) || (best - worst) / best < 0.05 {
+        out.notes.push(
+            "The scan is FLAT — no candidate dip reads sharper than any other by more than 5%. \
+             This core has no bedding contrast for a dip to be found from, so the peak is noise \
+             and not a measurement. Leave the unfold at zero unless you can see the dip in the \
+             picture."
+                .into(),
+        );
+    } else {
+        // Rivals: a comb of near-equal peaks means the section repeats, and the maximum is then a
+        // coin toss between shears that would place the beds differently.
+        //
+        // Measured against the scan's own RANGE rather than against the peak's absolute value. Any
+        // constant every candidate shares — noise energy, a plateau a shear cannot touch — is
+        // common to the best and the worst alike, so dividing by the peak counts it as agreement
+        // and reports rivals that are simply the floor everybody stands on.
+        let span = best - worst;
+        out.rivals = out
+            .scores
+            .iter()
+            .enumerate()
+            .filter(|(i, s)| s.is_finite() && (**s - worst) >= 0.95 * span && i.abs_diff(bi) > 2)
+            .count();
+        if out.rivals > 0 {
+            out.notes.push(format!(
+                "{} other candidate(s) score within 5% of the peak, away from it. The core \
+                 repeats, so the maximum is a choice between shears that place the beds \
+                 differently — read the scan rather than the number.",
+                out.rivals
+            ));
+        }
+        if bi == 0 || bi == out.scores.len() - 1 {
+            out.notes.push(
+                "The peak sits at the EDGE of the search, so the real dip is probably steeper \
+                 than anything tried. Widen the search rather than reading this as the answer."
+                    .into(),
+            );
+        }
+        if drops[bi] == 0.0 {
+            out.notes.push(
+                "Flat reads sharpest: the bedding in this core runs across the picture already, \
+                 and unfolding it would smear the contacts rather than sharpen them."
+                    .into(),
+            );
+        }
+    }
+    if dropped > 0 {
+        out.notes.push(format!(
+            "{dropped} candidate(s) were not scored: shearing that far empties the corners of \
+             every barrel, leaving too little core to compare against the rest."
+        ));
+    }
+    out.notes.push(
+        "This is a PROPOSAL. Nothing is applied — read the scan, then type the drop into Unfold \
+         if the peak is one."
+            .into(),
+    );
+    out
+}
+
+/// Absorbs beds thinner than `min_n` samples into the rock around them.
+///
+/// A threshold applied sample by sample flickers: one slightly darker slab inside a clean sand
+/// becomes a one-sample shale, and a correlation panel then shows a bed a geologist looking at the
+/// core would never log. This is the smoothing the run used to refuse to do — and it stayed
+/// refused until there was a THICKNESS to do it against, because suppressing flicker without one
+/// means picking a sample count, which covers different amounts of rock in every core.
+///
+/// **Thinnest first, and the runs are rebuilt after every absorption.** Absorbing a bed merges the
+/// rock either side of it into one thicker bed, which can lift a neighbour above the threshold —
+/// so a single sweep would keep going and strip beds that had become legitimate. Thinnest-first is
+/// also the only order that returns the same answer whichever end of the core it starts from.
+///
+/// **A bed isolated between two MISSING stretches is left alone and counted.** It is a whole short
+/// barrel, or a fragment at a gap: there is no neighbouring rock to absorb it INTO, and flipping it
+/// to the other class would be inventing a lithology rather than removing a flicker.
+///
+/// Returns (absorbed, left isolated).
+fn absorb_thin_beds(lith: &mut [f32], min_n: usize) -> (usize, usize) {
+    if min_n <= 1 {
+        return (0, 0);
+    }
+    let runs_of = |v: &[f32]| -> Vec<(usize, usize, f32)> {
+        let mut runs = Vec::new();
+        let mut i = 0usize;
+        while i < v.len() {
+            if !v[i].is_finite() {
+                i += 1;
+                continue;
+            }
+            let (c, s) = (v[i], i);
+            while i < v.len() && v[i] == c {
+                i += 1;
+            }
+            runs.push((s, i, c));
+        }
+        runs
+    };
+    let mut absorbed = 0usize;
+    loop {
+        let runs = runs_of(lith);
+        // Adjacent means TOUCHING: a neighbouring run separated by a MISSING stretch is across a
+        // barrel gap, and rock on the far side of unphotographed core is not this bed's neighbour.
+        let nb = |j: usize| -> (Option<usize>, Option<usize>) {
+            let left = (j > 0 && runs[j - 1].1 == runs[j].0).then(|| j - 1);
+            let right = (j + 1 < runs.len() && runs[j + 1].0 == runs[j].1).then(|| j + 1);
+            (left, right)
+        };
+        let mut pick: Option<usize> = None;
+        for j in 0..runs.len() {
+            if runs[j].1 - runs[j].0 >= min_n {
+                continue;
+            }
+            let (l, r) = nb(j);
+            if l.is_none() && r.is_none() {
+                continue;
+            }
+            if pick.map_or(true, |p| runs[j].1 - runs[j].0 < runs[p].1 - runs[p].0) {
+                pick = Some(j);
+            }
+        }
+        let Some(j) = pick else { break };
+        let (s, e, _) = runs[j];
+        // The THICKER neighbour. With two classes both sides carry the same code, so this only
+        // decides anything at a barrel edge, where there is one neighbour and no choice.
+        let (l, r) = nb(j);
+        let to = match (l, r) {
+            (Some(l), Some(r)) => {
+                if runs[r].1 - runs[r].0 > runs[l].1 - runs[l].0 {
+                    runs[r].2
+                } else {
+                    runs[l].2
+                }
+            }
+            (Some(l), None) => runs[l].2,
+            (None, Some(r)) => runs[r].2,
+            (None, None) => break,
+        };
+        lith[s..e].iter_mut().for_each(|v| *v = to);
+        absorbed += 1;
+    }
+    let isolated = runs_of(lith)
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.1 - r.0 < min_n)
+        .count();
+    (absorbed, isolated)
+}
+
 /// One run of core inside a packed photograph — one COLUMN of a core-display plate, or one row of
 /// a core box.
 ///
@@ -810,10 +1005,32 @@ pub struct CoreLogSpec {
     /// invented gradation. Unfolding shears each column back before averaging, so the average
     /// follows the BED rather than a horizontal line.
     ///
-    /// DECLARED, never detected. Finding the dip in the pixels is a real image-processing job, and
-    /// a wrong one smears the section differently rather than failing.
+    /// DECLARED by default — but `unfold_scan` will PROPOSE one, and nothing is ever applied from
+    /// the proposal without the user putting it here.
     #[serde(default)]
     pub unfold: Option<f32>,
+    /// The thinnest bed `CPHOTO_LITH` is allowed to keep, in the project's depth unit. Absent
+    /// leaves the cut exactly as the threshold made it.
+    ///
+    /// **No default, and that is `param_open`'s rule rather than an omission.** A minimum bed
+    /// thickness is a statement about the rock and about what the study is for: 5 cm of shale is a
+    /// bed a core description would record and a flow simulator would never see. There is no value
+    /// that is right in two cores, so a shipped one would silently rewrite everybody's lithology.
+    ///
+    /// Counted in SAMPLES (`thickness / step`), which is what makes a barrel gap harmless: the
+    /// unphotographed metres between two boxes contribute no samples, so a bed either side of a
+    /// gap is not credited with the thickness of the gap.
+    #[serde(default)]
+    pub lith_min_bed: Option<f32>,
+    /// **Propose an unfold** instead of only accepting one: the widest drop to search, in the
+    /// project's depth unit. Absent runs no scan.
+    ///
+    /// The `registration.rs` contract — the whole scan comes back, the peak is a PROPOSAL, and
+    /// nothing is applied. One sharp peak means the dip is determined; a flat scan means the core
+    /// carries no bedding contrast to find one from, and the two are the same number with
+    /// completely different meanings.
+    #[serde(default)]
+    pub unfold_scan: Option<f32>,
 }
 
 impl CoreLogSpec {
@@ -876,7 +1093,59 @@ pub struct CoreLogResult {
     pub written: Vec<String>,
     pub skipped: Vec<String>,
     pub notes: Vec<String>,
+    /// The unfold proposal, when `unfold_scan` asked for one. Never applied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unfold_scan: Option<UnfoldScan>,
 }
+
+/// How sharply the core reads at each candidate dip — the whole curve, not only its peak.
+///
+/// **`registration.rs`'s contract.** One sharp peak means the dip is determined. A flat scan means
+/// this core carries no bedding contrast to find a dip from, and the maximum is then whichever
+/// candidate noise favoured. A comb of near-equal peaks means the same shape repeats down the
+/// barrel. All three return a number, and only the shape of the scan tells them apart — which is
+/// why the shape is what comes back, and why nothing is applied.
+///
+/// The score is the trace's mean squared step between neighbouring samples — gradient energy, the
+/// standard image-focus measure. At the true dip every slab is one rock, so a contact arrives as
+/// ONE jump; shear it too little or too much and the same total change is spread over many small
+/// steps. A jump of `S` scores `S²`, the same change spread over `n` samples scores `S²/n`, so the
+/// score is greatest exactly where the contact is sharpest — peaked at the truth and falling away
+/// either side, a correlogram's shape for a correlogram's reason.
+///
+/// **Not the trace's CONTRAST, which was tried first and is wrong in a way that looks right.** A
+/// standard deviation is dominated by the difference between the plateaux either side of a
+/// contact, and that difference is there at EVERY shear — so the part of the score that responds
+/// to the dip sits on a large constant floor. It still peaks in the right place, but on a real
+/// contact only a few per cent separates the best candidate from the worst, and a tenth of the
+/// scan lands within 5% of the peak: the answer is right and every measure of confidence in it is
+/// meaningless. Squared steps have no such floor — a plateau contributes nothing.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct UnfoldScan {
+    /// The candidate drops tried, in the project's depth unit. Signed: a bed can dip either way.
+    pub drops: Vec<f32>,
+    /// One score per candidate. NaN where the candidate lost too much of the core to be compared.
+    pub scores: Vec<f32>,
+    /// The best-scoring candidate — a PROPOSAL, to be read beside the scan and typed in, never
+    /// applied by the act of proposing it.
+    pub best: Option<f32>,
+    /// Rival peaks within 5% of the best, away from it. More than none means the maximum is a
+    /// choice rather than an answer.
+    pub rivals: usize,
+    pub notes: Vec<String>,
+}
+
+/// How many candidate dips the scan tries either side of zero. Odd total, so a flat core can
+/// return exactly 0 rather than the nearest thing to it.
+const UNFOLD_SCAN_STEPS: usize = 24;
+
+/// A candidate must keep this share of the best-populated candidate's live samples to be scored.
+///
+/// The `registration.rs` `MIN_PAIR_FRACTION` argument. Shearing empties the corner triangles of
+/// every lane, so a large drop reads fewer slabs — and a handful of slabs can have a high spread
+/// by chance. Without the floor, sliding the core off its own frame would be a legitimate way to
+/// win the scan.
+const UNFOLD_MIN_COVERAGE: f32 = 0.75;
 
 /// One picture's answer: for each measure, an array per LANE — not one concatenated run. Rust places
 /// each lane on its own interval, which it can only do if they arrive apart.
@@ -890,6 +1159,10 @@ struct ScanRow {
     /// curve name -> lane -> samples.
     #[serde(default)]
     cols: std::collections::HashMap<String, Vec<Vec<f32>>>,
+    /// The unfold proposal, when one was asked for: candidate -> lane -> samples, of the FIRST
+    /// measure only. Empty on an ordinary run.
+    #[serde(default)]
+    scan: Vec<Vec<Vec<f32>>>,
     #[serde(default)]
     error: Option<String>,
 }
@@ -1051,12 +1324,26 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
     let mut depths: Vec<f32> = Vec::new();
     let mut cols: Vec<Vec<f32>> = vec![Vec::new(); names.len()];
 
+    // The candidate dips, symmetric about zero and INCLUDING it exactly: a core with flat bedding
+    // has to be able to come back as flat rather than as the nearest thing the grid allowed.
+    let candidates: Vec<f32> = match spec.unfold_scan.filter(|m| m.is_finite() && *m > 0.0) {
+        Some(max) => (0..=UNFOLD_SCAN_STEPS)
+            .map(|j| -max + 2.0 * max * j as f32 / UNFOLD_SCAN_STEPS as f32)
+            .collect(),
+        None => Vec::new(),
+    };
+    // Per candidate: the weighted sum of each lane's contrast, the weight, and how many live
+    // samples it read. Accumulated across every photograph before anything is scored — a dip is a
+    // property of the core, not of one box.
+    let mut tally: Vec<(f64, f64, usize)> = vec![(0.0, 0.0, 0); candidates.len()];
+
     for batch in wanted.chunks(CHUNK) {
         let mut blobs = Vec::with_capacity(batch.len());
         let mut spans = Vec::with_capacity(batch.len());
         let mut lane_spans = Vec::with_capacity(batch.len());
         let mut counts = Vec::with_capacity(batch.len());
         let mut unfolds: Vec<Vec<f32>> = Vec::with_capacity(batch.len());
+        let mut scans: Vec<Vec<Vec<f32>>> = Vec::with_capacity(batch.len());
         for info in batch {
             // The CONDITIONED copy: `get_well_image`, not `get_well_image_source`.
             let (_, bytes) = crate::db::get_well_image(conn, &info.image_id).map_err(|e| e.to_string())?;
@@ -1079,6 +1366,19 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                     .map(|(_, (t, b))| if drop != 0.0 && b > t { drop / (b - t) } else { 0.0 })
                     .collect::<Vec<_>>(),
             );
+            // Every candidate drop, converted per lane the same way — so a proposal cannot be
+            // computed against a different geometry from the one a run would apply.
+            scans.push(
+                planned
+                    .iter()
+                    .map(|(_, (t, b))| {
+                        candidates
+                            .iter()
+                            .map(|d| if *d != 0.0 && b > t { d / (b - t) } else { 0.0 })
+                            .collect::<Vec<f32>>()
+                    })
+                    .collect::<Vec<_>>(),
+            );
         }
         let header = serde_json::json!({
             "axis": if spec.axis.eq_ignore_ascii_case("y") { "y" } else { "x" },
@@ -1090,6 +1390,8 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             "counts": counts,
             // Per lane, as a fraction of that lane's own depth span — see the runner.
             "unfold_frac": unfolds,
+            // Per lane, per candidate. Empty on an ordinary run, so the scan costs nothing.
+            "scan_frac": if candidates.is_empty() { serde_json::Value::Null } else { serde_json::json!(scans) },
             "light": if spec.is_uv() { "uv" } else { "white" },
             "prefix": LOG_PREFIX,
             // Sent even on a single-class run: the runner still needs the band to build the total,
@@ -1158,8 +1460,31 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                     }
                 }
             }
+            // Each candidate's contrast, lane by lane. A lane's own standard deviation rather than
+            // the whole photograph's: the mean darkness genuinely differs between barrels, and
+            // pooling them would add a between-barrel spread that no shear can change, diluting
+            // the peak with a constant.
+            for (c, per_lane) in row.scan.iter().enumerate() {
+                if c >= tally.len() {
+                    break;
+                }
+                for trace in per_lane {
+                    let mut pairs = 0.0f64;
+                    for w in trace.windows(2) {
+                        if w[0].is_finite() && w[1].is_finite() {
+                            tally[c].0 += (w[1] as f64 - w[0] as f64).powi(2);
+                            pairs += 1.0;
+                        }
+                    }
+                    tally[c].1 += pairs;
+                    tally[c].2 += trace.iter().filter(|v| v.is_finite()).count();
+                }
+            }
             res.photographs += 1;
         }
+    }
+    if !candidates.is_empty() {
+        res.unfold_scan = Some(score_unfold_scan(&candidates, &tally));
     }
 
     if depths.is_empty() {
@@ -1195,7 +1520,15 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
         } else if let Some(k) = names.iter().position(|n| n == &format!("{LOG_PREFIX}_DARK")) {
             match spec.lith_cut.filter(|c| c.is_finite()).or_else(|| otsu_cut(&sorted[k])) {
                 Some(cut) => {
-                    sorted.push(lith_from_dark(&sorted[k], cut));
+                    let mut lith = lith_from_dark(&sorted[k], cut);
+                    // The minimum bed thickness, in SAMPLES. `step` is the declared sampling the
+                    // whole trace was read at, so a bed either side of an unphotographed gap is
+                    // credited with the rock in the picture and not with the gap.
+                    let thin = spec.lith_min_bed.filter(|t| t.is_finite() && *t > 0.0).map(|t| {
+                        let min_n = (t / spec.step.max(1e-6)).ceil().max(1.0) as usize;
+                        (t, min_n, absorb_thin_beds(&mut lith, min_n))
+                    });
+                    sorted.push(lith);
                     names.push(format!("{LOG_PREFIX}_LITH"));
                     let darker = sorted[sorted.len() - 1].iter().filter(|v| **v == 1.0).count();
                     let live = sorted[k].iter().filter(|v| v.is_finite()).count();
@@ -1205,8 +1538,35 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                         "Otsu, from this core's own trace"
                     };
                     res.notes.push(format!(
-                        "CPHOTO_LITH cut at {cut:.3} ({how}), {darker} of {live} samples in the                          darker class. It is a two-class reading of DARKNESS, not a shale volume                          — the same dark band is mudstone in one core, oil stain in another.                          Nothing smooths it: suppressing flicker needs a bed thickness, and no                          value for that is right in two cores; use Frame > Block with                          OPT_STAT = MODE, the one upscale that carries a class code whole."
+                        "CPHOTO_LITH cut at {cut:.3} ({how}), {darker} of {live} samples in the \
+                         darker class. It is a two-class reading of DARKNESS, not a shale volume \
+                         — the same dark band is mudstone in one core, oil stain in another."
                     ));
+                    match thin {
+                        Some((t, min_n, (absorbed, isolated))) => {
+                            res.notes.push(format!(
+                                "{absorbed} bed(s) thinner than {t} were absorbed into the rock \
+                                 around them ({min_n} sample(s) at this sampling). A threshold \
+                                 applied sample by sample flickers, and a one-sample shale inside \
+                                 a clean sand is a bed nobody logging the core would record."
+                            ));
+                            if isolated > 0 {
+                                res.notes.push(format!(
+                                    "{isolated} thin stretch(es) were LEFT: each sits between two \
+                                     unphotographed gaps with no neighbouring rock to absorb it \
+                                     into, and flipping it would invent a lithology rather than \
+                                     remove a flicker."
+                                ));
+                            }
+                        }
+                        None => res.notes.push(
+                            "Nothing smooths it: no minimum bed thickness was given, and there is \
+                             no value for one that is right in two cores. Set it here, or use \
+                             Frame > Block with OPT_STAT = MODE, the one upscale that carries a \
+                             class code whole."
+                                .into(),
+                        ),
+                    }
                 }
                 None => res.notes.push(
                     "CPHOTO_LITH was not written: the darkness trace has no spread to cut, so                      there are not two classes here to tell apart."
@@ -2537,53 +2897,76 @@ for i, ident in enumerate(hdr["ids"]):
         # them, and inventing some is how a barrel boundary acquires a bed.
         unfolds = hdr.get("unfold_frac") or []
         lane_unfold = unfolds[i] if i < len(unfolds) else []
-        cols = {name: [] for name, _, _ in planes}
-        for k, sp in enumerate(spans):
-            x0 = int(round(max(0.0, min(1.0, float(sp[0]))) * w))
-            x1 = int(round(max(0.0, min(1.0, float(sp[1]))) * w))
-            if x1 - x0 < 1:
-                for name, _, _ in planes:
-                    cols[name].append([])
-                continue
-            want = max(1, min(int(counts[k]), h))
-            # Slab edges, so every pixel belongs to exactly one sample and none is counted twice.
-            edges = np.linspace(0, h, want + 1).astype(np.int64)
-            # A fraction of the lane's OWN depth span, so it becomes pixels against this
-            # picture's own height — the picture is capped at a long edge and a pixel count sent
-            # from outside would belong to whichever copy it was measured on.
-            shear = (float(lane_unfold[k]) if k < len(lane_unfold) else 0.0) * h
 
-            def unfolded(plane):
-                sub = plane[:, x0:x1]
-                if abs(shear) < 0.5:
-                    return sub
-                nrow, ncol = sub.shape
-                offs = np.round(np.linspace(-shear / 2.0, shear / 2.0, ncol)).astype(np.int64)
-                idx = np.arange(nrow)[:, None] + offs[None, :]
-                bad = (idx < 0) | (idx >= nrow)
-                out = np.take_along_axis(sub, np.clip(idx, 0, nrow - 1), axis=0).astype(np.float32)
-                out[bad] = np.nan
-                return out
+        # ONE lane reader, used by the measurement AND by the proposal scan below. Two copies of
+        # the shear would be two things to keep in agreement, and a proposal computed by a shear
+        # that is not the one the run applies is a number that looks right and is not.
+        def read_lanes(use_planes, frac_at):
+            cols = {name: [] for name, _, _ in use_planes}
+            for k, sp in enumerate(spans):
+                x0 = int(round(max(0.0, min(1.0, float(sp[0]))) * w))
+                x1 = int(round(max(0.0, min(1.0, float(sp[1]))) * w))
+                if x1 - x0 < 1:
+                    for name, _, _ in use_planes:
+                        cols[name].append([])
+                    continue
+                want = max(1, min(int(counts[k]), h))
+                # Slab edges, so every pixel belongs to exactly one sample and none is counted twice.
+                edges = np.linspace(0, h, want + 1).astype(np.int64)
+                # A fraction of the lane's OWN depth span, so it becomes pixels against this
+                # picture's own height — the picture is capped at a long edge and a pixel count sent
+                # from outside would belong to whichever copy it was measured on.
+                shear = float(frac_at(k)) * h
 
-            cut = [(name, unfolded(plane), how) for name, plane, how in planes]
-            acc = {name: [] for name, _, _ in planes}
-            for s in range(want):
-                lo, hi = edges[s], max(edges[s] + 1, edges[s + 1])
-                for name, plane, how in cut:
-                    sl = plane[lo:hi]
-                    # nan-aware because an unfolded lane has empty corners; a slab with nothing
-                    # left in it is MISSING rather than a number made from its neighbours.
-                    if not np.any(np.isfinite(sl)):
-                        acc[name].append(float("nan"))
-                    elif how == "dark":
-                        acc[name].append(float(1.0 - np.nanmean(sl)))
-                    elif how == "std":
-                        acc[name].append(float(np.nanstd(sl)))
-                    else:
-                        acc[name].append(float(np.nanmean(sl)))
-            for name in acc:
-                cols[name].append(acc[name])
-        row["cols"] = cols
+                def unfolded(plane, shear=shear):
+                    sub = plane[:, x0:x1]
+                    if abs(shear) < 0.5:
+                        return sub
+                    nrow, ncol = sub.shape
+                    offs = np.round(np.linspace(-shear / 2.0, shear / 2.0, ncol)).astype(np.int64)
+                    idx = np.arange(nrow)[:, None] + offs[None, :]
+                    bad = (idx < 0) | (idx >= nrow)
+                    out = np.take_along_axis(sub, np.clip(idx, 0, nrow - 1), axis=0).astype(np.float32)
+                    out[bad] = np.nan
+                    return out
+
+                cut = [(name, unfolded(plane), how) for name, plane, how in use_planes]
+                acc = {name: [] for name, _, _ in use_planes}
+                for s in range(want):
+                    lo, hi = edges[s], max(edges[s] + 1, edges[s + 1])
+                    for name, plane, how in cut:
+                        sl = plane[lo:hi]
+                        # nan-aware because an unfolded lane has empty corners; a slab with nothing
+                        # left in it is MISSING rather than a number made from its neighbours.
+                        if not np.any(np.isfinite(sl)):
+                            acc[name].append(float("nan"))
+                        elif how == "dark":
+                            acc[name].append(float(1.0 - np.nanmean(sl)))
+                        elif how == "std":
+                            acc[name].append(float(np.nanstd(sl)))
+                        else:
+                            acc[name].append(float(np.nanmean(sl)))
+                for name in acc:
+                    cols[name].append(acc[name])
+            return cols
+
+        row["cols"] = read_lanes(planes, lambda k: lane_unfold[k] if k < len(lane_unfold) else 0.0)
+
+        # The proposal scan: ONE decode, every candidate shear, and only the FIRST plane — the
+        # score is read off it, and shearing the other two two dozen times would be work nobody
+        # reads. Rust scores them; this returns the traces, because the runner stays dumb.
+        scan_frac = hdr.get("scan_frac") or []
+        img_scan = scan_frac[i] if i < len(scan_frac) else []
+        if img_scan and planes:
+            ncand = max((len(x) for x in img_scan), default=0)
+            first = planes[:1]
+            name0 = first[0][0]
+            got = []
+            for c in range(ncand):
+                def at(k, c=c):
+                    return img_scan[k][c] if k < len(img_scan) and c < len(img_scan[k]) else 0.0
+                got.append(read_lanes(first, at)[name0])
+            row["scan"] = got
     except Exception as exc:
         row["error"] = str(exc)
     results.append(row)
@@ -2901,6 +3284,8 @@ mod tests {
             lith: false,
             lith_cut: None,
             unfold: None,
+            lith_min_bed: None,
+            unfold_scan: None,
         }
     }
 
@@ -3565,6 +3950,8 @@ mod tests {
             lith: false,
             lith_cut: None,
             unfold: None,
+            lith_min_bed: None,
+            unfold_scan: None,
         };
         let plain = extract_core_log(&conn, &spec).expect("read");
         let before = plain.curves.iter().find(|c| c.name.ends_with("_DARK")).unwrap().clone();
@@ -3685,6 +4072,8 @@ mod tests {
             lith: false,
             lith_cut: None,
             unfold: None,
+            lith_min_bed: None,
+            unfold_scan: None,
         };
         let dark = |r: bool| -> Vec<f32> {
             let res = extract_core_log(&conn, &spec(r)).expect("read");
@@ -3806,6 +4195,8 @@ mod tests {
                     lith: false,
                     lith_cut: None,
                     unfold: None,
+            lith_min_bed: None,
+            unfold_scan: None,
                 },
             )
             .expect("read");
@@ -4002,6 +4393,8 @@ mod tests {
             lith: false,
             lith_cut: None,
             unfold: None,
+            lith_min_bed: None,
+            unfold_scan: None,
         };
 
         let fwd = extract_core_log(&conn, &spec(false)).expect("read");
@@ -4115,6 +4508,8 @@ mod tests {
             lith: false,
             lith_cut: None,
             unfold: None,
+            lith_min_bed: None,
+            unfold_scan: None,
         }
     }
 
@@ -4427,6 +4822,113 @@ mod tests {
         );
     }
 
+    /// **A minimum bed thickness suppresses flicker, and stops there.**
+    ///
+    /// The item parked from the UV round. A threshold applied sample by sample turns one slightly
+    /// darker slab inside a clean sand into a one-sample shale — a bed nobody logging the core
+    /// would record, and one that a correlation panel then draws.
+    ///
+    /// Three rules, and the third is the one an obvious implementation gets wrong.
+    #[test]
+    fn a_thin_bed_is_absorbed_only_where_there_is_rock_to_absorb_it_into() {
+        // A single-sample flicker inside a thick sand goes.
+        let mut v = vec![0.0; 20];
+        v[9] = 1.0;
+        let (absorbed, isolated) = absorb_thin_beds(&mut v, 3);
+        assert_eq!((absorbed, isolated), (1, 0));
+        assert!(v.iter().all(|x| *x == 0.0), "the flicker is gone: {v:?}");
+
+        // A bed AT the threshold stays. `min_n` is the thinnest bed kept, not the thinnest removed.
+        let mut keep = vec![0.0; 20];
+        keep[8..11].iter_mut().for_each(|x| *x = 1.0);
+        assert_eq!(absorb_thin_beds(&mut keep, 3).0, 0);
+        assert_eq!(keep[9], 1.0, "three samples is three samples");
+
+        // Absorbing merges its neighbours, so a bed that was thin can become thick enough. Sweep
+        // once without rebuilding the runs and this whole shale is stripped instead of one flicker.
+        let mut merge = vec![0.0; 30];
+        merge[10..12].iter_mut().for_each(|x| *x = 1.0);
+        merge[12] = 0.0;
+        merge[13..15].iter_mut().for_each(|x| *x = 1.0);
+        let (a, _) = absorb_thin_beds(&mut merge, 3);
+        assert_eq!(a, 1, "only the one-sample sand between the two shale halves is absorbed");
+        assert!(merge[10..15].iter().all(|x| *x == 1.0), "and they become one 5-sample shale: {merge:?}");
+        assert!(merge[..10].iter().all(|x| *x == 0.0));
+
+        // And the rule an obvious implementation gets wrong: a stretch with MISSING core on both
+        // sides has no neighbour. It is a short barrel, not a flicker, and flipping it would
+        // invent a lithology. Left, and counted.
+        let mut gap = vec![f32::NAN; 12];
+        gap[0..6].iter_mut().for_each(|x| *x = 0.0);
+        gap[9..11].iter_mut().for_each(|x| *x = 1.0);
+        let (a2, iso) = absorb_thin_beds(&mut gap, 4);
+        assert_eq!((a2, iso), (0, 1), "nothing to absorb it into, so it is reported instead");
+        assert_eq!(gap[9], 1.0, "and it keeps the class it was given");
+        assert!(gap[6].is_nan() && gap[11].is_nan(), "MISSING stays MISSING");
+    }
+
+    /// **The unfold scan proposes, and says when the proposal means nothing.**
+    ///
+    /// The other item parked from the UV round, answered `registration.rs`'s way: the whole scan
+    /// comes back, the peak is a proposal, and nothing is applied.
+    ///
+    /// The scoring is pinned here without a subprocess, because the judgement — not the pixels —
+    /// is what a future session could quietly break. A peaked scan and a flat one return the same
+    /// KIND of answer, and only the shape tells "the dip is 0.4 m" from "this core has no bedding
+    /// contrast and the maximum is noise".
+    #[test]
+    fn the_unfold_scan_proposes_a_peak_and_refuses_a_flat_one() {
+        let drops: Vec<f32> = (0..=UNFOLD_SCAN_STEPS)
+            .map(|j| -1.0 + 2.0 * j as f32 / UNFOLD_SCAN_STEPS as f32)
+            .collect();
+        let n = drops.len();
+        // A peak at +0.5: contrast falls away either side, the shape a real dip gives.
+        let peaked: Vec<(f64, f64, usize)> = drops
+            .iter()
+            .map(|d| {
+                let s = 1.0 - (d - 0.5).abs() as f64;
+                (s * 100.0, 100.0, 100)
+            })
+            .collect();
+        let got = score_unfold_scan(&drops, &peaked);
+        assert_eq!(got.best, Some(0.5), "the peak is proposed");
+        assert_eq!(got.rivals, 0);
+        assert!(
+            got.notes.iter().any(|s| s.contains("PROPOSAL")),
+            "and it is named as one rather than applied: {:?}",
+            got.notes
+        );
+
+        // A flat scan: every candidate within noise of every other. The maximum still EXISTS, and
+        // reporting only that number would read exactly like the peaked case above.
+        let flat: Vec<(f64, f64, usize)> =
+            (0..n).map(|j| (100.0 + (j % 3) as f64 * 0.5, 100.0, 100)).collect();
+        let dull = score_unfold_scan(&drops, &flat);
+        assert!(dull.best.is_some(), "a maximum exists either way — that is the whole problem");
+        assert!(
+            dull.notes.iter().any(|s| s.contains("FLAT")),
+            "so the flatness has to be said out loud: {:?}",
+            dull.notes
+        );
+
+        // A candidate that read almost none of the core is not scored. Without the floor, shearing
+        // the core off its own frame wins: a handful of surviving slabs can be spread wide by
+        // chance, and the scan would return a large dip with a beautiful score behind it.
+        let mut starved = peaked.clone();
+        starved[n - 1] = (900.0, 1.0, 1);
+        let guarded = score_unfold_scan(&drops, &starved);
+        assert!(guarded.scores[n - 1].is_nan(), "too little core read, so no score");
+        assert_eq!(guarded.best, Some(0.5), "and the real peak still wins");
+        assert!(guarded.notes.iter().any(|s| s.contains("not scored")), "{:?}", guarded.notes);
+
+        // A peak at the edge of the search is not the answer, it is the edge of the search.
+        let edge: Vec<(f64, f64, usize)> =
+            drops.iter().map(|d| ((1.0 + *d as f64) * 100.0, 100.0, 100)).collect();
+        let ran_out = score_unfold_scan(&drops, &edge);
+        assert_eq!(ran_out.best, Some(1.0));
+        assert!(ran_out.notes.iter().any(|s| s.contains("EDGE")), "{:?}", ran_out.notes);
+    }
+
     /// **A dipping contact is smeared by the slab average, and the unfold sharpens it.**
     ///
     /// The second thing Jauhar parked from the UV round. A slab average runs ACROSS the core, so a
@@ -4495,6 +4997,8 @@ mod tests {
             lith: false,
             lith_cut: None,
             unfold,
+            lith_min_bed: None,
+            unfold_scan: None,
         };
 
         // How many samples sit strictly between the two plateaux — the width of the ramp. Read off
@@ -4535,5 +5039,56 @@ mod tests {
             "and the run says it was unfolded: {:?}",
             fixed.notes
         );
+
+        // And the dip does not have to be known in advance: scanning ±2 m finds the 1 m that was
+        // drawn. The grid lands on 1.0 exactly, so a peak more than one step away is the scan
+        // reading something other than the bedding.
+        let mut ask = spec(None);
+        ask.unfold_scan = Some(2.0);
+        let scan = extract_core_log(&conn, &ask).expect("scan run").unfold_scan.expect("a scan");
+        let best = scan.best.expect("a peak");
+        assert!(
+            (best - 1.0).abs() <= 0.2,
+            "the scan must find the dip that was drawn, not merely return a number: {best}"
+        );
+        assert_eq!(scan.rivals, 0, "one contact, one peak");
+        assert!(
+            !scan.notes.iter().any(|n| n.contains("FLAT")),
+            "a core with a real contact is not a flat scan: {:?}",
+            scan.notes
+        );
+
+        // The control, and it is the half that matters: a core with NO dipping bedding must not
+        // have a dip proposed for it. The same picture with a horizontal contact has nothing for a
+        // shear to sharpen, so every candidate scores alike and the run says so rather than
+        // handing back whichever one noise favoured.
+        let flat_pic = bmp(wpx, hpx, |_x, y| {
+            let v: u8 = if y < 200 { 230 } else { 60 };
+            (v, v, v)
+        });
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "CORE FLAT",
+            "RUN1",
+            None,
+            &[crate::db::NewImage {
+                depth_top: 1000.0,
+                depth_base: Some(1010.0),
+                name: "BOX-FLAT".into(),
+                mime: "image/bmp".into(),
+                width: wpx as i32,
+                height: hpx as i32,
+                data: flat_pic,
+                printable: true,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        let mut level = spec(None);
+        level.dataset = "CORE FLAT".into();
+        level.unfold_scan = Some(2.0);
+        let no_dip = extract_core_log(&conn, &level).expect("flat scan").unfold_scan.expect("a scan");
+        assert_eq!(no_dip.best, Some(0.0), "flat bedding reads sharpest unsheared");
     }
 }
