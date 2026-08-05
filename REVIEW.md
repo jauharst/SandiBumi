@@ -8481,6 +8481,21 @@ own text; this shows what was made of it.
       reached from the pane. It now enables once the preview finds depths. If you ever had a
       captioned file "do nothing", this was why.
 
+### The array write cannot half-finish (2026-08-05)
+
+Found while building the check above, and the reason it matters is that it was invisible. Replacing
+an array curve is delete-then-write, and it was not one transaction — so a write that failed part
+way left the old curve deleted and the new one incomplete. On a Monte Carlo matrix that is not a
+crash, it is a realization set quietly missing depths, with every percentile read off it computed
+from a smaller population than the study ran.
+
+- [ ] Import a Wide/Block file with a repeated depth. It is now refused **by name** — the message
+      says which depth — instead of the old database error naming an internal table.
+- [ ] Then check the curve that was already stored under that name is still whole. That is the
+      half that used to be lost.
+- [ ] Re-run a Monte Carlo with realizations persisted, over a well that already has them. It
+      should replace cleanly, as before — this change must not alter that.
+
 ### A minimum bed thickness — Photo Log ▸ Sand / shale, third box
 
 - [ ] Read `CPHOTO_LITH` with the box blank first: every one-sample flicker is kept, and the run
