@@ -8,7 +8,9 @@ import {
   deleteDocument,
   intakePaste,
   intakeProbe,
+  intakeProbeArrays,
   listWells,
+  type ArrayPreview,
   type IntakeColumn,
   type IntakeProbe,
   type IntakeRole,
@@ -157,6 +159,16 @@ export async function buildIntakeContent(
   gridWrap.className = "intake-grid-wrap";
   content.appendChild(gridWrap);
 
+  // --- What a WIDE or BLOCK read produced ------------------------------------
+  // The grid above shows the file's own text; this shows what reading it AS an array made of it —
+  // which depth each sample landed on, and what the header row became as an axis. For a block file
+  // those depths came from captions the grid displays as ordinary lines, so without this there is
+  // nothing on screen that says a caption was understood.
+  const arrayPreview = document.createElement("div");
+  arrayPreview.className = "intake-array-preview";
+  arrayPreview.hidden = true;
+  content.appendChild(arrayPreview);
+
   // --- Destination ----------------------------------------------------------
   const dest = document.createElement("div");
   dest.className = "module-args";
@@ -235,6 +247,9 @@ export async function buildIntakeContent(
     const arrays = layoutSel.value !== "long";
     arrayRow.hidden = !arrays;
     for (const r of pointRows) r.hidden = arrays;
+    // The layout is the declaration that decides how the file is read at all, so it re-reads.
+    lastPreview = null;
+    void refreshArrayPreview();
   });
   dest.appendChild(
     formRow(
@@ -467,6 +482,8 @@ export async function buildIntakeContent(
         roles[i] = sel.value as IntakeRole;
         renderGrid();
         validate();
+        // WELL and DEPTH change which columns are axis bins, so an array read is a different read.
+        void refreshArrayPreview();
       });
       rt.appendChild(sel);
       rt.style.background = TINT[roles[i]];
@@ -505,15 +522,175 @@ export async function buildIntakeContent(
     gridWrap.appendChild(foot);
   }
 
+  // Stale answers are dropped by sequence rather than cancelled: a role click can outrun a file
+  // read, and a preview of the mapping before last is worse than none — it would be a picture of a
+  // decision the user has already changed.
+  let previewSeq = 0;
+  let lastPreview: ArrayPreview | null = null;
+
+  /** How many of a sample's bins the preview draws before it says "and the rest". */
+  const SHOWN_BINS = 8;
+
+  async function refreshArrayPreview(): Promise<void> {
+    const block = layoutSel.value === "block";
+    if (!probe || layoutSel.value === "long" || !paths[0]) {
+      arrayPreview.hidden = true;
+      arrayPreview.innerHTML = "";
+      return;
+    }
+    const seq = ++previewSeq;
+    let pv: ArrayPreview;
+    try {
+      pv = await intakeProbeArrays(
+        paths[0],
+        {
+          delimiter: delimSel.value || undefined,
+          skip_lines: Math.max(0, parseInt(skipIn.value, 10) || 0),
+          decimal: decSel.value || undefined,
+        },
+        roles,
+        block,
+      );
+    } catch (e) {
+      if (seq !== previewSeq) return;
+      arrayPreview.hidden = false;
+      arrayPreview.innerHTML = "";
+      const err = document.createElement("div");
+      err.className = "module-status";
+      err.style.color = "var(--warn)";
+      err.textContent = String(e);
+      arrayPreview.appendChild(err);
+      return;
+    }
+    if (seq !== previewSeq) return;
+    renderArrayPreview(pv);
+  }
+
+  function renderArrayPreview(pv: ArrayPreview): void {
+    lastPreview = pv;
+    // One-way: the preview settles whether a BLOCK file has depths at all, so validate() reads it
+    // and must never be what triggers the fetch — that is a loop with a file read in it.
+    validate();
+    arrayPreview.hidden = false;
+    arrayPreview.innerHTML = "";
+
+    const head = document.createElement("div");
+    head.className = "module-status";
+    const axisFrom = pv.axis_labels[0] ?? "";
+    const axisTo = pv.axis_labels[pv.axis_labels.length - 1] ?? "";
+    head.textContent =
+      `${pv.n_rows} sample(s) × ${pv.axis.length} bin(s)` +
+      (pv.axis.length
+        ? `, axis ${pv.axis[0]} to ${pv.axis[pv.axis.length - 1]}` +
+          // The header TEXT beside the number it parsed to: `100 psi` reading as 100 is the kind
+          // of thing that is obviously right once seen and impossible to check otherwise.
+          (axisFrom !== String(pv.axis[0]) || axisTo !== String(pv.axis[pv.axis.length - 1])
+            ? ` (read from "${axisFrom}" … "${axisTo}")`
+            : "")
+        : "");
+    arrayPreview.appendChild(head);
+
+    for (const n of pv.notes) {
+      const line = document.createElement("div");
+      line.className = "module-status";
+      // A duplicate is not commentary — it names samples the store would refuse — so it reads as a
+      // warning while the ordinary "2 block(s) keyed by a label line" stays plain.
+      if (n.includes("carry more than one sample") || n.includes("key more than one block")) {
+        line.style.color = "var(--warn)";
+      }
+      line.textContent = n;
+      arrayPreview.appendChild(line);
+    }
+
+    if (!pv.rows.length) return;
+
+    const clashing = (r: ArrayPreview["rows"][number]): boolean => {
+      if (r.depth == null) return false;
+      const w = r.well_name ? r.well_name.trim().toUpperCase() : null;
+      return pv.clashes.some(
+        (c) => Math.abs(c.depth - r.depth!) < 1e-9 && (c.well === null || c.well === w),
+      );
+    };
+    const anyWell = pv.rows.some((r) => r.well_name);
+
+    const wrap = document.createElement("div");
+    wrap.className = "intake-grid-wrap";
+    const table = document.createElement("table");
+    table.className = "intake-grid";
+    const thead = document.createElement("thead");
+    const hr = document.createElement("tr");
+    const cols = ["#", ...(anyWell ? ["Well"] : []), "Depth"];
+    const shown = pv.axis_labels.slice(0, SHOWN_BINS);
+    for (const c of [...cols, ...shown, ...(pv.axis_labels.length > SHOWN_BINS ? ["…"] : [])]) {
+      const th = document.createElement("th");
+      th.textContent = c;
+      hr.appendChild(th);
+    }
+    thead.appendChild(hr);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    pv.rows.forEach((r, i) => {
+      const tr = document.createElement("tr");
+      const bad = clashing(r);
+      if (bad) tr.classList.add("intake-dupe");
+      const cells: string[] = [
+        // The row's place in the FILE, not in this table — a duplicate pulled in from beyond the
+        // cap would otherwise appear to follow the row above it.
+        String((pv.row_index[i] ?? i) + 1),
+        ...(anyWell ? [r.well_name ?? ""] : []),
+        // An empty depth is left EMPTY rather than shown as 0: a sample with no depth has nowhere
+        // to go and is not stored, which a zero would misreport as the top of the well.
+        r.depth == null ? "" : r.depth.toFixed(2),
+      ];
+      for (const v of r.values.slice(0, SHOWN_BINS)) {
+        cells.push(Number.isFinite(v) ? String(v) : "");
+      }
+      if (pv.axis_labels.length > SHOWN_BINS) cells.push("…");
+      for (const c of cells) {
+        const td = document.createElement("td");
+        td.textContent = c;
+        tr.appendChild(td);
+      }
+      if (bad) {
+        tr.title =
+          "Another sample of this well sits at this depth. Only one measurement can be stored " +
+          "per depth, so the rest would be refused.";
+      }
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    arrayPreview.appendChild(wrap);
+
+    if (pv.n_rows > pv.rows.length) {
+      const foot = document.createElement("div");
+      foot.className = "module-status";
+      foot.textContent = `Showing ${pv.rows.length} of ${pv.n_rows} sample(s) — every duplicate is included whatever its place in the file.`;
+      arrayPreview.appendChild(foot);
+    }
+  }
+
   function validate(): void {
-    const hasDepth = roles.includes("DEPTH");
+    // A BLOCK file keyed by captions has NO depth column — that is the whole point of reading the
+    // captions — so requiring one here made that path unreachable from the pane: the reader would
+    // resolve every block correctly and the Import button stayed disabled. The preview is what
+    // settles it, because whether the captions actually yielded depths is a fact about the file
+    // rather than about the roles.
+    const captioned =
+      layoutSel.value === "block" && !!lastPreview && lastPreview.rows.some((r) => r.depth != null);
+    const hasDepth = roles.includes("DEPTH") || captioned;
     runBtn.disabled = !probe || !hasDepth;
     if (probe && !hasDepth) {
       // Refused in the pane, where the user is looking (the needWell.ts rule), rather than as an
       // error after the import button.
       notes.textContent =
-        "Mark one column DEPTH before importing — every row has to land at a depth, and there is " +
-        "nothing to store without one.";
+        layoutSel.value === "block"
+          ? "Mark one column DEPTH, or caption each block with a depth carrying a UNIT " +
+            "(`PLUG 12  4633.5 ft`) — every sample has to land at a depth, and nothing here says " +
+            "where these came from."
+          : "Mark one column DEPTH before importing — every row has to land at a depth, and there is " +
+            "nothing to store without one.";
       notes.style.color = "var(--warn)";
     } else if (probe) {
       notes.textContent = probe.notes.join(" • ");
@@ -532,6 +709,7 @@ export async function buildIntakeContent(
       if (probe.depth_unit_guess && !unitSel.value) unitSel.value = probe.depth_unit_guess;
       renderGrid();
       validate();
+      void refreshArrayPreview();
     } catch (e) {
       notes.textContent = String(e);
       notes.style.color = "var(--warn)";

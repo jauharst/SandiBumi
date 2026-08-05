@@ -8461,9 +8461,25 @@ run now names the depth instead.
 - [ ] **The control, and the one worth a minute:** a clean delivery says nothing at all, and a
       multi-well file where two WELLS share a depth also says nothing. A warning that fires on good
       files is one you would rightly start ignoring.
-- [ ] Known gap, so you are not surprised by it: the Block/Wide layout has no preview, so this
-      warning arrives WITH the import result rather than before it. Tell me if you want a preview
-      step there and I will add the probe command.
+### The Wide/Block preview — Intake, under the grid (2026-08-05)
+
+Your "give it preview so user can see the examples". Pick a file, set Layout to Wide or Block, and
+a second table appears under the grid showing **what reading it as an array produced** — the depth
+each sample landed on, and what the header row became as an axis. The grid above shows the file's
+own text; this shows what was made of it.
+
+- [ ] On a captioned Block file, check the depths in the preview match the captions. This is the
+      only place on screen that says a caption was understood at all.
+- [ ] The axis header shows the parsed number beside the text it came from — `100 psi` reading as
+      100. Worth one look on a delivery that writes units into the header row.
+- [ ] Duplicated rows are tinted red and the duplicate note is red. Hover a tinted row for why.
+- [ ] It says "Showing 40 of 4,000" on a big file — and a duplicate at row 900 is **still shown**,
+      carrying its real row number. Worth testing on a big delivery: a preview that stopped at 40
+      would be useless on exactly the file that needs it.
+- [ ] **A bug this uncovered, worth confirming:** a Block file keyed only by captions has no DEPTH
+      column, and the Import button used to stay disabled — so that whole feature could not be
+      reached from the pane. It now enables once the preview finds depths. If you ever had a
+      captioned file "do nothing", this was why.
 
 ### A minimum bed thickness — Photo Log ▸ Sand / shale, third box
 

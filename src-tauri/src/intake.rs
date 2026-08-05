@@ -524,7 +524,20 @@ pub struct ArrayProbe {
     pub rows: Vec<ArrayRow>,
     /// Repeated header lines found and stripped (the BLOCK pre-pass).
     pub blocks_joined: usize,
+    /// Depths carrying more than one sample. Sent as DATA and not only named in a note, because a
+    /// warning saying `4633.50` is actionable only if the rows it means can be found — the preview
+    /// marks them.
+    pub clashes: Vec<DepthClash>,
     pub notes: Vec<String>,
+}
+
+/// One depth that more than one sample landed on. `well` is the file's own well name where it has
+/// a WELL column, and `None` where the whole file falls back to the selected well — the same key
+/// the clash is detected under, so the pane marks exactly the rows the check counted.
+#[derive(Debug, Clone, Serialize)]
+pub struct DepthClash {
+    pub well: Option<String>,
+    pub depth: f64,
 }
 
 /// Strips repeated header lines from a stacked (BLOCK) file.
@@ -896,10 +909,9 @@ pub fn read_wide(path: &str, opts: &TableOptions, roles: &[String], block: bool)
     // message naming nothing the user would recognise. Named here instead, with the depth to go
     // and look at.
     //
-    // The wide path has no separate preview: this rides back with the import result, beside the
-    // engine's own complaint rather than ahead of it. That is still the difference between a
-    // constraint error and a sentence saying which depth was delivered twice — but a genuine
-    // pre-commit gate for WIDE/BLOCK would need a probe command the panel does not have yet.
+    // Reached BEFORE the write in both directions: `intake_probe_arrays` runs this same function
+    // for the preview, so the pane names the duplicate ahead of the import, and the import result
+    // repeats it for anyone who ran straight past.
     //
     // Counted over ROWS rather than captions so it catches the case a caption check cannot see:
     // one block carrying several rows. That is the same collision reached from inside a single
@@ -947,7 +959,88 @@ pub fn read_wide(path: &str, opts: &TableOptions, roles: &[String], block: bool)
     if blocks_joined > 0 {
         notes.push(format!("{blocks_joined} repeated header row(s) stripped — the blocks were read as one table"));
     }
-    Ok(ArrayProbe { axis, axis_labels, non_axis, rows, blocks_joined, notes })
+    // Both kinds travel as one list for MARKING, while the notes keep them apart for READING: the
+    // pane has to highlight every row the store would refuse, and a row does not care which of the
+    // two ways its depth came to be duplicated.
+    let clash_data: Vec<DepthClash> = caption_dupes
+        .iter()
+        .map(|d| DepthClash { well: None, depth: *d })
+        .chain(clashes.into_iter().map(|(well, depth)| DepthClash { well, depth }))
+        .collect();
+    Ok(ArrayProbe { axis, axis_labels, non_axis, rows, blocks_joined, clashes: clash_data, notes })
+}
+
+/// How many samples an ARRAY preview draws — deliberately far fewer than the long path's
+/// `PREVIEW_ROWS`, because a row here is not a row there. A long row is a handful of cells; a wide
+/// row is the sample's whole distribution, so an NMR export is a hundred bins per row and thousands
+/// of rows. A preview is a CHECK — enough to see that the depths resolved the way the delivery
+/// reads — and sending the file to draw a dozen visible lines makes the preview cost more than the
+/// import it is meant to precede.
+const ARRAY_PREVIEW_ROWS: usize = 40;
+
+/// The wide/block probe as the pane needs it: every judgement made over the WHOLE file, and only a
+/// readable slice of the samples carried back.
+#[derive(Debug, Clone, Serialize)]
+pub struct ArrayPreview {
+    pub axis: Vec<f32>,
+    pub axis_labels: Vec<String>,
+    pub non_axis: Vec<String>,
+    pub blocks_joined: usize,
+    pub clashes: Vec<DepthClash>,
+    pub notes: Vec<String>,
+    /// Samples the file holds, counted over ALL of them. A preview reporting its own capped length
+    /// would tell the user a 4,000-sample delivery held 40.
+    pub n_rows: usize,
+    /// The samples drawn, and the index each one sits at in the file — so a row pulled in from
+    /// beyond the cap can say where it came from instead of appearing to follow row 40.
+    pub rows: Vec<ArrayRow>,
+    pub row_index: Vec<usize>,
+}
+
+/// Reads a WIDE or BLOCK table for the PANE, without writing anything.
+///
+/// The same `read_wide` the commit runs, so the preview cannot disagree with the import about what
+/// the file says — the standing one-implementation rule. What differs is only how much comes back.
+pub fn probe_arrays(
+    path: &str,
+    opts: &TableOptions,
+    roles: &[String],
+    block: bool,
+) -> ParseResult<ArrayPreview> {
+    let p = read_wide(path, opts, roles, block)?;
+    let n_rows = p.rows.len();
+    let clashing = |r: &ArrayRow| -> bool {
+        let Some(d) = r.depth else { return false };
+        let key = r.well_name.as_ref().map(|n| n.trim().to_uppercase());
+        p.clashes
+            .iter()
+            .any(|c| (c.depth - d).abs() < 1e-9 && (c.well.is_none() || c.well == key))
+    };
+    // The first slice, PLUS any duplicated sample that falls beyond it. A preview whose whole
+    // purpose is to show the duplicate must not stop just short of it — and a delivery big enough
+    // to overflow the cap is exactly the one nobody scrolls through by hand. Capped again so a
+    // file that is duplicated throughout cannot send itself back one row at a time.
+    let mut row_index: Vec<usize> = (0..n_rows.min(ARRAY_PREVIEW_ROWS)).collect();
+    for (i, r) in p.rows.iter().enumerate().skip(ARRAY_PREVIEW_ROWS) {
+        if row_index.len() >= ARRAY_PREVIEW_ROWS * 2 {
+            break;
+        }
+        if clashing(r) {
+            row_index.push(i);
+        }
+    }
+    let rows = row_index.iter().map(|i| p.rows[*i].clone()).collect();
+    Ok(ArrayPreview {
+        axis: p.axis,
+        axis_labels: p.axis_labels,
+        non_axis: p.non_axis,
+        blocks_joined: p.blocks_joined,
+        clashes: p.clashes,
+        notes: p.notes,
+        n_rows,
+        rows,
+        row_index,
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1788,6 +1881,54 @@ mod tests {
         let n = dupe_note(&one_well, &roles, false);
         assert_eq!(n.len(), 1, "{n:?}");
         assert!(n[0].contains("SANDI-1 2000.00"), "the well is named alongside the depth: {n:?}");
+    }
+
+    /// **The preview counts the whole file and draws a slice of it — including every duplicate.**
+    ///
+    /// A preview that stopped at its cap would be at its most useless on exactly the delivery that
+    /// needs it: a big export nobody scrolls through by hand, whose duplicate sits at row 900. So
+    /// the cap governs how much is DRAWN, never what was checked, and a clashing sample beyond it
+    /// is pulled in. `n_rows` stays the file's own count — a preview reporting its capped length
+    /// would tell the user a 4,000-sample delivery held 40.
+    #[test]
+    fn the_preview_counts_every_sample_and_draws_every_duplicate() {
+        // One clean sample per depth, well past the cap, then a duplicate of the very first depth
+        // right at the end — the position a capped preview would miss.
+        let mut body = String::from("DEPTH,1,2,4\n");
+        for i in 0..(ARRAY_PREVIEW_ROWS * 3) {
+            body.push_str(&format!("{}.0,0.9,0.7,0.5\n", 2000 + i));
+        }
+        body.push_str("2000.0,0.8,0.6,0.4\n");
+        let path = std::env::temp_dir().join("sandi_preview_cap.csv");
+        std::fs::write(&path, &body).unwrap();
+        let roles: Vec<String> = ["DEPTH", "", "", ""].iter().map(|s| s.to_string()).collect();
+
+        let pv = probe_arrays(path.to_str().unwrap(), &TableOptions::default(), &roles, false)
+            .expect("read");
+
+        assert_eq!(pv.n_rows, ARRAY_PREVIEW_ROWS * 3 + 1, "counted over the whole file");
+        assert!(pv.rows.len() < pv.n_rows, "and only a slice is carried back");
+        assert_eq!(pv.clashes.len(), 1, "one depth is duplicated");
+
+        // The duplicate is the LAST row of the file, far beyond the cap, and it is drawn anyway.
+        let last = pv.n_rows - 1;
+        assert!(
+            pv.row_index.contains(&last),
+            "the duplicate must be drawn wherever it sits: {:?}",
+            pv.row_index
+        );
+        // ...and it says WHERE it sits, so it cannot read as following the row above it.
+        let at = pv.row_index.iter().position(|i| *i == last).unwrap();
+        assert_eq!(pv.rows[at].depth, Some(2000.0));
+        assert!(pv.row_index[at] > ARRAY_PREVIEW_ROWS, "its file position is carried, not its place here");
+
+        // The control: a clean file of the same size draws the cap and pulls in nothing extra.
+        let clean = std::env::temp_dir().join("sandi_preview_clean.csv");
+        std::fs::write(&clean, &body[..body.len() - "2000.0,0.8,0.6,0.4\n".len()]).unwrap();
+        let cpv = probe_arrays(clean.to_str().unwrap(), &TableOptions::default(), &roles, false)
+            .expect("read");
+        assert!(cpv.clashes.is_empty(), "a clean file has none");
+        assert_eq!(cpv.rows.len(), ARRAY_PREVIEW_ROWS, "so exactly the cap is drawn");
     }
 
     /// **An import never eats a delivery already there.** Jauhar, 2026-08-05: *"dont eat it, thats

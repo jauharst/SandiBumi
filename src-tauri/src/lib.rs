@@ -1581,6 +1581,26 @@ async fn intake_commit(
     .map_err(|e| e.to_string())?
 }
 
+/// Reads a WIDE or BLOCK table for the pane, writing nothing.
+///
+/// The long path has had a preview since it shipped; the array path did not, so a duplicated depth
+/// — which the array store REFUSES, one vector per depth — was only named once the import had
+/// already run and half-written. Same `read_wide` the commit uses, so the two cannot disagree
+/// about what the file says.
+#[tauri::command]
+async fn intake_probe_arrays(
+    path: String,
+    opts: intake::TableOptions,
+    roles: Vec<String>,
+    block: bool,
+) -> Result<intake::ArrayPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        intake::probe_arrays(&path, &opts, &roles, block).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Imports a WIDE or BLOCK table into the array store (`intake::commit_arrays`).
 ///
 /// Separate from `intake_commit` because the destination is a different store with a different
@@ -3178,6 +3198,7 @@ pub fn run() {
             intake_paste,
             intake_commit,
             intake_commit_arrays,
+            intake_probe_arrays,
             intake_commit_curves,
             run_cutoff_sweep,
             run_monte_carlo,

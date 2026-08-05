@@ -3561,11 +3561,50 @@ fastest way to train a user to ignore the message. The control in
 `a_plug_sits_at_one_depth_and_a_duplicate_is_named` pins the silence on a clean file for the same
 reason.
 
-**Honest limit, recorded rather than papered over**: the WIDE/BLOCK path has no preview command, so
-these notes ride back with the import RESULT, beside the engine's complaint rather than ahead of it.
-Still the difference between a constraint error and a sentence naming the duplicated depth — but a
-genuine pre-commit gate needs a probe command the panel does not have. The result line goes
-`var(--warn)` when a duplicate is named, because it contradicts the sample count printed next to it.
+The result line goes `var(--warn)` when a duplicate is named, because it contradicts the sample
+count printed next to it.
+
+### The wide/block preview (2026-08-05)
+
+`intake::probe_arrays` + `intake_probe_arrays`, closing the gap the duplicate check exposed: the
+LONG path had a preview since it shipped and the array path had none, so a duplicated depth — which
+the store REFUSES — was only named once the import had run and half-written. **The same `read_wide`
+the commit runs**, so the preview cannot disagree with the import about what the file says; only how
+much comes back differs.
+
+**It shows what reading the file AS an array made of it**, which the raw grid above it cannot: for a
+block file the depths come from captions the grid draws as ordinary lines, so without this there is
+nothing on screen saying a caption was understood. The header row's parsed axis is shown beside the
+TEXT it was read from — `100 psi` reading as 100 is obviously right once seen and uncheckable
+otherwise.
+
+**`ARRAY_PREVIEW_ROWS` is 40 against the long path's 200, and the difference is not a preference.** A
+long row is a handful of cells; a wide row is the sample's whole distribution, so an NMR export is a
+hundred bins per row across thousands of rows — shipping it to draw a dozen visible lines makes the
+preview cost more than the import it precedes.
+
+**The cap governs what is DRAWN, never what was checked**, and a duplicated sample beyond it is
+pulled in anyway. A preview that stopped at its cap would be most useless on exactly the delivery
+that needs it — a big export nobody scrolls by hand, whose duplicate sits at row 900. Each drawn row
+carries its index IN THE FILE (`row_index`), so a row fetched from beyond the cap cannot read as
+following the one above it, and `n_rows` stays the file's own count — a preview reporting its capped
+length would say a 4,000-sample delivery held 40. Pinned with its control by
+`the_preview_counts_every_sample_and_draws_every_duplicate`.
+
+**`DepthClash` travels as DATA, not only as prose in a note.** A warning naming `4633.50` is
+actionable only if the rows it means can be found, so the preview tints them — across the WHOLE row
+rather than per cell like `.intake-bad`, because the fault is not in any one value: the row
+duplicates another row, and it is the row that cannot be stored.
+
+**And the preview settles whether a BLOCK file has depths at all**, which fixed a bug that made the
+label-line feature unreachable: `validate()` required a DEPTH role, a caption-keyed block file has no
+depth column by definition, so the reader resolved every block correctly and the Import button stayed
+disabled. Whether the captions actually yielded depths is a fact about the FILE, not about the roles,
+so it is read off the preview. The refusal text is layout-aware — a block file is told it may caption
+its blocks instead. **One-way**: `renderArrayPreview` calls `validate()`, and `validate()` must never
+be what triggers the fetch, or it is a loop with a file read in it. Stale answers are dropped by
+sequence number, the `poreAreaDialog` rule — a role click can outrun a file read, and a preview of
+the mapping before last is a picture of a decision already changed.
 
 ### A minimum bed thickness for `CPHOTO_LITH` (`coreimage.rs`)
 

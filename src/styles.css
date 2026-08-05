@@ -7063,3 +7063,19 @@ input[type="number"].num-editing:focus {
   color: var(--warn);
   font-weight: 600;
 }
+
+/* The wide/block preview: what reading the file AS an array produced, beside the file's own text
+   in the grid above. */
+.intake-array-preview {
+  margin-top: 6px;
+}
+
+/* A sample the store would refuse — another sample of the same well already sits at this depth.
+   Tinted across the WHOLE row rather than outlined per cell like .intake-bad, because the fault is
+   not in any one value: the row is a duplicate of another row, and it is the row that cannot be
+   stored. Kept to a wash so the numbers stay readable — the point is to find the row, then read
+   it against its twin. */
+.intake-grid tr.intake-dupe td {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}

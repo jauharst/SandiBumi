@@ -4470,6 +4470,54 @@ export function intakeCommitArrays(req: ArrayCommitRequest): Promise<ArrayImport
   return invoke<ArrayImportResult[]>("intake_commit_arrays", { req });
 }
 
+/**
+ * One depth that more than one sample landed on. The array store holds ONE vector per depth, so
+ * the extras would be refused — `well` is null where the file has no WELL column and the whole
+ * delivery falls back to the selected well.
+ */
+export interface DepthClash {
+  well: string | null;
+  depth: number;
+}
+
+/** One sample of a wide/block table: where it sits, and its values across the axis. */
+export interface ArrayPreviewRow {
+  well_name: string | null;
+  depth: number | null;
+  sample_no: number | null;
+  values: number[];
+}
+
+/** What a wide/block file says, read for the pane without writing anything. */
+export interface ArrayPreview {
+  axis: number[];
+  /** The header TEXT each axis value was read from — `100 psi` reading as 100 is worth seeing. */
+  axis_labels: string[];
+  /** Headers that are not numbers, so cannot be axis values. Named, never silently dropped. */
+  non_axis: string[];
+  blocks_joined: number;
+  clashes: DepthClash[];
+  notes: string[];
+  /** Samples the FILE holds, not the count drawn below. */
+  n_rows: number;
+  rows: ArrayPreviewRow[];
+  /** Where each drawn row sits in the file — a duplicate pulled in from beyond the cap says so. */
+  row_index: number[];
+}
+
+/**
+ * Reads a WIDE or BLOCK table for the pane, writing nothing. The same reader the import runs, so
+ * the preview cannot disagree with the import about what the file says.
+ */
+export function intakeProbeArrays(
+  path: string,
+  opts: TableOptions,
+  roles: string[],
+  block: boolean,
+): Promise<ArrayPreview> {
+  return invoke<ArrayPreview>("intake_probe_arrays", { path, opts, roles, block });
+}
+
 export interface CurveCommitRequest {
   paths: string[];
   roles: string[];
