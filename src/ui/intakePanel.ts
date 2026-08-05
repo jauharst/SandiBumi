@@ -581,6 +581,9 @@ export async function buildIntakeContent(
     if (!probe) return;
     runBtn.disabled = true;
     result.textContent = "Importing…";
+    // Cleared per run, or a warning colour outlives the import that earned it and a clean second
+    // attempt still reads as failed.
+    result.style.color = "";
     try {
       // A WIDE or BLOCK table is an ARRAY per sample — a Pc curve, an NMR T2 distribution — and
       // goes to the array store with its axis. LONG is point data and takes the ordinary path.
@@ -610,6 +613,13 @@ export async function buildIntakeContent(
           (ares[0] ? `, axis ${ares[0].axis_first} to ${ares[0].axis_last}` : "") +
           (aerrs.length ? ` — ${aerrs.join("; ")}` : ".") +
           (anotes.length ? ` ${anotes.join(" ")}` : "");
+        // A duplicate depth is not commentary — an array holds one vector per depth, so it names
+        // samples that could not be stored. It reads as a warning or it gets skimmed past with the
+        // sample count, which is exactly the number it contradicts.
+        const clashed = anotes.some(
+          (n) => n.includes("carry more than one sample") || n.includes("key more than one block"),
+        );
+        result.style.color = aerrs.length || clashed ? "var(--warn)" : "";
         setStatus(`Intake: ${samples} array sample(s) into ${wells} well(s)`);
         recordProcess("Import", `Intake arrays: ${samples} sample(s) from ${paths.length} file(s)`);
         bumpDataVersion();
