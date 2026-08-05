@@ -3227,6 +3227,28 @@ combobox: you can only read from a set that exists, while naming a new one is th
 A name already in use gets a new VERSION of that same set (`create_log_set`), which is what Jauhar
 described: *"it can replace with version number for logs, but for cons stiil same"*.
 
+### The two remaining core-photograph items (2026-08-05)
+
+**`CPHOTO_LITH`** — a two-class cut of the darkness trace, 0 lighter and 1 darker, proposed by
+**Otsu on this core's own trace** (a method, not a calibration) or at a cut the user gives. The
+codes are ORDERED for `facies.rs`'s reason: a class curve whose numbering could swap between wells
+is not correlatable. **It will never be `VSH` or `LITH`** — the same dark band is organic-rich
+mudstone in one core, oil stain in another, and a curve under a name every module reads as
+lithology would be an uncalibrated answer that computes and plots. Refused under UV, where the
+brightness IS the fluorescence; refused on a core of one lithology rather than inventing a contact
+through the middle of it. Deliberately unsmoothed — suppressing flicker needs a bed thickness and
+no value is right in two cores, so the run points at Frame ▸ Block with `OPT_STAT = MODE`.
+
+**`CoreLogSpec.unfold`** — the dipping-bed correction, stated as **the depth DROP across the core's
+width, not an angle**. An angle needs the core's diameter to become a pixel shear and nothing here
+stores one; the drop is read off the picture by noting a contact's depth at each edge. Sent to the
+runner as a FRACTION of each lane's own depth span so it becomes pixels against that picture's own
+height. **Rows sheared in from beyond the lane are MISSING** — never the edge row repeated, never
+wrapped from the other end of the barrel — which is why the slab statistics are nan-aware.
+Pinned by `unfolding_a_dipping_bed_sharpens_a_contact_the_slab_average_would_smear`, which runs
+real pixels and requires the ramp to collapse to under a third of its width **while both plateaux
+read the same**: a sharpness check alone would pass on a run that had quietly rescaled the trace.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under
