@@ -3,6 +3,7 @@ import { exportDeck, officeSupport, type OfficeSupport } from "../ipc";
 import { appState, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { loadCutoffDefaults } from "./cutoffs";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow, openModal } from "./modal";
 import { buildWellScope } from "./wellScope";
 
@@ -88,6 +89,10 @@ export async function openDeckDialog(): Promise<void> {
   wrap.appendChild(formRow("PHIE min (v/v)", phieIn, "Reservoir cutoff"));
   wrap.appendChild(formRow("SWE max (v/v)", sweIn, "Pay cutoff"));
   wrap.appendChild(formRow("PERM min (mD)", permIn, "Optional — leave blank to not apply a permeability floor"));
+  // --- Input log set (`logSetPicker.ts`): which VERSION of the curves this reads.
+  const setPicker = buildLogSetPicker({ write: false });
+  for (const row of setPicker.rows) wrap.appendChild(row);
+
 
   const hint = document.createElement("div");
   hint.className = "form-hint";
@@ -155,6 +160,7 @@ export async function openDeckDialog(): Promise<void> {
           phie_min: parseFloat(phieIn.value),
           swe_max: parseFloat(sweIn.value),
           perm_min: Number.isNaN(permRaw) ? null : permRaw,
+          input_set: setPicker.inputSet(),
           title: titleIn.value.trim(),
           author: authorIn.value.trim(),
           flag: flagSel.value,

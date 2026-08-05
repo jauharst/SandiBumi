@@ -8099,3 +8099,38 @@ Full reasoning in `docs/plan_data_tools.md`.
       the text cell behave like the other override cells (bold when overridden, Set-all working)?
 - [ ] Anything here you would rather have as a separate editor pane with a before/after preview —
       that is the next increment, and this is the moment to redirect it.
+
+---
+
+## Every tool now names its log set — and the word is "log set" (2026-08-05)
+
+You said you had forgotten what a set refers to. The reason is that the UI never said it: the
+store, the backend and the docs all say **log set**, while the two dialogs that offered one
+called it a "constellation", abbreviated to "cons". One word now, everywhere.
+
+Before this, exactly two surfaces of nineteen let you choose a version. ML, SandiMin, the
+saturation-height fit, the cutoff sweep, the pay summary, the facies tie, Lorenz, results QC and
+every deliverable read whatever the current values happened to be — and ML, SandiMin and the core
+photo trace hardcoded where their output went (`ML`, `SANDIMIN`, nowhere).
+
+- [ ] **Petrophysics ▸ any module** — the two rows now read "Input log set" and "Output log set".
+      Does that connect with what the Curve Catalog shows, in a way "cons" did not?
+- [ ] **Curve Catalog** — the section heading now reads "Log sets", and the search box says so too.
+- [ ] Run a module into a log set called `TEST`, then run another module with **Input log set =
+      TEST**. Does the second read the first's values rather than the current ones?
+- [ ] **ML Models…** now has both rows. Train a model with Input log set = FINAL, then re-run your
+      porosity, then apply the saved model. It should still be reading FINAL — the whole reason
+      for saving a model is that it can be reapplied to the same rock.
+- [ ] ML output used to land in a set called `ML` with no way to change it. Type your own name.
+- [ ] **SandiMin** — same two rows; output used to be forced to `SANDIMIN`.
+- [ ] **Cutoffs & Summary**, **Report…**, **Workbook…**, **Deck…** — each has an Input log set.
+      This is the one that matters for a client deliverable: a report that cannot name the version
+      of the interpretation it quotes cannot be reproduced. Render the same report against two sets
+      and check the numbers actually differ.
+- [ ] **Photo Log…** now writes into a log set (default `CPHOTO`). Before, the trace curves had no
+      version at all, so each re-read silently replaced the last and nothing recorded which
+      conditioning produced them. Check the Curve Catalog shows a version after a Save.
+- [ ] **Calibrate S…**, **Plug QC…**, **Pore Area…** and the petrography family read point data and
+      pictures rather than curves, so they have no log set — say if you expected one there.
+- [ ] Anywhere the two rows appear in a place that reads awkwardly, say so — they are one shared
+      control, so moving them is one change rather than nineteen.

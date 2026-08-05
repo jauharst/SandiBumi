@@ -2,6 +2,7 @@ import { runPaySummary, type PaySummaryRow } from "../ipc";
 import { bumpDataVersion } from "../state";
 import { recordProcess } from "../processLog";
 import { loadCutoffDefaults } from "./cutoffs";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
 
@@ -37,6 +38,10 @@ export async function buildSummaryContent(
   content.appendChild(formRow("PHIE ≥", phieIn, "Reservoir cutoff"));
   content.appendChild(formRow("SWE ≤", sweIn, "Pay cutoff"));
   content.appendChild(formRow("PERM ≥ (optional)", permIn, "Extra pay cutoff, needs a computed PERM curve"));
+  // --- Input log set (`logSetPicker.ts`): which VERSION of the curves this reads.
+  const setPicker = buildLogSetPicker({ write: false });
+  for (const row of setPicker.rows) content.appendChild(row);
+
 
   const runBtn = document.createElement("button");
   runBtn.className = "form-run-btn";
@@ -63,6 +68,7 @@ export async function buildSummaryContent(
         phie_min: parseFloat(phieIn.value),
         swe_max: parseFloat(sweIn.value),
         perm_min: Number.isNaN(permRaw) ? null : permRaw,
+        input_set: setPicker.inputSet(),
       });
       renderTable(resultBox, rows);
       setStatus(`Pay summary: ${rows.length} rows; FLAG curves written`);

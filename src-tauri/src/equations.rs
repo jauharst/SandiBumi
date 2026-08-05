@@ -1209,6 +1209,64 @@ pub(crate) fn write_equation_output(
 
 #[cfg(test)]
 mod tests {
+    /// **Every tool that reads or writes a curve offers a log set** (Jauhar, 2026-08-05:
+    /// *"each tools or modules should give user freedom to define input and output log set ...
+    /// and their own curves"*).
+    ///
+    /// Before this, exactly two surfaces of nineteen did — the module dialog and the workflow
+    /// builder — so ML, SandiMin, the saturation-height fit, the cutoff sweep, the pay summary,
+    /// the facies tie, Lorenz, the results QC and every deliverable read whatever the current
+    /// values happened to be, and the three writers among them hardcoded where their output
+    /// landed. None of that is visible in a result: a report quoting last week's porosity looks
+    /// exactly like one quoting today's.
+    ///
+    /// Checked against the SOURCE rather than by calling each command, because the failure this
+    /// guards is a request struct that quietly loses the field in a future refactor — which
+    /// compiles, runs, and silently reverts the tool to "current values".
+    #[test]
+    fn every_curve_consuming_request_still_offers_a_log_set() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        // (file, struct, needs an OUTPUT set as well as an input one)
+        let contracts: [(&str, &str, bool); 13] = [
+            ("ml.rs", "MlRequest", true),
+            ("ml.rs", "MlApplyRequest", true),
+            ("ml.rs", "MlEvalRequest", false),
+            ("multimin2.rs", "MultiminRequest", true),
+            ("coreimage.rs", "CoreLogSpec", true),
+            ("workflow.rs", "PaySummaryRequest", false),
+            ("workflow.rs", "CutoffSweepRequest", false),
+            ("netflag.rs", "NetFlagSpec", false),
+            ("shf_fit.rs", "ShfFitRequest", false),
+            ("shf_fit.rs", "CuddyFoilRequest", false),
+            ("facies_tie.rs", "FaciesConfusionRequest", false),
+            ("lorenz.rs", "LorenzRequest", false),
+            ("resultsqc.rs", "SwSpreadRequest", false),
+        ];
+        for (file, name, wants_output) in contracts {
+            let src = std::fs::read_to_string(dir.join(file))
+                .unwrap_or_else(|e| panic!("cannot read {file}: {e}"));
+            let head = format!("pub struct {name} {{");
+            let start = src.find(&head).unwrap_or_else(|| panic!("{file}: no {name}"));
+            // The struct body up to its closing brace at column 0 — enough to see its fields
+            // without pulling in the next declaration's.
+            let body = &src[start..];
+            let end = body.find("
+}").unwrap_or(body.len());
+            let body = &body[..end];
+            if wants_output {
+                assert!(
+                    body.contains("pub output_set:"),
+                    "{file}: {name} writes curves but no longer lets the caller name the log set                      they are versioned into — a hardcoded destination is what this replaced"
+                );
+            } else {
+                assert!(
+                    body.contains("pub input_set:"),
+                    "{file}: {name} reads curves but no longer takes an input_set, so it silently                      reads whatever the current values are"
+                );
+            }
+        }
+    }
+
     use super::*;
     use duckdb::Connection;
 

@@ -46,6 +46,11 @@ pub struct ReportSpec {
     pub swe_max: f64,
     #[serde(default)]
     pub perm_min: Option<f64>,
+    /// Report the interpretation stored in THIS log set rather than whatever the current curve
+    /// values happen to be. A deliverable that cannot name the version it quotes is a deliverable
+    /// nobody can reproduce (Jauhar, 2026-08-05); an empty name keeps the previous behaviour.
+    #[serde(default)]
+    pub input_set: Option<String>,
     /// Skip the composite pages (tables-only report).
     #[serde(default)]
     pub tables_only: bool,
@@ -463,6 +468,7 @@ fn report_pages(
                 phie_min: spec.phie_min,
                 swe_max: spec.swe_max,
                 perm_min: spec.perm_min,
+                input_set: spec.input_set.clone(),
                 skip_version: true, // report render side-effect — don't version the pay flags
                 stats_only: false,  // report persists FLAG_* in place (unchanged behavior)
             },
@@ -696,6 +702,7 @@ mod tests {
 
     fn batch_spec() -> ReportSpec {
         ReportSpec {
+            input_set: None,
             composite: composite::CompositeSpec {
                 well_id: String::new(),
                 layout: crate::layout::standard_layout(),
@@ -1152,6 +1159,7 @@ mod tests {
                 phie_min: spec.phie_min,
                 swe_max: spec.swe_max,
                 perm_min: spec.perm_min,
+                input_set: spec.input_set.clone(),
                 skip_version: true,
                 stats_only: true,
             },
@@ -1290,6 +1298,7 @@ mod tests {
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    input_set: None,
                     well_ids: vec![w],
                     vsh_max: 0.5,
                     phie_min: 0.1,
@@ -1395,6 +1404,7 @@ mod tests {
     #[test]
     fn cover_page_carries_title_and_well() {
         let spec = ReportSpec {
+            input_set: None,
             composite: serde_json::from_str(
                 r#"{"well_id":"w1","layout":{"name":"t","tracks":[]},"scale":200,"page_size":"a4"}"#,
             )

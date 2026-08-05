@@ -32,6 +32,12 @@ pub struct NetFlagSpec {
     pub polygon: Vec<(f32, f32)>,
     /// Output curve name (e.g. "NET_FLAG"); written to the computed-curve store (upper-cased).
     pub output_curve: String,
+    /// Read the curves this run consumes from THIS log set's stored values (latest version per
+    /// well) rather than from whatever the current values are. Curves the set never wrote fall
+    /// back to normal resolution; an empty name means "current values", which is what every
+    /// caller did before this existed (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     /// Restrict evaluation to this depth window (the crossplot's selected zone); None = whole well.
     #[serde(default)]
     pub depth_top: Option<f32>,
@@ -106,7 +112,8 @@ pub fn run_net_flag(conn: &Connection, spec: &NetFlagSpec) -> Result<NetFlagResu
 
     let names = vec![spec.x_curve.clone(), spec.y_curve.clone()];
     let (depth, columns) =
-        equations::fetch_curve_frame(conn, &spec.well_id, &names).map_err(|e| e.to_string())?;
+        equations::fetch_curve_frame_from_set(conn, &spec.well_id, &names, spec.input_set.as_deref(), None)
+            .map_err(|e| e.to_string())?;
     if depth.is_empty() {
         return Err("no curve data for this well".into());
     }
@@ -262,8 +269,8 @@ mod tests {
 
     /// The canonical wire contract, stated once. Both sides are asserted against it below, so a
     /// rename on either side fails a test instead of silently disabling the feature.
-    const SPEC_FIELDS: [&str; 9] = [
-        "depth_bottom", "depth_top", "output_curve", "polygon",
+    const SPEC_FIELDS: [&str; 10] = [
+        "depth_bottom", "depth_top", "input_set", "output_curve", "polygon",
         "well_id", "x_curve", "x_log", "y_curve", "y_log",
     ];
     const RESULT_FIELDS: [&str; 4] = ["evaluated", "inside", "output_curve", "written"];
@@ -374,6 +381,7 @@ mod tests {
         let w = seed(&conn);
         // A box around the low-NPHI / high-RHOB corner (the first several samples).
         let spec = NetFlagSpec {
+            input_set: None,
             well_id: w.clone(),
             x_curve: "NPHI".into(),
             y_curve: "RHOB".into(),
@@ -410,6 +418,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         let w = seed(&conn);
         let spec = NetFlagSpec {
+            input_set: None,
             well_id: w.clone(),
             x_curve: "NPHI".into(),
             y_curve: "RHOB".into(),
@@ -443,6 +452,7 @@ mod tests {
         // A data-space box around the 10..100 decade. In log10 space x spans log10(5)..log10(200)
         // = 0.70..2.30, so only res=10 and res=100 fall inside — NOT res=1 (log 0) or 1000 (log 3).
         let spec = NetFlagSpec {
+            input_set: None,
             well_id: w,
             x_curve: "RES_DEEP".into(),
             y_curve: "NPHI".into(),
@@ -466,6 +476,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         let w = seed(&conn);
         let base = NetFlagSpec {
+            input_set: None,
             well_id: w,
             x_curve: "NPHI".into(),
             y_curve: "RHOB".into(),

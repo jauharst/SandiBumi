@@ -178,6 +178,7 @@ fn pipeline_field_full_run() {
     // ---- 3. Pay summary --------------------------------------------------
     println!("\n=== PAY SUMMARY (VSH<=0.5 PHIE>=0.10 SWE<=0.60) ===");
     let pay_req = PaySummaryRequest {
+        input_set: None,
         well_ids: well_ids.clone(),
         vsh_max: 0.5,
         phie_min: 0.10,
@@ -202,6 +203,7 @@ fn pipeline_field_full_run() {
     // ---- 4. Render report PDF -------------------------------------------
     println!("\n=== REPORT RENDER ===");
     let spec = crate::report::ReportSpec {
+        input_set: None,
         composite: CompositeSpec {
             well_id: well_ids[0].clone(),
             layout: crate::layout::standard_layout(),
@@ -395,7 +397,7 @@ fn pipeline_field_100well_stress() {
     let t = Instant::now();
     let pay = run_pay_summary(
         &db,
-        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: 0.5, phie_min: 0.10, swe_max: 0.60, perm_min: None, skip_version: true, stats_only: false },
+        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: 0.5, phie_min: 0.10, swe_max: 0.60, perm_min: None, input_set: None, skip_version: true, stats_only: false },
     );
     println!("  pay_summary(100 wells) {:?} → {} rows", t.elapsed(), pay.map(|r| r.len()).unwrap_or(0));
 

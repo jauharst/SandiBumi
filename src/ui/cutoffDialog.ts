@@ -11,6 +11,7 @@ import {
 import { recordProcess } from "../processLog";
 import { appState, bumpDataVersion } from "../state";
 import { DEFAULT_CUTOFFS, loadCutoffDefaults } from "./cutoffs";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { PlotCanvas, attachResizeRedraw, canvasFont, faciesColor, fitCanvasBackingStore, readTheme, type AxisSpec } from "./plotCanvas";
 import { nearestDepthIndex } from "./plotCommon";
@@ -199,6 +200,10 @@ export async function buildCutoffContent(
   const vclayPreset = presetButton(presetBar, "PHIE vs Vclay");
   const swPreset = presetButton(presetBar, "PHIE vs Sw");
   xplotControls.appendChild(formRow("Presets", presetBar));
+  // --- Input log set (`logSetPicker.ts`): which VERSION of the curves this reads.
+  const setPicker = buildLogSetPicker({ write: false });
+  for (const row of setPicker.rows) xplotControls.appendChild(row);
+
   root.appendChild(xplotControls);
 
   // --- Run + canvas + readout ----------------------------------------------
@@ -520,6 +525,7 @@ export async function buildCutoffContent(
     readout.textContent = "Computing sweep…";
     try {
       const res = await runCutoffSweep({
+        input_set: setPicker.inputSet(),
         well_ids: wellIds,
         property,
         vsh_max: numOf(vshIn, DEFAULT_CUTOFFS.vsh_max),

@@ -20,6 +20,7 @@ import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { loadCurveNames } from "./plotCommon";
 import { buildPlateStrip } from "./plateStrip";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 
 /**
@@ -194,6 +195,12 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
   wrap.appendChild(
     formRow("Light", lightPick.el, "The two lights are two deliveries; pick the one this is.")
   );
+
+  // --- Output log set (`logSetPicker.ts`). The photograph traces were the one module output with
+  // no log set at all, so "which conditioning produced this CPHOTO_DARK" had no answer and each
+  // re-read silently replaced the last. Defaults to CPHOTO.
+  const setPicker = buildLogSetPicker({ read: false, write: "CPHOTO" });
+  for (const row of setPicker.rows) wrap.appendChild(row);
 
   const fluorBox = document.createElement("div");
   fluorBox.style.display = "none";
@@ -818,6 +825,7 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
         light: isUv() ? "uv" : "white",
         fluor: isUv() ? readClasses() : [],
         compare_curve: cmpSel.value || null,
+        output_set: setPicker.outputSet(),
         write,
       });
       trace.hidden = false;

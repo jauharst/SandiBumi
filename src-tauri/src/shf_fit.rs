@@ -16,7 +16,6 @@
 //! RT class (playbook #4 — the per-rock-type split is the single biggest accuracy win on stacked
 //! Mahakam sands). Deferred: SCAL porous-plate / centrifuge importers, MICP-calibrated coeffs.
 
-use crate::equations::fetch_curve_frame;
 use crate::satheight::{J_CONST, PSI_PER_FT_PER_SG};
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
@@ -446,6 +445,12 @@ fn fit_power_lnln(points: &[(f64, f64)]) -> Option<(f64, f64, f64, usize)> {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CuddyFoilRequest {
+    /// Read the curves this run consumes from THIS log set's stored values (latest version per
+    /// well) rather than from whatever the current values are. Curves the set never wrote fall
+    /// back to normal resolution; an empty name means "current values", which is what every
+    /// caller did before this existed (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     pub well_ids: Vec<String>,
     pub phie_curve: String,
     pub sw_curve: String,
@@ -559,7 +564,7 @@ pub fn run_cuddy_foil(db: &Mutex<Connection>, req: &CuddyFoilRequest) -> CuddyFo
         for well_id in &req.well_ids {
             let before = samples.len();
             'well: {
-                let Ok((_depth, cols)) = fetch_curve_frame(&conn, well_id, &names) else { break 'well };
+                let Ok((_depth, cols)) = crate::equations::fetch_curve_frame_from_set(&conn, well_id, &names, req.input_set.as_deref(), None) else { break 'well };
                 let (Some(pv), Some(sv), Some(tv)) = (cols.get(&phie), cols.get(&sw), cols.get(&tvdss)) else {
                     break 'well;
                 };
@@ -729,6 +734,12 @@ fn d_ift_res() -> f64 {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ShfFitRequest {
+    /// Read the curves this run consumes from THIS log set's stored values (latest version per
+    /// well) rather than from whatever the current values are. Curves the set never wrote fall
+    /// back to normal resolution; an empty name means "current values", which is what every
+    /// caller did before this existed (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     pub well_ids: Vec<String>,
     pub phie_curve: String,
     pub sw_curve: String,
@@ -1047,7 +1058,7 @@ pub fn run_shf_fit(db: &Mutex<Connection>, req: &ShfFitRequest) -> ShfFitResult 
         for well_id in &req.well_ids {
             let before = samples.len();
             'well: {
-                let Ok((_d, cols)) = fetch_curve_frame(&conn, well_id, &names) else { break 'well };
+                let Ok((_d, cols)) = crate::equations::fetch_curve_frame_from_set(&conn, well_id, &names, req.input_set.as_deref(), None) else { break 'well };
                 let (Some(pv), Some(sv), Some(tv)) = (cols.get(&phie), cols.get(&sw), cols.get(&tvdss)) else {
                     break 'well;
                 };
@@ -1317,6 +1328,7 @@ mod tests {
 
     fn dummy_req(method: &str) -> ShfFitRequest {
         ShfFitRequest {
+            input_set: None,
             well_ids: vec![],
             phie_curve: "PHIE".into(),
             sw_curve: "SWE".into(),

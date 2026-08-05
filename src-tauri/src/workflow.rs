@@ -567,6 +567,12 @@ pub struct PaySummaryRequest {
     pub swe_max: f64,
     /// Optional PERM >= perm_min added to the pay flag when PERM exists.
     pub perm_min: Option<f64>,
+    /// Read the curves this run consumes from THIS log set's stored values (latest version per
+    /// well) rather than from whatever the current values are. Curves the set never wrote fall
+    /// back to normal resolution; an empty name means "current values", which is what every
+    /// caller did before this existed (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     /// When true, FLAG_* curves are written in place without creating a versioned log set. Set
     /// by the report/composite render pass, whose pay flags are a render side-effect that must
     /// not churn the archive with a version per render. The explicit Cutoffs & Summary run
@@ -676,7 +682,11 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         // Per-well isolation: a well with no curves — or a transient fetch/zone read error — is
         // skipped, keeping every other well's rows, rather than `?`-aborting the whole batch (a
         // single bad well would otherwise zero the entire Field Dashboard / summary response).
-        let (depth, columns) = match equations::fetch_curve_frame(&conn, well_id, &curve_names) {
+        // The cutoffs decide net pay, so WHICH version of PHIE and SWE they read is part of the
+        // answer — a summary that cannot name its inputs' version cannot be reproduced.
+        let (depth, columns) = match equations::fetch_curve_frame_from_set(
+            &conn, well_id, &curve_names, req.input_set.as_deref(), None,
+        ) {
             Ok((d, c)) if !d.is_empty() => (d, c),
             _ => continue,
         };
@@ -1010,6 +1020,10 @@ fn compute_sweep(
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CutoffSweepRequest {
+    /// Sweep the cutoffs against THIS log set's stored curves rather than the current values —
+    /// the same freedom the pay summary it informs has (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     pub well_ids: Vec<String>,
     /// Which cutoff to sweep: "VSH" | "PHIE" | "SWE".
     pub property: String,
@@ -1167,7 +1181,9 @@ pub fn run_cutoff_sweep(
         // Per-well isolation: a transient fetch/zone/aux read error skips just this well (a
         // 0-sample legend row) instead of `?`-aborting the whole batch and discarding every
         // well already accumulated — same graceful degradation as run_workflow_module.
-        let (depth, columns) = match equations::fetch_curve_frame(&conn, well_id, &curve_names) {
+        let (depth, columns) = match equations::fetch_curve_frame_from_set(
+            &conn, well_id, &curve_names, req.input_set.as_deref(), None,
+        ) {
             Ok((d, c)) if !d.is_empty() => (d, c),
             _ => {
                 drop(conn);
@@ -1345,6 +1361,7 @@ mod tests {
 
         let dbm = Mutex::new(conn);
         let req = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![well.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -1427,6 +1444,7 @@ mod tests {
             run_pay_summary(
                 &dbm,
                 &PaySummaryRequest {
+                    input_set: None,
                     well_ids: vec![no_perm.clone(), low_perm.clone()],
                     vsh_max: 0.5,
                     phie_min: 0.1,
@@ -1670,6 +1688,7 @@ mod tests {
         let rows = run_pay_summary(
             &dbm,
             &PaySummaryRequest {
+                input_set: None,
                 well_ids: vec![bare.clone(), good.clone()],
                 vsh_max: 0.5,
                 phie_min: 0.1,
@@ -2207,6 +2226,7 @@ mod tests {
 
         let dbm = Mutex::new(conn);
         let req = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -2253,6 +2273,7 @@ mod tests {
 
         // Explicit run: versions the pay flags with the cutoffs recorded in provenance.
         let req = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -2279,6 +2300,7 @@ mod tests {
 
         // skip_version (report/composite render side-effect): writes FLAG_* in place, no new version.
         let req_skip = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -2327,6 +2349,7 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         let base = PaySummaryRequest {
+            input_set: None,
             well_ids: vec![w.clone()],
             vsh_max: 0.5,
             phie_min: 0.1,
@@ -3414,7 +3437,7 @@ mod tests {
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
-            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, skip_version: true, stats_only: false },
+            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, input_set: None, skip_version: true, stats_only: false },
         )
         .expect("pay summary failed");
         assert_eq!(rows.len(), well_ids.len() * 3); // SAND/RESERVOIR/PAY per well

@@ -15,6 +15,7 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
@@ -290,6 +291,13 @@ export async function buildMlContent(
   commonWrap.append(stdLabel, seedLabel);
   content.appendChild(formRow("Common", commonWrap));
 
+  // --- Input / output log set (`logSetPicker.ts`). A model fitted on today's PHIE and one fitted
+  // after the next porosity re-run are fitted on different rock; naming the set is what lets a
+  // saved model say which (Jauhar, 2026-08-05). Output defaults to ML, which is where every
+  // prediction went before this was selectable.
+  const setPicker = buildLogSetPicker({ write: "ML" });
+  for (const row of setPicker.rows) content.appendChild(row);
+
   function renderParams(): void {
     paramsGrid.innerHTML = "";
     paramInputs = [];
@@ -454,6 +462,7 @@ export async function buildMlContent(
         target_curve: targetSel.value,
         mask_curve: maskSel.value || null,
         train_well_ids: trainIds,
+        input_set: setPicker.inputSet(),
         algorithms: task.algos.map((a) => a.id),
         subsets: buildSubsets(features, subsetSel.value),
         standardize: stdCb.checked,
@@ -553,6 +562,8 @@ export async function buildMlContent(
             model_id: m.model_id,
             apply_well_ids: applyIds,
             output_curve: outInput.value,
+            input_set: setPicker.inputSet(),
+            output_set: setPicker.outputSet(),
             mask_curve: maskSel.value || null,
           });
           if (res.error) {

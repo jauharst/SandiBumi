@@ -411,6 +411,8 @@ export interface MethodRow {
 }
 
 export interface ReportSpec {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   composite: CompositeSpec;
   title: string;
   author: string;
@@ -454,6 +456,8 @@ export interface OfficeSupport {
 }
 
 export interface DeckSpec {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   vsh_max: number;
   phie_min: number;
@@ -480,6 +484,8 @@ export function exportDeck(spec: DeckSpec, destPath: string): Promise<DeckResult
 }
 
 export interface WorkbookSpec {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   vsh_max: number;
   phie_min: number;
@@ -541,6 +547,8 @@ export function savePlotPdf(destPath: string, content: string, widthPt: number, 
  *  (`{ spec }`), never the fields inside it; `rename_all` is used only on enums, for their
  *  string tag values. `netflag.rs` has a test that reads this interface and fails on drift. */
 export interface NetFlagSpec {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_id: string;
   x_curve: string;
   y_curve: string;
@@ -1078,6 +1086,10 @@ export async function runMonteCarlo(req: McRequest): Promise<McResult> {
 // --- Machine learning (Phase 10-4) ---
 
 export interface MlRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
+  /** Version the outputs into this log set; omit for the tool's own default. */
+  output_set?: string;
   task: "regression" | "classification" | "clustering" | "reduction";
   algorithm: string;
   params: Record<string, number | string | boolean>;
@@ -1146,6 +1158,10 @@ export interface MlModelInfo {
 }
 
 export interface MlApplyRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
+  /** Version the outputs into this log set; omit for the tool's own default. */
+  output_set?: string;
   model_id: string;
   apply_well_ids: string[];
   output_curve: string;
@@ -1173,6 +1189,8 @@ export function deleteMlModel(modelId: string): Promise<void> {
 
 /** Model-comparison leaderboard (Wave B item 3). */
 export interface MlEvalRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   task: "regression" | "classification";
   feature_curves: string[];
   target_curve: string;
@@ -1219,6 +1237,8 @@ export function runMlEval(req: MlEvalRequest): Promise<MlEvalResult> {
 
 /** Cuddy FOIL / BVW saturation-height fit (Wave B item 8, SHF side). */
 export interface CuddyFoilRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   phie_curve: string;
   sw_curve: string;
@@ -1277,6 +1297,8 @@ export function runCuddyFoil(req: CuddyFoilRequest): Promise<CuddyFoilResult> {
 
 /** Height-domain SHF fit (Brooks-Corey / Skelt-Harrison) to the log-derived Sw-vs-height cloud. */
 export interface ShfFitRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   phie_curve: string;
   sw_curve: string;
@@ -1337,6 +1359,8 @@ export function runShfFit(req: ShfFitRequest): Promise<ShfFitResult> {
 
 /** Electrofacies tie-in QC: confusion matrix of a predicted log RT curve vs a reference/core RT. */
 export interface FaciesConfusionRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   pred_curve: string;
   ref_curve: string;
@@ -1456,6 +1480,10 @@ export interface MmFluidCalc {
 }
 
 export interface MultiminRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
+  /** Version the outputs into this log set; omit for the tool's own default. */
+  output_set?: string;
   components: MmComponent[];
   tools: MmTool[];
   apply_well_ids: string[];
@@ -1786,6 +1814,8 @@ export function applyFwlToZoneParams(picks: [string, string, number][]): Promise
  *  candidate list (first present wins) when a field is left blank. Qv/Swb curves are what pull the
  *  Waxman-Smits / Dual-Water models into the envelope; without them those two are skipped, never faked. */
 export interface SwSpreadRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_id: string;
   depth_min?: number | null;
   depth_max?: number | null;
@@ -1885,6 +1915,8 @@ export async function setZoneParamBatch(
 }
 
 export interface PaySummaryRequest {
+  /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   vsh_max: number;
   phie_min: number;
@@ -1940,6 +1972,8 @@ export async function runPaySummary(req: PaySummaryRequest): Promise<PaySummaryR
 /** Cutoff-sensitivity sweep (Method 1 of the cutoff study): sweep one cutoff over a range,
  *  holding the other two fixed, and report the pay metric per well at each step. */
 export interface CutoffSweepRequest {
+  /** Sweep against this log set's stored curves; omit for the current values. */
+  input_set?: string;
   well_ids: string[];
   property: "VSH" | "PHIE" | "SWE";
   vsh_max: number;
@@ -2853,6 +2887,8 @@ export function recommendCoreRecipe(imageIds: string[]): Promise<RecipeAdvice[]>
 }
 
 export interface CoreLogSpec {
+  /** Version the outputs into this log set; omit for the tool's own default. */
+  output_set?: string;
   well_id: string;
   dataset: string;
   /** Which way depth runs across the conditioned picture: "x" along the width, "y" down it. */

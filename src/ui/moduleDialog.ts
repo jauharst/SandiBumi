@@ -1,11 +1,11 @@
 import {
   listCurveCatalog,
-  listLogSetNames,
   runWorkflowModule,
   type ModuleSpec,
   type RunModuleRequest,
 } from "../ipc";
 import { appState } from "../state";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow, openModal } from "./modal";
 import { buildWellScope } from "./wellScope";
 
@@ -209,68 +209,12 @@ export async function buildModuleContent(
     formRow("Mask (optional)", maskSelect, "Flag curve (=1 bad) to blank out of every output — e.g. BADHOLE."),
   );
 
-  // --- Input cons (read half of "cons in/out"): strict dropdown, blank = current values ---
-  const inSetSelect = document.createElement("select");
-  inSetSelect.className = "form-control";
-  const inSetLatest = document.createElement("option");
-  inSetLatest.value = "";
-  inSetLatest.textContent = "(latest values)";
-  inSetSelect.appendChild(inSetLatest);
-  argsGrid.appendChild(
-    formRow(
-      "Input cons",
-      inSetSelect,
-      "Read inputs from this constellation's values (latest version per well). Curves it never wrote fall back to the usual sources. Blank = current values.",
-    ),
-  );
+  // --- Input / output log set: the ONE shared control (`logSetPicker.ts`). Was two bespoke
+  // blocks here labelled "Input cons" / "Output cons" — the store, the backend and the docs all
+  // say LOG SET, and only this UI said constellation, which is why the word did not connect.
+  const setPicker = buildLogSetPicker({ write: "INTERP" });
+  for (const row of setPicker.rows) argsGrid.appendChild(row);
 
-  // --- Output cons (P1-c versioning: re-run = version N+1, never overwrites). Editable
-  // combobox — pick an existing constellation or type a brand-new name. ---
-  const setInput = document.createElement("input");
-  setInput.className = "form-control";
-  setInput.type = "text";
-  setInput.value = "INTERP";
-  setInput.setAttribute("list", "log-cons-names");
-  let consList = document.querySelector<HTMLDataListElement>("#log-cons-names");
-  if (!consList) {
-    consList = document.createElement("datalist");
-    consList.id = "log-cons-names";
-    document.body.appendChild(consList);
-  }
-  // Fill both pickers from the project's existing constellation names. Input is a strict
-  // dropdown (you can only read from one that exists); output offers them as suggestions
-  // plus the common defaults. The input select keeps the user's current choice across
-  // refreshes (a new run, or a well switch, can add names).
-  const refreshConsPickers = () => {
-    void listLogSetNames()
-      .then((names) => {
-        const keep = inSetSelect.value;
-        while (inSetSelect.options.length > 1) inSetSelect.remove(1);
-        for (const n of names) {
-          const o = document.createElement("option");
-          o.value = n;
-          o.textContent = n;
-          inSetSelect.appendChild(o);
-        }
-        if ([...inSetSelect.options].some((o) => o.value === keep)) inSetSelect.value = keep;
-        const seeds = [...new Set(["INTERP", "FINAL", "TEST", ...names])];
-        consList!.innerHTML = "";
-        for (const n of seeds) {
-          const o = document.createElement("option");
-          o.value = n;
-          consList!.appendChild(o);
-        }
-      })
-      .catch(() => {});
-  };
-  refreshConsPickers();
-  argsGrid.appendChild(
-    formRow(
-      "Output cons",
-      setInput,
-      "Outputs are versioned into this constellation — a re-run becomes version N+1, never overwriting. Pick an existing one or type a new name. Manage versions in the Curve Catalog.",
-    ),
-  );
   content.appendChild(argsGrid);
 
   // --- Zone-override callout (design 1d): the precedence rule, stated where
@@ -332,9 +276,9 @@ export async function buildModuleContent(
     }
     void refreshData();
   });
-  // The cons pickers can gain names as the active well changes; the well scope tracks live state
-  // on its own, so nothing well-related to re-tick here.
-  const unsubWell = appState.selectedWell.subscribe(() => refreshConsPickers());
+  // The log-set pickers can gain names as the active well changes; the well scope tracks live
+  // state on its own, so nothing well-related to re-tick here.
+  const unsubWell = appState.selectedWell.subscribe(() => setPicker.refresh());
 
   runBtn.addEventListener("click", async () => {
     const wellIds = scope.getWellIds();
@@ -383,8 +327,8 @@ export async function buildModuleContent(
       log_inputs: logInputs,
       params,
       opts,
-      output_set: setInput.value.trim() || undefined,
-      input_set: inSetSelect.value.trim() || undefined,
+      output_set: setPicker.outputSet(),
+      input_set: setPicker.inputSet(),
     };
     runBtn.disabled = true;
     // Live progress and the per-well ✓/⚠/✗ breakdown now live in the Processing panel (this

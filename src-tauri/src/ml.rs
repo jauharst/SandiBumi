@@ -13,7 +13,11 @@
 //! Cluster ids are reordered by ascending mean of the FIRST feature curve, matching the
 //! native k-means/GMM facies modules (put GR first → class 0 = cleanest).
 
-use crate::equations::{fetch_curve_frame, write_computed_curves_versioned};
+use crate::equations::{fetch_curve_frame_from_set, write_computed_curves_versioned};
+
+/// The log set ML output lands in when the caller names none — the value that used to be
+/// hardcoded, so an older payload writes exactly where it always did.
+const DEFAULT_ML_SET: &str = "ML";
 use crate::python_engine::{find_python, hide_console};
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
@@ -332,6 +336,20 @@ pub struct MlRequest {
     pub save_model_as: Option<String>,
     #[serde(default)]
     pub model_note: Option<String>,
+    /// Read every feature, target and mask curve from THIS log set's stored values (latest
+    /// version per well) instead of whatever the current values happen to be. Curves the set
+    /// never wrote fall back to normal resolution.
+    ///
+    /// Jauhar, 2026-08-05: *"each tools or modules should give user freedom to define input and
+    /// output log set ... and their own curves"*. Without it a model trained today and one
+    /// trained after the next porosity re-run are fitted on different rock with nothing in either
+    /// artifact able to say so — which is exactly the provenance saving a model was for.
+    #[serde(default)]
+    pub input_set: Option<String>,
+    /// Version the predicted curves into this log set. Defaults to `ML` — what was hardcoded
+    /// before — so an older payload behaves identically.
+    #[serde(default)]
+    pub output_set: Option<String>,
 }
 
 /// Applying an already-fitted model. Deliberately NOT an `MlRequest`: there is no training
@@ -339,6 +357,12 @@ pub struct MlRequest {
 /// letting a caller restate them would invite them to differ.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MlApplyRequest {
+    /// Read the model's feature curves from this log set (see [`MlRequest::input_set`]).
+    #[serde(default)]
+    pub input_set: Option<String>,
+    /// Version the applied curves into this log set (default `ML`).
+    #[serde(default)]
+    pub output_set: Option<String>,
     pub model_id: String,
     pub apply_well_ids: Vec<String>,
     pub output_curve: String,
@@ -394,6 +418,7 @@ fn assemble_training(
     features: &[String],
     tgt: &str,
     mask_curve: Option<&String>,
+    input_set: Option<&str>,
 ) -> (Vec<f32>, Vec<f32>, Vec<String>) {
     let mut fetch_names = features.to_vec();
     fetch_names.push(tgt.to_string());
@@ -405,7 +430,7 @@ fn assemble_training(
     let mut empty_train: Vec<String> = Vec::new();
     for well_id in train_well_ids {
         let before = y_train.len();
-        if let Ok((depth, cols)) = fetch_curve_frame(conn, well_id, &fetch_names) {
+        if let Ok((depth, cols)) = fetch_curve_frame_from_set(conn, well_id, &fetch_names, input_set, None) {
             if let (Some(tv), Some(fcols)) = (
                 cols.get(tgt),
                 features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>(),
@@ -473,6 +498,16 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     };
 
     let d = features.len();
+    // Where the predictions land. Resolved once, so every well of a run is versioned into the
+    // same set — a run that scattered its wells across two set names could not afterwards be
+    // read back as one interpretation.
+    let out_set = req
+        .output_set
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_ML_SET)
+        .to_string();
     let mut x_train: Vec<f32> = Vec::new();
     let mut y_train: Vec<f32> = Vec::new();
     let mut empty_train: Vec<String> = Vec::new();
@@ -483,7 +518,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         if supervised {
             let tgt = target.clone().unwrap();
             let (xt, yt, empty) =
-                assemble_training(&conn, &req.train_well_ids, &features, &tgt, mask_curve.as_ref());
+                assemble_training(&conn, &req.train_well_ids, &features, &tgt, mask_curve.as_ref(), req.input_set.as_deref());
             x_train = xt;
             y_train = yt;
             empty_train = empty;
@@ -493,7 +528,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             apply_fetch.push(mk.clone());
         }
         for well_id in &req.apply_well_ids {
-            match fetch_curve_frame(&conn, well_id, &apply_fetch) {
+            match fetch_curve_frame_from_set(&conn, well_id, &apply_fetch, req.input_set.as_deref(), None) {
                 Ok((depth, cols)) => {
                     let fcols: Vec<&Vec<f32>> = features.iter().filter_map(|f| cols.get(f)).collect();
                     if fcols.len() != d || depth.is_empty() {
@@ -633,7 +668,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 }
                 let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
                 let spec = crate::equations::LogSetSpec {
-                    set_name: "ML".into(),
+                    set_name: out_set.clone(),
                     module: format!("ml:{}:{}", req.task, req.algorithm),
                     params_json: serde_json::to_string(&req.params).unwrap_or_default(),
                     inputs_json: serde_json::to_string(&req.feature_curves).unwrap_or_default(),
@@ -772,7 +807,7 @@ pub fn apply_ml_model(
             fetch.push(mk.clone());
         }
         for well_id in &req.apply_well_ids {
-            match fetch_curve_frame(&conn, well_id, &fetch) {
+            match fetch_curve_frame_from_set(&conn, well_id, &fetch, req.input_set.as_deref(), None) {
                 Ok((depth, cols)) => {
                     // Name the curve that is missing. "missing input curve data" sends somebody
                     // hunting through five mnemonics; the model knows exactly which it needs.
@@ -907,7 +942,8 @@ pub fn apply_ml_model(
         // Provenance names the MODEL, not just the algorithm: "which model produced this curve"
         // is the question saving them was meant to answer.
         let spec = crate::equations::LogSetSpec {
-            set_name: "ML".into(),
+            set_name: req.output_set.as_deref().map(str::trim).filter(|s| !s.is_empty())
+                .unwrap_or(DEFAULT_ML_SET).to_string(),
             module: format!("ml:apply:{}", info.name),
             params_json: serde_json::to_string(&serde_json::json!({
                 "model_id": info.model_id, "model_name": info.name,
@@ -1195,6 +1231,11 @@ sys.stdout.buffer.write((json.dumps(out) + "\n").encode("utf-8"))
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MlEvalRequest {
+    /// Read the feature and target curves from THIS log set (see [`MlRequest::input_set`]). A
+    /// leaderboard scored against a different version of the same curves is not comparable with
+    /// the run it is meant to inform.
+    #[serde(default)]
+    pub input_set: Option<String>,
     /// "regression" | "classification" (supervised only — the leaderboard needs a target).
     pub task: String,
     pub feature_curves: Vec<String>,
@@ -1298,7 +1339,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
             fetch_names.push(mk.clone());
         }
         for (g, well_id) in req.train_well_ids.iter().enumerate() {
-            let Ok((depth, cols)) = fetch_curve_frame(&conn, well_id, &fetch_names) else { continue };
+            let Ok((depth, cols)) = fetch_curve_frame_from_set(&conn, well_id, &fetch_names, req.input_set.as_deref(), None) else { continue };
             let Some(tv) = cols.get(&target) else { continue };
             let Some(fcols) = features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>() else { continue };
             let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
@@ -1531,6 +1572,8 @@ mod tests {
 
     fn mk_req(task: &str, features: &[&str], target: Option<&str>, train: &[String], apply: &[String]) -> MlRequest {
         MlRequest {
+            input_set: None,
+            output_set: None,
             task: task.into(),
             algorithm: if task == "clustering" { "kmeans".into() } else { "linear".into() },
             params: serde_json::Map::new(),
@@ -1755,6 +1798,8 @@ mod tests {
         let applied = apply_ml_model(
             &dbm,
             &MlApplyRequest {
+                input_set: None,
+                output_set: None,
                 model_id,
                 apply_well_ids: vec![blind.clone()],
                 output_curve: "PHIT_ML".into(),
@@ -1769,7 +1814,7 @@ mod tests {
 
         // The prediction must reproduce the relation the model was fitted on.
         let conn = dbm.lock().unwrap();
-        let (_, cols) = fetch_curve_frame(&conn, &blind, &["GR".into(), "RHOB".into(), "PHIT_ML".into()]).unwrap();
+        let (_, cols) = crate::equations::fetch_curve_frame(&conn, &blind, &["GR".into(), "RHOB".into(), "PHIT_ML".into()]).unwrap();
         let gr = cols.get("GR").unwrap();
         let rhob = cols.get("RHOB").unwrap();
         let pred = cols.get("PHIT_ML").unwrap();
@@ -1911,7 +1956,7 @@ mod tests {
 
         let features = vec!["GR".to_string()];
         let ids = vec![good.to_string(), bad.to_string()];
-        let (_x, y, empty) = assemble_training(&conn, &ids, &features, "RHOB", None);
+        let (_x, y, empty) = assemble_training(&conn, &ids, &features, "RHOB", None, None);
 
         assert_eq!(y.len(), n, "the well with the target contributes all its rows");
         assert_eq!(
@@ -1955,6 +2000,7 @@ mod tests {
         let (ida, idb) = (a.to_string(), b.to_string());
         let db = Mutex::new(conn);
         let req = MlEvalRequest {
+            input_set: None,
             task: "regression".into(),
             feature_curves: vec!["GR".into()],
             target_curve: "RHOB".into(),

@@ -36,6 +36,12 @@ const AUTO_K_MAX: usize = 12;
 
 #[derive(serde::Deserialize)]
 pub struct LorenzRequest {
+    /// Read the curves this run consumes from THIS log set's stored values (latest version per
+    /// well) rather than from whatever the current values are. Curves the set never wrote fall
+    /// back to normal resolution; an empty name means "current values", which is what every
+    /// caller did before this existed (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub input_set: Option<String>,
     pub well_id: String,
     /// Porosity curve mnemonic (resolved through the standard/computed/generic precedence).
     pub phi_curve: String,
@@ -372,7 +378,7 @@ pub fn run_lorenz(db: &Mutex<Connection>, req: &LorenzRequest) -> LorenzResult {
 
     let conn = db.lock().unwrap();
     let names = vec![req.phi_curve.trim().to_uppercase(), req.perm_curve.trim().to_uppercase()];
-    let (depth, cols) = match crate::equations::fetch_curve_frame(&conn, &req.well_id, &names) {
+    let (depth, cols) = match crate::equations::fetch_curve_frame_from_set(&conn, &req.well_id, &names, req.input_set.as_deref(), None) {
         Ok(f) => f,
         Err(e) => return lorenz_err(&format!("reading curves: {e}")),
     };
@@ -543,6 +549,7 @@ mod tests {
         let dbm = std::sync::Mutex::new(conn);
         let well = id.to_string();
         let req = |phi: &str, perm: &str| LorenzRequest {
+            input_set: None,
             well_id: well.clone(),
             phi_curve: phi.to_string(),
             perm_curve: perm.to_string(),
@@ -630,6 +637,7 @@ mod tests {
 
         let db = Mutex::new(conn);
         let req = LorenzRequest {
+            input_set: None,
             well_id: ids,
             phi_curve: "PHIE".into(),
             perm_curve: "PERM".into(),

@@ -2014,6 +2014,7 @@ mod tests {
         let chain_rows = crate::workflow::run_pay_summary(
             &dbm,
             &crate::workflow::PaySummaryRequest {
+                input_set: None,
                 well_ids: vec![well.clone()],
                 vsh_max: 0.5,
                 phie_min: 0.08,

@@ -699,6 +699,15 @@ pub struct CoreLogSpec {
     /// What counts as fluorescence, when `light` is `"uv"`. Empty falls back to one generic band.
     #[serde(default)]
     pub fluor: Vec<FluorClass>,
+    /// Version the trace curves into this log set. Blank keeps the previous unversioned write.
+    ///
+    /// The photograph traces were the one module output in the project with no log set at all, so
+    /// "which conditioning produced this CPHOTO_DARK" had no answer and a re-read silently
+    /// replaced the last one. Defaulting to `CPHOTO` is additive — the curves still land in the
+    /// current store exactly as before, they simply also get a version with their settings
+    /// recorded (Jauhar, 2026-08-05).
+    #[serde(default)]
+    pub output_set: Option<String>,
     /// Report how each measure tracks this curve over the same interval — usually GR. `None` skips
     /// the check, but it is the only thing that says whether the trace is about the rock.
     #[serde(default)]
@@ -1311,8 +1320,40 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             .zip(out_cols.iter())
             .map(|(c, v)| (c.name.as_str(), v.as_slice()))
             .collect();
-        crate::equations::write_computed_curves_batch(conn, &spec.well_id, &out_depth, &refs)
-            .map_err(|e| e.to_string())?;
+        let set_name = spec
+            .output_set
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_TRACE_SET);
+        let log_spec = crate::equations::LogSetSpec {
+            set_name: set_name.to_string(),
+            module: format!("cphoto:{}", spec.light),
+            params_json: serde_json::to_string(&serde_json::json!({
+                "dataset": spec.dataset, "axis": spec.axis, "reverse": spec.reverse,
+                "lanes": spec.lanes, "light": spec.light,
+            }))
+            .unwrap_or_default(),
+            inputs_json: serde_json::to_string(&res.curves.iter().map(|c| &c.name).collect::<Vec<_>>())
+                .unwrap_or_default(),
+        };
+        // A storage problem must cost the VERSION, not the work — the curves are written either
+        // way, the same discipline `ml.rs` follows when a model artifact cannot be stored.
+        match crate::equations::create_log_set(conn, &spec.well_id, &log_spec) {
+            Ok((set_id, _)) => {
+                crate::equations::write_computed_curves_versioned(
+                    conn, &spec.well_id, &out_depth, &refs, &set_id,
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            Err(e) => {
+                crate::equations::write_computed_curves_batch(conn, &spec.well_id, &out_depth, &refs)
+                    .map_err(|e| e.to_string())?;
+                res.notes.push(format!(
+                    "The curves were written, but no log-set version could be recorded ({e}), so                      this run leaves no provenance."
+                ));
+            }
+        }
         res.written = res.curves.iter().map(|c| c.name.clone()).collect();
     }
     Ok(res)
@@ -1948,6 +1989,9 @@ pub const STRIP_DATASET: &str = "CORE STRIP";
 /// different lane count is the same re-run a module makes, not a second delivery of pictures — so
 /// unlike an import it replaces rather than auto-suffixing.
 pub const STRIP_SET: &str = "STRIP";
+
+/// The log set the photograph traces are versioned into when the caller names none.
+const DEFAULT_TRACE_SET: &str = "CPHOTO";
 /// Across-core pixels kept in a strip. A strip is drawn a few centimetres wide in a log track, so
 /// past this the extra columns are storage rather than detail; the height follows proportionally so
 /// nothing is distorted.
@@ -2660,6 +2704,7 @@ mod tests {
             layouts.insert("i1".to_string(), l);
         }
         CoreLogSpec {
+            output_set: None,
             well_id: "w1".into(),
             dataset: "CORE PHOTO".into(),
             axis: "y".into(),
@@ -3320,6 +3365,7 @@ mod tests {
         }
 
         let spec = CoreLogSpec {
+            output_set: None,
             well_id: w.clone(),
             dataset: "CORE PHOTO".into(),
             axis: "y".into(),
@@ -3436,6 +3482,7 @@ mod tests {
         .unwrap();
 
         let spec = |reverse: bool| CoreLogSpec {
+            output_set: None,
             well_id: w.clone(),
             dataset: "CORE PHOTO".into(),
             axis: "x".into(),
@@ -3553,6 +3600,7 @@ mod tests {
             let res = extract_core_log(
                 &conn,
                 &CoreLogSpec {
+                    output_set: None,
                     well_id: w.clone(),
                     dataset: dataset.into(),
                     axis: axis.into(),
@@ -3745,6 +3793,7 @@ mod tests {
         }
 
         let spec = |reverse: bool| CoreLogSpec {
+            output_set: None,
             well_id: w.clone(),
             dataset: "CORE PHOTO".into(),
             axis: "y".into(),
@@ -3854,6 +3903,7 @@ mod tests {
 
     fn uv_spec(w: &str, classes: Vec<FluorClass>) -> CoreLogSpec {
         CoreLogSpec {
+            output_set: None,
             well_id: w.into(),
             dataset: "CORE PHOTO UV".into(),
             axis: "x".into(),

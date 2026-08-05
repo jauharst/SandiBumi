@@ -1,4 +1,5 @@
 import { listCurveCatalog, runFaciesConfusion, type FaciesConfusionResult } from "../ipc";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { preferredCurveSelect } from "./plotCommon";
 import { recordProcess } from "../processLog";
@@ -23,6 +24,10 @@ export async function buildFaciesTieContent(
   const refSel = preferredCurveSelect(names, ["RT", "RT_LUCIA", "FACIES", "FACIES_ML"]);
   content.appendChild(formRow("Predicted RT (log)", predSel, "Log-domain rock type, e.g. RT_LOG from the cutoff classifier."));
   content.appendChild(formRow("Reference RT (core)", refSel, "The 'truth' rock type — a core-derived RT or a rock-typing RT."));
+  // --- Input log set (`logSetPicker.ts`): which VERSION of the curves this reads.
+  const setPicker = buildLogSetPicker({ write: false });
+  for (const row of setPicker.rows) content.appendChild(row);
+
   content.appendChild(scope.el);
 
   const runBtn = document.createElement("button");
@@ -59,7 +64,12 @@ export async function buildFaciesTieContent(
     runBtn.disabled = true;
     statusLine.textContent = "Comparing…";
     try {
-      const res = await runFaciesConfusion({ well_ids: wellIds, pred_curve: predSel.value, ref_curve: refSel.value });
+      const res = await runFaciesConfusion({
+        well_ids: wellIds,
+        pred_curve: predSel.value,
+        ref_curve: refSel.value,
+        input_set: setPicker.inputSet(),
+      });
       if (res.error) {
         statusLine.textContent = `Failed: ${res.error}`;
         results.innerHTML = "";

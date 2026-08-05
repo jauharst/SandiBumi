@@ -4,7 +4,6 @@ import {
   getChainStatus,
   listCurveCatalog,
   listDocuments,
-  listLogSetNames,
   listModules,
   runWorkflowChain,
   saveDocument,
@@ -15,6 +14,7 @@ import {
   type ModuleSpec,
 } from "../ipc";
 import { bumpDataVersion } from "../state";
+import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { maskCurveNames } from "./moduleDialog";
 import { recordProcess } from "../processLog";
@@ -719,60 +719,18 @@ export async function buildWorkflowContent(
   // --- Wells (scope, not a checklist) --------------------------------------
   content.appendChild(scope.el);
 
-  // --- Input cons: strict dropdown of existing constellations (you can only read from
-  // one that exists); blank = current values (chained outputs always resolve) ----------
-  const inSetSelect = document.createElement("select");
-  const inSetLatest = document.createElement("option");
-  inSetLatest.value = "";
-  inSetLatest.textContent = "(latest values)";
-  inSetSelect.appendChild(inSetLatest);
-  content.appendChild(
-    formRow(
-      "Input cons",
-      inSetSelect,
-      "Every step reads its inputs from this constellation where available (latest version per well). Blank = current values.",
-    ),
-  );
-
-  // --- Output cons (P1-c): one version per chain run, never overwriting. Editable
-  // combobox — pick an existing constellation or type a brand-new name. -----------------
-  const setInput = document.createElement("input");
-  setInput.type = "text";
-  setInput.value = "INTERP";
-  setInput.setAttribute("list", "log-cons-names");
-  let consList = document.querySelector<HTMLDataListElement>("#log-cons-names");
-  if (!consList) {
-    consList = document.createElement("datalist");
-    consList.id = "log-cons-names";
-    document.body.appendChild(consList);
-  }
-  content.appendChild(
-    formRow(
-      "Output cons",
-      setInput,
-      "The whole chain run is versioned into this constellation (re-run = version N+1). Pick an existing one or type a new name. Manage versions in the Curve Catalog.",
-    ),
-  );
-
-  // Fill both pickers from the project's existing constellation names. Input is strict
-  // (dropdown only); output offers them as datalist suggestions plus the common defaults.
-  void listLogSetNames()
-    .then((names) => {
-      for (const n of names) {
-        const o = document.createElement("option");
-        o.value = n;
-        o.textContent = n;
-        inSetSelect.appendChild(o);
-      }
-      const seeds = [...new Set(["INTERP", "FINAL", "TEST", ...names])];
-      consList!.innerHTML = "";
-      for (const n of seeds) {
-        const o = document.createElement("option");
-        o.value = n;
-        consList!.appendChild(o);
-      }
-    })
-    .catch(() => {});
+  // --- Input / output log set: the ONE shared control (`logSetPicker.ts`), so the chain and a
+  // single module run cannot describe the same choice in two different words.
+  const setPicker = buildLogSetPicker({
+    write: "INTERP",
+    readHint:
+      "Every step reads its inputs from this log set where available (latest version per well). " +
+      "Blank = whatever the current values are.",
+    writeHint:
+      "The whole chain run is versioned into this log set (re-run = version N+1). Pick an " +
+      "existing one or type a new name. Manage versions in the Curve Catalog.",
+  });
+  for (const row of setPicker.rows) content.appendChild(row);
 
   // --- Run bar -------------------------------------------------------------
   // No inline progress bar here — the universal Processing panel owns the live bar, per-well
@@ -866,8 +824,8 @@ export async function buildWorkflowContent(
       jobId,
       steps,
       wellIds,
-      setInput.value.trim() || undefined,
-      inSetSelect.value.trim() || undefined,
+      setPicker.outputSet(),
+      setPicker.inputSet(),
     ).catch((e) => {
       statusLine.textContent = `Error: ${e}`;
       finishRun();
