@@ -796,6 +796,24 @@ pub struct CoreLogSpec {
     /// somebody else's rock.
     #[serde(default)]
     pub lith_cut: Option<f32>,
+    /// **Unfold for dipping beds**: how much DEEPER the bedding sits at the right edge of the core
+    /// than at the left, in the project's depth unit. Signed; absent or zero reads the core flat.
+    ///
+    /// Stated as a depth DROP rather than as an angle, and that is not a convenience. An angle
+    /// needs the core's diameter to become a pixel shear, and nothing in this project stores it —
+    /// while the drop is read straight off the picture by noting one contact's depth at each edge.
+    /// The `fov_um`-over-micrometres-per-pixel rule: state the quantity you can actually measure.
+    ///
+    /// Why it matters: a slab average runs ACROSS the core, so a contact that crosses the core
+    /// diagonally is averaged with the rock above and below it over the whole width — a sharp
+    /// boundary comes back as a ramp, and at 30 degrees on a 10 cm core that ramp is ~6 cm of
+    /// invented gradation. Unfolding shears each column back before averaging, so the average
+    /// follows the BED rather than a horizontal line.
+    ///
+    /// DECLARED, never detected. Finding the dip in the pixels is a real image-processing job, and
+    /// a wrong one smears the section differently rather than failing.
+    #[serde(default)]
+    pub unfold: Option<f32>,
 }
 
 impl CoreLogSpec {
@@ -1038,6 +1056,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
         let mut spans = Vec::with_capacity(batch.len());
         let mut lane_spans = Vec::with_capacity(batch.len());
         let mut counts = Vec::with_capacity(batch.len());
+        let mut unfolds: Vec<Vec<f32>> = Vec::with_capacity(batch.len());
         for info in batch {
             // The CONDITIONED copy: `get_well_image`, not `get_well_image_source`.
             let (_, bytes) = crate::db::get_well_image(conn, &info.image_id).map_err(|e| e.to_string())?;
@@ -1050,6 +1069,16 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             counts.push(
                 planned.iter().map(|(_, (t, b))| sample_count(b - t, spec.step)).collect::<Vec<_>>(),
             );
+            // The unfold as a FRACTION of each lane's own depth span. A lane covering 1 m with a
+            // 4 cm drop across the core shears by 0.04 of its height, whatever the picture's
+            // resolution — the same reason every geometry here is a fraction.
+            let drop = spec.unfold.unwrap_or(0.0);
+            unfolds.push(
+                planned
+                    .iter()
+                    .map(|(_, (t, b))| if drop != 0.0 && b > t { drop / (b - t) } else { 0.0 })
+                    .collect::<Vec<_>>(),
+            );
         }
         let header = serde_json::json!({
             "axis": if spec.axis.eq_ignore_ascii_case("y") { "y" } else { "x" },
@@ -1059,6 +1088,8 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             "spans": spans,
             "lane_spans": lane_spans,
             "counts": counts,
+            // Per lane, as a fraction of that lane's own depth span — see the runner.
+            "unfold_frac": unfolds,
             "light": if spec.is_uv() { "uv" } else { "white" },
             "prefix": LOG_PREFIX,
             // Sent even on a single-class run: the runner still needs the band to build the total,
@@ -1144,6 +1175,12 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
     res.samples = sorted_depth.len();
     res.depth_min = sorted_depth[0];
     res.depth_max = sorted_depth[sorted_depth.len() - 1];
+
+    if let Some(drop) = spec.unfold.filter(|d| *d != 0.0) {
+        res.notes.push(format!(
+            "Unfolded for a bed dropping {drop} across the core. Each column is sheared back              before the slab average, so the average follows the BED rather than a horizontal              line — a diagonal contact comes back sharp instead of as a ramp. The corner              triangles at each barrel's ends have no rock in them and are MISSING, never filled              from the edge."
+        ));
+    }
 
     // CPHOTO_LITH — derived from the darkness trace rather than measured, so it is built here and
     // not in the runner. White light only: under UV the brightness IS the fluorescence, and
@@ -2488,9 +2525,18 @@ for i, ident in enumerate(hdr["ids"]):
             # clean massive sand does not.
             planes.append((prefix + "_TEX", lum, "std"))
 
-        # Each lane is read SEPARATELY and returned separately, because each is its own barrel with
-        # its own depths. Concatenating them here would throw away the one thing the caller needs to
-        # place them.
+        # Unfold for dipping beds: shear each COLUMN of the lane up or down so the bedding runs
+        # flat, then average. Without it a slab average runs across a diagonal contact and returns
+        # a ramp where the rock has a boundary.
+        #
+        # The shear is in PIXELS, derived by the caller from a depth drop the user read off the
+        # picture — an angle would need the core's diameter, which nothing here knows.
+        #
+        # Rows shifted in from beyond the lane are NaN, never the edge row repeated and never
+        # wrapped from the other end of the barrel: the corner triangles genuinely have no rock in
+        # them, and inventing some is how a barrel boundary acquires a bed.
+        unfolds = hdr.get("unfold_frac") or []
+        lane_unfold = unfolds[i] if i < len(unfolds) else []
         cols = {name: [] for name, _, _ in planes}
         for k, sp in enumerate(spans):
             x0 = int(round(max(0.0, min(1.0, float(sp[0]))) * w))
@@ -2502,18 +2548,39 @@ for i, ident in enumerate(hdr["ids"]):
             want = max(1, min(int(counts[k]), h))
             # Slab edges, so every pixel belongs to exactly one sample and none is counted twice.
             edges = np.linspace(0, h, want + 1).astype(np.int64)
-            cut = [(name, plane[:, x0:x1], how) for name, plane, how in planes]
+            # A fraction of the lane's OWN depth span, so it becomes pixels against this
+            # picture's own height — the picture is capped at a long edge and a pixel count sent
+            # from outside would belong to whichever copy it was measured on.
+            shear = (float(lane_unfold[k]) if k < len(lane_unfold) else 0.0) * h
+
+            def unfolded(plane):
+                sub = plane[:, x0:x1]
+                if abs(shear) < 0.5:
+                    return sub
+                nrow, ncol = sub.shape
+                offs = np.round(np.linspace(-shear / 2.0, shear / 2.0, ncol)).astype(np.int64)
+                idx = np.arange(nrow)[:, None] + offs[None, :]
+                bad = (idx < 0) | (idx >= nrow)
+                out = np.take_along_axis(sub, np.clip(idx, 0, nrow - 1), axis=0).astype(np.float32)
+                out[bad] = np.nan
+                return out
+
+            cut = [(name, unfolded(plane), how) for name, plane, how in planes]
             acc = {name: [] for name, _, _ in planes}
             for s in range(want):
                 lo, hi = edges[s], max(edges[s] + 1, edges[s + 1])
                 for name, plane, how in cut:
                     sl = plane[lo:hi]
-                    if how == "dark":
-                        acc[name].append(float(1.0 - sl.mean()))
+                    # nan-aware because an unfolded lane has empty corners; a slab with nothing
+                    # left in it is MISSING rather than a number made from its neighbours.
+                    if not np.any(np.isfinite(sl)):
+                        acc[name].append(float("nan"))
+                    elif how == "dark":
+                        acc[name].append(float(1.0 - np.nanmean(sl)))
                     elif how == "std":
-                        acc[name].append(float(sl.std()))
+                        acc[name].append(float(np.nanstd(sl)))
                     else:
-                        acc[name].append(float(sl.mean()))
+                        acc[name].append(float(np.nanmean(sl)))
             for name in acc:
                 cols[name].append(acc[name])
         row["cols"] = cols
@@ -2833,6 +2900,7 @@ mod tests {
             write: false,
             lith: false,
             lith_cut: None,
+            unfold: None,
         }
     }
 
@@ -3496,6 +3564,7 @@ mod tests {
             write: false,
             lith: false,
             lith_cut: None,
+            unfold: None,
         };
         let plain = extract_core_log(&conn, &spec).expect("read");
         let before = plain.curves.iter().find(|c| c.name.ends_with("_DARK")).unwrap().clone();
@@ -3615,6 +3684,7 @@ mod tests {
             write: false,
             lith: false,
             lith_cut: None,
+            unfold: None,
         };
         let dark = |r: bool| -> Vec<f32> {
             let res = extract_core_log(&conn, &spec(r)).expect("read");
@@ -3735,6 +3805,7 @@ mod tests {
                     write: false,
                     lith: false,
                     lith_cut: None,
+                    unfold: None,
                 },
             )
             .expect("read");
@@ -3930,6 +4001,7 @@ mod tests {
             write: false,
             lith: false,
             lith_cut: None,
+            unfold: None,
         };
 
         let fwd = extract_core_log(&conn, &spec(false)).expect("read");
@@ -4042,6 +4114,7 @@ mod tests {
             write: false,
             lith: false,
             lith_cut: None,
+            unfold: None,
         }
     }
 
@@ -4351,6 +4424,116 @@ mod tests {
         assert!(
             !measure_names(&spec).iter().any(|n| n.ends_with("_DARK")),
             "a UV run has no darkness trace to make a lithology from"
+        );
+    }
+
+    /// **A dipping contact is smeared by the slab average, and the unfold sharpens it.**
+    ///
+    /// The second thing Jauhar parked from the UV round. A slab average runs ACROSS the core, so a
+    /// bed that crosses it diagonally is averaged with the rock above and below over the whole
+    /// width: a sharp boundary comes back as a ramp, and every reader downstream sees gradation
+    /// the core does not have.
+    ///
+    /// The fixture is a picture whose top half is light and bottom half dark, with the boundary
+    /// running DIAGONALLY across the core — light at the left edge, 1 m deeper at the right. Read
+    /// flat, the darkness climbs gently over that whole metre. Unfolded by the same drop, it steps.
+    ///
+    /// Measured by the WIDTH of the transition, not by the values at the ends: both readings agree
+    /// about the clean sand and about the mudstone, and disagree only about how much rock sits
+    /// between them, which is the entire content of the correction.
+    #[test]
+    #[ignore = "needs numpy and Pillow"]
+    fn unfolding_a_dipping_bed_sharpens_a_contact_the_slab_average_would_smear() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-DIP", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // 10 m of core in 400 rows: 1 m = 40 rows. The contact sits at row 200 on the left and
+        // row 240 on the right — a 1 m drop across the core's width.
+        let (wpx, hpx) = (40usize, 400usize);
+        let drop_rows = 40.0f32;
+        let strip = bmp(wpx, hpx, |x, y| {
+            let boundary = 200.0 + drop_rows * (x as f32 / (wpx - 1) as f32);
+            let v: u8 = if (y as f32) < boundary { 230 } else { 60 };
+            (v, v, v)
+        });
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "CORE PHOTO",
+            "RUN1",
+            None,
+            &[crate::db::NewImage {
+                depth_top: 1000.0,
+                depth_base: Some(1010.0),
+                name: "BOX-DIP".into(),
+                mime: "image/bmp".into(),
+                width: wpx as i32,
+                height: hpx as i32,
+                data: strip,
+                printable: true,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+
+        let spec = |unfold: Option<f32>| CoreLogSpec {
+            well_id: w.clone(),
+            dataset: "CORE PHOTO".into(),
+            axis: "y".into(),
+            reverse: false,
+            lanes: 1,
+            layouts: Default::default(),
+            step: 0.05,
+            light: "white".into(),
+            fluor: Vec::new(),
+            output_set: None,
+            compare_curve: None,
+            write: false,
+            lith: false,
+            lith_cut: None,
+            unfold,
+        };
+
+        // How many samples sit strictly between the two plateaux — the width of the ramp. Read off
+        // `preview`, which is spread evenly down the interval, so a fraction of the preview is the
+        // same fraction of the core.
+        let ramp_width = |res: &CoreLogResult| -> usize {
+            let dark = res.curves.iter().find(|c| c.name.ends_with("_DARK")).expect("darkness");
+            let live: Vec<f32> = dark.preview.iter().copied().filter(|v| v.is_finite()).collect();
+            let (lo, hi) = live.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), v| (a.min(*v), b.max(*v)));
+            let (near_lo, near_hi) = (lo + 0.1 * (hi - lo), hi - 0.1 * (hi - lo));
+            live.iter().filter(|v| **v > near_lo && **v < near_hi).count()
+        };
+
+        let flat = extract_core_log(&conn, &spec(None)).expect("flat run");
+        let fixed = extract_core_log(&conn, &spec(Some(1.0))).expect("unfolded run");
+
+        let (wide, narrow) = (ramp_width(&flat), ramp_width(&fixed));
+        assert!(wide >= 4, "read flat, a 1 m dip must smear the contact across the preview: {wide} samples");
+        assert!(
+            narrow * 3 < wide,
+            "unfolding must collapse the ramp, not merely nudge it: {narrow} against {wide}"
+        );
+
+        // Both agree about the ROCK — the correction changes where the boundary is, never what is
+        // either side of it. A test that only checked sharpness would pass on a run that had
+        // quietly rescaled the whole trace.
+        let ends = |res: &CoreLogResult| -> (f32, f32) {
+            let dark = res.curves.iter().find(|c| c.name.ends_with("_DARK")).unwrap();
+            (dark.p10, dark.p90)
+        };
+        let (fa, fb) = ends(&flat);
+        let (ua, ub) = ends(&fixed);
+        assert!((fa - ua).abs() < 0.05, "the clean sand reads the same either way: {fa} vs {ua}");
+        assert!((fb - ub).abs() < 0.05, "and so does the mudstone: {fb} vs {ub}");
+
+        assert!(
+            fixed.notes.iter().any(|n| n.contains("Unfolded")),
+            "and the run says it was unfolded: {:?}",
+            fixed.notes
         );
     }
 }

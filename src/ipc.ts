@@ -2943,6 +2943,10 @@ export interface CoreLogSpec {
   /** The darkness at which the class changes. Omitted proposes Otsu's cut on this core's own
    *  trace — a method, not a calibration carried from anybody else's rock. */
   lith_cut?: number | null;
+  /** Unfold for dipping beds: how much DEEPER the bedding sits at the right edge of the core than
+   *  at the left, in the project's depth unit. An angle would need the core's diameter, which
+   *  nothing here stores; the drop is read straight off the picture. */
+  unfold?: number | null;
   /** Write the curves. Omit to measure without writing, so a lay-out can be tried first. */
   write?: boolean;
 }

@@ -8402,5 +8402,23 @@ The first of the two you parked from the UV round. **Photo Log ▸ Sand / shale 
       OPT_STAT = MODE — the one upscale that carries a class code whole. Tell me if you would
       rather it had its own minimum bed thickness.
 
-Still open from that round: **the unfold for dipping beds** (shearing each slab to the bed's
-apparent dip before averaging, so a dipping contact is not smeared across the core's width).
+---
+
+## The unfold for dipping beds (2026-08-05)
+
+The second of the two. **Photo Log ▸ Unfold dipping beds**, stated as a depth DROP across the core
+rather than an angle — an angle needs the core's diameter, which nothing here stores, while the
+drop is read straight off the picture: note one contact's depth at each edge and subtract.
+
+- [ ] Find a box with an obviously dipping contact. Read it flat first and look at where
+      `CPHOTO_DARK` crosses — it should ramp across roughly the drop.
+- [ ] Enter the drop and read again. The ramp should collapse to a step. Measured on a synthetic
+      1 m dip it went to under a third of its width while both the sand and the mudstone read the
+      same either side — the correction changes where the boundary is, never what is beside it.
+- [ ] Sign: POSITIVE means the bedding sits deeper at the RIGHT edge. If the contact gets worse,
+      try the other sign before anything else.
+- [ ] The corner triangles at each barrel's ends have no rock in them and come back MISSING —
+      never filled from the edge row, never wrapped from the other end of the barrel.
+- [ ] It is DECLARED, not detected. Finding the dip in the pixels is a real image-processing job
+      and a wrong answer would smear the section differently rather than failing. Say if you would
+      rather it proposed one.

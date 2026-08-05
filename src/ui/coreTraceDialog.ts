@@ -690,6 +690,27 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
     )
   );
 
+  // --- Unfold for dipping beds -----------------------------------------------
+  // A slab average runs ACROSS the core, so a contact crossing it diagonally is averaged with the
+  // rock either side over the whole width and comes back as a ramp. Stated as a depth DROP rather
+  // than an angle: an angle needs the core's diameter, which nothing here stores, while the drop
+  // is read straight off the picture by noting one contact's depth at each edge.
+  const unfoldIn = document.createElement("input");
+  unfoldIn.className = "form-control";
+  unfoldIn.type = "number";
+  unfoldIn.step = "0.01";
+  unfoldIn.placeholder = "0 — beds read flat";
+  runBox.appendChild(
+    formRow(
+      "Unfold dipping beds",
+      unfoldIn,
+      "How much DEEPER the bedding sits at the RIGHT edge of the core than at the left, in the " +
+        "project's depth unit. Read it off the picture: note one contact's depth at each edge and " +
+        "subtract. Declared, never detected — a wrong value smears the section differently rather " +
+        "than failing.",
+    ),
+  );
+
   // --- Sand/shale curve ------------------------------------------------------
   // Jauhar's remaining item from the UV round: a DISCRETE curve off the white-light trace, because
   // a correlation panel can consume a class curve and cannot consume a continuous proxy.
@@ -865,6 +886,7 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
         fluor: isUv() ? readClasses() : [],
         compare_curve: cmpSel.value || null,
         output_set: setPicker.outputSet(),
+        unfold: unfoldIn.value.trim() ? Number(unfoldIn.value) : null,
         lith: lithChk.checked && !isUv(),
         lith_cut: lithCut.value.trim() ? Number(lithCut.value) : null,
         write,
