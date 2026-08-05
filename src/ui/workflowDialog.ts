@@ -476,7 +476,9 @@ export async function buildWorkflowContent(
   // numeric params, then options, MASK last). A parameter shared by several modules
   // lines up in one column; a step that doesn't take a column's arg shows "—".
 
-  type GridKind = "log_in" | "param" | "option" | "text" | "mask";
+  // `log_out` is a real column here: the grid is where a chain's whole shape is read at once, and
+  // "which curve does each step write" is as much a part of that as which one it reads.
+  type GridKind = "log_in" | "param" | "option" | "text" | "log_out" | "mask";
   interface GridCol {
     kind: GridKind;
     name: string;
@@ -500,9 +502,7 @@ export async function buildWorkflowContent(
       const own = stepsByModule.get(spec.name);
       if (!own) continue;
       for (const arg of spec.args) {
-        if (arg.kind === "log_out") continue;
         const key = `${arg.kind}:${arg.name}`;
-        // `log_out` is filtered above, so every remaining kind is a GridKind.
         const kind = arg.kind as GridKind;
         let col = by.get(key);
         if (!col) {
@@ -514,7 +514,7 @@ export async function buildWorkflowContent(
         }
       }
     }
-    const rank: GridKind[] = ["log_in", "param", "option", "text"];
+    const rank: GridKind[] = ["log_in", "param", "option", "text", "log_out"];
     const cols = [...by.values()].sort((a, b) => rank.indexOf(a.kind) - rank.indexOf(b.kind));
     cols.push({ kind: "mask", name: "MASK", unit: "", desc: MASK_DESC, args: new Map() });
     return cols;
@@ -523,7 +523,27 @@ export async function buildWorkflowContent(
   function hasOverride(step: ChainStep, col: GridCol): boolean {
     if (col.kind === "param") return step.params[col.name] !== undefined;
     if (col.kind === "log_in") return step.log_inputs[col.name] !== undefined;
+    if (col.kind === "log_out") return step.opts[`__OUT_${col.name}`] !== undefined;
     return step.opts[col.kind === "mask" ? "MASK" : col.name] !== undefined;
+  }
+
+  /** A per-step output rename. Blank means the module's own default name, the same reading the
+   *  module pane's grid gives — clearing the box must give the original name back rather than
+   *  write an unnamed curve. */
+  function outNameControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLInputElement {
+    const input = document.createElement("input");
+    input.className = "workflow-editor-input";
+    input.type = "text";
+    input.spellcheck = false;
+    input.placeholder = arg.name;
+    input.value = step.opts[`__OUT_${arg.name}`] ?? "";
+    input.addEventListener("input", () => {
+      const typed = input.value.trim();
+      if (typed) step.opts[`__OUT_${arg.name}`] = typed;
+      else delete step.opts[`__OUT_${arg.name}`];
+      onChanged();
+    });
+    return input;
   }
 
   // Live grid controls, keyed by column then step, so a Set-all edit refreshes the
@@ -545,6 +565,8 @@ export async function buildWorkflowContent(
         control.value = step.log_inputs[arg.name] ?? arg.default;
       } else if ((col.kind === "option" || col.kind === "text") && arg) {
         control.value = step.opts[arg.name] ?? arg.default;
+      } else if (col.kind === "log_out" && arg) {
+        control.value = step.opts[`__OUT_${arg.name}`] ?? "";
       } else if (col.kind === "mask") {
         control.value = step.opts.MASK ?? "";
       }
@@ -568,6 +590,7 @@ export async function buildWorkflowContent(
     };
     let control: HTMLInputElement | HTMLSelectElement;
     if (col.kind === "mask") control = maskControl(step, onChanged);
+    else if (col.kind === "log_out") control = outNameControl(step, arg!, onChanged);
     else if (col.kind === "log_in") control = logInControl(step, arg!, onChanged);
     else if (col.kind === "option") control = optionControl(step, arg!, onChanged);
     else if (col.kind === "text") control = textControl(step, arg!, onChanged);
@@ -631,6 +654,14 @@ export async function buildWorkflowContent(
       );
       values = [...extras, ...inputCurveNames];
     } else if (col.kind === "mask") values = ["(none)", ...maskCurveNames(curveNames)];
+    else if (col.kind === "log_out") {
+      // No Set-all on an output name, deliberately: two steps writing their VSH under one name
+      // is the collision `resolve_output_names` refuses, so offering to do it in one click would
+      // be offering to break the chain.
+      td.className = "workflow-grid-na";
+      td.textContent = "—";
+      return td;
+    }
     else {
       // Options only get a set-all control when every step offers the same choices.
       const lists = [...col.args.values()].map((a) => a.choices.join("\n"));
@@ -704,7 +735,9 @@ export async function buildWorkflowContent(
     headRow.appendChild(corner);
     for (const col of cols) {
       const th = document.createElement("th");
-      th.textContent = col.kind === "mask" ? "Mask" : col.name;
+      // An arrow marks an OUTPUT column, so a header reads as "what this step writes" rather
+      // than as another input with a similar name.
+      th.textContent = col.kind === "mask" ? "Mask" : col.kind === "log_out" ? `→ ${col.name}` : col.name;
       if (col.unit) {
         const u = document.createElement("span");
         u.className = "workflow-grid-unit";
