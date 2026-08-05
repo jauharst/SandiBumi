@@ -2149,15 +2149,23 @@ records the answers that overruled the recommendation and why._
   identical neighbours, so the textbook test finds nothing on the cleanest case of the thing it is
   for — `window_spread` falls back to the mean deviation, and `MIN_HAMPEL_SAMPLES` refuses a window
   too narrow to measure a spread at all.
-- **Frame (increment 1b)** — `block` (four bed definitions), `resample`, `regularize`,
+- **Log-set sweep ✅ (2026-08-05)** — the UI said "constellation"/"cons" where everything else says
+  **log set**, which is why the word did not connect. One word now. Underneath it, only 2 surfaces
+  of 19 offered a version choice: every curve-consuming request gained `input_set`, every writer
+  gained `output_set` defaulting to its old hardcoded value, `logSetPicker.ts` is the one control,
+  and a source-reading test fails if a struct ever loses the field. Plus a run-wide **output
+  prefix** (`OUT_PREFIX_OPT`) so a trial lands as `TEST_VSH` beside the live interpretation —
+  handled once in the runner, and **Monte Carlo refuses a prefixed step by name** because its plan
+  builder resolves cutoffs from declared LogOut names.
+- **Frame ✅ (2026-08-05)** — `block` (four bed definitions), `resample`, `regularize`,
   `align_multiwell`. Coarsening is a box average, never an interpolation; a blocked curve is written
   `draw_style: "step"`. Reverse/Sort belong in Intake, not here.
-- **Statistics** — Curve Summary, Pair Summary, Fit (1..n predictors + blind-well CV, saveable as an
+- **Statistics ✅ (2026-08-05)** — Curve Summary, Pair Summary, Fit (1..n predictors + blind-well CV, saveable as an
   `ml_models` artifact), Versus (two log SETS — the first consumer of log-set provenance) and
   Thickness. Thickness is its own tool on Jauhar's call (*"we talk about thickness not only in pay
   summary"*) and **counts a condition rather than re-deriving one** — where that condition is pay it
   reads `FLAG_PAY`. All five emit the workbook's `Sheet`/`Cell` model.
-- **Intake** — one importer replacing the five table-shaped dialogs (core, aux, SCAL, tops,
+- **Intake ✅ (2026-08-05, long layout)** — one importer replacing the five table-shaped dialogs (core, aux, SCAL, tops,
   locations); LAS/DLIS keep their own path. The grid is the control; **Long / Wide / Block is
   declared by the user**, not sniffed; preview IS the commit; the workbook's comma-decimal rule moves
   into the shared parser.

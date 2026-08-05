@@ -1,6 +1,9 @@
 # Intake, Statistics, Condition & Frame — the plan
 
-**Status:** Condition shipped (2026-08-05, increment 1). Frame, Statistics and Intake queued.
+**Status (2026-08-05): all four shipped.** Condition, Frame, Statistics and Intake, plus the
+log-set sweep that runs underneath all of them. Named and deferred: Intake's Wide/Block array
+layouts, its Curve role and saved templates; Frame's Resample/Regularize (a well-level re-frame,
+not a module).
 
 Three tool families asked for on 2026-08-05, scoped in a twelve-question round with Jauhar the same
 day. His answers are recorded here verbatim in effect, because several of them overrule the
@@ -139,7 +142,7 @@ Condition module that quietly does the same two-point map with different words.
 
 ---
 
-## 3. Frame — queued (increment 1b)
+## 3. Frame — SHIPPED 2026-08-05
 
 Category **Frame** — the word this repo already uses for a curve's depth grid ("resamples onto the
 frame the rest of the project reads"). Members: **Block**, **Resample**, **Regularize**, **Align
@@ -157,7 +160,7 @@ Rules already decided:
 
 ---
 
-## 4. Statistics — queued
+## 4. Statistics — SHIPPED 2026-08-05
 
 Five tools; four of them reuse machinery that already exists.
 
@@ -174,7 +177,7 @@ and the deck with no second implementation — and a blank stays blank.
 
 ---
 
-## 5. Intake — queued
+## 5. Intake — SHIPPED 2026-08-05 (long layout)
 
 One pane replacing five dialogs (decision 1). The grid IS the control: click a column header to
 give it a role and the column tints, as in the reference screenshot. Roles: Well, Depth (top/base),
@@ -203,3 +206,41 @@ Curve, Plug property, Point item, Array, Ignore — and different roles in one f
 
 The discrete sand/shale curve off the white-light core trace (`CPHOTO_LITH`) and the dipping-bed
 unfold, both from the UV round. Not dropped — see `docs/plan_core_photo.md`.
+
+
+---
+
+## 7. The log-set sweep (2026-08-05)
+
+Jauhar, in the same session: *"each tools or modules should give user freedom to define input and
+output log set ... and their own curves"* — and, in the same breath, *"i forgot what set refer to
+in sandibumi"*. Both halves were real defects.
+
+**The word.** The store, the backend, `ROADMAP.md` and every other petrophysics package say **log
+set**; the UI alone said "constellation", abbreviated to "cons" on the only two dialogs that
+offered one. A user cannot map that onto anything they have read about their own project. One word
+now, everywhere. Nothing about the data model changed.
+
+**The freedom.** Exactly TWO surfaces of nineteen let a user pick a version. ML, SandiMin, the
+saturation-height fit, the cutoff sweep, the pay summary, the facies tie, Lorenz, results QC, the
+report, the workbook and the deck all read whatever the current values happened to be — and the
+three that write curves hardcoded where the output went (`ML`, `SANDIMIN`, and the core photograph
+traces had no log set at all). None of that shows up in a result: a report quoting last week's
+porosity looks exactly like one quoting today's.
+
+Every one now takes `input_set`; every writer takes `output_set` defaulting to what it used to
+hardcode, so an older payload behaves identically. `src/ui/logSetPicker.ts` is the ONE control —
+the `followCore.ts` argument — and `equations::tests::every_curve_consuming_request_still_offers_a_
+log_set` reads the source and fails if a request struct ever loses the field, which would compile,
+run, and silently revert the tool to current values.
+
+**Their own curves.** Modules already chose their INPUTS. Outputs were fixed, and mostly should be
+— a module producing `VSH` is producing an answer whose name is part of the answer. So the general
+form is a run-wide **output prefix** (`workflow::OUT_PREFIX_OPT`), handled once in the runner for
+the reason `MASK` is, letting a whole trial run land as `TEST_VSH`, `TEST_PHIE` beside the
+interpretation the field is using. Condition and Frame keep their own per-curve `OUT` field, which
+is the right shape there because those modules produce a COPY of an input rather than an answer.
+
+**Monte Carlo REFUSES a prefixed step, by name.** Its plan builder resolves cutoffs and fraction
+curves from the manifest's declared LogOut names, so a prefixed run would be planned against
+curves it never writes and the study would return plausible percentiles computed from nothing.

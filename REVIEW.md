@@ -8260,3 +8260,25 @@ columns into point data. Intake builds the mapping and calls it, so the two can 
 - [ ] **Templates** — saving a mapping by name for a recurring delivery.
 - [ ] The old core/aux/SCAL/tops dialogs are still in the Data ribbon. They stay until you have
       run Intake against your own deliveries and are happy with it; say the word and they go.
+
+---
+
+## Output prefix — a trial run beside the live interpretation (2026-08-05)
+
+Every module dialog gains **Output prefix (optional)**, beside the Mask.
+
+Modules already let you choose their inputs; their outputs were fixed, and mostly should be — a
+module producing `VSH` is producing an answer whose name is part of the answer. So the general
+form of "define your own curves" is a run-wide prefix rather than renaming curves one at a time.
+
+- [ ] Run VSH from Gamma Ray with the prefix `TEST_`. It should write `TEST_VSH` and leave your
+      real `VSH` untouched. Is that the shape of the freedom you meant, or did you want to name
+      each output curve individually?
+- [ ] Leave it blank and confirm nothing changed — every saved chain and every layout depends on
+      that.
+- [ ] Put a prefixed step into a **Monte Carlo** study. It should REFUSE by name. The study
+      resolves its cutoffs from the module's declared output names, so a prefixed run would be
+      planned against curves it never writes and would return plausible percentiles computed from
+      nothing. Is the message clear about what to do?
+- [ ] The prefix is on the single-module pane only so far, not in the workflow builder's per-step
+      grid. Say if you want it there too.

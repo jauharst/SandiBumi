@@ -185,6 +185,15 @@ fn resolve_param_arrays(
 /// like the `__IN_<arg>` mnemonics so it cannot collide with a manifest parameter.
 pub(crate) const ZONE_INDEX_ARG: &str = "__ZONE_INDEX";
 
+/// Run option carrying a prefix applied to every output curve name.
+///
+/// Universal like `MASK` rather than a per-module manifest arg: it is one rule about what a run
+/// writes. **Monte Carlo REFUSES a step that sets it** — its plan builder resolves cutoffs and
+/// fraction curves from the manifest's declared LogOut names, so a prefixed run would be planned
+/// against names it never writes, and the study would come back with plausible percentiles
+/// computed from nothing. Refusing by name beats a silently empty answer.
+pub(crate) const OUT_PREFIX_OPT: &str = "OUT_PREFIX";
+
 /// Runs one module across every well: parse inputs, resolve zone parameters, evaluate,
 /// and write output curves to computed_curves. Wells are processed in parallel.
 ///
@@ -402,6 +411,28 @@ pub fn run_workflow_module_into(
 
                 let ctx = ModuleContext { n: depth.len(), logs, params, opts: opts.clone(), depth_unit };
                 let mut outputs = modules::run_module(&req.module, &ctx)?;
+
+                // Universal output prefix — the general form of the freedom the Condition and
+                // Frame families give through their own OUT field (Jauhar, 2026-08-05: *"each
+                // tools or modules should give user freedom to define input and output log set
+                // ... and their own curves"*).
+                //
+                // Handled HERE rather than per module, for the reason MASK is: it is one rule
+                // about what a run writes, and forty copies of it would be forty places to get it
+                // wrong. A module cannot be asked to rename its own outputs either — most of them
+                // produce a curve whose name is the answer (`VSH`, `PHIE`), and renaming that
+                // inside the module would leave the manifest's declared LogOut describing
+                // something the run does not write.
+                //
+                // Empty means unchanged, which is what every existing run and every saved chain
+                // sends — so this is additive by construction.
+                if let Some(prefix) = opts.get(OUT_PREFIX_OPT).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                    let prefix = prefix.to_uppercase();
+                    outputs = outputs
+                        .into_iter()
+                        .map(|(name, values)| (format!("{prefix}{name}"), values))
+                        .collect();
+                }
 
                 // Blank flagged samples in the OUTPUTS too, so a flagged depth's result is
                 // never trusted downstream.
@@ -2566,6 +2597,83 @@ mod tests {
     /// exactly on a shared boundary from belonging to both zones and taking whichever happened to
     /// be listed last. That is pinned here, at the boundary sample itself.
     ///
+    /// **An output prefix renames every curve a run writes, and nothing else.**
+    ///
+    /// The general form of the Condition and Frame families' own OUT field (Jauhar, 2026-08-05:
+    /// *"each tools or modules should give user freedom to define ... their own curves"*). Most
+    /// modules produce a curve whose NAME is the answer — `VSH`, `PHIE` — so renaming them one at
+    /// a time is not the shape of the freedom; putting a whole trial run under a prefix is, and
+    /// it leaves the interpretation the field is already using untouched.
+    ///
+    /// Handled once in the runner rather than in forty modules, for the reason `MASK` is. The
+    /// control matters as much as the case: an EMPTY prefix must leave the names byte-identical,
+    /// or every saved chain and every layout in every existing project would be pointing at
+    /// curves that no longer exist.
+    #[test]
+    fn an_output_prefix_renames_every_curve_a_run_writes_and_an_empty_one_changes_nothing() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let run_with = |prefix: Option<&str>| -> Vec<String> {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            let wid = Uuid::new_v4();
+            db::insert_well(&conn, wid, "SANDI-PFX", None, None, Some(0.0)).unwrap();
+            let n = 5usize;
+            let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+            db::insert_standard_curves(
+                &conn,
+                wid,
+                depths,
+                (0..n).map(|i| 20.0 + i as f32 * 10.0).collect(), // GR
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+            )
+            .unwrap();
+            let dbm = Mutex::new(conn);
+            let mut opts: HashMap<String, String> = HashMap::new();
+            if let Some(p) = prefix {
+                opts.insert(OUT_PREFIX_OPT.to_string(), p.to_string());
+            }
+            let req = RunModuleRequest {
+                module: "vsh_gr".into(),
+                well_ids: vec![wid.to_string()],
+                log_inputs: HashMap::new(),
+                params: HashMap::new(),
+                opts,
+                output_set: None,
+                input_set: None,
+            };
+            let r = run_workflow_module(&dbm, &req);
+            assert!(r[0].error.is_none(), "vsh_gr: {:?}", r[0].error);
+            let mut names = r[0].output_curves.clone();
+            names.sort();
+            names
+        };
+
+        let plain = run_with(None);
+        assert!(!plain.is_empty(), "the module must write something for this test to mean anything");
+        assert!(plain.iter().any(|n| n == "VSH"), "unprefixed run writes VSH: {plain:?}");
+
+        // An empty prefix is the same as none — the case every existing project sends.
+        assert_eq!(run_with(Some("   ")), plain, "a blank prefix must change nothing at all");
+
+        let prefixed = run_with(Some("test_"));
+        assert_eq!(
+            prefixed,
+            plain.iter().map(|n| format!("TEST_{n}")).collect::<Vec<_>>(),
+            "every output is prefixed, upper-cased, and none is left behind"
+        );
+        assert!(
+            !prefixed.iter().any(|n| n == "VSH"),
+            "and the interpretation's own VSH is untouched — that is the whole point of a trial run"
+        );
+    }
+
     /// **The parameter under test is PGRAD, and the choice is the point.** This test used to drive
     /// TEMP_GRAD, and doing so exposed finding 6: `precalc` computes each sample as
     /// `intercept + grad(i) * depth(i)` from SURFACE rather than integrating down through the zones

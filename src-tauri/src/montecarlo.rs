@@ -1058,6 +1058,17 @@ fn build_plans(
     for step in steps {
         let spec = &specs[&step.module];
 
+        // A prefixed step writes curves the plan builder cannot see: cutoffs and the
+        // fraction-curve lists below are resolved from the manifest's declared LogOut names, so
+        // the study would be planned against names the run never produces and would return
+        // plausible percentiles computed from nothing. Refused by name — see `OUT_PREFIX_OPT`.
+        if step.opts.get(crate::workflow::OUT_PREFIX_OPT).is_some_and(|p| !p.trim().is_empty()) {
+            return Err(format!(
+                "Step \"{}\" sets an output prefix, and a Monte Carlo study cannot follow one:                  its cutoffs and volume curves are resolved from the module's declared output                  names, so it would be planning against curves this run never writes. Clear the                  prefix on that step, or run it outside the study.",
+                step.module
+            ));
+        }
+
         // Options: manifest defaults, then step overrides, plus __IN_<arg> mnemonics. Text args
         // travel here too — same channel as an Option, per `ArgKind::Text`.
         let mut opts: HashMap<String, String> = spec

@@ -209,6 +209,23 @@ export async function buildModuleContent(
     formRow("Mask (optional)", maskSelect, "Flag curve (=1 bad) to blank out of every output — e.g. BADHOLE."),
   );
 
+  // --- Universal output prefix. The general form of the Condition/Frame OUT field: every module
+  // writes curves whose names ARE the answer (VSH, PHIE), so renaming them one by one is not the
+  // shape of the freedom — putting a run's whole output under a prefix is.
+  const prefixInput = document.createElement("input");
+  prefixInput.className = "form-control";
+  prefixInput.type = "text";
+  prefixInput.placeholder = "none";
+  argsGrid.appendChild(
+    formRow(
+      "Output prefix (optional)",
+      prefixInput,
+      "Prefixes every curve this run writes, so a trial does not overwrite the interpretation — " +
+        "TEST_ gives TEST_VSH, TEST_PHIE. A Monte Carlo study refuses a prefixed step, because " +
+        "its cutoffs are resolved from the module's declared output names.",
+    ),
+  );
+
   // --- Input / output log set: the ONE shared control (`logSetPicker.ts`). Was two bespoke
   // blocks here labelled "Input cons" / "Output cons" — the store, the backend and the docs all
   // say LOG SET, and only this UI said constellation, which is why the word did not connect.
@@ -318,6 +335,7 @@ export async function buildModuleContent(
     // indistinguishable from one that was never on the dialog.
     for (const [name, input] of textInputs) opts[name] = input.value.trim();
     if (maskSelect.value) opts.MASK = maskSelect.value;
+    if (prefixInput.value.trim()) opts.OUT_PREFIX = prefixInput.value.trim();
     const logInputs: Record<string, string> = {};
     for (const [name, select] of logSelects) logInputs[name] = select.value;
 
