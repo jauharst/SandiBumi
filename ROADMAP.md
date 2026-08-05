@@ -54,7 +54,9 @@ headers below rather than as the primary structure.
 - **Facies & ML** (Phase 10): electrofacies (k-means + GMM), full scikit-learn ML suite.
 - **Hardening**: **Critical** (8 correctness/data-integrity fixes) + **Reliability** (frontend-state races/leaks) tiers — done & adversarially verified.
 - **Feature waves**: **Wave A** (all tools as panes, compact ribbon, project picker, workflow grid) + **Wave E** (KKT ONWJ: precalc, dry-clay, gascorr, φmax, cutoff-sensitivity, map/polygons, condflag, nphimat) — all shipped.
-- **Polish so far**: units on readouts + adaptive value formatting (Polish-1); correlation well-list refresh + Ctrl-wheel zoom (Polish-2).
+- **Core & plate imaging** (§C2 item 7, 2026-07-31 → 08-05): plate import from workbooks, pore area / stain / grain / mineral classifier, plate + core-slab conditioning, `CPHOTO_DARK`/`_RED`/`_TEX`/`_FLUOR`/`_LITH` traces, depth strips, packed-plate lane reader, dip unfold, and the trace as a registration reference.
+- **Data tools** (§C4b, 2026-08-05): **Intake** (one importer, long/wide/block, caption-keyed blocks), **Statistics**, **Condition**, **Frame**, **Reframe** (a log set with its own sampling), universal **Normalize**, declared output names, and the log-set sweep that gave every reader and writer a version choice.
+- **Polish so far**: units on readouts + adaptive value formatting (Polish-1); correlation well-list refresh + Ctrl-wheel zoom (Polish-2); a machine with no WebGPU gets the app's standard named refusal in the pane — what failed, that every other surface is 2D canvas and still works, and the fix — instead of a dim one-liner naming the mechanism (2026-08-05).
 
 ### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
 - **Polish tail** (§4b): ✅ all shipped — units #122, correlation #123, history-coverage #124, Pickett v2 #125, pay-summary provenance #126.
@@ -67,7 +69,7 @@ headers below rather than as the primary structure.
 
 ### 🔮 Future — bigger lifts  → [Part C](#-part-c--future)
 - **Method-suite waves** (§4c Wave C): thin-bed / LRLC suite (10), TOC / unconventional (1a), 1D geomechanics MEM (1b), rock physics (15).
-- **New data-model suites** (§4c Wave D): NMR (5), image logs (6), core-photo digitization (7).
+- **New data-model suites** (§4c Wave D): NMR (5), image logs (6). _(Core-photo digitization (7) is DONE — see Done above; item (8) plate digitizing is done bar the two open asks in §C2.)_
 - **Trust & reproducibility** (Phase 11): audit lineage, scenario A/B compare, command palette.
 - **Platform & extensibility** (Phase 12): user Python modules, native DLIS / LAS 3.0 / WITSML, installer + auto-update, in-app help; long game — NMR arrays, images, geomechanics, production logs.
 - **New-capability misc** (§4): 2D map window + volumetrics, plugins ribbon, panes independent of windows, data digitization tools, user-guide PDF.
@@ -1680,9 +1682,67 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       into one tall depth-registered picture, so the log-view strip track is an ordinary image track
       and no renderer needed new geometry; `ImageStyle.fit` gained "stretch" for it. Also fixed here:
       `reverse` flipped only the down-core axis, so a multi-row box was read with its rows in the
-      original order. **2026-08-01**: the trace anchors a registration (`registration.rs` reference kind `curve`), and saving it now lands on the well's depth frame instead of the photograph's, which had made the curves unreadable. WL/UV pairs (hold-to-see the paired frame, matched on depth interval; editable strip target so both lights get their own strips). **Item (7) is COMPLETE.** Absorbs the
-      §4 New-capability "core image input" stub. → `ref_image_core.md`.
-- [ ] **(8) Depth registration, then plate digitizing** — scoped 2026-07-31 at Jauhar's direction
+      original order. **2026-08-01**: the trace anchors a registration (`registration.rs` reference kind `curve`), and saving it now lands on the well's depth frame instead of the photograph's, which had made the curves unreadable. WL/UV pairs (hold-to-see the paired frame, matched on depth interval; editable strip target so both lights get their own strips).
+      **2026-08-01 — the packed core-display plate.** A whole-core delivery is not a folder of box
+      photographs: it is a page of four COLUMNS of core, each a separate barrel labelled with its own
+      top and base, with preserved intervals and part-filled last columns between them. Read as one
+      span in four equal parts — all the old lane count could do — every sample below the first gap
+      lands at the wrong depth. `Lane` carries fractions of the across axis plus the barrel's own
+      interval and `PlateLayout.span` excludes the title block; depths are **ALL-OR-NOTHING across a
+      picture's lanes** (half a plate labelled is refused, because placing the rest assumes the core
+      runs on without the break the same plate disproves), with no depths they are shared out by lane
+      LENGTH rather than into equal parts, and `detect_core_lanes` PROPOSES via Otsu on the picture's
+      own across-axis brightness, returning the whole profile so four clean columns and a smear cut
+      in four can be told apart. **The DEPTHS are never guessed.** The conversion became its own tool
+      on Jauhar's call (*"for core image conversion to log, separate it from core photos tools"*) —
+      Advance ▸ Core Imaging ▸ **Photo Log…** — because conditioning is done once per delivery and a
+      trace is read, checked against GR, re-laid-out and read again. `recommend_core_recipe` measures
+      a picture and proposes conditioning with a reason per value: the neutral is the brightest
+      UNCLIPPED least-coloured patch rather than grey-world (which would scrub out a genuinely
+      red-stained core), the gain is normalised so the largest is 1 so it can only darken, detail is
+      NEVER recommended because it is what the trace is read from, and a UV plate is recognised and
+      left alone — it is MEANT to be dark and lifting it drowns the fluorescence.
+      **2026-08-05 — fluorescence.** `CPHOTO_FLUOR` + `_I` (+ per-class only where more than one
+      band, since with one they would be byte-identical copies), off the same `extract_core_log`
+      rather than a second function, so the two lights cannot disagree about where a barrel is. **An
+      INFERRED show** — mineral fluorescence, mud additives and dead oil all glow, and a drained slab
+      shows nothing — and the light is DECLARED, never detected, because the evidence for "this is
+      ultraviolet" would be the brightness about to be measured. `FluorClass` carries a saturation
+      CEILING (dull blue-WHITE is the absence of colour and cannot be a floor), one generic band
+      ships because splitting hues would assert an interpretation this repo has no source for, and
+      `fluor_band_is_saturated` is deliberately NOT `scene_dominated`: "rock is mostly rock" is true
+      but "a UV frame is mostly background" is not, so the test is the run's P10, not the picture's
+      own median. The two lights watch different halves of the recipe (`touches_light` on UV, since
+      the count is against an absolute floor; `touches_detail` on white light), and the
+      darkness-sign note is white-light only — an oil show sits in the clean sand, so a negative
+      correlation there is ordinary.
+      **2026-08-05 — the last two items.** `CPHOTO_LITH`, a two-class cut of the darkness trace
+      proposed by Otsu on this core's own trace, codes ORDERED for `facies.rs`'s reason; it will
+      never be `VSH` or `LITH`, because the same dark band is organic-rich mudstone in one core and
+      oil stain in another. Refused under UV and refused on a core of one lithology rather than
+      inventing a contact through the middle of it. `lith_min_bed` has **no default** — a minimum bed
+      thickness is a statement about the rock and about what the study is for — counts in SAMPLES so
+      a barrel gap is harmless, and absorbs thinnest-first with runs rebuilt after each, since
+      merging can lift a neighbour above the threshold and a single sweep would strip beds that had
+      become legitimate. And `CoreLogSpec.unfold`, the dipping-bed shear, stated as the depth DROP
+      across the core's width rather than an angle (an angle needs a core diameter nothing here
+      stores); rows sheared in from beyond a lane are MISSING, never the edge row repeated.
+      `unfold_scan` PROPOSES and applies nothing — `registration.rs`'s contract — scoring the trace's
+      own contrast per LANE, with a 75% coverage floor so sliding the core off its own frame cannot
+      win and an unscored candidate drawn as an EMPTY slot rather than a short bar. **Item (7) is
+      COMPLETE.** Absorbs the §4 New-capability "core image input" stub. → `ref_image_core.md`.
+      _(PDF import is deliberately NOT built — Jauhar, 2026-08-05: "dont try to import pdf, user will
+      just provide photo". He exports the plates himself; the cost is that a hand export loses the
+      captions, so barrel depths are typed into Photo Log's column table and which folder is which
+      light is declared at import as two datasets. `docs/plan_core_photo.md` §4a keeps the design.)_
+- [x] **(8) Depth registration, then plate digitizing** — **BOTH TIERS SHIPPED** (Part 1 registration
+      2026-07-31, Part 2 digitizing 2026-07-31; see the increments below). All four of the plan's §4
+      decisions are answered (D1 "not always, sometimes"; D2 tentative yes, served by an explicit
+      tick-box at import plus increment 1d; D3 "optional", implemented as different ITEM NAMES rather
+      than one name and a flag; D4 "sometimes" on both counts, hence per-plate `fov_um` / `prepared`
+      / `stain`). Two asks remain open and both are **"ask before building"** — reading the old
+      `.xls` directly, and turning a magnification into a field of view. Original scoping follows.
+      Scoped 2026-07-31 at Jauhar's direction
       ("all of those, it should be depth registered first, then the quantification or qualitative
       analysis"). **The plan is `docs/plan_image_analysis.md`**; it supersedes the loose OpenCV note
       in §B3 and overlaps (7) on the registration half. Two tiers: **Part 1** core-to-log depth
@@ -2131,11 +2191,15 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
 - **Done when**: a colleague installs SandiBumi from an installer, imports a DLIS, runs your shared Python
   module, and exports a PDF report — zero developer tools involved.
 
-## C4b. Intake, Statistics, Condition & Frame (2026-08-05)
+## C4b. Intake, Statistics, Condition, Frame & Reframe (2026-08-05)
 
-_Three tool families scoped with Jauhar in a twelve-question round on 2026-08-05. **The plan and
-every decision live in `docs/plan_data_tools.md`** — read it before touching any of the three; it
-records the answers that overruled the recommendation and why._
+_Three tool families scoped with Jauhar in a twelve-question round on 2026-08-05 — Intake,
+Statistics, and Condition/Frame. **The plan and every decision live in `docs/plan_data_tools.md`** —
+read it before touching any of them; it records the answers that overruled the recommendation and
+why. What the round grew into over the same day is below: the log-set sweep and declared output
+names came out of "which curve does this write, and where does it land", **Reframe** out of a
+sampling mismatch that had been failing silently, and **Normalize** out of Jauhar's "normalize
+tools here should be universal for all logs"._
 
 - **Condition ✅ (2026-08-05, increment 1)** — `condition.rs`: `despike` (four rejection rules),
   `smooth` (mean / median / Savitzky-Golay on the real depths), `clip`, `fill_gaps`, `flip`, in a
@@ -2165,10 +2229,122 @@ records the answers that overruled the recommendation and why._
   Thickness. Thickness is its own tool on Jauhar's call (*"we talk about thickness not only in pay
   summary"*) and **counts a condition rather than re-deriving one** — where that condition is pay it
   reads `FLAG_PAY`. All five emit the workbook's `Sheet`/`Cell` model.
-- **Intake ✅ (2026-08-05, long layout)** — one importer replacing the five table-shaped dialogs (core, aux, SCAL, tops,
-  locations); LAS/DLIS keep their own path. The grid is the control; **Long / Wide / Block is
-  declared by the user**, not sniffed; preview IS the commit; the workbook's comma-decimal rule moves
-  into the shared parser.
+- **Declared output names ✅ (2026-08-05)** — `ArgSpec.default` on a **LogOut** is the default NAME,
+  the exact parallel of its meaning on a LogIn, and `workflow::resolve_output_names` is the ONE place
+  a written curve is named: it expands the pattern, applies any `__OUT_<declared>` rename, and
+  validates. Five modules used to `format!` their own, so the manifest described a curve the run did
+  not write and a dialog reading "Outputs: SYN" was untrue. The **shadowing refusal moved here with
+  it** — it lived in `condition.rs` and again in `frame.rs` and the other forty modules had none, so
+  a rename could put a computed curve on `GR` and produce one nothing can read; `STANDARD_COLUMNS` is
+  now the single list. Two outputs resolving to one name are refused (which survived would otherwise
+  depend on hash order); there is **no Set-all on an output name**, and Monte Carlo refuses a rename
+  or a prefix by name. Pinned by `every_module_returns_the_output_keys_its_manifest_declares`, which
+  drives the whole catalog through one synthetic frame.
+- **Reframe ✅ (2026-08-05)** — `reframe.rs` (Data ▸ Sampling), closing a silent failure: every curve
+  in this app is read by an EXACT depth match onto the well's standard grid, so a 0.1524 m delivery
+  attached to a well whose grid came from a 0.5 m LAS contributed almost nothing — no error, no
+  warning, a curve reading mostly MISSING. A log set can now carry its own depth column
+  (`log_sets.frame = 'OWN'`, `db::migrate_log_set_frame`, ADD COLUMN only) and
+  `fetch_curve_frame_from_set` makes it the RUN frame, resampling everything else onto it through the
+  same `reframe::resample_onto` the tool previews with. **Written to the ARCHIVE only** — the
+  ordinary path DELETEs a curve's rows before appending, so a re-frame through it would blank the
+  readable interpretation and report success. Three rules the tests found rather than the code: boxes
+  are half-open `[lo, hi)`; a one-sample frame owns the whole source; and `looks_discrete` needs more
+  than "small non-negative integers" (a GR alternating 40 and 80 API is two such integers, and the
+  first version mode-averaged it to 80 where the rock averages 60) — it stays a guess, so the
+  resolved method is REPORTED per curve.
+- **Normalize ✅ (2026-08-05)** — `condition::normalize`, any curve, three methods (percentile pair /
+  min-max / z-score) in LINEAR or LOG space. Jauhar, 2026-08-05: *"dont dupilcates, normalize tools
+  here should be universal for all logs"* — so `gr_normalize` DELEGATES to it and is hidden from the
+  pickers while staying runnable, because the answer is unchanged and retiring it would fail every
+  saved chain carrying the step. **The reference pair has no default and the run refuses without
+  one**: a pair from one basin is the wrong pair in another and normalized output looks plausible
+  either way. LOG works in log10 and inverts, the honest frame for a resistivity — three decades
+  mapped linearly onto 1–100 put the geometric middle at 4 instead of 10 — and a non-positive sample
+  stays MISSING rather than being floored onto the low reference the whole map is anchored on.
+  _(Found writing it: `distribution::percentile` takes an ALREADY-SORTED slice. The first version
+  handed it samples in depth order and returned whatever sits 3% of the way down the WELL.)_
+- **Intake ✅ (2026-08-05, all three layouts)** — one importer for any delimited text, scoped as the
+  replacement for the five table-shaped dialogs. **What actually shipped is narrower and that is
+  Jauhar's call**: only **Import Aux… was deleted** (*"for other aux delete it, except core and
+  scal"*), so Import Core… / SCAL… / Tops… / Images… / Deviation… / Well Locations… all still have
+  their own wizards and LAS/DLIS keep their own path — Intake is the general route beside them, not
+  yet instead of them. Retiring more of them is an open ask, not a done deal. **An extractor and a front end,
+  never a second write path** — it produces a `CoreMapping` and calls `ingest::import_core_table`,
+  the plate-workbook precedent. Four rules: nothing is sniffed the user can state; the decimal
+  convention is the workbook reader's (rightmost separator wins, `1,234` read as a decimal and
+  flagged); **a column with no role is CARRIED, never dropped**; and the preview is a CHECK, flagging
+  every cell in a numeric column that did not parse before anything is stored. **Import Aux… is
+  gone** (Jauhar: *"for other aux delete it, except core and scal"*), which first required closing a
+  destructive bug: a table claiming no core measurement still went through `insert_core_data`, which
+  registers its set and makes it ACTIVE — so importing XRD or CEC through Intake replaced the well's
+  real plugs with empty ones and silenced the φ-k cloud, Plug QC, Register Depth and the S-factor fit
+  at once. **An import never eats a delivery** (Jauhar: *"dont eat it… so it wont eat anything"*):
+  `free_array_set` / `free_curve_set` join the auto-suffix family, which matters most for arrays
+  where `db::write_array_log` REPLACES by design. **Saved mappings** (`intaketmpl`) are applied by
+  column **NAME, never by position** — a delivery that gains a column would otherwise shift every
+  role one to the right, silently, and a saved mapping exists precisely for the deliveries nobody
+  re-checks. The **`CURVE` role** is the route a delimited file of logs had no way in by, and is
+  never PROPOSED, only chosen: a column of numbers at depths is a plug measurement or a logged curve
+  depending on how the file was sampled, and nothing in the numbers says which.
+- **Intake — wide, block, and captions ✅ (2026-08-05)** — **LONG / WIDE / BLOCK is DECLARED, never
+  sniffed**: a wide table and a long one are both rectangles of numbers, and reading a long Pc table
+  as wide would store a capillary-pressure curve made of column indices. WIDE is one row per sample
+  with the HEADER ROW as the axis; BLOCK is stacked tables with the header repeated, a pre-pass over
+  either of the others rather than a third way of reading a table. **A header that is not a number is
+  dropped BY NAME** (a `TOTAL` column counted as a bin is a saturation at an invented pressure, at
+  the end of the curve where a Thomeer fit is most sensitive). `array_logs` gained an **`axis` BLOB**
+  (`db::migrate_array_log_axis`, ADD COLUMN, last column) — what each stored value is a measurement
+  AT; NULL keeps its old meaning, since a Monte Carlo realization is not a measurement at 7 of
+  anything. **A block keyed by a LABEL LINE** (`PLUG 12  4633.5 ft` above each block) is read by
+  borrowing `images::WORKBOOK_RUNNER`'s rule whole: the depth is the number carrying a UNIT and no
+  other — taking the first would read `PLUG 12` as 12 ft. The line is reassembled with the
+  **DELIMITER, never a space**, or in a comma-delimited file `4640,0 ft` is handed over as
+  `4640 0 ft`, where the number carrying the unit is ZERO; and **a unit is a WORD**, or `2103.4M`
+  reads as the unit `M` and the plug number becomes the depth. Its control test is worse than a
+  refusal: read without the block flag the captions parse as nothing, the all-MISSING rule drops them
+  silently, and both blocks import with no depth at all — which looks like a clean read.
+- **Intake — a plug sits at one depth ✅ (2026-08-05)** — Jauhar: *"it should be 1 plug number only,
+  should warn user if duplicate"*, rejecting the premise of the open interval-caption question. A
+  caption keys one plug and a plug sits at one depth, so a second depth is a **duplicate**, not a
+  range to pick an end from; the first is still used, because discarding a block over a caption a
+  laboratory very likely typed twice would lose real data. The stakes are `array_logs`'s PRIMARY KEY:
+  one stored vector per depth, so every one of these imports cleanly right up to the moment it does
+  not. Three shapes, one rule — two captions claiming one plug (reported as a CAPTION problem,
+  because that is where the fix is), one caption carrying several rows, and a DEPTH column with
+  repeats — caught by a caption check plus a general row check that **SKIPS depths the caption check
+  already explained**, so each is reported ONCE rather than described from both ends. **Grouped by
+  the file's own well column**, because two WELLS sampled at one depth is entirely ordinary and a
+  check that fired on every multi-well delivery is the fastest way to train a user to ignore it.
+- **Intake — the wide/block preview ✅ (2026-08-05)** — `intake::probe_arrays`, closing the gap the
+  duplicate check exposed: the LONG path had a preview since it shipped and the array path had none,
+  so a duplicated depth was only named once the import had run and half-written. **The same
+  `read_wide` the commit runs**, so the two cannot disagree about what the file says; only how much
+  comes back differs. It shows what reading the file AS an array made of it, which the raw grid
+  cannot — for a block file the depths come from captions the grid draws as ordinary lines, and the
+  header row's parsed axis is shown beside the TEXT it was read from. `ARRAY_PREVIEW_ROWS` is 40
+  against the long path's 200 because a wide row is the sample's whole distribution, so an NMR export
+  is a hundred bins per row across thousands of rows. **The cap governs what is DRAWN, never what was
+  checked** — a duplicate beyond it is pulled in anyway, since a preview that stopped at its cap
+  would be most useless on the delivery that needs it most; each drawn row carries its index IN THE
+  FILE and `n_rows` stays the file's own count. `DepthClash` travels as DATA, not only as prose, and
+  tints the WHOLE row rather than per cell: the fault is not in any one value. This also fixed a bug
+  that made the label-line feature unreachable — `validate()` required a DEPTH role, which a
+  caption-keyed block file has none of by definition, so the reader resolved every block correctly
+  and the Import button stayed disabled.
+- **The array write is one transaction ✅ (2026-08-05)** — found writing the duplicate check.
+  `db::write_array_log` is DELETE-then-append and was doing it **outside a transaction**, so a
+  failure part way through committed the delete and kept only some of the new rows. Not a visible
+  breakage: a realization matrix quietly missing depths, with every percentile then computed from a
+  smaller population than the study ran. It now uses `db::with_txn`, whose own doc names this exact
+  hazard — the writer simply predated its use here. **A duplicated depth is refused BY NAME before
+  any of that**, placed in `db.rs` rather than the pane so it protects every caller and not only the
+  one whose front end happens to check; the engine's own constraint message names an internal table
+  and no depth, arriving on an import the user was just told had succeeded. Checked over the rows
+  that would actually be INSERTED, since a depth whose vector is empty never reaches the table.
+  `a_refused_array_write_leaves_the_stored_curve_untouched` pins the refusal and records what it does
+  NOT pin — the refusal short-circuits before `with_txn` is entered, so nothing tests the rollback,
+  which is there for what no pre-check can foresee.
 
 ## C5. New-capability misc (§4)
 
