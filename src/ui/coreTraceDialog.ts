@@ -308,8 +308,12 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
 
   const isUv = (): boolean => lightPick.get() === "uv";
   const readClasses = (): FluorClass[] => bands.map((b) => b.read());
+  // Declared later (the sand/shale row sits below), so it is called through a holder rather than
+  // by name — the light toggle has to reach both.
+  let syncLith: () => void = () => {};
   const syncLight = (): void => {
     fluorBox.style.display = isUv() ? "" : "none";
+    syncLith();
   };
   for (const b of Array.from(lightPick.el.querySelectorAll("button"))) {
     b.addEventListener("click", syncLight);
@@ -686,6 +690,41 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
     )
   );
 
+  // --- Sand/shale curve ------------------------------------------------------
+  // Jauhar's remaining item from the UV round: a DISCRETE curve off the white-light trace, because
+  // a correlation panel can consume a class curve and cannot consume a continuous proxy.
+  const lithChk = document.createElement("input");
+  lithChk.type = "checkbox";
+  const lithCut = document.createElement("input");
+  lithCut.className = "form-control";
+  lithCut.type = "number";
+  lithCut.step = "0.01";
+  lithCut.placeholder = "Otsu, from this core";
+  const lithRow = document.createElement("div");
+  lithRow.className = "intake-template-row";
+  const lithLab = document.createElement("label");
+  lithLab.style.display = "flex";
+  lithLab.style.alignItems = "center";
+  lithLab.style.gap = "6px";
+  lithLab.append(lithChk, document.createTextNode("Write CPHOTO_LITH"));
+  lithRow.append(lithLab, lithCut);
+  runBox.appendChild(
+    formRow(
+      "Sand / shale",
+      lithRow,
+      "A two-class curve cut out of the darkness trace — 0 lighter, 1 darker. It is a reading of " +
+        "DARKNESS, not a shale volume: the same dark band is mudstone in one core, oil stain in " +
+        "another, which is why it is never called VSH. Leave the cut blank and Otsu proposes one " +
+        "from this core's own trace.",
+    ),
+  );
+  // Under UV the brightness IS the fluorescence, so there is no darkness to cut.
+  syncLith = (): void => {
+    const row = lithRow.closest<HTMLElement>(".form-row");
+    if (row) row.hidden = isUv();
+  };
+  syncLith();
+
   const readBtn = document.createElement("button");
   readBtn.className = "btn btn-accent";
   readBtn.textContent = "Read the trace";
@@ -826,6 +865,8 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
         fluor: isUv() ? readClasses() : [],
         compare_curve: cmpSel.value || null,
         output_set: setPicker.outputSet(),
+        lith: lithChk.checked && !isUv(),
+        lith_cut: lithCut.value.trim() ? Number(lithCut.value) : null,
         write,
       });
       trace.hidden = false;

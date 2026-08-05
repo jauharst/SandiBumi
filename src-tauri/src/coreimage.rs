@@ -599,6 +599,77 @@ fn measure_names(spec: &CoreLogSpec) -> Vec<String> {
     out
 }
 
+/// Otsu's threshold on a trace: the cut that best separates it into two classes.
+///
+/// The published method, on the values themselves rather than on an image — 256 bins across the
+/// trace's own range, and the cut maximising between-class variance. A METHOD, not a calibration:
+/// it is computed from this core's own darkness every run, so it carries nothing from anybody
+/// else's rock.
+///
+/// `None` when there is nothing to separate — fewer than two live samples, or a trace with no
+/// spread at all. A core that is uniformly dark is one lithology, and inventing a boundary through
+/// the middle of it would draw a contact nobody saw.
+pub fn otsu_cut(vals: &[f32]) -> Option<f32> {
+    let live: Vec<f32> = vals.iter().copied().filter(|v| v.is_finite()).collect();
+    if live.len() < 2 {
+        return None;
+    }
+    let (lo, hi) = live.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), v| (a.min(*v), b.max(*v)));
+    if !(hi > lo) {
+        return None;
+    }
+    const BINS: usize = 256;
+    let mut hist = [0usize; BINS];
+    for v in &live {
+        let k = (((v - lo) / (hi - lo)) * (BINS - 1) as f32).round() as usize;
+        hist[k.min(BINS - 1)] += 1;
+    }
+    let total = live.len() as f64;
+    let sum: f64 = (0..BINS).map(|i| i as f64 * hist[i] as f64).sum();
+    let (mut w0, mut s0, mut best, mut best_k) = (0.0f64, 0.0f64, -1.0f64, 0usize);
+    for k in 0..BINS {
+        w0 += hist[k] as f64;
+        if w0 == 0.0 {
+            continue;
+        }
+        let w1 = total - w0;
+        if w1 == 0.0 {
+            break;
+        }
+        s0 += k as f64 * hist[k] as f64;
+        let m0 = s0 / w0;
+        let m1 = (sum - s0) / w1;
+        let between = w0 * w1 * (m0 - m1) * (m0 - m1);
+        if between > best {
+            best = between;
+            best_k = k;
+        }
+    }
+    Some(lo + (best_k as f32 + 0.5) / BINS as f32 * (hi - lo))
+}
+
+/// The two-class lithology curve read off the darkness trace.
+///
+/// **0 is the lighter class, 1 the darker.** Ordered rather than arbitrary so the numbering means
+/// something the same way `facies.rs` orders its clusters by ascending GR: a class curve whose
+/// codes could swap between wells is not correlatable.
+///
+/// **It is `CPHOTO_LITH` and it will never be `VSH` or `LITH`.** Darkness co-varies with shale in
+/// most clastic sections, which is not the same statement as being a lithology: the same dark band
+/// is organic-rich mudstone in one core, oil stain in another, a wet patch in a third. A curve
+/// under a name every module reads as lithology would be an uncalibrated answer that computes and
+/// plots. The same argument that keeps `CPHOTO_DARK` apart from VSH, and `GRAIN_D50_APP` apart
+/// from `GRAIN_D50`.
+///
+/// Deliberately NOT smoothed. Suppressing single-sample flicker needs a thickness, and there is no
+/// value for that which is right in two cores — the run says so and points at Frame ▸ Block with
+/// OPT_STAT = MODE, which is the one upscale that carries a class code whole.
+fn lith_from_dark(dark: &[f32], cut: f32) -> Vec<f32> {
+    dark.iter()
+        .map(|v| if !v.is_finite() { f32::NAN } else if *v >= cut { 1.0 } else { 0.0 })
+        .collect()
+}
+
 /// One run of core inside a packed photograph — one COLUMN of a core-display plate, or one row of
 /// a core box.
 ///
@@ -716,6 +787,15 @@ pub struct CoreLogSpec {
     /// leaves anything in the project.
     #[serde(default)]
     pub write: bool,
+    /// Also write `CPHOTO_LITH`, a two-class curve cut out of the darkness trace — 0 lighter,
+    /// 1 darker. White light only: a UV frame's brightness is fluorescence, not lithology.
+    #[serde(default)]
+    pub lith: bool,
+    /// The darkness at which the class changes. Absent proposes Otsu's cut on this core's own
+    /// trace, which is a METHOD rather than a calibration — nothing here carries over from
+    /// somebody else's rock.
+    #[serde(default)]
+    pub lith_cut: Option<f32>,
 }
 
 impl CoreLogSpec {
@@ -947,7 +1027,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
         );
     }
 
-    let names = measure_names(spec);
+    let mut names = measure_names(spec);
     let classes = spec.classes();
     let lanes = spec.lanes.max(1);
     let mut depths: Vec<f32> = Vec::new();
@@ -1064,6 +1144,41 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
     res.samples = sorted_depth.len();
     res.depth_min = sorted_depth[0];
     res.depth_max = sorted_depth[sorted_depth.len() - 1];
+
+    // CPHOTO_LITH — derived from the darkness trace rather than measured, so it is built here and
+    // not in the runner. White light only: under UV the brightness IS the fluorescence, and
+    // cutting it in two would name an oil show a lithology.
+    let mut sorted = sorted;
+    if spec.lith {
+        if spec.is_uv() {
+            res.notes.push(
+                "CPHOTO_LITH was not written: under ultraviolet the brightness is fluorescence,                  not lithology, so a two-class cut through it would name an oil show a rock type."
+                    .into(),
+            );
+        } else if let Some(k) = names.iter().position(|n| n == &format!("{LOG_PREFIX}_DARK")) {
+            match spec.lith_cut.filter(|c| c.is_finite()).or_else(|| otsu_cut(&sorted[k])) {
+                Some(cut) => {
+                    sorted.push(lith_from_dark(&sorted[k], cut));
+                    names.push(format!("{LOG_PREFIX}_LITH"));
+                    let darker = sorted[sorted.len() - 1].iter().filter(|v| **v == 1.0).count();
+                    let live = sorted[k].iter().filter(|v| v.is_finite()).count();
+                    let how = if spec.lith_cut.is_some() {
+                        "as given"
+                    } else {
+                        "Otsu, from this core's own trace"
+                    };
+                    res.notes.push(format!(
+                        "CPHOTO_LITH cut at {cut:.3} ({how}), {darker} of {live} samples in the                          darker class. It is a two-class reading of DARKNESS, not a shale volume                          — the same dark band is mudstone in one core, oil stain in another.                          Nothing smooths it: suppressing flicker needs a bed thickness, and no                          value for that is right in two cores; use Frame > Block with                          OPT_STAT = MODE, the one upscale that carries a class code whole."
+                    ));
+                }
+                None => res.notes.push(
+                    "CPHOTO_LITH was not written: the darkness trace has no spread to cut, so                      there are not two classes here to tell apart."
+                        .into(),
+                ),
+            }
+        }
+    }
+    let sorted = sorted;
 
     // The yardstick. Interpolated ONTO the photograph's sampling rather than the other way round:
     // the log is the continuous thing, and resampling the photograph would invent nothing but would
@@ -2716,6 +2831,8 @@ mod tests {
             fluor: Vec::new(),
             compare_curve: None,
             write: false,
+            lith: false,
+            lith_cut: None,
         }
     }
 
@@ -3377,6 +3494,8 @@ mod tests {
             fluor: Vec::new(),
             compare_curve: Some("GR".into()),
             write: false,
+            lith: false,
+            lith_cut: None,
         };
         let plain = extract_core_log(&conn, &spec).expect("read");
         let before = plain.curves.iter().find(|c| c.name.ends_with("_DARK")).unwrap().clone();
@@ -3494,6 +3613,8 @@ mod tests {
             fluor: Vec::new(),
             compare_curve: None,
             write: false,
+            lith: false,
+            lith_cut: None,
         };
         let dark = |r: bool| -> Vec<f32> {
             let res = extract_core_log(&conn, &spec(r)).expect("read");
@@ -3612,6 +3733,8 @@ mod tests {
                     fluor: Vec::new(),
                     compare_curve: None,
                     write: false,
+                    lith: false,
+                    lith_cut: None,
                 },
             )
             .expect("read");
@@ -3805,6 +3928,8 @@ mod tests {
             fluor: Vec::new(),
             compare_curve: Some("GR".into()),
             write: false,
+            lith: false,
+            lith_cut: None,
         };
 
         let fwd = extract_core_log(&conn, &spec(false)).expect("read");
@@ -3915,6 +4040,8 @@ mod tests {
             fluor: classes,
             compare_curve: None,
             write: false,
+            lith: false,
+            lith_cut: None,
         }
     }
 
@@ -4180,6 +4307,50 @@ mod tests {
             r.notes.iter().any(|n| n.contains("REFUSED TO WRITE") && n.contains("DAYLIGHT")),
             "and the refusal has to name the likely cause: {:?}",
             r.notes
+        );
+    }
+
+    /// **The sand/shale curve is a two-class cut of DARKNESS, and its codes are ordered.**
+    ///
+    /// Jauhar's remaining item from the UV round: a discrete curve off the white-light trace,
+    /// because a correlation panel can consume a class curve and cannot consume a continuous
+    /// proxy. 0 is the lighter class and 1 the darker, ordered rather than arbitrary for the
+    /// reason `facies.rs` orders its clusters by ascending GR — a class curve whose codes could
+    /// swap between wells is not correlatable.
+    #[test]
+    fn the_darkness_trace_cuts_into_two_ordered_classes() {
+        // A clean sand over a mudstone: darkness steps up half way down.
+        let dark: Vec<f32> = (0..100).map(|i| if i < 50 { 0.20 } else { 0.70 }).collect();
+        let cut = otsu_cut(&dark).expect("two populations must give a cut");
+        assert!(cut > 0.20 && cut < 0.70, "the cut falls between the two, not on one: {cut}");
+
+        let lith = lith_from_dark(&dark, cut);
+        assert!(lith[..50].iter().all(|v| *v == 0.0), "the lighter half is class 0");
+        assert!(lith[50..].iter().all(|v| *v == 1.0), "and the darker half is class 1");
+
+        // A MISSING sample stays MISSING — it is not "not dark", which class 0 would claim.
+        let mut holed = dark.clone();
+        holed[10] = f32::NAN;
+        assert!(lith_from_dark(&holed, cut)[10].is_nan());
+
+        // A core of one lithology has no boundary, and one is not invented through the middle.
+        assert!(otsu_cut(&vec![0.4f32; 100]).is_none(), "no spread, no contact");
+        assert!(otsu_cut(&[0.4]).is_none(), "and one sample is not two classes");
+    }
+
+    /// **`CPHOTO_LITH` is refused on a UV run**, because under ultraviolet the brightness IS the
+    /// fluorescence: cutting it in two would name an oil show a rock type. The same declared-light
+    /// rule that keeps the darkness-sign note off a UV run.
+    #[test]
+    fn a_uv_run_is_refused_a_lithology_curve() {
+        let mut spec = uv_spec("w", vec![]);
+        spec.lith = true;
+        assert!(spec.is_uv());
+        // The white-light measures are not even produced under UV, so there is no DARK column to
+        // cut — the refusal is stated rather than left as a silently absent curve.
+        assert!(
+            !measure_names(&spec).iter().any(|n| n.ends_with("_DARK")),
+            "a UV run has no darkness trace to make a lithology from"
         );
     }
 }

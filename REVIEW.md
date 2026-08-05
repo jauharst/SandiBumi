@@ -8378,3 +8378,29 @@ it is now a preset of this and delegates to the same code, so saved chains still
       differ by orders of magnitude; on a porosity they should be close.
 - [ ] A curve with a zero or negative sample should leave both blank rather than computing them
       over the positive samples only.
+
+---
+
+## The sand/shale curve off the white-light trace (2026-08-05)
+
+The first of the two you parked from the UV round. **Photo Log ▸ Sand / shale ▸ Write CPHOTO_LITH.**
+
+- [ ] Read a white-light box with the box ticked and the cut left blank. It should propose a cut
+      from this core's own darkness (Otsu) and say so, with how many samples landed in the darker
+      class.
+- [ ] Look at it beside GR in the built-in **Core** layout. It is a blocks curve — 0 lighter,
+      1 darker — so a correlation panel can consume it.
+- [ ] Type your own cut and re-read. The note should say "as given" rather than "Otsu".
+- [ ] Switch Light to **Ultraviolet**. The row should disappear: under UV the brightness IS the
+      fluorescence, so cutting it in two would name an oil show a rock type.
+- [ ] Read a box of one lithology. It should REFUSE rather than invent a contact through the
+      middle of it.
+- [ ] It is called `CPHOTO_LITH` and never `VSH` or `LITH` — the same dark band is mudstone in one
+      core and oil stain in another, and a curve under a name every module reads as lithology
+      would be an uncalibrated answer that computes and plots.
+- [ ] Nothing smooths it. If it flickers sample to sample, run **Frame ▸ Block** with
+      OPT_STAT = MODE — the one upscale that carries a class code whole. Tell me if you would
+      rather it had its own minimum bed thickness.
+
+Still open from that round: **the unfold for dipping beds** (shearing each slab to the bed's
+apparent dip before averaging, so a dipping contact is not smeared across the core's width).

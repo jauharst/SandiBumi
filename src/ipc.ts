@@ -2936,6 +2936,13 @@ export interface CoreLogSpec {
   /** Report how each measure tracks this curve, usually GR. It is the only thing that says whether
    *  the trace is about the rock. */
   compare_curve?: string | null;
+  /** Also write `CPHOTO_LITH`, a two-class curve cut out of the darkness trace — 0 lighter,
+   *  1 darker. White light only: under UV the brightness IS the fluorescence. It is a reading of
+   *  DARKNESS and never a shale volume, which is why it keeps the CPHOTO prefix. */
+  lith?: boolean;
+  /** The darkness at which the class changes. Omitted proposes Otsu's cut on this core's own
+   *  trace — a method, not a calibration carried from anybody else's rock. */
+  lith_cut?: number | null;
   /** Write the curves. Omit to measure without writing, so a lay-out can be tried first. */
   write?: boolean;
 }
