@@ -5,6 +5,7 @@ import {
   listCurveCatalog,
   listDocuments,
   listModules,
+  moduleOutputNames,
   runWorkflowChain,
   saveDocument,
   type ArgSpec,
@@ -410,12 +411,45 @@ export async function buildWorkflowContent(
     }
     box.appendChild(editorRow("Mask (opt)", maskControl(step, onChanged), MASK_DESC));
 
-    const outputs = spec.args.filter((a) => a.kind === "log_out").map((a) => a.name);
+    // Output names, editable per step — the same freedom the module pane's grid gives, because a
+    // chain is where a trial run most needs to land beside the interpretation rather than on it.
+    // The placeholder is the name this step would write untouched, and it comes from the backend
+    // for the module pane's reason: expanding a `{CURVE}_C` pattern here would be a second copy of
+    // a naming rule.
+    const outArgs = spec.args.filter((a) => a.kind === "log_out");
+    if (outArgs.length) {
+      const placeholders = new Map<string, HTMLInputElement>();
+      for (const arg of outArgs) {
+        const input = document.createElement("input");
+        input.className = "workflow-editor-input";
+        input.type = "text";
+        input.spellcheck = false;
+        input.value = step.opts[`__OUT_${arg.name}`] ?? "";
+        input.placeholder = arg.name;
+        input.addEventListener("input", () => {
+          const typed = input.value.trim();
+          if (typed) step.opts[`__OUT_${arg.name}`] = typed;
+          else delete step.opts[`__OUT_${arg.name}`];
+          onChanged();
+        });
+        placeholders.set(arg.name, input);
+        box.appendChild(editorRow(`Write ${arg.name} as`, input, arg.desc));
+      }
+      void moduleOutputNames(step.module, step.log_inputs, step.opts)
+        .then((names) => {
+          for (const n of names) placeholders.get(n.arg)?.setAttribute("placeholder", n.name);
+        })
+        .catch(() => {
+          // A refusal here (a shadowed name) is reported when the chain runs; the declared name
+          // stays as the placeholder rather than the row going blank.
+        });
+    }
+
     const footer = document.createElement("div");
     footer.className = "workflow-editor-footer";
     const outNote = document.createElement("span");
     outNote.className = "workflow-editor-outputs";
-    outNote.textContent = outputs.length ? `Outputs: ${outputs.join(", ")}` : "";
+    outNote.textContent = "";
     const reset = miniButton("Reset", () => {
       step.params = {};
       step.log_inputs = {};

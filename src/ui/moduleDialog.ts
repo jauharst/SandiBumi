@@ -1,7 +1,9 @@
 import {
   listCurveCatalog,
+  moduleOutputNames,
   runWorkflowModule,
   type ModuleSpec,
+  type OutputName,
   type RunModuleRequest,
 } from "../ipc";
 import { appState } from "../state";
@@ -209,23 +211,6 @@ export async function buildModuleContent(
     formRow("Mask (optional)", maskSelect, "Flag curve (=1 bad) to blank out of every output — e.g. BADHOLE."),
   );
 
-  // --- Universal output prefix. The general form of the Condition/Frame OUT field: every module
-  // writes curves whose names ARE the answer (VSH, PHIE), so renaming them one by one is not the
-  // shape of the freedom — putting a run's whole output under a prefix is.
-  const prefixInput = document.createElement("input");
-  prefixInput.className = "form-control";
-  prefixInput.type = "text";
-  prefixInput.placeholder = "none";
-  argsGrid.appendChild(
-    formRow(
-      "Output prefix (optional)",
-      prefixInput,
-      "Prefixes every curve this run writes, so a trial does not overwrite the interpretation — " +
-        "TEST_ gives TEST_VSH, TEST_PHIE. A Monte Carlo study refuses a prefixed step, because " +
-        "its cutoffs are resolved from the module's declared output names.",
-    ),
-  );
-
   // --- Input / output log set: the ONE shared control (`logSetPicker.ts`). Was two bespoke
   // blocks here labelled "Input cons" / "Output cons" — the store, the backend and the docs all
   // say LOG SET, and only this UI said constellation, which is why the word did not connect.
@@ -242,12 +227,110 @@ export async function buildModuleContent(
     "Values here are the whole-well defaults — per-zone parameters from the Zones pane take precedence inside their zones.";
   content.appendChild(callout);
 
-  // --- Outputs note ---
-  const outputs = spec.args.filter((a) => a.kind === "log_out").map((a) => a.name);
-  const outNote = document.createElement("p");
-  outNote.className = "modal-hint";
-  outNote.textContent = `Outputs: ${outputs.join(", ")}`;
-  content.appendChild(outNote);
+  // --- Output curves: a row per declared output with the name it will be written under.
+  //
+  // Jauhar, 2026-08-05: *"naming each output curve in bulk when modules gonna run"*. Every name a
+  // run is about to write is on screen at once, editable, before the run — rather than discovered
+  // afterwards in the Curve Catalog. The Condition and Frame families used to carry their own
+  // "Output curve name" text field for this; that field is gone, because the grid IS it and one
+  // control for forty modules cannot drift the way two could.
+  //
+  // The DEFAULT names come from the backend (`moduleOutputNames`), never from expanding the
+  // manifest's patterns here — a `{CURVE}_C` expanded in TypeScript would be a second copy of a
+  // naming rule, agreeing with the run right up until one of them changed.
+  const outArgs = spec.args.filter((a) => a.kind === "log_out");
+  const outSection = document.createElement("div");
+  outSection.className = "module-outputs";
+  const outHead = document.createElement("div");
+  outHead.className = "module-outputs-head";
+  const outTitle = document.createElement("span");
+  outTitle.className = "module-outputs-title";
+  outTitle.textContent = outArgs.length === 1 ? "Output curve" : "Output curves";
+  // The bulk fill: one prefix over every name below, for a trial run that must not land on the
+  // interpretation the field is already using. Applied by the backend on top of the names in the
+  // grid, so the two compose rather than competing.
+  const prefixInput = document.createElement("input");
+  prefixInput.className = "form-control module-outputs-prefix";
+  prefixInput.type = "text";
+  prefixInput.placeholder = "prefix all, e.g. TEST_";
+  prefixInput.title =
+    "Prefixes every curve this run writes, on top of the names below — TEST_ gives TEST_VSH. " +
+    "A Monte Carlo study refuses a renamed step, because its cutoffs are resolved from the " +
+    "module's declared output names.";
+  outHead.append(outTitle, prefixInput);
+  outSection.appendChild(outHead);
+
+  const outNameInputs = new Map<string, HTMLInputElement>();
+  const outGrid = document.createElement("div");
+  outGrid.className = "module-outputs-grid";
+  for (const arg of outArgs) {
+    const label = document.createElement("label");
+    label.className = "module-output-label";
+    label.textContent = arg.desc || arg.name;
+    if (arg.unit) label.textContent += ` (${arg.unit})`;
+    label.title = `Declared as ${arg.name}`;
+    const input = document.createElement("input");
+    input.className = "form-control module-output-name";
+    input.type = "text";
+    input.spellcheck = false;
+    label.appendChild(input);
+    outNameInputs.set(arg.name, input);
+    outGrid.appendChild(label);
+  }
+  outSection.appendChild(outGrid);
+  const outWarn = document.createElement("div");
+  outWarn.className = "module-outputs-warn";
+  outWarn.hidden = true;
+  outSection.appendChild(outWarn);
+  content.appendChild(outSection);
+
+  /** The run options as the form currently stands — the same map the preview and the run send, so
+   *  what the grid shows can never describe a different run from the one the button starts. */
+  const collectOpts = (): Record<string, string> => {
+    const opts: Record<string, string> = {};
+    for (const [name, select] of optSelects) opts[name] = select.value;
+    // A blank Text arg is sent as a blank, not dropped: the module's own default is what an empty
+    // box means, and omitting the key would make a cleared field indistinguishable from one that
+    // was never on the dialog.
+    for (const [name, input] of textInputs) opts[name] = input.value.trim();
+    for (const [arg, input] of outNameInputs) {
+      const typed = input.value.trim();
+      if (typed) opts[`__OUT_${arg}`] = typed;
+    }
+    if (maskSelect.value) opts.MASK = maskSelect.value;
+    if (prefixInput.value.trim()) opts.OUT_PREFIX = prefixInput.value.trim();
+    return opts;
+  };
+  const collectLogInputs = (): Record<string, string> => {
+    const logInputs: Record<string, string> = {};
+    for (const [name, select] of logSelects) logInputs[name] = select.value;
+    return logInputs;
+  };
+
+  // The placeholder in each name box is the name the run would write if the box is left alone —
+  // so an untouched form still SHOWS its answer rather than an empty field. Re-asked whenever an
+  // input curve or a rename changes, because a pattern is built from those: renaming the despiked
+  // curve to GR_ED moves its flag to GR_ED_SPK, and the grid has to say so.
+  let outGen = 0;
+  const refreshOutNames = async () => {
+    const gen = ++outGen;
+    try {
+      const names: OutputName[] = await moduleOutputNames(spec.name, collectLogInputs(), collectOpts());
+      if (disposed || gen !== outGen) return;
+      for (const n of names) outNameInputs.get(n.arg)?.setAttribute("placeholder", n.name);
+      outWarn.hidden = true;
+    } catch (e) {
+      if (disposed || gen !== outGen) return;
+      // A refusal (a shadowed name, a collision) is shown HERE, beside the box that caused it,
+      // rather than saved up for the run — the user is looking at this grid.
+      outWarn.textContent = String(e);
+      outWarn.hidden = false;
+    }
+  };
+  for (const [, select] of logSelects) select.addEventListener("change", () => void refreshOutNames());
+  for (const [, select] of optSelects) select.addEventListener("change", () => void refreshOutNames());
+  for (const [, input] of outNameInputs) input.addEventListener("input", () => void refreshOutNames());
+  void refreshOutNames();
 
   // --- Footer (design 1d): primary pill naming the module, last-run status
   // right-aligned beside it.
@@ -328,23 +411,12 @@ export async function buildModuleContent(
       }
       params[name] = v;
     }
-    const opts: Record<string, string> = {};
-    for (const [name, select] of optSelects) opts[name] = select.value;
-    // A blank Text arg is sent as a blank, not dropped: the module's own default (Condition's
-    // "<input>_C") is what an empty box means, and omitting the key would make a cleared field
-    // indistinguishable from one that was never on the dialog.
-    for (const [name, input] of textInputs) opts[name] = input.value.trim();
-    if (maskSelect.value) opts.MASK = maskSelect.value;
-    if (prefixInput.value.trim()) opts.OUT_PREFIX = prefixInput.value.trim();
-    const logInputs: Record<string, string> = {};
-    for (const [name, select] of logSelects) logInputs[name] = select.value;
-
     const req: RunModuleRequest = {
       module: spec.name,
       well_ids: wellIds,
-      log_inputs: logInputs,
+      log_inputs: collectLogInputs(),
       params,
-      opts,
+      opts: collectOpts(),
       output_set: setPicker.outputSet(),
       input_set: setPicker.inputSet(),
     };
@@ -363,7 +435,12 @@ export async function buildModuleContent(
         ? `${ok}/${results.length} well(s) computed — ${failed} need attention. Open Processing → details for the report.`
         : `All ${ok} well(s) computed. Per-well details are in the Processing panel.`;
       callbacks.setStatus(`${spec.name}: ${ok}/${results.length} well(s) computed`);
-      if (ok > 0) callbacks.onRunComplete(outputs, scope.namesFor(wellIds));
+      // The names the run actually WROTE, not the manifest's declared ones. Those two used to
+      // differ silently for any module that built its own name, so the History panel recorded
+      // curves the project did not hold — and now that a name can be renamed they differ by
+      // design. The results carry the truth; a well that failed carries none, hence the union.
+      const written = [...new Set(results.flatMap((r) => r.output_curves))];
+      if (ok > 0) callbacks.onRunComplete(written, scope.namesFor(wellIds));
     } catch (err) {
       resultBox.textContent = `Run failed: ${err}`;
     } finally {

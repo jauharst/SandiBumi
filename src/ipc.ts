@@ -748,6 +748,29 @@ export interface ModuleRunResult {
   error: string | null;
 }
 
+/** One declared output and the curve name a run with the current settings would write it under. */
+export interface OutputName {
+  arg: string;
+  desc: string;
+  unit: string;
+  name: string;
+}
+
+/**
+ * The names a module would write, asked of the backend rather than worked out here.
+ *
+ * A module's default output name can be built from the run's own choices (`{CURVE}_C`,
+ * `{TARGET}_SYN`), and expanding those patterns in TypeScript would be a second copy of a naming
+ * rule — the preview would agree with the run right up until somebody changed one of them.
+ */
+export async function moduleOutputNames(
+  module: string,
+  logInputs: Record<string, string>,
+  opts: Record<string, string>,
+): Promise<OutputName[]> {
+  return invoke("module_output_names", { module, logInputs, opts });
+}
+
 export async function runWorkflowModule(req: RunModuleRequest): Promise<ModuleRunResult[]> {
   return invoke<ModuleRunResult[]>("run_workflow_module", { req });
 }

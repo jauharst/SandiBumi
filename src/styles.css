@@ -5989,6 +5989,61 @@ input[type="number"].num-editing:focus {
   margin-bottom: 10px;
 }
 
+/* Output curves: every name this run will write, editable, before it runs. A card rather than
+   another row of the args grid — what a run PRODUCES is a different question from how it is
+   parameterised, and the names are what the user goes looking for afterwards. */
+.module-outputs {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 9px 12px 11px;
+  margin-bottom: 10px;
+}
+.module-outputs-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+.module-outputs-title {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.module-outputs-prefix {
+  margin-left: auto;
+  width: 150px;
+  font-size: var(--fs-xs);
+}
+.module-outputs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 14px;
+}
+.module-output-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.module-output-name {
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+}
+/* A refusal beside the box that caused it — a shadowed name, two outputs on one name. */
+.module-outputs-warn {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--warn);
+}
+.module-outputs-warn[hidden] {
+  display: none;
+}
+
 .module-footer {
   display: flex;
   align-items: center;

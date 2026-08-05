@@ -32,23 +32,20 @@
 //! stored, counted, reported — and invisible to every module, plot and export that reads GR. The
 //! same shape as the `CPHOTO_*` trace that was written at the photograph's own sampling and came
 //! back all-NaN to every reader: the worst kind of bug, because the run reports success.
-//! [`out_name`] refuses such a name BY NAME with the reason rather than writing a curve nothing
-//! can open.
+//! [`crate::workflow::resolve_output_names`] refuses such a name BY NAME with the reason rather
+//! than writing a curve nothing can open — one check, in front of every module, rather than a copy
+//! of it here and another in `frame.rs`.
 //!
 //! **A parameter that cannot have a generic value has NO default.** The despike window and the
 //! fill-gap limit open empty and the run refuses until they are set (Jauhar: *"No default — I set
 //! it every run"*). See [`crate::modules::param_open`].
 
 use crate::modules::{
-    log_in, log_out, opt_labelled, param, param_open, text, ModuleContext, ModuleOutputs, ModuleSpec,
+    log_in, log_out_as, opt_labelled, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
 };
 use std::collections::HashMap;
 
 const MISSING: f32 = f32::NAN;
-
-/// The `standard_curves` columns. An output landing on one of these would be shadowed by the
-/// standard column and read back as the RAW measurement — see the module doc.
-const STANDARD_COLUMNS: [&str; 7] = ["DEPTH", "GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
 
 // ---------------------------------------------------------------------------
 // Shared machinery
@@ -178,37 +175,6 @@ fn window_spread(vals: &[f32], idx: &[usize], lo: usize, hi: usize, centre: f32,
 /// very sample being judged (see [`window_spread`]), so the test is not measuring anything.
 const MIN_HAMPEL_SAMPLES: usize = 5;
 
-/// The output mnemonic for a Condition run: the user's own `OUT` when given, `<input>_C`
-/// otherwise.
-///
-/// Refuses a name that collides with a `standard_curves` column. Writing `GR` into
-/// `computed_curves` is not an error DuckDB or the runner would catch — the row lands, the run
-/// reports success, and `fetch_curve_frame` then hands every reader the raw standard column
-/// because that is resolved first. A refusal naming the curve and offering the fix is the only
-/// version of this the user can act on.
-fn out_name(ctx: &ModuleContext, input_arg: &str) -> Result<String, String> {
-    let src = ctx.o(&format!("__IN_{input_arg}")).trim().to_uppercase();
-    let typed = ctx.o("OUT").trim().to_uppercase();
-    let name = if typed.is_empty() {
-        if src.is_empty() {
-            "CONDITIONED".to_string()
-        } else {
-            format!("{src}_C")
-        }
-    } else {
-        typed
-    };
-    if STANDARD_COLUMNS.contains(&name.as_str()) {
-        return Err(format!(
-            "OUT = {name} would be shadowed: {name} is read from the raw log first, so a \
-             conditioned copy stored under that name is never the one anything reads. Give the \
-             output its own name (the default {} does).",
-            if src.is_empty() { "<input>_C".into() } else { format!("{src}_C") }
-        ));
-    }
-    Ok(name)
-}
-
 /// A run parameter that is CONSTANT for the well — the window of a filter, the limit of a gap.
 ///
 /// Reads the value at the first sample that has one. These are zone-overridable like every other
@@ -231,9 +197,8 @@ fn yes(ctx: &ModuleContext, name: &str, default: bool) -> bool {
 
 /// The shared trailing args of every Condition module: the output name and the changed-sample
 /// flag. One definition so the wording cannot drift between five dialogs.
-fn out_args(flag_desc: &str, flag_suffix: &str) -> Vec<crate::modules::ArgSpec> {
+fn out_args(flag_desc: &str, flag_suffix: &str, flag_pattern: &str) -> Vec<crate::modules::ArgSpec> {
     vec![
-        text("OUT", "Output curve name — blank writes <input>_C", ""),
         opt_labelled(
             "OPT_FLAG",
             flag_desc,
@@ -243,8 +208,8 @@ fn out_args(flag_desc: &str, flag_suffix: &str) -> Vec<crate::modules::ArgSpec> 
                 ("NO", "NO — the conditioned curve only"),
             ],
         ),
-        log_out("OUT_CURVE", "Conditioned curve (named by OUT)", ""),
-        log_out("OUT_FLAG", flag_suffix, ""),
+        log_out_as("OUT_CURVE", "{CURVE}_C", "Conditioned curve", ""),
+        log_out_as("OUT_FLAG", flag_pattern, flag_suffix, ""),
     ]
 }
 
@@ -306,7 +271,8 @@ pub fn despike_spec() -> ModuleSpec {
             ];
             a.extend(out_args(
                 "Write a flag curve marking every replaced sample",
-                "Replaced-sample flag (named <OUT>_SPK)",
+                "Replaced-sample flag",
+                "{OUT_CURVE}_SPK",
             ));
             a
         },
@@ -314,7 +280,6 @@ pub fn despike_spec() -> ModuleSpec {
 }
 
 pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
-    let name = out_name(ctx, "CURVE")?;
     let vals = ctx.log("CURVE");
     let depth = ctx.log("DEPTH");
     let method = ctx.o("OPT_METHOD").to_string();
@@ -421,9 +386,9 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         prev = Some((frame.dep[k_i], v));
     }
 
-    let mut res: ModuleOutputs = HashMap::from([(name.clone(), out)]);
+    let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
-        res.insert(format!("{name}_SPK"), flag);
+        res.insert("OUT_FLAG".to_string(), flag);
     }
     Ok(res)
 }
@@ -468,7 +433,8 @@ pub fn smooth_spec() -> ModuleSpec {
             ];
             a.extend(out_args(
                 "Write a flag curve marking every sample the smoother changed",
-                "Changed-sample flag (named <OUT>_SPK)",
+                "Changed-sample flag",
+                "{OUT_CURVE}_SPK",
             ));
             a
         },
@@ -519,7 +485,6 @@ fn savgol_at(dep: &[f64], vals: &[f32], idx: &[usize], lo: usize, hi: usize, cen
 }
 
 pub fn smooth(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
-    let name = out_name(ctx, "CURVE")?;
     let vals = ctx.log("CURVE");
     let depth = ctx.log("DEPTH");
     let method = ctx.o("OPT_METHOD").to_string();
@@ -569,9 +534,9 @@ pub fn smooth(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         }
     }
 
-    let mut res: ModuleOutputs = HashMap::from([(name.clone(), out)]);
+    let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
-        res.insert(format!("{name}_SPK"), flag);
+        res.insert("OUT_FLAG".to_string(), flag);
     }
     Ok(res)
 }
@@ -615,7 +580,8 @@ pub fn clip_spec() -> ModuleSpec {
             ];
             a.extend(out_args(
                 "Write a flag curve marking every sample outside the range",
-                "Out-of-range flag (named <OUT>_CLP)",
+                "Out-of-range flag",
+                "{OUT_CURVE}_CLP",
             ));
             a
         },
@@ -623,7 +589,6 @@ pub fn clip_spec() -> ModuleSpec {
 }
 
 pub fn clip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
-    let name = out_name(ctx, "CURVE")?;
     let vals = ctx.log("CURVE");
     let lo_b = constant(ctx, "MIN");
     let hi_b = constant(ctx, "MAX");
@@ -661,9 +626,9 @@ pub fn clip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         }
     }
 
-    let mut res: ModuleOutputs = HashMap::from([(name.clone(), out)]);
+    let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
-        res.insert(format!("{name}_CLP"), flag);
+        res.insert("OUT_FLAG".to_string(), flag);
     }
     Ok(res)
 }
@@ -711,7 +676,8 @@ pub fn fill_gaps_spec() -> ModuleSpec {
             ];
             a.extend(out_args(
                 "Write a flag curve marking every invented sample",
-                "Filled-sample flag (named <OUT>_FILL)",
+                "Filled-sample flag",
+                "{OUT_CURVE}_FILL",
             ));
             a
         },
@@ -719,7 +685,6 @@ pub fn fill_gaps_spec() -> ModuleSpec {
 }
 
 pub fn fill_gaps(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
-    let name = out_name(ctx, "CURVE")?;
     let vals = ctx.log("CURVE");
     let depth = ctx.log("DEPTH");
     let max_gap = constant(ctx, "MAX_GAP");
@@ -774,9 +739,9 @@ pub fn fill_gaps(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         }
     }
 
-    let mut res: ModuleOutputs = HashMap::from([(name.clone(), out)]);
+    let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
-        res.insert(format!("{name}_FILL"), flag);
+        res.insert("OUT_FLAG".to_string(), flag);
     }
     Ok(res)
 }
@@ -820,7 +785,8 @@ pub fn flip_spec() -> ModuleSpec {
             ];
             a.extend(out_args(
                 "Write a curve carrying the pivot actually used",
-                "Pivot actually used (named <OUT>_PIV)",
+                "Pivot actually used",
+                "{OUT_CURVE}_PIV",
             ));
             a
         },
@@ -828,7 +794,6 @@ pub fn flip_spec() -> ModuleSpec {
 }
 
 pub fn flip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
-    let name = out_name(ctx, "CURVE")?;
     let vals = ctx.log("CURVE");
     let mode = ctx.o("OPT_PIVOT").to_string();
 
@@ -867,11 +832,11 @@ pub fn flip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         .map(|v| if v.is_finite() { (2.0 * pivot - *v as f64) as f32 } else { MISSING })
         .collect();
 
-    let mut res: ModuleOutputs = HashMap::from([(name.clone(), out)]);
+    let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
         // Not a flag in the 0/1 sense: a per-well pivot is the one number a reader needs to undo
         // or reproduce the flip, and there is nowhere else in a module run to put it.
-        res.insert(format!("{name}_PIV"), vec![pivot as f32; ctx.n]);
+        res.insert("OUT_FLAG".to_string(), vec![pivot as f32; ctx.n]);
     }
     Ok(res)
 }
@@ -933,8 +898,8 @@ mod tests {
                 &[("OPT_METHOD", "HAMPEL")],
             );
             let out = despike(&ctx).expect("run");
-            let got = &out["GR_C"];
-            let flag = &out["GR_C_SPK"];
+            let got = &out["OUT_CURVE"];
+            let flag = &out["OUT_FLAG"];
             assert!(
                 (got[40] - 50.0).abs() < 1e-3,
                 "step {step}: the spike should be replaced by the local median, got {}",
@@ -972,7 +937,7 @@ mod tests {
             &[("OPT_METHOD", "HAMPEL")],
         );
         let out = despike(&ctx).expect("run");
-        let got = &out["GR_C"];
+        let got = &out["OUT_CURVE"];
         for i in 51..58 {
             assert!(
                 (got[i] - 120.0).abs() < 1e-3,
@@ -1007,7 +972,7 @@ mod tests {
         ))
         .expect("run");
         assert_eq!(
-            hit["GR_C_SPK"].iter().filter(|f| **f == 1.0).count(),
+            hit["OUT_FLAG"].iter().filter(|f| **f == 1.0).count(),
             1,
             "a median-absolute-deviation scale is exactly zero here and finds nothing"
         );
@@ -1022,7 +987,7 @@ mod tests {
         ))
         .expect("run");
         assert_eq!(
-            quiet["GR_C_SPK"].iter().filter(|f| **f == 1.0).count(),
+            quiet["OUT_FLAG"].iter().filter(|f| **f == 1.0).count(),
             0,
             "a constant window must reject nothing — otherwise the fall-back has just moved the \
              failure to the other end and would eat every flag curve in the project"
@@ -1057,7 +1022,7 @@ mod tests {
             &[("OPT_METHOD", "ABS")],
         ))
         .expect("ABS runs on a narrow window");
-        assert!((out["GR_C"][20] - 50.0).abs() < 1e-3);
+        assert!((out["OUT_CURVE"][20] - 50.0).abs() < 1e-3);
     }
 
     /// A despike with no WINDOW is refused rather than run on a guess (Jauhar's "no default").
@@ -1070,37 +1035,6 @@ mod tests {
         assert!(err.contains("WINDOW"), "the refusal must name the parameter: {err}");
     }
 
-    /// **An output that would be shadowed is refused BY NAME.** `fetch_curve_frame` reads the six
-    /// standard mnemonics from `standard_curves` first, so a conditioned curve stored as `GR` is
-    /// written, counted, reported — and never the one anything reads back.
-    #[test]
-    fn an_output_name_that_would_be_shadowed_is_refused() {
-        let depth = regular(20, 0.1, 1000.0);
-        let curve = vec![50.0f32; 20];
-        let ctx = ctx_for(
-            &depth,
-            &curve,
-            &[("WINDOW", 0.5), ("K", 3.0)],
-            &[("OPT_METHOD", "HAMPEL"), ("OUT", "gr")],
-        );
-        let err = despike(&ctx).expect_err("must refuse a standard mnemonic");
-        assert!(err.contains("GR"), "the refusal must name the curve: {err}");
-        assert!(err.contains("GR_C"), "and offer the fix: {err}");
-
-        // A name of the user's own is taken as given, upper-cased.
-        let ctx = ctx_for(
-            &depth,
-            &curve,
-            &[("WINDOW", 0.5), ("K", 3.0)],
-            &[("OPT_METHOD", "HAMPEL"), ("OUT", "gr_ed")],
-        );
-        let out = despike(&ctx).expect("run");
-        assert!(out.contains_key("GR_ED"), "the user's own name is what gets written");
-    }
-
-    /// **Smoothing never fills a gap.** A hole stays a hole, whatever the window covers — the
-    /// alternative is a curve that quietly acquires values across a washout and reads exactly like
-    /// one that was logged there.
     #[test]
     fn a_smoothed_curve_never_fills_a_gap() {
         let n = 41;
@@ -1112,7 +1046,7 @@ mod tests {
         for method in ["MEAN", "MEDIAN", "SAVGOL"] {
             let ctx = ctx_for(&depth, &curve, &[("WINDOW", 0.5)], &[("OPT_METHOD", method)]);
             let out = smooth(&ctx).expect("run");
-            let got = &out["GR_C"];
+            let got = &out["OUT_CURVE"];
             for i in 20..23 {
                 assert!(got[i].is_nan(), "{method}: sample {i} was MISSING and must stay MISSING");
             }
@@ -1139,13 +1073,13 @@ mod tests {
         .expect("run");
         let i = 5; // away from the ends, where a centred window is complete
         assert!(
-            (sg["GR_C"][i] - curve[i]).abs() < 1e-4,
+            (sg["OUT_CURVE"][i] - curve[i]).abs() < 1e-4,
             "SAVGOL should reproduce a quadratic: {} vs {}",
-            sg["GR_C"][i],
+            sg["OUT_CURVE"][i],
             curve[i]
         );
         assert!(
-            (mean["GR_C"][i] - curve[i]).abs() > 1e-3,
+            (mean["OUT_CURVE"][i] - curve[i]).abs() > 1e-3,
             "a moving mean should NOT — if it does, this test is proving nothing"
         );
     }
@@ -1174,8 +1108,8 @@ mod tests {
         }
         let ctx = ctx_for(&depth, &curve, &[("MAX_GAP", 0.5)], &[("OPT_METHOD", "LINEAR")]);
         let out = fill_gaps(&ctx).expect("run");
-        let got = &out["GR_C"];
-        let flag = &out["GR_C_FILL"];
+        let got = &out["OUT_CURVE"];
+        let flag = &out["OUT_FLAG"];
 
         for i in 0..3 {
             assert!(got[i].is_nan(), "sample {i} is open at the top — filling it is extrapolation");
@@ -1219,7 +1153,7 @@ mod tests {
         let ctx = ctx_for(&depth, &curve, &[("MAX_GAP", 1.0)], &[("OPT_METHOD", "HOLD")]);
         let out = fill_gaps(&ctx).expect("run");
         for i in 10..14 {
-            assert_eq!(out["GR_C"][i], 1.0, "HOLD carries the value above, sample {i}");
+            assert_eq!(out["OUT_CURVE"][i], 1.0, "HOLD carries the value above, sample {i}");
         }
     }
 
@@ -1232,10 +1166,10 @@ mod tests {
 
         let blanked = clip(&ctx_for(&depth, &curve, &[("MIN", 0.0), ("MAX", 200.0)], &[]))
             .expect("run");
-        assert!(blanked["GR_C"][0].is_nan(), "below MIN becomes MISSING");
-        assert!(blanked["GR_C"][3].is_nan(), "above MAX becomes MISSING");
-        assert_eq!(blanked["GR_C"][2], 50.0, "an in-range sample is untouched");
-        assert_eq!(blanked["GR_C_CLP"][3], 1.0, "and the out-of-range sample is flagged");
+        assert!(blanked["OUT_CURVE"][0].is_nan(), "below MIN becomes MISSING");
+        assert!(blanked["OUT_CURVE"][3].is_nan(), "above MAX becomes MISSING");
+        assert_eq!(blanked["OUT_CURVE"][2], 50.0, "an in-range sample is untouched");
+        assert_eq!(blanked["OUT_FLAG"][3], 1.0, "and the out-of-range sample is flagged");
 
         let clamped = clip(&ctx_for(
             &depth,
@@ -1244,13 +1178,13 @@ mod tests {
             &[("OPT_ACTION", "CLAMP")],
         ))
         .expect("run");
-        assert_eq!(clamped["GR_C"][0], 0.0);
-        assert_eq!(clamped["GR_C"][3], 200.0);
+        assert_eq!(clamped["OUT_CURVE"][0], 0.0);
+        assert_eq!(clamped["OUT_CURVE"][3], 200.0);
 
         // Lower bound only: the high reading is left alone, because no upper bound was declared.
         let one_sided = clip(&ctx_for(&depth, &curve, &[("MIN", 0.0)], &[])).expect("run");
-        assert!(one_sided["GR_C"][0].is_nan(), "the declared bound still applies");
-        assert_eq!(one_sided["GR_C"][3], 400.0, "the undeclared side is not a bound");
+        assert!(one_sided["OUT_CURVE"][0].is_nan(), "the declared bound still applies");
+        assert_eq!(one_sided["OUT_CURVE"][3], 400.0, "the undeclared side is not a bound");
 
         // Neither bound is refused rather than silently copying the curve.
         assert!(clip(&ctx_for(&depth, &curve, &[], &[])).is_err());
@@ -1269,7 +1203,7 @@ mod tests {
             let n = depth.len();
             let mut logs = HashMap::new();
             logs.insert("DEPTH".to_string(), depth.clone());
-            logs.insert("CURVE".to_string(), once["GR_C"].clone());
+            logs.insert("CURVE".to_string(), once["OUT_CURVE"].clone());
             let mut ps = HashMap::new();
             ps.insert("PIVOT".to_string(), vec![-10.0; n]);
             let mut os: HashMap<String, String> = HashMap::new();
@@ -1279,12 +1213,12 @@ mod tests {
         };
         for i in 0..curve.len() {
             if curve[i].is_nan() {
-                assert!(back["GR_C"][i].is_nan(), "MISSING stays MISSING through a flip");
+                assert!(back["OUT_CURVE"][i].is_nan(), "MISSING stays MISSING through a flip");
             } else {
-                assert!((back["GR_C"][i] - curve[i]).abs() < 1e-4, "sample {i} did not come back");
+                assert!((back["OUT_CURVE"][i] - curve[i]).abs() < 1e-4, "sample {i} did not come back");
             }
         }
-        assert_eq!(once["GR_C_PIV"][0], -10.0, "the pivot used is recorded");
+        assert_eq!(once["OUT_FLAG"][0], -10.0, "the pivot used is recorded");
         // No pivot and no rule to derive one is refused, never taken as zero.
         assert!(flip(&ctx_for(&depth, &curve, &[], &[])).is_err());
     }

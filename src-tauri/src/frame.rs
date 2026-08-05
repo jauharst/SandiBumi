@@ -29,31 +29,11 @@
 //! fraction, which is most of what gets blocked.
 
 use crate::modules::{
-    log_in, log_out, opt_labelled, param, param_open, text, ModuleContext, ModuleOutputs, ModuleSpec,
+    log_in, log_out_as, opt_labelled, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
 };
 use std::collections::HashMap;
 
 const MISSING: f32 = f32::NAN;
-
-/// The `standard_curves` columns — an output landing on one of these is shadowed by the raw log
-/// and read back as the measurement. Same rule, same reason as [`crate::condition`].
-const STANDARD_COLUMNS: [&str; 7] = ["DEPTH", "GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
-
-/// Resolves the output mnemonic: the user's own `OUT`, else `<input><suffix>`.
-fn out_name(ctx: &ModuleContext, input_arg: &str, suffix: &str) -> Result<String, String> {
-    let src = ctx.o(&format!("__IN_{input_arg}")).trim().to_uppercase();
-    let typed = ctx.o("OUT").trim().to_uppercase();
-    let fallback = if src.is_empty() { format!("BLOCKED{suffix}") } else { format!("{src}{suffix}") };
-    let name = if typed.is_empty() { fallback.clone() } else { typed };
-    if STANDARD_COLUMNS.contains(&name.as_str()) {
-        return Err(format!(
-            "OUT = {name} would be shadowed: {name} is read from the raw log first, so an \
-             upscaled copy stored under that name is never the one anything reads. Give the \
-             output its own name (the default {fallback} does)."
-        ));
-    }
-    Ok(name)
-}
 
 /// A run parameter that is constant for the well — a block interval cannot vary by zone without
 /// the boundary being two thicknesses at once. Same helper and same reasoning as `condition`.
@@ -289,21 +269,19 @@ pub fn block_spec() -> ModuleSpec {
             ),
             log_in("CURVE", "Curve to upscale", "", "PHIE", true),
             log_in("BEDS", "Class curve defining the beds (OPT_BEDS = CLASS)", "", "FACIES", false),
-            text("OUT", "Output curve name — blank writes <input>_BLK", ""),
             opt_labelled(
                 "OPT_FLAG",
                 "Write the bed number each sample fell in",
                 "YES",
                 &[("YES", "YES — write the bed-index curve"), ("NO", "NO — the blocked curve only")],
             ),
-            log_out("OUT_CURVE", "Blocked curve (named by OUT)", ""),
-            log_out("OUT_BED", "Bed index (named <OUT>_BED)", ""),
+            log_out_as("OUT_CURVE", "{CURVE}_BLK", "Blocked curve", ""),
+            log_out_as("OUT_BED", "{OUT_CURVE}_BED", "Bed index", ""),
         ],
     }
 }
 
 pub fn block(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
-    let name = out_name(ctx, "CURVE", "_BLK")?;
     let vals = ctx.log("CURVE");
     let depth = ctx.log("DEPTH");
     let stat = ctx.o("OPT_STAT").to_string();
@@ -365,9 +343,9 @@ pub fn block(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         })
         .collect();
 
-    let mut res: ModuleOutputs = HashMap::from([(name.clone(), out)]);
+    let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
-        res.insert(format!("{name}_BED"), beds);
+        res.insert("OUT_BED".to_string(), beds);
     }
     Ok(res)
 }
@@ -399,14 +377,12 @@ pub fn bed_detect_spec() -> ModuleSpec {
             param_open("MIN_BED", "Thinnest bed worth calling a bed", "depth", 0.0, 10000.0, true),
             param("SENS", "How far off the bed's mean is a new bed, in noise units", "", 2.0, 0.5, 20.0),
             log_in("CURVE", "Curve to segment", "", "GR", true),
-            text("OUT", "Output curve name — blank writes <input>_BED", ""),
-            log_out("OUT_CURVE", "Bed index (named by OUT)", ""),
+            log_out_as("OUT_CURVE", "{CURVE}_BED", "Bed index", ""),
         ],
     }
 }
 
 pub fn bed_detect(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
-    let name = out_name(ctx, "CURVE", "_BED")?;
     let min_bed = constant(ctx, "MIN_BED");
     if !(min_bed > 0.0) {
         return Err("MIN_BED must be set — the thinnest thing worth calling a bed is a property \
@@ -416,7 +392,7 @@ pub fn bed_detect(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let vals = ctx.log("CURVE");
     let depth = ctx.log("DEPTH");
     let beds = detect_beds(&vals, &depth, constant(ctx, "SENS"), min_bed);
-    Ok(HashMap::from([(name, beds)]))
+    Ok(HashMap::from([("OUT_CURVE".to_string(), beds)]))
 }
 
 #[cfg(test)]
@@ -473,7 +449,7 @@ mod tests {
                 &[("OPT_BEDS", "INTERVAL"), ("OPT_STAT", stat)],
             ))
             .expect("run");
-            out["PERM_BLK"][0]
+            out["OUT_CURVE"][0]
         };
         let (a, g, h) = (block_with("MEAN"), block_with("GEOMETRIC"), block_with("HARMONIC"));
         assert!((a - 500.0).abs() < 1.0, "arithmetic mean of 1000 and 0.01 is 500, got {a}");
@@ -504,7 +480,7 @@ mod tests {
             &[("OPT_BEDS", "INTERVAL"), ("OPT_STAT", "GEOMETRIC")],
         ))
         .expect("run");
-        assert!((out["PERM_BLK"][0] - 100.0).abs() < 1e-3, "got {}", out["PERM_BLK"][0]);
+        assert!((out["OUT_CURVE"][0] - 100.0).abs() < 1e-3, "got {}", out["OUT_CURVE"][0]);
 
         // A bed with nothing positive in it has no geometric mean, and says so rather than
         // returning zero — which would read as a measurement.
@@ -516,7 +492,7 @@ mod tests {
             &[("OPT_BEDS", "INTERVAL"), ("OPT_STAT", "GEOMETRIC")],
         ))
         .expect("run");
-        assert!(out["PERM_BLK"][0].is_nan());
+        assert!(out["OUT_CURVE"][0].is_nan());
     }
 
     /// **A block interval is a thickness**, so the same setting covers the same rock at any
@@ -534,13 +510,13 @@ mod tests {
                 &[("OPT_BEDS", "INTERVAL"), ("OPT_STAT", "MEAN")],
             ))
             .expect("run");
-            let beds = &out["PERM_BLK_BED"];
+            let beds = &out["OUT_BED"];
             // 2 m of well at 0.5 m blocks = 4 blocks, whatever the sample spacing.
             let distinct: std::collections::BTreeSet<i64> =
                 beds.iter().filter(|b| b.is_finite()).map(|b| *b as i64).collect();
             assert_eq!(distinct.len(), 4, "step {step}: 2 m in 0.5 m blocks is 4 blocks");
             // Every sample of a block carries that block's own single value.
-            let blocked = &out["PERM_BLK"];
+            let blocked = &out["OUT_CURVE"];
             for i in 1..n {
                 if beds[i] == beds[i - 1] {
                     assert_eq!(blocked[i], blocked[i - 1], "step {step}: sample {i} broke its block");
@@ -565,12 +541,12 @@ mod tests {
         let mut ctx = ctx_for(&depth, &curve, &[], &[("OPT_BEDS", "CLASS"), ("OPT_STAT", "MEAN")]);
         ctx.logs.insert("BEDS".to_string(), cls);
         let out = block(&ctx).expect("run");
-        let beds = &out["PERM_BLK_BED"];
+        let beds = &out["OUT_BED"];
         assert_eq!(beds[0], 0.0, "the first facies-1 run is bed 0");
         assert_eq!(beds[4], 1.0, "the facies-2 run opens bed 1");
         assert!(beds[6].is_nan(), "the hole belongs to no bed");
         assert_eq!(beds[7], 2.0, "and the facies-2 run AFTER the hole is a new bed, not bed 1");
-        assert!(out["PERM_BLK"][6].is_nan(), "a sample in no bed stays MISSING");
+        assert!(out["OUT_CURVE"][6].is_nan(), "a sample in no bed stays MISSING");
     }
 
     /// The AUTO segmentation finds a real contact and refuses to cut a bed thinner than MIN_BED,
@@ -587,7 +563,7 @@ mod tests {
         }
         let out = bed_detect(&ctx_for(&depth, &curve, &[("MIN_BED", 0.5), ("SENS", 4.0)], &[]))
             .expect("run");
-        let beds = &out["PERM_BED"];
+        let beds = &out["OUT_CURVE"];
         assert_eq!(beds[0], 0.0);
         assert!(beds[35] > 0.0, "the 70-unit contact must open a new bed");
         let count = beds.iter().filter(|b| b.is_finite()).map(|b| *b as i64).max().unwrap() + 1;
@@ -600,12 +576,13 @@ mod tests {
         // A minimum thickness wider than the whole well can only ever give one bed.
         let out = bed_detect(&ctx_for(&depth, &curve, &[("MIN_BED", 100.0), ("SENS", 4.0)], &[]))
             .expect("run");
-        let beds = &out["PERM_BED"];
+        let beds = &out["OUT_CURVE"];
         assert!(beds.iter().all(|b| *b == 0.0), "MIN_BED wider than the well is one bed");
     }
 
-    /// The refusals: a mode needs the thing it is defined by, and an output that would be
-    /// shadowed by a standard curve is refused by name.
+    /// The refusals: a mode needs the thing it is defined by. (Shadowing is checked once for
+    /// every module by `workflow::resolve_output_names`, not here — see
+    /// `an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs`.)
     #[test]
     fn each_bed_mode_refuses_without_what_defines_it() {
         let depth = regular(10, 0.1, 1000.0);
@@ -615,14 +592,5 @@ mod tests {
         assert!(block(&ctx_for(&depth, &curve, &[], &[("OPT_BEDS", "CLASS")])).is_err());
         assert!(block(&ctx_for(&depth, &curve, &[], &[("OPT_BEDS", "ZONES")])).is_err());
         assert!(bed_detect(&ctx_for(&depth, &curve, &[], &[])).is_err());
-
-        let err = block(&ctx_for(
-            &depth,
-            &curve,
-            &[("INTERVAL", 1.0)],
-            &[("OPT_BEDS", "INTERVAL"), ("OUT", "rhob")],
-        ))
-        .expect_err("must refuse a standard mnemonic");
-        assert!(err.contains("RHOB"), "{err}");
     }
 }

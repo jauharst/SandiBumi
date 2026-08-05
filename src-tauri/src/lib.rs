@@ -1472,6 +1472,22 @@ fn well_items(conn: &duckdb::Connection, well_ids: &[String]) -> Vec<(String, St
         .collect()
 }
 
+/// The curve names a module would write, given the inputs and renames chosen so far — what the
+/// module pane's output grid is filled from.
+///
+/// A pure question about the manifest, so no database and no job: it is answered by the same code
+/// the runner uses (`workflow::preview_output_names`), which is the whole point. Expanding a
+/// `log_out_as` pattern in the frontend instead would be a second copy of a naming rule, and this
+/// app has the `composite.rs`-versus-renderer scar to show for that pattern.
+#[tauri::command]
+fn module_output_names(
+    module: String,
+    log_inputs: std::collections::HashMap<String, String>,
+    opts: std::collections::HashMap<String, String>,
+) -> Result<Vec<workflow::OutputName>, String> {
+    workflow::preview_output_names(&module, &log_inputs, &opts)
+}
+
 /// Runs one deterministic module across the given wells (rayon-parallel), resolving interval
 /// parameters per zone and writing outputs to computed_curves. Async + off-thread via the job
 /// registry, so it reports live per-well progress and a Cancel in the Processing panel and never
@@ -3093,6 +3109,7 @@ pub fn run() {
             get_curve_data,
             list_modules,
             run_workflow_module,
+            module_output_names,
             run_pay_summary,
             stats_curve_summary,
             stats_pair_summary,

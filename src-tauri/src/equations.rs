@@ -286,6 +286,18 @@ pub fn list_curve_catalog(conn: &Connection) -> duckdb::Result<Vec<CurveCatalogE
 
 type CurveFrame = (Vec<f32>, HashMap<String, Vec<f32>>);
 
+/// The `standard_curves` columns, which every curve read resolves FIRST.
+///
+/// A computed curve stored under one of these names is written, counted and reported — and then
+/// invisible, because [`fetch_curve_frame`] hands every reader the raw standard column instead. It
+/// is the same shape as the `CPHOTO_*` trace saved at the photograph's own sampling: a run that
+/// reports success and a project that holds a curve nothing can open.
+///
+/// ONE list, consulted by [`crate::workflow::resolve_output_names`] before a run writes anything.
+/// It lived in `condition.rs` and again in `frame.rs`, which is two places for a seventh standard
+/// column to be forgotten.
+pub(crate) const STANDARD_COLUMNS: [&str; 7] = ["DEPTH", "GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
+
 /// Reads the requested curve mnemonics for one well, aligned onto that well's standard
 /// depth grid. Non-standard names are looked up in `computed_curves` (so equations can
 /// chain off previously computed curves).

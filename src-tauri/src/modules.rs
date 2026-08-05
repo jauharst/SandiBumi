@@ -219,6 +219,12 @@ pub(crate) fn log_in_computed(name: &str, desc: &str, unit: &str, default_curve:
     ArgSpec { computed_only: true, ..log_in(name, desc, unit, default_curve, required) }
 }
 
+/// An output curve. `default` is EMPTY, which means "written under the declared name" — `VSH`
+/// declares `VSH` and writes `VSH`.
+///
+/// See [`log_out_as`] for the outputs whose name is built from a run's own choices, and
+/// [`crate::workflow::resolve_output_names`] for the one place either is turned into the name a
+/// run actually writes.
 pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
     ArgSpec {
         name: name.into(),
@@ -234,6 +240,23 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         computed_only: false,
         well_scope: false,
     }
+}
+
+/// An output whose DEFAULT name is built from the run's own choices — `log_predict` writes
+/// `<target>_SYN`, `phi_cap` writes `<input>_CAP`, a despiked curve writes `<input>_C`.
+///
+/// `pattern` is the declared name with `{ARG}` placeholders naming other args of the same module:
+/// a LogIn expands to the mnemonic the run chose for it, a LogOut to the name that output already
+/// resolved to (declaration order), anything else to its option/text value.
+///
+/// **The module returns its DECLARED key and never builds this name itself.** Five modules used to
+/// `format!` their own output name, which meant the manifest's declared LogOut described a curve
+/// the run did not write — so a dialog listing "Outputs: SYN" was lying, and there was no way to
+/// offer a rename without a second implementation of each module's naming rule. One expansion, in
+/// the framework, is also what lets [`crate::workflow::resolve_output_names`] check every name a
+/// run is about to write against the shadowing rule below.
+pub(crate) fn log_out_as(name: &str, pattern: &str, desc: &str, unit: &str) -> ArgSpec {
+    ArgSpec { default: pattern.into(), ..log_out(name, desc, unit) }
 }
 
 /// Everything a module needs at run time, resolved by the workflow runner:
@@ -921,8 +944,8 @@ fn phimax_spec() -> ModuleSpec {
             param("ATHY_K", "ATHY: compaction coefficient per 1000 TVDSS units", "1/1000", 0.10, 0.0, 5.0),
             log_in("PHI", "Porosity to cap", "v/v", "PHIE", true),
             log_in("TVDSS", "True vertical depth subsea (trend modes)", "ft|m", "TVDSS", false),
-            log_out("PHI_CAP", "Capped porosity (named <input>_CAP)", "v/v"),
-            log_out("PHI_MAX", "φmax ceiling curve (named <input>_MAX)", "v/v"),
+            log_out_as("PHI_CAP", "{PHI}_CAP", "Capped porosity", "v/v"),
+            log_out_as("PHI_MAX", "{PHI}_MAX", "φmax ceiling curve", "v/v"),
         ],
     }
 }
@@ -936,10 +959,6 @@ fn phimax(ctx: &ModuleContext) -> ModuleOutputs {
     let tvd_in = ctx.log("TVDSS");
     let tvd: Vec<f32> =
         if tvd_in.iter().any(|v| v.is_finite()) { tvd_in } else { ctx.log("DEPTH") };
-
-    let src = ctx.o("__IN_PHI");
-    let cap_name = if src.is_empty() { "PHI_CAP".to_string() } else { format!("{src}_CAP") };
-    let max_name = if src.is_empty() { "PHI_MAX".to_string() } else { format!("{src}_MAX") };
 
     let mut capped = vec![f32::NAN; ctx.n];
     let mut ceiling = vec![f32::NAN; ctx.n];
@@ -974,7 +993,7 @@ fn phimax(ctx: &ModuleContext) -> ModuleOutputs {
         // Where the ceiling is MISSING (e.g. trend with no depth), pass porosity through uncapped.
         capped[i] = (if is_missing(phi_max) { pv } else { pv.min(phi_max) }) as f32;
     }
-    HashMap::from([(cap_name, capped), (max_name, ceiling)])
+    HashMap::from([("PHI_CAP".to_string(), capped), ("PHI_MAX".to_string(), ceiling)])
 }
 
 // ---------------------------------------------------------------------------
@@ -2485,7 +2504,7 @@ fn depth_shift_spec() -> ModuleSpec {
         args: vec![
             param("SHIFT", "Depth shift (+ = deeper)", "m", 0.0, -1000.0, 1000.0),
             log_in("CURVE", "Curve to shift", "", "GR", true),
-            log_out("CURVE_DS", "Depth-shifted copy (named <input>_DS)", ""),
+            log_out_as("CURVE_DS", "{CURVE}_DS", "Depth-shifted copy", ""),
         ],
     }
 }
@@ -2526,8 +2545,6 @@ fn interp_at(depths: &[f32], vals: &[f32], target: f64) -> f64 {
 fn depth_shift(ctx: &ModuleContext) -> ModuleOutputs {
     let depth = ctx.log("DEPTH");
     let vals = ctx.log("CURVE");
-    let src = ctx.o("__IN_CURVE");
-    let out_name = if src.is_empty() { "SHIFTED".to_string() } else { format!("{src}_DS") };
 
     let mut out = vec![f32::NAN; ctx.n];
     for i in 0..ctx.n {
@@ -2538,7 +2555,7 @@ fn depth_shift(ctx: &ModuleContext) -> ModuleOutputs {
         }
         out[i] = interp_at(&depth, &vals, d - shift) as f32;
     }
-    HashMap::from([(out_name, out)])
+    HashMap::from([("CURVE_DS".to_string(), out)])
 }
 
 // ---------------------------------------------------------------------------
@@ -2558,7 +2575,7 @@ fn splice_spec() -> ModuleSpec {
             param("SPLICE_DEPTH", "Depth where BOT_CURVE takes over", "m", 1000.0, 0.0, 20000.0),
             log_in("TOP_CURVE", "Curve used above the splice depth", "", "GR", true),
             log_in("BOT_CURVE", "Curve used below the splice depth", "", "GR", true),
-            log_out("SPLICED", "Spliced curve (named <top input>_SPL)", ""),
+            log_out_as("SPLICED", "{TOP_CURVE}_SPL", "Spliced curve", ""),
         ],
     }
 }
@@ -2567,9 +2584,6 @@ fn splice(ctx: &ModuleContext) -> ModuleOutputs {
     let depth = ctx.log("DEPTH");
     let top = ctx.log("TOP_CURVE");
     let bot = ctx.log("BOT_CURVE");
-    let src = ctx.o("__IN_TOP_CURVE");
-    let out_name = if src.is_empty() { "SPLICED".to_string() } else { format!("{src}_SPL") };
-
     let mut out = vec![f32::NAN; ctx.n];
     for i in 0..ctx.n {
         let d = depth[i] as f64;
@@ -2578,7 +2592,7 @@ fn splice(ctx: &ModuleContext) -> ModuleOutputs {
         }
         out[i] = if d < ctx.p("SPLICE_DEPTH", i) { top[i] } else { bot[i] };
     }
-    HashMap::from([(out_name, out)])
+    HashMap::from([("SPLICED".to_string(), out)])
 }
 
 // ---------------------------------------------------------------------------
@@ -2686,7 +2700,7 @@ fn log_predict_spec() -> ModuleSpec {
             log_in("P1", "Predictor 1", "", "GR", true),
             log_in("P2", "Predictor 2 (optional)", "", "NPHI", false),
             log_in("P3", "Predictor 3 (optional)", "", "DT", false),
-            log_out("SYN", "Synthetic curve (named <target>_SYN)", ""),
+            log_out_as("SYN", "{TARGET}_SYN", "Synthetic curve", ""),
         ],
     }
 }
@@ -2694,8 +2708,7 @@ fn log_predict_spec() -> ModuleSpec {
 fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
     let target = ctx.log("TARGET");
     let combine = ctx.o("OPT_COMBINE").to_string();
-    let src = ctx.o("__IN_TARGET");
-    let out_name = if src.is_empty() { "SYN".to_string() } else { format!("{src}_SYN") };
+    let out_name = "SYN".to_string();
     let mut out = vec![f32::NAN; ctx.n];
 
     // Use every supplied predictor that carries data.
@@ -3129,7 +3142,7 @@ mod tests {
             &[("K", 5.0)],
             &opts,
         ));
-        let syn = &out["DT_SYN"];
+        let syn = &out["SYN"];
 
         for i in 0..20 {
             if dt[i].is_nan() {
@@ -3167,7 +3180,7 @@ mod tests {
             &[("K", 5.0)],
             &[("OPT_COMBINE", "MAX_RAW"), ("__IN_TARGET", "DT")],
         ));
-        let syn = &out["DT_SYN"];
+        let syn = &out["SYN"];
         assert!(
             syn[washed] > dt[washed] + 20.0,
             "the depressed sample was not repaired: {} vs raw {}",
@@ -3197,7 +3210,7 @@ mod tests {
             &opts,
         ));
         assert!(
-            out["DT_SYN"].iter().all(|v| v.is_nan()),
+            out["SYN"].iter().all(|v| v.is_nan()),
             "six samples is not a training set — the module must write nothing"
         );
     }
@@ -3383,8 +3396,8 @@ mod tests {
             &[("MODE", "constant"), ("__IN_PHI", "PHIE")],
         );
         let out = phimax(&ctx);
-        let cap = &out["PHIE_CAP"];
-        let mx = &out["PHIE_MAX"];
+        let cap = &out["PHI_CAP"];
+        let mx = &out["PHI_MAX"];
         assert!((cap[0] - 0.30).abs() < 1e-6, "below ceiling unchanged: {}", cap[0]);
         assert!((cap[1] - 0.40).abs() < 1e-6, "above ceiling capped: {}", cap[1]);
         assert!(cap[2].is_nan(), "MISSING input stays MISSING");
@@ -3406,11 +3419,11 @@ mod tests {
             &[("MODE", "linear"), ("__IN_PHI", "PHIE")],
         );
         let out = phimax(&ctx);
-        assert!((out["PHIE_MAX"][0] - 0.40).abs() < 1e-6, "at ref: {}", out["PHIE_MAX"][0]);
-        assert!((out["PHIE_MAX"][1] - 0.35).abs() < 1e-6, "1000 deeper: {}", out["PHIE_MAX"][1]);
+        assert!((out["PHI_MAX"][0] - 0.40).abs() < 1e-6, "at ref: {}", out["PHI_MAX"][0]);
+        assert!((out["PHI_MAX"][1] - 0.35).abs() < 1e-6, "1000 deeper: {}", out["PHI_MAX"][1]);
         // PHI 0.50 caps to the ceiling at both depths.
-        assert!((out["PHIE_CAP"][0] - 0.40).abs() < 1e-6);
-        assert!((out["PHIE_CAP"][1] - 0.35).abs() < 1e-6);
+        assert!((out["PHI_CAP"][0] - 0.40).abs() < 1e-6);
+        assert!((out["PHI_CAP"][1] - 0.35).abs() < 1e-6);
     }
 
     #[test]
@@ -3424,11 +3437,11 @@ mod tests {
             &[("MODE", "athy"), ("__IN_PHI", "PHIT")],
         );
         let out = phimax(&ctx);
-        assert!((out["PHIT_MAX"][0] - 0.30).abs() < 1e-6, "at ref: {}", out["PHIT_MAX"][0]);
+        assert!((out["PHI_MAX"][0] - 0.30).abs() < 1e-6, "at ref: {}", out["PHI_MAX"][0]);
         let deep = 0.30 * (-0.5f64).exp();
-        assert!((out["PHIT_MAX"][1] as f64 - deep).abs() < 1e-6, "athy decay: {}", out["PHIT_MAX"][1]);
-        assert!((out["PHIT_CAP"][0] - 0.30).abs() < 1e-6, "capped to ceiling at ref");
-        assert!((out["PHIT_CAP"][1] as f64 - deep).abs() < 1e-6, "capped to decayed ceiling");
+        assert!((out["PHI_MAX"][1] as f64 - deep).abs() < 1e-6, "athy decay: {}", out["PHI_MAX"][1]);
+        assert!((out["PHI_CAP"][0] - 0.30).abs() < 1e-6, "capped to ceiling at ref");
+        assert!((out["PHI_CAP"][1] as f64 - deep).abs() < 1e-6, "capped to decayed ceiling");
     }
 
     #[test]
@@ -3443,8 +3456,8 @@ mod tests {
             &[("MODE", "linear"), ("__IN_PHI", "PHIE")],
         );
         let out = phimax(&ctx);
-        assert!((out["PHIE_MAX"][0] - 0.0).abs() < 1e-6, "sub-zero ceiling clamps to 0: {}", out["PHIE_MAX"][0]);
-        assert!((out["PHIE_CAP"][0] - 0.0).abs() < 1e-6, "porosity forced to 0 below crossover");
+        assert!((out["PHI_MAX"][0] - 0.0).abs() < 1e-6, "sub-zero ceiling clamps to 0: {}", out["PHI_MAX"][0]);
+        assert!((out["PHI_CAP"][0] - 0.0).abs() < 1e-6, "porosity forced to 0 below crossover");
         // Re-run sample 1 in a config where the ceiling exceeds 1 (negative gradient).
         let ctx2 = ctx_with(
             1,
@@ -3453,8 +3466,8 @@ mod tests {
             &[("MODE", "linear"), ("__IN_PHI", "PHIE")],
         );
         let out2 = phimax(&ctx2);
-        assert!((out2["PHIE_MAX"][0] - 1.0).abs() < 1e-6, "super-unit ceiling clamps to 1: {}", out2["PHIE_MAX"][0]);
-        assert!((out2["PHIE_CAP"][0] - 0.80).abs() < 1e-6, "0.80 passes through under a 1.0 ceiling");
+        assert!((out2["PHI_MAX"][0] - 1.0).abs() < 1e-6, "super-unit ceiling clamps to 1: {}", out2["PHI_MAX"][0]);
+        assert!((out2["PHI_CAP"][0] - 0.80).abs() < 1e-6, "0.80 passes through under a 1.0 ceiling");
     }
 
     #[test]
@@ -3469,10 +3482,10 @@ mod tests {
             &[("MODE", "linear"), ("__IN_PHI", "PHIE")],
         );
         let out = phimax(&ctx);
-        assert!((out["PHIE_MAX"][0] - 0.40).abs() < 1e-6, "finite-depth sample capped: {}", out["PHIE_MAX"][0]);
-        assert!((out["PHIE_CAP"][0] - 0.40).abs() < 1e-6);
-        assert!(out["PHIE_MAX"][1].is_nan(), "NaN-depth sample → MISSING ceiling");
-        assert!((out["PHIE_CAP"][1] - 0.50).abs() < 1e-6, "NaN-depth porosity passes through uncapped");
+        assert!((out["PHI_MAX"][0] - 0.40).abs() < 1e-6, "finite-depth sample capped: {}", out["PHI_MAX"][0]);
+        assert!((out["PHI_CAP"][0] - 0.40).abs() < 1e-6);
+        assert!(out["PHI_MAX"][1].is_nan(), "NaN-depth sample → MISSING ceiling");
+        assert!((out["PHI_CAP"][1] - 0.50).abs() < 1e-6, "NaN-depth porosity passes through uncapped");
     }
 
     #[test]
@@ -3958,7 +3971,7 @@ mod tests {
             &[("__IN_CURVE", "GR")],
         );
         let out = depth_shift(&ctx);
-        let s = &out["GR_DS"];
+        let s = &out["CURVE_DS"];
         assert!(s[0].is_nan() && s[1].is_nan(), "samples shifted in from above the log top must be missing");
         assert!((s[2] as f64 - 2000.0).abs() < 1e-3);
         assert!((s[10] as f64 - 2016.0).abs() < 1e-3);
@@ -3970,7 +3983,7 @@ mod tests {
             &[("SHIFT", 0.5)],
             &[("__IN_CURVE", "GR")],
         );
-        let f = &depth_shift(&ctx_frac)["GR_DS"];
+        let f = &depth_shift(&ctx_frac)["CURVE_DS"];
         assert!((f[1] as f64 - 2001.0).abs() < 1e-3);
     }
 
@@ -3984,7 +3997,7 @@ mod tests {
             &[("__IN_TOP_CURVE", "RES_RUN1")],
         );
         let out = splice(&ctx);
-        let s = &out["RES_RUN1_SPL"];
+        let s = &out["SPLICED"];
         assert_eq!(s[2], 1.0, "above the splice depth the top curve wins");
         assert_eq!(s[3], 2.0, "at/below the splice depth the bottom curve wins");
     }
@@ -4016,7 +4029,7 @@ mod tests {
             &[("SPLICE_DEPTH", 1003.0)],
             &[("__IN_TOP_CURVE", "RES_RUN1")],
         );
-        let s = &splice(&ctx)["RES_RUN1_SPL"];
+        let s = &splice(&ctx)["SPLICED"];
 
         assert!(
             s[1].is_nan(),
@@ -4820,7 +4833,7 @@ mod tests {
             &[("OPT_COMBINE", "SYNTHETIC"), ("__IN_TARGET", "RHOB")],
         );
         let out = log_predict(&ctx);
-        let syn = &out["RHOB_SYN"];
+        let syn = &out["SYN"];
         // Sample 150 has P1 = 50 → prediction ≈ 110.
         assert!((syn[150] - 110.0).abs() < 3.0, "KNN should recover the trend, got {}", syn[150]);
         assert!(!syn[0].is_nan(), "training samples get predictions too");
@@ -4841,7 +4854,7 @@ mod tests {
             &[("OPT_COMBINE", "MAX_RAW"), ("__IN_TARGET", "RHOB")],
         );
         let out = log_predict(&ctx);
-        let syn = &out["RHOB_SYN"];
+        let syn = &out["SYN"];
         assert!(syn[25] > 2.3, "washout sample must be pulled up toward the trend, got {}", syn[25]);
         assert!((syn[10] - 2.5).abs() < 1e-3, "good samples keep raw (raw ≥ synthetic)");
     }
