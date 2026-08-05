@@ -168,6 +168,11 @@ pub(crate) fn param_open(
 }
 
 /// A free-text run option (see [`ArgKind::Text`]). Reaches the module through `opts`.
+/// A free-text run option. Currently unused: its only caller was the Condition/Frame families'
+/// "Output curve name" field, which the output-name grid replaced (`log_out_as`). Kept because
+/// `ArgKind::Text` is a real kind the whole stack already renders, and a manifest wanting a
+/// free-string parameter should not have to re-add the plumbing.
+#[allow(dead_code)]
 pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
     ArgSpec {
         name: name.into(),
@@ -371,6 +376,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         crate::condition::clip_spec(),
         crate::condition::fill_gaps_spec(),
         crate::condition::flip_spec(),
+        crate::condition::normalize_spec(),
         crate::frame::block_spec(),
         crate::frame::bed_detect_spec(),
         crate::multimin::multimin_spec(),
@@ -459,6 +465,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "clip" => crate::condition::clip(ctx),
         "fill_gaps" => crate::condition::fill_gaps(ctx),
         "flip" => crate::condition::flip(ctx),
+        "normalize" => crate::condition::normalize(ctx),
         // Frame — depth-sampling. Both refuse rather than guess what a bed is.
         "block" => crate::frame::block(ctx),
         "bed_detect" => crate::frame::bed_detect(ctx),
@@ -2599,21 +2606,6 @@ fn splice(ctx: &ModuleContext) -> ModuleOutputs {
 // GR_NORMALIZE — two-point percentile gamma-ray normalization
 // ---------------------------------------------------------------------------
 
-/// Linear-interpolated percentile (0–100) of the finite values in `vals`.
-fn percentile_of(sorted: &[f64], p: f64) -> f64 {
-    let n = sorted.len();
-    if n == 0 {
-        return MISSING;
-    }
-    if n == 1 {
-        return sorted[0];
-    }
-    let rank = (p / 100.0).clamp(0.0, 1.0) * (n - 1) as f64;
-    let lo = rank.floor() as usize;
-    let hi = rank.ceil() as usize;
-    sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - lo as f64)
-}
-
 fn gr_normalize_spec() -> ModuleSpec {
     ModuleSpec {
         name: "gr_normalize".into(),
@@ -2644,32 +2636,39 @@ fn gr_normalize_spec() -> ModuleSpec {
     }
 }
 
+/// The GR preset of [`crate::condition::normalize`], kept so saved chains and stored runs still
+/// resolve — it is NOT a second implementation.
+///
+/// Jauhar, 2026-08-05: *"dont dupilcates, normalize tools here should be universal for all
+/// logs"*. A two-point percentile map has nothing to do with gamma rays; the same arithmetic
+/// normalizes a neutron, a sonic or a density, and every one of them drifts between tools in the
+/// same way. So the module became `normalize`, this delegates to it with the GR arg names, and
+/// the pickers hide this one (`SUPERSEDED_MODULE_IDS`) so the user sees exactly one Normalize.
+///
+/// Left RUNNABLE rather than retired like `multimin`: retiring it would fail every saved chain
+/// carrying a `gr_normalize` step, and unlike superseded physics the answer here is unchanged.
 fn gr_normalize(ctx: &ModuleContext) -> ModuleOutputs {
-    let gr = ctx.log("GR");
-    let mut out = vec![f32::NAN; ctx.n];
-
-    let mut valid: Vec<f64> = gr.iter().map(|v| *v as f64).filter(|v| !is_missing(*v)).collect();
-    valid.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    if valid.len() < 2 {
-        return HashMap::from([("GRN".to_string(), out)]);
+    let mut opts = ctx.opts.clone();
+    opts.insert("OPT_METHOD".into(), "TWO_POINT".into());
+    opts.insert("OPT_SPACE".into(), "LINEAR".into());
+    let mut params = ctx.params.clone();
+    // The GR manifest's own arg names, mapped onto the universal ones.
+    if let Some(v) = params.get("GR_LOW_REF").cloned() {
+        params.insert("REF_LOW".into(), v);
     }
-    // Percentile levels are global per run: read them at the first valid sample.
-    let i0 = (0..ctx.n).find(|&i| !is_missing(gr[i] as f64)).unwrap_or(0);
-    let p_lo_well = percentile_of(&valid, ctx.p("P_LOW", i0));
-    let p_hi_well = percentile_of(&valid, ctx.p("P_HIGH", i0));
-    if is_missing(p_lo_well) || is_missing(p_hi_well) || p_hi_well - p_lo_well <= 1e-9 {
-        return HashMap::from([("GRN".to_string(), out)]);
+    if let Some(v) = params.get("GR_HIGH_REF").cloned() {
+        params.insert("REF_HIGH".into(), v);
     }
-
-    for i in 0..ctx.n {
-        let g = gr[i] as f64;
-        let lo_ref = ctx.p("GR_LOW_REF", i);
-        let hi_ref = ctx.p("GR_HIGH_REF", i);
-        if is_missing(g) || is_missing(lo_ref) || is_missing(hi_ref) {
-            continue;
-        }
-        out[i] = ((g - p_lo_well) * (hi_ref - lo_ref) / (p_hi_well - p_lo_well) + lo_ref) as f32;
+    let mut logs = ctx.logs.clone();
+    if let Some(v) = logs.get("GR").cloned() {
+        logs.insert("CURVE".into(), v);
     }
+    let inner = ModuleContext { n: ctx.n, logs, params, opts, depth_unit: ctx.depth_unit };
+    // A refusal from the shared core (no reference pair, a run with nothing in it) leaves GRN
+    // MISSING, which is what this module always did — it never returned a Result.
+    let out = crate::condition::normalize(&inner)
+        .map(|m| m["OUT_CURVE"].clone())
+        .unwrap_or_else(|_| vec![f32::NAN; ctx.n]);
     HashMap::from([("GRN".to_string(), out)])
 }
 

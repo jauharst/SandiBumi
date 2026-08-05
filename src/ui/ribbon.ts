@@ -463,6 +463,14 @@ export class Ribbon {
    *  message directing to SandiMin (backend `modules::retired_module`), rather than running. */
   private static readonly ADVANCED_MODULE_IDS = ["ssc", "sspw", "sw_rtc", "sw_imts", "thin_bed_ts", "multimin"] as const;
 
+  /** Modules superseded by a more general one: still in the catalog and still RUNNABLE, so every
+   *  saved chain and every stored run resolves, but kept out of the pickers so the user is not
+   *  offered the same operation twice (Jauhar, 2026-08-05: *"dont dupilcates, normalize tools here
+   *  should be universal for all logs"*). `gr_normalize` is now a preset of Condition ▸ Normalize
+   *  and delegates to the same code. Distinct from ADVANCED_MODULE_IDS, which MOVES a module to
+   *  the Advance tab, and from the retirement list in `modules.rs`, which stops one running. */
+  private static readonly SUPERSEDED_MODULE_IDS = ["gr_normalize"] as const;
+
   /** Fetches the backend manifests once and fills both module areas: the Petrophysics
    *  tab (category dropdowns) and the Advance tab (the promoted flagship methods). */
   private async loadAllModules(root: HTMLElement): Promise<void> {
@@ -546,8 +554,8 @@ export class Ribbon {
    *  automatically. "Prep" modules (formation temperature etc.) live in their own
    *  "Data Cond & Prep" group. Advance-tab methods are excluded here. */
   private renderCategoryModules(container: HTMLElement, modules: ModuleSpec[]): void {
-    const advanced = new Set<string>(Ribbon.ADVANCED_MODULE_IDS);
-    modules = modules.filter((spec) => !advanced.has(spec.name));
+    const hidden = new Set<string>([...Ribbon.ADVANCED_MODULE_IDS, ...Ribbon.SUPERSEDED_MODULE_IDS]);
+    modules = modules.filter((spec) => !hidden.has(spec.name));
     container.innerHTML = "";
 
     // category id -> [dropdown label, group caption, icon path data]

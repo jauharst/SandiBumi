@@ -158,7 +158,9 @@ export async function buildWorkflowContent(
   // Advance-tab pane) — keep it out of the chain step picker so new chains don't wire it up. A
   // saved chain that already references it still resolves via moduleByName (so its step renders)
   // but the backend now refuses to run it, pointing at SandiMin (`modules::retired_module`).
-  const DEPRECATED_STEP_MODULES = new Set(["multimin"]);
+  // `multimin` is retired (it no longer runs); `gr_normalize` is superseded but still runs, so a
+  // saved chain carrying either still renders — neither is offered for a NEW step.
+  const DEPRECATED_STEP_MODULES = new Set(["multimin", "gr_normalize"]);
   const byCategory = new Map<string, ModuleSpec[]>();
   for (const m of modules) {
     if (DEPRECATED_STEP_MODULES.has(m.name)) continue;

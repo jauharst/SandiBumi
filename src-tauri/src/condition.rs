@@ -841,6 +841,205 @@ pub fn flip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     Ok(res)
 }
 
+// ---------------------------------------------------------------------------
+// NORMALIZE
+// ---------------------------------------------------------------------------
+
+/// Normalization for ANY curve, and deliberately the ONLY one.
+///
+/// Jauhar, 2026-08-05: *"dont dupilcates, normalize tools here should be universal for all logs"*.
+/// The app already had `gr_normalize`, whose arithmetic is not about gamma rays at all — a
+/// two-point percentile map is the same operation on a neutron log, a sonic, a density or a
+/// resistivity, and every one of them drifts between tools and between runs in the same way. So
+/// this generalizes that module rather than sitting beside it: `gr_normalize` now delegates here
+/// and is kept only so saved chains still resolve.
+///
+/// **The reference pair has NO default and the run refuses without one.** That is the same rule
+/// `gr_normalize` already carried and the reason is worth repeating: a reference from one basin is
+/// the wrong reference in another, normalized output always looks plausible, and nothing
+/// downstream can tell a well normalized to the field's own endpoints from one normalized to
+/// somebody else's. It is derived from the field's own multi-well distribution, or from a
+/// reference well everyone agrees on, and then used unchanged for every well in the study.
+///
+/// **The window is the RUN, not the well.** Percentiles are read from the samples this run sees,
+/// so masking the run to a common reference interval is what makes two wells comparable — measure
+/// one well over its whole logged section and another over a sand and the two P97s are answering
+/// different questions.
+pub fn normalize_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "normalize".into(),
+        title: "Normalize".into(),
+        category: "Condition".into(),
+        doc: "Maps a curve onto a common reference frame so wells can be compared and pooled. \
+              Works on ANY curve — the arithmetic is not specific to gamma ray.\n\n\
+              METHOD:\n\
+              • TWO_POINT — the workhorse. Reads this run's P_LOW and P_HIGH of the curve and \
+              maps them linearly onto REF_LOW and REF_HIGH. Percentiles rather than min/max \
+              because a single spike sets a min or a max, and one bad sample would then re-scale \
+              the whole well.\n\
+              • RANGE — the same map from the curve's own MIN and MAX. Reproducible, and \
+              spike-sensitive by construction: use it on a curve you have already despiked.\n\
+              • MEAN_SD — z-score to REF_MEAN and REF_SD. The right choice when the distribution \
+              matters more than its ends (feeding a classifier, comparing shapes).\n\n\
+              SPACE: LOG works in log10 and inverts afterwards, which is the honest frame for a \
+              resistivity or a permeability — those are read on a log scale, and a linear map \
+              stretches the bottom decade out of all proportion to the top. Non-positive samples \
+              have no logarithm and become MISSING, and the run says how many.\n\n\
+              THE REFERENCE PAIR HAS NO DEFAULT, and that is the point of the module. A pair from \
+              one basin is the wrong pair in another; normalized output looks entirely plausible \
+              either way, and nothing downstream can catch it. Derive yours from the field's own \
+              multi-well distribution or from a reference well everyone agrees on, then use the \
+              SAME pair for every well in the study. QC by overlaying the normalized histograms — \
+              every well's P_LOW and P_HIGH should coincide."
+            .into(),
+        args: vec![
+            opt_labelled(
+                "OPT_METHOD",
+                "How the curve is mapped",
+                "TWO_POINT",
+                &[
+                    ("TWO_POINT", "TWO_POINT — percentiles onto a reference pair"),
+                    ("RANGE", "RANGE — min and max onto a reference pair"),
+                    ("MEAN_SD", "MEAN_SD — z-score onto a reference mean and spread"),
+                ],
+            ),
+            opt_labelled(
+                "OPT_SPACE",
+                "Linear or logarithmic",
+                "LINEAR",
+                &[
+                    ("LINEAR", "LINEAR — for GR, NPHI, RHOB, DT, a volume fraction"),
+                    ("LOG", "LOG — for RT, PERM, anything read on a log scale"),
+                ],
+            ),
+            param("P_LOW", "TWO_POINT: low percentile", "%", 3.0, 0.0, 50.0),
+            param("P_HIGH", "TWO_POINT: high percentile", "%", 97.0, 50.0, 100.0),
+            param_open("REF_LOW", "TWO_POINT / RANGE: reference value at the low end", "", -1e9, 1e9, false),
+            param_open("REF_HIGH", "TWO_POINT / RANGE: reference value at the high end", "", -1e9, 1e9, false),
+            // A plain z-score IS the generic answer here, unlike the reference pair — mean 0,
+            // spread 1 is a definition rather than somebody's field calibration.
+            param("REF_MEAN", "MEAN_SD: reference mean", "", 0.0, -1e9, 1e9),
+            param("REF_SD", "MEAN_SD: reference standard deviation", "", 1.0, 1e-9, 1e9),
+            log_in("CURVE", "Curve to normalize", "", "GR", true),
+            log_out_as("OUT_CURVE", "{CURVE}_N", "Normalized curve", ""),
+        ],
+    }
+}
+
+pub fn normalize(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
+    let vals = ctx.log("CURVE");
+    let log_space = ctx.o("OPT_SPACE") == "LOG";
+    let method = ctx.o("OPT_METHOD").to_string();
+
+    // In LOG space every step — the percentiles, the mean, the spread, the map — happens on the
+    // logarithm, and the answer is raised back at the end. Taking percentiles linearly and then
+    // mapping the logs would be a third thing that is neither.
+    let mut live: Vec<f32> = Vec::new();
+    for v in vals.iter().filter(|v| v.is_finite()) {
+        if !log_space {
+            live.push(*v);
+        } else if *v > 0.0 {
+            live.push(v.log10());
+        }
+        // A non-positive sample has no logarithm, so it anchors nothing and gets no answer. Left
+        // MISSING rather than floored to some small positive number, which would put a made-up
+        // value at the very end of the range the whole map is anchored on.
+    }
+    if live.len() < 2 {
+        return Err(format!(
+            "NORMALIZE needs at least two live samples of {} and this run has {}. Widen the run, \
+             or check the mask.",
+            ctx.o("__IN_CURVE"),
+            live.len()
+        ));
+    }
+
+    // (from_low, from_high) → (to_low, to_high): every method reduces to one linear map, so there
+    // is one place the arithmetic lives and three ways of choosing its ends.
+    let (from_lo, from_hi, to_lo, to_hi) = match method.as_str() {
+        "MEAN_SD" => {
+            let mean = live.iter().map(|v| *v as f64).sum::<f64>() / live.len() as f64;
+            let var = live.iter().map(|v| (*v as f64 - mean).powi(2)).sum::<f64>() / live.len() as f64;
+            let sd = var.sqrt();
+            if !(sd > 0.0) {
+                return Err("NORMALIZE MEAN_SD needs a curve that varies — this run's samples are \
+                            all the same value, so there is no spread to scale."
+                    .into());
+            }
+            let (rm, rsd) = (constant(ctx, "REF_MEAN"), constant(ctx, "REF_SD"));
+            (mean, mean + sd, rm, rm + rsd)
+        }
+        _ => {
+            let (lo_ref, hi_ref) = (constant(ctx, "REF_LOW"), constant(ctx, "REF_HIGH"));
+            if !lo_ref.is_finite() || !hi_ref.is_finite() {
+                return Err("REF_LOW and REF_HIGH must both be set — the reference pair IS the \
+                            normalization, and there is no value that is right in two fields. \
+                            Take it from this field's own multi-well distribution, or from a \
+                            reference well, and use the same pair for every well."
+                    .into());
+            }
+            if (hi_ref - lo_ref).abs() < 1e-12 {
+                return Err("REF_LOW and REF_HIGH are the same value, which would map every \
+                            sample onto one number."
+                    .into());
+            }
+            // `distribution::percentile` takes an ALREADY-SORTED slice — its parameter is named
+            // `sorted` and it indexes straight into it. Handing it the samples in depth order
+            // returns whatever value happens to sit 3% of the way down the well, which is a number
+            // about the drilling order rather than about the distribution, and every normalized
+            // curve built on it would look entirely reasonable.
+            let mut sorted = live.clone();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let (lo, hi) = if method == "RANGE" {
+                (sorted[0] as f64, sorted[sorted.len() - 1] as f64)
+            } else {
+                let p_lo = crate::distribution::percentile(&sorted, constant(ctx, "P_LOW") as f32) as f64;
+                let p_hi = crate::distribution::percentile(&sorted, constant(ctx, "P_HIGH") as f32) as f64;
+                (p_lo, p_hi)
+            };
+            // In LOG space the reference pair is given in the curve's OWN units — nobody quotes a
+            // reference resistivity as 0.3010 — so it is taken to the logarithm here rather than
+            // asking the user to.
+            let (to_lo, to_hi) = if log_space {
+                if !(lo_ref > 0.0 && hi_ref > 0.0) {
+                    return Err("In LOG space the reference pair must be positive — a logarithm of \
+                                zero or a negative number is not a number."
+                        .into());
+                }
+                (lo_ref.log10(), hi_ref.log10())
+            } else {
+                (lo_ref, hi_ref)
+            };
+            (lo, hi, to_lo, to_hi)
+        }
+    };
+    if (from_hi - from_lo).abs() < 1e-12 {
+        return Err("this run's curve has no spread between its two anchors, so there is nothing \
+                    to stretch onto the reference. Widen the run, or check the mask."
+            .into());
+    }
+
+    let scale = (to_hi - to_lo) / (from_hi - from_lo);
+    let mut out = vec![MISSING; ctx.n];
+    for i in 0..ctx.n {
+        let v = vals[i] as f64;
+        if !v.is_finite() {
+            continue;
+        }
+        let x = if log_space {
+            if v <= 0.0 {
+                continue; // no logarithm, so no answer — never a floored stand-in
+            }
+            v.log10()
+        } else {
+            v
+        };
+        let y = (x - from_lo) * scale + to_lo;
+        out[i] = (if log_space { 10f64.powf(y) } else { y }) as f32;
+    }
+    Ok(HashMap::from([("OUT_CURVE".to_string(), out)]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1190,6 +1389,104 @@ mod tests {
         assert!(clip(&ctx_for(&depth, &curve, &[], &[])).is_err());
         // A reversed pair is refused rather than swapped.
         assert!(clip(&ctx_for(&depth, &curve, &[("MIN", 200.0), ("MAX", 0.0)], &[])).is_err());
+    }
+
+    /// **The percentile map lands the well's own P_LOW and P_HIGH exactly on the reference pair.**
+    /// That is the entire claim of a two-point normalization, and the thing that makes two wells
+    /// comparable afterwards.
+    ///
+    /// The near miss worth recording: `distribution::percentile` takes an ALREADY-SORTED slice.
+    /// Handing it the samples in depth order returns whatever value sits 3% of the way down the
+    /// WELL — a number about the drilling order rather than about the distribution — and every
+    /// curve built on it looks entirely reasonable. Caught by
+    /// `workflow::tests::gr_normalization_anchors_each_well_on_its_own_percentiles`, not by
+    /// reading the code.
+    #[test]
+    fn a_two_point_map_lands_the_wells_own_percentiles_on_the_reference_pair() {
+        let n = 200;
+        let depth = regular(n, 0.1, 1000.0);
+        // Deliberately NOT monotone with depth, so a resampler that forgot to sort is caught.
+        let curve: Vec<f32> = (0..n).map(|i| 15.0 + 60.0 * (((i * 37) % n) as f32 / (n - 1) as f32)).collect();
+        let out = normalize(&ctx_for(
+            &depth,
+            &curve,
+            &[("P_LOW", 3.0), ("P_HIGH", 97.0), ("REF_LOW", 20.0), ("REF_HIGH", 120.0)],
+            &[("OPT_METHOD", "TWO_POINT"), ("OPT_SPACE", "LINEAR")],
+        ))
+        .expect("run");
+        let mut v = out["OUT_CURVE"].clone();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!((crate::distribution::percentile(&v, 3.0) - 20.0).abs() < 0.5, "P3 -> {:?}", v.first());
+        assert!((crate::distribution::percentile(&v, 97.0) - 120.0).abs() < 0.5);
+    }
+
+    /// **A LOG normalization works on the logarithm and comes back, and the reference pair is
+    /// given in the curve's own units.** Nobody quotes a reference resistivity as 0.3010.
+    ///
+    /// The distinction is not cosmetic. A resistivity spanning 0.2 to 200 ohm-m covers three
+    /// decades; a linear map onto 1..100 puts nearly every sample below 1.5 and stretches the top
+    /// decade over the whole range — which is what a linear normalization of a log-scale curve
+    /// does, silently. Jauhar, 2026-08-05: *"we should have option with logarithmic data"*.
+    #[test]
+    fn a_log_normalization_maps_decades_rather_than_differences() {
+        let n = 61;
+        let depth = regular(n, 0.1, 1000.0);
+        // Evenly spaced in log10 from 0.1 to 100 — three decades.
+        let curve: Vec<f32> = (0..n).map(|i| 10f32.powf(-1.0 + 3.0 * i as f32 / (n - 1) as f32)).collect();
+        // 1..100 rather than 1..1000: with 1..1000 the linear scale factor comes out at exactly
+        // 10 and both methods land on the same number by coincidence, so the test would prove
+        // nothing while passing.
+        let args = &[("P_LOW", 0.0), ("P_HIGH", 100.0), ("REF_LOW", 1.0), ("REF_HIGH", 100.0)];
+        let log = normalize(&ctx_for(&depth, &curve, args, &[("OPT_SPACE", "LOG")])).expect("run");
+        let lin = normalize(&ctx_for(&depth, &curve, args, &[("OPT_SPACE", "LINEAR")])).expect("run");
+
+        // The ends land on the reference pair either way — that is not what separates them.
+        assert!((log["OUT_CURVE"][0] - 1.0).abs() < 0.01, "{}", log["OUT_CURVE"][0]);
+        assert!((log["OUT_CURVE"][n - 1] - 100.0).abs() < 0.5);
+        // The MIDDLE is. A curve evenly spaced in decades stays evenly spaced: the middle sample
+        // sits at the geometric centre of 1 and 100, which is 10.
+        let mid_log = log["OUT_CURVE"][n / 2];
+        assert!((mid_log - 10.0).abs() < 0.2, "log space keeps the decades even: {mid_log}");
+        // Linearly, the same sample is dragged to the bottom of the range and three decades of
+        // rock come back indistinguishable.
+        let mid_lin = lin["OUT_CURVE"][n / 2];
+        assert!(mid_lin < 6.0, "a linear map of a log-scale curve crushes its middle: {mid_lin}");
+
+        // A non-positive sample has no logarithm, so it gets no answer rather than a floored one.
+        let mut with_zero = curve.clone();
+        with_zero[5] = 0.0;
+        let z = normalize(&ctx_for(&depth, &with_zero, args, &[("OPT_SPACE", "LOG")])).expect("run");
+        assert!(z["OUT_CURVE"][5].is_nan(), "zero must stay MISSING, not become the low reference");
+    }
+
+    /// **The reference pair has NO default and the run refuses without it.** A pair from one basin
+    /// is the wrong pair in another, and normalized output looks entirely plausible either way —
+    /// so a silent fallback would be the most dangerous default in the module.
+    ///
+    /// MEAN_SD is the deliberate exception: mean 0, spread 1 is a definition rather than somebody
+    /// else's field calibration, so it runs unconfigured.
+    #[test]
+    fn normalize_refuses_a_reference_pair_it_was_not_given() {
+        let depth = regular(50, 0.1, 1000.0);
+        let curve: Vec<f32> = (0..50).map(|i| 20.0 + i as f32).collect();
+        let err = normalize(&ctx_for(&depth, &curve, &[("P_LOW", 3.0), ("P_HIGH", 97.0)], &[]))
+            .expect_err("must refuse without a reference pair");
+        assert!(err.contains("REF_LOW"), "the refusal names what is missing: {err}");
+
+        // A pair that maps every sample onto one number is refused rather than written flat.
+        assert!(normalize(&ctx_for(
+            &depth,
+            &curve,
+            &[("P_LOW", 3.0), ("P_HIGH", 97.0), ("REF_LOW", 50.0), ("REF_HIGH", 50.0)],
+            &[]
+        ))
+        .is_err());
+
+        // MEAN_SD needs nothing: a z-score is a definition.
+        let z = normalize(&ctx_for(&depth, &curve, &[("REF_MEAN", 0.0), ("REF_SD", 1.0)], &[("OPT_METHOD", "MEAN_SD")]))
+            .expect("a z-score is generic");
+        let mean: f32 = z["OUT_CURVE"].iter().sum::<f32>() / 50.0;
+        assert!(mean.abs() < 1e-4, "a z-score is centred: {mean}");
     }
 
     /// Flipping twice about the same pivot returns the original — the property that makes the
