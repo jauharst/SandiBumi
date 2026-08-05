@@ -121,6 +121,23 @@ pub struct CurveStatsRow {
     pub min: Option<f64>,
     pub max: Option<f64>,
     pub mean: Option<f64>,
+    /// Geometric and harmonic means, reported ALONGSIDE the arithmetic one rather than instead
+    /// of it (Jauhar, 2026-08-05: *"we should have option with logarithmic data, even using
+    /// geometric or harmonic"*).
+    ///
+    /// Not a setting, because a summary table's job is to be read rather than configured, and
+    /// which mean is right depends on the curve: arithmetic for a porosity or any volume
+    /// fraction, geometric for a permeability through randomly arranged rock or anything read on
+    /// a log scale, harmonic for flow across bedding. Showing one and hiding the others is how a
+    /// mean permeability gets quoted arithmetically — 1000 mD and 0.01 mD are 500 mD that way and
+    /// 0.02 mD harmonically, and the arithmetic answer is the one that always reads highest.
+    ///
+    /// **None where any sample is non-positive**, never computed over the positive subset: a
+    /// geometric mean of "the half of the curve that had a logarithm" is a statistic about a
+    /// different set of samples than the arithmetic mean beside it, and the two would be read
+    /// straight across.
+    pub mean_geom: Option<f64>,
+    pub mean_harm: Option<f64>,
     /// Sample standard deviation (n-1). None below two samples, where it is undefined rather
     /// than zero.
     pub std: Option<f64>,
@@ -175,6 +192,7 @@ pub fn curve_summary(
                 }
                 let n = live.len();
                 let (mut mn, mut mx, mut mean, mut std) = (None, None, None, None);
+                let (mut mean_geom, mut mean_harm) = (None, None);
                 let mut ps = vec![None; pcts.len()];
                 if n > 0 {
                     live.sort_by(|a, b| a.partial_cmp(b).expect("finite by construction"));
@@ -185,6 +203,12 @@ pub fn curve_summary(
                     if n > 1 {
                         let var = live.iter().map(|v| (*v as f64 - m).powi(2)).sum::<f64>() / (n - 1) as f64;
                         std = Some(var.sqrt());
+                    }
+                    // `live` is sorted, so the smallest sample decides whether either exists.
+                    if live[0] > 0.0 {
+                        mean_geom =
+                            Some((live.iter().map(|v| (*v as f64).ln()).sum::<f64>() / n as f64).exp());
+                        mean_harm = Some(n as f64 / live.iter().map(|v| 1.0 / *v as f64).sum::<f64>());
                     }
                     for (j, p) in pcts.iter().enumerate() {
                         ps[j] = Some(distribution::percentile(&live, *p) as f64);
@@ -199,6 +223,8 @@ pub fn curve_summary(
                     min: mn,
                     max: mx,
                     mean,
+                    mean_geom,
+                    mean_harm,
                     std,
                     percentiles: ps,
                 });
@@ -921,6 +947,34 @@ mod tests {
     /// three wells that agree gives a high blind R²; fitting three that disagree does not, while
     /// the in-sample R² stays respectable in BOTH cases — which is the whole reason the blind
     /// number is the one to quote.
+    /// **The three means sit side by side, and on a laminated permeability they disagree by
+    /// orders of magnitude.** Which is right depends on the curve — arithmetic for a volume
+    /// fraction, geometric through randomly arranged rock, harmonic across bedding — so a summary
+    /// table that shows one is a table that gets a mean permeability quoted arithmetically, which
+    /// is always the flattering answer.
+    ///
+    /// The other half is the refusal: with a non-positive sample present, neither is reported.
+    /// Computing them over the positive subset would put a statistic about a DIFFERENT set of
+    /// samples in the same row as the arithmetic mean, and nothing in the row would say so.
+    #[test]
+    fn the_three_means_stand_together_and_stop_at_a_non_positive_sample() {
+        let perm: Vec<f32> = (0..10).map(|i| if i % 2 == 0 { 1000.0 } else { 0.01 }).collect();
+        let n = perm.len();
+        let arith = perm.iter().map(|v| *v as f64).sum::<f64>() / n as f64;
+        let geom = (perm.iter().map(|v| (*v as f64).ln()).sum::<f64>() / n as f64).exp();
+        let harm = n as f64 / perm.iter().map(|v| 1.0 / *v as f64).sum::<f64>();
+        assert!((arith - 500.0).abs() < 1.0, "arithmetic: {arith}");
+        assert!((geom - 3.16).abs() < 0.1, "geometric: {geom}");
+        assert!(harm < 0.03, "harmonic: {harm}");
+        assert!(arith > geom && geom > harm, "and arithmetic always reads highest");
+
+        // The guard the row applies: the SMALLEST sample decides, and one zero withdraws both.
+        let mut with_zero = perm.clone();
+        with_zero.push(0.0);
+        with_zero.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(!(with_zero[0] > 0.0), "a zero must withdraw the log-scale means, not be skipped");
+    }
+
     #[test]
     fn a_fit_is_scored_on_wells_it_has_not_seen() {
         // Same relationship in every well.

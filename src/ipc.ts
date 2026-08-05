@@ -4170,6 +4170,11 @@ export interface CurveStatsRow {
   min: number | null;
   max: number | null;
   mean: number | null;
+  /** Geometric and harmonic means, beside the arithmetic one. Null where any sample is
+   *  non-positive — a geometric mean over "the samples that had a logarithm" describes a
+   *  different set from the arithmetic mean next to it, and the two get read straight across. */
+  mean_geom: number | null;
+  mean_harm: number | null;
   std: number | null;
   percentiles: (number | null)[];
 }

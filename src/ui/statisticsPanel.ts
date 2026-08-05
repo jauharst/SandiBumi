@@ -341,10 +341,12 @@ export async function buildStatisticsContent(
           .filter((v) => Number.isFinite(v) && v >= 0 && v <= 100);
         const [rows, used] = await statsCurveSummary({ well_ids: wellIds, curves, percentiles: pcts, ...common });
         renderTable(
-          ["Well", "Zone", "Curve", "n", "Missing", "Min", "Max", "Mean", "Std", ...used.map((p) => `P${p}`)],
+          // Three means side by side, not a setting: which one is right depends on the curve, and
+          // showing one is how a mean permeability gets quoted arithmetically.
+          ["Well", "Zone", "Curve", "n", "Missing", "Min", "Max", "Mean", "Geom", "Harm", "Std", ...used.map((p) => `P${p}`)],
           rows.map((r: CurveStatsRow) => [
             r.well, r.zone, r.curve, r.n, r.n_missing,
-            num(r.min), num(r.max), num(r.mean), num(r.std),
+            num(r.min), num(r.max), num(r.mean), num(r.mean_geom), num(r.mean_harm), num(r.std),
             ...r.percentiles.map((p) => num(p)),
           ]),
         );

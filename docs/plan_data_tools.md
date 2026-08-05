@@ -1,9 +1,25 @@
 # Intake, Statistics, Condition & Frame — the plan
 
-**Status (2026-08-05): all four shipped.** Condition, Frame, Statistics and Intake, plus the
-log-set sweep that runs underneath all of them. Named and deferred: Intake's Wide/Block array
-layouts, its Curve role and saved templates; Frame's Resample/Regularize (a well-level re-frame,
-not a module).
+**Status (2026-08-05): all four shipped, plus a second round from Jauhar's click-through.**
+Condition, Frame, Statistics and Intake, plus the log-set sweep underneath them. The second round
+closed five more: per-output curve naming at the run (`log_out_as` + `resolve_output_names`),
+**Reframe** (the deferred Resample/Regularize, as a set-level tool rather than a module), one
+universal **Normalize** replacing `gr_normalize` in the pickers, Intake reaching parity with the
+Import Aux dialog it now replaces, and geometric/harmonic means wherever a mean is taken on
+log-scale data.
+
+Still named and deferred: Intake's Wide/Block array layouts, its Curve role and saved templates.
+
+## Round 2 — the five corrections (2026-08-05)
+
+| Jauhar said | What shipped | The reasoning worth keeping |
+|---|---|---|
+| *"naming each output curve in bulk when modules gonna run"* | An Output curves card: a box per declared output, plus a prefix-all. `ArgSpec.default` on a LogOut is now the default NAME (a `log_out_as` pattern like `{CURVE}_C`); `workflow::resolve_output_names` is the one place a name is decided. | Five modules built their own output names, so the manifest described a curve the run did not write and a dialog reading "Outputs: SYN" was untrue. The shadowing refusal moved with it — it lived in `condition.rs` and again in `frame.rs`, and the other forty modules had none. |
+| *"resample and regularize, log cons/set should be have independent sampling"* | `reframe.rs` + Data ▸ Sampling ▸ Reframe…, writing a set with its OWN depth column (`log_sets.frame = 'OWN'`). | Every read is an exact depth match onto the standard grid, so a 0.1524 m delivery on a 0.5 m well already read mostly MISSING. Written to the ARCHIVE only: the versioned write DELETEs current rows first, so a re-frame through the normal path would blank the readable interpretation. |
+| *"dont dupilcates, normalize tools here should be universal for all logs"* | `condition::normalize` — any curve, three methods, LINEAR/LOG. `gr_normalize` delegates to it and is hidden from the pickers. | Still runnable, so saved chains resolve — distinct from the retirement list, which stops a module running. The answer is unchanged. |
+| *"for other aux delete it, except core and scal … capabilites that already aux have, intake also should have it"* | Import Aux… removed. `follow_core` now actually reaches the writer, and a point-data table no longer creates a core delivery. | `follow_core` was on the form, on the IPC struct, and dropped by the backend. And a lab table went through `insert_core_data`, which makes its set ACTIVE — so importing XRD through Intake displaced the well's real plugs. |
+| *"we should have option with logarithmic data, even using geometric or harmonic"* | Reframe's averaging, Normalize's LOG space, and Geom/Harm columns in the Curve Summary. | Blocking already had them. Reported side by side rather than as a setting: which mean is right depends on the curve, and showing one is how a mean permeability gets quoted arithmetically. |
+
 
 Three tool families asked for on 2026-08-05, scoped in a twelve-question round with Jauhar the same
 day. His answers are recorded here verbatim in effect, because several of them overrule the

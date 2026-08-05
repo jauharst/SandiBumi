@@ -8263,22 +8263,91 @@ columns into point data. Intake builds the mapping and calls it, so the two can 
 
 ---
 
-## Output prefix — a trial run beside the live interpretation (2026-08-05)
+## Naming every output curve, at the run (2026-08-05)
 
-Every module dialog gains **Output prefix (optional)**, beside the Mask.
+Every module pane gains an **Output curves** card: one box per curve the run will write, with the
+name it will be written under, plus a **prefix all** box for a trial run. This replaces the
+"Output prefix" field of the earlier increment and the "Output curve name" field the Condition and
+Frame families carried — one control, forty modules.
 
-Modules already let you choose their inputs; their outputs were fixed, and mostly should be — a
-module producing `VSH` is producing an answer whose name is part of the answer. So the general
-form of "define your own curves" is a run-wide prefix rather than renaming curves one at a time.
+- [ ] Open **Despike**. The two boxes should read `GR_C` and `GR_C_SPK` before you touch anything.
+      Change the input curve to RHOB and both should follow.
+- [ ] Type `GR_ED` into the first box. The flag box should follow to `GR_ED_SPK` rather than
+      stranding at `GR_C_SPK`.
+- [ ] Type `GR` into it. It should REFUSE, in the pane, naming the curve — GR is read from the raw
+      log first, so a conditioned copy stored under that name is never the one anything reads.
+- [ ] Clear the box. It should go back to `GR_C`, not to an unnamed curve.
+- [ ] Put `TEST_` in the prefix box and run. Every curve should land prefixed, the real ones
+      untouched.
+- [ ] A renamed or prefixed step in a **Monte Carlo** study should REFUSE by name — the study
+      resolves its cutoffs from the declared output names.
+- [ ] The same boxes are in the workflow builder's per-step editor (the ⚙ expander).
 
-- [ ] Run VSH from Gamma Ray with the prefix `TEST_`. It should write `TEST_VSH` and leave your
-      real `VSH` untouched. Is that the shape of the freedom you meant, or did you want to name
-      each output curve individually?
-- [ ] Leave it blank and confirm nothing changed — every saved chain and every layout depends on
-      that.
-- [ ] Put a prefixed step into a **Monte Carlo** study. It should REFUSE by name. The study
-      resolves its cutoffs from the module's declared output names, so a prefixed run would be
-      planned against curves it never writes and would return plausible percentiles computed from
-      nothing. Is the message clear about what to do?
-- [ ] The prefix is on the single-module pane only so far, not in the workflow builder's per-step
-      grid. Say if you want it there too.
+---
+
+## Reframe — a set with its own sampling (2026-08-05)
+
+**Data ▸ Sampling ▸ Reframe…** This is the answer to the 0.1523 m well in a 0.5 m field.
+
+Worth knowing before you try it: **every curve read in this app is an exact depth match onto the
+well's standard grid**. A 0.1524 m delivery attached to a well whose grid came from a 0.5 m LAS
+therefore contributes almost nothing today — no error, no warning, just a curve that reads mostly
+MISSING. That is what this fixes, in both directions.
+
+- [ ] Press **Check sampling** first. It should tell you what each well is ALREADY sampled at —
+      a number nothing else in the app shows. A well already at the target is marked, because
+      re-framing it would resample every curve for nothing.
+- [ ] Re-frame a fine well onto 0.5 into a set of your own naming. The ORIGINAL must be untouched:
+      open the well's log view and confirm it still draws at its own sampling.
+- [ ] Point a module's **Input log set** at the new set and run it. The whole run should happen at
+      0.5 — including the standard curves, resampled onto it, so nothing pairs a 0.5 m PHIE with a
+      0.1524 m GR.
+- [ ] Check a laminated interval: a downsample should AVERAGE the interval, not pick one sample out
+      of it. A facies or flag curve should come back as one of its own classes.
+- [ ] Re-frame a permeability with **Geometric** and again with **Arithmetic** and compare. They
+      should differ by orders of magnitude on laminated rock, and arithmetic will always read
+      highest.
+- [ ] Re-framing to the SAME set name should give you a new VERSION of it, not a second set.
+
+---
+
+## Normalize — one tool, any curve (2026-08-05)
+
+**Petrophysics ▸ Curve Conditioning ▸ Normalize.** `GR Normalization` is gone from the pickers —
+it is now a preset of this and delegates to the same code, so saved chains still run.
+
+- [ ] Normalize a GR with the same reference pair you used before. The answer must be identical to
+      what `gr_normalize` gave.
+- [ ] Normalize an NPHI, a DT, an RHOB. Same tool, same fields.
+- [ ] Run it with **Space = LOG** on a resistivity. Compare against LINEAR: on a curve spanning
+      decades the linear map crushes the middle into the bottom of the range.
+- [ ] Leave `REF_LOW`/`REF_HIGH` blank. It must refuse, naming them — a reference pair from one
+      basin is the wrong pair in another and the output looks plausible either way.
+- [ ] **MEAN_SD** should run unconfigured: mean 0, spread 1 is a definition, not somebody's field
+      calibration.
+
+---
+
+## Intake replaces Import Aux (2026-08-05)
+
+**Import Aux… is gone.** Intake is the route for point data. Core and SCAL imports stay.
+
+- [ ] Import an XRD or CEC table through Intake with a dataset name of your own. It should land as
+      point data.
+- [ ] Now check the well's **core** afterwards — the plugs and the φ-k cloud must be exactly as
+      they were. Before this increment, importing a lab table through Intake wrote an empty core
+      delivery and made it ACTIVE, which would have silently emptied Plug QC, Register Depth and
+      the S-factor fit.
+- [ ] Tick **"These depths came from the core report"** on a well whose core you have registered.
+      The samples should land on the corrected depths, and the result should SAY it followed the
+      core. (This was read from the form and dropped by the backend until now.)
+- [ ] Anything the old Aux dialog did that Intake cannot — say so and it goes back on the list.
+
+---
+
+## Statistics: three means (2026-08-05)
+
+- [ ] Curve Summary now shows **Geom** and **Harm** beside **Mean**. On a permeability they should
+      differ by orders of magnitude; on a porosity they should be close.
+- [ ] A curve with a zero or negative sample should leave both blank rather than computing them
+      over the positive samples only.
