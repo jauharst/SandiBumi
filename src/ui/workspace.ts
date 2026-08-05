@@ -336,6 +336,7 @@ export class Workspace {
       "sep",
       ["Intake (import any table)", () => this.openIntake(group)],
       ["Statistics (tables)", () => this.openStatistics(group)],
+      ["Reframe (resample a set)", () => this.openReframe(group)],
       ["Field Dashboard", () => this.openDashboard(group)],
       ["Field Map", () => this.openMap(group)],
       ["Workflow Builder", () => this.openWorkflow(group)],
@@ -480,6 +481,12 @@ export class Workspace {
           "dock-intake",
           () => import("./intakePanel").then((m) => m.buildIntakeContent(setStatus)),
           "intake",
+        );
+      case "reframe":
+        return this.asyncPane(
+          "dock-reframe",
+          () => import("./reframePanel").then((m) => m.buildReframeContent(setStatus)),
+          "reframe",
         );
       case "statistics":
         return this.asyncPane(
@@ -1495,6 +1502,10 @@ export class Workspace {
 
   openIntake(group?: DockviewGroupPanel): void {
     this.openSingleton("intake", "intake", "Intake", group);
+  }
+
+  openReframe(group?: DockviewGroupPanel): void {
+    this.openSingleton("reframe", "reframe", "Reframe", group);
   }
 
   openStatistics(group?: DockviewGroupPanel): void {

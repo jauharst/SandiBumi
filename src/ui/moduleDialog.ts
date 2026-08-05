@@ -323,7 +323,9 @@ export async function buildModuleContent(
       if (disposed || gen !== outGen) return;
       // A refusal (a shadowed name, a collision) is shown HERE, beside the box that caused it,
       // rather than saved up for the run — the user is looking at this grid.
-      outWarn.textContent = String(e);
+      // The backend's message is the whole message; a leading "Error:" from the Error wrapper
+      // just pushes the part that names the curve further from the eye.
+      outWarn.textContent = String(e).replace(/^Error:\s*/, "");
       outWarn.hidden = false;
     }
   };

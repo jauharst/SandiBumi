@@ -4353,3 +4353,35 @@ export interface IntakeCommit {
 export async function intakeCommit(req: IntakeCommit): Promise<CoreTableImportResult[]> {
   return invoke<CoreTableImportResult[]>("intake_commit", { req });
 }
+
+// ---------------------------------------------------------------------------
+// Reframe — resampling a log set onto a different sampling as a new set
+// ---------------------------------------------------------------------------
+
+/** One curve carried onto the new frame, with the averaging that was actually used. */
+export interface ReframeCurve {
+  name: string;
+  method: string;
+  samples_in: number;
+  samples_out: number;
+}
+
+export interface ReframeResult {
+  well_id: string;
+  well_name: string;
+  /** Median spacing of the source — the number the decision turns on, and one nothing else shows. */
+  source_step: number;
+  target_step: number;
+  depth_top: number;
+  depth_base: number;
+  rows: number;
+  curves: ReframeCurve[];
+  version: number | null;
+  notes: string[];
+  error: string | null;
+}
+
+/** Resamples a set onto a different sampling as a NEW set. `preview: true` reports without writing. */
+export function runReframe(req: Record<string, unknown>): Promise<ReframeResult[]> {
+  return invoke<ReframeResult[]>("run_reframe", { req });
+}

@@ -313,7 +313,11 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             module      VARCHAR NOT NULL,     -- module name, 'workflow (N steps)', 'equation:X', ...
             params_json VARCHAR,              -- parameters of the run
             inputs_json VARCHAR,              -- resolved input curve mnemonics
-            created_at  TIMESTAMP NOT NULL DEFAULT now()
+            created_at  TIMESTAMP NOT NULL DEFAULT now(),
+            -- 'STANDARD' = written on the well's own depth grid (every module).
+            -- 'OWN'      = the set carries its own depth column (reframe.rs), and every read
+            --              through it runs on that frame instead. Declared, never inferred.
+            frame       VARCHAR NOT NULL DEFAULT 'STANDARD'
         );
 
         -- Append-only history: every versioned run's full output rows, tagged by set_id.
@@ -1236,6 +1240,29 @@ pub fn migrate_delivery_depth_basis(conn: &Connection) -> DbResult<()> {
                 "ALTER TABLE {table} ADD COLUMN on_core_depths INTEGER NOT NULL DEFAULT 0;"
             ))?;
         }
+    }
+    Ok(())
+}
+
+/// Adds `frame` to the log-set registry: `'STANDARD'` (the well's own depth grid, which is what
+/// every module writes on) or `'OWN'` (the set carries its own depth column — see
+/// [`crate::reframe`]).
+///
+/// ADD COLUMN only, no rebuild, no backup. Existing sets get `'STANDARD'`, which is not a guess:
+/// nothing before `reframe` could write a set on any other frame, so every row that exists really
+/// is on the well's grid.
+///
+/// **Explicit rather than inferred from the depths.** A set that happens to fall on the standard
+/// grid and one deliberately re-framed onto it hold identical rows, and reading the difference off
+/// the data would make the behaviour of every existing project depend on a coincidence.
+pub fn migrate_log_set_frame(conn: &Connection) -> DbResult<()> {
+    let has: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns() WHERE table_name = 'log_sets' AND column_name = 'frame'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        conn.execute_batch("ALTER TABLE log_sets ADD COLUMN frame VARCHAR NOT NULL DEFAULT 'STANDARD';")?;
     }
     Ok(())
 }

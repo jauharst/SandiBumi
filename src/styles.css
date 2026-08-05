@@ -1184,8 +1184,28 @@ textarea {
 .dock-rtc-fit,
 .dock-statistics,
 .dock-intake,
+.dock-reframe,
 .dock-sfactor-fit {
   padding: 10px 12px;
+}
+
+/* Reframe (reframePanel.ts): the report is a per-well table, so it opts out of the form-column
+   cap for the same reason Statistics does. */
+.dock-reframe .module-pane {
+  max-width: none;
+}
+.reframe-report {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+/* A well ALREADY at the target sampling: the answer the probe exists to give, and re-framing it
+   anyway resamples every curve for nothing. */
+.reframe-same {
+  color: var(--accent2);
+  font-weight: 600;
+}
+.reframe-error {
+  color: var(--warn);
 }
 
 /* --------------------------------------------------------------------------

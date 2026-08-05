@@ -17,6 +17,7 @@ mod export;
 #[cfg(test)]
 mod field_fixtures;
 mod frame;
+mod reframe;
 mod facies;
 mod facies_tie;
 mod geo;
@@ -2359,6 +2360,20 @@ async fn run_plug_qc(
     plugqc::run_plug_qc(&conn, &req)
 }
 
+/// Resamples a log set onto a different sampling as a NEW set (`reframe.rs`).
+///
+/// `preview` computes and reports without writing, which is how the pane can show the source's own
+/// sampling beside the target before anything is committed — the number the user is actually
+/// deciding against, and one nothing else in the app displays.
+#[tauri::command]
+async fn run_reframe(
+    db: tauri::State<'_, DbState>,
+    req: reframe::ReframeRequest,
+) -> Result<Vec<reframe::ReframeResult>, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(reframe::run_reframe(&conn, &req))
+}
+
 /// Are numpy and Pillow reachable? Probed once so the conditioning workspace can say what is
 /// missing before a photograph is opened rather than after a slider is moved.
 #[tauri::command]
@@ -3110,6 +3125,7 @@ pub fn run() {
             list_modules,
             run_workflow_module,
             module_output_names,
+            run_reframe,
             run_pay_summary,
             stats_curve_summary,
             stats_pair_summary,

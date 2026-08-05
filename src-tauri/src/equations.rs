@@ -806,10 +806,29 @@ pub(crate) fn fetch_curve_frame_from_set(
     input_set: Option<&str>,
     own_set_id: Option<&str>,
 ) -> duckdb::Result<CurveFrame> {
-    let (depth, mut columns) = fetch_curve_frame(conn, well_id, curve_names)?;
+    let (mut depth, mut columns) = fetch_curve_frame(conn, well_id, curve_names)?;
     let Some(set_name) = input_set.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok((depth, columns));
     };
+
+    // A set that carries its OWN depth frame (`log_sets.frame = 'OWN'`, written by
+    // `reframe.rs`) REPLACES the run frame, and every curve resolved from elsewhere is
+    // resampled onto it.
+    //
+    // This is the whole point of re-framing. Without it a 0.5 m set on a 0.1523 m well would be
+    // read by the exact-depth join below and come back almost entirely MISSING — the same silent
+    // shape as the `CPHOTO_*` trace saved at the photograph's own sampling. And the standard
+    // curves have to come along, or a run against the re-framed set would read PHIE at 0.5 m and
+    // GR at 0.1523 m and quietly pair samples from different rock.
+    //
+    // Through `reframe::resample_onto`, the same code the tool itself uses, so what the user saw
+    // when they built the set and what a module reads out of it cannot differ.
+    if let Some(own) = crate::reframe::set_frame(conn, well_id, set_name)? {
+        for values in columns.values_mut() {
+            *values = crate::reframe::resample_onto(&depth, values, &own, crate::reframe::Method::Auto);
+        }
+        depth = own;
+    }
     let own_curves: std::collections::HashSet<String> = match own_set_id {
         Some(own) => {
             let mut stmt = conn.prepare(
