@@ -348,6 +348,8 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         crate::condition::clip_spec(),
         crate::condition::fill_gaps_spec(),
         crate::condition::flip_spec(),
+        crate::frame::block_spec(),
+        crate::frame::bed_detect_spec(),
         crate::multimin::multimin_spec(),
         crate::satheight::sw_height_spec(),
         crate::lithology::midplot_spec(),
@@ -434,6 +436,9 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "clip" => crate::condition::clip(ctx),
         "fill_gaps" => crate::condition::fill_gaps(ctx),
         "flip" => crate::condition::flip(ctx),
+        // Frame — depth-sampling. Both refuse rather than guess what a bed is.
+        "block" => crate::frame::block(ctx),
+        "bed_detect" => crate::frame::bed_detect(ctx),
         "toc_passey" => Ok(crate::unconventional::toc_passey(ctx)),
         "kerogen" => Ok(crate::unconventional::kerogen(ctx)),
         "gip" => Ok(crate::unconventional::gip(ctx)),

@@ -8134,3 +8134,38 @@ photo trace hardcoded where their output went (`ML`, `SANDIMIN`, nowhere).
       pictures rather than curves, so they have no log set — say if you expected one there.
 - [ ] Anywhere the two rows appear in a place that reads awkwardly, say so — they are one shared
       control, so moving them is one change rather than nineteen.
+
+---
+
+## Frame — blocking, and the permeability trap (2026-08-05)
+
+Two modules in a new **Frame** ribbon group: **Block (Upscale)** and **Bed Detect**.
+
+Resample and Regularize are deliberately NOT here. A module's outputs are written at the run's own
+depth frame, so changing how often a well is sampled cannot be a module — it would have to write a
+different depth column, which belongs to the well rather than to one curve. That comes with Intake.
+
+- [ ] **Petrophysics ribbon ▸ Frame ▾** — two entries. The group sits after Condition.
+- [ ] **Block** on PHIE with OPT_BEDS = INTERVAL and a 1 m interval. Every sample of a block should
+      carry that block's one value.
+- [ ] Put the blocked curve in a log track and **set its draw style to Step** (right-click the curve
+      → edit). Without that the view draws a diagonal between two block values, which is a gradient
+      the data never measured. Should Block set that automatically? It cannot today — the module
+      writes a curve, the layout owns the style — say if you want them linked.
+- [ ] **The one to check carefully: OPT_STAT on a permeability.** Block your PERM over a laminated
+      interval three times — MEAN, GEOMETRIC, HARMONIC. On a real sand-shale they should differ by
+      orders of magnitude, not percent, and MEAN should be the highest every time. An arithmetic
+      upscale hands a simulator a permeability the rock does not have and nothing downstream reads
+      as wrong. Is the dropdown wording enough to make somebody stop and think?
+- [ ] MEAN is the default because it is right for porosity and for every volume fraction. Say if
+      you would rather it had no default and refused until chosen, like the despike window.
+- [ ] **OPT_BEDS = CLASS** pointing at FACIES — each run of a constant class is one bed, so the
+      boundaries are where the rock changes. Check a facies boundary lines up with a block edge.
+- [ ] **OPT_BEDS = ZONES** — one value per marker interval, which is what a zone-parameter table
+      wants. Needs tops on the well; it refuses by name if there are none.
+- [ ] **OPT_BEDS = AUTO** — boundaries found from the curve itself. Run **Bed Detect** first and
+      put its output in a track as class blocks, so you can SEE the beds before anything is
+      averaged over them. Over-segmentation is what a step-finder gets wrong, and a blocked curve
+      computed from beds nobody checked looks perfectly reasonable.
+- [ ] MIN_BED has no default, same as the despike window. Does the refusal say enough?
+- [ ] `<OUT>_BED` rides beside the blocked curve, carrying the bed number. Useful, or clutter?

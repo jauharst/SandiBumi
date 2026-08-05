@@ -16,6 +16,7 @@ mod example_data_test;
 mod export;
 #[cfg(test)]
 mod field_fixtures;
+mod frame;
 mod facies;
 mod facies_tie;
 mod geo;

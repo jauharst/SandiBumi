@@ -563,6 +563,14 @@ export class Ribbon {
         "Curve Conditioning",
         "M3 13c2-6 3.2 3 5-4s2.6 6 4.4 1S16 12 17 10",
       ],
+      // Frame — depth sampling: upscaling a curve to beds, and finding the beds. Separate from
+      // Condition because conditioning changes a curve's VALUES while leaving every sample where
+      // it was, and blocking changes which samples say anything at all.
+      Frame: [
+        "Frame",
+        "Depth Sampling",
+        "M3 5h14M3 9h14M3 13h14M3 17h14M7 3v16M13 3v16",
+      ],
       VSH: [
         "VSH",
         "Shale Volume",

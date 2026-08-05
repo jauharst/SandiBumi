@@ -156,8 +156,34 @@ fn resolve_param_arrays(
             zoned.join("; ")
         ));
     }
+
+    // A synthetic per-sample array naming which zone each sample falls in — ordinal by depth
+    // order, NaN outside every zone. Not a Param anyone can set: it rides the same channel
+    // because that channel already carries "one value per sample, resolved from this well's
+    // zones", which is exactly what this is.
+    //
+    // `frame::block` needs it to upscale marker-to-marker: a module has no database handle, so
+    // without this the only bed definitions expressible would be a fixed interval and a class
+    // curve, and "one value per zone" is the coarsening a zone-parameter table or a volumetrics
+    // summary actually consumes. Zones are sorted by top depth so the ordinal is monotone with
+    // depth — a block index that jumped around would make consecutive beds non-adjacent.
+    let mut ordered: Vec<_> = zones.iter().collect();
+    ordered.sort_by(|a, b| a.top_depth.partial_cmp(&b.top_depth).unwrap_or(std::cmp::Ordering::Equal));
+    let mut zone_index = vec![f64::NAN; depth.len()];
+    for (ord, z) in ordered.iter().enumerate() {
+        for (i, d) in depth.iter().enumerate() {
+            if *d >= z.top_depth && *d < z.bottom_depth {
+                zone_index[i] = ord as f64;
+            }
+        }
+    }
+    out.insert(ZONE_INDEX_ARG.to_string(), zone_index);
     Ok(out)
 }
+
+/// Name of the synthetic per-sample zone-ordinal array (see [`resolve_param_arrays`]). Prefixed
+/// like the `__IN_<arg>` mnemonics so it cannot collide with a manifest parameter.
+pub(crate) const ZONE_INDEX_ARG: &str = "__ZONE_INDEX";
 
 /// Runs one module across every well: parse inputs, resolve zone parameters, evaluate,
 /// and write output curves to computed_curves. Wells are processed in parallel.
