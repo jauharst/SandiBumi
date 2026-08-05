@@ -24,14 +24,29 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 
 ## Progress — what has actually been retired
 
-**Updated 2026-07-31.** This is the section to check. Everything below is written, passing in
-`tools\check.ps1`, and committed — so these manual tests no longer need your evening.
+**Updated 2026-08-05.** This is the section to check. Everything below is written, passing in
+`tools\check.ps1` (piles A and B) or in `npm run test:e2e` (pile C), and committed — so these
+manual tests no longer need your evening.
 
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
 | **B** — a Rust test now checks it | **43** | **0** (of 43 — T-IMP-06 and T-RT-18 regraded out) |
-| **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
+| **C** — a machine now drives it | **30 tests across 20 specs** | 56 unblocked (+61 blocked) |
+
+**The row that matters is not in this table.** Piles describe where a test COULD be checked;
+what you want to know is which tests are still entirely yours. That count lives in
+`docs/manual_test_plan.md` under **Start here**, and every heading there now carries a
+`[YOURS]` / `[PART-AUTOMATED]` / `[GATE-PINNED]` tag so it can be scanned rather than
+cross-referenced against this document. As of 2026-08-05: **138 still yours**, 40
+part-automated, 52 gate-pinned, 20 already marked.
+
+Two things that count differently and are easy to confuse. A pile-C `[x]` is one manual TEST
+driven end to end; the 20 spec FILES cover 39 test ids in all, because several specs reach a
+guard that appears in more than one test (`moduledialog.e2e.mjs` alone covers the shared
+frontend refusals inside five). And a covered test is rarely a retired one — every end-to-end
+line ends by naming what it does **not** reach, which is nearly always the display, and the
+display is what a click-through is for.
 
 ### Pile A — the checklist
 
