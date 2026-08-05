@@ -1787,7 +1787,9 @@ pub fn run_monte_carlo(
                         // display reads and is replaced by its own re-run; the percentile CURVES
                         // it produced are what stay versioned and restorable.
                         for (name, ds, vals) in &arrays {
-                            match db::write_array_log(&conn, well_id, "MONTECARLO", name, ds, vals) {
+                            // No axis: realization 7 is not a measurement at 7 of anything, and writing an
+                            // index there would invite a reader to plot it against one.
+                            match db::write_array_log(&conn, well_id, "MONTECARLO", name, ds, vals, None) {
                                 Ok(rows) => {
                                     notes.push(format!(
                                         "{well_name}: stored {name} — {rows} depths x {} realizations",

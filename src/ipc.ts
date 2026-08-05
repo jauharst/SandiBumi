@@ -4390,3 +4390,40 @@ export interface ReframeResult {
 export function runReframe(req: Record<string, unknown>): Promise<ReframeResult[]> {
   return invoke<ReframeResult[]>("run_reframe", { req });
 }
+
+// ---------------------------------------------------------------------------
+// Intake — WIDE / BLOCK array layouts
+// ---------------------------------------------------------------------------
+
+/** What one wide/block import wrote. */
+export interface ArrayImportResult {
+  path: string;
+  curve: string;
+  wells: number;
+  samples: number;
+  bins: number;
+  /** The two ends of the axis read off the header row. */
+  axis_first: number;
+  axis_last: number;
+  /** Sets actually written — the suffixed name where the chosen one was already taken. */
+  sets: string[];
+  unmatched: string[];
+  notes: string[];
+  error: string | null;
+}
+
+export interface ArrayCommitRequest {
+  paths: string[];
+  roles: string[];
+  /** `"wide"` or `"block"`. Declared by the user, never sniffed. */
+  layout: string;
+  curve_name: string;
+  set_name?: string;
+  depth_unit?: string;
+  fallback_well_id?: string;
+}
+
+/** Imports a WIDE or BLOCK table into the array store, with the header row as its axis. */
+export function intakeCommitArrays(req: ArrayCommitRequest): Promise<ArrayImportResult[]> {
+  return invoke<ArrayImportResult[]>("intake_commit_arrays", { req });
+}

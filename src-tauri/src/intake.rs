@@ -43,7 +43,9 @@
 //! under the wrong decimal convention is therefore visible BEFORE anything is stored, which is the
 //! one thing the five dialogs this replaces could only report afterwards.
 
+use crate::db::{self, DbResult};
 use crate::parsers::{self, CoreMapping, ParseResult};
+use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 
 /// Rows shown in the preview grid. Enough to see a units row, a change of convention part way
@@ -461,6 +463,451 @@ pub fn mapping_from_roles(roles: &[String]) -> Result<CoreMapping, String> {
     })
 }
 
+// ---------------------------------------------------------------------------
+// Array layouts — WIDE and BLOCK
+// ---------------------------------------------------------------------------
+//
+// Jauhar, 2026-08-05: *"this new tools have capabilites to import any kind of text data with
+// personalized user data, even its array data such scal"*, scoped the same day to *"can be
+// customized based on data, either long, wide, or block"*.
+//
+// **The layout is DECLARED, never sniffed.** A wide table and a long one are both rectangles of
+// numbers; the difference is what the header row MEANS, and there is nothing in the characters to
+// say which. Reading a long Pc table as wide would take its column headers for pressures and
+// store a capillary-pressure curve made of column indices — a plausible-looking array of
+// nonsense. This is the declared-stain rule again.
+//
+// **What each layout is, exactly:**
+//
+// * **LONG** — one row per point: a key column (well/depth/sample), an axis column, a value
+//   column. That is what `import_core_table` already reads, so a long array is point data and
+//   needs nothing here.
+// * **WIDE** — one row per SAMPLE, and the HEADER ROW IS THE AXIS: a column per pressure step, a
+//   column per T2 bin. The porous-plate delivery, the NMR export, the sieve analysis.
+// * **BLOCK** — several tables stacked in one file, each preceded by a repeat of the header. Once
+//   the repeated headers are stripped the rows are exactly the file they came from, so BLOCK is a
+//   pre-pass over either of the other two rather than a third way of reading a table.
+//
+// **A block keyed by a LABEL LINE is not read, and says so.** Some per-plug deliveries write
+// `PLUG 12  4633.5 ft` on its own line above each table instead of carrying the depth in a
+// column. Which token on that line is the depth and which is the plug number cannot be told apart
+// without guessing — the workbook reader met exactly this and answered it by requiring a unit — so
+// a block whose key is not in a column is REPORTED and left unread rather than attributed to rock
+// chosen by a coin toss.
+
+/// One array read out of a wide table: the sample it belongs to, and its values across the axis.
+#[derive(Debug, Clone, Serialize)]
+pub struct ArrayRow {
+    pub well_name: Option<String>,
+    pub depth: Option<f64>,
+    pub sample_no: Option<i64>,
+    pub values: Vec<f32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ArrayProbe {
+    /// The axis read off the header row, one entry per array column.
+    pub axis: Vec<f32>,
+    /// The header TEXT each axis value was read from, so the pane can show what was parsed and
+    /// from what — `100 psi` reading as 100 is worth being able to see.
+    pub axis_labels: Vec<String>,
+    /// Headers that are not numbers and so cannot be axis values. Reported BY NAME: a stray
+    /// `TOTAL` column on a porous-plate export would otherwise be stored as a measurement at an
+    /// invented pressure, or vanish without a word.
+    pub non_axis: Vec<String>,
+    pub rows: Vec<ArrayRow>,
+    /// Repeated header lines found and stripped (the BLOCK pre-pass).
+    pub blocks_joined: usize,
+    pub notes: Vec<String>,
+}
+
+/// Strips repeated header lines from a stacked (BLOCK) file.
+///
+/// A block file is one table written several times with its header repeated; once the repeats are
+/// gone the rows are the file they came from. Matched on the JOINED CELLS rather than on the raw
+/// line, so a delivery that re-exported one block with different spacing is still recognised.
+fn join_blocks(table: &mut Vec<Vec<String>>, headers: &[String]) -> usize {
+    let key = |r: &[String]| r.iter().map(|c| c.trim().to_uppercase()).collect::<Vec<_>>().join("|");
+    let want = key(headers);
+    let before = table.len();
+    table.retain(|r| key(r) != want);
+    before - table.len()
+}
+
+/// Splits a delimited file into a table, honouring the same options the long path uses.
+fn split_table(path: &str, opts: &TableOptions) -> ParseResult<Vec<Vec<String>>> {
+    let text = parsers::read_text_file(path)?;
+    let mut lines: Vec<&str> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        .collect();
+    if opts.skip_lines > 0 && opts.skip_lines < lines.len() {
+        lines.drain(..opts.skip_lines);
+    }
+    let first = lines.first().copied().unwrap_or("");
+    let delim: Option<u8> = match opts.delimiter.as_deref() {
+        Some(",") => Some(b','),
+        Some(";") => Some(b';'),
+        Some("\t") => Some(b'\t'),
+        Some("ws") => None,
+        _ if first.contains('\t') => Some(b'\t'),
+        _ if first.contains(';') => Some(b';'),
+        _ if first.contains(',') => Some(b','),
+        _ => None,
+    };
+    let mut table: Vec<Vec<String>> = Vec::new();
+    match delim {
+        Some(d) => {
+            let joined = lines.join("\n");
+            let mut rdr = csv::ReaderBuilder::new()
+                .delimiter(d)
+                .has_headers(false)
+                .flexible(true)
+                .from_reader(joined.as_bytes());
+            for rec in rdr.records() {
+                table.push(rec?.iter().map(|s| s.trim().to_string()).collect());
+            }
+        }
+        None => {
+            for line in &lines {
+                table.push(line.split_whitespace().map(str::to_string).collect());
+            }
+        }
+    }
+    Ok(table)
+}
+
+/// Reads the axis value out of one column header.
+///
+/// A laboratory routinely writes the unit into the header (`100 psi`, `3.5 ms`, `0.5PSI`), so a
+/// trailing unit is stripped before the number is read. Everything else — `TOTAL`, `AVG`, a blank
+/// — is not an axis value and the column is dropped by name rather than counted at an invented
+/// position.
+fn axis_of(header: &str, decimal: Option<&str>) -> Option<f64> {
+    let numeric: String = header
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || matches!(c, '.' | ',' | '-' | '+'))
+        .collect();
+    if numeric.is_empty() {
+        return None;
+    }
+    parse_number(&numeric, decimal).0
+}
+
+/// Reads a WIDE table: one row per sample, the header row as the axis.
+///
+/// `roles` is the same per-column role list the long path uses. WELL, DEPTH and SAMPLE are
+/// claimed and everything else is an array bin whose header IS its axis value.
+pub fn read_wide(path: &str, opts: &TableOptions, roles: &[String], block: bool) -> ParseResult<ArrayProbe> {
+    let mut table = split_table(path, opts)?;
+    if table.is_empty() {
+        return Err(parsers::ParseError::Las("file is empty".into()));
+    }
+    let headers: Vec<String> = table.remove(0).iter().map(|h| h.trim().to_string()).collect();
+    let mut notes = Vec::new();
+    let blocks_joined = if block { join_blocks(&mut table, &headers) } else { 0 };
+    if block && blocks_joined == 0 {
+        notes.push(
+            "BLOCK was chosen but no repeated header was found, so the file was read as one \
+             table. A block keyed by a label line above each table rather than by a column is not \
+             read: which token on that line is the depth cannot be told from which is the plug \
+             number, and guessing would attribute the whole block to the wrong rock."
+                .into(),
+        );
+    }
+
+    let role_at = |i: usize| roles.get(i).map(String::as_str).unwrap_or("");
+    let well_col = (0..headers.len()).find(|i| role_at(*i) == "WELL");
+    let depth_col = (0..headers.len()).find(|i| role_at(*i) == "DEPTH");
+    let sample_col = (0..headers.len()).find(|i| role_at(*i) == "SAMPLE");
+
+    let decimal = opts.decimal.as_deref();
+    let (mut axis, mut axis_labels, mut non_axis, mut bins) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for (i, h) in headers.iter().enumerate() {
+        // A column the user gave a role to is a key or a deliberate skip, never a bin.
+        if !role_at(i).is_empty() {
+            continue;
+        }
+        match axis_of(h, decimal) {
+            Some(v) => {
+                axis.push(v as f32);
+                axis_labels.push(h.clone());
+                bins.push(i);
+            }
+            None => non_axis.push(h.clone()),
+        }
+    }
+    if axis.is_empty() {
+        return Err(parsers::ParseError::Las(
+            "no column header reads as a number, so there is no axis. In a WIDE table each array \
+             column's header IS its axis value — the pressure of the step, the T2 of the bin. \
+             Check the header row, or the layout."
+                .into(),
+        ));
+    }
+    if !non_axis.is_empty() {
+        notes.push(format!(
+            "{} column(s) dropped, a header that is not a number cannot be an axis value: {}",
+            non_axis.len(),
+            non_axis.join(", ")
+        ));
+    }
+    // Reported, never sorted. Sorting the axis would have to reorder every row's values with it,
+    // and a delivery whose columns run high-to-low is perfectly ordinary — what matters is that
+    // the user can see it before a display reads the values in column order.
+    if axis.windows(2).any(|w| w[1] <= w[0]) {
+        notes.push(
+            "The axis does not increase from left to right. Stored exactly as delivered — check \
+             the header row reads in the order you expect."
+                .into(),
+        );
+    }
+
+    let mut rows = Vec::new();
+    let mut short = 0usize;
+    for r in &table {
+        let cell = |i: usize| r.get(i).map(String::as_str).unwrap_or("");
+        let values: Vec<f32> = bins
+            .iter()
+            .map(|i| parse_number(cell(*i), decimal).0.map_or(f32::NAN, |v| v as f32))
+            .collect();
+        // A row with nothing anywhere across the axis is padding, not a sample of nothing.
+        if values.iter().all(|v| !v.is_finite()) {
+            continue;
+        }
+        if r.len() < headers.len() {
+            short += 1;
+        }
+        rows.push(ArrayRow {
+            well_name: well_col.map(|i| cell(i).to_string()).filter(|s| !s.is_empty()),
+            depth: depth_col.and_then(|i| parse_number(cell(i), decimal).0),
+            sample_no: sample_col.and_then(|i| parse_number(cell(i), decimal).0).map(|v| v as i64),
+            values,
+        });
+    }
+    if short > 0 {
+        notes.push(format!(
+            "{short} row(s) were shorter than the header row; their missing bins are MISSING rather than zero"
+        ));
+    }
+    if blocks_joined > 0 {
+        notes.push(format!("{blocks_joined} repeated header row(s) stripped — the blocks were read as one table"));
+    }
+    Ok(ArrayProbe { axis, axis_labels, non_axis, rows, blocks_joined, notes })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ArrayCommit {
+    pub paths: Vec<String>,
+    /// One role per column, in file order — WELL / DEPTH / SAMPLE claim a column, IGNORE drops
+    /// one, and everything left is an array bin.
+    pub roles: Vec<String>,
+    /// `"wide"` or `"block"`. `"long"` never reaches here: a long array is point data and goes
+    /// through the ordinary commit.
+    pub layout: String,
+    #[serde(default)]
+    pub opts: TableOptions,
+    /// What the array is called — `T2`, `PC_SW`, `GRAINSIZE`.
+    pub curve_name: String,
+    /// Delivery set. Auto-suffixed per well like every other set, so an import never overwrites.
+    #[serde(default)]
+    pub set_name: Option<String>,
+    #[serde(default)]
+    pub depth_unit: Option<String>,
+    #[serde(default)]
+    pub fallback_well_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ArrayImportResult {
+    pub path: String,
+    pub curve: String,
+    pub wells: usize,
+    pub samples: usize,
+    pub bins: usize,
+    /// The two ends of the axis, so the pane can show what was read without echoing every bin.
+    pub axis_first: f64,
+    pub axis_last: f64,
+    /// Sets actually written, one per well — the suffixed name where the chosen one was taken.
+    pub sets: Vec<String>,
+    /// Well names in the file that matched no well, or more than one. Reported, never guessed.
+    pub unmatched: Vec<String>,
+    pub notes: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// A delivery name free on this well for this curve, suffixed if taken.
+///
+/// `db::write_array_log` REPLACES its (well, set, curve) rows — right for a Monte Carlo re-run,
+/// which must never union two runs' realizations, and wrong for an import, where it would eat the
+/// previous delivery. Jauhar, 2026-08-05: *"dont eat it, thats why i request user can define their
+/// intake cons, so it wont eat anything"*. Same auto-suffix rule as every other delivery set.
+fn free_array_set(conn: &Connection, well_id: &str, curve: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "RAW".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM array_logs
+             WHERE well_id = ?1 AND upper(set_name) = ?2 AND upper(curve_name) = upper(?3)",
+            duckdb::params![well_id, name, curve],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
+        }
+    }
+    Ok(base)
+}
+
+/// Imports one or more WIDE/BLOCK files into the array store.
+///
+/// Rows route to wells exactly as the long path does — normalized name, exactly one match, and
+/// anything else reported rather than guessed — and depths convert to the project unit through
+/// the same converter. What is different is only the SHAPE being read, which is the whole point of
+/// the layout being a declaration.
+pub fn commit_arrays(conn: &Connection, req: &ArrayCommit) -> Vec<ArrayImportResult> {
+    let block = req.layout.eq_ignore_ascii_case("block");
+    let project_unit = crate::units::project_depth_unit_or_default(conn);
+    let file_unit = req.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
+    let curve = req.curve_name.trim().to_uppercase();
+
+    req.paths
+        .iter()
+        .map(|path| {
+            let mut res = ArrayImportResult {
+                path: path.clone(),
+                curve: curve.clone(),
+                wells: 0,
+                samples: 0,
+                bins: 0,
+                axis_first: f64::NAN,
+                axis_last: f64::NAN,
+                sets: vec![],
+                unmatched: vec![],
+                notes: vec![],
+                error: None,
+            };
+            if curve.is_empty() {
+                res.error = Some("Name the array before importing it — it is stored under that name.".into());
+                return res;
+            }
+            let probe = match read_wide(path, &req.opts, &req.roles, block) {
+                Ok(p) => p,
+                Err(e) => {
+                    res.error = Some(e.to_string());
+                    return res;
+                }
+            };
+            res.bins = probe.axis.len();
+            res.axis_first = probe.axis.first().copied().unwrap_or(f32::NAN) as f64;
+            res.axis_last = probe.axis.last().copied().unwrap_or(f32::NAN) as f64;
+            res.notes = probe.notes.clone();
+
+            // Group by the file's own well column; rows with none fall back to the selected well.
+            let mut groups: Vec<(Option<String>, Vec<&ArrayRow>)> = Vec::new();
+            for r in &probe.rows {
+                let key = r.well_name.as_ref().map(|n| n.trim().to_uppercase());
+                match groups.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, list)) => list.push(r),
+                    None => groups.push((key, vec![r])),
+                }
+            }
+
+            for (name, list) in &groups {
+                let well_id = match name {
+                    Some(n) => {
+                        let ids: Vec<String> = match conn
+                            .prepare("SELECT well_id FROM wells WHERE upper(trim(well_name)) = ?1 ORDER BY well_id")
+                        {
+                            Ok(mut stmt) => stmt
+                                .query_map(duckdb::params![n], |r| r.get::<_, String>(0))
+                                .map(|rows| rows.filter_map(Result::ok).collect())
+                                .unwrap_or_default(),
+                            Err(_) => vec![],
+                        };
+                        match ids.len() {
+                            1 => ids[0].clone(),
+                            // 0 or many: the exactly-one-match rule. A near miss is a different
+                            // well, and picking one of two would put a whole delivery on the
+                            // wrong rock with nothing to show for it.
+                            _ => {
+                                res.unmatched.push(n.clone());
+                                continue;
+                            }
+                        }
+                    }
+                    None => match &req.fallback_well_id {
+                        Some(w) => w.clone(),
+                        None => {
+                            res.unmatched.push("(no well column and no well selected)".into());
+                            continue;
+                        }
+                    },
+                };
+
+                let mut depths: Vec<f32> = Vec::new();
+                let mut samples: Vec<Vec<f32>> = Vec::new();
+                let mut no_depth = 0usize;
+                for r in list {
+                    let Some(d) = r.depth else {
+                        no_depth += 1;
+                        continue;
+                    };
+                    depths.push(d as f32);
+                    samples.push(r.values.clone());
+                }
+                if no_depth > 0 {
+                    // An array is stored AT a depth; a sample with none has nowhere to go, and
+                    // taking the row above it would attribute a measurement to rock it was not
+                    // made on.
+                    res.notes.push(format!("{no_depth} sample(s) had no depth and were not stored"));
+                }
+                if depths.is_empty() {
+                    continue;
+                }
+                crate::units::convert_depths(&mut depths, file_unit, project_unit);
+
+                let set = match free_array_set(conn, &well_id, &curve, req.set_name.as_deref().unwrap_or("RAW")) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        res.notes.push(format!("could not name the delivery: {e}"));
+                        continue;
+                    }
+                };
+                match db::write_array_log(conn, &well_id, &set, &curve, &depths, &samples, Some(&probe.axis)) {
+                    Ok(written) => {
+                        res.wells += 1;
+                        res.samples += written;
+                        if !res.sets.contains(&set) {
+                            res.sets.push(set);
+                        }
+                    }
+                    Err(e) => res.notes.push(format!("{e}")),
+                }
+            }
+            if !res.unmatched.is_empty() {
+                res.notes.push(format!(
+                    "{} well name(s) matched no well, or more than one, and were skipped: {}",
+                    res.unmatched.len(),
+                    res.unmatched.join(", ")
+                ));
+            }
+            res
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -571,5 +1018,155 @@ mod tests {
         assert_eq!(guess_role("KV_KH", "number", &[]).0, "ITEM");
         // An empty column is proposed for IGNORE — it has nothing to carry.
         assert_eq!(guess_role("NOTES", "empty", &[]).0, "IGNORE");
+    }
+
+    /// **A WIDE table's header row IS the axis, and a header that is not a number is dropped by
+    /// name.** The porous-plate SCAL delivery Jauhar named: one row per plug, one column per
+    /// pressure step.
+    ///
+    /// The `TOTAL` column is the part that matters. Counted as a bin it would be a saturation
+    /// stored at an invented pressure — plausible, and at the end of the curve where a Thomeer or
+    /// Leverett fit is most sensitive. Dropped silently it would be a column the user delivered
+    /// and never sees again. Named, it is neither.
+    #[test]
+    fn a_wide_table_reads_its_header_row_as_the_axis() {
+        let path = std::env::temp_dir().join("sandi_wide_pc.csv");
+        std::fs::write(
+            &path,
+            "WELL,DEPTH,0.5,1,2,4,8,TOTAL\n\
+             SANDI-W1,2000.0,1.00,0.92,0.71,0.55,0.44,1.0\n\
+             SANDI-W1,2010.0,1.00,0.88,0.64,0.48,0.39,1.0\n",
+        )
+        .unwrap();
+        let roles = vec!["WELL".to_string(), "DEPTH".to_string()];
+        let probe = read_wide(path.to_str().unwrap(), &TableOptions::default(), &roles, false).expect("read");
+
+        assert_eq!(probe.axis, vec![0.5, 1.0, 2.0, 4.0, 8.0], "the pressures come off the header row");
+        assert_eq!(probe.non_axis, vec!["TOTAL".to_string()], "and a non-numeric header is named, not counted");
+        assert!(probe.notes.iter().any(|n| n.contains("TOTAL")), "the drop is reported: {:?}", probe.notes);
+        assert_eq!(probe.rows.len(), 2);
+        assert_eq!(probe.rows[0].depth, Some(2000.0));
+        assert_eq!(probe.rows[0].values.len(), 5, "one value per bin, TOTAL excluded");
+        assert!((probe.rows[1].values[4] - 0.39).abs() < 1e-6);
+    }
+
+    /// **A unit written into the header is stripped before the number is read.** A laboratory
+    /// writes `100 psi`, not `100` — and reading that column as non-numeric would drop the whole
+    /// delivery one bin at a time, reporting it as "no axis".
+    #[test]
+    fn an_axis_value_survives_the_unit_its_laboratory_wrote_beside_it() {
+        assert_eq!(axis_of("100 psi", None), Some(100.0));
+        assert_eq!(axis_of("0.5PSI", None), Some(0.5));
+        assert_eq!(axis_of("3.5 ms", None), Some(3.5));
+        assert_eq!(axis_of("TOTAL", None), None);
+        assert_eq!(axis_of("", None), None);
+        // A unit FIRST is not an axis value: "psi100" says the header is a label, and reading a
+        // number out of the middle of it would be a guess.
+        assert_eq!(axis_of("psi100", None), None);
+    }
+
+    /// **BLOCK is stacked tables, and the repeated headers are stripped rather than read as
+    /// data.** Left in, each repeat becomes a row whose every bin fails to parse — which the
+    /// padding rule then drops silently, so the file would import looking complete while the
+    /// blocks were never actually joined.
+    ///
+    /// And the honest limit, asserted rather than described: a block keyed by a LABEL LINE instead
+    /// of a column is not read, and the run says so.
+    #[test]
+    fn block_joins_stacked_tables_and_says_when_the_key_is_not_in_a_column() {
+        let path = std::env::temp_dir().join("sandi_block_pc.csv");
+        std::fs::write(
+            &path,
+            "DEPTH,1,2,4\n\
+             2000.0,0.9,0.7,0.5\n\
+             DEPTH,1,2,4\n\
+             2010.0,0.8,0.6,0.4\n",
+        )
+        .unwrap();
+        let roles = vec!["DEPTH".to_string()];
+        let probe = read_wide(path.to_str().unwrap(), &TableOptions::default(), &roles, true).expect("read");
+        assert_eq!(probe.blocks_joined, 1, "the repeated header is stripped");
+        assert_eq!(probe.rows.len(), 2, "and both blocks' rows survive");
+        assert_eq!(probe.rows[1].depth, Some(2010.0));
+
+        // The control, and it is worse than "a block goes missing". Read WITHOUT the block flag,
+        // the repeated header becomes a REAL-LOOKING SAMPLE: its cells under the bin columns are
+        // the axis numbers themselves, so they parse, and the row survives carrying saturations of
+        // 1, 2 and 4. Only its missing depth stops it being stored, and that is luck rather than a
+        // guard — a delivery whose repeated header sat under a DEPTH column would import it.
+        let plain = read_wide(path.to_str().unwrap(), &TableOptions::default(), &roles, false).expect("read");
+        assert_eq!(plain.blocks_joined, 0);
+        assert_eq!(plain.rows.len(), 3, "the repeated header survives as a row of nonsense");
+        let bogus = plain.rows.iter().find(|r| r.depth.is_none()).expect("and it is the one with no depth");
+        assert_eq!(bogus.values, vec![1.0, 2.0, 4.0], "its values are the axis, read as measurements");
+
+        // A file with no repeated header, imported as BLOCK, says the key may be in a label line.
+        let single = std::env::temp_dir().join("sandi_block_single.csv");
+        std::fs::write(&single, "DEPTH,1,2\n2000.0,0.9,0.7\n").unwrap();
+        let one = read_wide(single.to_str().unwrap(), &TableOptions::default(), &roles, true).expect("read");
+        assert!(
+            one.notes.iter().any(|n| n.contains("label line")),
+            "the limit must be stated rather than silently producing one block: {:?}",
+            one.notes
+        );
+    }
+
+    /// **An import never eats a delivery already there.** Jauhar, 2026-08-05: *"dont eat it, thats
+    /// why i request user can define their intake cons, so it wont eat anything"*.
+    ///
+    /// `db::write_array_log` REPLACES its (well, set, curve) rows, which is right for a Monte
+    /// Carlo re-run — two runs' realizations must never be unioned into one distribution — and
+    /// wrong for an import, where it would silently discard the previous delivery. So an array
+    /// import resolves a FREE set name per well exactly as core, SCAL, aux and image deliveries
+    /// do, and the second import of the same name lands beside the first.
+    #[test]
+    fn a_second_delivery_lands_beside_the_first_instead_of_replacing_it() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-ARR", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let path = std::env::temp_dir().join("sandi_arr_delivery.csv");
+        std::fs::write(&path, "DEPTH,1,2,4\n2000.0,0.9,0.7,0.5\n2001.0,0.8,0.6,0.4\n").unwrap();
+        let req = ArrayCommit {
+            paths: vec![path.to_str().unwrap().to_string()],
+            roles: vec!["DEPTH".into()],
+            layout: "wide".into(),
+            opts: TableOptions::default(),
+            curve_name: "PC_SW".into(),
+            set_name: Some("LAB".into()),
+            depth_unit: None,
+            fallback_well_id: Some(w.clone()),
+        };
+        let first = commit_arrays(&conn, &req);
+        assert!(first[0].error.is_none(), "{:?}", first[0].error);
+        assert_eq!(first[0].samples, 2);
+        assert_eq!(first[0].bins, 3);
+        assert_eq!(first[0].sets, vec!["LAB".to_string()]);
+
+        let second = commit_arrays(&conn, &req);
+        assert_eq!(second[0].sets, vec!["LAB_1".to_string()], "the same name must not overwrite");
+
+        // Both deliveries are still there.
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT set_name) FROM array_logs WHERE well_id = ?1 AND curve_name = 'PC_SW'",
+                duckdb::params![&w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 2, "the first delivery survives the second");
+
+        // And the axis came back with the values, or the array is a list of numbers about nothing.
+        let axis: Vec<u8> = conn
+            .query_row(
+                "SELECT axis FROM array_logs WHERE well_id = ?1 AND set_name = 'LAB' LIMIT 1",
+                duckdb::params![&w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let decoded: Vec<f32> = axis.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+        assert_eq!(decoded, vec![1.0, 2.0, 4.0], "the axis is stored with the values");
     }
 }

@@ -1581,6 +1581,26 @@ async fn intake_commit(
     .map_err(|e| e.to_string())?
 }
 
+/// Imports a WIDE or BLOCK table into the array store (`intake::commit_arrays`).
+///
+/// Separate from `intake_commit` because the destination is a different store with a different
+/// shape, not because the front end is different — the pane, the grid and the roles are the same.
+/// The layout is the user's DECLARATION: a wide table and a long one are both rectangles of
+/// numbers and nothing in the characters says which is which.
+#[tauri::command]
+async fn intake_commit_arrays(
+    db: tauri::State<'_, DbState>,
+    req: intake::ArrayCommit,
+) -> Result<Vec<intake::ArrayImportResult>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = conn.lock().map_err(|_| "database busy".to_string())?;
+        Ok(intake::commit_arrays(&conn, &req))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // --- Statistics (statistics.rs) -------------------------------------------------------------
 // Every one is a pure READ — nothing here writes a curve, a flag or a log set — so each runs
 // silently off-thread rather than posting a job card the user never asked for, the same rule a
@@ -3138,6 +3158,7 @@ pub fn run() {
             intake_probe,
             intake_paste,
             intake_commit,
+            intake_commit_arrays,
             run_cutoff_sweep,
             run_monte_carlo,
             list_zones,

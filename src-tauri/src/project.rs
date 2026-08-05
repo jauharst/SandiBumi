@@ -199,6 +199,10 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
     db::migrate_log_set_frame(&conn).map_err(|e| format!("log set frame migration failed: {e}"))?;
     eprintln!("[boot] migrate_log_set_frame: {:?}", t.elapsed());
 
+    let t = std::time::Instant::now();
+    db::migrate_array_log_axis(&conn).map_err(|e| format!("array log axis migration failed: {e}"))?;
+    eprintln!("[boot] migrate_array_log_axis: {:?}", t.elapsed());
+
     // A long open is almost always the one-time storage upgrades above (each backs up the
     // whole project first). Tell the user so — from their chair a silent 15-minute open on
     // a field-scale file is indistinguishable from a hang.

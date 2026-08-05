@@ -1,6 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   intakeCommit,
+  intakeCommitArrays,
   intakePaste,
   intakeProbe,
   listWells,
@@ -153,6 +154,25 @@ export async function buildIntakeContent(
   // --- Destination ----------------------------------------------------------
   const dest = document.createElement("div");
   dest.className = "module-args";
+  // The LAYOUT is a declaration, never a sniff. A wide table and a long one are both rectangles
+  // of numbers and nothing in the characters says which is which — reading a long Pc table as
+  // wide would take its column headers for pressures and store an array of column indices.
+  const layoutSel = document.createElement("select");
+  layoutSel.className = "form-control";
+  for (const [v, l] of [
+    ["long", "Long — one row per point (the usual table)"],
+    ["wide", "Wide — one row per sample, the header row is the axis"],
+    ["block", "Block — several tables stacked, the header repeated"],
+  ] as [string, string][]) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = l;
+    layoutSel.appendChild(o);
+  }
+  const arrayName = document.createElement("input");
+  arrayName.className = "form-control";
+  arrayName.type = "text";
+  arrayName.placeholder = "e.g. PC_SW, T2";
   const setIn = document.createElement("input");
   setIn.className = "form-control";
   setIn.type = "text";
@@ -191,23 +211,45 @@ export async function buildIntakeContent(
     .catch(() => {});
   dest.appendChild(
     formRow(
+      "Layout",
+      layoutSel,
+      "Declared, never guessed: a wide table and a long one are both rectangles of numbers, and reading one as the other stores an array of column indices.",
+    ),
+  );
+  const arrayRow = formRow(
+    "Array name",
+    arrayName,
+    "Wide and Block store an ARRAY per sample — a Pc curve, an NMR T2 distribution — under this name, with the header row as its axis.",
+  );
+  arrayRow.hidden = true;
+  dest.appendChild(arrayRow);
+  // Point data and following the core belong to the LONG path; an array carries neither.
+  const pointRows: HTMLElement[] = [];
+  layoutSel.addEventListener("change", () => {
+    const arrays = layoutSel.value !== "long";
+    arrayRow.hidden = !arrays;
+    for (const r of pointRows) r.hidden = arrays;
+  });
+  dest.appendChild(
+    formRow(
       "Delivery set",
       setIn,
       "The files chosen together are ONE delivery. A name already used on a well is auto-suffixed — an import never overwrites.",
     ),
   );
-  dest.appendChild(
-    formRow(
-      "Point-data set",
-      dsIn,
-      "Where columns no measurement role claimed land. They are carried, never dropped.",
-    ),
+  const pointSetRow = formRow(
+    "Point-data set",
+    dsIn,
+    "Where columns no measurement role claimed land. They are carried, never dropped.",
   );
+  pointRows.push(pointSetRow);
+  dest.appendChild(pointSetRow);
   dest.appendChild(formRow("Depths are in", unitSel, "Converted to the project's unit on import."));
   dest.appendChild(
     formRow("If no Well column", wellSel, "Only used when the table carries no well name of its own."),
   );
   const follow = buildFollowCoreRow("these rows", "intake");
+  pointRows.push(follow.el);
   dest.appendChild(follow.el);
   content.appendChild(dest);
 
@@ -388,6 +430,40 @@ export async function buildIntakeContent(
     runBtn.disabled = true;
     result.textContent = "Importing…";
     try {
+      // A WIDE or BLOCK table is an ARRAY per sample — a Pc curve, an NMR T2 distribution — and
+      // goes to the array store with its axis. LONG is point data and takes the ordinary path.
+      if (layoutSel.value !== "long") {
+        if (!arrayName.value.trim()) {
+          result.textContent = "Name the array before importing it — it is stored under that name.";
+          arrayName.focus();
+          runBtn.disabled = false;
+          return;
+        }
+        const ares = await intakeCommitArrays({
+          paths,
+          roles,
+          layout: layoutSel.value,
+          curve_name: arrayName.value.trim(),
+          set_name: setIn.value.trim() || undefined,
+          depth_unit: unitSel.value || undefined,
+          fallback_well_id: wellSel.value || undefined,
+        });
+        const samples = ares.reduce((a, r) => a + r.samples, 0);
+        const wells = ares.reduce((a, r) => a + r.wells, 0);
+        const bins = ares[0]?.bins ?? 0;
+        const anotes = ares.flatMap((r) => r.notes);
+        const aerrs = ares.filter((r) => r.error).map((r) => `${r.path}: ${r.error}`);
+        result.textContent =
+          `${samples} sample(s) x ${bins} bin(s) into ${wells} well(s)` +
+          (ares[0] ? `, axis ${ares[0].axis_first} to ${ares[0].axis_last}` : "") +
+          (aerrs.length ? ` — ${aerrs.join("; ")}` : ".") +
+          (anotes.length ? ` ${anotes.join(" ")}` : "");
+        setStatus(`Intake: ${samples} array sample(s) into ${wells} well(s)`);
+        recordProcess("Import", `Intake arrays: ${samples} sample(s) from ${paths.length} file(s)`);
+        bumpDataVersion();
+        runBtn.disabled = false;
+        return;
+      }
       const res = await intakeCommit({
         paths,
         roles,
