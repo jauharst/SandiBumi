@@ -3,6 +3,9 @@ import {
   intakeCommit,
   intakeCommitArrays,
   intakeCommitCurves,
+  listDocuments,
+  saveDocument,
+  deleteDocument,
   intakePaste,
   intakeProbe,
   listWells,
@@ -255,6 +258,152 @@ export async function buildIntakeContent(
   pointRows.push(follow.el);
   dest.appendChild(follow.el);
   content.appendChild(dest);
+
+  // --- Saved mappings -------------------------------------------------------
+  //
+  // A recurring delivery arrives in the same shape every quarter, and re-declaring nine column
+  // roles each time is both tedious and a place to differ from last time without noticing — which
+  // is the worse half: two quarters of one core imported under different mappings look like one
+  // consistent dataset.
+  //
+  // Stored as a `documents` row (`intaketmpl`), the plot-template precedent. It holds the
+  // DECISIONS — roles, layout, delimiter, decimal, units, destination names — and never the
+  // file: a template is how to read a shape, not what was in one of them.
+  //
+  // **Applied by HEADER NAME, never by position.** A delivery that gains a column would otherwise
+  // shift every role one to the right, silently, and a saved mapping exists precisely for the
+  // deliveries nobody re-checks. Columns the template does not name keep whatever Intake proposed
+  // for them and are reported, so a new column is visible rather than quietly IGNOREd.
+  const TMPL_DOC = "intaketmpl";
+  interface IntakeTemplate {
+    headers: string[];
+    roles: string[];
+    layout: string;
+    delimiter: string;
+    skip: number;
+    decimal: string;
+    depthUnit: string;
+    set: string;
+    dataset: string;
+    arrayName: string;
+  }
+
+  const tmplSelect = document.createElement("select");
+  tmplSelect.className = "form-control";
+  const tmplName = document.createElement("input");
+  tmplName.className = "form-control";
+  tmplName.type = "text";
+  tmplName.placeholder = "name this mapping";
+  const tmplSave = document.createElement("button");
+  tmplSave.type = "button";
+  tmplSave.className = "btn";
+  tmplSave.textContent = "Save";
+  const tmplApply = document.createElement("button");
+  tmplApply.type = "button";
+  tmplApply.className = "btn";
+  tmplApply.textContent = "Apply";
+  const tmplDel = document.createElement("button");
+  tmplDel.type = "button";
+  tmplDel.className = "btn";
+  tmplDel.textContent = "Delete";
+
+  async function refreshTemplates(keep?: string): Promise<void> {
+    const docs = await listDocuments(TMPL_DOC).catch(() => []);
+    tmplSelect.innerHTML = "";
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = docs.length ? "— saved mappings —" : "(none saved)";
+    tmplSelect.appendChild(ph);
+    for (const d of docs) {
+      const o = document.createElement("option");
+      o.value = d.name;
+      o.textContent = d.name;
+      tmplSelect.appendChild(o);
+    }
+    if (keep) tmplSelect.value = keep;
+  }
+
+  tmplSave.addEventListener("click", async () => {
+    const name = tmplName.value.trim();
+    if (!name) {
+      result.textContent = "Name the mapping before saving it.";
+      tmplName.focus();
+      return;
+    }
+    if (!probe) {
+      result.textContent = "Read a file first — a mapping is saved against its column names.";
+      return;
+    }
+    const doc: IntakeTemplate = {
+      headers: probe.columns.map((c) => c.header.trim().toUpperCase()),
+      roles: [...roles],
+      layout: layoutSel.value,
+      delimiter: delimSel.value,
+      skip: Number(skipIn.value) || 0,
+      decimal: decSel.value,
+      depthUnit: unitSel.value,
+      set: setIn.value,
+      dataset: dsIn.value,
+      arrayName: arrayName.value,
+    };
+    await saveDocument(TMPL_DOC, name, JSON.stringify(doc));
+    await refreshTemplates(name);
+    result.textContent = `Saved mapping "${name}".`;
+  });
+
+  tmplApply.addEventListener("click", async () => {
+    const name = tmplSelect.value;
+    if (!name || !probe) return;
+    const docs = await listDocuments(TMPL_DOC).catch(() => []);
+    const doc = docs.find((d) => d.name === name);
+    if (!doc) return;
+    let t: IntakeTemplate;
+    try {
+      t = JSON.parse(doc.json) as IntakeTemplate;
+    } catch {
+      result.textContent = `Mapping "${name}" could not be read.`;
+      return;
+    }
+    // By header NAME. A delivery that gained a column would shift every role one to the right if
+    // this went by position, and it would look exactly like a correct import.
+    const byHeader = new Map<string, string>();
+    (t.headers ?? []).forEach((h, i) => byHeader.set(h, (t.roles ?? [])[i] ?? "IGNORE"));
+    const unknown: string[] = [];
+    probe.columns.forEach((c, i) => {
+      const want = byHeader.get(c.header.trim().toUpperCase());
+      if (want) roles[i] = want as IntakeRole;
+      else unknown.push(c.header);
+    });
+    layoutSel.value = t.layout || "long";
+    layoutSel.dispatchEvent(new Event("change", { bubbles: true }));
+    delimSel.value = t.delimiter ?? "";
+    skipIn.value = String(t.skip ?? 0);
+    decSel.value = t.decimal ?? "";
+    unitSel.value = t.depthUnit ?? "";
+    setIn.value = t.set ?? "";
+    dsIn.value = t.dataset ?? dsIn.value;
+    arrayName.value = t.arrayName ?? "";
+    renderGrid();
+    // Named, not silent: a new column in a recurring delivery is exactly what a saved mapping
+    // stops anyone from looking at.
+    result.textContent = unknown.length
+      ? `Applied "${name}". ${unknown.length} column(s) the mapping does not name kept their proposed role: ${unknown.join(", ")}`
+      : `Applied "${name}".`;
+  });
+
+  tmplDel.addEventListener("click", async () => {
+    const name = tmplSelect.value;
+    if (!name) return;
+    await deleteDocument(TMPL_DOC, name);
+    await refreshTemplates();
+    result.textContent = `Deleted mapping "${name}".`;
+  });
+
+  const tmplRow = document.createElement("div");
+  tmplRow.className = "intake-template-row";
+  tmplRow.append(tmplSelect, tmplApply, tmplName, tmplSave, tmplDel);
+  content.appendChild(formRow("Saved mapping", tmplRow, "Applied by column NAME, never by position — a delivery that gains a column would otherwise shift every role one to the right."));
+  void refreshTemplates();
 
   const runRow = document.createElement("div");
   runRow.className = "mc-run-row";

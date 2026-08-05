@@ -1194,6 +1194,20 @@ textarea {
 .dock-reframe .module-pane {
   max-width: none;
 }
+/* Saved mapping bar: a picker, then the naming half, on one line. */
+.intake-template-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.intake-template-row select,
+.intake-template-row input {
+  min-width: 0;
+  flex: 1 1 130px;
+}
+
 .reframe-report {
   margin-top: 12px;
   overflow-x: auto;
