@@ -143,6 +143,22 @@ impl CoreRecipe {
         self.denoise.abs() > 1e-6 || self.clarity.abs() > 1e-6 || self.sharpen.abs() > 1e-6
     }
 
+    /// True when this recipe changed how BRIGHT or how COLOURED the picture is.
+    ///
+    /// The white-light trace barely cares — `CPHOTO_DARK` is read comparatively and a correlation is
+    /// scale-invariant. The ultraviolet one cares completely: `CPHOTO_FLUOR` is a pixel count against
+    /// an ABSOLUTE brightness floor, so half a stop of exposure moves the fraction directly, and a
+    /// white balance picked on a UV frame is meaningless anyway — there is nothing neutral under a
+    /// UV lamp, which is why [`advise_from`] declines to pick one there.
+    pub fn touches_light(&self) -> bool {
+        self.gain.is_some()
+            || self.warmth.abs() > 1e-6
+            || self.tint.abs() > 1e-6
+            || self.exposure.abs() > 1e-6
+            || self.contrast.abs() > 1e-6
+            || self.saturation.abs() > 1e-6
+    }
+
     /// Just the light, none of the framing. What "apply to the whole delivery" copies: a core-shed
     /// run is shot under one lamp in one afternoon, so the colour genuinely belongs to the delivery,
     /// while the box sits differently on the bench in every frame.
@@ -442,8 +458,146 @@ pub fn apply_look_to_delivery(
 /// `GRAIN_D50_APP` is not `GRAIN_D50`.
 pub const LOG_PREFIX: &str = "CPHOTO";
 
-/// The three measures, in the order they are reported.
+/// The three white-light measures, in the order they are reported.
 const MEASURES: [&str; 3] = ["DARK", "RED", "TEX"];
+
+/// One kind of fluorescence, as the user describes it.
+///
+/// **There is no shipped calibration here and there will not be one.** What a fluorescing oil
+/// photographs as depends on the lamp's wavelength, the camera, the exposure and the oil, so these
+/// bands are round numbers to start a VISUAL tuning from — the `gr_normalize` discipline, and the
+/// same reason [`PoreColorBand`](crate::petrography::PoreColorBand)'s default is a plain blue band.
+/// A two-decimal threshold here would be somebody's regression result wearing a default's clothes.
+///
+/// **The saturation CEILING is not decoration.** Fluorescence is often described as *dull
+/// blue-white*, and white is the ABSENCE of colour — it cannot be written as a floor. This is the
+/// same type distinction that makes `StainBand` carry a ceiling so that dolomite can be identified
+/// by staying colourless under alizarin red S.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct FluorClass {
+    /// Becomes the curve suffix, upper-cased: `SHOW` gives `CPHOTO_FLUOR_SHOW`.
+    pub name: String,
+    /// Hue window in degrees. `hue_lo > hue_hi` is a band written across 0 — two arcs, read exactly
+    /// the way the runner reads it and the way `petrography::scene_dominated` does.
+    pub hue_lo: f32,
+    pub hue_hi: f32,
+    /// Colour floor: a grey highlight off a wet surface is a reflection, not a fluorescence.
+    pub sat_min: f32,
+    /// Colour ceiling, for the pale end of the description. 1.0 is no ceiling.
+    #[serde(default = "one")]
+    pub sat_max: f32,
+    /// Brightness floor. Under ultraviolet the background is dark, so this is what actually
+    /// separates a show from the rest of the slab — and it is why an exposure change on a UV
+    /// photograph moves the answer (see [`CoreRecipe::touches_light`]).
+    pub val_min: f32,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+impl FluorClass {
+    /// The curve suffix this class contributes.
+    fn suffix(&self) -> String {
+        let s: String = self
+            .name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+            .collect();
+        let s = s.trim_matches('_').to_string();
+        if s.is_empty() { "CLASS".to_string() } else { s }
+    }
+
+    /// Is this colour inside the band? Hue in degrees, saturation and value 0..1.
+    ///
+    /// Shared with the scene guard below so the picture and the refusal can never disagree about
+    /// what the band means — the `hsv_of`/`in_band` argument from the petrography runner.
+    fn contains(&self, h: f32, s: f32, v: f32) -> bool {
+        if !h.is_finite() || !s.is_finite() || !v.is_finite() {
+            return false;
+        }
+        if s < self.sat_min || s > self.sat_max || v < self.val_min {
+            return false;
+        }
+        let h = h.rem_euclid(360.0);
+        if self.hue_lo <= self.hue_hi {
+            h >= self.hue_lo && h <= self.hue_hi
+        } else {
+            h >= self.hue_lo || h <= self.hue_hi
+        }
+    }
+}
+
+/// One generic class, deliberately, rather than the two a description often uses.
+///
+/// Splitting bright yellow-green from dull blue-white is a real distinction in show description —
+/// and asserting it here would be asserting an INTERPRETATION (that the hue split means live versus
+/// dead oil) that this repo has no source for and that Jauhar has not confirmed is his practice. So
+/// the run ships one wide band, says in its notes that a second class can be added, and leaves the
+/// split to whoever writes the show reports.
+fn default_fluor() -> Vec<FluorClass> {
+    vec![FluorClass {
+        name: "SHOW".to_string(),
+        hue_lo: 40.0,
+        hue_hi: 200.0,
+        sat_min: 0.2,
+        sat_max: 1.0,
+        val_min: 0.35,
+    }]
+}
+
+/// Above this, EVERY slab in the run fluoresced and the band has stopped discriminating.
+///
+/// Round on purpose, and not a fitted number: it is not a physical level, it is "nearly all of it".
+const FLUOR_SATURATED: f32 = 0.95;
+
+/// Did the band claim essentially the whole run?
+///
+/// This is [`crate::petrography::scene_dominated`]'s problem reached by an obvious route — point the
+/// ultraviolet measures at a WHITE-LIGHT delivery and every pixel is bright and coloured, so the
+/// fraction comes back near 1.0: a core that fluoresces end to end, which reads as a spectacular
+/// show rather than as a mistake.
+///
+/// **It is deliberately NOT the petrography guard.** That one tests each plate's own median pixel,
+/// on the argument that rock is mostly rock. The equivalent claim here — that a UV frame is mostly
+/// background — is FALSE: a genuinely oil-soaked box fluoresces over most of its length, and a
+/// median test refuses exactly that box. Worse, it is per picture, so a heavily stained box inside
+/// an otherwise clean core would be dropped and the one real finding in the delivery lost. That
+/// mistake was caught by the round-trip test below rather than by reasoning.
+///
+/// So the test is on the **whole run's P10**: the band is only condemned when it claimed nearly
+/// everything nearly everywhere. A run like that carries no depth information whatever the light
+/// was — a flat line at 1.0 is not a curve — so refusing costs nothing real, while a half-stained
+/// box, or one stained box among ten clean ones, passes untouched.
+///
+/// **There is no mirror guard, and that asymmetry is the point.** `petrography::band_missed` refuses
+/// a plate that shows nothing, because a rock with no porosity is not a thing. A core with no
+/// fluorescence is the ordinary case and a perfectly useful answer — it is what gives the box above
+/// it meaning.
+pub fn fluor_band_is_saturated(p10: f32) -> bool {
+    p10.is_finite() && p10 > FLUOR_SATURATED
+}
+
+/// The curves one run produces, in report order.
+///
+/// White light is the three proxy measures it always was. Ultraviolet is the fraction of each slab
+/// that fluoresces, its mean brightness, and — only when the user has declared more than one kind of
+/// fluorescence — one fraction per kind. With a single class the per-class curve would be a
+/// byte-identical copy of the total, and two names for one answer is how a report ends up unable to
+/// say which it quoted.
+fn measure_names(spec: &CoreLogSpec) -> Vec<String> {
+    if !spec.is_uv() {
+        return MEASURES.iter().map(|m| format!("{LOG_PREFIX}_{m}")).collect();
+    }
+    let classes = spec.classes();
+    let mut out = vec![format!("{LOG_PREFIX}_FLUOR"), format!("{LOG_PREFIX}_FLUOR_I")];
+    if classes.len() > 1 {
+        for c in &classes {
+            out.push(format!("{LOG_PREFIX}_FLUOR_{}", c.suffix()));
+        }
+    }
+    out
+}
 
 /// One run of core inside a packed photograph — one COLUMN of a core-display plate, or one row of
 /// a core box.
@@ -531,6 +685,20 @@ pub struct CoreLogSpec {
     /// Depth step of the output curve, in the project's depth unit.
     #[serde(default = "default_step")]
     pub step: f32,
+    /// Which light this delivery was shot under: `"white"` (the default, and the three proxy
+    /// measures) or `"uv"` (fluorescence).
+    ///
+    /// **DECLARED, never detected.** A UV frame is dark and nearly colourless in places, and so is a
+    /// white-light photograph of dark shale in a shadowed box — and the evidence for "this is
+    /// ultraviolet" would be the brightness about to be measured, which is the same circle that
+    /// makes an impregnated thin section something the user declares rather than something the
+    /// pixels are asked about. The pair picker in Condition Core Photos already treats the two
+    /// lights as two deliveries; this is the same statement, made where the measurement happens.
+    #[serde(default = "default_light")]
+    pub light: String,
+    /// What counts as fluorescence, when `light` is `"uv"`. Empty falls back to one generic band.
+    #[serde(default)]
+    pub fluor: Vec<FluorClass>,
     /// Report how each measure tracks this curve over the same interval — usually GR. `None` skips
     /// the check, but it is the only thing that says whether the trace is about the rock.
     #[serde(default)]
@@ -541,8 +709,25 @@ pub struct CoreLogSpec {
     pub write: bool,
 }
 
+impl CoreLogSpec {
+    /// Ultraviolet run? Anything that is not `"uv"` is white light, so an unrecognised value can
+    /// never silently switch the measurement over.
+    pub fn is_uv(&self) -> bool {
+        self.light.eq_ignore_ascii_case("uv")
+    }
+    /// The declared fluorescence classes, or the one generic band.
+    pub fn classes(&self) -> Vec<FluorClass> {
+        let named: Vec<FluorClass> =
+            self.fluor.iter().filter(|c| !c.name.trim().is_empty()).cloned().collect();
+        if named.is_empty() { default_fluor() } else { named }
+    }
+}
+
 fn default_axis() -> String {
     "x".to_string()
+}
+fn default_light() -> String {
+    "white".to_string()
 }
 fn default_lanes() -> u32 {
     1
@@ -586,17 +771,18 @@ pub struct CoreLogResult {
     pub notes: Vec<String>,
 }
 
-/// One picture's answer: an array per LANE, not one concatenated run. Rust places each lane on its
-/// own interval, which it can only do if they arrive apart.
+/// One picture's answer: for each measure, an array per LANE — not one concatenated run. Rust places
+/// each lane on its own interval, which it can only do if they arrive apart.
+///
+/// A MAP keyed by curve name rather than three fixed fields, so the white-light and ultraviolet runs
+/// share one wire shape. Two shapes would be two places for the lane handling to drift, which is the
+/// standing `composite.rs`-versus-renderer warning in miniature.
 #[derive(Deserialize)]
 struct ScanRow {
     image_id: String,
+    /// curve name -> lane -> samples.
     #[serde(default)]
-    dark: Vec<Vec<f32>>,
-    #[serde(default)]
-    red: Vec<Vec<f32>>,
-    #[serde(default)]
-    tex: Vec<Vec<f32>>,
+    cols: std::collections::HashMap<String, Vec<Vec<f32>>>,
     #[serde(default)]
     error: Option<String>,
 }
@@ -752,9 +938,11 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
         );
     }
 
+    let names = measure_names(spec);
+    let classes = spec.classes();
     let lanes = spec.lanes.max(1);
     let mut depths: Vec<f32> = Vec::new();
-    let mut cols: Vec<Vec<f32>> = vec![Vec::new(); MEASURES.len()];
+    let mut cols: Vec<Vec<f32>> = vec![Vec::new(); names.len()];
 
     for batch in wanted.chunks(CHUNK) {
         let mut blobs = Vec::with_capacity(batch.len());
@@ -782,6 +970,16 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             "spans": spans,
             "lane_spans": lane_spans,
             "counts": counts,
+            "light": if spec.is_uv() { "uv" } else { "white" },
+            "prefix": LOG_PREFIX,
+            // Sent even on a single-class run: the runner still needs the band to build the total,
+            // and the per-class curve is suppressed on THIS side, where the naming rule lives.
+            "classes": classes.iter().map(|c| serde_json::json!({
+                "suffix": c.suffix(),
+                "hue_lo": c.hue_lo, "hue_hi": c.hue_hi,
+                "sat_min": c.sat_min, "sat_max": c.sat_max, "val_min": c.val_min,
+            })).collect::<Vec<_>>(),
+            "per_class": classes.len() > 1,
         });
         let out: ScanOut = {
             let mut cmd = Command::new(&python);
@@ -810,7 +1008,8 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                 res.skipped.push(format!("{}: {}", info.name, e));
                 continue;
             }
-            if row.dark.iter().all(Vec::is_empty) {
+            let first = names.first().and_then(|n| row.cols.get(n));
+            if first.map(|c| c.iter().all(Vec::is_empty)).unwrap_or(true) {
                 res.skipped.push(format!("{}: nothing to read", info.name));
                 continue;
             }
@@ -820,7 +1019,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             // every sample below the gap.
             let (_, planned) = &plans[&info.image_id];
             for (k, (_, (top, base))) in planned.iter().enumerate() {
-                let n = row.dark.get(k).map(Vec::len).unwrap_or(0);
+                let n = first.and_then(|c| c.get(k)).map(Vec::len).unwrap_or(0);
                 if n == 0 {
                     continue;
                 }
@@ -829,9 +1028,15 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                     // 2 cm is not shifted a centimetre shallow against the log it is compared with.
                     depths.push(top + (i as f32 + 0.5) / n as f32 * (base - top));
                 }
-                cols[0].extend_from_slice(&row.dark[k]);
-                cols[1].extend_from_slice(&row.red[k]);
-                cols[2].extend_from_slice(&row.tex[k]);
+                // A measure the runner did not return is padded with MISSING rather than dropped:
+                // every column has to stay the same length as `depths` or each curve after the gap
+                // would be stored one sample shallow, silently.
+                for (m, name) in names.iter().enumerate() {
+                    match row.cols.get(name).and_then(|c| c.get(k)) {
+                        Some(v) if v.len() == n => cols[m].extend_from_slice(v),
+                        _ => cols[m].extend(std::iter::repeat(f32::NAN).take(n)),
+                    }
+                }
             }
             res.photographs += 1;
         }
@@ -870,7 +1075,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
     let idx = crate::distribution::even_indices(res.samples, 400);
     res.preview_depth = idx.iter().map(|i| sorted_depth[*i]).collect();
 
-    for (k, m) in MEASURES.iter().enumerate() {
+    for (k, name) in names.iter().enumerate() {
         let v = &sorted[k];
         let mut finite: Vec<f32> = v.iter().copied().filter(|x| x.is_finite()).collect();
         finite.sort_by(f32::total_cmp);
@@ -886,7 +1091,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             correlation = crate::tops::pearson(&xs, &ys).0;
         }
         res.curves.push(CoreLogCurve {
-            name: format!("{LOG_PREFIX}_{m}"),
+            name: name.clone(),
             n: finite.len(),
             p10: crate::distribution::percentile(&finite, 10.0),
             p50: crate::distribution::percentile(&finite, 50.0),
@@ -899,7 +1104,13 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
 
     // Said whether or not the run writes, because it is the answer to "is this trace about the
     // rock" and the user meets that question while choosing a lay-out.
-    if let Some(dark) = res.curves.first() {
+    //
+    // **White light only.** The sign is meaningful for DARKNESS because clay is both dark and
+    // radioactive, so both should rise into shale — which is what lets a negative peak say the box
+    // is upside down. Fluorescence has NO expected sign against gamma: an oil show sits in the
+    // clean sand, so a negative correlation there is the ordinary case rather than a finding, and
+    // printing this paragraph would send the user to reverse a lay-out that was already right.
+    if let Some(dark) = res.curves.first().filter(|_| !spec.is_uv()) {
         if dark.pairs >= 8 && dark.correlation < -0.3 {
             res.notes.push(format!(
                 "Darkness runs OPPOSITE to {} ({:+.2}). The usual cause is the depth axis pointing \
@@ -942,17 +1153,43 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
     if let Ok(recipes) = crate::db::list_image_recipes(conn, &spec.well_id, &spec.dataset) {
         let read: std::collections::HashSet<&str> =
             wanted.iter().map(|i| i.image_id.as_str()).collect();
+        // On an ultraviolet run the sharp case is a different one. `CPHOTO_FLUOR` counts pixels
+        // against an ABSOLUTE brightness floor, so half a stop of exposure moves the fraction
+        // directly — where `CPHOTO_DARK` is read comparatively and a correlation does not feel a
+        // uniform scale at all. So the two lights watch different halves of the recipe.
+        let uv = spec.is_uv();
         let touched: Vec<&str> = recipes
             .iter()
             .filter(|(id, json)| {
                 read.contains(id.as_str())
                     && serde_json::from_str::<CoreRecipe>(json)
-                        .map(|r| r.touches_detail())
+                        .map(|r| if uv { r.touches_light() } else { r.touches_detail() })
                         .unwrap_or(false)
             })
             .map(|(id, _)| id.as_str())
             .collect();
-        if !touched.is_empty() {
+        if !touched.is_empty() && uv {
+            let named: Vec<&str> = all
+                .iter()
+                .filter(|i| touched.contains(&i.image_id.as_str()))
+                .map(|i| i.name.as_str())
+                .take(6)
+                .collect();
+            let more = touched.len().saturating_sub(named.len());
+            res.notes.push(format!(
+                "{} of {} photograph(s) read here carry an exposure, contrast or white-balance \
+                 change: {}{}. {LOG_PREFIX}_FLUOR counts pixels above a fixed brightness, so those \
+                 move the answer directly - and a white balance picked on a UV frame means nothing \
+                 anyway, because there is nothing neutral under a UV lamp. Read fluorescence off \
+                 photographs corrected for framing only, or tune the floor against these and accept \
+                 that it will not hold on a differently exposed box.",
+                touched.len(),
+                res.photographs,
+                named.join(", "),
+                if more > 0 { format!(" and {more} more") } else { String::new() }
+            ));
+        }
+        if !touched.is_empty() && !uv {
             let named: Vec<&str> = all
                 .iter()
                 .filter(|i| touched.contains(&i.image_id.as_str()))
@@ -976,13 +1213,68 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             ));
         }
     }
-    res.notes.push(format!(
-        "These are IMAGE measures, not petrophysical properties. {LOG_PREFIX}_DARK tracks shale in \
-         most clastic sections but is not a shale volume, which is why it is not called VSH - \
-         calibrate it against your own GR before quoting it as one."
-    ));
+    if spec.is_uv() {
+        // The sentence this whole increment hangs off. Fluorescence is an INFERRED show and never a
+        // pay flag: mineral fluorescence, drilling-fluid additives, pipe dope and dead oil all
+        // fluoresce, and a live oil that has drained out of a slab leaves nothing to see. The
+        // `CPHOTO` prefix exists so no module downstream can read this as a saturation, the same
+        // reason `GRAIN_D50_APP` is not `GRAIN_D50`.
+        res.notes.push(format!(
+            "{LOG_PREFIX}_FLUOR is an INFERRED SHOW, not a pay flag and not a saturation. Mineral \
+             fluorescence, drilling-fluid additives and dead oil all fluoresce, and a drained slab \
+             shows nothing - so a bright interval is a reason to look, never a reason to book. \
+             Check it against your own show descriptions or a core-analysis Sw before quoting it."
+        ));
+        res.notes.push(format!(
+            "The band is a generic starting point, not a calibration: what a fluorescing oil \
+             photographs as depends on the lamp, the camera and the exposure. Tune it against the \
+             preview on ONE photograph, and judge it by whether it AGREES with an independent \
+             record - never by whether the average looks about right. That last point is not a \
+             platitude: on a real petrography delivery a colour band could be tuned until its \
+             median landed within 5% of the petrographer's own count while the per-plate agreement \
+             stayed at -0.10. Matching an average is the one statistic that survives a threshold \
+             which has stopped discriminating."
+        ));
+        if classes.len() == 1 {
+            res.notes.push(
+                "One band was used. Show descriptions often separate BRIGHT YELLOW-GREEN from DULL \
+                 BLUE-WHITE; if yours do, add a second class and each gets its own curve. Nothing \
+                 here assumes what that split means - that reading is yours."
+                    .into(),
+            );
+        }
+    } else {
+        res.notes.push(format!(
+            "These are IMAGE measures, not petrophysical properties. {LOG_PREFIX}_DARK tracks \
+             shale in most clastic sections but is not a shale volume, which is why it is not \
+             called VSH - calibrate it against your own GR before quoting it as one."
+        ));
+    }
 
-    if spec.write {
+    // The band claimed nearly everything nearly everywhere. Measured, reported and previewed — the
+    // preview is how the floor gets tuned, and nobody can tune against a number they are not shown —
+    // but NOT written, which is the pore rule's split exactly. A flat 1.0 stored at real depths says
+    // the whole cored interval is oil-soaked, and that is the kind of wrong that ships.
+    let mut saturated = false;
+    if spec.is_uv() {
+        if let Some(total) = res.curves.first() {
+            if fluor_band_is_saturated(total.p10) {
+                saturated = true;
+                res.notes.push(format!(
+                    "REFUSED TO WRITE: the band claimed at least {:.0}% of EVERY slab in this run \
+                     (P10 = {:.2}), so it is not separating anything and the curve carries no depth \
+                     information. The usual cause is a DAYLIGHT delivery measured as ultraviolet - \
+                     check Light - and the next most likely is a brightness floor set too low. \
+                     Raise the floor against the preview until the trace has shape. One heavily \
+                     stained box among clean ones is NOT this case and is written normally.",
+                    FLUOR_SATURATED * 100.0,
+                    total.p10
+                ));
+            }
+        }
+    }
+
+    if spec.write && !saturated {
         // **On the WELL'S depth frame, not the photograph's.** `computed_curves` are joined onto
         // the standard depth grid by an EXACT match, so a curve stored at a photograph's own
         // sampling - which lands on a wireline depth only by coincidence - is written, is counted,
@@ -1944,6 +2236,34 @@ hdr = json.loads(sys.stdin.buffer.readline())
 blobs = [sys.stdin.buffer.read(n) for n in hdr["sizes"]]
 axis = hdr.get("axis", "x")
 reverse = bool(hdr.get("reverse"))
+light = hdr.get("light", "white")
+prefix = hdr.get("prefix", "CPHOTO")
+classes = hdr.get("classes", [])
+per_class = bool(hdr.get("per_class"))
+
+def hsv_of(a):
+    # One conversion, used by the class masks AND by the scene median, so the measurement and the
+    # refusal can never disagree about what a colour is.
+    mx = a.max(axis=2); mn = a.min(axis=2)
+    d = mx - mn
+    r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
+    h = np.zeros_like(mx)
+    safe = d > 1e-6
+    with np.errstate(invalid="ignore", divide="ignore"):
+        hr = np.where(safe, ((g - b) / np.where(safe, d, 1.0)) % 6.0, 0.0)
+        hg = np.where(safe, (b - r) / np.where(safe, d, 1.0) + 2.0, 0.0)
+        hb = np.where(safe, (r - g) / np.where(safe, d, 1.0) + 4.0, 0.0)
+    h = np.where(mx == r, hr, np.where(mx == g, hg, hb)) * 60.0
+    h = np.where(safe, h % 360.0, 0.0)
+    s = np.where(mx > 1e-6, d / np.where(mx > 1e-6, mx, 1.0), 0.0)
+    return h.astype(np.float32), s.astype(np.float32), mx.astype(np.float32)
+
+def in_band(h, s, v, c):
+    lo, hi = float(c["hue_lo"]), float(c["hue_hi"])
+    # A band written across 0 degrees is TWO ARCS, not an empty range - read exactly the way
+    # FluorClass::contains and the scene guard read it, or the guard would fire on other plates.
+    hue = (h >= lo) & (h <= hi) if lo <= hi else (h >= lo) | (h <= hi)
+    return hue & (s >= float(c["sat_min"])) & (s <= float(c["sat_max"])) & (v >= float(c["val_min"]))
 
 results = []
 for i, ident in enumerate(hdr["ids"]):
@@ -1978,39 +2298,66 @@ for i, ident in enumerate(hdr["ids"]):
                 a = a[lo:hi]
                 h = a.shape[0]
 
-        lum = (a * np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)).sum(axis=2)
-        # Normalised redness: (R-G)/(R+G). Illumination cancels in the ratio, so it survives an
-        # uneven lamp far better than a raw channel would.
-        denom = a[:, :, 0] + a[:, :, 1] + np.float32(1e-6)
-        red = (a[:, :, 0] - a[:, :, 1]) / denom
+        # Which planes each light reads. One decode either way, and the lane loop below is shared,
+        # so the two lights can never disagree about where a barrel is inside the picture.
+        planes = []
+        if light == "uv":
+            H, S, V = hsv_of(a)
+            masks = [in_band(H, S, V, c).astype(np.float32) for c in classes]
+            any_mask = masks[0].copy() if masks else np.zeros_like(V)
+            for m in masks[1:]:
+                any_mask = np.maximum(any_mask, m)
+            # The fraction of the slab that fluoresces, then how bright it is overall. Mean of a
+            # 0/1 mask IS the area fraction, so no separate counting pass.
+            planes.append((prefix + "_FLUOR", any_mask, "mean"))
+            planes.append((prefix + "_FLUOR_I", V, "mean"))
+            if per_class:
+                for c, m in zip(classes, masks):
+                    planes.append((prefix + "_FLUOR_" + c["suffix"], m, "mean"))
+            # No per-picture scene test here: see `fluor_band_is_saturated`. Condemning a plate
+            # because most of it is inside the band would throw away the one heavily stained box in
+            # a delivery, which is the finding the whole measure exists to surface.
+        else:
+            lum = (a * np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)).sum(axis=2)
+            # Normalised redness: (R-G)/(R+G). Illumination cancels in the ratio, so it survives an
+            # uneven lamp far better than a raw channel would.
+            denom = a[:, :, 0] + a[:, :, 1] + np.float32(1e-6)
+            red = (a[:, :, 0] - a[:, :, 1]) / denom
+            planes.append((prefix + "_DARK", lum, "dark"))
+            planes.append((prefix + "_RED", red, "mean"))
+            # Spread ACROSS the core within the slab: laminated or conglomeratic rock scatters, a
+            # clean massive sand does not.
+            planes.append((prefix + "_TEX", lum, "std"))
 
         # Each lane is read SEPARATELY and returned separately, because each is its own barrel with
         # its own depths. Concatenating them here would throw away the one thing the caller needs to
         # place them.
-        dark, redv, tex = [], [], []
+        cols = {name: [] for name, _, _ in planes}
         for k, sp in enumerate(spans):
             x0 = int(round(max(0.0, min(1.0, float(sp[0]))) * w))
             x1 = int(round(max(0.0, min(1.0, float(sp[1]))) * w))
             if x1 - x0 < 1:
-                dark.append([]); redv.append([]); tex.append([])
+                for name, _, _ in planes:
+                    cols[name].append([])
                 continue
             want = max(1, min(int(counts[k]), h))
             # Slab edges, so every pixel belongs to exactly one sample and none is counted twice.
             edges = np.linspace(0, h, want + 1).astype(np.int64)
-            L, R = lum[:, x0:x1], red[:, x0:x1]
-            d, rv, tx = [], [], []
+            cut = [(name, plane[:, x0:x1], how) for name, plane, how in planes]
+            acc = {name: [] for name, _, _ in planes}
             for s in range(want):
                 lo, hi = edges[s], max(edges[s] + 1, edges[s + 1])
-                sl = L[lo:hi]
-                d.append(float(1.0 - sl.mean()))
-                rv.append(float(R[lo:hi].mean()))
-                # Spread ACROSS the core within the slab: laminated or conglomeratic rock scatters,
-                # a clean massive sand does not.
-                tx.append(float(sl.std()))
-            dark.append(d); redv.append(rv); tex.append(tx)
-        row["dark"] = dark
-        row["red"] = redv
-        row["tex"] = tex
+                for name, plane, how in cut:
+                    sl = plane[lo:hi]
+                    if how == "dark":
+                        acc[name].append(float(1.0 - sl.mean()))
+                    elif how == "std":
+                        acc[name].append(float(sl.std()))
+                    else:
+                        acc[name].append(float(sl.mean()))
+            for name in acc:
+                cols[name].append(acc[name])
+        row["cols"] = cols
     except Exception as exc:
         row["error"] = str(exc)
     results.append(row)
@@ -2320,6 +2667,8 @@ mod tests {
             lanes,
             layouts,
             step: 0.02,
+            light: "white".into(),
+            fluor: Vec::new(),
             compare_curve: None,
             write: false,
         }
@@ -2978,6 +3327,8 @@ mod tests {
             lanes: 1,
             layouts: Default::default(),
             step: 0.05,
+            light: "white".into(),
+            fluor: Vec::new(),
             compare_curve: Some("GR".into()),
             write: false,
         };
@@ -3092,6 +3443,8 @@ mod tests {
             lanes: 4,
             layouts: Default::default(),
             step: 0.5,
+            light: "white".into(),
+            fluor: Vec::new(),
             compare_curve: None,
             write: false,
         };
@@ -3207,6 +3560,8 @@ mod tests {
                     lanes,
                     layouts: Default::default(),
                     step: 0.1,
+                    light: "white".into(),
+                    fluor: Vec::new(),
                     compare_curve: None,
                     write: false,
                 },
@@ -3397,6 +3752,8 @@ mod tests {
             lanes: 1,
             layouts: Default::default(),
             step: 0.05,
+            light: "white".into(),
+            fluor: Vec::new(),
             compare_curve: Some("GR".into()),
             write: false,
         };
@@ -3491,5 +3848,288 @@ mod tests {
             assert_eq!(decode_b64(&b64).unwrap(), bytes, "n = {n}");
         }
         assert!(decode_b64("!!!!").is_err(), "not base64 is refused rather than half-decoded");
+    }
+
+    // ------------------------------------------------------------------ ultraviolet
+
+    fn uv_spec(w: &str, classes: Vec<FluorClass>) -> CoreLogSpec {
+        CoreLogSpec {
+            well_id: w.into(),
+            dataset: "CORE PHOTO UV".into(),
+            axis: "x".into(),
+            reverse: false,
+            lanes: 1,
+            layouts: Default::default(),
+            step: 0.5,
+            light: "uv".into(),
+            fluor: classes,
+            compare_curve: None,
+            write: false,
+        }
+    }
+
+    /// One class must not produce the same answer twice under two names.
+    ///
+    /// With a single band the per-class curve would be byte-identical to the total, and a project
+    /// holding `CPHOTO_FLUOR` and `CPHOTO_FLUOR_SHOW` with the same numbers is a report that cannot
+    /// say which of them it quoted — the argument that keeps `GRAIN_D50_APP` apart from
+    /// `GRAIN_D50`, and that gave the stain fractions their own `MIN_` prefix.
+    #[test]
+    fn a_single_fluorescence_band_does_not_report_itself_twice() {
+        let one = uv_spec("w", vec![]);
+        let names = measure_names(&one);
+        assert_eq!(
+            names,
+            vec!["CPHOTO_FLUOR".to_string(), "CPHOTO_FLUOR_I".to_string()],
+            "one band is the total and its brightness, nothing else"
+        );
+
+        let two = uv_spec(
+            "w",
+            vec![
+                FluorClass {
+                    name: "Bright".into(),
+                    hue_lo: 60.0,
+                    hue_hi: 160.0,
+                    sat_min: 0.3,
+                    sat_max: 1.0,
+                    val_min: 0.4,
+                },
+                FluorClass {
+                    name: "dull blue-white".into(),
+                    hue_lo: 180.0,
+                    hue_hi: 260.0,
+                    sat_min: 0.0,
+                    sat_max: 0.25,
+                    val_min: 0.4,
+                },
+            ],
+        );
+        assert_eq!(
+            measure_names(&two),
+            vec![
+                "CPHOTO_FLUOR".to_string(),
+                "CPHOTO_FLUOR_I".to_string(),
+                "CPHOTO_FLUOR_BRIGHT".to_string(),
+                "CPHOTO_FLUOR_DULL_BLUE_WHITE".to_string(),
+            ],
+            "two bands each get a curve, and the punctuation in a name never reaches a mnemonic"
+        );
+
+        // And the white-light run is untouched by any of it.
+        let mut white = uv_spec("w", vec![]);
+        white.light = "white".into();
+        assert_eq!(
+            measure_names(&white),
+            vec!["CPHOTO_DARK", "CPHOTO_RED", "CPHOTO_TEX"],
+            "the daylight measures are what they always were"
+        );
+        // An unrecognised light is white light, never a silent switch to a different measurement.
+        white.light = "sunshine".into();
+        assert_eq!(measure_names(&white).len(), 3);
+    }
+
+    /// The saturation CEILING is load-bearing, and a floor cannot replace it.
+    ///
+    /// Fluorescence is routinely described as *dull blue-white*, and white is the ABSENCE of colour.
+    /// This is the same type distinction that makes `StainBand` carry a ceiling so dolomite can be
+    /// identified by staying colourless under alizarin red S. Without it, "pale blue-white" and
+    /// "vivid blue" are one class and the description the geologist wrote cannot be expressed.
+    #[test]
+    fn a_pale_fluorescence_needs_a_saturation_ceiling_not_a_floor() {
+        let pale = FluorClass {
+            name: "dull".into(),
+            hue_lo: 180.0,
+            hue_hi: 260.0,
+            sat_min: 0.0,
+            sat_max: 0.25,
+            val_min: 0.4,
+        };
+        assert!(pale.contains(220.0, 0.10, 0.8), "a washed-out blue-white IS the class");
+        assert!(!pale.contains(220.0, 0.80, 0.8), "a vivid blue is a different fluorescence");
+        assert!(!pale.contains(220.0, 0.10, 0.2), "and a dark pixel is the background either way");
+
+        // A band written across 0 degrees is two arcs, exactly as the runner's `in_band` reads it.
+        let wrapped = FluorClass {
+            name: "warm".into(),
+            hue_lo: 330.0,
+            hue_hi: 30.0,
+            sat_min: 0.2,
+            sat_max: 1.0,
+            val_min: 0.3,
+        };
+        assert!(wrapped.contains(350.0, 0.5, 0.5) && wrapped.contains(10.0, 0.5, 0.5));
+        assert!(!wrapped.contains(180.0, 0.5, 0.5), "a wrapped band is not an empty range");
+    }
+
+    /// The saturation guard must condemn a daylight frame WITHOUT condemning a stained core.
+    ///
+    /// This is the test that changed the design. The first version was
+    /// `petrography::scene_dominated` transferred literally — is the picture's own median pixel
+    /// inside the band — and the round-trip below refused a slab that was exactly half fluorescing,
+    /// which is the answer this measure exists to give. The petrography argument does not carry
+    /// over: "rock is mostly rock" is true, "a UV frame is mostly background" is not, because an
+    /// oil-soaked box glows over most of its length.
+    ///
+    /// So the test is the whole run's P10, and the two ends of it are what this pins: nearly
+    /// everything everywhere is condemned, and a strong but partial show is not.
+    #[test]
+    fn a_saturated_band_is_condemned_and_a_genuine_show_is_not() {
+        assert!(fluor_band_is_saturated(0.99), "a daylight delivery lights up every slab");
+        assert!(fluor_band_is_saturated(1.0));
+
+        // The cases that must survive. A P10 of 0.9 means nine slabs in ten are almost entirely
+        // fluorescing - a spectacular core, and a real one.
+        assert!(!fluor_band_is_saturated(0.90), "a very strong show is still a measurement");
+        assert!(!fluor_band_is_saturated(0.50), "half a core stained is the whole point");
+        // And the mirror is deliberately absent: a core with no show is the ordinary answer, and
+        // it is what gives the box above it meaning.
+        assert!(!fluor_band_is_saturated(0.0), "no fluorescence is a real reading, never a fault");
+        assert!(!fluor_band_is_saturated(f32::NAN), "and an unmeasured run is not a saturated one");
+    }
+
+    /// The shipped band is a starting point, not somebody's calibration.
+    ///
+    /// Same discipline as `gr_normalize_reference_defaults_are_generic_not_a_field_calibration` and
+    /// `the_default_colour_band_is_generic_not_a_calibration`: what a fluorescing oil photographs as
+    /// depends on the lamp, the camera and the exposure, so a two-decimal threshold here would be a
+    /// regression result wearing a default's clothes — and it would be silently wrong in another
+    /// core shed, because the answer always looks plausible.
+    #[test]
+    fn the_default_fluorescence_band_is_generic_not_a_calibration() {
+        let d = default_fluor();
+        assert_eq!(d.len(), 1, "one band, so the bright/dull split stays the user's reading");
+        let c = &d[0];
+        for (label, v) in [("hue_lo", c.hue_lo), ("hue_hi", c.hue_hi)] {
+            assert_eq!(v, v.round(), "{label} must be a round number, not a fitted one");
+            assert_eq!(v % 5.0, 0.0, "{label} must not look measured");
+        }
+        for (label, v) in [("sat_min", c.sat_min), ("val_min", c.val_min)] {
+            assert_eq!((v * 20.0).round() / 20.0, v, "{label} must be a round number");
+        }
+        assert_eq!(c.sat_max, 1.0, "the default puts no ceiling on colour");
+    }
+
+    /// The two lights watch different halves of the conditioning recipe.
+    ///
+    /// `CPHOTO_FLUOR` counts pixels against an ABSOLUTE brightness floor, so half a stop of exposure
+    /// moves the answer directly — while `CPHOTO_DARK` is read comparatively and a correlation does
+    /// not feel a uniform scale at all. Getting this split wrong is silent in both directions: a UV
+    /// run would not warn about the change that actually biases it, and a daylight run would warn
+    /// about one that does not.
+    #[test]
+    fn the_light_warning_and_the_detail_warning_watch_different_settings() {
+        let exposed = CoreRecipe { exposure: 0.5, ..Default::default() };
+        assert!(exposed.touches_light(), "exposure moves an absolute brightness threshold");
+        assert!(!exposed.touches_detail(), "but it rearranges nobody's neighbours");
+
+        let equalised = CoreRecipe { clarity: 0.6, ..Default::default() };
+        assert!(equalised.touches_detail());
+        assert!(!equalised.touches_light(), "local contrast is not a global exposure");
+
+        let framed = CoreRecipe { rotate_deg: 2.0, crop: Some(CropBox { x: 0.1, y: 0.1, w: 0.8, h: 0.8 }), ..Default::default() };
+        assert!(!framed.touches_light() && !framed.touches_detail(), "framing changes neither");
+
+        // A white balance picked on a UV frame means nothing — there is nothing neutral under a UV
+        // lamp — so it has to be caught as a light change rather than passing as harmless.
+        let balanced = CoreRecipe { gain: Some([1.0, 0.9, 0.8]), ..Default::default() };
+        assert!(balanced.touches_light());
+    }
+
+    /// End to end through Python: a core that half fluoresces reads as half and is WRITTEN, and a
+    /// daylight delivery pushed through the ultraviolet path is measured but refused the write.
+    ///
+    /// Both halves matter, and the first is the one that caught the original guard: a half-stained
+    /// core is the answer this measure exists to give, so any rule that refuses it is wrong however
+    /// good its provenance. The second is the control — a guard that cannot be caught rejecting the
+    /// wrong picture is a guard nobody can trust.
+    #[test]
+    #[ignore = "needs numpy and Pillow"]
+    fn half_a_slab_fluorescing_reads_as_half_and_a_daylight_frame_is_refused() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-UV-1", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // A UV frame: near-black background, with the LEFT half of the core (the shallow half,
+        // since depth runs along x) glowing green. Depth runs along the width, so the split is a
+        // depth split and the trace has to show it.
+        let uv = bmp(400, 100, |x, _| if x < 200 { (30, 220, 90) } else { (6, 8, 10) });
+        // The control: an ordinary daylight photograph, bright and COLOURED everywhere - an
+        // olive-grey core, or a green core tray, which is the realistic case.
+        //
+        // A neutral-grey daylight frame is rejected by the saturation floor on its own merit, and
+        // that is a happy accident rather than the guard: it says nothing about a core with any
+        // colour in it, which is every core. Using grey here would have made this test pass while
+        // testing nothing, which is how the first version of the guard survived.
+        let day = bmp(400, 100, |_, _| (150, 175, 120));
+        for (ds, data) in [("CORE PHOTO UV", uv), ("CORE PHOTO", day)] {
+            crate::db::insert_well_images(
+                &conn,
+                &w,
+                ds,
+                "RUN1",
+                None,
+                &[crate::db::NewImage {
+                    depth_top: 1000.0,
+                    depth_base: Some(1004.0),
+                    name: format!("{ds} BOX-1"),
+                    mime: "image/bmp".into(),
+                    width: 400,
+                    height: 100,
+                    data,
+                    printable: true,
+                    ..Default::default()
+                }],
+            )
+            .unwrap();
+        }
+
+        let mut good = uv_spec(&w, vec![]);
+        good.write = true;
+        let res = extract_core_log(&conn, &good).expect("read the UV frame");
+        let frac = res.curves.iter().find(|c| c.name == "CPHOTO_FLUOR").expect("a total curve");
+        assert!(frac.n >= 4, "four metres at 0.5 gives eight samples: {}", frac.n);
+        let mean = frac.preview.iter().sum::<f32>() / frac.preview.len() as f32;
+        assert!(
+            (mean - 0.5).abs() < 0.05,
+            "half the core fluorescing must read as half, not as a threshold count: {mean} from {:?}",
+            frac.preview
+        );
+        // And it is a DEPTH split: the shallow samples are lit, the deep ones are not.
+        assert!(frac.preview[0] > 0.9, "the shallow half glows: {:?}", frac.preview);
+        assert!(frac.preview[frac.preview.len() - 1] < 0.1, "the deep half does not");
+        assert!(
+            res.notes.iter().any(|n| n.contains("INFERRED SHOW") && n.contains("not a pay flag")),
+            "the run has to say what this is not: {:?}",
+            res.notes
+        );
+        // A partial show is a measurement, so it is WRITTEN. This is the half the first guard broke.
+        assert!(
+            res.written.iter().any(|n| n == "CPHOTO_FLUOR"),
+            "a half-stained core must reach the project: {:?} / {:?}",
+            res.written,
+            res.notes
+        );
+
+        // The control. Same measures, pointed at the daylight delivery: every slab lights up, so
+        // the trace carries no depth information and must not be stored as a fully oil-soaked core.
+        let mut wrong = uv_spec(&w, vec![]);
+        wrong.dataset = "CORE PHOTO".into();
+        wrong.write = true;
+        let r = extract_core_log(&conn, &wrong).expect("it is still measured and shown");
+        let wf = r.curves.iter().find(|c| c.name == "CPHOTO_FLUOR").unwrap();
+        assert!(wf.p10 > 0.95, "a daylight frame is bright and coloured everywhere: {}", wf.p10);
+        assert!(
+            r.written.is_empty(),
+            "a flat 1.0 must not be stored at real depths: {:?}",
+            r.written
+        );
+        assert!(
+            r.notes.iter().any(|n| n.contains("REFUSED TO WRITE") && n.contains("DAYLIGHT")),
+            "and the refusal has to name the likely cause: {:?}",
+            r.notes
+        );
     }
 }

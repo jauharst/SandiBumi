@@ -5,7 +5,7 @@
 
 Desktop application for multi-well (2000+) petrophysical log analysis. Stack: **Tauri (Rust) + DuckDB (embedded, bundled) + TypeScript/WebGPU**.
 
-This file is the Codex equivalent of `.cursorrules` (kept in this repo for Cursor). Keep both in sync if the rules change.
+This file is the Claude Code equivalent of `.cursorrules` (kept in this repo for Cursor). Keep both in sync if the rules change.
 
 ## Critical implementation rules
 
@@ -18,7 +18,16 @@ This file is the Codex equivalent of `.cursorrules` (kept in this repo for Curso
 7. **Python equations run as a SUBPROCESS** (`python_engine.rs`), never PyO3/embedded — a missing Python must never stop the app from launching. Discovery: `SANDIBUMI_PYTHON` (the pre-rename `ARSHILLA_PYTHON` is still honoured so no existing setup breaks, but is never named in a message) → `%LOCALAPPDATA%\Programs\Python\Python31x` → PATH; requires numpy. **scipy is OPTIONAL** — when present the worker binds `scipy` plus `signal`/`interpolate`/`optimize`/`stats`/`ndimage` into the user-equation namespace (despike, Savitzky-Golay, resample, `curve_fit`); when absent each name is a stub whose first use raises a message naming the interpreter and the pip command, never a bare `NameError`. A CURVE MNEMONIC ALWAYS SHADOWS a scipy name — the user's data never yields. This is for the user's own equations; core petrophysics stays in Rust. `python_status()` probes numpy+scipy once per session so the editor can say so before a run. **DLIS import (`dlis.rs`) reuses the same subprocess mechanism** (`find_python` + a `dlisio` helper script), never a native parser; needs the `dlisio` pip package (installed: `dlisio 1.0.4` in the Python312 env). A missing `dlisio` fails only the DLIS import, with a clear message — never the app.
 8. **Data/UI edits must be undoable** (`src/undo.ts` `pushUndo`); module runs are re-runnable, not undone.
 9. **New petrophysics modules** = Rust fn + manifest in `modules.rs`; parameter dialogs auto-generate — write no UI code for them. Heavy solvers can live in their own file (e.g. `multimin.rs` — deterministic NNLS mineral inversion; do NOT confuse with `inversion.rs`, which is the separate background async stochastic-job registry) and be referenced from `modules.rs::list_modules`/`run_module`.
-10. **Module inputs are generic-store aware**: `equations::fetch_curve_frame` resolves any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) by mnemonic-then-family, so modules/equations can take PEF/CALI/DRHO/extra runs — not just the fixed six. (Log-view rendering `get_track_data` still reads only `standard_curves`.) Runs can pass `opts["MASK"]="<flag curve>"` (e.g. BADHOLE) to NaN-out flagged samples in every output.
+10a. **Import sets (2026-07-30)**: one delivery = one named SET in the generic store. LAS/DLIS
+    import take a set name (`ingest::LasImportOptions`, `canonical_set_name`/`resolve_set_name`);
+    a name already used on a well is auto-suffixed (`FPROOH`→`FPROOH_1`) — **an import never
+    overwrites an existing set**. With `attach`, a file whose well name matches exactly ONE
+    existing well writes ONLY the generic store on that record (never `standard_curves`, never
+    a second well row); >1 match is ambiguous → separate record + warning. **Curve resolution:
+    set RAW has ABSOLUTE priority in `equations::fetch_generic_curve_aligned` — do not
+    reorder that; other sets are consulted only for mnemonics RAW does not carry.** Browse via
+    the Wells-pane ▸ twisty (`objectTree.ts`, lazy per well).
+11. **Module inputs are generic-store aware**: `equations::fetch_curve_frame` resolves any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) by mnemonic-then-family, so modules/equations can take PEF/CALI/DRHO/extra runs — not just the fixed six. (Log-view rendering `get_track_data` still reads only `standard_curves`.) Runs can pass `opts["MASK"]="<flag curve>"` (e.g. BADHOLE) to NaN-out flagged samples in every output.
 
 ## Current state (2026-07-20)
 
@@ -45,7 +54,7 @@ his LRLC research), `gr_normalize` (two-point percentile GRN, Rokan P3 53.68/P97
 and `log_predict` (leave-one-out KNN synthetic logs, MAX_RAW washout rule) in `modules.rs`,
 Bunga mnemonic table merged into `curves.rs` FAMILIES. Method math is banked IN THIS REPO:
 `docs/method_ssc_sspw.md`, `docs/method_lrlc_rtc_imts.md`, `docs/workflow_standards.md`
-(portable — do not rely on any machine-local Codex auto-memory for it).
+(portable — do not rely on any machine-local Claude auto-memory for it).
 
 Phase 8b shipped (2026-07-18) — **report generator** (`report.rs` + `reportDialog.ts`,
 Plot ribbon → Deliverables → Report…): cover → editable methodology table (persisted as
@@ -588,6 +597,7 @@ context overlays on crossplot/histogram/Pickett (T-SHELL-16, shared machinery in
 UMAA/RHOMAA feeding the Lith-6 overlay, with a real Por-11 crossplot-porosity lookup).
 Open follow-ups: CSV import into the per-well parameter grid, and a per-well colour-stability
 rule for the multi-well overlays.
+
 Import sets shipped (2026-07-30, T-IMP-02) — the Geolog/IP curve-set model. `ingest.rs`
 `LasImportOptions {set_name, attach}`: Import LAS opens a set dialog (`importSetDialog.ts`,
 suggestion from the filenames' common token — `blso*_fprooh.las` → FPROOH); with attach ON
@@ -2922,13 +2932,71 @@ still Apply. Five rules:
   test — a dim white-light frame with a tray in it still gets lifted — is what stops the rule
   degenerating into "give up on dark pictures".
 
-**Not built, and named**: the delivery arrives as **PDF** (one file per core, pages alternating
-white-light plate `Na` and UV plate `Nb`), which nothing in the app can import — the same class of
-barrier as the petrography workbook, and it is the first thing between this suite and a client's
-rock. Then, from Jauhar's UV question (2026-08-01): a fluorescence measure read off the UV plate
-(`CPHOTO_FLUOR`, an inferred-show indicator, NOT a pay flag), a DISCRETE sand/shale curve off the
-white-light trace, and an "unfold" that shears each slab to the bed's apparent dip before averaging,
-so a dipping contact is not smeared across the core's width. See `docs/plan_core_photo.md`.
+**PDF import is NOT being built** (Jauhar, 2026-08-05: *"dont try to import pdf, user will just
+provide photo"*). He exports the plates himself and imports them as ordinary pictures. Recorded in
+`docs/plan_core_photo.md` §4a with the design kept in a `<details>` block, because the reason is a
+workflow choice rather than a technical verdict. What it costs: a hand export loses the captions, so
+the barrel depths are TYPED into Photo Log's column table, and which folder is white light and which
+is UV is declared at import as two datasets.
+
+Still to come, from Jauhar's UV question (2026-08-01): a DISCRETE sand/shale curve off the
+white-light trace (`CPHOTO_LITH`), and an "unfold" that shears each slab to the bed's apparent dip
+before averaging, so a dipping contact is not smeared across the core's width.
+
+## Fluorescence off the UV frame (2026-08-05)
+
+`CPHOTO_FLUOR` — Photo Log ▸ **Light: Ultraviolet**. Same `extract_core_log`, not a second function:
+the lanes, the barrel depths, the resampling onto the well's frame and the write discipline are one
+code path, so the two lights can never disagree about where a barrel is. `CoreLogSpec` gains `light`
+(`"white"` default — anything unrecognised is white light, so a typo cannot silently switch the
+measurement) and `fluor: Vec<FluorClass>`; the runner's wire format became ONE `cols` map keyed by
+curve name for the same reason. Curves: `CPHOTO_FLUOR` (fraction of each slab in any band),
+`CPHOTO_FLUOR_I` (its mean brightness), plus `CPHOTO_FLUOR_<NAME>` per class **only when there is
+more than one** — with a single band the per-class curve would be a byte-identical copy of the
+total, and two names for one answer is how a report ends up unable to say which it quoted.
+
+**It is an INFERRED SHOW and the notes say so on every run.** Mineral fluorescence, drilling-fluid
+additives and dead oil all fluoresce, and a drained slab shows nothing. The `CPHOTO` prefix is what
+stops any module reading it as a saturation — the `GRAIN_D50_APP` argument.
+
+**The light is DECLARED, never detected.** A UV frame is dark; so is a daylight photograph of dark
+shale in a shadowed box, and the evidence for "this is ultraviolet" would be the brightness about to
+be measured — the same circle that makes an impregnated thin section something the user states.
+
+**`FluorClass` carries a saturation CEILING, and that is not decoration.** Fluorescence is routinely
+described as *dull blue-white*, and white is the ABSENCE of colour — it cannot be written as a
+floor. Same type distinction that makes `StainBand` carry one so dolomite is identified by staying
+colourless. `default_fluor` ships ONE generic band, deliberately: splitting bright yellow-green from
+dull blue-white would assert an INTERPRETATION (that the hue split means live versus dead oil) this
+repo has no source for, so the run says a second class can be added and leaves the reading to
+whoever writes the show reports.
+
+**`fluor_band_is_saturated` is the guard, and it is deliberately NOT `petrography::scene_dominated`.**
+The obvious transfer — is this picture's own median pixel inside the band — was written first and the
+round-trip test refused a slab that was exactly half fluorescing, which is the answer the measure
+exists to give. "Rock is mostly rock" is true; "a UV frame is mostly background" is NOT, because an
+oil-soaked box glows over most of its length. Worse, per-picture it would drop the one heavily
+stained box in a clean delivery. So the test is the whole run's **P10 > 0.95**: the band is condemned
+only when it claimed nearly everything nearly everywhere, which carries no depth information whatever
+the light was. Measured, shown and previewed either way — what is refused is the WRITE, the pore
+rule's split exactly. **There is no mirror guard**, and that asymmetry is the point: a core with no
+fluorescence is the ordinary answer and is what gives the box above it meaning.
+
+**The two lights watch different halves of the conditioning recipe.** `CoreRecipe::touches_light()`
+(gain/warmth/tint/exposure/contrast/saturation) is reported on a UV run because `CPHOTO_FLUOR` counts
+pixels against an ABSOLUTE brightness floor; `touches_detail()` stays the white-light warning because
+`CPHOTO_DARK` is read comparatively and a correlation does not feel a uniform scale. **And the
+darkness-sign note is white-light only** — clay is both dark and radioactive so DARK and GR should
+agree, but an oil show sits in the clean sand, so a negative correlation there is ordinary and
+printing that paragraph would send the user to reverse a lay-out that was already right.
+
+UI: `colourBand.ts` is reused unchanged (a `PoreColorBand` is structurally a `FluorClass` minus the
+name and ceiling), so the fluorescence band and the pore band cannot drift about what a wrapped band
+means; the pale limit is one extra slider. Bugs worth remembering: a delete handler must read every
+card BEFORE filtering, or removing the first of two reads each survivor off its neighbour's control —
+right-looking when you delete the last, silently swapped when you delete the first. And the
+round-trip's daylight control must be COLOURED, not grey: a neutral-grey frame is rejected by the
+saturation floor on its own merit, which would have made the test pass while testing nothing.
 
 ## A fluid contact is identified by three things (2026-08-01)
 
@@ -3130,7 +3198,7 @@ no Tauri backend needed. In vite-only preview every `invoke` error
    copyrighted, NOT in the repo; point the `CHARTBOOK_PDF` environment variable at
    your own copy). Only needed to digitize NEW charts — the
    extracted data is already committed in `src/ui/chartOverlays.ts`.
-6. Codex auto-memory is machine-local — everything durable lives in this file,
+6. Claude auto-memory is machine-local — everything durable lives in this file,
    `docs/`, `ROADMAP.md`, `REVIEW.md`, `AUDIT-*.md`. Trust the repo over memory.
 
 ### Reference machine (ARUNIKA / D:\XX. SandiBumi)
@@ -3161,9 +3229,12 @@ npm run tauri dev             # full desktop app (use the pinned command above)
 npx tsc --noEmit              # fast frontend type check
 cd src-tauri && cargo check   # fast Rust-only compile check (no vcvars needed)
 npm run tauri build           # production bundle (size-optimized [profile.release])
+powershell -ExecutionPolicy Bypass -File tools\check.ps1   # THE GREEN GATE: npm build + cargo test (vcvars-pinned), non-zero on first failure
 ```
 
-Verify every change: `npx tsc --noEmit` + `cargo check` + a browser functional test.
+Verify every change: `npx tsc --noEmit` + `cargo check` + a browser functional test — and
+before a commit that claims "verified", `tools\check.ps1` is the one-command version of the
+full bar (`-SkipRust`/`-SkipFrontend` for the inner loop only; green means the FULL gate).
 
 Two hard runtime rules (both learned the painful way):
 - **Never force-kill `npm run tauri dev`** (task-kill, shell timeout) — an unclean kill
@@ -3173,8 +3244,6 @@ Two hard runtime rules (both learned the painful way):
 
 ## Delegating work to subagents
 
-(Tool-specific form of this rule lives in `CLAUDE.md` — keep the principle in sync.)
-
 Split by **task shape, not task size**. The cost driver in this repo is the verify loop
 (`cargo check` through vcvars, ~minutes), not tokens: a cheap-model edit that fails to
 compile twice costs more wall-clock than one correct expensive-model pass.
@@ -3183,21 +3252,32 @@ compile twice costs more wall-clock than one correct expensive-model pass.
 = bad. Never delegate to a cheaper model when a wrong answer would be SILENT** — a number
 that is wrong but compiles ships into a client report, and no `cargo check` catches it.
 
-- **Cheapest tier** — read-only retrieval, inventory and grep sweeps. Verification is free.
-- **Mid tier** — mechanical edits behind a compiler gate: renames, Tauri command wrappers,
-  docs, test scaffolding, TS/dockview plumbing, i18n entries.
-- **Strongest tier (default)** — anything numeric or convention-bound: `equations.rs`,
-  `multimin.rs`/`multimin2.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`,
-  `hfu.rs`, `montecarlo.rs`, chart overlays, the theme var contract, dockview layout.
+| Task shape | Model | Why |
+|---|---|---|
+| Read-only retrieval — "which modules lack tests", "find every call site of `phie`", inventory/grep sweeps | **haiku** | Verification is free: you read the answer |
+| Mechanical edits with a compiler gate — renames, a Tauri command wrapper, docs, test scaffolding, TS/dockview plumbing, i18n dictionary entries | **sonnet** | `cargo check` / `npx tsc --noEmit` is the verifier; a wrong answer is caught, not shipped |
+| Anything numeric or convention-bound — `equations.rs`, `multimin.rs`/`multimin2.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`, `hfu.rs`, `montecarlo.rs`, chart overlays, the theme var contract, dockview layout | **session model (default)** | Silent numeric/behavioural wrongness that no compiler catches |
 
-Reduce reasoning effort before dropping a tier on domain work — lower effort keeps the
-petrophysics judgment, a tier drop discards it. A delegated edit is not done until
-`npx tsc --noEmit` + `cargo check` pass; never report a subagent's result as verified on
-the subagent's own say-so. **Physics defaults** (must trace to `docs/` or a cited source)
-and **anything touching the DuckDB write discipline** stay with the main agent regardless
-of size.
+The ladder is session-relative. On an **opus** session the strong tier IS the session model.
+On a **fable** session, **opus** additionally becomes a mid-strong delegation tier — full
+domain judgment at half fable's rate — for domain-aware work the main agent will
+independently re-check (second-opinion reviews of numeric modules, domain test suites);
+final judgment and sign-off still never leave the session model.
 
-## Collaboration protocol (Jauhar ↔ Codex)
+Mechanics:
+
+- The `Agent` tool takes `model: haiku | sonnet | opus | fable`. Subagents otherwise
+  inherit the session model.
+- Only `Workflow` scripts expose per-agent `effort`. **Lower effort before downgrading the
+  model** on domain work — `opus` at `effort: "low"` keeps the petrophysics judgment while
+  cutting emitted tokens; downgrading the model throws the judgment away.
+- Whatever the tier, a delegated edit is not done until `npx tsc --noEmit` + `cargo check`
+  pass. Do not report a subagent's result as verified on the subagent's own say-so.
+- Two things stay with the main agent regardless of size: **physics defaults** (they must
+  be traced to `docs/` or a cited source per collaboration rule 5) and **anything touching
+  the DuckDB write discipline** (the PK-less `computed_curves` contract).
+
+## Collaboration protocol (Jauhar ↔ Claude)
 
 Jauhar is a petrophysicist (Mahakam Delta, Indonesia) and a beginner programmer — explain
 in petrophysics terms, not programming jargon. The working rhythm, on every machine:
@@ -3207,10 +3287,13 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
    add a `REVIEW.md` checklist entry → commit (and push once a remote exists) → send a
    completion report that leads with outcomes and proposes the next increment.
 2. Jauhar replies **"go ahead"** to accept the proposal; anything else redirects.
-3. He field-verifies against real well data via `REVIEW.md` (`[o]` OK / `[x]` wrong /
-   `[ ]` untested) — check for new `[x]` marks at session start.
-4. **Git/GitHub**: the repo is private; credentials are Jauhar's own. Codex NEVER runs
-   `gh auth login` or handles tokens/passwords — he authenticates himself, then Codex
+3. He field-verifies against real well data via `REVIEW.md`: **`[x]` = accepted** (clicked
+   through, works as described) / `[ ]` = not yet checked. If something is wrong he says so
+   directly rather than marking it — it then gets fixed and logged in `ROADMAP.md` §4. Check
+   for new `[x]` marks at session start. (The single legacy `[o]` at `REVIEW.md:4317` is the
+   original mark style, superseded by `[x]`; do not read `[x]` as "wrong".)
+4. **Git/GitHub**: the repo is private; credentials are Jauhar's own. Claude NEVER runs
+   `gh auth login` or handles tokens/passwords — he authenticates himself, then Claude
    may create repos/push using his session. Commit messages: plain descriptive, avoid
    embedded double quotes (PowerShell 5.1 quoting).
 5. Physics defaults come from documented sources (the reference suite `.info` exports, his studies,
@@ -3222,12 +3305,10 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 - `src-tauri/` — Rust backend: DuckDB access, parsers, IPC commands, petrophysics engine.
 - `src/` — TypeScript frontend: WebGPU log canvas renderer, Tauri IPC calls.
 - `src-tauri/icons/` — app icon set + brand assets: `logo.png` (master), `logo-mark.svg`/`logo-mark.png` (square monogram), `logo-full.svg`/`logo-full.png` (full lockup). Frontend favicon/ribbon assets in `public/`.
-- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction). Portable knowledge lives here, not in machine-local memory. **`docs/plan_image_analysis.md` (2026-07-31) is the phase plan for core depth registration + plate digitizing** (ROADMAP C2 item 8) — read it before touching `images.rs`, `shift_core_depths` or anything that pairs a core sample with a log depth.
+- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction), plus five reusable prompts, boundaries kept sharp (the table in `stewardship_prompt.md` is authoritative): `maintenance_scaling_prompt.md` (one increment — expand / debug / maintain), `engineering_review_prompt.md` (whole-app behaviour sweeps F1–F5), `qc_audit_prompt_template.md` (one tool end-to-end), `stewardship_prompt.md` (whole-repo structure + onboarding), `product_definition_prompt.md` (what the product IS — PRD, target architecture, v1.0 gate; licensed-product posture). Portable knowledge lives here, not in machine-local memory. Separate family, not in that table: the one-shot vendor-intelligence prompts (`sandibumi_maturation_prompt.md`, `techlog_ingest_prompt.md`, `sonar_ingest_adopt_prompt.md`). **`docs/FUTURE_PLAN.md` (2026-07-31) is the cross-product strategic layer above `ROADMAP.md`** — competitive scan vs Geolog/Techlog/IP, the three positioning axes, credibility floor, OSDU, and the tier sequencing across SandiBumi *and* SegaraBumi (`D:\XX. SegaraBumi`, P6 gate closed, its own PRD/ARCHITECTURE/SEGARA-CONTRACT). **`docs/plan_image_analysis.md` (2026-07-31) is the phase plan for core depth registration + plate digitizing** (ROADMAP C2 item 8) — read it before touching `images.rs`, `shift_core_depths` or anything that pairs a core sample with a log depth; its §4 lists the four decisions still open, of which only D1 (does he receive core gamma?) blocks the first increment.
 - `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
 - `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). Listed in `.gitignore`, but the PDF was **committed before that rule was added and is still tracked** — a gitignore entry never untracks a file that is already in. It DOES exist on a fresh clone. Untracking it is an open decision (provenance sweep 2026-07-31, finding 3).
 
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
-
-Planning artifacts live in .castforge/ (plan.md, research.md, decisions.md, ui-spec.md, verification.md); peer work-logs live in .castforge/roles/; per-phase records (plan slice, completion summary, verification verdict) live in .castforge/phases/<phase>/; investigation notes live in .castforge/debug/. Read them before starting work.

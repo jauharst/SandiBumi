@@ -8,11 +8,14 @@ import {
   listImageDatasets,
   listWellImages,
   saveDocument,
+  DEFAULT_FLUOR,
   type CoreLogResult,
+  type FluorClass,
   type ImageInfo,
   type Lane,
   type PlateLayout,
 } from "../ipc";
+import { buildColourBand } from "./colourBand";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { loadCurveNames } from "./plotCommon";
@@ -164,6 +167,147 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
     "x"
   );
   wrap.appendChild(formRow("Depth runs", axisPick.el, "Read it off the picture above."));
+
+  // ---- which light, and what counts as fluorescence -----------------------
+  //
+  // DECLARED, never detected. A UV frame is dark, and so is a daylight photograph of dark shale in a
+  // shadowed box — the evidence for "this is ultraviolet" would be the brightness about to be
+  // measured, which is the circle that makes an impregnated thin section something the user states
+  // rather than something the pixels are asked about.
+  const lightPick = segmented(
+    [
+      {
+        value: "white",
+        label: "☀ Daylight",
+        title:
+          "White light — darkness, redness and texture: proxy measures for shale, stain and lamination.",
+      },
+      {
+        value: "uv",
+        label: "🔦 Ultraviolet",
+        title:
+          "A UV frame — how much of each slab fluoresces. An INFERRED SHOW, never a pay flag: minerals, drilling-fluid additives and dead oil all fluoresce.",
+      },
+    ],
+    "white"
+  );
+  wrap.appendChild(
+    formRow("Light", lightPick.el, "The two lights are two deliveries; pick the one this is.")
+  );
+
+  const fluorBox = document.createElement("div");
+  fluorBox.style.display = "none";
+  let classes: FluorClass[] = [{ ...DEFAULT_FLUOR }];
+  let bands: { row: HTMLElement; read: () => FluorClass }[] = [];
+
+  const paintFluor = (): void => {
+    fluorBox.innerHTML = "";
+    bands = [];
+    const note = document.createElement("div");
+    note.className = "eq-note";
+    note.textContent =
+      "Tune this against the preview on ONE photograph, and judge it by whether it agrees with " +
+      "your own show descriptions — never by whether the average looks about right. Show " +
+      "descriptions often separate bright yellow-green from dull blue-white; add a second kind if " +
+      "yours do, and each gets its own curve. Nothing here assumes what that split means.";
+    fluorBox.appendChild(note);
+
+    classes.forEach((c, i) => {
+      const row = document.createElement("div");
+      row.className = "fluor-class";
+
+      const head = document.createElement("div");
+      head.className = "fluor-class-head";
+      const name = document.createElement("input");
+      name.className = "field-label";
+      name.value = c.name;
+      name.placeholder = "SHOW";
+      name.title = "Becomes the curve suffix when there is more than one kind.";
+      head.appendChild(name);
+      if (classes.length > 1) {
+        const del = document.createElement("button");
+        del.className = "btn";
+        del.textContent = "✕";
+        del.title = "Remove this kind of fluorescence.";
+        del.addEventListener("click", () => {
+          // Read every card BEFORE dropping one. Filtering first and then indexing `bands` by the
+          // new position reads each surviving card off its neighbour's control — which looks right
+          // when you delete the last one and silently swaps the edits when you delete the first.
+          classes = bands.map((b) => b.read()).filter((_, k) => k !== i);
+          paintFluor();
+        });
+        head.appendChild(del);
+      }
+      row.appendChild(head);
+
+      // The hue window and the two floors come from the SHARED control, so the fluorescence band
+      // and the pore band can never drift apart about what a wrapped band means.
+      const band = buildColourBand(
+        { hue_lo: c.hue_lo, hue_hi: c.hue_hi, sat_min: c.sat_min, val_min: c.val_min },
+        () => {}
+      );
+      row.appendChild(band.el);
+
+      // The one thing a PoreColorBand has no room for. A floor cannot express "dull blue-white",
+      // because white is the absence of colour.
+      const ceil = document.createElement("input");
+      ceil.type = "range";
+      ceil.min = "0";
+      ceil.max = "1";
+      ceil.step = "0.01";
+      ceil.value = String(c.sat_max ?? 1);
+      const ceilOut = document.createElement("span");
+      ceilOut.className = "eq-note";
+      const paintCeil = (): void => {
+        ceilOut.textContent =
+          Number(ceil.value) >= 0.999 ? "no limit" : `≤ ${Number(ceil.value).toFixed(2)}`;
+      };
+      ceil.addEventListener("input", paintCeil);
+      paintCeil();
+      const ceilWrap = document.createElement("div");
+      ceilWrap.style.display = "flex";
+      ceilWrap.style.gap = "8px";
+      ceilWrap.style.alignItems = "center";
+      ceil.style.flex = "1";
+      ceilWrap.appendChild(ceil);
+      ceilWrap.appendChild(ceilOut);
+      row.appendChild(
+        formRow(
+          "Pale limit",
+          ceilWrap,
+          "How washed-out a colour still counts. Lower it for a DULL BLUE-WHITE description — white is the absence of colour, so it cannot be written as a floor."
+        )
+      );
+
+      bands.push({
+        row,
+        read: () => ({ ...band.get(), name: name.value.trim() || "SHOW", sat_max: Number(ceil.value) }),
+      });
+      fluorBox.appendChild(row);
+    });
+
+    const add = document.createElement("button");
+    add.className = "btn";
+    add.textContent = "+ Another kind of fluorescence";
+    add.addEventListener("click", () => {
+      classes = bands.map((b) => b.read());
+      classes.push({ ...DEFAULT_FLUOR, name: `SHOW${classes.length + 1}` });
+      paintFluor();
+    });
+    fluorBox.appendChild(add);
+  };
+  paintFluor();
+  wrap.appendChild(fluorBox);
+
+  const isUv = (): boolean => lightPick.get() === "uv";
+  const readClasses = (): FluorClass[] => bands.map((b) => b.read());
+  const syncLight = (): void => {
+    fluorBox.style.display = isUv() ? "" : "none";
+  };
+  for (const b of Array.from(lightPick.el.querySelectorAll("button"))) {
+    b.addEventListener("click", syncLight);
+  }
+  syncLight();
 
   const revChk = document.createElement("input");
   revChk.type = "checkbox";
@@ -671,6 +815,8 @@ export async function buildCoreTraceContent(): Promise<{ el: HTMLElement; dispos
         reverse: revChk.checked,
         lanes: Number(lanePick.get()) || 1,
         layouts,
+        light: isUv() ? "uv" : "white",
+        fluor: isUv() ? readClasses() : [],
         compare_curve: cmpSel.value || null,
         write,
       });

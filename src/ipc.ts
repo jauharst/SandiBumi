@@ -2866,12 +2866,51 @@ export interface CoreLogSpec {
   layouts?: Record<string, PlateLayout>;
   /** Depth step of the output curve, in the project's depth unit. */
   step?: number;
+  /** Which light this delivery was shot under. DECLARED, never detected: a UV frame is dark and
+   *  so is a daylight photograph of dark shale in a shadowed box, and the evidence for "this is
+   *  ultraviolet" would be the brightness about to be measured. */
+  light?: "white" | "uv";
+  /** What counts as fluorescence, when `light` is "uv". Empty falls back to one generic band. */
+  fluor?: FluorClass[];
   /** Report how each measure tracks this curve, usually GR. It is the only thing that says whether
    *  the trace is about the rock. */
   compare_curve?: string | null;
   /** Write the curves. Omit to measure without writing, so a lay-out can be tried first. */
   write?: boolean;
 }
+
+/**
+ * One kind of fluorescence, as the user describes it.
+ *
+ * Structurally a `PoreColorBand` plus a name and a saturation CEILING, so the shared colour-band
+ * control drives the hue window and the two floors unchanged.
+ *
+ * **The ceiling is not decoration.** Fluorescence is routinely described as *dull blue-white*, and
+ * white is the ABSENCE of colour — it cannot be written as a floor. Same distinction that makes
+ * `StainBand` carry one so dolomite can be identified by staying colourless.
+ */
+export interface FluorClass {
+  /** Becomes the curve suffix, upper-cased: `SHOW` gives `CPHOTO_FLUOR_SHOW`. */
+  name: string;
+  hue_lo: number;
+  hue_hi: number;
+  sat_min: number;
+  /** 1 is no ceiling. Lower it to reach the pale end of a description. */
+  sat_max?: number;
+  val_min: number;
+}
+
+/** The shipped band: generic round numbers to start a VISUAL tuning from, never a calibration —
+ *  what a fluorescing oil photographs as depends on the lamp, the camera and the exposure. Kept in
+ *  step with `coreimage.rs::default_fluor`. */
+export const DEFAULT_FLUOR: FluorClass = {
+  name: "SHOW",
+  hue_lo: 40,
+  hue_hi: 200,
+  sat_min: 0.2,
+  sat_max: 1,
+  val_min: 0.35,
+};
 
 export interface CoreLogCurve {
   name: string;

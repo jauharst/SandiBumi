@@ -2932,13 +2932,71 @@ still Apply. Five rules:
   test — a dim white-light frame with a tray in it still gets lifted — is what stops the rule
   degenerating into "give up on dark pictures".
 
-**Not built, and named**: the delivery arrives as **PDF** (one file per core, pages alternating
-white-light plate `Na` and UV plate `Nb`), which nothing in the app can import — the same class of
-barrier as the petrography workbook, and it is the first thing between this suite and a client's
-rock. Then, from Jauhar's UV question (2026-08-01): a fluorescence measure read off the UV plate
-(`CPHOTO_FLUOR`, an inferred-show indicator, NOT a pay flag), a DISCRETE sand/shale curve off the
-white-light trace, and an "unfold" that shears each slab to the bed's apparent dip before averaging,
-so a dipping contact is not smeared across the core's width. See `docs/plan_core_photo.md`.
+**PDF import is NOT being built** (Jauhar, 2026-08-05: *"dont try to import pdf, user will just
+provide photo"*). He exports the plates himself and imports them as ordinary pictures. Recorded in
+`docs/plan_core_photo.md` §4a with the design kept in a `<details>` block, because the reason is a
+workflow choice rather than a technical verdict. What it costs: a hand export loses the captions, so
+the barrel depths are TYPED into Photo Log's column table, and which folder is white light and which
+is UV is declared at import as two datasets.
+
+Still to come, from Jauhar's UV question (2026-08-01): a DISCRETE sand/shale curve off the
+white-light trace (`CPHOTO_LITH`), and an "unfold" that shears each slab to the bed's apparent dip
+before averaging, so a dipping contact is not smeared across the core's width.
+
+## Fluorescence off the UV frame (2026-08-05)
+
+`CPHOTO_FLUOR` — Photo Log ▸ **Light: Ultraviolet**. Same `extract_core_log`, not a second function:
+the lanes, the barrel depths, the resampling onto the well's frame and the write discipline are one
+code path, so the two lights can never disagree about where a barrel is. `CoreLogSpec` gains `light`
+(`"white"` default — anything unrecognised is white light, so a typo cannot silently switch the
+measurement) and `fluor: Vec<FluorClass>`; the runner's wire format became ONE `cols` map keyed by
+curve name for the same reason. Curves: `CPHOTO_FLUOR` (fraction of each slab in any band),
+`CPHOTO_FLUOR_I` (its mean brightness), plus `CPHOTO_FLUOR_<NAME>` per class **only when there is
+more than one** — with a single band the per-class curve would be a byte-identical copy of the
+total, and two names for one answer is how a report ends up unable to say which it quoted.
+
+**It is an INFERRED SHOW and the notes say so on every run.** Mineral fluorescence, drilling-fluid
+additives and dead oil all fluoresce, and a drained slab shows nothing. The `CPHOTO` prefix is what
+stops any module reading it as a saturation — the `GRAIN_D50_APP` argument.
+
+**The light is DECLARED, never detected.** A UV frame is dark; so is a daylight photograph of dark
+shale in a shadowed box, and the evidence for "this is ultraviolet" would be the brightness about to
+be measured — the same circle that makes an impregnated thin section something the user states.
+
+**`FluorClass` carries a saturation CEILING, and that is not decoration.** Fluorescence is routinely
+described as *dull blue-white*, and white is the ABSENCE of colour — it cannot be written as a
+floor. Same type distinction that makes `StainBand` carry one so dolomite is identified by staying
+colourless. `default_fluor` ships ONE generic band, deliberately: splitting bright yellow-green from
+dull blue-white would assert an INTERPRETATION (that the hue split means live versus dead oil) this
+repo has no source for, so the run says a second class can be added and leaves the reading to
+whoever writes the show reports.
+
+**`fluor_band_is_saturated` is the guard, and it is deliberately NOT `petrography::scene_dominated`.**
+The obvious transfer — is this picture's own median pixel inside the band — was written first and the
+round-trip test refused a slab that was exactly half fluorescing, which is the answer the measure
+exists to give. "Rock is mostly rock" is true; "a UV frame is mostly background" is NOT, because an
+oil-soaked box glows over most of its length. Worse, per-picture it would drop the one heavily
+stained box in a clean delivery. So the test is the whole run's **P10 > 0.95**: the band is condemned
+only when it claimed nearly everything nearly everywhere, which carries no depth information whatever
+the light was. Measured, shown and previewed either way — what is refused is the WRITE, the pore
+rule's split exactly. **There is no mirror guard**, and that asymmetry is the point: a core with no
+fluorescence is the ordinary answer and is what gives the box above it meaning.
+
+**The two lights watch different halves of the conditioning recipe.** `CoreRecipe::touches_light()`
+(gain/warmth/tint/exposure/contrast/saturation) is reported on a UV run because `CPHOTO_FLUOR` counts
+pixels against an ABSOLUTE brightness floor; `touches_detail()` stays the white-light warning because
+`CPHOTO_DARK` is read comparatively and a correlation does not feel a uniform scale. **And the
+darkness-sign note is white-light only** — clay is both dark and radioactive so DARK and GR should
+agree, but an oil show sits in the clean sand, so a negative correlation there is ordinary and
+printing that paragraph would send the user to reverse a lay-out that was already right.
+
+UI: `colourBand.ts` is reused unchanged (a `PoreColorBand` is structurally a `FluorClass` minus the
+name and ceiling), so the fluorescence band and the pore band cannot drift about what a wrapped band
+means; the pale limit is one extra slider. Bugs worth remembering: a delete handler must read every
+card BEFORE filtering, or removing the first of two reads each survivor off its neighbour's control —
+right-looking when you delete the last, silently swapped when you delete the first. And the
+round-trip's daylight control must be COLOURED, not grey: a neutral-grey frame is rejected by the
+saturation floor on its own merit, which would have made the test pass while testing nothing.
 
 ## A fluid contact is identified by three things (2026-08-01)
 

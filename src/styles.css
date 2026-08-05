@@ -6621,6 +6621,24 @@ input[type="number"].num-editing:focus {
    the crop-rectangle idiom, so what is kept reads as what is lit. */
 .cband { margin: 4px 0 8px; }
 
+/* One kind of fluorescence in the Photo Log pane: a name, the shared colour band, and the pale
+   limit a PoreColorBand has no room for. Carded so two kinds read as two things rather than as one
+   long column of controls. */
+.fluor-class {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 8px 10px;
+  margin: 6px 0;
+  background: var(--panel);
+}
+.fluor-class-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.fluor-class-head .field-label { flex: 1; }
+
 .cband-wheel {
   position: relative;
   height: 30px;

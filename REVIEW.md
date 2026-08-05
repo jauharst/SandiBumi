@@ -7,6 +7,65 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-05 — Fluorescence off the UV frame, and PDF import is off
+
+You said not to build PDF import — you will export the plates yourself. That is recorded in
+`docs/plan_core_photo.md` §4a with the design kept in a fold, and it unblocks everything else,
+so this increment is the UV measure you asked for: *"extract inferred payzone from UV"*.
+
+**Advance ▸ Core Imaging ▸ Photo Log… now has a Light choice.** Pick **🔦 Ultraviolet** and the
+three daylight measures are replaced by fluorescence.
+
+- [ ] Open **Photo Log…** on a well with a UV delivery. Is there a **Light** row with ☀ Daylight and
+      🔦 Ultraviolet, defaulting to Daylight?
+- [ ] Switch to Ultraviolet. Does a colour-band card appear — the same hue wheel the Pore Area tool
+      uses, plus a **Pale limit** slider?
+- [ ] Switch back to Daylight. Does the card disappear and the trace behave exactly as it did before?
+      **Nothing about the daylight path should have changed.**
+- [ ] Read the trace on the UV delivery. You should get **CPHOTO_FLUOR** (how much of each slab
+      fluoresces, 0–1) and **CPHOTO_FLUOR_I** (how bright it is).
+- [ ] Does the note say it is an **INFERRED SHOW, not a pay flag**? That sentence is the point of the
+      whole thing — minerals, drilling-fluid additives and dead oil all fluoresce.
+
+**Tune the band against ONE photograph, and judge it against your own show descriptions —
+never by whether the average looks about right.** That is not a platitude: on your petrography
+delivery a colour band could be tuned until its median landed within 5% of the petrographer's own
+count while the per-plate agreement stayed at −0.10.
+
+- [ ] Drag the hue ends and the brightness floor until the mask matches what you can see glowing.
+      Does the trace change shape sensibly, rather than just moving up and down?
+- [ ] Compare a bright interval against a show you already know about. Does it land in the right
+      place? **This is the only check that means anything.**
+
+**Two guards, and I want you to try to trip the second one.**
+
+- [ ] Point the Ultraviolet measures at your **DAYLIGHT** delivery on purpose. It should measure, show
+      you the numbers, and then **refuse to write**, saying the band claimed at least 95% of every
+      slab and naming the wrong-light cause. A daylight frame read as UV would otherwise store a core
+      that fluoresces end to end — which reads as a spectacular show.
+- [ ] Now the case that must NOT be refused: a **genuinely strong show** over most of a box. That has
+      to go through and be written. (My first version of this guard refused exactly that, and the
+      test caught it — a half-stained core is the answer this measure exists to give.)
+- [ ] A box with **no fluorescence at all** should also go through normally. No show is a real
+      reading, and it is what gives the box above it meaning.
+
+**If your show descriptions separate bright yellow-green from dull blue-white:**
+
+- [ ] Click **+ Another kind of fluorescence**. Name the two, and give the dull one a low **Pale
+      limit** — white is the absence of colour, so it cannot be set with the brightness floor.
+      Each kind gets its own curve (`CPHOTO_FLUOR_BRIGHT`, `CPHOTO_FLUOR_DULL`).
+- [ ] **Tell me whether that split is actually how you describe shows.** I deliberately ship ONE
+      generic band, because saying the hue split means live-versus-dead oil would be putting an
+      interpretation in the software that nothing in the repo can source. If it is your practice,
+      say so and I will make it the default.
+
+**One thing to watch:** if you have adjusted exposure, contrast or white balance on the UV
+photographs, the run says so by name. `CPHOTO_FLUOR` counts pixels above a fixed brightness, so half
+a stop moves the answer — and a white balance picked on a UV frame means nothing anyway, because
+there is nothing neutral under a UV lamp.
+
+- [ ] Condition a UV photograph's exposure, then read the trace. Does the note name that photograph?
+
 ## 2026-08-01 — A fluid contact now knows its sand, its stack and its fault block
 
 You asked where the calculation parameters live and said they should be at marker level. **They
