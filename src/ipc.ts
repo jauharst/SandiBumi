@@ -4122,3 +4122,146 @@ export function listPlugChoices(wellIds: string[]): Promise<PlugChoice[]> {
 export function runPlugQc(req: PlugQcRequest): Promise<PlugQcResult> {
   return invoke<PlugQcResult>("run_plug_qc", { req });
 }
+
+// ---------------------------------------------------------------------------
+// Statistics (statistics.rs) — the table-producing family. Every one is a pure read.
+// ---------------------------------------------------------------------------
+
+export interface CurveStatsRequest {
+  well_ids: string[];
+  curves: string[];
+  input_set?: string;
+  by_zone?: boolean;
+  /** Percentiles to report (0–100). Empty falls back to P10/P50/P90. */
+  percentiles?: number[];
+  mask_curve?: string | null;
+}
+
+export interface CurveStatsRow {
+  well: string;
+  zone: string;
+  curve: string;
+  n: number;
+  /** Samples inside the interval with no value — a mean over 12 of 400 is not the zone's mean. */
+  n_missing: number;
+  min: number | null;
+  max: number | null;
+  mean: number | null;
+  std: number | null;
+  percentiles: (number | null)[];
+}
+
+/** Returns the rows and the percentile list actually used, so a table labels its own columns. */
+export async function statsCurveSummary(
+  req: CurveStatsRequest,
+): Promise<[CurveStatsRow[], number[]]> {
+  return invoke<[CurveStatsRow[], number[]]>("stats_curve_summary", { req });
+}
+
+export interface PairStatsRequest {
+  well_ids: string[];
+  x_curve: string;
+  y_curve: string;
+  input_set?: string;
+  by_zone?: boolean;
+  mask_curve?: string | null;
+}
+
+export interface PairStatsRow {
+  well: string;
+  zone: string;
+  n: number;
+  pearson: number | null;
+  spearman: number | null;
+  bias: number | null;
+  rms_diff: number | null;
+  slope: number | null;
+  intercept: number | null;
+}
+
+export async function statsPairSummary(req: PairStatsRequest): Promise<PairStatsRow[]> {
+  return invoke<PairStatsRow[]>("stats_pair_summary", { req });
+}
+
+export interface VersusRequest {
+  well_ids: string[];
+  curves: string[];
+  /** The reference version. */
+  set_a: string;
+  /** The version under test; omit for the current values. */
+  set_b?: string;
+}
+
+export interface VersusRow {
+  well: string;
+  curve: string;
+  n_common: number;
+  only_a: number;
+  only_b: number;
+  n_changed: number;
+  mean_diff: number | null;
+  max_abs_diff: number | null;
+}
+
+export async function statsVersusSets(req: VersusRequest): Promise<VersusRow[]> {
+  return invoke<VersusRow[]>("stats_versus_sets", { req });
+}
+
+export interface ThicknessCondition {
+  curve: string;
+  op: ">=" | "<=" | ">" | "<" | "==";
+  value: number;
+}
+
+export interface ThicknessRequest {
+  well_ids: string[];
+  mode: "FLAG" | "CLASS" | "CUTOFF" | "MARKER";
+  input_set?: string;
+  curve?: string | null;
+  conditions?: ThicknessCondition[];
+  by_zone?: boolean;
+}
+
+export interface ThicknessRow {
+  well: string;
+  zone: string;
+  item: string;
+  n: number;
+  gross_md: number;
+  net_md: number;
+  /** Blank where the well has no TVD curve — never a copy of the measured value. */
+  gross_tvd: number | null;
+  net_tvd: number | null;
+  ntg: number | null;
+}
+
+export async function statsThickness(req: ThicknessRequest): Promise<ThicknessRow[]> {
+  return invoke<ThicknessRow[]>("stats_thickness", { req });
+}
+
+export interface FitRequest {
+  well_ids: string[];
+  predictors: string[];
+  target: string;
+  input_set?: string;
+  log_target?: boolean;
+  log_predictors?: boolean;
+  mask_curve?: string | null;
+}
+
+export interface FitResult {
+  /** Intercept first, then one per predictor in the order given. */
+  coefficients: number[];
+  predictors: string[];
+  n: number;
+  r2: number;
+  rms: number;
+  /** Leave-one-WELL-out R² — the number to quote. Null with fewer than three wells. */
+  r2_blind: number | null;
+  wells_used: string[];
+  notes: string[];
+}
+
+export async function statsFit(req: FitRequest): Promise<FitResult> {
+  return invoke<FitResult>("stats_fit", { req });
+}

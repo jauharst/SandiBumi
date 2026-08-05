@@ -51,6 +51,7 @@ mod satheight;
 mod shf_fit;
 mod thomeer;
 mod ssc;
+mod statistics;
 mod python_engine;
 mod tops;
 mod unconventional;
@@ -1491,6 +1492,75 @@ async fn run_workflow_module(
         workflow::run_workflow_module_into(&conn, &req, None, Some(&job.cancel), Some(&job))
     })
     .await
+}
+
+
+// --- Statistics (statistics.rs) -------------------------------------------------------------
+// Every one is a pure READ — nothing here writes a curve, a flag or a log set — so each runs
+// silently off-thread rather than posting a job card the user never asked for, the same rule a
+// stats-only pay summary already follows.
+
+/// One row per well x zone x curve: n, missing, min/max, mean, spread and the user's percentiles.
+/// Returns the percentile list actually used, so a table can label its own columns rather than
+/// assuming the default.
+#[tauri::command]
+async fn stats_curve_summary(
+    db: tauri::State<'_, DbState>,
+    req: statistics::CurveStatsRequest,
+) -> Result<(Vec<statistics::CurveStatsRow>, Vec<f32>), String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::curve_summary(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Two curves against each other per well x zone: Pearson, Spearman, bias, RMS and the OLS line.
+#[tauri::command]
+async fn stats_pair_summary(
+    db: tauri::State<'_, DbState>,
+    req: statistics::PairStatsRequest,
+) -> Result<Vec<statistics::PairStatsRow>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::pair_summary(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The same curves in two log sets — what a re-run actually changed, including where it gained
+/// or lost coverage.
+#[tauri::command]
+async fn stats_versus_sets(
+    db: tauri::State<'_, DbState>,
+    req: statistics::VersusRequest,
+) -> Result<Vec<statistics::VersusRow>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::versus_sets(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Thickness of whatever satisfies a condition — a flag, a class, a cutoff or a marker interval.
+#[tauri::command]
+async fn stats_thickness(
+    db: tauri::State<'_, DbState>,
+    req: statistics::ThicknessRequest,
+) -> Result<Vec<statistics::ThicknessRow>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::thickness(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Least squares on 1..n predictors, scored by leave-one-WELL-out.
+#[tauri::command]
+async fn stats_fit(
+    db: tauri::State<'_, DbState>,
+    req: statistics::FitRequest,
+) -> Result<statistics::FitResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || statistics::fit_curves(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Computes the cutoff/lumping pay summary per well per zone, writing FLAG_* curves.
@@ -2958,6 +3028,11 @@ pub fn run() {
             list_modules,
             run_workflow_module,
             run_pay_summary,
+            stats_curve_summary,
+            stats_pair_summary,
+            stats_versus_sets,
+            stats_thickness,
+            stats_fit,
             run_cutoff_sweep,
             run_monte_carlo,
             list_zones,

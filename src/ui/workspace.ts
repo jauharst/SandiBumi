@@ -334,6 +334,7 @@ export class Workspace {
       ["New Pickett", () => this.openPlot("pickett", group)],
       ["New Correlation", () => this.openPlot("correlation", group)],
       "sep",
+      ["Statistics (tables)", () => this.openStatistics(group)],
       ["Field Dashboard", () => this.openDashboard(group)],
       ["Field Map", () => this.openMap(group)],
       ["Workflow Builder", () => this.openWorkflow(group)],
@@ -473,6 +474,12 @@ export class Workspace {
         );
       // Tool panes ported from popups (ROADMAP §4c item 14): dynamic imports keep
       // workspace.ts free of ribbon↔dialog cycles, same as the workflow builder.
+      case "statistics":
+        return this.asyncPane(
+          "dock-statistics",
+          () => import("./statisticsPanel").then((m) => m.buildStatisticsContent(setStatus)),
+          "statistics",
+        );
       case "paysummary":
         return this.asyncPane(
           "dock-paysummary",
@@ -920,6 +927,8 @@ export class Workspace {
       items.push({ heading: "Processing" });
     } else if (kind === "health") {
       items.push({ heading: "Performance" });
+    } else if (kind === "statistics") {
+      items.push({ heading: "Statistics" });
     } else if (kind === "paysummary") {
       items.push({ heading: "Cutoffs & Pay Summary" });
     } else if (kind === "cutoff") {
@@ -1473,6 +1482,10 @@ export class Workspace {
 
   openHistory(group?: DockviewGroupPanel): void {
     this.openSingleton("history", "history", "Processing History", group);
+  }
+
+  openStatistics(group?: DockviewGroupPanel): void {
+    this.openSingleton("statistics", "statistics", "Statistics", group);
   }
 
   openPaySummary(group?: DockviewGroupPanel): void {

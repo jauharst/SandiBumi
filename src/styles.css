@@ -1182,8 +1182,60 @@ textarea {
 .dock-fluid-contacts,
 .dock-depth-reg,
 .dock-rtc-fit,
+.dock-statistics,
 .dock-sfactor-fit {
   padding: 10px 12px;
+}
+
+/* --------------------------------------------------------------------------
+   Statistics pane (statisticsPanel.ts)
+
+   A table is the deliverable here, so the pane opts out of `.module-pane`'s 620px
+   form-column cap — the same reasoning that let the picture panes out of it. A
+   Curve Summary with six user percentiles is a wide table and squeezing it into a
+   form column is the "not proportional" complaint again.
+   -------------------------------------------------------------------------- */
+.dock-statistics .module-pane {
+  max-width: none;
+}
+
+.stats-table-wrap {
+  margin-top: 10px;
+  /* Wide content scrolls inside its own box; the pane itself must never scroll
+     sideways, which would take the well scope and the tabs off screen. */
+  overflow-x: auto;
+}
+
+.stats-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  /* Data UI stays DENSE — engineers on small screens are the audience, so this
+     keeps the ribbon's Organic air out of the table (the standing split). */
+  white-space: nowrap;
+}
+
+.stats-table th,
+.stats-table td {
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  text-align: right;
+}
+
+.stats-table th {
+  background: var(--panel-alt, var(--bg));
+  font-weight: 600;
+  text-align: center;
+  position: sticky;
+  top: 0;
+}
+
+/* The first three columns are labels (well / zone / item), not numbers. */
+.stats-table td:nth-child(-n + 3) {
+  text-align: left;
+}
+
+.stats-table tbody tr:hover {
+  background: var(--accent-soft);
 }
 
 /* --------------------------------------------------------------------------

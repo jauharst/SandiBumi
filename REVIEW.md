@@ -8169,3 +8169,47 @@ different depth column, which belongs to the well rather than to one curve. That
       computed from beds nobody checked looks perfectly reasonable.
 - [ ] MIN_BED has no default, same as the despike window. Does the refusal say enough?
 - [ ] `<OUT>_BED` rides beside the blocked curve, carrying the bed number. Useful, or clutter?
+
+---
+
+## Statistics — five tables (2026-08-05)
+
+**Petrophysics ▸ Batch ▸ Statistics…**, or the ＋ menu. One pane, five tabs, sharing a well scope,
+an input log set and a per-zone toggle. Every one is a pure read — nothing here writes a curve.
+
+- [ ] **Curve Summary** — one row per well × zone × curve. Pick several curves (Ctrl-click) and
+      set your own percentiles. Is the **Missing** column worth its width? It is there because a
+      mean over 12 samples of a 400-sample zone is not the zone's mean, and nothing else in the
+      row would say so.
+- [ ] Find a well that never entered a zone. Every statistic on that row should be **empty, not
+      zero** — Excel's AVERAGE and COUNT skip a blank and treat a zero as data.
+- [ ] **Pair Summary** — two curves against each other. Both Pearson and Spearman are reported
+      because they answer different questions: Pearson only makes sense when both axes are the
+      same quantity. Try PHIE against core porosity, then PHIE against PERM, and see which
+      coefficient you actually trust in each case.
+- [ ] **Fit** — least squares on as many predictors as you like, with log10 on either side. The
+      one to read is **R² (blind well)**: it refits leaving each well out in turn and scores on
+      the well it never saw. Compare it with the plain R² on a permeability transform — if the
+      gap is large the fit is memorising your wells.
+- [ ] Fit refuses two predictors that carry the same information rather than returning coefficients
+      nobody can interpret. Try PHIE and PHIT together.
+- [ ] With fewer than three wells the blind figure says "needs 3+ wells" rather than showing a
+      number. Is that clear enough, or should it refuse the run?
+- [ ] **Versus** — the same curves in two log sets. This is the first thing in the app that uses
+      log-set provenance for anything. Run a module, then compare its set against the previous one.
+      The **Only reference / Only this** columns are the ones to watch: a re-run that gained or
+      lost an interval matters more than one that shifted values slightly, and a mean difference
+      over the common depths says nothing about it.
+- [ ] **Thickness** — this is the one you asked to be its own tool. Four ways to count:
+      - FLAG on `FLAG_PAY` — check it agrees with the Cutoffs & Summary net. It should, because it
+        reads the same flag curve rather than re-applying the cutoffs.
+      - CLASS on FACIES — thickness per facies without writing a flag for each.
+      - CUTOFF — type a condition. Does one condition cover your work, or do you need several
+        ANDed? The backend already takes a list; the pane offers one.
+      - MARKER — gross between tops, for an isopach.
+- [ ] **Gross TVD / Net TVD are blank on a well with no survey**, and that is deliberate: a
+      vertical well and an unsurveyed deviated one look identical in the data. On a deviated well
+      check the TVD columns really are smaller than the MD ones — measured thickness overstates
+      true vertical by about 30% at 40 degrees, which is a reserves error that reads as a good well.
+- [ ] **Copy as CSV** under each table. Should these also go into the Workbook export as their own
+      sheets? The table definition is already in the shape `office.rs` renders.
