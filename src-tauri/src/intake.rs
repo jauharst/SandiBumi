@@ -76,7 +76,12 @@ pub struct IntakeColumn {
     /// `"number"` | `"text"` | `"empty"`, sniffed from up to [`SNIFF_ROWS`] rows.
     pub kind: String,
     /// The role Intake proposes: `WELL` `DEPTH` `DEPTH_BASE` `CPOR` `CPERM` `CGD` `CSW` `ITEM`
-    /// `IGNORE`. A proposal, never applied — the pane shows it and the user overrules.
+    /// `CURVE` `IGNORE`. A proposal, never applied — the pane shows it and the user overrules.
+    ///
+    /// `CURVE` is never PROPOSED, only chosen: a column of numbers at depths is a plug measurement
+    /// or a logged curve depending on how the file was sampled, and nothing in the numbers says
+    /// which. Storing a log as point data hides it from every module; storing plugs as a log
+    /// invents a continuous measurement between them.
     pub role: String,
     /// Why that role was proposed, in words, so a wrong guess can be argued with.
     pub reason: String,
@@ -908,6 +913,266 @@ pub fn commit_arrays(conn: &Connection, req: &ArrayCommit) -> Vec<ArrayImportRes
         .collect()
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct CurveCommit {
+    pub paths: Vec<String>,
+    /// One role per column. `CURVE` marks a continuous log; WELL and DEPTH claim their columns.
+    pub roles: Vec<String>,
+    #[serde(default)]
+    pub opts: TableOptions,
+    /// Delivery set name, auto-suffixed per well so an import never overwrites.
+    #[serde(default)]
+    pub set_name: Option<String>,
+    #[serde(default)]
+    pub depth_unit: Option<String>,
+    #[serde(default)]
+    pub fallback_well_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CurveImportResult {
+    pub path: String,
+    pub wells: usize,
+    pub curves: Vec<String>,
+    pub samples: usize,
+    pub sets: Vec<String>,
+    pub unmatched: Vec<String>,
+    pub notes: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// Imports columns marked `CURVE` as continuous logs into the generic curve store.
+///
+/// The route a delimited file of logs had no way in by: Import LAS reads LAS, and everything else
+/// this pane produces is point data. A column of GR every 15 cm is not a plug measurement, and
+/// storing it in `aux_data` would make it invisible to every module, plot and export — the
+/// `standard_curves` shadowing failure by another road.
+///
+/// **The curve store, not `standard_curves`.** A delivered mnemonic keeps its own name and its own
+/// delivery set, which is the whole import-set model: set RAW has absolute priority in
+/// `fetch_generic_curve_aligned` and an attached set fills only the mnemonics RAW lacks, so a
+/// second opinion on GR never silently replaces the first.
+///
+/// **The unit is whatever the file's units row said, kept verbatim.** `curves::normalize_unit`
+/// canonicalizes it downstream; inventing one here would state a measurement the delivery did not.
+pub fn commit_curves(conn: &Connection, req: &CurveCommit) -> Vec<CurveImportResult> {
+    let project_unit = crate::units::project_depth_unit_or_default(conn);
+    let file_unit = req.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
+
+    req.paths
+        .iter()
+        .map(|path| {
+            let mut res = CurveImportResult {
+                path: path.clone(),
+                wells: 0,
+                curves: vec![],
+                samples: 0,
+                sets: vec![],
+                unmatched: vec![],
+                notes: vec![],
+                error: None,
+            };
+            let probe = match probe(path, &req.opts) {
+                Ok(p) => p,
+                Err(e) => {
+                    res.error = Some(e.to_string());
+                    return res;
+                }
+            };
+            let role_at = |i: usize| req.roles.get(i).map(String::as_str).unwrap_or("");
+            let depth_col = (0..probe.columns.len()).find(|i| role_at(*i) == "DEPTH");
+            let Some(depth_col) = depth_col else {
+                res.error = Some(
+                    "No column is marked DEPTH. A log is a measurement AT a depth, so there is \
+                     nothing to store without one."
+                        .into(),
+                );
+                return res;
+            };
+            let well_col = (0..probe.columns.len()).find(|i| role_at(*i) == "WELL");
+            let curve_cols: Vec<usize> = (0..probe.columns.len()).filter(|i| role_at(*i) == "CURVE").collect();
+            if curve_cols.is_empty() {
+                res.error = Some("No column is marked CURVE — nothing here would be stored as a log.".into());
+                return res;
+            }
+
+            // The whole file, not the preview — the preview is capped for the grid. The header
+            // row and, when one was detected, the units row under it are dropped so the rows here
+            // line up with the columns the probe described.
+            let mut rows = match split_table(path, &req.opts) {
+                Ok(r) => r,
+                Err(e) => {
+                    res.error = Some(e.to_string());
+                    return res;
+                }
+            };
+            if !rows.is_empty() {
+                rows.remove(0);
+            }
+            if probe.units_row_skipped && !rows.is_empty() {
+                rows.remove(0);
+            }
+            let decimal = req.opts.decimal.as_deref();
+
+            // Group by the file's own well column, exactly as the point-data path does.
+            let mut groups: Vec<(Option<String>, Vec<&Vec<String>>)> = Vec::new();
+            for r in &rows {
+                let key = well_col
+                    .and_then(|i| r.get(i))
+                    .map(|c| c.trim().to_uppercase())
+                    .filter(|c| !c.is_empty());
+                match groups.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, list)) => list.push(r),
+                    None => groups.push((key, vec![r])),
+                }
+            }
+
+            for (name, list) in &groups {
+                let well_id = match name {
+                    Some(n) => {
+                        let ids: Vec<String> = match conn
+                            .prepare("SELECT well_id FROM wells WHERE upper(trim(well_name)) = ?1 ORDER BY well_id")
+                        {
+                            Ok(mut stmt) => stmt
+                                .query_map(duckdb::params![n], |r| r.get::<_, String>(0))
+                                .map(|rows| rows.filter_map(Result::ok).collect())
+                                .unwrap_or_default(),
+                            Err(_) => vec![],
+                        };
+                        match ids.len() {
+                            1 => ids[0].clone(),
+                            _ => {
+                                res.unmatched.push(n.clone());
+                                continue;
+                            }
+                        }
+                    }
+                    None => match &req.fallback_well_id {
+                        Some(w) => w.clone(),
+                        None => {
+                            res.unmatched.push("(no well column and no well selected)".into());
+                            continue;
+                        }
+                    },
+                };
+
+                let mut depths: Vec<f32> = Vec::new();
+                let mut keep: Vec<usize> = Vec::new();
+                for (k, r) in list.iter().enumerate() {
+                    let Some(d) = r.get(depth_col).and_then(|c| parse_number(c, decimal).0) else {
+                        continue;
+                    };
+                    depths.push(d as f32);
+                    keep.push(k);
+                }
+                if depths.is_empty() {
+                    continue;
+                }
+                crate::units::convert_depths(&mut depths, file_unit, project_unit);
+
+                let set = match free_curve_set(conn, &well_id, req.set_name.as_deref().unwrap_or("RAW")) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        res.notes.push(format!("could not name the delivery: {e}"));
+                        continue;
+                    }
+                };
+                let mut wrote_any = false;
+                for c in &curve_cols {
+                    let mnemonic = probe.columns[*c].header.trim().to_uppercase();
+                    let values: Vec<f32> = keep
+                        .iter()
+                        .map(|k| {
+                            list[*k].get(*c).and_then(|cell| parse_number(cell, decimal).0).map_or(f32::NAN, |v| v as f32)
+                        })
+                        .collect();
+                    // A column with nothing in it for this well is not stored: an all-MISSING
+                    // curve reads as a measurement that failed rather than one never delivered.
+                    if !values.iter().any(|v| v.is_finite()) {
+                        continue;
+                    }
+                    // No unit: the probe detects a units ROW and skips it rather than keeping it
+                    // per column, so there is nothing here that the delivery actually said.
+                    // Inventing one would state a measurement the file never made — the Curve
+                    // Catalog is where a unit gets corrected.
+                    // The family is what lets a module find this curve by meaning rather than by
+                    // exact mnemonic, so it is looked up from the delivered name — and left absent
+                    // where the table does not know it, never guessed.
+                    let family = crate::curves::family_for(&mnemonic).map(|f| f.family.to_string());
+                    // The canonical unit of a KNOWN family is a fact about the family, not a claim
+                    // about this file; where the mnemonic is unrecognised there is nothing to say.
+                    let unit = crate::curves::family_for(&mnemonic).map(|f| f.canonical_unit.to_string());
+                    match db::upsert_curve_meta(
+                        conn,
+                        &well_id,
+                        &set,
+                        &mnemonic,
+                        unit.as_deref(),
+                        family.as_deref(),
+                        Some(path),
+                        None,
+                    ) {
+                        Ok(id) => match db::insert_curve_samples(conn, &id, &depths, &values) {
+                            Ok(()) => {
+                                res.samples += values.iter().filter(|v| v.is_finite()).count();
+                                wrote_any = true;
+                                if !res.curves.contains(&mnemonic) {
+                                    res.curves.push(mnemonic);
+                                }
+                            }
+                            Err(e) => res.notes.push(format!("{mnemonic}: {e}")),
+                        },
+                        Err(e) => res.notes.push(format!("{mnemonic}: {e}")),
+                    }
+                }
+                if wrote_any {
+                    res.wells += 1;
+                    if !res.sets.contains(&set) {
+                        res.sets.push(set);
+                    }
+                }
+            }
+            if !res.unmatched.is_empty() {
+                res.notes.push(format!(
+                    "{} well name(s) matched no well, or more than one, and were skipped: {}",
+                    res.unmatched.len(),
+                    res.unmatched.join(", ")
+                ));
+            }
+            res
+        })
+        .collect()
+}
+
+/// A delivery name free on this well in the generic curve store, suffixed if taken.
+///
+/// The `free_array_set` argument, and `resolve_core_set_name`'s before it: an import adds a
+/// delivery, it never replaces one.
+fn free_curve_set(conn: &Connection, well_id: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "RAW".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM curve_meta WHERE well_id = ?1 AND upper(set_name) = ?2",
+            duckdb::params![well_id, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
+        }
+    }
+    Ok(base)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1168,5 +1433,60 @@ mod tests {
             .unwrap();
         let decoded: Vec<f32> = axis.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
         assert_eq!(decoded, vec![1.0, 2.0, 4.0], "the axis is stored with the values");
+    }
+
+    /// **A column marked CURVE lands in the curve store, where modules can read it.**
+    ///
+    /// The route a delimited file of logs had no way in by. Stored as point data instead — which
+    /// is what every other role does — a GR every 15 cm would be invisible to every module, plot
+    /// and export: the `standard_curves` shadowing failure reached by another road.
+    #[test]
+    fn a_column_marked_curve_becomes_a_log_rather_than_point_data() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-CURVE", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let path = std::env::temp_dir().join("sandi_curve_role.csv");
+        std::fs::write(&path, "DEPTH,GR,NOTES
+2000.0,45.0,clean
+2000.15,52.0,clean
+2000.30,88.0,shale
+").unwrap();
+        let req = CurveCommit {
+            paths: vec![path.to_str().unwrap().to_string()],
+            roles: vec!["DEPTH".into(), "CURVE".into(), "IGNORE".into()],
+            opts: TableOptions::default(),
+            set_name: Some("WIRE".into()),
+            depth_unit: None,
+            fallback_well_id: Some(w.clone()),
+        };
+        let res = commit_curves(&conn, &req);
+        assert!(res[0].error.is_none(), "{:?}", res[0].error);
+        assert_eq!(res[0].curves, vec!["GR".to_string()]);
+        assert_eq!(res[0].samples, 3);
+        assert_eq!(res[0].sets, vec!["WIRE".to_string()]);
+
+        // It is readable AS a curve, which is the whole point — and carries the GR family, so a
+        // module looking for a gamma ray by meaning finds it.
+        let (family, n): (Option<String>, i64) = conn
+            .query_row(
+                "SELECT m.family, (SELECT COUNT(*) FROM curve_samples s WHERE s.curve_id = m.curve_id)
+                 FROM curve_meta m WHERE m.well_id = ?1 AND m.mnemonic = 'GR'",
+                duckdb::params![&w],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(n, 3, "every sample is stored");
+        assert_eq!(family.as_deref(), Some("GR"), "and the delivered mnemonic resolves to its family");
+
+        // A second delivery of the same name lands beside the first rather than replacing it.
+        let again = commit_curves(&conn, &req);
+        assert_eq!(again[0].sets, vec!["WIRE_1".to_string()], "an import never overwrites");
+
+        // A file with no CURVE column is refused rather than importing nothing quietly.
+        let none = CurveCommit { roles: vec!["DEPTH".into(), "ITEM".into(), "IGNORE".into()], ..req };
+        assert!(commit_curves(&conn, &none)[0].error.is_some());
     }
 }

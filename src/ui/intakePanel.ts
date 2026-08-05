@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   intakeCommit,
   intakeCommitArrays,
+  intakeCommitCurves,
   intakePaste,
   intakeProbe,
   listWells,
@@ -43,6 +44,7 @@ export async function buildIntakeContent(
     ["CGD", "Grain density"],
     ["CSW", "Saturation"],
     ["ITEM", "Point item"],
+    ["CURVE", "Log curve"],
     ["IGNORE", "Ignore"],
   ];
   /** One tint per role, so a mapping is read at a glance rather than column by column. Drawn
@@ -57,6 +59,7 @@ export async function buildIntakeContent(
     CGD: "color-mix(in srgb, var(--warn, #b4642a) 20%, transparent)",
     CSW: "color-mix(in srgb, var(--warn, #b4642a) 30%, transparent)",
     ITEM: "color-mix(in srgb, var(--text-dim) 12%, transparent)",
+    CURVE: "color-mix(in srgb, var(--accent2, #7a8a5e) 34%, transparent)",
     IGNORE: "transparent",
   };
 
@@ -463,6 +466,33 @@ export async function buildIntakeContent(
         bumpDataVersion();
         runBtn.disabled = false;
         return;
+      }
+      // Columns marked CURVE are continuous logs and go to the curve store, at the same depths,
+      // in the same delivery. Run BEFORE the point-data commit so one file can carry both — a
+      // wireline export with a lithology description beside it is one delivery, not two.
+      const curveCols = roles.filter((r) => r === "CURVE").length;
+      if (curveCols > 0) {
+        const cres = await intakeCommitCurves({
+          paths,
+          roles,
+          set_name: setIn.value.trim() || undefined,
+          depth_unit: unitSel.value || undefined,
+          fallback_well_id: wellSel.value || undefined,
+        });
+        const cs = cres.reduce((a, r) => a + r.samples, 0);
+        const names = [...new Set(cres.flatMap((r) => r.curves))];
+        const cerr = cres.filter((r) => r.error).map((r) => `${r.path}: ${r.error}`);
+        result.textContent =
+          `${cs} sample(s) of ${names.join(", ") || "no curve"} into the curve store` +
+          (cerr.length ? ` — ${cerr.join("; ")}` : ".");
+        setStatus(`Intake: ${cs} curve sample(s), ${names.length} curve(s)`);
+        recordProcess("Import", `Intake curves: ${names.join(", ")}`);
+        bumpDataVersion();
+        // A file of pure logs has nothing left for the point-data path.
+        if (!roles.some((r) => r !== "CURVE" && r !== "IGNORE" && r !== "DEPTH" && r !== "WELL")) {
+          runBtn.disabled = false;
+          return;
+        }
       }
       const res = await intakeCommit({
         paths,

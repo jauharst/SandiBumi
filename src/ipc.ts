@@ -4308,7 +4308,7 @@ export interface TableOptions {
 }
 
 export type IntakeRole =
-  | "WELL" | "DEPTH" | "DEPTH_BASE" | "CPOR" | "CPERM" | "CGD" | "CSW" | "ITEM" | "IGNORE";
+  | "WELL" | "DEPTH" | "DEPTH_BASE" | "CPOR" | "CPERM" | "CGD" | "CSW" | "ITEM" | "CURVE" | "IGNORE";
 
 export interface IntakeColumn {
   header: string;
@@ -4426,4 +4426,28 @@ export interface ArrayCommitRequest {
 /** Imports a WIDE or BLOCK table into the array store, with the header row as its axis. */
 export function intakeCommitArrays(req: ArrayCommitRequest): Promise<ArrayImportResult[]> {
   return invoke<ArrayImportResult[]>("intake_commit_arrays", { req });
+}
+
+export interface CurveCommitRequest {
+  paths: string[];
+  roles: string[];
+  set_name?: string;
+  depth_unit?: string;
+  fallback_well_id?: string;
+}
+
+export interface CurveImportResult {
+  path: string;
+  wells: number;
+  curves: string[];
+  samples: number;
+  sets: string[];
+  unmatched: string[];
+  notes: string[];
+  error: string | null;
+}
+
+/** Imports columns marked CURVE as continuous logs into the generic curve store. */
+export function intakeCommitCurves(req: CurveCommitRequest): Promise<CurveImportResult[]> {
+  return invoke<CurveImportResult[]>("intake_commit_curves", { req });
 }

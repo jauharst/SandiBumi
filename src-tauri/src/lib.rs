@@ -1601,6 +1601,25 @@ async fn intake_commit_arrays(
     .map_err(|e| e.to_string())?
 }
 
+/// Imports columns marked CURVE as continuous logs into the generic curve store.
+///
+/// The route a delimited file of logs had no way in by — Import LAS reads LAS, and everything else
+/// the pane produces is point data. A GR every 15 cm stored in `aux_data` would be invisible to
+/// every module, plot and export.
+#[tauri::command]
+async fn intake_commit_curves(
+    db: tauri::State<'_, DbState>,
+    req: intake::CurveCommit,
+) -> Result<Vec<intake::CurveImportResult>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = conn.lock().map_err(|_| "database busy".to_string())?;
+        Ok(intake::commit_curves(&conn, &req))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // --- Statistics (statistics.rs) -------------------------------------------------------------
 // Every one is a pure READ — nothing here writes a curve, a flag or a log set — so each runs
 // silently off-thread rather than posting a job card the user never asked for, the same rule a
@@ -3159,6 +3178,7 @@ pub fn run() {
             intake_paste,
             intake_commit,
             intake_commit_arrays,
+            intake_commit_curves,
             run_cutoff_sweep,
             run_monte_carlo,
             list_zones,
