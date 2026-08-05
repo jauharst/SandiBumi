@@ -8486,3 +8486,16 @@ run now names the depth instead.
       accepting a depth-registration shift.
 - [ ] Measured on a synthetic 1 m dip it proposes 1.0, and on the same picture with a horizontal
       contact it proposes 0.0.
+
+### A machine with no WebGPU is told so by name — log view
+
+- [ ] Hard to click through unless a field laptop actually lacks WebGPU, so recorded for the
+      day one does: instead of a dim one-line "viewer disabled", the log view now shows a card
+      that names what failed (WebGPU), says the rest of the application still works — plots,
+      dialogs, imports, exports are all 2D and unaffected — and states the fix (update the GPU
+      driver and the WebView2 Runtime, then reopen the view). The status line gets the message
+      too, as the record.
+- [ ] Verified in the browser by removing WebGPU from the page and building a real log view
+      panel: the card appears with the underlying reason on its last line ("WebGPU is not
+      supported in this environment"), styled from the theme's own tokens so every skin
+      renders it correctly.

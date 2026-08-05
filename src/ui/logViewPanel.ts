@@ -398,7 +398,7 @@ export class LogViewPanel {
       this.message("");
     } catch (err) {
       console.error("WebGPU init failed:", err);
-      this.message("WebGPU unavailable — viewer disabled");
+      this.showGpuRefusal(err instanceof Error ? err.message : String(err));
       this.renderer = null;
     }
 
@@ -604,6 +604,36 @@ export class LogViewPanel {
   private message(text: string): void {
     this.messageEl.textContent = text;
     this.messageEl.hidden = !text;
+  }
+
+  /** The named refusal for a machine whose graphics stack has no WebGPU (needWell.ts's rule:
+   *  refuse BY NAME with the fix stated, where the user is looking — a near-blank track area
+   *  reads as the whole app being broken). Only log views draw through the GPU; every other
+   *  surface is 2D canvas and keeps working, and the card says so. The status line gets the
+   *  message too — it belongs in the record of what was attempted — but cannot be the only
+   *  place it appears. */
+  private showGpuRefusal(detail: string): void {
+    setStatus("Log view disabled — this machine's graphics stack has no WebGPU");
+    this.messageEl.textContent = "";
+    const card = document.createElement("div");
+    card.className = "logview-gpu-note";
+    const title = document.createElement("div");
+    title.className = "logview-gpu-title";
+    title.textContent = "Log views need WebGPU";
+    const why = document.createElement("div");
+    why.textContent =
+      "This machine's graphics driver or WebView2 runtime did not provide WebGPU, which log tracks " +
+      "are drawn with. The rest of the application — plots, dialogs, imports, exports — still works; " +
+      "only log views are affected.";
+    const fix = document.createElement("div");
+    fix.textContent =
+      "Update the graphics (GPU) driver and the Microsoft WebView2 Runtime, then reopen this log view.";
+    const det = document.createElement("div");
+    det.className = "logview-gpu-detail";
+    det.textContent = detail;
+    card.append(title, why, fix, det);
+    this.messageEl.appendChild(card);
+    this.messageEl.hidden = false;
   }
 
   private adoptLayout(layout: Layout): void {

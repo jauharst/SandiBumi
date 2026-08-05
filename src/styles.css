@@ -1732,6 +1732,31 @@ textarea {
   display: none;
 }
 
+/* The WebGPU refusal card (logViewPanel.showGpuRefusal): a named refusal, not a dim
+   one-liner — on the one machine this fires on, a blank track area reads as a broken
+   app, so the card states what failed, what still works, and the fix. */
+.logview-gpu-note {
+  max-width: 460px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text);
+  text-align: left;
+}
+
+.logview-gpu-title {
+  font-weight: 600;
+}
+
+.logview-gpu-detail {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
 /* --------------------------------------------------------------------------
    Wells & Tops panel
    -------------------------------------------------------------------------- */
