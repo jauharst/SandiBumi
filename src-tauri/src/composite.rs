@@ -2709,6 +2709,68 @@ mod tests {
         assert!(db::list_array_curves(&conn, &w).unwrap().is_empty());
     }
 
+    /// **A refused array write leaves the curve exactly as it was.**
+    ///
+    /// This is the REFUSAL, and it is what this test pins. Before it, a duplicated depth reached
+    /// the store: the replacement's DELETE committed, the first row of the new delivery went in,
+    /// the repeat hit the primary key, and the caller got an engine message naming an internal
+    /// table and no depth — with the previous curve already gone and one row of the new one kept.
+    /// The `back.len() == 2` assertion below is what fails on that version.
+    ///
+    /// **What this does NOT exercise is the transaction**, and saying so is the point: the refusal
+    /// short-circuits before `with_txn` is ever entered, so nothing here proves the rollback works.
+    /// The transaction is there for the failures no pre-check can foresee — an unclean kill mid-
+    /// write, I/O, a constraint added later — which is exactly the case `with_txn`'s own doc
+    /// describes. It earns its place by being used, not by being tested here.
+    #[test]
+    fn a_refused_array_write_leaves_the_stored_curve_untouched() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "ARRAYS", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        db::write_array_log(&conn, &w, "RAW", "PC_SW", &[1000.0, 1001.0], &[vec![0.9], vec![0.8]], None)
+            .unwrap();
+
+        // A second delivery repeating a depth. Refused, and the depth is named.
+        let err = db::write_array_log(
+            &conn,
+            &w,
+            "RAW",
+            "PC_SW",
+            &[2000.0, 2000.0, 2001.0],
+            &[vec![0.5], vec![0.4], vec![0.3]],
+            None,
+        )
+        .expect_err("one vector per depth, so this cannot be stored");
+        let msg = err.to_string();
+        assert!(msg.contains("2000.00"), "the duplicated depth is named: {msg}");
+        assert!(!msg.contains("array_logs"), "and not by the table's internal name: {msg}");
+
+        // The first delivery is still there, whole. This is the assertion the transaction earns:
+        // the DELETE at the top of the replacement must not survive the refusal.
+        let back = db::read_array_log(&conn, &w, Some("RAW"), "PC_SW").unwrap();
+        assert_eq!(back.len(), 2, "the stored curve is untouched: {back:?}");
+        assert_eq!(back[0].samples, vec![0.9]);
+        assert_eq!(back[1].samples, vec![0.8]);
+
+        // The control: a depth whose vector is EMPTY is skipped by the writer and never reaches
+        // the table, so two of them are not a duplicate — refusing there would reject a write the
+        // store would have taken.
+        let n = db::write_array_log(
+            &conn,
+            &w,
+            "RAW",
+            "PC_SW",
+            &[3000.0, 3000.0, 3001.0],
+            &[vec![], vec![], vec![0.2]],
+            None,
+        )
+        .expect("two skipped depths are not a collision");
+        assert_eq!(n, 1);
+    }
+
     #[test]
     fn the_core_point_reader_drops_empty_cells_instead_of_reading_them_as_zero() {
         let conn = Connection::open_in_memory().unwrap();

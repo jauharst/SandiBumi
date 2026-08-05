@@ -3596,6 +3596,28 @@ actionable only if the rows it means can be found, so the preview tints them —
 rather than per cell like `.intake-bad`, because the fault is not in any one value: the row
 duplicates another row, and it is the row that cannot be stored.
 
+### The array write is one transaction, and a duplicate is refused before it (2026-08-05)
+
+Found while writing the duplicate check: `db::write_array_log` is DELETE-then-append and was doing
+it **outside a transaction**, so a failure part way through the inserts committed the delete and kept
+only some of the new rows. Not a visible breakage — a realization matrix quietly missing depths, and
+every percentile read off it then computed from a different population than the one that was run. It
+now uses `db::with_txn`, whose own doc names this exact hazard; the writer simply predated its use
+here. Neither caller (`montecarlo::persist_realizations`, `intake::commit_arrays`) is inside a
+transaction, so there is no nesting — DuckDB has none.
+
+**A duplicated depth is refused BY NAME before any of that**, in `db.rs` rather than in the pane, so
+it protects every caller and not only the one whose front end happens to check. The engine's own
+constraint message names an internal table and no depth, arriving on an import the user was just
+told had succeeded. Checked over the rows that would actually be INSERTED — a depth whose vector is
+empty is skipped by the writer and never reaches the table, so counting it would refuse a write the
+store would have accepted.
+
+`a_refused_array_write_leaves_the_stored_curve_untouched` pins the refusal and its message, and its
+doc records what it does NOT pin: the refusal short-circuits before `with_txn` is entered, so nothing
+tests the rollback. The transaction is there for what no pre-check can foresee — an unclean kill, I/O,
+a constraint added later. It earns its place by being used.
+
 **And the preview settles whether a BLOCK file has depths at all**, which fixed a bug that made the
 label-line feature unreachable: `validate()` required a DEPTH role, a caption-keyed block file has no
 depth column by definition, so the reader resolved every block correctly and the Import button stayed

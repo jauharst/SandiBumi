@@ -1084,6 +1084,20 @@ fn decode_samples(bytes: &[u8]) -> Vec<f32> {
 /// runs' realizations into one distribution. `depths` and `samples` must be the same length;
 /// a depth whose vector is EMPTY is skipped rather than stored, so "no realizations survived
 /// here" reads back as an absent depth instead of a zero-width distribution.
+///
+/// **The whole replacement is ONE transaction**, which delete-then-append demands: without it a
+/// failure part way through the inserts leaves the DELETE committed and only some of the new rows
+/// written — a realization matrix silently missing depths, which is not a visible breakage but a
+/// biased percentile at every depth that vanished. The `with_txn` doc names the same hazard for
+/// the same reason; this writer simply predated its use here. Neither caller
+/// (`montecarlo::persist_realizations`, `intake::commit_arrays`) is itself inside a transaction,
+/// so there is no nesting — DuckDB has none.
+///
+/// **A duplicated depth is refused BY NAME before anything is written.** `array_logs` is keyed
+/// (well, set, curve, depth) and holds ONE vector per depth, so a repeat is a constraint violation;
+/// letting the engine raise it gives a message naming an internal table and no depth, on an import
+/// the user has just been told succeeded. Refusing here protects every caller rather than only the
+/// one whose front end happens to check.
 pub fn write_array_log(
     conn: &Connection,
     well_id: &str,
@@ -1100,27 +1114,49 @@ pub fn write_array_log(
             samples.len()
         )));
     }
-    conn.execute(
-        "DELETE FROM array_logs WHERE well_id = ? AND set_name = ? AND upper(curve_name) = upper(?)",
-        duckdb::params![well_id, set_name, curve_name],
-    )?;
-    let mut stmt = conn.prepare(
-        "INSERT INTO array_logs (well_id, set_name, curve_name, depth, samples, axis)
-         VALUES (?, ?, ?, ?, ?, ?)",
-    )?;
-    // The axis is stored on EVERY row rather than once per curve. One row is then self-describing
-    // — a reader that fetches a single depth has the axis in hand — and the cost is a few hundred
-    // bytes against a samples blob of the same order.
-    let axis_blob = axis.map(encode_samples);
-    let mut written = 0usize;
-    for (d, vals) in depths.iter().zip(samples) {
-        if vals.is_empty() || !d.is_finite() {
-            continue;
+    // Checked over the rows that would actually be INSERTED, not over the whole input: a depth
+    // whose vector is empty is skipped below and never reaches the table, so counting it here
+    // would refuse a write the store would have accepted.
+    let storable: Vec<f32> =
+        depths.iter().zip(samples).filter(|(d, v)| !v.is_empty() && d.is_finite()).map(|(d, _)| *d).collect();
+    let mut dupes: Vec<f32> = Vec::new();
+    for (i, d) in storable.iter().enumerate() {
+        if storable[..i].contains(d) && !dupes.contains(d) {
+            dupes.push(*d);
         }
-        stmt.execute(duckdb::params![well_id, set_name, curve_name, d, encode_samples(vals), axis_blob])?;
-        written += 1;
     }
-    Ok(written)
+    if !dupes.is_empty() {
+        let list = dupes.iter().map(|d| format!("{d:.2}")).collect::<Vec<_>>().join(", ");
+        return Err(DbError::Invalid(format!(
+            "array log {curve_name}: {} depth(s) appear more than once ({list}). One vector is \
+             stored per depth, so the repeats cannot be kept — give them their own depths, or \
+             split the delivery.",
+            dupes.len()
+        )));
+    }
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM array_logs WHERE well_id = ? AND set_name = ? AND upper(curve_name) = upper(?)",
+            duckdb::params![well_id, set_name, curve_name],
+        )?;
+        let mut stmt = conn.prepare(
+            "INSERT INTO array_logs (well_id, set_name, curve_name, depth, samples, axis)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )?;
+        // The axis is stored on EVERY row rather than once per curve. One row is then
+        // self-describing — a reader that fetches a single depth has the axis in hand — and the
+        // cost is a few hundred bytes against a samples blob of the same order.
+        let axis_blob = axis.map(encode_samples);
+        let mut written = 0usize;
+        for (d, vals) in depths.iter().zip(samples) {
+            if vals.is_empty() || !d.is_finite() {
+                continue;
+            }
+            stmt.execute(duckdb::params![well_id, set_name, curve_name, d, encode_samples(vals), axis_blob])?;
+            written += 1;
+        }
+        Ok(written)
+    })
 }
 
 /// Reads one array curve, ordered by depth. `set_name` of `None` takes whichever set holds the
