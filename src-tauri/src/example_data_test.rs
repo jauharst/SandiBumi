@@ -239,7 +239,7 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
         extras,
     };
     let res =
-        crate::ingest::import_core_table(&conn, &core, &mapping, probe.depth_unit_guess.as_deref(), None, None, None);
+        crate::ingest::import_core_table(&conn, &core, &mapping, probe.depth_unit_guess.as_deref(), None, None, None, false);
     assert!(res.error.is_none(), "{:?}", res.error);
     assert_eq!(res.wells_imported, 3, "all three wells routed by name: {:?}", res.outcomes);
     for r in &results {

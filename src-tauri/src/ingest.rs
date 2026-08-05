@@ -622,6 +622,7 @@ pub fn import_core_table(
     fallback_well_id: Option<&str>,
     extras_dataset: Option<&str>,
     set_name: Option<&str>,
+    follow_core: bool,
 ) -> CoreTableImportResult {
     let fail = |e: String| CoreTableImportResult {
         path: path.to_string(),
@@ -680,6 +681,36 @@ pub fn import_core_table(
     let mut store = |well_id: &str, well_name: &str, list: &[&parsers::MappedCoreRow], outcomes: &mut Vec<CoreWellOutcome>| {
         let mut depth: Vec<f32> = list.iter().map(|r| r.depth).collect();
         crate::units::convert_depths(&mut depth, file_unit, project_unit);
+        // "These depths came from the core report": place every row through this well's own core
+        // depth record, exactly as a late point-data or SCAL delivery does. Resolved PER WELL
+        // because a multi-well file routes by its WELL column and each well has its own record.
+        //
+        // Off by default and never inferred — nothing in a delimited text file says which depth
+        // scale it was written on, so this is the user's declaration. Ticking it on a FRESH core
+        // delivery would place the new plugs by the OLD core's correction, which is why the box
+        // says what it says rather than "correct the depths".
+        let mut follow_note: Option<String> = None;
+        if follow_core {
+            let mut notes: Vec<String> = Vec::new();
+            let pairs = core_record(conn, well_id, true, well_name, &mut notes);
+            if !pairs.is_empty() {
+                let mut outside = 0usize;
+                for d in depth.iter_mut() {
+                    if !d.is_finite() {
+                        continue;
+                    }
+                    let (mapped, extrapolated) = db::map_core_depth(&pairs, *d);
+                    if extrapolated {
+                        outside += 1;
+                    }
+                    *d = mapped;
+                }
+                note_mapping(&mut notes, well_name, &pairs, depth.len(), outside);
+            }
+            if !notes.is_empty() {
+                follow_note = Some(notes.join("; "));
+            }
+        }
         let mut cpor: Vec<f32> = list.iter().map(|r| r.cpor).collect();
         let mut cperm: Vec<f32> = list.iter().map(|r| r.cperm).collect();
         let mut cgd: Vec<f32> = list.iter().map(|r| r.cgd).collect();
@@ -713,12 +744,35 @@ pub fn import_core_table(
                 return;
             }
         };
-        match db::insert_core_data(conn, well_id, &set, Some(path), &depth, &cpor, &cperm, &cgd, &csw) {
+        // A table claiming NO core measurement is point data, not a core delivery, and writing
+        // one anyway is destructive in a way nothing on screen would show: `insert_core_data`
+        // registers the set and makes it ACTIVE, so importing an XRD or CEC table through Intake
+        // would displace the well's real plugs with a set of empty ones — and every core reader
+        // (the phi-k cloud, Plug QC, Register Depth, the S-factor fit) follows the active set, so
+        // they would all go quiet at once. Found by the follow-core test, whose own first import
+        // silently replaced the core it was meant to follow.
+        //
+        // The extras are still written, at the same mapped depths, under their own delivery name.
+        let has_core_measurement = cpor.iter().chain(&cperm).chain(&cgd).chain(&csw).any(|v| v.is_finite());
+        let core_write = if has_core_measurement {
+            db::insert_core_data(conn, well_id, &set, Some(path), &depth, &cpor, &cperm, &cgd, &csw)
+        } else {
+            Ok(())
+        };
+        match core_write {
             Ok(()) => {
                 rows_imported += depth.len();
                 wells_imported += 1;
                 let mut problem = (!report.is_clean())
                     .then(|| format!("{} duplicate depth row(s) dropped (first kept)", report.duplicate));
+                // Following the core is reported even when it changed nothing — a user who ticked
+                // the box and saw silence has no way to tell whether it worked.
+                if let Some(n) = follow_note.clone() {
+                    problem = Some(match problem {
+                        Some(p) => format!("{p}; {n}"),
+                        None => n,
+                    });
+                }
                 if !extra_names.is_empty() {
                     let mut aux: Vec<db::AuxRow> = Vec::new();
                     for (d, cells) in depth.iter().zip(&extras) {
@@ -738,7 +792,11 @@ pub fn import_core_table(
                     // The extras ARE part of this core delivery, so they carry the same set
                     // name — switching the well's core set switches its extras with it
                     // instead of leaving a mismatched pair behind.
-                    match db::insert_aux_data(conn, well_id, &extras_dataset, &set, Some(path), &aux) {
+                    // A pure point-data table has no core set to belong to, so its delivery is
+                    // named by the user's own set name rather than by a core set that was never
+                    // written.
+                    let aux_set = if has_core_measurement { set.clone() } else { desired_set.clone() };
+                    match db::insert_aux_data(conn, well_id, &extras_dataset, &aux_set, Some(path), &aux) {
                         Ok(()) => extra_rows += aux.len(),
                         Err(e) => {
                             let note = format!("extra columns not stored: {e}");
@@ -752,8 +810,8 @@ pub fn import_core_table(
                 outcomes.push(CoreWellOutcome {
                     well_name: well_name.to_string(),
                     rows: list.len(),
-                    imported: depth.len(),
-                    set_name: Some(set.clone()),
+                    imported: if has_core_measurement { depth.len() } else { 0 },
+                    set_name: Some(if has_core_measurement { set.clone() } else { desired_set.clone() }),
                     problem,
                 });
             }
@@ -1963,7 +2021,7 @@ mod tests {
             csw: probe.csw,
             extras: vec![6, 9],
         };
-        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None, Some("core"), None);
+        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None, Some("core"), None, false);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.wells_imported, 2, "W-A and W-B only");
         assert_eq!(res.rows_imported, 4);
@@ -2596,6 +2654,126 @@ mod tests {
 
     /// The whole point of keeping the core's as-delivered depths: a laboratory sends XRD months
     /// after the core was registered, still written at the depths from the original core report,
+    /// **A table claiming no core measurement never becomes a core delivery.**
+    ///
+    /// `insert_core_data` registers the set and makes it ACTIVE, so importing an XRD or CEC table
+    /// through Intake — which routes everything through `import_core_table` — would have replaced
+    /// the well's real plugs with a set of empty ones. Nothing on screen would show it, and every
+    /// core reader follows the active set, so the phi-k cloud, Plug QC, Register Depth and the
+    /// S-factor fit would all go quiet at once.
+    ///
+    /// Found by the follow-core test below, whose own first import silently replaced the core it
+    /// was about to follow.
+    #[test]
+    fn a_point_data_table_does_not_displace_the_wells_core() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-NOTCORE", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let d: Vec<f32> = (0..10).map(|i| 2000.0 + i as f32).collect();
+        let por = vec![0.2f32; 10];
+        let nan = vec![f32::NAN; 10];
+        db::insert_core_data(&conn, &w, "PLUGS", None, &d, &por, &nan, &nan, &nan).unwrap();
+
+        let path_buf = std::env::temp_dir().join("sandi_pointdata_only.csv");
+        std::fs::write(&path_buf, "DEPTH,CEC
+2003,4.5
+2007,6.5
+").unwrap();
+        let path = path_buf.to_str().unwrap();
+        let mapping = crate::intake::mapping_from_roles(&["DEPTH".into(), "CEC".into()]).unwrap();
+        let res = import_core_table(&conn, path, &mapping, None, Some(&w), Some("CEC"), Some("LAB"), false);
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert!(res.extra_rows > 0, "the measurements themselves must still be stored");
+
+        // The core is untouched: the live delivery is still the plugs, with their porosity.
+        // Read through ACTIVE_CORE_SET, which is what every core reader in the app follows.
+        let sets = db::list_core_sets(&conn, &w).unwrap();
+        let live = sets.iter().find(|s| s.active).expect("the well must still have a live core set");
+        let (n_live, live_set) = (live.rows as i64, live.set_name.clone());
+        assert_eq!(n_live, 10, "the well's plugs are still the active core delivery");
+        assert_eq!(live_set, "PLUGS", "and a CEC table did not become one");
+
+        // The control: a table that DOES carry a core measurement still creates a core delivery,
+        // so this is not a blanket refusal to import core.
+        let path2 = std::env::temp_dir().join("sandi_realcore.csv");
+        std::fs::write(&path2, "DEPTH,CPOR
+2100,0.3
+2101,0.31
+").unwrap();
+        let m2 = crate::intake::mapping_from_roles(&["DEPTH".into(), "CPOR".into()]).unwrap();
+        let res2 = import_core_table(&conn, path2.to_str().unwrap(), &m2, None, Some(&w), None, Some("RUN2"), false);
+        assert!(res2.error.is_none(), "{:?}", res2.error);
+        assert_eq!(res2.rows_imported, 2, "a real core table is still a core delivery");
+    }
+
+    /// **Intake honours "these depths came from the core report" too.** The pane offered the
+    /// tick-box from the day it shipped and `IntakeCommit` carried the field — and
+    /// `import_core_table` never took it, so the setting was read from the form, sent over IPC and
+    /// dropped. A user who ticked it got the delivered depths back with nothing to say so.
+    ///
+    /// That matters now that Intake is the only route for point data: the aux import dialog it
+    /// replaces DID follow the core (Jauhar, 2026-08-05: *"capabilites that already aux have,
+    /// intake also should have it"*), so removing that dialog without this would have quietly
+    /// taken the capability away.
+    #[test]
+    fn a_table_imported_through_intake_can_follow_the_core_it_was_measured_on() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-INTAKE", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // Plugs 2000-2019 as delivered, then registered: upper half +1, lower half +3.
+        let d: Vec<f32> = (0..20).map(|i| 2000.0 + i as f32).collect();
+        let v = vec![0.2f32; 20];
+        let nan = vec![f32::NAN; 20];
+        db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+        db::apply_core_run_shifts(
+            &mut conn,
+            &w,
+            &[
+                db::RunShift { top: 2000.0, base: 2009.0, delta: 1.0, ..Default::default() },
+                db::RunShift { top: 2010.0, base: 2019.0, delta: 3.0, ..Default::default() },
+            ],
+            &db::ShiftTargets::default(),
+            &Default::default(),
+        )
+        .unwrap();
+
+        let path_buf = std::env::temp_dir().join("sandi_intake_followcore.csv");
+        // A lab table at the ORIGINAL core-report depths: one sample per barrel.
+        std::fs::write(&path_buf, "DEPTH,CEC
+2005,4.5
+2015,6.5
+").unwrap();
+        let path = path_buf.to_str().unwrap();
+        let mapping = crate::intake::mapping_from_roles(&["DEPTH".into(), "CEC".into()]).unwrap();
+
+        // Off: the samples land where the file says, which is now the wrong rock.
+        let plain = import_core_table(&conn, path, &mapping, None, Some(&w), Some("CEC_ASWRITTEN"), Some("A"), false);
+        assert!(plain.error.is_none(), "{:?}", plain.error);
+        let rows = db::list_aux_data(&conn, &w, Some("CEC_ASWRITTEN")).unwrap();
+        assert!(rows.iter().any(|r| (r.depth_top - 2005.0).abs() < 1e-3), "unmapped keeps the delivered depth");
+
+        // On: each sample follows the barrel it was cut from — +1 above, +3 below.
+        let followed = import_core_table(&conn, path, &mapping, None, Some(&w), Some("CEC_FOLLOWED"), Some("B"), true);
+        assert!(followed.error.is_none(), "{:?}", followed.error);
+        let rows = db::list_aux_data(&conn, &w, Some("CEC_FOLLOWED")).unwrap();
+        let at = |want: f32| rows.iter().any(|r| (r.depth_top - want).abs() < 1e-3);
+        assert!(at(2006.0), "the upper barrel's sample moves +1: {:?}", rows.iter().map(|r| r.depth_top).collect::<Vec<_>>());
+        assert!(at(2018.0), "and the lower barrel's moves +3, not by the upper barrel's correction");
+
+        // And the run SAYS it followed, rather than leaving the user to infer it.
+        assert!(
+            followed.outcomes.iter().any(|o| o.problem.as_deref().is_some_and(|p| p.contains("core depth record"))),
+            "the mapping must be reported: {:?}",
+            followed.outcomes
+        );
+    }
+
     /// and those samples land on the rock they were measured from.
     #[test]
     fn a_late_delivery_can_follow_the_core_it_was_measured_on() {

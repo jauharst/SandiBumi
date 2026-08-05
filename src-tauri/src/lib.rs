@@ -427,6 +427,7 @@ fn import_core_table(
     fallback_well_id: Option<String>,
     extras_dataset: Option<String>,
     set_name: Option<String>,
+    #[allow(non_snake_case)] followCore: Option<bool>,
 ) -> Result<ingest::CoreTableImportResult, String> {
     let conn = db.0.lock().unwrap();
     Ok(ingest::import_core_table(
@@ -437,6 +438,7 @@ fn import_core_table(
         fallback_well_id.as_deref(),
         extras_dataset.as_deref(),
         set_name.as_deref(),
+        followCore.unwrap_or(false),
     ))
 }
 
@@ -1570,6 +1572,7 @@ async fn intake_commit(
                 req.fallback_well_id.as_deref(),
                 req.extras_dataset.as_deref(),
                 req.set_name.as_deref(),
+                req.follow_core,
             ));
         }
         Ok(out)
