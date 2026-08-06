@@ -49,6 +49,10 @@ docs/commercial/
 
 # Machine-local Claude Code permission overrides
 .claude/settings.local.json
+
+# Kimi Code subscription key, read by tools/kimi.ps1 (see docs/delegation_kimi.md).
+# A credential, and personal to Jauhar's subscription — never in the shared repo.
+.kimi-key
 *.corrupt-backup-*
 
 # Visual Studio IDE cache - was committed by accident (772 MB, incl. a 187 MB

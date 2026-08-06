@@ -3443,6 +3443,18 @@ that is wrong but compiles ships into a client report, and no `cargo check` catc
 | Mechanical edits with a compiler gate — renames, a Tauri command wrapper, docs, test scaffolding, TS/dockview plumbing, i18n dictionary entries | **sonnet** | `cargo check` / `npx tsc --noEmit` is the verifier; a wrong answer is caught, not shipped |
 | Anything numeric or convention-bound — `equations.rs`, `multimin.rs`/`multimin2.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`, `hfu.rs`, `montecarlo.rs`, chart overlays, the theme var contract, dockview layout | **session model (default)** | Silent numeric/behavioural wrongness that no compiler catches |
 
+**Kimi K3 (Kimi Code Allegretto subscription) is a second cheap tier, and it slots into the
+`sonnet` row — never the row below it.** It is strong on straightforward compiler-gated coding and
+flat-fee rather than per-token, which is the whole attraction; it is also weaker on adversarial
+tasks, degrades on large interconnected repos, and by Moonshot's own guidance "may proactively
+decide details on ambiguous instructions" — which in a repo of mostly prohibitions is a model that
+will invent a default. So the never-delegate list is unchanged and absolute for it: the numeric
+modules, any physics default or published coefficient, the DuckDB write discipline, anything
+provenance-sensitive. **It cannot be an in-process subagent** — `ANTHROPIC_BASE_URL` is
+process-wide, so a Kimi session is Kimi all the way down; delegation is either a whole session or a
+shelled-out `claude -p` worker. `tools/kimi.ps1` runs both. Full note, with the subscription-vs-API
+endpoint trap and the per-run rules: **`docs/delegation_kimi.md`**.
+
 The ladder is session-relative. On an **opus** session the strong tier IS the session model.
 On a **fable** session, **opus** additionally becomes a mid-strong delegation tier — full
 domain judgment at half fable's rate — for domain-aware work the main agent will
