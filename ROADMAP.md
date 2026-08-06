@@ -55,7 +55,7 @@ headers below rather than as the primary structure.
 - **Hardening**: **Critical** (8 correctness/data-integrity fixes) + **Reliability** (frontend-state races/leaks) tiers — done & adversarially verified.
 - **Feature waves**: **Wave A** (all tools as panes, compact ribbon, project picker, workflow grid) + **Wave E** (KKT ONWJ: precalc, dry-clay, gascorr, φmax, cutoff-sensitivity, map/polygons, condflag, nphimat) — all shipped.
 - **Core & plate imaging** (§C2 item 7, 2026-07-31 → 08-05): plate import from workbooks, pore area / stain / grain / mineral classifier, plate + core-slab conditioning, `CPHOTO_DARK`/`_RED`/`_TEX`/`_FLUOR`/`_LITH` traces, depth strips, packed-plate lane reader, dip unfold, and the trace as a registration reference.
-- **Data tools** (§C4b, 2026-08-05): **Intake** (one importer, long/wide/block, caption-keyed blocks), **Statistics**, **Condition**, **Frame**, **Reframe** (a log set with its own sampling), universal **Normalize**, declared output names, and the log-set sweep that gave every reader and writer a version choice.
+- **Data tools** (§C4b, 2026-08-05): **Intake** (one importer, long/wide/block, caption-keyed blocks), **Statistics** (5 tools), **Condition** (6 modules), **Reframe** (a log set with its own sampling), universal **Normalize**, declared output names, and the log-set sweep that gave every reader and writer a version choice. **Frame is partial** — `block` + `bed_detect` shipped; `regularize` and `align_multiwell` never did.
 - **Polish so far**: units on readouts + adaptive value formatting (Polish-1); correlation well-list refresh + Ctrl-wheel zoom (Polish-2); a machine with no WebGPU gets the app's standard named refusal in the pane — what failed, that every other surface is 2D canvas and still works, and the fix — instead of a dim one-liner naming the mechanism (2026-08-05).
 
 ### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
@@ -2221,9 +2221,16 @@ tools here should be universal for all logs"._
   prefix** (`OUT_PREFIX_OPT`) so a trial lands as `TEST_VSH` beside the live interpretation —
   handled once in the runner, and **Monte Carlo refuses a prefixed step by name** because its plan
   builder resolves cutoffs from declared LogOut names.
-- **Frame ✅ (2026-08-05)** — `block` (four bed definitions), `resample`, `regularize`,
-  `align_multiwell`. Coarsening is a box average, never an interpolation; a blocked curve is written
-  `draw_style: "step"`. Reverse/Sort belong in Intake, not here.
+- **Frame ◐ (2026-08-05, partial)** — SHIPPED: `frame::block` (four bed definitions) and
+  `frame::bed_detect`, both registered in `modules.rs`. Coarsening is a box average, never an
+  interpolation; a blocked curve is written `draw_style: "step"`. Reverse/Sort belong in Intake, not
+  here. **NOT shipped, and this bullet claimed otherwise until 2026-08-07: `resample`, `regularize`,
+  `align_multiwell`.** Resampling exists, but as `reframe::resample_onto` inside the **Reframe** tool
+  — a different thing from a Frame module: you point Reframe at a log set, where a module is
+  chainable, zone-overridable and mask-aware. `regularize` and `align_multiwell` are not implemented
+  anywhere. The line was written when Frame was SCOPED and carried a ✅ from the day it was planned,
+  which is how a plan becomes a false claim: nothing was edited, only the checkbox. Decide whether
+  the two open ones are still wanted before writing them back in.
 - **Statistics ✅ (2026-08-05)** — Curve Summary, Pair Summary, Fit (1..n predictors + blind-well CV, saveable as an
   `ml_models` artifact), Versus (two log SETS — the first consumer of log-set provenance) and
   Thickness. Thickness is its own tool on Jauhar's call (*"we talk about thickness not only in pay
