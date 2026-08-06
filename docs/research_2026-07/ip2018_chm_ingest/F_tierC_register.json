@@ -1,0 +1,226 @@
+[
+ {
+  "item": "Neural Networks engine - NeuroSolutions 5.5 (commercial third-party product)",
+  "page": "neural_networks (line 57)",
+  "evidence_fragment": "The neural network that IP uses is a commercial product by Neuro Solutions - http://www.neurosolutions.com/ . The IP Neural Network are built with Neuro Solutions 5.5. The number of Hidden layers = 1.",
+  "tier": "C",
+  "reasoning": "NEW vs the five already registered. The prediction engine is a named commercial third-party product, not an IP algorithm. Confirms the lineage of the already-registered 'shipped neural-network weights' item: any network IP ships or trains is a NeuroSolutions artifact. SandiBumi must not port the engine or any shipped weights. The ONLY adoptable facts are the architectural disclosures the manual itself states (single hidden layer) - which are generic and independently re-derivable. Note: NeuroSolutions does NOT appear in the IP2018 EULA.rtf third-party list, so the licence terms are undocumented in shipped material - treat as maximally restricted."
+ },
+ {
+  "item": "DNOPT Dense Nonlinear OPTimizer (Stanford University) - Mineral Solver non-linear optimizer",
+  "page": "mineral_solver (line 603); minsolveeqandmeth (line 91); IP2018 EULA.rtf third-party list",
+  "evidence_fragment": "The Non-Linear Solver used in this module is the DNOPT Dense Nonlinear OPTimizer from Stanford University. / EULA.rtf: 'DNOPT, The Board of Trustees of the Leland Stanford Junior University'",
+  "tier": "C",
+  "reasoning": "NEW. Commercially licensed optimizer from Stanford Business Software; it is the numerical core of IP's multi-mineral solver. Not reimplementable by inspection and not free to embed. SandiBumi's mineral solver must use an independently licensed optimizer (the CHOICE of a dense SQP/nonlinear optimizer is generic and Tier A; the specific product is Tier C)."
+ },
+ {
+  "item": "Numerical Recipes (Cambridge University Press) SVD linear solver - Mineral Solver linear solver",
+  "page": "mineral_solver (line 601); minsolveeqandmeth (line 89)",
+  "evidence_fragment": "The Linear Solver incorporated into this module comes from Numerical Recipes (Cambridge University Press) and the technique used is Singular Value Decomposition.",
+  "tier": "C",
+  "reasoning": "NEW. Numerical Recipes source code is copyrighted and separately licensed - it is a well-known trap that the published listings may be read but not redistributed. The METHOD (SVD on a normalised linear system) is textbook and Tier A/B; the Numerical Recipes IMPLEMENTATION is Tier C. SandiBumi should use LAPACK/BLAS-derived SVD, never Numerical Recipes code."
+ },
+ {
+  "item": "IMSL Numerical Fortran Libraries (RogueWave Software License Agreement)",
+  "page": "IP2018 EULA.rtf third-party list (help page third_party_software_licenses points to this file)",
+  "evidence_fragment": "IMSL Numerical Fortran Libraries, RogueWave Software License Agreement",
+  "tier": "C",
+  "reasoning": "NEW. Commercial numerical library linked into IP. Its presence explains why numerical routines are not documented in the help. No IMSL-derived numerics may be adopted. Recorded for completeness - the help itself is silent on which modules use it, so no module-level attribution can be made without speculation."
+ },
+ {
+  "item": "Unconventional Resources (UCR) Toolbox - developed by Apache Corporation, licensed into IP",
+  "page": "ucr (line 3048)",
+  "evidence_fragment": "This tool suite was developed by Apache Corporation and is licenced for use in Interactive Petrophysics.",
+  "tier": "C",
+  "reasoning": "NEW and the single most important new flag in IP2018. The ENTIRE 92k-character UCR module (oil & gas pressure, fluid properties, oil & gas in place, brittleness, rock mechanics profiling, multi-well reporting) is third-party operator IP licensed into the product. Nothing in that page may be treated as vendor-published method. The two literature citations it does give (Barree et al SPE 118701; Whitson & Brule Phase Behavior Monograph 20) ARE Tier B and independently usable - the manual explicitly says the Whitson & Brule algorithms 'are standard algorithms in use in the petroleum industry'."
+ },
+ {
+  "item": "Domain Transfer Analysis (DTA)",
+  "page": "curvepredictionusingdta (whole page, 15.5k chars, 0 equation images)",
+  "evidence_fragment": "The Domain Transfer Analysis module uses Domain Transfer Analysis to allow the prediction of a result curve from a number of input curves.",
+  "tier": "C",
+  "reasoning": "CONFIRMED PRESENT in IP2018 (already registered from the IP2025 ingest). The IP2018 page is purely operational - it describes the UI, model-build intervals, input grids and QC, and gives NO equations and NO literature citation anywhere. The name is circularly defined ('uses Domain Transfer Analysis'). Branded, undocumented, uncitable: name and behaviour envelope only, never approximate."
+ },
+ {
+  "item": "Acoustic Waveform Processing dispersion correction - 'a proprietary fit function'",
+  "page": "acoustic_waveform_processing (line 865)",
+  "evidence_fragment": "A proprietary fit function is applied to the 2D Frequency Semblance map, and the minimum value of the fit function is output as DTmodename_disp.",
+  "tier": "C",
+  "reasoning": "NEW. The manual self-labels it proprietary. Everything else on this 74k page is unusually open (the STC semblance core is explicitly credited to Kimball and Marzeta 1984, Geophysics - Tier B and fully adoptable), which sharpens the boundary: the semblance/frequency-semblance machinery is adoptable, the dispersion-correction fit is not."
+ },
+ {
+  "item": "TOC density regressions - '2 proprietary regressions, a 3rd order and a 5th order'",
+  "page": "total_organic_carbon_content (lines 57 and 115)",
+  "evidence_fragment": "There are also 2 proprietary regressions, a 3rd order and a 5th order, that can be selected. / TOC_DenReg : The proprietary regression selected by the 'Reg Method' parameter on the Density Regressions tab",
+  "tier": "C",
+  "reasoning": "NEW. Self-labelled proprietary. Contrast with the same page's Delta LogR implementation, which is explicitly credited to Passey et al, AAPG Bulletin V.74 No 12, December 1990 - Tier B and fully adoptable, including the stated LOM and Passey Modifier (offset 0.8) controls. Adopt Delta LogR; do not attempt the two proprietary density regressions."
+ },
+ {
+  "item": "Eastern European Resistivity Corrections (EERC) module - developed by A.G.H University of Science and Technology, Krakow",
+  "page": "easteuroperescorrections; specialinterpretation (line 111); intro_getting_started___step_by_step (line 279)",
+  "evidence_fragment": "The Eastern European Resistivity Corrections Module is a specialist tool developed by the A.G.H University of Science and Technology, Krakow, and integrated into IP.",
+  "tier": "C (module) over B (underlying theory)",
+  "reasoning": "NEW. The MODULE is third-party academic IP integrated into IP - do not treat as vendor-published, do not reverse-engineer. However the underlying theory is openly attributed to named published work (Alpin 1964, Dakhnov 1967, Pierkov 1964, Pirson 1963, Chapellier 1992, Bala et al 1999, Jarzyna et al 1999 and 2002, Ossowski 1990, Stegun 1970), which is Tier B and independently reachable. NOTE: 105 of the page's formulas are rasterized AND the REFERENCES section body is EMPTY in the decompiled text - only the inline superscript author+year survives. The full reference list is NOT recoverable; do not complete these citations from memory."
+ },
+ {
+  "item": "Laminated Reservoir Fluid Substitution - developed by Chris Skelt, Chevron",
+  "page": "laminatedfluidsubs (line 65)",
+  "evidence_fragment": "This module was developed by Chris Skelt, Chevron.",
+  "tier": "C (module) over B (published method)",
+  "reasoning": "NEW. Operator-contributed module. Unusually, the author published the method himself and the manual cites both papers (Skelt 2004 The Leading Edge; Skelt 2004 SPWLA 45th) - so the METHOD is Tier B and adoptable from the literature. The module's 38 rasterized equations are not recoverable and must not be reconstructed; go to the Skelt papers instead."
+ },
+ {
+  "item": "CSM-UH FLAG fluid property calculator - consortium-restricted",
+  "page": "laminatedfluidsubs (line 82)",
+  "evidence_fragment": "CSM-UH FLAG program Fluid Calculator. Only available to Colorado School of Mines-University of Houston consortium members. ... The consortium members need to place the FLAG programs in the IP program installation directory.",
+  "tier": "C",
+  "reasoning": "NEW. Explicitly licence-gated third-party program; IP only shells out to it. Not adoptable in any form. Useful market intelligence: IP's own default fluid calculator is Batzle & Wang 1992 (Tier B, cited), which the manual itself deprecates as 'only valid over a limited range of temperature and pressure'."
+ },
+ {
+  "item": "Schlumberger environmental corrections - 'algorithms distributed by Schlumberger in their Green Book library'",
+  "page": "environmentalcorrections (line 70)",
+  "evidence_fragment": "The Schlumberger Corrections environmental correction module uses the algorithms distributed by Schlumberger in their Green Book library.",
+  "tier": "C",
+  "reasoning": "NEW and decisive for the F1 adoption question. The SLB wireline corrections are NOT built from the public chart book - they are built from a vendor-distributed ALGORITHM library. The manual separately says which PUBLISHED chart numbers each tab 'relates to' (GR1-GR3, Por-15a, Por-14a/c/d/e, Por-13a, Rcor-2b/2c/3/4a/4b/4c, Rxo-2, Rxo-3, Rint-2b/2c/5/9b/10, EPTcor-3a-4b, Neu-43 to Neu-46), which is Tier A bibliographic routing. SandiBumi may digitize those published charts itself; it may not obtain or reproduce the Green Book algorithm library."
+ },
+ {
+  "item": "Baker Atlas environmental corrections - chart book received as a series of algorithms",
+  "page": "environmentalcorrections (line 187)",
+  "evidence_fragment": "Due to Senergy Ltd. receiving the Baker Atlas chart book as a series of algorithms it has proved difficult to assign charts numbers from the actual chart book to the tabs within the Baker Atlas Environmental Corrections module.",
+  "tier": "C",
+  "reasoning": "NEW. Same pattern as Schlumberger and the clearest statement of it in the whole manual: the vendor supplied fitted algorithms, not the published charts, and the vendor's own reference numbering could not even be reconstructed. The Baker Atlas route is NOT adoptable. The listed chart numbers (4-1, 4-3, 4-13, 6-7 to 6-39, 7-2 to 7-9) are the manual's best-effort indication only, per its own admission."
+ },
+ {
+  "item": "Weatherford/Reeves environmental corrections - 'algorithms distributed by Weatherford'",
+  "page": "environmentalcorrections (line 513)",
+  "evidence_fragment": "The Weatherford Corrections environmental correction module uses the algorithms distributed by Weatherford including the old Reeves/Precision tools plus the Compact tool series.",
+  "tier": "C",
+  "reasoning": "NEW. Third of the three algorithm-supplied vendors. Not adoptable. The corresponding chart books (Weatherford Compact Tool Series 2007, Standard Tool Series 2007, LWD Tool Series 2005, Precision Wireline Services Chart Book) are named and are Tier A bibliographic pointers."
+ },
+ {
+  "item": "IP-shipped digitized correction lookup tables (.neu / .ovl / .cht / .bor data files)",
+  "page": "IP2018 install directory (48 .neu, 149 .ovl, 12 .cht, 18 .bor); registry file Neu_Parm_Files.neu",
+  "evidence_fragment": "Header of Sch_CNL.neu: '$ Contains lookup table for Schlumberger CNL TNPH ... $ Data is arranged in columns as follows : True Phi (Limestone Matrix), Sandstone Matrix, Dolomite Matrix, Salinity corr Sand, Salinity corr Lime, Salinity corr Dol ... $ Porosity values must not be changed'",
+  "tier": "C (the table VALUES) over A (the architecture)",
+  "reasoning": "NEW and the highest-value architectural finding for SandiBumi. The corrections are NOT compiled - they ship as plain-text, user-editable, column-oriented lookup tables with a contractor/tool registry file that maps 'contractor -> tool name -> table file' (max 20 contractors, 10-char names, 30-char filenames). The ARCHITECTURE (table + registry + interpolation, corrections zoned by hole section, per-tab execution) is Tier A and directly adoptable. The NUMBERS inside these files are IP's own digitization of vendor charts (or worse, for SLB/Baker Atlas/Weatherford, transcriptions of vendor-supplied algorithms) and must NOT be copied. SandiBumi must re-digitize from the published vendor chart books it holds."
+ },
+ {
+  "item": "Osprey Connect - Schlumberger proprietary real-time data link technology",
+  "page": "intro_getting_started___step_by_step (line 183)",
+  "evidence_fragment": "Real Time Data Link : Uses a Schlumberger proprietary data link technology ( Osprey Connect ) to connect to a remote data server and download log curve and drilling data real-time into IP using WITSML data.",
+  "tier": "C",
+  "reasoning": "NEW. Self-labelled proprietary vendor technology. Note the contrast: the underlying WITSML standard is Tier A (the manual states WITSML was developed by an oil-industry initiative sponsored by BP and Statoil, later Shell, with participation from Baker Hughes, GeoQuest, Halliburton, Landmark and Schlumberger), and the Energistics Standards DevKit in the EULA is Apache 2.0. So SandiBumi can implement WITSML; it cannot implement Osprey Connect."
+ },
+ {
+  "item": "XStream Connect - technology developed by DK Energy",
+  "page": "dataloading (line 93); witsmllink",
+  "evidence_fragment": "XStream Connect : uses technology developed by DK Energy to connect to a remote data server and download log curve and drilling data real-time into IP using WITSML data.",
+  "tier": "C",
+  "reasoning": "NEW. Named third-party vendor technology for the real-time link. Same boundary as Osprey Connect - WITSML itself is open."
+ },
+ {
+  "item": "Unocal-supplied Offshore Texas/Louisiana overburden gradient dataset",
+  "page": "porepressurecalculations2 (lines 151, 723, 731)",
+  "evidence_fragment": "The Offshore Texas/Louisiana dataset was provided by Unocal. / '$ Supplied by Unocal March 2003' (header inside the shipped .obg file)",
+  "tier": "C",
+  "reasoning": "NEW. Operator-donated proprietary dataset shipped as a data file. Do not copy the values. The FILE FORMAT is Tier A and adoptable: space-delimited text with an .obg extension, indexed by a master OBG_Files.obg registry - the same registry-plus-table pattern as the environmental corrections."
+ },
+ {
+  "item": "Amoco GOM overburden gradient datasets (Average GOM, Deepwater GOM)",
+  "page": "porepressurecalculations2 (lines 153, 155, 777, 779)",
+  "evidence_fragment": "The Average GOM (Amoco) data was taken from Figure 2 in the Fracture Prediction for the New Generation paper, by Eaton and Eaton 5. / The Deepwater GOM (Amoco) data was based on calculations by Barker and Wood 6.",
+  "tier": "B (derivable) with a C caveat on the shipped file",
+  "reasoning": "Unusual and worth flagging both ways. Unlike the Unocal set, the manual states the PROVENANCE of both Amoco curves as published work (Eaton & Eaton World Oil October 1997 Figure 2; Barker & Wood 1997 AADE). That makes them independently re-derivable - Tier B route. The shipped Amoco_Deep_GOM.obg / Gulf_of_Mexico_Amoco.obg files are still IP's digitization and should not be copied."
+ },
+ {
+  "item": "Larson CGM Software - EMF-to-CGM converter bundled with IP",
+  "page": "plotoutput (line 109); intro_useful_links (line 137)",
+  "evidence_fragment": "converted automatically to CGM format using Larson CGM Software. The Larson EMF to CGM converter is included with IP.",
+  "tier": "C",
+  "reasoning": "NEW. Bundled commercial third-party binary. Low petrophysical value but flagged because it is NOT in the EULA.rtf third-party list - a second undocumented bundled component alongside NeuroSolutions, which suggests the EULA list is not exhaustive and should not be relied on as a complete clearance record."
+ },
+ {
+  "item": "ExamDiff (PrestoSoft LLC) - used with permission",
+  "page": "historymodule (line 125); IP2018 EULA.rtf",
+  "evidence_fragment": "ExamDiff This is a freeware Visual File Comparison Tool developed by PrestoSoft. / EULA.rtf: 'ExamDiff used with permission of PrestoSoft LLC'",
+  "tier": "C",
+  "reasoning": "Explicit 'used with permission' third-party grant - exactly the phrase the sweep was told to look for. Bundled diff tool inside the Manage Well History module. Not adoptable; trivially replaceable."
+ },
+ {
+  "item": "Commercial UI / build / reporting components: TeeChart.NET 2010 + 2017 + TeeChart Pro v8 (Steema Software SL), DotNetBar WinForms (DevComponents), MstGrid, Bytescout PDF, VB Migration Partner, Delphi/CodeGear RAD Studio 2007 + Embarcadero RAD Studio XE4, Intel Fortran Compiler, Oracle Data Provider for .NET, Microsoft SQL Server Compact / ReportViewer 2010 / Ribbon for WPF / Expression Blend 4 / Silverlight",
+  "page": "IP2018 EULA.rtf third-party list; plotoutput (line 475) for Silverlight",
+  "evidence_fragment": "TeeChart.NET version 2010, END-USER LICENSE AGREEMENT FOR STEEMA SOFTWARE SL / DotNetBar WinForms, DevComponents / VB Migration Partner End User License Agreement / Intel Fortran Compiler, End User License Agreement for Intel Software Development Products",
+  "tier": "C",
+  "reasoning": "Commercially licensed components, grouped because none carries petrophysical method content. Recorded as market intelligence: the presence of VB Migration Partner plus Delphi RAD Studio plus Intel Fortran tells you IP2018 is a multi-generation VB6/Delphi/Fortran codebase migrated into .NET, which explains the module-by-module inconsistency across the help and is directly relevant to why SandiBumi's clean single-stack design is a competitive advantage."
+ },
+ {
+  "item": "OpenSpirit (TIBCO) - runtime and separate licences required",
+  "page": "IP2018 EULA.rtf; read_write_via_openspirit; connectionprotocols (line 11)",
+  "evidence_fragment": "In order to import/export data via OpenSpirit you will require an OpenSpirit runtime installation and valid licenses from TIBCO",
+  "tier": "C",
+  "reasoning": "Third-party middleware requiring the end user's own licence. Flagged as a market-intelligence data point: IP's data-exchange breadth is partly rented, not owned."
+ },
+ {
+  "item": "External database connectors to third-party registered-trademark systems: Paradigm GEOLOG(R), Landmark Graphics OpenWorks(R), PETCOM Powerlog(R), Shell LOGIC, TIBCO Openspirit, Schlumberger Petrel, Senergy ODM3; Petrel(TM) tops export format",
+  "page": "connectionprotocols (line 11); options (line 79); datasaving (line 647); petrel_interface; petrel_link_2014_and_later",
+  "evidence_fragment": "IP provides connectivity to a number of external data repositories. These are for Paradigms GEOLOG6(R), Landmark Graphics Corporations (LGC) OpenWorks(R), PETCOMs Powerlog(R), Shells LOGIC, Tibcos Openspirit, Schlumbergers Petrel and the Senergy Software Ltd ODM3 databases. / The available Output Formats are either Interactive Petrophysics Format or Petrel (TM) Format.",
+  "tier": "C for the proprietary APIs / A for the fact of the integration",
+  "reasoning": "Err-toward-flagging entry. The registered marks and the private database APIs are third-party property; the OpenWorks and GEOLOG links additionally rely on vendor-side binaries (owlnk, gllnk.cgi) that cannot be reimplemented. What IS Tier A and valuable to SandiBumi is the competitive fact itself: IP2018's integration surface is Petrel + OpenWorks + GEOLOG + Powerlog + LOGIC + OpenSpirit + ODM + WITSML. The 'Petrel (TM) Format' ASCII tops export (Version 1 with header, or Legacy simple ASCII) is a file layout, Tier D - paraphrase and re-derive from real files, do not transcribe the manual's description."
+ },
+ {
+  "item": "LiMBR License Server (LR proprietary licensing system)",
+  "page": "installandregisterip (line 61); using_the_license_server_manag; intro_whats_new_in_ip (line 69)",
+  "evidence_fragment": "Shared Network License - where IP activates against a LiMBR License Server set up on the network by the IT Admin staff. / The licensing system has been replaced with the new LiMBR system designed to work with all LR software products in the future.",
+  "tier": "C",
+  "reasoning": "Vendor-proprietary licensing infrastructure. Zero method content. Flagged only because circumventing or emulating a licence system is a legal hazard that must be explicitly out of scope for SandiBumi. Market intelligence: LR was consolidating licensing across its whole software portfolio at the 2018 release."
+ },
+ {
+  "item": "Vendor logging-tool trade names used as correction targets (Ecoscope, adnVISION475/675, MRIL / MRIL-Prime / MRI-LWD, NaviGator, MPR, SOLAR 175, DGR, EWR-Phase 4, Compact MDN/MDL/SFE, HDS1, DNSC/SDNSC, HALS, Phasor, FDC, LDT, CNL, SNP, EPT, DLT-A/B/D/E/F, MSFL, MLL, MG, HDIL, HRI, DIL, DILTA, DSN-II, CNT-A/C/D/K, HDSN, SDL, SLD, HSDL, SNL, Z-Densilog 2222/2227, CN 2418/2420/2435/2436/2446, CBIL, STAR, XRMI, EMI, OMRI, OBMI, USI, SCMT, CAST, SBT, RBT)",
+  "page": "environmentalcorrections; nmrinterpretation; manageimagetools; cementeval; plotting_image_analysis_data",
+  "evidence_fragment": "Environmental Corrections to Formation Density Log (FDC) and Litho-Density Log (LDT) chart Por-15a. / 4 3/4\" Azimuthal Density Neutron (adnVISION475) environmental correction charts Neu-31, Neu-33",
+  "tier": "A as identifiers / C if the response function was vendor-supplied",
+  "reasoning": "Err-toward-flagging class entry rather than one row per mark. Using these names to IDENTIFY which tool a curve came from is ordinary nominative use and is Tier A - SandiBumi needs them in its tool registry. The hazard is the response function behind each name: for Halliburton, Baker Hughes INTEQ, Sperry-Sun, PathFinder and Anadrill the manual names published chart numbers (Tier A route), while for Schlumberger wireline, Baker Atlas and Weatherford it states the algorithms came from the vendor (Tier C). Never assume a named tool implies an adoptable correction."
+ },
+ {
+  "item": "Vendor chart books cited as correction provenance (SLB 2000 / 2005 / 2010, Halliburton 1994, Baker Atlas 1984, Baker Hughes INTEQ 2002, Sperry-Sun 1996 and 1998, Weatherford Compact 2007 / Standard 2007 / LWD 2005, Precision Wireline, PathFinder LWD 2007, Western Atlas 8-6 Rev1 12-95)",
+  "page": "environmentalcorrections (References section, lines 807-841); basiclogcalculations (lines 200, 314, 316); cementeval (line 429); sigma (lines 87, 89)",
+  "evidence_fragment": "The Reference Chart Books are: Schlumberger - Log Interpretation Charts (2000) ... NOTE: Senergy Software Ltd cannot guarantee that links to external websites will remain active.",
+  "tier": "A as bibliography / vendor copyright on the chart CONTENT",
+  "reasoning": "Citing which chart book and which chart number is Tier A and is the single most reusable output of the F1 read - it tells SandiBumi exactly which published document to acquire for each correction. Reproducing the chart artwork or its digitized values is a vendor copyright matter and is out of scope. The manual also records that four of the six chart-book download links required a vendor user login even in 2018, which is real acquisition-cost intelligence."
+ },
+ {
+  "item": "'StackOverflow & Wikipedia references, CC By-SA v3.0' declared as a third-party licence",
+  "page": "IP2018 EULA.rtf third-party list",
+  "evidence_fragment": "StackOverflow & Wikipedia references, CC By-SA v3.0",
+  "tier": "C (copyleft obligation)",
+  "reasoning": "NEW and unusual - a commercial petrophysics vendor formally declaring copied StackOverflow/Wikipedia content under a share-alike licence. Flagged because CC BY-SA is viral for derivative text and carries an attribution duty. Direct lesson for SandiBumi: if code or prose is lifted from those sources it must be tracked and attributed, not silently absorbed."
+ },
+ {
+  "item": "SonicSaturation (Omovie, US Patent 12,242,011 B2)",
+  "page": "ABSENT - zero hits for 'sonic satur' or 'omovie' across all 278 pages",
+  "evidence_fragment": "no occurrence",
+  "tier": "C (registered) - not present in this release",
+  "reasoning": "Confirms the item is IP2025-era only and post-dates the 2018 release. Recorded as a negative finding so the register is not later mis-read as incomplete. Also a dating signal: the patented saturation method entered the product between 2018 and 2025."
+ },
+ {
+  "item": "Experienced Eye",
+  "page": "ABSENT - zero hits across all 278 pages",
+  "evidence_fragment": "no occurrence",
+  "tier": "C (registered) - not present in this release",
+  "reasoning": "IP2025-era only. Negative finding recorded deliberately."
+ },
+ {
+  "item": "Entropy-based borehole-image speed correction",
+  "page": "ABSENT as such - zero hits for 'entropy'; IP2018 ships accelerometer/speed-based correction only",
+  "evidence_fragment": "image_analysis (line 209): 'IP has the ability to handle (import and export), render, pick and apply speed/accelerometer based corrections on data created from Dip meter tools.' / imageanalysisoverview (line 158): 'Image corrections MUST be applied in order, listed on the screen with the earliest correction at the top and the latest correction at the bottom.'",
+  "tier": "C (registered) - not present in this release; the IP2018 predecessor is Tier A/B",
+  "reasoning": "Important distinction for SandiBumi. IP2018's image speed correction is conventional accelerometer-based correction, which is standard practice and adoptable. The entropy-based variant registered from IP2025 is a later, branded replacement. The genuinely reusable IP2018 finding is the ordering CONSTRAINT the manual states: image corrections must be applied in a fixed sequence and applying one forecloses re-running earlier ones on the output data."
+ },
+ {
+  "item": "Vendor lineage inconsistency: help disclaimer says 'LR' (Lloyd's Register) while the shipped EULA still says 'Senergy Software Limited'; support email is ipsupport@lr.org",
+  "page": "intro_discalimer_of_warranty (line 62); IP2018 EULA.rtf; environmentalcorrections (line 841)",
+  "evidence_fragment": "help: 'without the expressed written permission of LR' / EULA.rtf: 'without the expressed written permission of Senergy Software Limited' / environmentalcorrections: 'NOTE: Senergy Software Ltd cannot guarantee that links to external websites will remain active.'",
+  "tier": "A",
+  "reasoning": "Market intelligence, not a legal flag. IP2018 is mid-transition PGL/Senergy -> Lloyd's Register, with stale Senergy attribution left in shipped files and in body text. Useful for dating which parts of the manual are legacy: any page still saying 'Senergy' predates the LR rebrand and its content is likely unchanged since the Senergy era."
+ }
+]

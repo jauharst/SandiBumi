@@ -1,0 +1,532 @@
+{
+  "target": "E: Capillary Pressure / Saturation-Height & Rock Typing (Interactive Petrophysics 2018 help ingest)",
+  "source_root": "C:\\Users\\ARUNIKA\\AppData\\Local\\Temp\\c18\\_text",
+  "vendor": "PGL / Lloyd's Register / Geoactive - Interactive Petrophysics 2018",
+  "pages_read": [
+    "cappressuresetup.htm",
+    "cappressurefunctions.htm",
+    "logswversusheightfunctions.htm",
+    "saturation_versus_height_curve.htm",
+    "saturation_height_modelling.htm",
+    "capillarypressuredataloader.htm",
+    "cluster_analysis.htm",
+    "multiplelinearregression.htm",
+    "hfu.htm (added: the Cap-Pressure pages hand off to it for Pittman/Winland/Lucia/FZI rock typing and it holds all the Tier-B citations)"
+  ],
+  "numbers_rule": "Every numeric value below is quoted as the manual states it. Nothing rounded, converted or supplied from outside knowledge. Where a default exists but its value appears only in a screenshot, the value reads 'not stated in manual'.",
+
+  "shf_functions": [
+    {
+      "name": "Leverett J Function",
+      "family": "normalising transform (One Equation for all Pc curves)",
+      "parameters": ["Pc (corrected, psi)", "sigma = Interfacial Tension, dynes/cm", "theta = Contact Angle, degrees", "K = core plug permeability, mD", "phi = core plug porosity, fractional"],
+      "defaults": ["constant 0.2166 (fixed in the equation)", "Set Gas / Water: Contact Angle 0 degrees, Interfacial Tension 50 dynes/cm", "Set Oil / Water: Contact Angle 30 degrees, Interfacial Tension 30 dynes/cm", "J output curve default name: Lev_J"],
+      "citation": "none given in manual",
+      "equation": "J = 0.2166 * Pc / ( \u03c3 * COS \u03b8) * \u221a(\u039a/\u03d5)",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Leverett J Function, porosity modifier",
+      "family": "normalising transform (One Equation for all Pc curves)",
+      "parameters": ["Pc", "sigma", "theta", "K (mD)", "phi (fractional)", "m = cementation exponent"],
+      "defaults": ["\"The default m value is set at a value of 2.8.\"", "constant 0.2166", "Set Gas / Water: 0 degrees / 50 dynes/cm", "Set Oil / Water: 30 degrees / 30 dynes/cm", "output curve default name: Lev_J"],
+      "citation": "none given in manual",
+      "equation": "J = 0.2166 * Pc / ( \u03c3 * COS \u03b8) * \u221a(\u039a/\u03d5 ^m )",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Porosity & Pc Function 1",
+      "family": "non-linear porosity/Pc function (One Equation for all Pc curves)",
+      "parameters": ["Pc (units = output Pc curve units)", "phi (always decimals)", "fitting constants a, b, lambda, c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "rasterized - not recoverable (dialog screenshot only)",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Porosity & Pc function 2",
+      "family": "non-linear porosity/Pc function (One Equation for all Pc curves)",
+      "parameters": ["Pc", "phi (decimals)", "a, b, lambda, c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "rasterized - not recoverable (dialog screenshot only)",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Porosity & Pc function 3",
+      "family": "non-linear porosity/Pc function (One Equation for all Pc curves)",
+      "parameters": ["Pc", "phi (decimals)", "a, b, lambda, c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "rasterized - not recoverable (dialog screenshot only)",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Porosity & Pc Lambda Function",
+      "family": "non-linear porosity/Pc function (One Equation for all Pc curves)",
+      "parameters": ["Pc", "phi (decimals)", "a, b, lambda, c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "rasterized - not recoverable (dialog screenshot only)",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Thomeer Function",
+      "family": "Pc curve-fit (offered both as One-Equation method and as per-plug regression equation)",
+      "parameters": ["Pc (corrected, psi)", "BVnw = fitted constant, bulk volume of the non wetting phase fluid at infinite PC pressure", "porosity (input)", "G = fitted constant, defines the curve shape", "Pd = fitted constant, displacement pressure (PC pressure needed to start reducing saturations)"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = 1.0 - (BVnw / ) e^( -G / Log10(Pc/Pd) )   [verbatim; the porosity symbol failed to decode in the text stream, leaving 'BVnw / )' with an orphaned line '= Input porosity']",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Lambda (regression on J function)",
+      "family": "non-linear regression fitted to the J transform",
+      "parameters": ["J", "a", "lambda", "b"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual; manual calls it \"a capillary pressure-specific curve fitting function\"",
+      "equation": "Sw = a * J^(- \u03bb ) + b",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Hyperbola (regression on J function)",
+      "family": "non-linear regression fitted to the J transform",
+      "parameters": ["J", "a", "b", "c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a / (J-b) + c",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Exponential (regression on J function)",
+      "family": "non-linear regression fitted to the J transform",
+      "parameters": ["J", "a", "b", "c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a * e^(b*J) + c",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Lambda (per-plug, on Pc)",
+      "family": "per-plug regression (Separate equation for each Pc curve)",
+      "parameters": ["Pc", "a", "lambda", "b"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a * Pc^(- \u03bb ) + b",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Hyperbola (per-plug, on Pc)",
+      "family": "per-plug regression (Separate equation for each Pc curve)",
+      "parameters": ["Pc", "a", "b", "c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a / (Pc-b) + c",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Exponential (per-plug, on Pc)",
+      "family": "per-plug regression (Separate equation for each Pc curve)",
+      "parameters": ["Pc", "a", "b", "c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a * e^(b * Pc) + c",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Brooks Corey",
+      "family": "per-plug regression (Separate equation for each Pc curve)",
+      "parameters": ["Pc", "Pd : Displacement pressure (value when Sw = 1)", "lambda : Pc curve Shape factor", "Swi : Irreducible water saturation (Value when Pc is very large)"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = (Pc / Pd)^(- \u03bb ) * (1-Swi)+Swi   [text form]; a second, duplicate statement of the same equation is rasterized as [[EQUATION_IMAGE: embim460.gif]]",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Skelt Harrison",
+      "family": "per-plug regression (Separate equation for each Pc curve)",
+      "parameters": ["Pc", "a", "b", "c", "d"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual (whats-new note reads only 'Also added Skelt-Harrison Function'; the manual's separate Skelt citations belong to the unrelated Laminated Fluid Substitution module and must not be conflated)",
+      "equation": "Sw = a*e^( -(b/(Pc+d))^c)",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "User-Defined Equation (Pc route)",
+      "family": "arbitrary user formula",
+      "parameters": ["fixed keywords Pc, Phi, Perm", "up to 4 further optional curve keywords (7 curves total)", "up to 7 coefficients; per-plug route states 'up to 4 coefficients which can be regressed'", "each coefficient individually fixable"],
+      "defaults": ["none stated; the Pc keyword must be present or the equation 'has no meaning for modelling Sw from capillary pressure'"],
+      "citation": "n/a",
+      "equation": "user-entered, must parse in the IP User Formula module; savable/loadable as UDE files",
+      "source_page": "cappressurefunctions.htm"
+    },
+    {
+      "name": "Sw function of height",
+      "family": "log-derived Sw-vs-height method (no core required)",
+      "parameters": ["Sw", "h = height above FWL"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = f(h)",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "BVW function of height",
+      "family": "log-derived Sw-vs-height method (no core required)",
+      "parameters": ["BVW = Bulk Volume of Water", "h"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual (Cuddy is never named anywhere in the saturation-height chapters)",
+      "equation": "BVW = f(h)",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Rock Quality Index (log Sw vs height)",
+      "family": "log-derived Sw-vs-height method",
+      "parameters": ["K = permeability from logs, mD", "phi = porosity from logs, decimal", "h"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = f(RQI.h) & RQI = \u221a ( \u039a / \u03d5 )   [NOTE: no 0.0314 constant here, unlike the HFU module's RQI]",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Rock Quality Index, porosity modifier (log Sw vs height)",
+      "family": "log-derived Sw-vs-height method",
+      "parameters": ["K (mD)", "phi (decimal)", "h", "m = cementation exponent"],
+      "defaults": ["none stated on this page (no default m given for the log route)"],
+      "citation": "none given in manual",
+      "equation": "Sw = f(RQI.h) & RQI = \u221a ( \u039a / \u03d5 ^m)",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Porosity & Height function 1",
+      "family": "non-linear porosity/height function",
+      "parameters": ["h", "phi", "a", "b", "c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = 1.0 / [(a +h^b). \u03d5 ^c]",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Porosity & Height function 2",
+      "family": "non-linear porosity/height function",
+      "parameters": ["h", "phi", "a", "b", "c", "d"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = 1.0 / [(a +b.h^c)). \u03d5 ^d]   [the stray extra ')' is verbatim from the manual]",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Porosity & Height function 3",
+      "family": "non-linear porosity/height function",
+      "parameters": ["h", "phi", "a", "b", "c", "d", "f"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = [a + b.Log(h) + c.Log(h)^2 + d. Log(h)^3 ] / [ \u03d5 ^f ]",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Porosity & Height Lambda function",
+      "family": "non-linear porosity/height function",
+      "parameters": ["h", "phi", "a", "b", "c", "d"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a.h^(b. \u03d5 + c) + d",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Linear (log Sw vs height regression)",
+      "family": "regression equation, log route",
+      "parameters": ["h", "a", "b"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a + b.h",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Linear / Log",
+      "family": "regression equation, log route",
+      "parameters": ["h", "a", "b"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a + b.Log(h)",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Log / Linear",
+      "family": "regression equation, log route",
+      "parameters": ["h", "a", "b"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Log(Sw) = a + b.h",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Log / Log",
+      "family": "regression equation, log route",
+      "parameters": ["h", "a", "b"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Log(Sw) = a + b.Log(h)",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Lambda (log Sw vs height)",
+      "family": "regression equation, log route",
+      "parameters": ["h", "a", "lambda", "c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a.(h)^(- \u03bb ) + c",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Hyperbola (log Sw vs height)",
+      "family": "regression equation, log route",
+      "parameters": ["h", "a", "b", "c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a / (h - b) + c",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Exponential (log Sw vs height)",
+      "family": "regression equation, log route",
+      "parameters": ["h", "a", "b", "c"],
+      "defaults": ["none stated"],
+      "citation": "none given in manual",
+      "equation": "Sw = a.e^(b.h) + c",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "User Defined Equation (log Sw vs height route)",
+      "family": "arbitrary user formula",
+      "parameters": ["fixed keywords Ht, Phi, Perm", "up to 4 further optional curve keywords (7 curves total)", "up to 7 coefficients, each individually fixable"],
+      "defaults": ["none stated; the Ht keyword must be present or the equation 'has no meaning for modeling Sw from height above the FWL'"],
+      "citation": "n/a",
+      "equation": "user-entered, must parse in the IP User Formula module; savable/loadable as UDE files",
+      "source_page": "logswversusheightfunctions.htm"
+    },
+    {
+      "name": "Lucia rock-class irreducible water saturation (Swi from height)",
+      "family": "rock-class-specific saturation-height function emitted by the HFU module",
+      "parameters": ["H : height above the FWL in feet", "phi : interparticle porosity in v/v", "Rock Class (1, 2 or 3)", "user-entered FWL depth in well depth units (feet or meters)"],
+      "defaults": ["Rock Class boundaries per Lucia: Class 1 RFN 0.5-1.5, Class 2 RFN 1.5-2.5, Class 3 RFN 2.5-4.0 ('Set Defaults' restores them)"],
+      "citation": "Jerry Lucia book Carbonate Reservoir Characterization, 2007 published by Springer. Also SPE paper 84942 Predicting Permeability from Well Logs in Carbonates With a Link to Geology for Interwell Permeability Mapping August 2003 by James W. Jennings Jr and F. Jerry Lucia.",
+      "equation": "rasterized - not recoverable (one image per rock class; only the variable definitions and their units survive in text)",
+      "source_page": "hfu.htm"
+    }
+  ],
+
+  "shf_function_count_note": "32 fitted forms are documented for the log-Sw-vs-height route alone; the manual independently confirms this ('there are 32 models' = 4 base Methods x 7 Regression Equations + 4 Porosity & Height functions). 16 distinct entries cover the Pc/core route. Zero saturation-height functions carry a primary citation.",
+
+  "lab_to_reservoir": {
+    "ift_defaults": [
+      {"context": "Reservoir, Set Gas / Water button (Cap Pressure Set-Up, and repeated in the Leverett-J dialogs and in Saturation-vs-Height as 'Set Pc fluid Gas/Water')", "value": "50 dynes/cm", "verbatim": "Clicking Set Gas / Water returns Contact Angle Reservoir 0 degrees and Interfacial Tension Reservoir 50 dynes/cm.", "source_page": "cappressuresetup.htm"},
+      {"context": "Reservoir, Set Oil / Water button", "value": "30 dynes/cm", "verbatim": "Clicking Set Oil / Water returns Contact Angle Reservoir 30 degrees and Interfacial Tension Reservoir 30 dynes/cm.", "source_page": "cappressuresetup.htm"},
+      {"context": "Reservoir, 'Use Dry Rock Reservoir Properties' tickbox", "value": "1 dynes/cm", "verbatim": "This sets the reservoir Contact Angle to 0 deg and the Interfacial Tension to 1 dynes/cm.", "source_page": "cappressuresetup.htm"},
+      {"context": "Laboratory - Mercury Injection", "value": "not stated in manual", "verbatim": "Default values for Interfacial Tension and Contact Angle parameters are provided. However, the table can be modified. [values appear only in a screenshot - Tier D]", "source_page": "cappressuresetup.htm"},
+      {"context": "Laboratory - Centrifuge", "value": "not stated in manual", "verbatim": "[same - screenshot only; a 'Restore Defaults' button confirms shipped defaults exist and resets the first 3 columns of the table]", "source_page": "cappressuresetup.htm"},
+      {"context": "Laboratory - Porous Plate", "value": "not stated in manual", "verbatim": "[same - screenshot only]", "source_page": "cappressuresetup.htm"},
+      {"context": "IFT Correction Factor search range (Saturation vs Height, 'Search for best IFT correction factor')", "value": "0.1 to 5", "verbatim": "The range is logarithmic and the defaults of 0.1 to 5 are normally adequate.", "source_page": "saturation_versus_height_curve.htm"}
+    ],
+    "contact_angle_defaults": [
+      {"context": "Reservoir, Set Gas / Water button", "value": "0 degrees", "verbatim": "Clicking Set Gas / Water returns Contact Angle Reservoir 0 degrees and Interfacial Tension Reservoir 50 dynes/cm.", "source_page": "cappressuresetup.htm"},
+      {"context": "Reservoir, Set Oil / Water button", "value": "30 degrees", "verbatim": "Clicking Set Oil / Water returns Contact Angle Reservoir 30 degrees and Interfacial Tension Reservoir 30 dynes/cm.", "source_page": "cappressuresetup.htm"},
+      {"context": "Reservoir, 'Use Dry Rock Reservoir Properties' tickbox", "value": "0 deg", "verbatim": "This sets the reservoir Contact Angle to 0 deg and the Interfacial Tension to 1 dynes/cm.", "source_page": "cappressuresetup.htm"},
+      {"context": "Laboratory - Mercury Injection / Centrifuge / Porous Plate", "value": "not stated in manual", "verbatim": "[the Reservoir and Laboratory fluid / rock properties table ships defaults but the values are in a screenshot only]", "source_page": "cappressuresetup.htm"},
+      {"context": "units convention", "value": "degrees", "verbatim": "Contact angles are entered in units of degrees and IFT in dynes/cm.", "source_page": "saturation_versus_height_curve.htm"}
+    ],
+    "conversion_notes": [
+      "Lab-to-reservoir Pc conversion equation is RASTERIZED - not recoverable. Prose only: 'multiplying the known Pc values by the absolute ratio of the Laboratory and Reservoir \u03c3 * Cos \u03b8 values'. Variables defined: Pc,Res / Pc,Lab / \u03c3 Lab / \u03b8 Lab / \u03c3 Res / \u03b8 Res.",
+      "Worked example that discloses the same algebra numerically (verbatim): 'if the function was developed for oil with an IFT value of 30 and a contact angle of 30 degrees, then used in gas with an IFT of 50 and a contact angle of 0 degrees. The IFTCorrFactorGas would be equal to 50 x Cos(0.0) / (30 x Cos(30.0) = 1.924' [unbalanced parenthesis is verbatim].",
+      "Three lab methods supported and independently parameterised: Mercury Injection, Centrifuge, Porous Plate. A per-plug numeric 'Method ID' flag curve can be loaded and mapped onto these three rows.",
+      "Mercury vs brine handled by a per-well 'Pc Sat Type in' switch: Water Wet (saturation reported as wetting phase) vs Non Wet, with SwPc = 1 - (Snw).",
+      "Accepted Pc input units: psi, Bar, Kg/M 2, Mpa. 'IP converts Pc pressure values to psi based on the input units.' Saturation/porosity: % or dec (converted to decimals). Permeability: mD or m 2 (converted to mD).",
+      "Default output units: 'psi for corrected Capillary Pressure curves and decimals for Corrected Pc Saturation curves.'",
+      "Stress correction: PcCorr = Pc * ( PhiRes/PhiLab Factor ) ^ (-0.5) ; SwPcCorr = 1- [(1- SwPc ) * ( PhiRes/PhiLab Factor )]. Example factor used in the manual's narrative: 0.9562 (example, not a default).",
+      "Clay-bound-water correction, the only cited correction: 'based on the method described by Hill, Shirley and Klein 1979 ( SPWLA 20th annual Symposium Paper AA - \"The Central Role of Qv and Formation Water Salinity in the Evaluation of Shaley Formations\")'. PcCorr = Pc * ( F ) ^ (-0.5) ; SwPcCorr = 1- (1 - SwPc ) * F ; F = 1 - [0.6425 * ( Salinity ^ (-0.5) + 0.22 ] * Qv ]  <-- WARNING: brackets are unbalanced exactly as quoted; verify against the rendered page before implementing. Salinity in Kppm NaCl equivalent; Qv in meq/ml. Example in manual narrative: Salinity of 30Kppm NaCl (example, not a default).",
+      "Closure correction: SwCorr = Sw (input) + SwClosure, clamped 0-100% Sw. Entry (displacement) pressure is picked with it; the Pc at 100% Sw is forced to the entered entry pressure and 'If after corrections there are multiple Sw values of 100% then all but the last one will be set to a Null Value'. Worked table given at Closure Correction = 5 % and Entry Pressure = 3.5 psi.",
+      "CORRECTION EXECUTION ORDER (binding, verbatim): 1. Convert input Pc Saturation data to Non-wetting phase saturations. 2. Closure correct the input saturation values. 3. Perform the Stress Correction, if selected. 4. Apply the Clay-bound-water correction, if selected. 5. Convert saturation data to Wetting phase saturations. 6. Perform the Laboratory to reservoir Pc Corrections, if selected. -- i.e. stress and clay corrections run in non-wetting-phase space and the flip back happens immediately before the lab->reservoir conversion.",
+      "Pc to height (Cap Pressure Set-Up): Height = Pc / 0.433 (\u03c1Water - \u03c1Hc). '0.433 psi/ft is the gradient of pure water at ambient conditions: takes care of the g term in the normal P=h\u03c1g equations.' 'The gradient of fresh water is 0.433 psi/ft for a density of 1 g/cc and standard gravity g.' Densities are specific gravities at reservoir conditions; height comes out in the database depth-curve units.",
+      "Height to Pc (Saturation vs Height, oil case): Pc = h * 0.433 (\u03c1Water - \u03c1Hc) * IFTCorrFactor.",
+      "Gas-over-oil case, above the GOC: Pc = (FWL-GOC) * 0.433 (\u03c1Water - \u03c1Hc) * IFTCorrFactor + (h - (FWL-GOC)) * 0.433 (\u03c1Water - \u03c1Gas) * IFTCorrFactorGas. Between FWL and GOC the oil equation is used.",
+      "INCONSISTENCY: the Function XPlot format panels of BOTH function modules state the same conversion WITHOUT the 0.433 constant - 'Height above FWL = Pc / (Water Density ? Hydrocarbon Density)'. Two statements of one conversion in one product; the 0.433 form is the one with a derivation and the one used in the Run All Wells path.",
+      "FWL vs OWC: IP is FWL-ONLY. Input is 'TVD Free Water Level - True Vertical Subsea Depth value must be entered for each selected well'. There is no OWC parameter anywhere. 'TVD Gas Oil Contact' exists but is 'only required for calculations using Pc models and for Gas-over-Oil reservoirs'.",
+      "Below-FWL behaviour is a single switch: 'Oil Wet - When checked, allows Sw_Ht values to be calculated below the FWL. If un-checked, everything below the FWL is set to wet.'",
+      "Well Group: integer group id links FWL across wells so one interactive drag moves a whole fault block ('eg group s 1,2,3 may represent different fault blocks with different FWLs').",
+      "Hydrocarbon and gas densities may be a fixed value OR a curve; with a curve 'the capillary pressure at a level is calculated by calculating the thickness weighted average of the input density curve from this level to the contact (either FWL or GOC). This allows for high angle wells'.",
+      "Default calculation bottom depth: 'If not entered will be the bottom of the well or the FWL, which ever is shallower.'",
+      "Output curve PcAbCont 'does not include any IFT correction factor' - the raw Pc-above-contact curve is deliberately uncorrected while the Pc fed to the functions is corrected.",
+      "FWL solver ('Fluid Contact Fitting'): scan a depth range, score by 'Cumulative Difference value ... the sum of the differences of the hydrocarbon volumes (or Sws) for each depth step above the current FWL, for all selected wells. The lowest values will be the Most Likely FWL.' 'Use Hydrocarbon volumes' (porosity-weighted) is selected by default.",
+      "IFT solver ('Search for best IFT correction factor'): same cumulative-difference scoring, logarithmic scan, defaults 0.1 to 5. The IFT Corr Factor is also draggable as a live line in track 4 of the interactive log plot.",
+      "Pore radius track (track 7): R = 2* IFT * Cos (CA) /Pc, where 'IFT = Interfacial tension at lab conditions' and 'CA = Contact angle at lab conditions' - deliberately pre-conversion.",
+      "Derived array outputs: Pore Size curve = 80 X values, first 0.01 microns, 80th 100 microns, logarithmic, 20 X values per decade. Throat Size curve = 80 elements, first value 0.1 (microns), last 100 (microns), logarithmically spaced. THESE TWO CONTRADICT on the low end (0.01 vs 0.1) - both recorded verbatim, neither corrected. Pc Normalized curve = X cell dimension 51, each cell 2.0 saturation units. 'Pc Sat / Pc' = slope of individual Pc v Sw points, used for the Apex crossplot.",
+      "Report example (worked example values, NOT defaults): Well Exp 4, TVD FWL 3128.8, Hyd. Density 0.2 gm/cc, Water Density 1. gm/cc, IFT Corr. Factor 1.14, Pc = (3128.8 - TVDSS) * 1.29659 psi, Pc function Sw = 0.1174 * (Pc * 3.84900E-2 * (K/\u03a6)^0.5)^(-0.43881) + 0.28661, Log function Sw = 1.0 / ( (3.59475 + h^0.3406) * \u03a6^0.74781 )."
+    ]
+  },
+
+  "rock_typing": {
+    "tier": "Tier A / Tier B. No branded, patented or proprietary clustering or rock-typing method found anywhere in the assigned pages or in hfu.htm. Clustering is textbook K-means + textbook agglomerative hierarchical linkage; the phi-K rock-typing methods are published science with citations printed.",
+    "methods": [
+      {
+        "name": "K-mean clustering (Cluster Analysis for Rock Typing, stage 1)",
+        "algorithm": "Assign each point to the nearest cluster mean by sum-of-squares distance, recompute means, iterate 'until the mean values do not change between loops'.",
+        "normalisation": "z-score standardisation, unconditional and applied to every input: 'The normalization is done by calculating the mean and standard deviation of the log and then normalizing the data by subtracting the mean and dividing by the standard deviation. Hence a normalized log data value of 1.0 or -1.0 will be one standard deviation.' Reported cluster Mean values are back-transformed to input-log units; Cluster Spread is reported in standard deviations of the original data.",
+        "seeding": "Principal component analysis, not random: the first principal component log is computed, data sorted along it, split into equal groups, and each group's per-log average becomes the seed. Documented failure mode: 'One or more of the clusters had zero data points! Try re-running the clustering or changing the default seed points'.",
+        "citation": "no method citation; reading suggestion only - 'Multivariate Pattern Recognition and Classification Methods, Geological Log Analysis Using Computer Methods, J.H Doveton'",
+        "source_page": "cluster_analysis.htm"
+      },
+      {
+        "name": "Hierarchical cluster consolidation (stage 2) - five linkage methods",
+        "algorithm": "Agglomerative: merge the two closest clusters, recompute distances, repeat 'until you have only one cluster'; render as a dendrogram; cut at N groups. The five options differ only in how distance to a merged cluster Z (=A+B) is recomputed: (1) Minimum distance between all objects in clusters = min(A-C, B-C); (2) Maximum distance between all objects in clusters = max(A-C, B-C); (3) Average distance between merged clusters = 'the average distance of all objects that would be within the cluster formed by merging clusters and C'; (4) Average distance between all objects in clusters = 'the average distance of objects within cluster Z to objects within cluster C'; (5) Minimize the within-cluster sum of squares distance = 'the increase in these sums of squares if the two clusters were merged'.",
+        "behaviour_note": "'Minimum distance ... will yield long thin clusters while Maximum distance ... will yield clusters that are more spherical.'",
+        "citation": "none given",
+        "source_page": "cluster_analysis.htm"
+      },
+      {
+        "name": "Cluster Randomness Plot / Randomness index (cluster-count selection heuristic)",
+        "algorithm": "Av. Thickness = Number of depth levels / Number of cluster layers ; Random Thickness = \u03a3 p i / (1 ? p i) ; Randomness index = Av. Thickness / Random Thickness, 'Where p i is the proportion of depth levels assigned to the i th cluster'. 'A value of 1 would be totally random, higher values less random.' Interpretation: 'picking the number of clusters that are least random (highest peaks)'.",
+        "citation": "NONE - vendor-original heuristic, fully disclosed. Reimplementable but should be validated independently, not assumed to have a published pedigree.",
+        "source_page": "cluster_analysis.htm"
+      },
+      {
+        "name": "Cluster calibration to an external facies curve (inverse-square-distance weighted voting)",
+        "algorithm": "'For each input calibration data point the multi-dimensional distance from the calibration point to each K-Mean cluster point is calculated. The value of the calibration curve is then stored at each cluster with a weighting factor which is the inverse of the square of the distance of the calibration point to this cluster point ... the weighted average for each calibration facies for each K-Mean cluster is calculated. For each K-Mean cluster the facies with the highest weighting is considered the most likely result.' Per-cluster override allowed. Constraint: the calibration curve may be a Text curve but 'cannot be a continuously variable curve like core permeability'.",
+        "citation": "none given",
+        "source_page": "cluster_analysis.htm"
+      },
+      {
+        "name": "Rock Quality Index / Flow Zone Indicator HFU",
+        "algorithm": "RQI = 0.0314 x Sqrt( K / Phi ) ; PhiZ = Phi / (1 ? Phi) ; FZI = RQI / PhiZ. 'A log/log plot of RQI against Phiz will show data in the same flow unit as values on a straight line with unit slope. The FZI of the flow unit will be the point on the line when Phiz equal 1.' The Kozeny-Carmen derivation steps are rasterized - not recoverable.",
+        "citation": "SPE paper 26436 ?Enhanced Reservoir Description: Using Core and Log Data to Identify Hydraulic (Flow) units and Predict Permeability in Uncored Intervals/Wells? (manual gives paper number and title only - NO author names printed)",
+        "source_page": "hfu.htm"
+      },
+      {
+        "name": "Winland R35 HFU",
+        "algorithm": "WinR35 = ALog( 0.732 + 0.588 Log(K) ? 0.864 Log(Phi) ) where Phi is in percent. Equivalent form printed: Log (R35) = 0.732 + 0.588 Log(Kair) ? 0.864 Log(Phicore).",
+        "citation": "No formal paper. Attribution given: 'The Winland equation was created by Dale Winland of Amoco.' Provenance: 'originally defined from mercury porosimetry measurements on some 300 samples from the Spindle Field in Colorado.'",
+        "source_page": "hfu.htm"
+      },
+      {
+        "name": "Pittman R10-R75 HFU (14 equations)",
+        "algorithm": "Log(R10) = 0.459 + 0.500 Log(K) - 0.385 Log(Phi) ; Log(R15) = 0.333 + 0.509 Log(K) - 0.344 Log(Phi) ; Log(R20) = 0.218 + 0.519 Log(K) - 0.303 Log(Phi) ; Log(R25) = 0.204 + 0.531 Log(K) - 0.350 Log(Phi) ; Log(R30) = 0.215 + 0.547 Log(K) - 0.420 Log(Phi) ; Log(R35) = 0.255 + 0.565 Log(K) - 0.523 Log(Phi) ; Log(R40) = 0.360 + 0.582 Log(K) - 0.680 Log(Phi) ; Log(R45) = 0.609 + 0.608 Log(K) - 0.974 Log(Phi) ; Log(R50) = 0.778 + 0.626 Log(K) - 1.205 Log(Phi) ; Log(R55) = 0.948 + 0.632 Log(K) - 1.426 Log(Phi) ; Log(R60) = 1.096 + 0.648 Log(K) - 1.666 Log(Phi) ; Log(R65) = 1.372 + 0.643 Log(K) - 1.979 Log(Phi) ; Log(R70) = 1.664 + 0.627 Log(K) - 2.314 Log(Phi) ; Log(R75) = 1.880 + 0.609 Log(K) - 2.626 Log(Phi). Phi in percent.",
+        "citation": "Pittman, E.D.: \"Relationship of Porosity and Permeability to Various Parameters Derived from Mercury Injection-Capillary Pressure Curves for Sandstone,\" AAPG Bull., v. 76, no. 2 (1992b) 191-198.",
+        "source_page": "hfu.htm"
+      },
+      {
+        "name": "Lucia Carbonate Rock Fabric Number (RFN) rock classes",
+        "algorithm": "RFN equation is RASTERIZED - not recoverable ('Where porosity is in decimals and permeability is in milli-darcies'). Classes: Class 1 grain-dominated grainstones/dolograinstones/large crystalline dolostones RFN 0.5-1.5; Class 2 grain-dominated packstones RFN 1.5-2.5; Class 3 mud-dominated packstone/wackestone/mudstone RFN 2.5-4.0. Fitting method stated: 'He plotted the core data Porosity v. Permeability for each class and fit the data using a RMA regression. He combined the equations into a global transform using the boundaries of the petrophysical rock classes.'",
+        "citation": "Jerry Lucia book Carbonate Reservoir Characterization, 2007 published by Springer. Also SPE paper 84942 Predicting Permeability from Well Logs in Carbonates With a Link to Geology for Interwell Permeability Mapping August 2003 by James W. Jennings Jr and F. Jerry Lucia.",
+        "source_page": "hfu.htm"
+      },
+      {
+        "name": "Apex-plot selection rule (links MICP data to the correct Pittman equation)",
+        "algorithm": "'If a plot of mercury saturation (HgSat) versus HgSat/PC is made (?Apex? plot), then the HgSat at the maximum value on the Y axis (threshold pressure) is the saturation where the Hg become continuous.' Worked case from the Pc module: 'a 60% Sw seen on the ?Apex? plot, which corresponds to a 40% mercury saturation, means the Pittman R40 equation should be used.' The required quantity is already emitted by the Pc module as the 'Pc Sat / Pc' curve.",
+        "citation": "same Pittman 1992b citation; 'In the Pittman study a saturation of 36% was found to be the average for these sandstones.'",
+        "source_page": "hfu.htm + cappressuresetup.htm"
+      },
+      {
+        "name": "Lorenz plot boundary picking (shared by RQI/Winland/Pittman)",
+        "algorithm": "Data reverse-sorted on the indicator (FZI / WinR35 / Pittman R), 'linearly accumulated and normalized to a give a maximum value of 1.0'. X = Cumulative Storage Capacity (cumulated porosity), Y = Cumulative Flow Capacity (cumulative permeability), Z = indicator on a colour scale. Boundaries picked at inflection points; 'Draw Linear Segments' aids picking.",
+        "citation": "none given",
+        "source_page": "hfu.htm"
+      }
+    ],
+    "defaults": [
+      "Cluster Analysis stage-1 count guidance: '15 to 20 clusters would appear to be a reasonable number for most data sets'.",
+      "Cluster Analysis stage-2 target: 'This may involve reducing the data to 4 to 5 clusters.'",
+      "Default hierarchical method: 'The default method Minimize the within-cluster sum of squares distance gives good results for separating out the different log lithologies into different clusters.'",
+      "Maximum input curves per well: 'You can use up to eight input curves per well.' (same limit in the SOM module)",
+      "Maximum output user sets: 'there is a maximum number of User sets which is seven'.",
+      "Text-curve name extension default: '_T' appended to the normal curve name; default text values 'Facies ' + facies number.",
+      "Calibration Fit flag curve values: 1.0 where the calibration curve matches the output facies curve, 0.0 where different; name = Calibration Fit Base Curve Name + '_1', '_2', '_3'...",
+      "Per-curve Log option takes the base 10 logarithm before clustering - recommended for 'curve data which is in logarithmic form (such as core permeability)'.",
+      "Cluster Analysis default depth range: 'The default depths are the log minimum and maximum depths in the well.'",
+      "Cluster Analysis example run (example, not a default): 15 initial clusters (L_FaciesAll) consolidated to 11 (L_Facies), 8 (L_Facies2) and 5 (L_Facies3) groups across four wells.",
+      "HFU cluster-based boundary init: 'The FZI data is clustered into 25 nodes using K mean clustering. Then the cluster nodes are re-clustered into the number of selected flow units using Hierarchical clustering.' Identical wording and the same 25 for the Winland and Pittman variants.",
+      "HFU alternative boundary init: 'boundaries are selected from the maximum and minimum FZI values. They are equally spaced in logarithmic space.'",
+      "HFU extrapolation guard: 'The low values of the first flow unit and the high value of the last flow units are extended to cover data beyond the dataset currently selected.'",
+      "Default HFU names 'HFU 1', 'HFU 2', ... ; default Lucia rock class names 'RC 1', 'RC 2', 'RC 3'.",
+      "Winland net-pay convention: 'Winland used an R35 value of 0.5\u03bcm as the definition of net pay for the Spindle Field due to evidence he had seen of dry wells having an R35 of <0.5\u03bcm and producing wells with R35>0.5\u03bcm.'",
+      "Lorenz plot axis expansion options: X from -0.1 to 1.0, Y from 0.0 to 1.1.",
+      "Rock Class column in the Pc module can be seeded from HFU via 'Copy HFU number to Rock Class' (4 copy options); if Rock Class values are absent the Pc curves will not display and must be initialised 'to some default value (ie 0)'.",
+      "Unit conventions differ by method IN THE SAME MODULE: Winland and Pittman use porosity in PERCENT ('may need multiplying by 100'), Lucia uses porosity in DECIMALS ('may need dividing by 100')."
+    ]
+  },
+
+  "regression": {
+    "multiple_linear_regression": {
+      "purpose_in_this_workflow": "Not part of the SHF fitting chain. It is IP's generic least-squares curve-prediction engine; its role here is upstream - producing the CONTINUOUS log-scale porosity/permeability curves that the J-function, RQI and HFU routes require, because 'Sparse data Core Porosity and / or Core Permeability curves are not suitable for use in this module' (Saturation vs Height). The manual's own example predicts core permeability.",
+      "method": "'a least squares regression routine, which will try and find the best fit to the input data'",
+      "options_and_defaults": [
+        "Curve to Predict per well; 'If a well is not to be used in the creation of a model, but only for prediction, then leave the Curve to Predict cell blank.'",
+        "Default Name doubles as an enable flag: 'If the Default Name is blank then the row will not be used.'",
+        "Log column: 'will normalize the curve by taking the base 10 logarithm of the curve before using it. All other displays in the module will then reflect this.'",
+        "Separate Model Build and Model Run depth intervals; 'The defaults are the total well depths' for both; build limits 'are not used for running a created model'.",
+        "Two discriminator curve slots (Discriminator Curve 1, Discriminator Curve 2) applied at both build and run.",
+        "Reports raw coefficients, Norm Coefficients ('The closer the normalized coefficient value is to zero for an input curve, the lower its effect on the model build'), total data points, and R2.",
+        "Clip resultant curve: 'when selected, restrict the output curve to have values within the minimum and maximum values entered' - bounds user-entered, no default values stated.",
+        "Null All Output Curves before re-running.",
+        "'Copy as Formula' right-click export of the fit as a User Formula string.",
+        "No regularisation, collinearity diagnostics, train/test split or default curve count are described."
+      ]
+    },
+    "shf_fitting_mechanics": [
+      "Weighting (identical wording on both the Pc and log routes): 'the points that go into the regression are weighted by the reciprocal of the Sw value. The Sw value will be in decimal units and the maximum weighting factor will be 10. Therefore an Sw of 1.0 will have a weight of 1 and an Sw of 0.1 will have a weight of 10.' i.e. weight = min(1/Sw, 10), Sw in decimals.",
+      "Non-linear regression is iterative and start-value dependent: 'It is possible that several regression results, equally good, could be found for the same function. The starting coefficients will be what decide which solution is found.' A Cancel button exists. 'Some equations will work with the starting coefficients all set to zero. Others will just fail.'",
+      "Fixed coefficients: any coefficient may be pinned and excluded from the regression, and a fixed coefficient may itself be an equation (a correlation against another curve). Recommended staged workflow: run all free, find the coefficient with the best correlation, fix it, re-run, repeat. Caveat: 'fixing a coefficient to a value which is a long way away from the free regression results can result in a very poor fit.'",
+      "Regression Function Comparator: brute-forces every model/equation combination and ranks by R2 ('sorted with the best R2 at the top'), with a Use Selected button. Log route search space stated as 32 models.",
+      "Coefficient Correlation Types (per-plug route, mapping a fitted coefficient onto a curve): 'y = Av. value' (THE DEFAULT - 'This is the default setting when the module is first opened'), 'y = Median value', 'y = f(x)' (minimises squared Y errors), 'x = f(y)' (minimises squared X errors), 'RMA' ('reduced major axis line-fit gives an equation that is midway between the above methods'), '2nd Order Poly', '3rd Order Poly'. Plus Log(X)/Log(Y) toggles, polygon-based outlier exclusion ('Re-run Regression using Area') and a draggable regression line that writes its new equation back into the model.",
+      "Combined Equation statistics reported per coefficient: Average Value, Median Value, Min, Max, Standard Deviation.",
+      "No convergence tolerance, iteration cap or R2 acceptance threshold is stated anywhere.",
+      "Every fitted model is exportable as text ('Copy as Formula' / right-click copy of the Result Equation / the Saturation-vs-Height report prints the Pc equation and the function equation per well 'for use in other applications')."
+    ]
+  },
+
+  "caveats": [
+    "What invalidates a Pc fit (verbatim): 'If for example, you think a Pc Curve is a Double curve, i.e. a composite curve composed of two curves, each representing one pore network, it should be excluded from your dataset. Obviously invalid Pc versus Saturation curves should also be discarded.'",
+    "Multiple 100% Sw points break the fit - IP nulls all but the last, 'this insures that the curve fitting function used in the Cap Pressure Function module are not affected by multiple 100% Sw values with different Pc value.'",
+    "'if multiple points are on top of each other then the Remove / Restore data point will only change the top point. Hence, it is best when QCing Pc curves to work on one Pc curve at a time.'",
+    "'For quality checking plug data the Pc V Sw. Z axis Use flag crossplot must be selected. The Phi and Perm crossplots cannot be used for quality checking the plugs interactively ... these crossplots ignore the the PcUse curves and therefore are unable to change their values.'",
+    "Destructive reset: setting a Part Good plug back to Plug Good 'will reset all the data points in the core plug that you have modified. Your data is returned to its un-modified state. Any modifications are discarded.' Same for Clear All.",
+    "'the core porosity should be overburden corrected as the function generated will be used with log porosity.'",
+    "'the core permeability should be overburden corrected only if used with log data which has generated an overburden corrected permeability. I.e. log and core data should be the same with respect to overburden correction.'",
+    "'There is no definitive way of calculating the closure correction and it has to be done visually by looking closely at each Pc curve.'",
+    "Clay correction is scoped to mercury systems: 'Where an Air/Mercury measurement system has been used, applying the Clay Correct Flag provides a correction for the missing clay-bound water.' A Qv input curve is required.",
+    "'Sparse data Core Porosity and / or Core Permeability curves are not suitable for use in this module' (Saturation vs Height requires continuous log curves calibrated to core).",
+    "'The Functions Mixing Setup relies on a consistent curve naming convention in all selected wells.' UDE optional curves likewise 'must exists in all wells used to create this function.'",
+    "'Null output Sw Curves ... Warning: if you are using multiple hydrocarbon models, selecting this check box will delete the results from other models.'",
+    "Per-plug fit R2 is not evidence: 'The output shows a near-perfect 1:1 regression curve fit for each separate plug, as we are regressing only one curve at a time.' Only the Combined Equation crossplot is diagnostic ('This plot will show much wider data scatter').",
+    "Function-shape guidance: 'Both Hyperbola and Exponential regression fits are better suited to use in poor quality rock, because they are not very good at representing sharp transition zones seen in high porosity / permeability reservoir.' The four Porosity & Pc functions 'are suitable for poor quality (low porosity & permeability) reservoir rocks which have significant transition zones.'",
+    "UDE sanity check: 'It is a good idea to use the View Function option to check the resulting functions are at least plotting on-screen. If they are not, then this usually indicates that the starting coefficients are so far off that the regression has not converged on a sensible solution.'",
+    "Log-route unit prohibition: 'DO NOT mix wells with imperial (Feet) and metric units (meters) in the same function, unless the TVDSS input curves which are used as an input have been converted so they all contain consistent units.'",
+    "Log route prerequisite: 'This module can only be run after an interpretation to evaluate Porosity and Water Saturation has been made in each well.' TVDSS curve 'Curve Type ... must be set to depth in the Manage Curve Headers module'. Sw, Porosity and BVW inputs 'must be in the units of decimals'.",
+    "HFU data mixing: 'It is recommended not to mix log and core data due to up scaling resolution problems.'",
+    "Rock Class plug selection gotcha: 'Note it is necessary to unselect all plugs before making a new selection.' And absent Rock Class values mean 'the PC curves will not show up on the crossplot'.",
+    "Loader: 'A maximum of 100 plugs can be entered at any one time'; defaults No. of Curves = five, No. of Text Curves = two; Depth Tolerance collision rule - plugs closer than the tolerance are merged and 'will overwrite the data for plug 1'.",
+    "Function Mixing discriminator grid: 'starts off with a default of 15 lines for each mixing ... up to a maximum of 1000 lines'.",
+    "Cluster output colours: 'users should not use colors with shading, for example bitmaps as the crossplot module will not be able to recognize the bitmap and will display an alternative color.'",
+    "IP's own printed example report contains -999. null coefficients inside the Result equation (Sw = (-999. - 999. * RawC:Phi) * Pc^(-1.78377) + 0.18698) - a real defect visible in the vendor documentation, and a reminder to gate on finite coefficients before shipping a function.",
+    "NAMING COLLISION: 'RQI' means two different things in IP 2018 - \u221a(K/\u03d5) with NO constant in the Log-Sw-vs-Height methods, versus 0.0314 x Sqrt(K/Phi) in the Hydraulic Flow Units module. Namespace these in any reimplementation."
+  ],
+
+  "tierC_flags": [
+    "NONE found. No patent numbers, trademarks, 'proprietary'/'patented' language, or shipped model weights appear in any of the eight assigned pages or in hfu.htm. Every method is either published science with a printed citation, standard statistics (K-means, PCA seeding, five classic agglomerative linkages, least-squares MLR, RMA), or plain UI/workflow.",
+    "BORDERLINE (logged, not a restriction): 'Cluster Randomness Plot' / Randomness index - vendor-original cluster-count heuristic with no citation, but the formula is fully disclosed in the manual, so it is reimplementable from the disclosure. Validate independently rather than assuming published pedigree.",
+    "BORDERLINE (logged, not a restriction): 'Regression Function Comparator' - brute-force-and-rank-by-R2 UI logic on both the Pc and log routes. No method claim.",
+    "ADJACENT, OUT OF SCOPE - flag for the ML/statistics target: som.htm (Self-Organising Maps) is a second rock-typing/electrofacies route sharing the same five hierarchical consolidation methods and citing 'Self-Organizing Maps, 3rd Edition (pub. Springer) by T. Kohenen'; statisticalcurveprediction.htm implements Cuddy's fuzzy-logic prediction (Cuddy, S. (1997) 'The Application of the Mathematics of Fuzzy Logic to Petrophysics', Paper S, 38th Annual Symposium of the SPWLA). Check both against the Tier-C register separately."
+  ],
+
+  "gaps": [
+    "HIGHEST VALUE GAP: Laboratory Contact Angle and Interfacial Tension defaults for Mercury Injection / Centrifuge / Porous Plate. The manual confirms shipped defaults exist ('Default values for Interfacial Tension and Contact Angle parameters are provided') and documents a Restore Defaults button, but the values live only in a screenshot. NOT STATED IN MANUAL. Must be read from the live IP UI or sourced from literature - do not guess.",
+    "The lab-to-reservoir Pc conversion equation itself is rasterized - not recoverable. Only the prose ('absolute ratio of the Laboratory and Reservoir \u03c3 * Cos \u03b8 values') and the 1.924 worked example survive.",
+    "Porosity & Pc Function 1, 2, 3 and Porosity & Pc Lambda Function: four SHF functions whose equations exist only as dialog screenshots. Parameters are known (a, b, lambda, c; phi always decimals; Pc in output-curve units); forms unknown. Their log-domain siblings (Porosity & Height 1/2/3/Lambda) ARE given in text but are NOT the same functions and must not be substituted.",
+    "Kozeny-Carmen derivation steps in the RQI methodology - rasterized, not recoverable.",
+    "Lucia RFN equation and the Lucia per-rock-class Swi-vs-height equations - rasterized, not recoverable. Units survive (phi decimals / K mD; H in feet, phi in v/v) but the algebra does not. Source from Lucia 2007 / SPE 84942.",
+    "[[EQUATION_IMAGE: embim460.gif]] - Brooks Corey, the only tagged equation image in the assigned set. Mitigated: the same equation appears in text elsewhere on the page.",
+    "The clay-correction F expression has unbalanced brackets in the decompiled text: 'F = 1 - [0.6425 * ( Salinity ^ (-0.5) + 0.22 ] * Qv ]'. Verify against the rendered help page or Hill/Shirley/Klein 1979 before implementing. Do not pattern-match it to a remembered form.",
+    "NO CITATION for any saturation-height function. Leverett J, Thomeer, Brooks-Corey, Skelt-Harrison, Lambda, and the BVW-vs-height (Cuddy-shaped) method are all presented as bare algebra. Primary papers must be sourced independently; docs/research_2026-07/ref_rocktyping_shf.md already holds Leverett 1941 and Cuddy 1993/2017 locally.",
+    "No default numeric starting values are stated for any non-linear regression, and no default coefficient values for any SHF function. IP ships forms, not parameters.",
+    "No stated convergence tolerance, iteration cap, or R2 acceptance threshold anywhere in the fitting chain - only a user-operated Cancel button.",
+    "Contradiction left unresolved: Pore Size curve starts at 0.01 microns while Throat Size curve starts at 0.1 microns, both claiming 80 elements ending at 100 microns. Both recorded verbatim; neither corrected.",
+    "Contradiction left unresolved: 'Height above FWL = Pc / (Water Density ? Hydrocarbon Density)' in the Function XPlot panels vs 'Height = Pc / 0.433 (\u03c1Water - \u03c1Hc)' in the correction and apply paths."
+  ]
+}
