@@ -8530,3 +8530,31 @@ from a smaller population than the study ran.
       panel: the card appears with the underlying reason on its last line ("WebGPU is not
       supported in this environment"), styled from the theme's own tokens so every skin
       renders it correctly.
+
+### One home for the rules — AGENTS.md, .cursorrules, CLAUDE.md
+
+Nothing to click through here; these are judgement calls to accept or redirect.
+
+- [ ] **AGENTS.md and .cursorrules are pointers now, not copies.** AGENTS.md had fallen 383
+      lines behind CLAUDE.md — it was missing the whole log-set and Intake contracts, so
+      Codex was working from the 2026-08-01 rules with nothing in either file saying so.
+      .cursorrules had never carried rules 6 to 11 at all, which include "the frontend never
+      sends SQL for writes" and "Python runs as a subprocess". Checked first that nothing
+      would be lost: only two lines existed in AGENTS.md and not in CLAUDE.md, and both were
+      older wordings of lines CLAUDE.md has since updated.
+- [ ] **Rule 5 no longer argues with the rest of the file.** It said "no extensive unit test
+      blocks unless explicitly requested" while the same file cites "Pinned by <test>" 42
+      times and the repo holds 775 of them. It now says what you actually do: no ceremonial
+      coverage, but one named test per contract, pinned from both sides where a lazier
+      implementation would otherwise pass, and #[ignore] for anything needing an optional
+      package. Read it and tell me if that is your intent.
+- [ ] **The subagent ladder now lives in one place.** The machine-level rules and this repo
+      both carried a tier table and they had drifted — the global one has four tiers with a
+      distinct opus tier and requires announcing each delegation, this one had three tiers and
+      no announcement rule. CLAUDE.md now points at the global ladder and keeps only what is
+      specific to this repo: that the cost driver is the vcvars verify loop, which files carry
+      silent-wrongness risk, and what is never delegated.
+- [ ] A stale cross-reference went with it: "physics defaults per collaboration rule 5" had
+      pointed at the PR rule ever since that rule was inserted. It reads rule 6 now.
+- [ ] CLAUDE.md is still 282 KB and still loads in full every session. That is the one audit
+      finding not addressed here, because where to draw the line needs your call.

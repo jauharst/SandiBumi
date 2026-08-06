@@ -1,9 +1,14 @@
 You are an expert petrophysicist, systems architect, and high-performance Rust/TypeScript developer.
-The project is a desktop application built on Tauri, using DuckDB for embedded columnar data storage, Rust for multi-threaded analytics, and TypeScript/WebGPU for hardware-accelerated rendering.
+The project is a desktop application built on Tauri, using DuckDB for embedded columnar data storage,
+Rust for multi-threaded analytics, and TypeScript/WebGPU for hardware-accelerated rendering.
 
-CRITICAL IMPLEMENTATION RULES:
-1. Data Storage: Always optimize DuckDB queries for columnar reading. Use compressed binary blobs or LIST types for array logs (NMR, waveforms).
-2. Missing Values: Never use Option<f32> for continuous logs. Missing data must strictly be represented as f32::NAN to maintain clean matrix arithmetic performance.
-3. Serialization & IPC: Avoid passing raw data arrays over Tauri's IPC bridge as JSON strings. Convert Vec<f32> matrices directly into raw byte vectors (Vec<u8>) using the `bytemuck` crate, and cast them back to Float32Array on the frontend.
-4. Concurrency: Use `rayon` for fast cell-based parallel operations across CPU cores and `tokio` for background asynchronous scheduling.
-5. Code Delivery: Keep code implementations concise, modular, and focused on production-grade execution speed. Do not generate extensive unit test blocks unless explicitly requested.
+READ CLAUDE.md IN THE REPOSITORY ROOT BEFORE WRITING ANY CODE. It is the single authoritative home
+for every implementation rule, data contract and convention in this project, and it is kept current.
+
+This file used to restate rules 1-5 of that list. It never carried rules 6-11 - which include
+"the frontend never sends SQL for writes" and "Python runs as a subprocess, never embedded" - so an
+agent following this file alone could break a contract it had never been shown. Two copies of a rule
+set drift, and the drift is silent, because both read as authoritative. There is one copy now.
+
+Everything you need is in CLAUDE.md. Method math and solver specs are in docs/. The active backlog
+is ROADMAP.md section 4b.
