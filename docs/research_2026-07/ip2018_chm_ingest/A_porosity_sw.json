@@ -1,0 +1,730 @@
+{
+  "target": "A: Porosity & Water Saturation (Interactive Petrophysics 2018 help decompile)",
+  "extracted": "2026-08-06",
+  "source_pages_read": [
+    "swparameters.htm",
+    "swequationsandmethodology.htm",
+    "porosityandwatersaturation.htm",
+    "swplot.htm",
+    "rwfromsp.htm",
+    "temperaturegradient.htm",
+    "densityestimation2.htm",
+    "basicloganalysis.htm (in-scope adjacent: only page stating a/m/n/Rw defaults)",
+    "sand_silt_malay_model.htm (in-scope adjacent: separate porosity+Sw module)",
+    "default_settings.htm (config-file inventory only)"
+  ],
+  "extraction_rules": [
+    "Every numeric value is quoted from the manual verbatim. No rounding, unit conversion, or knowledge-supplied values.",
+    "swequationsandmethodology.htm contains 121 rasterized equation images (embimNN.gif). Those formulas are NOT recoverable and are NOT reconstructed.",
+    "Many equations rasterized on the methodology page appear in plain ASCII on swparameters.htm; those are marked recoverable_ascii and recorded as evidence of which variant IP uses.",
+    "Tier B entries record method name + the citation the manual gives; SandiBumi reimplements from the primary paper."
+  ],
+  "methods": [
+    {
+      "name": "Density porosity",
+      "kind": "porosity",
+      "tier": "B",
+      "parameters": [
+        {"name": "Rho GD", "default": "If a Rho GD is not entered then it is assumed to be 2.71.", "units": "gm/cc (kg/m3)", "note": "Matrix grain density; used when GD source = param. Default statement appears in the 2-mineral lithology / Neutron branch.", "source_page": "swequationsandmethodology.htm"},
+        {"name": "GD source", "default": "not stated in manual", "units": "list", "note": "Options: Fixed value entered as a parameter; Variable value entered as a curve; Multi-mineral (grain density from mineral volumes using TRUE mineral densities). Multi-mineral 'is the default setting if the multi-mineral options are activated'.", "source_page": "swparameters.htm"},
+        {"name": "Rho Wet Clay", "default": "not stated in manual", "units": "gm/cc (kg/m3)", "note": "'A value must be entered if a density tool is selected on the set-up window.'", "source_page": "swparameters.htm"},
+        {"name": "Rho Dry Clay", "default": "( IP defaults to 2.78 gm/cc.)", "units": "gm/cc (kg/m3)", "note": "Used for calculating clay total porosity, PhiT Clay.", "source_page": "swparameters.htm"},
+        {"name": "PhiT Clay", "default": "not stated in manual", "units": "v/v", "note": "'If a cell is left blank, PhiT Clay will be calculated from the Rho Dry Clay and Rho Wet Clay parameter entries.'", "source_page": "swparameters.htm"},
+        {"name": "Rho Sxo zone", "default": "not stated in manual", "units": "gm/cc (kg/m3)", "note": "'If Rho Sxo zone is blank the value is calculated from the Rmf parameter. In oil-based mud Rho Sxo is calculated from Rw if the cell/column is left blank.'", "source_page": "swparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim44). Named terms: matrix density (embim45), input bulk density log (embim46), wet clay density (embim47), filtrate density (embim48), apparent hydrocarbon density (embim49), Vcl, Sxo.",
+      "citation": "none given",
+      "caveats": [
+        "2-mineral lithology from the Density method: 'A fixed lithology for an input Rho GD is assumed. 2.65 100% sand, 2.71 100% lime, 2.85 100% Dolomite. Input Rho GD between these end points will result in a linear extrapolation between the end points. For example an input Rho GD of 2.68 will result in 50% Sandstone and 50% Limestone.'"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]
+    },
+    {
+      "name": "Neutron porosity",
+      "kind": "porosity",
+      "tier": "B",
+      "parameters": [
+        {"name": "Neu matrix", "default": "not stated in manual", "units": "decimal porosity units", "note": "Linear response. 'Any value for the Rho GD parameter will totally override Neu Matrix, therefore if you want to use Neu Matrix, blank out the Rho GD parameter.'", "source_page": "swparameters.htm"},
+        {"name": "Rho GD (in Neutron model)", "default": "If a Rho GD is not entered then it is assumed to be 2.71.", "units": "gm/cc (kg/m3)", "note": "Selects the non-linear transform: 'if you wanted to calculate a neutron sandstone, enter 2.65 (2650), and the non-linear neutron sandstone transform will be used.'", "source_page": "swparameters.htm; default statement on swequationsandmethodology.htm"},
+        {"name": "Neu Wet Clay", "default": "not stated in manual", "units": "decimal", "note": "'A value must be entered if a neutron tool is selected on the set-up window.'", "source_page": "swparameters.htm"},
+        {"name": "Neu Form Sal", "default": "not stated in manual", "units": "flag", "note": "Formation salinity correction flag. 'It is better to have IP perform the salinity correction, since it will take into account water saturation in the flushed zone.'", "source_page": "swparameters.htm"},
+        {"name": "Neu Log Cont", "default": "not stated in manual", "units": "list", "note": "Neutron logging contractor, drop-down.", "source_page": "swparameters.htm"},
+        {"name": "Neu Tool Type", "default": "not stated in manual", "units": "list", "note": "Neutron tool type; drives the .neu look-up table.", "source_page": "swparameters.htm"},
+        {"name": "Neu Sp mineral", "default": "not stated in manual", "units": "decimal porosity units", "note": "Special-mineral neutron endpoint.", "source_page": "swparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim50, embim51). Named terms: input neutron log, Vcl, NeuCl, NeuMatrix, Exfact (neutron excavation factor), NeuSal, Sxo, NeuHyHI.",
+      "citation": "none given",
+      "caveats": [
+        "'IP assumes that any neutron curve entered is in Limestone matrix units.' (porosityandwatersaturation.htm)",
+        "'If the Neutron hydrocarbon apparent hydrogen index (NeuHyHI) is entered as a parameter then the Neutron excavation factor (Exfact) will be set at 0.0.'",
+        "To use the raw neutron with no matrix or hydrocarbon correction, verbatim parameter set: 'Neu Matrix = 0.0 / Matrix Density = Blank / NeuHyHI = 1.0'"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "porosityandwatersaturation.htm"]
+    },
+    {
+      "name": "Neutron tool look-up tables (.neu)",
+      "kind": "reference_data_format",
+      "tier": "A (format & recipe); values are third-party vendor chart digitizations",
+      "parameters": [
+        {"name": "Neu_Parm_Files.neu", "default": "n/a", "units": "file", "note": "Registry file in the IP directory; 'defines the names shown in the Porosity and Water Saturation module Parameter table, plus the file names of the look-up tables.'", "source_page": "swequationsandmethodology.htm"},
+        {"name": "porosity nodes", "default": "0%, 2%, 5%, 10%, 15%, 20%, 25%, 30%, 35%, 40%, 45%, 50%, 55% and 60% p.u.", "units": "p.u. (tabulated in decimal notation)", "note": "'Porosity values must not be changed'. 'The values of porosity extend to 60 pu., and it is necessary to complete the table up to this value even though it is unlikely that there are any published results for these high porosities. It is necessary to extrapolate the data as accurately as possible.'", "source_page": "swequationsandmethodology.htm"},
+        {"name": "salinity nodes", "default": "50, 100, 150, 200, 250 Kppm and in this order", "units": "Kppm", "note": "Column order per matrix: Sandstone 50/100/150/200/250, then Limestone, then Dolomite.", "source_page": "swequationsandmethodology.htm"},
+        {"name": "column layout", "default": "True Phi (limestone matrix), Sandstone Matrix correction, Dolomite Matrix correction, Salinity correction Sand, Salinity correction Lime, Salinity correction Dol", "units": "decimal", "note": "Quoted from the file's own header comment in the manual's example (Sch_CNL.neu, 'Schlumberger CNL TNPH').", "source_page": "swequationsandmethodology.htm"}
+      ],
+      "equation": "n/a - table interpolation. Interpolation keys stated verbatim: 'The entry into the Look-up table will be formation porosity, flushed zone salinity and matrix density.'",
+      "citation": "Construction recipe delegates to the vendor's 'Neutron Porosity Equivalence Curves Chart' and 'Neutron log environmental correction nomograph', Formation Salinity panel. No specific chartbook edition cited.",
+      "caveats": [
+        "Matrix mixing example, verbatim: 'if the mineral model chosen was Sand/Dolomite and the input matrix density was 2.75 g/cc, then the correction would be half way in-between the correction for Sand and Dolomite.'",
+        "'For special mineral models, the salinity correction will assume the same salinity correction for the special mineral as for the main mineral.'",
+        "SandiBumi guidance: adopt the format and the construction recipe (Tier A); digitize the numeric corrections from the primary vendor chart, not from IP's shipped tables."
+      ],
+      "source_pages": ["swequationsandmethodology.htm", "swparameters.htm"]
+    },
+    {
+      "name": "Sonic porosity - Wyllie time average",
+      "kind": "porosity",
+      "tier": "B",
+      "parameters": [
+        {"name": "Sonic Lime", "default": "Default 49 (160 μ Sec/m)", "units": "μSec/ft (μSec/m)", "note": "Used for neutron/sonic porosity model.", "source_page": "swparameters.htm"},
+        {"name": "Sonic Sand", "default": "Default 56 (180 μ Sec/m)", "units": "μSec/ft (μSec/m)", "note": "Used for neutron/sonic porosity model.", "source_page": "swparameters.htm"},
+        {"name": "Sonic Dol", "default": "Default 44 (145 μ Sec/m)", "units": "μSec/ft (μSec/m)", "note": "Used for neutron/sonic porosity model.", "source_page": "swparameters.htm"},
+        {"name": "Sonic water", "default": "Default 189 (620 μ Sec/m)", "units": "μSec/ft (μSec/m)", "note": "Used for neutron/sonic and sonic porosity model and bad hole sonic porosity. Monte Carlo index (40).", "source_page": "swparameters.htm"},
+        {"name": "Sonic Cp", "default": "(Default 1.0)", "units": "-", "note": "Sonic compaction factor, Wyllie only.", "source_page": "swparameters.htm"},
+        {"name": "Sonic matrix", "default": "not stated in manual", "units": "μSec/ft", "note": "Used for sonic porosity model and bad hole sonic porosity. Monte Carlo index (28).", "source_page": "swparameters.htm"},
+        {"name": "Sonic Hc", "default": "not stated in manual", "units": "μSec/ft (μSec/m)", "note": "'Must be entered if Sonic porosity model is chosen.' Monte Carlo index (21).", "source_page": "swparameters.htm"},
+        {"name": "Sonic Wet Clay", "default": "not stated in manual", "units": "μSec/ft (μSec/m)", "note": "'A value must be entered if a sonic tool is selected on the set-up window.' Monte Carlo index (14).", "source_page": "swparameters.htm"},
+        {"name": "DT Sp mineral", "default": "not stated in manual", "units": "μSec/ft", "note": "Special-mineral sonic endpoint.", "source_page": "swparameters.htm"},
+        {"name": "DT Matrix (Basic Log Analysis)", "default": "Defaults to 55 uSec/ft for sandstone. Set to 49 uSec/ft for limestone.", "units": "uSec/ft", "note": "NOTE: differs from PhiSw 'Sonic Sand' = 56. Both quoted verbatim; not reconciled.", "source_page": "basicloganalysis.htm"},
+        {"name": "DT Fluid (Basic Log Analysis)", "default": "Default value is189 uSec/ft. For salt-saturated formation water use about 174 usec/ft.", "units": "uSec/ft", "note": "Verbatim including the missing space in 'is189'.", "source_page": "basicloganalysis.htm"},
+        {"name": "Sonic Cp (Basic Log Analysis)", "default": "Defaults to 1.0.", "units": "-", "note": "'For unconsolidated sands this needs to be increased. A rule of thumb for estimating this parameter is to divide the sonic clay parameter by 100. The result should be greater than 1.0 for a valid Cp value.'", "source_page": "basicloganalysis.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim53; embim16/embim17 in Basic Log Analysis). Named terms: Dt, Dtma, Dtcl, Dtfl, Dthy, Vcl, Sxo, Cp.",
+      "citation": "none given (named 'Wyllie time average equation')",
+      "caveats": [],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "basicloganalysis.htm"]
+    },
+    {
+      "name": "Sonic porosity - Raymer Hunt",
+      "kind": "porosity",
+      "tier": "B",
+      "parameters": [
+        {"name": "Sonic Equ", "default": "not stated in manual", "units": "list", "note": "Options: Wyllie time average equation or Raymer Hunt equation.", "source_page": "swparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim54; embim18 in Basic Log Analysis). Substitutions stated in ASCII: 'Vma = 1/Dtma', 'Vf = 1/Dtfl', 'Vclay = 1/Dtclay', 'Vlog = 1/Dt'.",
+      "citation": "none given (named 'Raymer Hunt' / 'Hunt-Raymer' / 'the empirical field observation Hunt-Raymer formula')",
+      "caveats": [
+        "IP's own recommendation, verbatim: 'It is recommended that the Raymer equation is used by default since this equation automatically takes care of the problem of unconsolidated sands, whilst the Wyllie equation has an extra compaction factor parameter which has to be estimated.' (basicloganalysis.htm)"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "basicloganalysis.htm"]
+    },
+    {
+      "name": "Neutron/Density porosity (with 4 variable-solver flags)",
+      "kind": "porosity",
+      "tier": "B",
+      "parameters": [
+        {"name": "Variable Sxo", "default": "not stated in manual", "units": "flag", "note": "'Set to On to calculate Sxo from the Neutron Density separation. This overrides the normal Sxo calculation from the input Rxo curve or the Invasion factor. The result is limited to be greater than Sw (WBM) or less than Sw (OBM). It is also limited to be less than the Sxo limit (WBM).'", "source_page": "swparameters.htm"},
+        {"name": "Variable Hc Den", "default": "not stated in manual", "units": "flag", "note": "'Set to On to calculate hydrocarbon density in the hydrocarbon zones, defined by PhiShr limit parameter. Parameters Hc Den Min and Hc Den define the limits of the result.'", "source_page": "swparameters.htm"},
+        {"name": "Variable GD", "default": "not stated in manual", "units": "flag", "note": "'Parameters Rho GD max and Rho GD min define the limits of the result. If the Variable Hc Den flag is also set, then the hydrocarbon density will be calculated firstly using the input matrix density. Only if the Hc Den is outside its limits will the matrix density be varied.'", "source_page": "swparameters.htm"},
+        {"name": "Variable Vcl", "default": "not stated in manual", "units": "flag", "note": "'Result must be between 0 and 1... If Hc Den, Matrix Den and Clay Vol are all at their limits and no solution is possible, then the neutron and/or density input curve will be reduced in order to resolve the solution... the PHIFLAG curve will be set to 6 to indicate a reduction in density, and 7 to indicate a reduction in neutron.'", "source_page": "swparameters.htm"},
+        {"name": "Rho GD max", "default": "not stated in manual", "units": "gm/cc (kg/m3)", "note": "Upper bound for Variable GD.", "source_page": "swparameters.htm"},
+        {"name": "Rho GD min", "default": "not stated in manual", "units": "gm/cc (kg/m3)", "note": "Lower bound for Variable GD.", "source_page": "swparameters.htm"},
+        {"name": "Mineral Model", "default": "not stated in manual", "units": "list", "note": "Options: ss/ls/dol, ss/dol, ss/sp min, ls/sp min, dol/sp min. Switch rule verbatim: 'If matrix density is greater than 2.71g/cc (2710 kg/m3), then the model will be Limestone/Dolomite ; less than 2.71g/.cc (2710 Kg/ m3), Sandstone/Limestone.'", "source_page": "swparameters.htm"},
+        {"name": "Rho Sp mineral", "default": "not stated in manual", "units": "gm/cc (kg/m3)", "note": "Special-mineral density endpoint.", "source_page": "swparameters.htm"},
+        {"name": "OBM ?", "default": "not stated in manual", "units": "flag", "note": "'If set to On (selected) then the following logic is applied: Sxo must be less than or equal to Sw. Invasion factor logic with OBM assumes that Sxo <= Invasion factor. Therefore, if the Invasion factor is set at 0.5 then Sxo will be the minimum of 0.5 or Sw.'", "source_page": "swparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim55-embim58 variable Hc density; embim59 crossplot porosity, with embim60-embim63 the four corrected porosities).",
+      "citation": "none given",
+      "caveats": [
+        "'when using Variable Sxo logic the Sxo limits can still be activated. Therefore, it is required to tick another of the \"Variable\" calculations along with \"Variable Sxo\" to use in the case of Sxo being clipped. For example, when using Variable Sxo, also leave \"Variable GD\" ticked on to use in cases where Sxo is limited.'",
+        "'The options work in series, and can all be active at any depth level.'",
+        "2-mineral lithology switch on Rhoma: '(Rhoma < 2.71 ss/ls, Rhoma > 2.71 ls/dol)'"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "swplot.htm"]
+    },
+    {
+      "name": "Neutron/Sonic porosity",
+      "kind": "porosity",
+      "tier": "B",
+      "parameters": [],
+      "equation": "rasterized - not recoverable. Described verbatim: 'The model uses the same logic as the Variable matrix density logic in the Neutron/Density model, except that the sonic log is substituted for the Density log, and Dt matrix is calculated from the porosity.'",
+      "citation": "none given",
+      "caveats": ["2-mineral lithology switch on Dtma: '(Dtma > Dtls ss/ls, Dtma < Dtls ls/dol)'"],
+      "source_pages": ["swequationsandmethodology.htm", "swparameters.htm"]
+    },
+    {
+      "name": "Pass Through Porosity (Input Crv)",
+      "kind": "porosity",
+      "tier": "A",
+      "parameters": [
+        {"name": "Input Porosity", "default": "not stated in manual", "units": "list (Total | Effective)", "note": "'IP will calculate Total Porosity if Effective Porosity is entered and Effective Porosity if Total Porosity is entered.'", "source_page": "swparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim64-embim69). Conversion uses PhiT-clay, 'entered as an input parameter or is calculated from the dry clay density'.",
+      "citation": "n/a",
+      "caveats": [
+        "'When a curve name is entered into this box, the module will only calculate water saturation.'",
+        "2-mineral lithology: 'The calculations assume the lithology can be taken from the input Rho GD parameter.'"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "porosityandwatersaturation.htm"]
+    },
+    {
+      "name": "Hydrocarbon response (Neu Hc HI, Den Hc app)",
+      "kind": "porosity_support",
+      "tier": "B (unattributed)",
+      "parameters": [
+        {"name": "Hc Den", "default": "If Hc Den is left blank, the value defaults to 1.0 gm/cc (1000 kg/m3).", "units": "gm/cc (kg/m3)", "note": "'If using the Density / Neutron model and the variable hydrocarbon density flag is set, then Hc Den will be the maximum allowable hydrocarbon density.' Monte Carlo index (17).", "source_page": "swparameters.htm"},
+        {"name": "Hc Den Min", "default": "not stated in manual", "units": "gm/cc (kg/m3)", "note": "Lower bound under Variable Hc Den.", "source_page": "swparameters.htm"},
+        {"name": "PhiShr limit", "default": "Volume of hydrocarbon limit seen in the flushed zone in decimals ( Phi*(1-Sxo ) default 0.02", "units": "decimal", "note": "'When Phi*(1-Sxo) is less than PhiShr limit, then the level is considered to have too little hydrocarbon to accurately calculate a hydrocarbon density and the default value (Hc Den) is used.'", "source_page": "swparameters.htm"},
+        {"name": "Den Hyd model", "default": "not stated in manual", "units": "list (Conventional | Modified)", "note": "'Conventional option uses the technique that has historically been used in IP. Modified option uses a method that better takes into account the correction from electron density to apparent density.'", "source_page": "swparameters.htm"}
+      ],
+      "equation": "recoverable_ascii (swparameters.htm): 'Neu Hc HI = RhoH * 9 (4 - 2.5 RhoH) / (16 - 2.5 RhoH)'; Conventional 'DenHcApp = RhoH * 2 (10 - 2.5 RhoH) / (16 - 2.5 RhoH)'; Modified 'DenHcApp = (5.5 * RhoH (4-RhoH) -3) / (16 - 2.5 RhoH)'. Where RhoH / RhoHy is the entered true downhole hydrocarbon density in gm/cc. The methodology page's version is rasterized.",
+      "citation": "none given for either density model or for the HI formula",
+      "caveats": [
+        "Plot-shading gas/oil cutoff (display only): 'green when the output hydrocarbon density is greater than 0.4 gm/cc and red when the density is less than 0.4 gm/cc. This cut-off value can be changed in the Plot Format.' (porosityandwatersaturation.htm)"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "porosityandwatersaturation.htm"]
+    },
+    {
+      "name": "Organic Shale porosity adjustment",
+      "kind": "porosity",
+      "tier": "A/B",
+      "parameters": [
+        {"name": "Rho Kerogen", "default": "Default is 1.1 gm/cc.", "units": "gm/cc", "source_page": "swparameters.htm", "note": "'This is used in the density equation to account for Kerogen volumes.'"},
+        {"name": "Neu Kerogen", "default": "Default is 0.6 v/v.", "units": "v/v", "source_page": "swparameters.htm", "note": "'This is used in the neutron equation to account for Kerogen volumes.'"},
+        {"name": "Rho Heavy Min.", "default": "Default is 4.3 gm/cc.", "units": "gm/cc", "source_page": "swparameters.htm", "note": "'This is used in the density equation to account for Heavy Mineral volumes.'"},
+        {"name": "Neu Heavy Min.", "default": "Default is -0.03 v/v.", "units": "v/v", "source_page": "swparameters.htm", "note": "'This is used in the neutron equation to account for Heavy Mineral volumes.'"},
+        {"name": "Kerogen Wt% Con.", "default": "If left blank then the conversion factor will be calculated by the program.", "units": "-", "source_page": "swparameters.htm", "note": "'If the input TOC curve is already a volume than set this parameter to 1.0.' 'This conversion factor can be very significant with some interpreters recommending values as high as 2.5.'"},
+        {"name": "Heavy Min Wt% Con.", "default": "If left blank then the conversion factor will be calculated by the program.", "units": "-", "source_page": "swparameters.htm", "note": "'If the input Heavy Mineral curve is already a volume than set this parameter to 1.0.'"}
+      ],
+      "equation": "rasterized - not recoverable. 'The equations are solved iterative as part of the main iterative loop.'",
+      "citation": "none given",
+      "caveats": [
+        "'The Organic shale logic only allows the porosity models of Neutron Density, Density and Neutron to be used.' Other models raise an error.",
+        "'If the Neutron Density model is selected for porosity then only the variable Matrix Density logic is usable.'",
+        "'The volumes of TOC and Heavy Mineral have a very significant effect of the calculation of porosity due to their extreme densities compared to quartz and clay.'",
+        "Unit auto-detect: 'It the units found are \"%\", \"pec\" or \"wt%\" then the input curve will be divided by 100 before use as a decimal volume. Any other units found will be assumed to be decimal volume.'",
+        "'The output Matrix density curve is the density of the rock matrix minus Clay, Kerogen and Heavy minerals.'"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "porosityandwatersaturation.htm"]
+    },
+    {
+      "name": "Archie",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [
+        {"name": "a factor", "default": "not stated in manual (PhiSw); 'Archie equation a factor. Defaults to 1.0.' (Basic Log Analysis)", "units": "-", "note": "Tortuosity factor. Monte Carlo index (64).", "source_page": "swparameters.htm / basicloganalysis.htm"},
+        {"name": "m exponent", "default": "not stated in manual (PhiSw); 'Archie equation m (cementation) factor. Defaults to 2.0.' (Basic Log Analysis)", "units": "-", "note": "Cementation factor. Used when m source = Param. Monte Carlo index (65).", "source_page": "swparameters.htm / basicloganalysis.htm"},
+        {"name": "n exponent", "default": "not stated in manual (PhiSw); 'Archie equation n (saturation exponent) factor. Defaults to 2.0.' (Basic Log Analysis)", "units": "-", "note": "Saturation exponent. Used when n source = Param. Monte Carlo index (66).", "source_page": "swparameters.htm / basicloganalysis.htm"},
+        {"name": "Rw", "default": "not stated in manual (PhiSw); 'Formation water resistivity at formation temperature. Defaults to 0.1 ohmm but must be adjusted to the correct value.' (Basic Log Analysis)", "units": "ohm.m", "note": "Monte Carlo index (1).", "source_page": "swparameters.htm / basicloganalysis.htm"}
+      ],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = Phi**m.Sw**n / (a.Rw)'. Rasterized on methodology page (embim104 base, embim105 effective Sw rearrangement, embim106 total Sw form).",
+      "citation": "none given",
+      "caveats": ["Basic Log Analysis: 'Water Saturation equation. Defaults to Archie. In clean rock select Archie, in shaley sands the Simandoux or Indonesian equations will make corrections for shale in the rock and give better results.'"],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "basicloganalysis.htm"]
+    },
+    {
+      "name": "Archie PhiT",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = PhiT**m.Sw**n / (a.Rw)' - 'Same as Archie except PhiT used instead of Phie.' Rasterized on methodology page (embim107-embim109).",
+      "citation": "none given",
+      "caveats": ["Effective Sw is back-calculated from the total-Sw result via a rasterized equation (embim123) shared with Dual Water, Juhasz and Waxman-Smits."],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]
+    },
+    {
+      "name": "Simandoux",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [
+        {"name": "Res Clay", "default": "not stated in manual", "units": "ohm.m", "note": "'Used for the Simandoux, Modified Simandoux and Indonesian water saturation equations. A value can be set using the interactive Resistivity versus Vclay crossplot.' Monte Carlo index (15).", "source_page": "swparameters.htm"},
+        {"name": "Rxo Clay", "default": "not stated in manual", "units": "ohm.m", "note": "'The Rxo Clay value is normally the same as the Res Clay parameter, but can be different due to the different responses of the micro-resistivity and deep resistivity tools in Shaley zones.' Monte Carlo index (16).", "source_page": "swparameters.htm"}
+      ],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = Phi**m.Sw**n / (a.Rw) + Vcl.Sw / Rcl'. Rasterized on methodology page (embim110).",
+      "citation": "none given",
+      "caveats": [],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "basicloganalysis.htm"]
+    },
+    {
+      "name": "Modified Simandoux",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = Phi**m.Sw**n / (a.Rw.(1-Vcl)) + Vcl.Sw / Rcl'. Rasterized on methodology page (embim111).",
+      "citation": "none given",
+      "caveats": [],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]
+    },
+    {
+      "name": "Indonesian (Poupon-Leveaux)",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt**.5 = ((Phi**m/(a.Rw))**.5 + Vcl**(1-(Vcl/2))/Rcl**.5 ).Sw**(n/2)'. Rasterized on methodology page (embim112) and in Basic Log Analysis (embim22).",
+      "citation": "none given (name 'Poupon-Leveaux' only)",
+      "caveats": [],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "basicloganalysis.htm"]
+    },
+    {
+      "name": "Woodhouse Tar",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = Sw**n.((( Vcl**(1-Vcl))/( Rcl**0.5))+((Phi**(m/2))/((a.Rw)**0.5)))**2'. Rasterized on methodology page (embim113).",
+      "citation": "This equation comes from a SPWLA paper 'Athabasca Tar Sands Reservoir Properties Derived from Core and Logs' 1976 17th annual Logging symposium by R. Woodhouse.",
+      "caveats": ["'This is a modified version of the standard Indonesian (Poupon-Leveaux) equation.'"],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]
+    },
+    {
+      "name": "Dual Water",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [
+        {"name": "Rw bound", "default": "not stated in manual", "units": "ohm.m", "note": "'The value can be estimated from the Rw apparent curve in the Shaley wet sections. Rw bound can be adjusted to give 100% Sw in these zones.' Monte Carlo index (5). Picked on the Swb vs Rwapp crossplot.", "source_page": "swparameters.htm"},
+        {"name": "Rwb Temp", "default": "not stated in manual", "units": "degF/degC", "note": "'If Rwb Temp is left blank then Rw bound will be assumed to be at formation temperature.'", "source_page": "swparameters.htm"},
+        {"name": "Rmf bound", "default": "not stated in manual", "units": "ohm.m", "note": "Flushed-zone twin of Rw bound. 'Normally the same as Rw bound but can vary.' Monte Carlo index (7).", "source_page": "swparameters.htm"},
+        {"name": "Cm*", "default": "Default value is 1.0. If set to 0.0, m* will be equal to equation input m.", "units": "-", "note": "'The variable m* option is turned on by setting the m source parameter to m*.' Monte Carlo index (140).", "source_page": "swparameters.htm"}
+      ],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = PhiT**m.SwT**n/a.(1/Rw + Swb/SwT(1/Rwb-1/Rw))'. Rasterized on methodology page (embim114; embim115 for variable m*).",
+      "citation": "none given",
+      "caveats": [
+        "Variable m* form, recoverable_ascii: 'm* = m + Cm(0.258 Y + 0.20 (1-e**(-16.4Y)))' with 'Y = Qv PhiT / (1 - PhiT)'.",
+        "'If the m source parameter is not set to m* the m* used in the equation will be the input m parameter.'"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "swplot.htm"]
+    },
+    {
+      "name": "Juhasz (Waxman-Smits)",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [
+        {"name": "B fact Juhasz", "default": "Default 1.0 meq/ml", "units": "meq/ml (as the manual labels it - see caveat)", "note": "'B factor (equivalent conductance of clay cations) in the Juhasz Waxman-Smits equation. Can be set interactively using the Cwa versus Qvn crossplot.' Monte Carlo index (94).", "source_page": "swparameters.htm"}
+      ],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = PhiT**m.SwT**n.(1+Bn.Qvn/SwT)/(a.Rw)' with 'Qvn = Vcl*PhiClay / PhiT' and 'Bn = B normalized, entered parameter'. Rasterized on methodology page (embim116).",
+      "citation": "none given",
+      "caveats": [
+        "UNIT FLAG: the manual labels the B default '1.0 meq/ml', i.e. it attaches Qv's unit to B. Recorded verbatim; do not normalize. Matches the known meq/mL-vs-meq/L trap.",
+        "Calibration guidance verbatim: 'The Bn factor is adjusted on the crossplot so that the 100% wet line goes through the wet shaley points. It should be noted that there is a strong correlation between the bound water volume (PhiT minus Phie) and the Bn factor. If you change the bound water by changing the dry clay density (or total porosity clay) then the Qvn/Cwapp relationship will change and the Bn should be adjusted.'",
+        "Crossplot mechanics: 'The left hand endpoint anjusts Rw. The angle of the line adjusts B.' (swplot.htm)",
+        "Extra output curves when Juhasz is selected: QVN, CWAPP."
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "swplot.htm", "porosityandwatersaturation.htm"]
+    },
+    {
+      "name": "Waxman-Smits",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [
+        {"name": "B fact W-S", "default": "If left blank then this is calculated from formation temperature and Rw.", "units": "not stated in manual", "note": "Monte Carlo index (132). The B(T,Rw) equation is rasterized (embim119).", "source_page": "swparameters.htm"},
+        {"name": "Qv W-S Source", "default": "not stated in manual", "units": "list (Param | Curve)", "note": "Param computes Qv = a / PhiT + b; Curve takes Qv from an input curve.", "source_page": "swparameters.htm"},
+        {"name": "Qv a Const", "default": "not stated in manual", "units": "not stated in manual", "note": "'a and b can be selected interactively from the 1/PhiT versus QvApp crossplot.' Monte Carlo index (134).", "source_page": "swparameters.htm"},
+        {"name": "Qv b Const", "default": "not stated in manual", "units": "not stated in manual", "note": "Monte Carlo index (135).", "source_page": "swparameters.htm"},
+        {"name": "Cm*", "default": "Default value is 1.0.", "units": "-", "note": "Weighting on variable m*. Monte Carlo index (140).", "source_page": "swparameters.htm"}
+      ],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = PhiT**m.SwT**n.(1+B.Qv/SwT)/(a.Rw)' with 'Qv = a / PhiT + b'. Rasterized on methodology page (embim117 main, embim118 Qv, embim119 B from T and Rw, embim120 variable m*).",
+      "citation": "none given",
+      "caveats": [
+        "Variable m* form, recoverable_ascii: 'm* = m + Cm(1.128 Y + 0.22 (1-e**(-17.3Y)))' with 'Y = Qv PhiT / (1 - PhiT)'.",
+        "'T = Formation temperature in degrees centigrade' - the only stated unit for the B(T,Rw) route.",
+        "Extra output curves when Waxman Smits is selected: Qvapp, PhiT_recp."
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "swplot.htm", "porosityandwatersaturation.htm"]
+    },
+    {
+      "name": "Poupon-Aguilera",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = Phi**m.Sw**n / (a.Rw(1-Vcl)) + Vcl / Rcl'. No dedicated equation image on the methodology page - prose only.",
+      "citation": "'This equation is a modified version of the original Poupon equation as per \"Extensions of Pickett Plots for the Analysis of Shaly Formations by Well Logs\", Roberto Aguilera (The Log Analyist, Sept-Oct 1990), where the exponents of n and m have been added.'",
+      "caveats": [
+        "'Note this equation assumes a formation of laminated sands and shales with the sands being clean. Do not use this equation if the Laminated Sw model options are turned on since this would be double correcting for laminations.'",
+        "'In previous versions of IP, this was simply called Poupon.'",
+        "'In the original equation Vcl is Vshale and Rcl is Rshale. In IP we calculate clay volumes and shale is considered a rock type. However the equation can be used if the interpreter picks parameters to represent shale rather than clay.'"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]
+    },
+    {
+      "name": "Poupon-Tixier",
+      "kind": "water_saturation",
+      "tier": "B",
+      "parameters": [],
+      "equation": "recoverable_ascii (swparameters.htm): '1/Rt = (1-Vcl).Phi**m.Sw**n/(a.Rw) + Vcl/Rcl'. No dedicated equation image on the methodology page - prose only.",
+      "citation": "'This equation is the original Poupon equation as per \"A contribution to electric log interpretation in shaly sands\", Poupon A, Loy ME, Tixier MP (1954) Trans AIME 6(06):138?145 with the addition of m and n exponents.'",
+      "caveats": [
+        "'Note this equation assumes a formation of laminated sands and shales with the sands being clean. Do not use this equation if the Laminated Sw model options are turned on since this would be double correcting for laminations.'",
+        "Same Vcl-vs-Vshale convention note as Poupon-Aguilera."
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]
+    },
+    {
+      "name": "Variable m - Shell formula",
+      "kind": "cementation_exponent",
+      "tier": "B (unattributed)",
+      "parameters": [
+        {"name": "m source", "default": "not stated in manual", "units": "list", "note": "Options: Parameter, Curve, Shell, Rxo EPT, m*.", "source_page": "swparameters.htm"},
+        {"name": "min m value", "default": "not stated in manual", "units": "-", "note": "'Minimum m value when m is calculated from Rxo and Ept.'", "source_page": "swparameters.htm"},
+        {"name": "max m value", "default": "not stated in manual", "units": "-", "note": "'Maximum m value when m is calculated from Rxo and Ept.'", "source_page": "swparameters.htm"},
+        {"name": "m plus value", "default": "not stated in manual", "units": "-", "note": "'Addition to variable m to calculate n. Used when n source is set to Rxo and Ept. n = m + mPlus.'", "source_page": "swparameters.htm"}
+      ],
+      "equation": "recoverable_ascii (swparameters.htm): 'm = 1.87 + 0.019 / PHIE'. Rasterized on methodology page (embim121).",
+      "citation": "none given beyond the name 'Shell formula'",
+      "caveats": [
+        "Rxo/EPT route: 'this is calculated using the chosen water saturation equation... solving it for m by using the Sxo value calculated from the EPT TPL curve.'",
+        "m boosted in shales, recoverable_ascii: 'If Vcl > Vcl cut-off then m = m*10**(Vcl - Vcl cut-off). This has the effect of removing any hydrocarbons in zones of high clay content.' (rasterized as embim122)"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]
+    },
+    {
+      "name": "Sxo - Invasion Factor (empirical)",
+      "kind": "flushed_zone_saturation",
+      "tier": "A",
+      "parameters": [
+        {"name": "Invasion factor", "default": "not stated in manual", "units": "-", "note": "Example in the OBM text uses 0.5: 'if the Invasion factor is set at 0.5 then Sxo will be the minimum of 0.5 or Sw.' That is an example, not a stated default.", "source_page": "swparameters.htm"},
+        {"name": "Sxo Method", "default": "not stated in manual", "units": "list", "note": "Options: Rxo (from Rxo resistivity), TPL (from EPT TPL curve), Invasion Factor.", "source_page": "swparameters.htm"}
+      ],
+      "equation": "recoverable_ascii (swparameters.htm): WBM 'Sxo = (Sw +InvasionFactor) / (1+ InvasionFactor)'; OBM 'Sxo = InvasionFactor'. Rasterized on methodology page (embim124).",
+      "citation": "none given",
+      "caveats": [
+        "Rxo route substitutions, verbatim: 'Rmf for Rw / Rxo for Rt / Rmfb for Rwb / RxoCl for Rcl'.",
+        "OBM limit rationale: 'As no additional water is introduced into the formation with the use of oil-based muds then Sxo can not be greater than the water saturation in the undisturbed zone (Sw).' WBM: 'Sxo will be greater than or equal to Sw.' Both limit equations rasterized (embim128 OBM, embim129 WBM).",
+        "'NOTE: the Sxo Limit logic (Limits / Bad Hole tab) is not used (options are shaded) when the OBM? option is selected.'"
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]
+    },
+    {
+      "name": "Sxo from EPT / TPL",
+      "kind": "flushed_zone_saturation",
+      "tier": "B",
+      "parameters": [
+        {"name": "TP water", "default": "If not entered, TP water will be calculated from formation temperature and salinity in the flushed zone.", "units": "nsec/m", "note": "", "source_page": "swparameters.htm"},
+        {"name": "TP Lime", "default": "Default 9.1.", "units": "nsec/m", "note": "'Must be entered if the EPT is used.'", "source_page": "swparameters.htm"},
+        {"name": "TP Sand", "default": "Default 7.2.", "units": "nsec/m", "note": "'Must be entered if the EPT is used.'", "source_page": "swparameters.htm"},
+        {"name": "TP Dol", "default": "Default 8.7.", "units": "nsec/m", "note": "'Must be entered if the EPT is used.'", "source_page": "swparameters.htm"},
+        {"name": "TP Clay", "default": "Default 8.0 normal range 7-16.", "units": "nsec/m", "note": "'Must be entered if the EPT is used.'", "source_page": "swparameters.htm"},
+        {"name": "TP Hc", "default": "Normal values gas 3.3, oil 4.7-5.2.", "units": "nsec/m", "note": "Given as 'normal values', not as a default.", "source_page": "swparameters.htm"},
+        {"name": "TP Sp mineral", "default": "not stated in manual", "units": "nsec/m", "note": "", "source_page": "swparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim125 Sxo from TPL; embim126 multi-mineral TPmatrix; embim41-embim43 TPL water). Named terms for TPL water: 'Sal = Salinity of filtrate in ppm10-6', 'T = Formation temperature degF', 'Rmf = Resistivity of filtrate at formation temperature'. 'For oil-based mud, Rw is substituted for Rmf.'",
+      "citation": "none given",
+      "caveats": ["'TPmatrix is calculated from the input parameters for TPlime, TPsand, TPdolomite and TPspecialMineral. Using the calculated matrix density and the Mineral Model parameters, an extrapolation is made between the TP matrix parameters.'"],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]
+    },
+    {
+      "name": "Laminated Sw model (Normal Rt Lam)",
+      "kind": "water_saturation_framework",
+      "tier": "B",
+      "parameters": [
+        {"name": "Sat Model", "default": "not stated in manual", "units": "list (Normal | Laminated)", "note": "'saturations are calculated in the sand lamination using the porosity, clay volume and resistivity of the sand lamination.'", "source_page": "swparameters.htm"},
+        {"name": "Res Lam Shale", "default": "not stated in manual", "units": "ohm.m", "note": "'This parameter is not used if the resistivity of the sand is entered.' Adjustable by dragging the interactive line in the Sand Lam Res track.", "source_page": "swparameters.htm"},
+        {"name": "Rt Lam Sand", "default": "not stated in manual", "units": "ohm.m", "note": "'If the cell is left blank then it is calculated from the Res Lam Shale parameter and the entered Rt curve.'", "source_page": "swparameters.htm"},
+        {"name": "Rxo Lam Sand", "default": "not stated in manual", "units": "ohm.m", "note": "'If the cell is left blank then it is calculated from the Res Lam Shale parameter and the entered Rxo curve.'", "source_page": "swparameters.htm"},
+        {"name": "Phi Max", "default": "not stated in manual", "units": "decimal porosity units", "note": "Feeds both Thomas-Stieber and the porosity limiting logic.", "source_page": "swparameters.htm"}
+      ],
+      "equation": "recoverable_ascii (swequationsandmethodology.htm): 'RtLam = (1.0 - Vlam) * Rt * Rshale / (Rshale ? Rt * Vlam)'; 'RxoLam = (1.0 - Vlam) * Rxo * Rshale / (Rshale ? Rxo * Vlam)'; 'Sw = SwLam'; 'SwT = 1.0 - PhiTLam * (1.0 - SwTLam) * (1 - Vlam) / PhiT'. (The '?' is a mangled minus/en-dash in the decompiled text; recorded as-is.) Thomas-Stieber volume and laminated-property equations are rasterized (embim147-embim159).",
+      "citation": "'The method comes from the Juhasz SPWLA paper Assessment of the distribution of shale, porosity and hydrocarbon saturation in shaley sands.' Plus: 'The techniques described within IP are the same as in the Thomas-Stieber paper but developed further so that Phie and Vcl can be used directly rather than the raw Neutron / Density crossplot.' No year/volume given for either.",
+      "caveats": [
+        "'Due to the nature of the equation the results are very sensitive to the Rshale parameter. Hence, to keep results within sensible numbers the RtLam and RxoLam are limited to 2000 ohmm.'",
+        "Sensitivity example verbatim: 'The three lines have been made to all go through 40% shale lamination. The three lines represent a resistivity of shale of 1.0, 1.5 and 2.0 ohmm. The resulting sand resistivities are respectively; 50.0, 5.75 and 2.83 ohmm... it is much better if an external, calculated sand resistivity can be used.'",
+        "'It is assumed that there is no hydrocarbon in the shale lamination but that the entire hydrocarbon content is in the sand laminations.'",
+        "'Vlam must be between 0 and 0.99'; 'Vlam + Vstruc + Vdisp = Vcl'; 'SwLam is limited to be between 1.0 and 0.001'.",
+        "Branch rule: 'If Vlam < Vcl then the model Laminated/Structural is used' (Vdisp = 0, Vstruc = Vcl - Vlam); 'Otherwise the Dispersed/Laminated model is used' (Vstruc = 0, Vdisp = Vcl - Vlam). 'There is no option to have a Dispersed / Structural model.'",
+        "Substitutions into the Sw equation: 'PhiT = PhiTLam, Phie = PhiLam, Vcl = VclLam, Rt = RtLam, Rxo = RxoLam'."
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "porosityandwatersaturation.htm", "swplot.htm"]
+    },
+    {
+      "name": "Tensor resistivity laminated models (Tensor Vlam / Tensor Rsh / Tensor Rsh Mod)",
+      "kind": "water_saturation_framework",
+      "tier": "B",
+      "parameters": [
+        {"name": "Tensor Vlam model", "default": "not stated in manual", "units": "-", "note": "'This is the approximate value of the resistivity of the shale. It is used to decide how to solve the tensor resistivity equations.'", "source_page": "swparameters.htm"},
+        {"name": "Res Lam Hori", "default": "not stated in manual", "units": "ohm.m", "note": "Used when Rt Lam Model is Tensor Rsh or Tensor Rsh Mod.", "source_page": "swparameters.htm"},
+        {"name": "Res Lam Vert", "default": "not stated in manual", "units": "ohm.m", "note": "Used when Rt Lam Model is Tensor Rsh or Tensor Rsh Mod.", "source_page": "swparameters.htm"},
+        {"name": "RshVert / RshHori", "default": "not stated in manual", "units": "ratio", "note": "'This is the shale lamination anisotropy ratio. It is used when the Rt Lam Model is set to Tensor Vlam.'", "source_page": "swparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable. Terms named verbatim: Rv (vertical tensor resistivity, input curve), Rh (horizontal, input curve), Vlam, RshVert, RshHori, Rsd (resistivity of sand lamination, output curve). 'The equations assume sand shale laminations and sums the resistivities both vertically and horizontally. The shale is assumed to be anisotropic.' Tensor Rsh Mod extras, recoverable_ascii: 'VLam = VlamTensor', 'Vlam <= Vwcl', 'Vdisp = PhiMax (1 ? Vlam) ? Phie', 'Vstruc = Vwclay ? Vlam - Vdisp'.",
+      "citation": "none given",
+      "caveats": [
+        "Two-root ambiguity: 'There are two solutions to this problem one when Rsand is < Rshale and the other Rsand > Rshale. We use the input parameter Res Lam Shale to determine which of the two solutions is correct... The user must select the correct solution manually.'",
+        "'If the anisotropic shale ratio input is too high the calculations will not always find a possible result. In these cases the anisotropic ratio is reduced until a solution that is possible is found. The PhiFlag output curve is then set to a value of 15.'",
+        "IP's shale-point picker for this is the 'butterfly' Rv/Rh crossplot, 'with lines of constant Vlam (blue) and constant Rt sand(red)'."
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "swplot.htm"]
+    },
+    {
+      "name": "Multi-mineral analysis (U/Rho, Rho/Dt, U/Rh/Dt, forced Mineral 1-4)",
+      "kind": "mineralogy",
+      "tier": "A/B",
+      "parameters": [
+        {"name": "Model Type", "default": "not stated in manual", "units": "list", "note": "U/Rho (3 minerals from Umatrix+Rhomatrix), Rho/Dt (3 from Rhomatrix+Dtmatrix), U/Rh/Dt (4 from Umatrix+Rhomatrix+Dtmatrix), Mineral 1..4 (all volumes 0 except the chosen one = 1-Phie-Vcl).", "source_page": "swparameters.htm"},
+        {"name": "Clay Corr Input", "default": "not stated in manual", "units": "flag", "note": "On: Umatrix/Dtmatrix/RhoMatrix corrected with the input Vcl and the Sw equation clay-corrected. Off: 'the input Vcl curve is ignored and clay can be calculated as one of the minerals'.", "source_page": "swparameters.htm"},
+        {"name": "Min1-4 Umat / RhoMat / DtMat", "default": "not stated in manual", "units": "barns/cc, gm/cc, uSec/ft", "note": "Apparent endpoints for the solver.", "source_page": "swparameters.htm"},
+        {"name": "Min1-4 Rho True / Dt True / TP", "default": "not stated in manual", "units": "gm/cc, uSec/ft, nsec/m", "note": "True endpoints for grain density, secondary porosity, and TPmatrix.", "source_page": "swparameters.htm"},
+        {"name": "Pef Clay", "default": "not stated in manual", "units": "barns/electron", "note": "'Used in the multi-mineral analysis to clay-correct Umatrix when the Clay Corr Input flag is set to On.'", "source_page": "swparameters.htm"}
+      ],
+      "equation": "recoverable_ascii coefficients (swequationsandmethodology.htm; only the rho symbols are rasterized): 'U = Pef x ( [rho] + 0.1883) x 0.93423'; 'UClay = PefClay x ( [rho] + 0.1883) x 0.93423'; 'Uwat = 0.00481 x Sal + 0.3883'; 'For gas ([rho] less than 0.4) Uhyd = 0.119 x [rho]'; 'For Oil: Uhyd = 0.133 x [rho]'. The 3- and 4-mineral solver systems and the volume conversions are rasterized (embim88-embim103).",
+      "citation": "none given",
+      "caveats": [
+        "'If negative volumes are calculated they are set to zero and the other volumes are recalculated keeping the same ratios so that the total of all volumes is 1.'",
+        "True vs apparent density, verbatim: 'Clay could have an apparent matrix density of 3.0 but a true density of 2.5. This is due to the apparent crossplot porosity in the clay calculating an apparent matrix density which is much too high.'",
+        "Mineral endpoint values are not in the help; they live in MINDEF.PAR (Tools > Defaults > Edit Mineral Solver Mineral System Defaults)."
+      ],
+      "source_pages": ["swparameters.htm", "swequationsandmethodology.htm", "swplot.htm", "default_settings.htm"]
+    },
+    {
+      "name": "Rw from SP",
+      "kind": "water_resistivity",
+      "tier": "A (method inventory) - science delegated to a third-party chart",
+      "parameters": [
+        {"name": "SP curve (baseline shifted)", "default": "n/a", "units": "mv", "note": "'The shale baseline must have been set to 0.0 mv. The baseline shifts can be made in the Interactive Baseline Shift module.'", "source_page": "rwfromsp.htm"},
+        {"name": "Formation Temperature curve", "default": "n/a", "units": "degF/degC", "note": "'A Formation Temperature curve must be entered. If not available, one can be created using the Temperature Gradient module.'", "source_page": "rwfromsp.htm"},
+        {"name": "Output temperature", "default": "not stated in manual", "units": "degF/degC", "note": "'The output temperature can either be a curve or a fixed value.'", "source_page": "rwfromsp.htm"},
+        {"name": "Salinity output curve", "default": "optional - leave blank if not wanted", "units": "Kppm NaCl equivalent", "note": "", "source_page": "rwfromsp.htm"},
+        {"name": "Formation Waters", "default": "not stated in manual", "units": "list", "note": "'Select either NaCl Formation Waters or Average Fresh Formation Waters.'", "source_page": "rwfromsp.htm"},
+        {"name": "Top / Bottom", "default": "If left blank the whole well will be used.", "units": "depth", "note": "", "source_page": "rwfromsp.htm"}
+      ],
+      "equation": "not stated in manual - no equations, coefficients, or SSP constant are given anywhere on the page.",
+      "citation": "'If Average Fresh Formation Waters are selected the module uses the chart SP-2 in the Schlumberger chart book using the dashed line on the chart to convert from Rweq to Rw.'",
+      "caveats": ["'Note: Calculations are presuming predominantly Sodium Chloride waters.'"],
+      "source_pages": ["rwfromsp.htm"]
+    },
+    {
+      "name": "Calculate Temperature Gradient",
+      "kind": "temperature",
+      "tier": "A",
+      "parameters": [
+        {"name": "temperature gradient", "default": "not stated in manual", "units": "degrees per 100 feet or meters, depending on the units of the well", "note": "Alternative mode: 'entering temperatures at fixed points and IP will interpolate between them'.", "source_page": "temperaturegradient.htm"},
+        {"name": "reference depth", "default": "not stated in manual", "units": "depth", "note": "'A reference depth and temperature also need to be entered to give a starting point for the temperature curve.'", "source_page": "temperaturegradient.htm"},
+        {"name": "reference temperature", "default": "not stated in manual", "units": "degF/degC", "note": "", "source_page": "temperaturegradient.htm"},
+        {"name": "Output curve units", "default": "not stated in manual", "units": "F for Fahrenheit, C for Centigrade", "note": "'The output curve units are important and are used in the interpretation modules to make the correct temperature conversions.'", "source_page": "temperaturegradient.htm"},
+        {"name": "Null Output curve before running", "default": "not stated in manual", "units": "flag", "note": "'If de-selected, the module will run the calculations and overwrite any existing data over the selected depth interval, but data outwith that depth interval will remain un-touched.'", "source_page": "temperaturegradient.htm"}
+      ],
+      "equation": "not stated in manual (linear gradient / interpolation between fixed points; no formula given)",
+      "citation": "none given. Related module listed: Horner Plot.",
+      "caveats": ["Save/Load of module parameters is 'particularly important if you want to use this module in the Multi-Well batch module.'"],
+      "source_pages": ["temperaturegradient.htm"]
+    },
+    {
+      "name": "Density Estimation from sonic - Gardner",
+      "kind": "porosity_support",
+      "tier": "B",
+      "parameters": [{"name": "Gardner transform coefficients", "default": "not stated in manual", "units": "not stated in manual", "note": "'Parameters such as the coefficients for the Gardner transform can be edited, saved and re-called.' No values given.", "source_page": "densityestimation2.htm"}],
+      "equation": "not stated in manual (page has 0 equation images and gives no formula)",
+      "citation": "Gardner G. L. F., Gardner L.W., & Gregory A.R. ? (1974) Formation velocity and density - the diagnostic basics for stratigraphic traps Geophysics 39, 770-780.",
+      "caveats": ["Output curve RhoGard."],
+      "source_pages": ["densityestimation2.htm"]
+    },
+    {
+      "name": "Density Estimation from sonic - AGIP Bellotti",
+      "kind": "porosity_support",
+      "tier": "B",
+      "parameters": [],
+      "equation": "not stated in manual",
+      "citation": "Bellotti, P. Di Lorenzo, V. & Giacca, D. - Overburden gradient from sonic log Trans. SPWLA, London March 1979",
+      "caveats": [
+        "Output curve RhoAgip.",
+        "'Note: Bellotti et al found more acceptable results comparing actual FDC curves to their Unconsolidated formations equation. (illustrated by examples from the Adriatic, Mauritania and Indonesia).'"
+      ],
+      "source_pages": ["densityestimation2.htm"]
+    },
+    {
+      "name": "Density Estimation from sonic - Lindseth",
+      "kind": "porosity_support",
+      "tier": "B",
+      "parameters": [],
+      "equation": "not stated in manual",
+      "citation": "Lindseth, R. O., (1979) ? Synthetic Sonic Logs ? a process for stratigraphic interpretation, Geophysics v.44 no.1 p.3-26",
+      "caveats": ["Output curve RhoLind."],
+      "source_pages": ["densityestimation2.htm"]
+    },
+    {
+      "name": "Sand/Silt Malay Model",
+      "kind": "porosity_and_water_saturation_module",
+      "tier": "B (method) / C-adjacent (its lithology conversion chart - see tierC_flags)",
+      "parameters": [
+        {"name": "Sw Equation", "default": "not stated in manual", "units": "list", "note": "'Select either Waxman Smt, Juhasz W&S, Dual Water or Archie PhiT.' All total-Sw.", "source_page": "sand_silt_malay_model.htm"},
+        {"name": "Sxo Logic", "default": "not stated in manual", "units": "list", "note": "ND Separation | Input Curve | Invasion Factor.", "source_page": "sand_silt_malay_model.htm"},
+        {"name": "Max Phie", "default": "not stated in manual", "units": "v/v", "note": "'To remove the effect of this limit make MaxPhie a high number (0.6).'", "source_page": "sand_silt_malay_model.htm"},
+        {"name": "Vshale Cutoff", "default": "By default this has a value of 1.0 and is on the extreme right edge of the track.", "units": "v/v", "note": "'Setting Vshale Cutoff to 1.0 will completely remove this cutoff.' The 1.0 is stated as the interactive line's default position.", "source_page": "sand_silt_malay_model.htm"},
+        {"name": "Den Matrix / Neu Matrix / Den Silt / Neu Silt / Den Dry Clay / Neu Dry Clay / Den Wet Clay / Clay at Silt Point", "default": "not stated in manual", "units": "gm/cc, v/v", "note": "'Clay at Silt Point: The amount of clay found at the silt point. If set to zero then all the silt is clay free.' It is the B point on the lithology conversion chart; 'The A point value is 1.0 ? B.'", "source_page": "sand_silt_malay_model.htm"},
+        {"name": "a factor / m exponent / n exponent / Rw / Rwb / Rmf / Rmfb", "default": "not stated in manual", "units": "-, ohm.m", "note": "", "source_page": "sand_silt_malay_model.htm"},
+        {"name": "B W&S Source", "default": "not stated in manual", "units": "list", "note": "'Curve or Value' or 'Formula'. Formula route: 'B factor is calculated from the temperature curve and the Rw value' - that formula is rasterized (embim178).", "source_page": "sand_silt_malay_model.htm"},
+        {"name": "Den Coal / Neu Coal", "default": "not stated in manual", "units": "gm/cc, v/v", "note": "Two-log coal test only (no sonic in this module).", "source_page": "sand_silt_malay_model.htm"}
+      ],
+      "equation": "largely recoverable_ascii (only 1 equation image on the page). Verbatim: 'DenCorr = Rhob + Phie x (1.0 - Sxo) x (Rhofl ? DenHydApp)'; 'NeuCorr = PhiNeu + exfact + Phie x (1.0 -Sxo) * (1.0 ? NeuHydHI)'; 'exfact = sqrt(Rhoma/2.65) x (2.0 x SwH x Phie x Phie + 0.04 x Phie) x (1.0 ? SwH)'; 'SwH = Sxo + (1-Sxo)* NeuHydHI)'; 'Rhoma = Fsn x Denmat + Fsi x Densilt + Fdc x Dendcl'; 'PhiT = (Rhoma ? DenCorr) / (Rhoma ? Denfl)'; 'Vsand = Fsn x (1 ? PhiT)'; 'Vsilt = Fsi x (1 ? PhiT)'; 'Vdcl = Fdc x (1 ? PhiT)'; 'PhiTclay = (Dendcl ? Denwcl) / (Dendcl - Denfl)'; 'Vcl = Vdcl / (1 ? PhiTclay)'; 'Vshale = Vcl + Vsilt'; 'Phie = (1 - PhiT) x (PhiT ? Vcl x PhiTclay) + Vcl x (PhiT ? Vcl x PhiT)'; 'Phie <= MaxPhie x (1.0 ? Vcl)'; 'Vbw = PhiT ? Phie'; 'if Vbw > Vcl x PhiTclay x 1.5 then Vbw = Vcl x PhiTclay x 1.5; PhiT = Phie + Vbw'; 'Rwapp = PhiTm x Rt / a'; 'CwApp = 1.0 / Rwapp'; 'QvNorm = VCL x PhiTClay / PhiT'; 'QvApp = a / (B x Rt x PhiTm) - 1.0 / (B x Rw)'; 'RecPhiT = 1.0 / PhiT'. The B(T,Rw) formula is rasterized (embim178).",
+      "citation": "'The Sand Silt Malay model is based loosely on the paper Log Interpretation in the Malay Basin by K. Kuttan et al, 21st SPWLA symposium.'",
+      "caveats": [
+        "Purpose verbatim: 'designed for very fine grained sediments with fresh to brackish formation water. It was built to overcome interpretation problems of standard shaley sand log analysis of the type used in the 1980s, where an overestimate of clay volume leads to too pessimistic porosities.'",
+        "Iteration tolerances: 'PhiT difference < 0.0001', 'SxoT difference < 0.001'.",
+        "Sxo-from-ND search step: 'SxoT is adjusted in steps of 0.01 until VshND equals VshGr.'",
+        "Bad hole: 'this logic can have drastic effects on the results if the VshGr clean and shale picks overestimate the VshGr. It should only be turned on when bad hole affects to the density have been identified.'",
+        "Waxman-Smits Qv: 'If no relationship exists then the user must enter Qv into the model as a fixed value or curve after establishing Qv at each depth level using a different methodology.'",
+        "Logic Flag codes: 0 ok; 1 ND SxoT HC correction did not match VshGR and VshND; 2 main iterative HC loop reached limit max 40; 3 Sxo correction loop reached max 100; 4 Sw equation iterative loop did not converge after 10 iterations; 5 bad hole correction loop reached max 100; 6 bad hole logic used; 7 PhieMax logic used; 8 Vshale cutoff logic used; 9 input found NullValues so no output."
+      ],
+      "source_pages": ["sand_silt_malay_model.htm"]
+    },
+    {
+      "name": "Basic Log Analysis (reduced porosity+Sw module)",
+      "kind": "porosity_and_water_saturation_module",
+      "tier": "A",
+      "parameters": [
+        {"name": "Rw", "default": "Defaults to 0.1 ohmm but must be adjusted to the correct value.", "units": "ohm.m", "note": "'Can be selected from the interactive Porosity / Resistivity (Pickett) plot.'", "source_page": "basicloganalysis.htm"},
+        {"name": "a factor", "default": "Defaults to 1.0.", "units": "-", "note": "", "source_page": "basicloganalysis.htm"},
+        {"name": "m Exponent", "default": "Defaults to 2.0.", "units": "-", "note": "'Can be selected from the interactive Porosity / Resistivity (Pickett) plot.'", "source_page": "basicloganalysis.htm"},
+        {"name": "n Exponent", "default": "Defaults to 2.0.", "units": "-", "note": "", "source_page": "basicloganalysis.htm"},
+        {"name": "Sat Equation", "default": "Defaults to Archie.", "units": "list (Archie | Simandoux | Indonesian)", "note": "", "source_page": "basicloganalysis.htm"},
+        {"name": "Rho Matrix", "default": "Defaults to 2.65 gm/cc for sandstone. Set to 2.71 gm/cc for limestone.", "units": "gm/cc", "note": "'Note not used for Neutron/Density or Sonic porosity models (will be grayed out).'", "source_page": "basicloganalysis.htm"},
+        {"name": "Rho Fluid", "default": "Defaults to 1.0 gm/cc for fresh water. Set to 1.1 gm/cc for salt water.", "units": "gm/cc", "note": "'To make hydrocarbon corrections to the porosity adjust the fluid density to account for the hydrocarbons.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Rho Clay", "default": "The default value is chosen as the maximum density reading over the interval where the sonic is high.", "units": "gm/cc", "note": "Data-derived; no fixed number.", "source_page": "basicloganalysis.htm"},
+        {"name": "Gr Clean", "default": "This defaults to the minimum Gamma Ray value seen in the Gamma Ray input curve.", "units": "API", "note": "", "source_page": "basicloganalysis.htm"},
+        {"name": "Gr Clay", "default": "This defaults to the maximum Gamma Ray value seen in the Gamma Ray input curve.", "units": "API", "note": "", "source_page": "basicloganalysis.htm"},
+        {"name": "Percentile Clay", "default": "Numbers greater than 100% are allowed and are normal for the calculation of clay volume (default is 130%).", "units": "%", "note": "", "source_page": "basicloganalysis.htm"},
+        {"name": "Clip Low %", "default": "Enter a low clip values between 0-100%. Default is (98%).", "units": "%", "note": "Verbatim - the manual labels 98% as the LOW clip default.", "source_page": "basicloganalysis.htm"},
+        {"name": "Clip High %", "default": "not stated in manual", "units": "%", "note": "'Enter a high clip values between 0-100%.'", "source_page": "basicloganalysis.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim14 Vcl, embim15 density porosity, embim16/17 Wyllie, embim18 Raymer, embim19 Rwapp, embim20 Archie, embim21 Simandoux, embim22 Indonesian). Recoverable in ASCII: 'Rt_Hingle = Rt^(-1/m)'; 'Vma = 1/Dtmatrix'; 'Vf = 1/Dtfluid'; 'Vlog = 1/Dt'.",
+      "citation": "none given",
+      "caveats": [
+        "Scope verbatim: 'The functionality has been deliberately simplified to perform a type of analysis that could be easily duplicated using a calculator... No hydrocarbon or bad-hole corrections are made. No flushed zone Sxo calculations are made.'",
+        "'The default porosity method is Density unless only the Sonic curve has been enter in which case the program will select the Sonic method for porosity.'",
+        "'NOTE: Do not use Duplicate Curve Names as the module will overwrite any current output curves with the same name, without warning. The Porosity and Water Saturation module also uses many of the same names.'",
+        "'For all methods the calculated Porosity is limited to being greater than 0.0.'",
+        "N/D porosity: 'uses the neutron tool type to generate the standard chart book neutron/density crossplots for sandstone, limestone and dolomite.'"
+      ],
+      "source_pages": ["basicloganalysis.htm"]
+    }
+  ],
+  "defaults_verbatim": [
+    {"statement": "(12) Rho Dry Clay- Density of Dry Clay in gm/cc (kg/m3). Used for calculating clay total porosity, PhiT Clay . ( IP defaults to 2.78 gm/cc.)", "source_page": "swparameters.htm"},
+    {"statement": "(17) Hc Den - Hydrocarbon density in gm/cc (kg/m3). ... If Hc Den is left blank, the value defaults to 1.0 gm/cc (1000 kg/m3).", "source_page": "swparameters.htm"},
+    {"statement": "PhiShr limit - Volume of hydrocarbon limit seen in the flushed zone in decimals ( Phi*(1-Sxo ) default 0.02 .", "source_page": "swparameters.htm"},
+    {"statement": "Neu Hc HI ... Default calculation is Neu Hc HI = RhoH * 9 (4 - 2.5 RhoH) / (16 - 2.5 RhoH ) where RhoH is the input hydrocarbon density ( Hc Den ) in gm/cc.", "source_page": "swparameters.htm"},
+    {"statement": "Conventional model : DenHcApp = RhoH * 2 (10 - 2.5 RhoH) / (16 - 2.5 RhoH)", "source_page": "swparameters.htm"},
+    {"statement": "Modified model : DenHcApp = (5.5 * RhoH (4-RhoH) -3) / (16 - 2.5 RhoH)", "source_page": "swparameters.htm"},
+    {"statement": "Sandstone/Limestone/Dolomite (ss/ls/dol) . If matrix density is greater than 2.71g/cc (2710 kg/m3), then the model will be Limestone/Dolomite ; less than 2.71g/.cc (2710 Kg/ m3), Sandstone/Limestone.", "source_page": "swparameters.htm"},
+    {"statement": "For example: if you wanted to calculate a neutron sandstone, enter 2.65 (2650) , and the non-linear neutron sandstone transform will be used.", "source_page": "swparameters.htm"},
+    {"statement": "Shell Calculate from the Shell formula m = 1.87 + 0.019 / PHIE", "source_page": "swparameters.htm"},
+    {"statement": "m* = m + Cm(1.128 Y + 0.22 (1-e**(-17.3Y))) W&S", "source_page": "swparameters.htm"},
+    {"statement": "m* = m + Cm(0.258 Y + 0.20 (1-e**(-16.4Y))) Dual Water", "source_page": "swparameters.htm"},
+    {"statement": "Y = Qv PhiT / (1 - PhiT)", "source_page": "swparameters.htm"},
+    {"statement": "Qv = a/PhiT + b where a and b are parameters that can be modified. Qv can also be entered as an input curve.", "source_page": "swparameters.htm"},
+    {"statement": "(94) B fact Juhasz - B factor (equivalent conductance of clay cations) in the Juhasz Waxman-Smits equation. Default 1.0 meq/ml", "source_page": "swparameters.htm"},
+    {"statement": "(132) B fact W-S - B factor (equivalent conductance of clay cations) in the Waxman-Smits equation. If left blank then this is calculated from formation temperature and Rw.", "source_page": "swparameters.htm"},
+    {"statement": "(140) Cm* - Cm constant in the W&S and Dual Water, variable m* equation. Default value is 1.0. If set to 0.0, m* will be equal to equation input m .", "source_page": "swparameters.htm"},
+    {"statement": "The Cm* parameter is used to adjust the weighting on the variable m* and is entered as a parameter (Default is 1.0).", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "The Cm parameter is used to adjust the weighting on the variable m* and is entered as a parameter (Default is 1.0).", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "For water based mud Sxo = (Sw +InvasionFactor) / (1+ InvasionFactor). For Oil based mud Sxo = InvasionFactor.", "source_page": "swparameters.htm"},
+    {"statement": "Rho Kerogen: Enter the density of the Kerogen. Default is 1.1 gm/cc.", "source_page": "swparameters.htm"},
+    {"statement": "Neu Kerogen: Enter the neutron reading of the Kerogen. Default is 0.6 v/v.", "source_page": "swparameters.htm"},
+    {"statement": "Rho Heavy Min.: Enter the density of the Heavy Mineral. Default is 4.3 gm/cc.", "source_page": "swparameters.htm"},
+    {"statement": "Neu Heavy Min.: Enter the neutron reading of the Heavy Mineral. Default is -0.03 v/v.", "source_page": "swparameters.htm"},
+    {"statement": "This conversion factor can be very significant with some interpreters recommending values as high as 2.5.", "source_page": "swparameters.htm"},
+    {"statement": "TP Lime ... Default 9.1.", "source_page": "swparameters.htm"},
+    {"statement": "TP Sand ... Default 7.2.", "source_page": "swparameters.htm"},
+    {"statement": "TP Dol ... Default 8.7.", "source_page": "swparameters.htm"},
+    {"statement": "TP Clay ... Default 8.0 normal range 7-16.", "source_page": "swparameters.htm"},
+    {"statement": "TP Hc ... Normal values gas 3.3, oil 4.7-5.2.", "source_page": "swparameters.htm"},
+    {"statement": "Sonic Lime - Sonic limestone travel time in u Sec/ft. Used for neutron/sonic porosity model. Default 49 (160 u Sec/m).", "source_page": "swparameters.htm"},
+    {"statement": "Sonic Sand - Sonic sandstone travel time in u Sec/ft. Used for neutron/sonic porosity model. Default 56 (180 u Sec/m).", "source_page": "swparameters.htm"},
+    {"statement": "Sonic Dol - Sonic dolomite travel time in u Sec/ft. Used for neutron/sonic porosity model. Default 44 (145 u Sec/m).", "source_page": "swparameters.htm"},
+    {"statement": "(40) Sonic water - Sonic water travel time in u Sec/ft. Used for neutron/sonic and sonic porosity model and bad hole sonic porosity. Default 189 (620 u Sec/m).", "source_page": "swparameters.htm"},
+    {"statement": "Sonic Cp - Sonic compaction factor . Used in the Wyllie time average equation (Default 1.0).", "source_page": "swparameters.htm"},
+    {"statement": "Salin Sxo zone - Flushed zone water salinity in decimals (e.g. 25 KPPM entered as .025).", "source_page": "swparameters.htm"},
+    {"statement": "VSILT = 1 - VolwetClay - (Phie / PhiMax)", "source_page": "swparameters.htm"},
+    {"statement": "If Vcl > Vcl cut-off then: Phie <= (PhiMax+DeltaPhiMax)*(1.0-Vcl)*10**(-10.0*(Vcl-Vclcut-off)**1.6))", "source_page": "swparameters.htm"},
+    {"statement": "If set to On (box is selected) and If Vcl > Vcl cut-off then : m = m*10**(Vcl - Vcl cut-off) .", "source_page": "swparameters.htm"},
+    {"statement": "Sxo Limit ? - Limit Sxo flag . If set to On then the calculation of Sxo is limited by the following equation - Sxo < Sw**SxoLimit .", "source_page": "swparameters.htm"},
+    {"statement": "The Phie Limit : when effective porosity (PHIE) < Phie Limit value, effective porosity (PHIE) will be set to 0.001, Sw, SwT etc.. will be set to 1.0 (100%).", "source_page": "swparameters.htm"},
+    {"statement": "The Vcl Limit : when Volume Wet clay (VWCL) > Vcl Limit value, effective porosity (PHIE) will be set to 0.0001, Sw, SwT etc... will be set to 1.0 (100%).", "source_page": "swparameters.htm"},
+    {"statement": "set effective porosity to a very small number (0.0001) and Sw to 1.0 (100%) where (effective) porosity is below a Limit value", "source_page": "swparameters.htm"},
+    {"statement": "Vshale = VWCL / CSR", "source_page": "swparameters.htm"},
+    {"statement": "Rho Wet Clay = Rho Matrix + ((Rho Shale - Rho Matrix) / CSR)", "source_page": "swparameters.htm"},
+    {"statement": "If a Rho GD is not entered then it is assumed to be 2.71.", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "A fixed lithology for an input Rho GD is assumed. 2.65 100% sand, 2.71 100% lime, 2.85 100% Dolomite. Input Rho GD between these end points will result in a linear extrapolation between the end points. For example an input Rho GD of 2.68 will result in 50% Sandstone and 50% Limestone.", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "If the ss/ls/dol model is selected then the program first works out whether the ss/ls or the ls/dol model is used (Rhoma < 2.71 ss/ls, Rhoma > 2.71 ls/dol)", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "U = Pef x ( [rho] + 0.1883) x 0.93423", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Uwat = 0.00481 x Sal + 0.3883", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "For gas ( [rho] less than 0.4) Uhyd = 0.119 x [rho]. For Oil : Uhyd = 0.133 x [rho]", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "[Porosity] difference < 0.001 ; Sxo difference < 0.002", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Hydrocarbon iteration loop did not converge after 20 loops. [PHIFLAG 2]", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Iterative solving of the saturation equations did not converge after 10 loops [PHIFLAG 8]", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "If the calculated VWCL curve is greater than the VCL Limit or the calculated Phie curve is less than the Phie limit then Phie = 0.0001 and all output saturation curves are set to 1.0 [PHIFLAG 9]", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "the RtLam and RxoLam are limited to 2000 ohmm.", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "The three lines have been made to all go through 40% shale lamination. The three lines represent a resistivity of shale of 1.0, 1.5 and 2.0 ohmm. The resulting sand resistivities are respectively; 50.0, 5.75 and 2.83 ohmm.", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Vlam must be between 0 and 0.99", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "SwLam is limited to be between 1.0 and 0.001", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Rmf75 = Rmf value converted to 75 degF.", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Formation Salinity corrections are for following values 50, 100, 150, 200, 250 Kppm and in this order", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "if the mineral model chosen was Sand/Dolomite and the input matrix density was 2.75 g/cc, then the correction would be half way in-between the correction for Sand and Dolomite.", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Clay could have an apparent matrix density of 3.0 but a true density of 2.5.", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Neu Matrix = 0.0 / Matrix Density = Blank / NeuHyHI = 1.0", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Grain Den = (Vmatrix x Rhoma + Vdcl x RhoDclay) / (Vmatrix + Vdcl ) ; Vmatrix = 1 ? Phie ? VWCL", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "Rt_Hingle = Rt^(-1/m) ; Rxo_Hingle = Rxo^(-1/m)", "source_page": "swequationsandmethodology.htm"},
+    {"statement": "The Both option will set up a variable shading for hydrocarbon, which will make the shading green when the output hydrocarbon density is greater than 0.4 gm/cc and red when the density is less than 0.4 gm/cc.", "source_page": "porosityandwatersaturation.htm"},
+    {"statement": "Den Fluid Rxo Zone = RhoFiltrate * Sxo + (1-Sxo) * RhoHyd", "source_page": "porosityandwatersaturation.htm"},
+    {"statement": "Rw : Formation water resistivity at formation temperature. Defaults to 0.1 ohmm but must be adjusted to the correct value.", "source_page": "basicloganalysis.htm"},
+    {"statement": "a factor : Archie equation a factor. Defaults to 1.0.", "source_page": "basicloganalysis.htm"},
+    {"statement": "m Exponent : Archie equation m (cementation) factor. Defaults to 2.0.", "source_page": "basicloganalysis.htm"},
+    {"statement": "n Exponent : Archie equation n (saturation exponent) factor. Defaults to 2.0.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Sat Equation : Water Saturation equation. Defaults to Archie.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Rho Matrix : ... Defaults to 2.65 gm/cc for sandstone. Set to 2.71 gm/cc for limestone.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Rho Fluid : ... Defaults to 1.0 gm/cc for fresh water. Set to 1.1 gm/cc for salt water.", "source_page": "basicloganalysis.htm"},
+    {"statement": "DT Matrix : ... Defaults to 55 uSec/ft for sandstone. Set to 49 uSec/ft for limestone.", "source_page": "basicloganalysis.htm"},
+    {"statement": "DT Fluid : ... Default value is189 uSec/ft. For salt-saturated formation water use about 174 usec/ft.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Sonic Cp : Wyllie equation compaction factor. ... Defaults to 1.0. ... A rule of thumb for estimating this parameter is to divide the sonic clay parameter by 100.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Numbers greater than 100% are allowed and are normal for the calculation of clay volume (default is 130%). [Percentile Clay]", "source_page": "basicloganalysis.htm"},
+    {"statement": "Enter a low clip values between 0-100%. Default is (98%). [Clip Low %]", "source_page": "basicloganalysis.htm"},
+    {"statement": "exfact = sqrt(Rhoma/2.65) x (2.0 x SwH x Phie x Phie + 0.04 x Phie) x (1.0 ? SwH)", "source_page": "sand_silt_malay_model.htm"},
+    {"statement": "If Vbw is unrealistically high then : Vbw > Vcl x PhiTclay x 1.5 ; Vbw = Vcl x PhiTclay x 1.5 ; PhiT = Phie + Vbw", "source_page": "sand_silt_malay_model.htm"},
+    {"statement": "To remove the effect of this limit make MaxPhie a high number (0.6).", "source_page": "sand_silt_malay_model.htm"},
+    {"statement": "Setting Vshale Cutoff to 1.0 will completely remove this cutoff.", "source_page": "sand_silt_malay_model.htm"},
+    {"statement": "PhiT difference < 0.0001 ; SxoT difference < 0.001", "source_page": "sand_silt_malay_model.htm"},
+    {"statement": "SxoT is adjusted in steps of 0.01 until VshND equals VshGr.", "source_page": "sand_silt_malay_model.htm"},
+    {"statement": "2 Main Iterative hydrocarbon loop reached limit max 40. 3 Sxo Correction loop reached max 100. 4 Sw equation iterative loop did not converge after 10 iterations. 5 Bad hole correction loop reached max 100.", "source_page": "sand_silt_malay_model.htm"},
+    {"statement": "IP works with Density, Sonic and Caliper log curves defined in units of grams per cubic centimeter, microseconds per foot and inches, respectively.", "source_page": "default_settings.htm"}
+  ],
+  "manual_inconsistencies": [
+    {"issue": "Sonic sandstone matrix: PhiSw 'Sonic Sand' = 'Default 56 (180 u Sec/m)' vs Basic Log Analysis 'DT Matrix' = 'Defaults to 55 uSec/ft for sandstone'.", "source_pages": ["swparameters.htm", "basicloganalysis.htm"]},
+    {"issue": "Low-porosity floor: the Limits/Badhole bullet summary says 0.0001, the 'Phie Limit' parameter entry says 0.001, and 'Vcl Limit' plus PHIFLAG code 9 both say 0.0001. Three statements, two numbers. All recorded verbatim; none reconciled.", "source_pages": ["swparameters.htm", "swequationsandmethodology.htm"]},
+    {"issue": "'Clip Low %' is documented as 'Default is (98%)', which reads as a HIGH clip value; 'Clip High %' has no stated default. Recorded verbatim.", "source_pages": ["basicloganalysis.htm"]},
+    {"issue": "B fact Juhasz default is labelled '1.0 meq/ml' - Qv's unit attached to B. Recorded verbatim; matches the known meq/mL-vs-meq/L trap.", "source_pages": ["swparameters.htm"]}
+  ],
+  "tierC_flags": [
+    {
+      "name": "Sand/Silt Malay Model - Lithology Conversion Chart",
+      "evidence": "The dry sand / dry silt / dry clay fractions (Fsn, Fsi, Fdc) are read off a five-curve raster chart. Manual states verbatim: 'The position of A and B points along Y axis, and the shape of those five curves are determined based on the characteristics of core data acquired in Malay Basin.' The B point value is the 'Clay at Silt Point' parameter; 'The A point value is 1.0 ? B.' Worked example given: 'Fsn ( Dry Sand Fraction) = 0.45 / Fsi (Dry Silt Fraction) = 0.50 / Fdc (Dry Clay Fraction = 0.05'.",
+      "classification": "proprietary calibration derived from undisclosed Malay Basin core data; chart shape is not published and not reproducible",
+      "action": "Record name + Kuttan et al. citation only. Do NOT digitize IP's chart or fit its curve shapes. If SandiBumi implements this model, calibrate the conversion from Jauhar's own core data and document that provenance.",
+      "source_page": "sand_silt_malay_model.htm"
+    },
+    {
+      "name": "Shipped neutron tool look-up tables (Sch_CNL.neu and siblings)",
+      "evidence": "The manual reproduces a full Sch_CNL.neu table ('Contains lookup table for Schlumberger CNL TNPH') with matrix and salinity correction values, and gives the recipe for building new ones from vendor equivalence charts and environmental-correction nomographs.",
+      "classification": "not patented - but the tabulated VALUES are digitizations of third-party service-company chartbooks redistributed inside IP",
+      "action": "Adopt the file format and the documented construction recipe (both Tier A). Digitize the numeric corrections from the primary vendor chart (chartdig), not from IP's shipped tables. Values deliberately NOT transcribed here.",
+      "source_page": "swequationsandmethodology.htm"
+    },
+    {
+      "name": "Unattributed IP-specific formulations (watch list, not Tier C)",
+      "evidence": "Given without any citation: the 'Modified' density-hydrocarbon model, the 'Shell' m formula (m = 1.87 + 0.019 / PHIE), both variable-m* forms and their coefficients (1.128/0.22/17.3 and 0.258/0.20/16.4), the B(T,Rw) equation (rasterized), and the U/Uwat/Uhyd coefficients.",
+      "classification": "no patent or brand claim found - simply unattributed in this help file",
+      "action": "Trace each to a primary source before adoption, or record in SandiBumi as 'IP-documented, source untraced'. Do not present any of them as SandiBumi-derived.",
+      "source_page": "swparameters.htm, swequationsandmethodology.htm"
+    }
+  ],
+  "gaps": [
+    "No a / m / n defaults are stated in the PhiSw module. The only Archie defaults anywhere in the manual are Basic Log Analysis's a=1.0, m=2.0, n=2.0, Rw=0.1 ohmm.",
+    "No Rw default, no formation-temperature default, no temperature-gradient default, no surface-temperature default, no reference-depth default in PhiSw or in the Temperature Gradient module.",
+    "No numeric defaults for Qv a Const, Qv b Const, or B fact W-S. The B(T,Rw) equation is rasterized (embim119) and is therefore not recoverable from this help file.",
+    "Rw from SP gives NO equations at all - no SSP coefficient, no Rweq relation, no fresh-water transform. Delegated to Schlumberger chart SP-2 (dashed line). Must come from the primary chartbook.",
+    "No Gardner / Bellotti / Lindseth coefficients - method names and citations only.",
+    "No citations given for: Archie, Simandoux, Modified Simandoux, Indonesian (Poupon-Leveaux), Dual Water, Waxman-Smits, Juhasz, Wyllie, Raymer-Hunt, the Shell m formula, either m* form, or the Modified density-hydrocarbon model.",
+    "Thomas-Stieber / Juhasz SPWLA paper is named by title but with no year, volume, or page numbers.",
+    "No thresholds stated for coal, salt, or anhydrite (nine parameters, zero defaults) in PhiSw; none for Den Coal / Neu Coal in the Malay model.",
+    "No multi-mineral endpoint values (Min1-4 Umat / RhoMat / DtMat / Rho True / Dt True / TP) - those live in MINDEF.PAR, not in the help.",
+    "No Sand/Silt Malay endpoint defaults (Den/Neu for matrix, silt, dry clay, wet clay, water, hydrocarbon; Clay at Silt Point; a/m/n; Rw/Rwb/Rmf/Rmfb).",
+    "No defaults for Phi max, Delta Phi max, Vcl cut-off, Phie Sw Limit, Phie Limit threshold, Vcl Limit threshold, Swi Limit, Sxo Limit exponent, Invasion factor, min/max m value, m plus value, Clay Shale Ratio, Res Clay, Rxo Clay, Pef Clay, Neu Matrix, Sonic matrix, or any special-mineral endpoint.",
+    "121 of the methodology page's formulas are rasterized as embim*.gif and are NOT recoverable from the decompiled text. Recovering them would require OCR of the images from the CHM - deliberately not attempted. No formula has been reconstructed from general knowledge.",
+    "The tensor Rv/Rh core equations (the actual anisotropic sand-shale system) are rasterized; only the variable names and the solution strategies are recoverable."
+  ]
+}

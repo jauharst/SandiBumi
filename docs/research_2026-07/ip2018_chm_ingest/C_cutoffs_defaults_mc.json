@@ -1,0 +1,465 @@
+{
+  "target": "C: Cut-offs, Summations, Global Defaults & Monte Carlo — Interactive Petrophysics 2018 help (PGL / Lloyd's Register / Geoactive), decompiled CHM text",
+  "source_pages": [
+    "cutoffsandsummation.htm",
+    "multi_wellcutoffsandsummati.htm",
+    "cut_off_sensitivity_results.htm",
+    "default_settings.htm",
+    "options.htm",
+    "define_monte_carlo_parameters.htm",
+    "batchmontecarlo.htm",
+    "tools.htm (supporting: Defaults submenu inventory)",
+    "intro_file_formats.htm (supporting: file-extension inventory)"
+  ],
+  "extraction_rules_applied": {
+    "numbers": "verbatim only; nothing rounded, converted, normalized or supplied from outside knowledge",
+    "missing_values": "recorded as 'not stated in manual'",
+    "equations": "rasterized GIFs recorded by filename, never reconstructed"
+  },
+
+  "cutoff_model": {
+    "architecture": "Per-zone, per-report multi-criterion flag model. Zones x Reports x Input curves. Each report evaluates its own independent cut-off set per zone and emits its own flag curve; cumulative thickness curves are integrated from the flags.",
+    "report_count": {
+      "value": "up to 5 Summation Reports (2 fixed: Reservoir, Pay; + 3 optional)",
+      "verbatim": "You also have the option to set up and execute up to 5 Summation Reports . This allows you to generate 3 extra sets of output, in addition to the traditional Net Reservoir and Net Pay Summation reports.",
+      "source_page": "cutoffsandsummation.htm"
+    },
+    "input_curve_count": {
+      "value": "up to 10 (3 pre-defined + 7 optional)",
+      "verbatim": "Up to 10 input curves can be entered into this screen for use in the summation computation. The first three curves are pre-defined as 1. Porosity , 2. Water Saturation , and 3. Clay Volume . The additional 7 curves (rows 4 - 10) are clearly defined options and can be any selected input curve. For example, a calculated permeability curve might be used.",
+      "source_page": "cutoffsandsummation.htm"
+    },
+    "cutoffs": [
+      {
+        "name": "Phi Cut Res/Pay",
+        "mc_index": "(3)",
+        "sense": ">=",
+        "verbatim": "If the input porosity curve value is greater than or equal to this value, then the level can be considered for Pay or Reservoir if the level also meets all the other cut-offs.",
+        "default_value": "not stated in manual",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "name": "Sw Cut Res/Pay",
+        "mc_index": "(6)",
+        "sense": "<=",
+        "verbatim": "If the input water saturation curve is less than or equal to this value, then the level can be considered for pay or reservoir if the level also meets all the other cut-offs.",
+        "default_value": "not stated in manual",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "name": "Vcl Cut Res/Pay",
+        "mc_index": "(9)",
+        "sense": "<=",
+        "verbatim": "If the input clay volume curve is less than or equal to this value, then the level can be considered for pay or reservoir if the level also meets all the other cut-offs.",
+        "default_value": "not stated in manual",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "name": "Other cut-off 1",
+        "mc_index": "(12)",
+        "sense": ">= or <=, user-set per curve",
+        "verbatim": "Other input curve 1 cut-off value. If you decide to apply some cut-off criteria, and if the other input curve 1 is >= or <= (depending on setting on input curve window) to this value, then the level can be used in the report if the level also meets all the other cut-offs.",
+        "default_value": "not stated in manual",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "name": "Other cut-off 2",
+        "mc_index": "(15)",
+        "sense": ">= or <=, user-set per curve",
+        "verbatim": "Extra input curve 2 cut-off value. If the extra input curve 2 is >= or <= (depending on setting on input curve window) to this value, then the level can be considered for pay or reservoir if the level also meets all the other cut-offs.",
+        "default_value": "not stated in manual",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "name": "Other cut-off 3",
+        "mc_index": "(18)",
+        "sense": ">= or <=, user-set per curve",
+        "verbatim": "Extra input curve 3 cut-off value. If the extra input curve 3 is >= or <= (depending on setting on input curve window) to this value, then the level can be considered for pay or reservoir if the level also meets all the other cut-offs.",
+        "default_value": "not stated in manual",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "name": "Min Res Height",
+        "mc_index": null,
+        "sense": "minimum-thickness gate on net reservoir",
+        "verbatim": "Allows you to set the minimum thickness of a zone in order for it to count as net reservoir. Default is 0. (All depth intervals will count towards net if they meet the cut-off criteria).",
+        "default_value": "0",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "name": "Min Pay Height",
+        "mc_index": null,
+        "sense": "minimum-thickness gate on net pay",
+        "verbatim": "Allows you to set the minimum thickness of a zone in order for it to count as Net Pay. Default is 0. (All depth intervals will count towards pay if they meet the cut-off criteria).",
+        "default_value": "0",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "name": "Min XXXX Height (optional reports)",
+        "mc_index": null,
+        "sense": "minimum-thickness gate on the optional report",
+        "verbatim": "Allows you to set the minimum thickness of a zone in order for it to count in whatever Report computation is being executed. Default is 0. (All depth intervals will be counted, if they meet any cut-off criteria that may have been set).",
+        "default_value": "0",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "name": "Minimum Height (multi-well)",
+        "mc_index": null,
+        "sense": "minimum-thickness gate, multi-well module",
+        "verbatim": "The Minimum Height allows you to set the minimum thickness of a zone in order for it to count as net reservoir ( Reservoir sub-tab) or net pay ( Pay sub-tab). The default is 0. (All depth intervals will count towards net if they meet the cut-off criteria).",
+        "default_value": "0",
+        "source_page": "multi_wellcutoffsandsummati.htm"
+      }
+    ],
+    "gross_net_pay_layering": {
+      "gross": "Zone top to zone bottom (Gross Interval, non-editable result parameter). Zones may have gaps between them.",
+      "net_reservoir": "Levels passing the Reservoir report cut-offs. Conventionally: 'The Reservoir Results tab allows you to view the results of a summation calculation for Net Reservoir - determined by the application of the Porosity and optional Clay Volume cut-off criteria - for each defined zone.'",
+      "net_pay": "Levels passing the Pay report cut-offs. Conventionally: 'The Pay Results tab allows you to view the results of a summation calculations for Net Pay - determined by the application of the Vclay, Porosity and Water Saturation cut-off criteria - for each defined zone.'",
+      "coupling": "NOT enforced as a hierarchy. Pay is a separate report with its own independent cut-off column. The only stated coupling is a UI convenience: 'Values typed into the Reservoir report column for Porosity, Water Saturation and Clay Volume automatically populate the appropriate cells in the Pay report column.'",
+      "source_page": "cutoffsandsummation.htm"
+    },
+    "curve_type_preprocessing": [
+      {
+        "type": "Phi",
+        "verbatim": "Phi - clip the input curve to values greater than zero.",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "type": "Vcl",
+        "verbatim": "Vcl - clip the input curve to values between zero and one. This allows you, for example, to select a clay volume from GR curve as the input. IP will clip the curve values to lie between zero and one before the summation calculations are performed.",
+        "source_page": "cutoffsandsummation.htm"
+      },
+      {
+        "type": "Sw",
+        "verbatim": "Sw - clip the input curve to values between zero and one. Also, this Type initiates a computation of a porosity-weighted average for the input curve when computing zonal averages.",
+        "source_page": "cutoffsandsummation.htm"
+      }
+    ],
+    "averaging_methods": {
+      "options": ["Arithmetic", "Geometric", "Harmonic"],
+      "verbatim": "The Average Method column allows you to define the averaging method to apply to input curves. The options are available from a drop-down list. The options are : Arithmetic , Geometric and Harmonic .",
+      "guard_rule": "For the Geometric and Harmonic averages, any input value which is less than or equal to zero, will be ignored and not included in the final average.",
+      "zonal_basis": "On the main report all zone averages are thickness weighted averages not arithmetic averages.",
+      "source_page": "cutoffsandsummation.htm"
+    },
+    "depth_integration_convention": {
+      "verbatim": "Each depth in the data is considered a discrete interval, with the recorded depth being the center of the interval. Therefore, when making averages over an interval, only half of the top and bottom depth increments are counted.",
+      "interval_thickness_rule": "The net thickness is determined by Bottom minus Top plus depth step. The Top is the depth of the first instance of where the flag curve turns on. The Bottom is last depth where the flag curve is on. To illustrate this further; think of an interval where there is just one step with the flag curve on. Top = Bottom but thickness will be the depth step.",
+      "source_page": "cutoffsandsummation.htm"
+    },
+    "multiwell_rollup_arithmetic": {
+      "verbatim": "In Multi-Well mode an average property is computed by adding together the value thickness of the parameter for all selected wells, then by dividing the result by the total thickness in all wells.",
+      "worked_example_verbatim": "Well 1 (Zone 1) Av Phi 0.195 / Net Thickness 50ft / Phi H 50 x 0.195 = 9.75 / Av Sw 0.25 / Phi So H 9.75 x (1-0.25) = 7.313 ; Well 2 (Zone 1) Av Phi 0.165 / Net Thickness 20ft / Phi H 20 x 0.165 = 3.3 / Av Sw 0.30 / Phi So H 3.3 x (1-0.3) = 2.31 ; Combined: Phi H 9.75 + 3.3 = 13.05 / Net Thickness 50 + 20 = 70ft / Phi So H 7.313 + 2.31 = 9.623 / Av Phi 13.05 / 70 = 0.187 / Av Sw 1.0 - 9.623 / 13.05 = 0.263",
+      "definitions_verbatim": "Phi = Porosity ; Sw = Water Saturation ; So = Hydrocarbon saturation = 1 - Sw ; Phi So H = Net Hydrocarbon Pore thickness ; Phi H = Net Porosity thickness",
+      "note": "Av Sw is back-computed from the PhiSoH/PhiH ratio, not averaged directly. This is the only textual (non-rasterized) statement of the porosity-weighted-Sw rule in the manual.",
+      "field_average_rule": "The field averages are net thickness weighted averages. (multi_wellcutoffsandsummati.htm)",
+      "source_page": "cut_off_sensitivity_results.htm"
+    },
+    "horizontal_well_handling": {
+      "verbatim": "If a TVD summation report is made of a near horizontal well, where the well actually reverses direction and goes upwards, then the module reports the actual vertical thicknesses cut by the well. The zonal averages calculated are weighted by the vertical thickness for each depth increment, so in a nearly horizontal well the zonal TVD averages could be considerably different to MD averages.",
+      "marker_verbatim": "The summation report adds a ?*? in front of all net and gross TVD thicknesses where the well is rising with measured depth. This is to inform the user that the results might not be as initially expected.",
+      "worked_figures_verbatim": "TVD top is -6077.38 and bottom is -6136.13 which gives a depth difference of 58.75?. However the report gives a gross TVD thickness of *79.5?",
+      "source_page": "cutoffsandsummation.htm"
+    },
+    "equations": [
+      {"quantity": "Average porosity", "image": "embim160.gif", "equation": "rasterized - not recoverable", "source_page": "cutoffsandsummation.htm"},
+      {"quantity": "Average water saturation", "image": "embim161.gif", "equation": "rasterized - not recoverable", "source_page": "cutoffsandsummation.htm"},
+      {"quantity": "Average Clay volume", "image": "embim162.gif", "equation": "rasterized - not recoverable", "source_page": "cutoffsandsummation.htm"},
+      {"quantity": "Extra curves Arithmetic average", "image": "embim163.gif", "equation": "rasterized - not recoverable", "source_page": "cutoffsandsummation.htm"},
+      {"quantity": "Extra curves Geometric average", "image": "embim164.gif", "equation": "rasterized - not recoverable", "source_page": "cutoffsandsummation.htm"},
+      {"quantity": "Extra curves Harmonic average", "image": "embim165.gif", "equation": "rasterized - not recoverable", "source_page": "cutoffsandsummation.htm"}
+    ],
+    "equation_symbol_legend_verbatim": "i = ith input value ; h i = ith input interval ; n = number of samples",
+    "example_cutoff_values_NOT_defaults": {
+      "warning": "These are the manual's worked EXAMPLE screen values, explicitly not stated as shipped defaults. Do NOT adopt as IP defaults.",
+      "verbatim": "Reservoir (default) - Porosity >= 0.1, Clay Volume ,<= 0.5 | Pay (default) - Porosity >= 0.1, Clay Volume <= 0.5, Water Saturation <= 0.5 | Sw < 0.45 (optional) - Porosity >=0.1, Clay Volume <= 0.5, Water Saturation <= 0.45 | PHIT > 0.15 (optional) - Clay Volume <= 0.5, Water Saturation <= 0.5, Porosity (note different porosity curve selected) >=0.15",
+      "printed_listing_verbatim": "Phi Pay > 0.100 ; Sw Pay < 0.500 ; Vcl Pay < 0.500 (against curves PHIE / SW / VWCL)",
+      "source_page": "cutoffsandsummation.htm"
+    },
+    "cutoff_sensitivity": {
+      "what_it_varies": "exactly one cut-off parameter at a time, swept Start -> Stop by Step",
+      "varies_verbatim": "Select the Cutoff parameter to investigate. This could be any of the Cutoff parameters saved by the Cutoff and Summation module, but normally will be Phie, Sw or Vcl.",
+      "sweep_spec_verbatim": "Enter the Cutoff Start Value , Cutoff Stop Value and the Cutoff Step for the selected Cutoff parameter. These numbers are the minimum and maximum limits for the selected Cutoff parameter and the step is the amount to increment the selected parameter between these two limits.",
+      "example_sweep_verbatim_NOT_default": "In the example below, the PHI cutoff limits to test are from 0.0 to 35 pu, using a 1.0 pu increment.",
+      "engine_verbatim": "The module cycles through the Cutoff parameter limits from Start to Stop value, using the Step, running the Cutoff and Summation module in each selected well.",
+      "reports": "any Summation output parameter, multiple simultaneously, per named Zone or 'All Zones'",
+      "output_parameter_classes_verbatim": "1. Average properties e.g Av Vcl Res, Av Phie Res or Av Sw Pay & 2. Value Thickness products e.g. PhiH Res (Net Porosity Thickness Reservoir), PhiSoH Pay (Net Hydrocarbon Pore Thickness Pay)",
+      "percentile_default_verbatim": "IP defaults to display the 10th, 50th and 90th Percentile results. These include the Cutoff value corresponding to that Percentile and the Value of the selected output parameter for that percentile.",
+      "bidirectional_grid_verbatim": "You can type in a new Value , Percentile or Cutoff into the appropriate cell, Key Enter or click elsewhere on the grid and IP will recalculate the other two values and update the graphic display.",
+      "motivation_verbatim": "Deciding what values of Vclay, Porosity and Sw to use as Cutoffs is quite often guesswork and therefore sensitivities run on the Cutoff values can be useful in helping to make a decision on the appropriate Cutoff value to apply.",
+      "files": {"setup": ".cos", "results": ".cosr", "data_export": ".txt", "plot_export": ".emf"},
+      "save_locations_verbatim": "When run on a single well the Save Results operation will save a results file into the active wells sub-folder in the active IP database. | When run in Multi-Well mode the Save Results operation will save the results file to the IP project folder level.",
+      "source_page": "cut_off_sensitivity_results.htm"
+    }
+  },
+
+  "summation_outputs": [
+    {"name": "Gross Interval", "verbatim": "Gross interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Net Res", "verbatim": "Net reservoir interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Net/Gross Res", "verbatim": "Net/Gross ratio for the reservoir interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Av Phi Res", "verbatim": "Average porosity in the reservoir interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Av Sw Res", "verbatim": "Average water saturation in the reservoir interval. This is a porosity-weighted average. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Av Vcl Res", "verbatim": "Average clay volume in the reservoir interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Other Curve Av (Name) Res", "verbatim": "Average of the additional input curves 1-7 in the reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "PhiH Res", "verbatim": "Computed Porosity - Thickness product of reservoir rock meeting the Porosity and optional clay volume cut-off criteria. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "PhiSoH Res", "verbatim": "Computed Hydrocarbon Pore thickness product of reservoir rock meeting the Porosity and optional clay volume cut-off criteria. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Other Curve (Name)H Res", "verbatim": "Cumulative thickness of the additional input curves 1-7 in the reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "TVD/TVT Gross", "verbatim": "True vertical depth Gross Zone Thickness. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "TVD/TVT Net Res", "verbatim": "True vertical depth Net Reservoir Thickness. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "TVD / TVT N/G Res", "verbatim": "True Vertical Depth Net to Gross Ratio. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Net Pay", "verbatim": "Net pay interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Net/Gross Pay", "verbatim": "Net/Gross ratio for the pay interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Av Phi Pay", "verbatim": "Average porosity in the pay interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Av Sw Pay", "verbatim": "Average water saturation in the pay interval. This is a porosity-weighted average. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Av Vcl Pay", "verbatim": "Average clay volume in the pay interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Other Curve Av (Name) Pay", "verbatim": "Average of the additional input curves 1-7 in the reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "PhiH Pay", "verbatim": "Computed Porosity - Thickness product of reservoir rock meeting the Porosity and optional clay volume cut-off criteria. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "PhiSoH Pay", "verbatim": "Computed Hydrocarbon Pore thickness product of reservoir rock meeting the Porosity and optional clay volume cut-off criteria. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Other Curve (Name)H Pay", "verbatim": "Cumulative thickness of the additional input curves 1-7 in the reservoir interval. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "TVD/TVT Net Pay", "verbatim": "True vertical depth Net Pay Thickness. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "TVD / TVT N/G Pay", "verbatim": "True Vertical Depth Net to Gross Ratio. Result parameter. Non-editable.", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Printed report column set", "verbatim": "Zn  Zone Name  Top  Bottom  Gross  Net  N/G  Av Phi  Av Sw  Av Vcl  Phi*H  Phi*So*H", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Printed report column set (multi-well)", "verbatim": "Well  Zone Name  Type  Units  Top  Bottom  Gross  Net  N/G  Av Phi  Av Sw  Av Vcl  Phi*H  Phi*So*H", "source_page": "multi_wellcutoffsandsummati.htm"},
+    {"name": "Detail Interval Breakdown block", "verbatim": "a Gross Interval, Total Number of Intervals, Total Net Thickness, Mean Interval Thickness, Thinnest Interval Thickness and Thickest Interval Thickness for each of the Reservoir and Pay intervals", "source_page": "cutoffsandsummation.htm"},
+    {"name": "Null marker in results grid", "verbatim": "If $$ are seen in the columns then this indicates that there is null data in that zone interval.", "source_page": "cutoffsandsummation.htm"}
+  ],
+
+  "monte_carlo": {
+    "model_verbatim": "The Monte Carlo Error Analysis Module uses a Monte Carlo simulation to estimate the errors in a petrophysical analysis. You enter the distribution of possible errors associated with the interpretation parameters and the input curves. IP, using the error distributions, randomizes the input parameters and makes multiple passes through the analysis modules. The results for each simulation are accumulated and a distribution of the results can be made.",
+    "modules_in_workflow_verbatim": "Clay Volume, Porosity SW, Mineral Solver, Basic Log Analysis , NMR , Cutoff, Formula, Multi-Line Formula, Fuzzy Logic, Neural Networks, Multi-Linear Regression, Cluster Analysis, Curve from Zones, Interp_Demo.",
+    "cutoff_coupling_verbatim": "The Cutoff module is not required in the work flow list, but when not used, it limits the results to only showing the foot by foot errors on the output curves.",
+    "distributions": [
+      {
+        "name": "Gaussian",
+        "parameters_taken": "Low Value Shift and High Value Shift about the Initial Value, plus the Type Shift algebra",
+        "width_mapping_verbatim": "For the Gaussian distribution the Low Value Shift + High Value Shift represents four standard deviations.",
+        "truncation_verbatim": "The Gaussian distribution is limited to 2.5 standard deviations either side of the Mean value. If the random number generator comes up with a value outside of this range, then another random number will be chosen.",
+        "truncation_rationale_verbatim": "This is done to try and keep the distribution within reasonable limits, since very large shifts in parameters will make some parameters, like Rw, have non-sensible results (negative) and will result in the interpretation module refusing to run.",
+        "source_page": "define_monte_carlo_parameters.htm"
+      },
+      {
+        "name": "Triangular (listed as 'Triangle' on the Mineral Solver and Input Curves tabs)",
+        "parameters_taken": "Low Value Shift and High Value Shift about the Initial Value",
+        "shape_parameterisation": "not stated in manual (mode/peak location never given; the shape diagrams are images)",
+        "source_page": "define_monte_carlo_parameters.htm"
+      },
+      {
+        "name": "Square",
+        "parameters_taken": "Low Value Shift and High Value Shift about the Initial Value",
+        "shape_parameterisation": "not stated in manual",
+        "source_page": "define_monte_carlo_parameters.htm"
+      }
+    ],
+    "shift_types": [
+      {"name": "Linear", "verbatim": "The parameter is changed by adding or subtracting the shift. Result = Input + Shift", "source_page": "define_monte_carlo_parameters.htm"},
+      {"name": "Percent", "verbatim": "The parameter is changed by using a percent shift. Result = Input x (1 + Shift / 100)", "source_page": "define_monte_carlo_parameters.htm"},
+      {"name": "Reciprocal", "verbatim": "The reciprocal of the parameter is changed by adding or subtracting the shift. Result = 1 / ( 1 / Input + Shift )", "source_page": "define_monte_carlo_parameters.htm"}
+    ],
+    "seed_handling": {
+      "verbatim": "IP uses a random number generator, seeded through the CPU clock time, to calculate the shifts for each parameter for each simulation. At the start of each simulation, each parameter is changed using a different random number.",
+      "user_settable_seed": "not stated in manual - no seed control offered; runs are therefore not reproducible in IP2018",
+      "source_page": "define_monte_carlo_parameters.htm"
+    },
+    "correlation_handling": {
+      "range_verbatim": "A Correlation parameter of zero (0) will mean that there is no correlation. A value of 1 equates to a 100% correlation and a value of -1 equals an inverse 100% correlation.",
+      "mechanism_verbatim": "The Correlation works by taking the randomly-selected shift for Parameter 1 and applying the same shift to dependent Parameter 2 . If the correlation is negative then the shift will be the inverse amount. For correlation coefficients of less than 1, the correlated shift will then have a randomness applied to it - depending on the value of correlation. A coefficient of 0.5 will apply a randomness of half what would have been selected if the coefficient was 0.0.",
+      "worked_example_values_verbatim": "an m and n dependency correlation of 0.5 and a Neu Wet Clay and Rho Wet Clay dependency correlation of -0.8",
+      "scheme_note": "Pairwise directional shift-copy, NOT a covariance/Cholesky scheme. Consistency of a joint correlation matrix over 3+ parameters is not stated in manual.",
+      "source_page": "define_monte_carlo_parameters.htm"
+    },
+    "percentile_convention": "By default, the 10 th percentile will be the 10 th percent lowest value of all the simulation results, except for Sw where it will be the 10 th percent highest value. If this convention is not required, then it can be modified by editing the MonteCarloDefaults.par file (stored in the IP directory) and changing the Results section at the end of the file. [source_page: define_monte_carlo_parameters.htm] -- reinforced for output curves on the same page: 'The program sorts for each depth level all the results and then calculates the percentile value. P5 will be the 5th percentile lowest value. P50 will be the middle value.' READING: ascending/statistical convention (Pn = n-th percent LOWEST) for every parameter EXCEPT Sw, which is FLIPPED to n-th percent HIGHEST so that P10 is the optimistic case for both volumes and saturations simultaneously. The flip is a configurable convention stored in MonteCarloDefaults.par, so two installations can disagree - any imported Sw percentile must carry its convention. Interpolation method (nearest-rank vs linear) is not stated in manual.",
+    "percentile_independence_caveat_verbatim": "At the end of the MonteCarlo simulation run, which could involve several thousand iterations, the values used for every parameter are ranked from low to high and basic statistics are run on each one. The Mean and Percentile results are calculated on an individual parameter-by-parameter basis. So, for example, the AvPhi Res P50 value will not necessarily come from the same simulation iteration as the Av VCL Res parameter P50 value. This means that a straight multiplication of the P50 Gross thickness, P50 Net to Gross Ratio, P50 AvPhi Res and P50 (1- Av Sw Res ) values will not yield the exact P50 value for the Net Pay Thickness Res ( Phi * So * H ) parameter, though it should be close.",
+    "output_curve_mnemonics_verbatim": "XXX MN Mean Result curve | XXX PSD Plus one standard deviation | XXX MSD Minus one standard deviation | Where XXX is the original curve name",
+    "tornado_plot": {
+      "method_verbatim": "For each parameter in the Monte Carlo analysis, two runs are made; one with the parameter set to its low value and one set to its high value (± 2 standard deviations for Gaussian distributions). All other parameters are kept to their default values.",
+      "note": "Sampler truncates Gaussians at +/-2.5 sigma but tornado endpoints are taken at +/-2 sigma. Both figures stated on the same page; no reconciliation given.",
+      "annotation_verbatim": "A % sign indicates that the shift for the parameter is in percent. An R character indicates that this is a reciprocal shift",
+      "ordering_verbatim": "The plot is displayed with all selected input parameters shown in the Y axis with decreasing importance towards the bottom of the plot.",
+      "invalidation_verbatim": "Any change in the Monte Carlo Error Analysis set-up will mean the Tornado Plot error runs will have to be re-made.",
+      "source_page": "define_monte_carlo_parameters.htm"
+    },
+    "defaults": [
+      {"setting": "Iteration count (program default)", "value": "not stated in manual", "source_page": "define_monte_carlo_parameters.htm", "context": "No shipped default iteration count is given anywhere in the module documentation."},
+      {"setting": "Auto Stop - minimum burn-in", "value": "200", "source_page": "define_monte_carlo_parameters.htm", "context": "The auto stop will always run a minimum of 200 iterations and then check for a stop case every 100 iterations after this."},
+      {"setting": "Auto Stop - check interval", "value": "100", "source_page": "define_monte_carlo_parameters.htm", "context": "then check for a stop case every 100 iterations after this."},
+      {"setting": "Auto Stop - minimum total iterations", "value": "300", "source_page": "define_monte_carlo_parameters.htm", "context": "Hence the minimum number of iterations is 300."},
+      {"setting": "Auto Stop - convergence tolerance", "value": "0.1%", "source_page": "define_monte_carlo_parameters.htm", "context": "The simulation stops when the difference between the last check and the current check, ie what is the difference change in the parameter value during the last 100 iterations, is less that the entered value (default 0.1%)."},
+      {"setting": "Auto Stop - Result Parameter", "value": "the hydrocarbon pore volume in the reservoir zone", "source_page": "define_monte_carlo_parameters.htm", "context": "You can select the ?Result Parameter? to check for convergence between iterations. The default is the hydrocarbon pore volume in the reservoir zone."},
+      {"setting": "Auto Stop - Result Zone", "value": "'All' zones average value", "source_page": "define_monte_carlo_parameters.htm", "context": "The user selects which zone to check for convergence in (?Result Zone?), default is the ?All? zones average value."},
+      {"setting": "Auto Stop - convergence criterion set", "value": "P10, P50, P90 and mean", "source_page": "define_monte_carlo_parameters.htm", "context": "The program checks for difference in the P10, P50, P90 and mean values and makes sure they are all within the tolerance specified and only then will stop the simulation."},
+      {"setting": "Save all output curve simulation", "value": "on (save all results)", "source_page": "define_monte_carlo_parameters.htm", "context": "If this box is cleared then just the mean value and the standard deviation error curves are saved. Default is to save all results."},
+      {"setting": "Parameter Use flags", "value": "all selected", "source_page": "define_monte_carlo_parameters.htm", "context": "All parameters by default are selected. Many of these parameters will in fact not be used in the analysis."},
+      {"setting": "Mineral Solver Low/High Value auto-fill", "value": "Mineral end-point value plus or minus 10% of the valid value", "source_page": "define_monte_carlo_parameters.htm", "context": "Low / High Values - default values are filled in which are equal to the Mineral end-point value plus or minus 10% of the valid value. These default values can be modified. (Same wording repeated on the Input Curves tab.)"},
+      {"setting": "Output Curve Names - maximum count", "value": "up to 10 curves", "source_page": "define_monte_carlo_parameters.htm", "context": "The Output Curve Names allows you to select up to 10 curves to be output."},
+      {"setting": "Histograms - maximum simultaneous", "value": "nine", "source_page": "define_monte_carlo_parameters.htm", "context": "Up to nine different histograms can be displayed together."},
+      {"setting": "Crossplots - maximum simultaneous", "value": "nine", "source_page": "define_monte_carlo_parameters.htm", "context": "Up to nine different crossplots can be displayed together."},
+      {"setting": "Histogram overlay type", "value": "Gaussian distribution", "source_page": "define_monte_carlo_parameters.htm", "context": "The Overlay box allows you to select what type of overlay lines are displayed on the histogram. The default is to have a Gaussian distribution."},
+      {"setting": "Normalize Histogram Maximum Height to 1.0 - Log low value", "value": "-1", "source_page": "define_monte_carlo_parameters.htm", "context": "When turned on the ?Log low value? is set to -1 and the ?Log high value? to 1."},
+      {"setting": "Normalize Histogram Maximum Height to 1.0 - Log high value", "value": "1", "source_page": "define_monte_carlo_parameters.htm", "context": "When turned on the ?Log low value? is set to -1 and the ?Log high value? to 1."},
+      {"setting": "Default MC example input curves", "value": "PHIE , SW, VWCL and PHIT", "source_page": "define_monte_carlo_parameters.htm", "context": "Click here to view an example of the Auto Log Plot with the default input curves. The original curves ( PHIE , SW, VWCL and PHIT ) are displayed as dashed lines."},
+      {"setting": "Defaults file for the module", "value": "MonteCarloDefaults.par", "source_page": "define_monte_carlo_parameters.htm", "context": "The defaults are saved to the MonteCarloDefaults.par , file stored in the IP directory. Also: 'The default crossplots and histograms can be changed by editing the MonteCarloDefaults.par file'."},
+      {"setting": "Batch MC - recommended final simulation count", "value": "2000", "source_page": "batchmontecarlo.htm", "context": "It is recommended that a test run is made for all wells with 1 or 2 simulations set in the Stop simulation at box so that you can confident that every thing is defined correctly before setting the final number of simulation runs (2000). NOTE: a prose recommendation, NOT a stated program default."},
+      {"setting": "Batch MC - test-run simulation count", "value": "1 or 2", "source_page": "batchmontecarlo.htm", "context": "It is recommended that a test run is made for all wells with 1 or 2 simulations set in the Stop simulation at box"},
+      {"setting": "Batch MC - Stop simulation at precedence", "value": "overrides the regular MC parameter file", "source_page": "batchmontecarlo.htm", "context": "The Stop simulation at box allows you to select the number of simulations to run for each well. This will override the number set in the regular Monte Carlo Error Analysis parameter file."},
+      {"setting": "Raw simulation results file format", "value": ".csv (comma delimited), one line of text per simulation run", "source_page": "define_monte_carlo_parameters.htm", "context": "a .csv (comma delimited) file is produced containing all of the raw output data from each simulation run. This file will contain one line of text per simulation run. Each line will have all the input shifts and output results."}
+    ]
+  },
+
+  "defaults_verbatim": [
+    {"setting": "Cut-off & Summation - Result Precision", "value": "3 decimal places", "source_page": "cutoffsandsummation.htm", "context": "The Result Precision column allows you to type in / define the number of decimal places to which the zonal average values are reported in the file or print output. The default setting is 3 decimal places."},
+    {"setting": "Cut-off & Summation - Result Precision maximum", "value": "6 places of decimal", "source_page": "cutoffsandsummation.htm", "context": "The maximum setting is 6 places of decimal."},
+    {"setting": "Cut-off & Summation - report text field width", "value": "8 characters", "source_page": "cutoffsandsummation.htm", "context": "However, the text string length to file or printer is set to 8 characters, so setting to a Result Precision of 6 is only useful for reporting very small decimal numbers, for example very low, small fractional permeabilities."},
+    {"setting": "Cut-off & Summation - Report Title maximum length", "value": "25 alphanumeric characters", "source_page": "cutoffsandsummation.htm", "context": "Report titles permit a maximum 25 alphanumeric characters in each text box."},
+    {"setting": "Cut-off & Summation - Report Short Name maximum length", "value": "4 characters", "source_page": "cutoffsandsummation.htm", "context": "The Short Name allows a maximum of 4 characters in the name."},
+    {"setting": "Cut-off & Summation - default report titles", "value": "Reservoir and Pay", "source_page": "cutoffsandsummation.htm", "context": "The Report Title row allows you to type in names that will be used to distinguish each Summation calculation in an output report. The defaults are Reservoir and Pay reports."},
+    {"setting": "Cut-off & Summation - Min Res Height", "value": "0", "source_page": "cutoffsandsummation.htm", "context": "Min Res Height: Allows you to set the minimum thickness of a zone in order for it to count as net reservoir. Default is 0. (All depth intervals will count towards net if they meet the cut-off criteria)."},
+    {"setting": "Cut-off & Summation - Min Pay Height", "value": "0", "source_page": "cutoffsandsummation.htm", "context": "Min Pay Height: Allows you to set the minimum thickness of a zone in order for it to count as Net Pay. Default is 0."},
+    {"setting": "Cut-off & Summation - Min XXXX Height (optional reports)", "value": "0", "source_page": "cutoffsandsummation.htm", "context": "Min XXXX Height - Allows you to set the minimum thickness of a zone in order for it to count in whatever Report computation is being executed. Default is 0."},
+    {"setting": "Multi-Well Cut-off - Minimum Height", "value": "0", "source_page": "multi_wellcutoffsandsummati.htm", "context": "The Minimum Height allows you to set the minimum thickness of a zone in order for it to count as net reservoir ( Reservoir sub-tab) or net pay ( Pay sub-tab). The default is 0."},
+    {"setting": "Cut-off & Summation - default output curve names", "value": "PayFlag, ResFlag, ResPhiH, ResPhiSoH, ResVclH, PayPhiH, PayPhiSoH, PayVclH", "source_page": "cutoffsandsummation.htm", "context": "The PayFlag and ResFlag curves are used in the interactive log plot display, and should always be calculated. The other default curves are: Cumulative Reservoir Porosity Thickness ( ResPhiH ) / Cumulative Reservoir Thickness ( ResPhiSoH - net) / Cumulative Reservoir Clay Volume Thickness ( ResVclH ) / Cumulative Pay Porosity Thickness ( PayPhiH ) / Cumulative Pay Thickness ( PayPhiSoH - pay) / Cumulative Pay Clay Volume Thickness ( PayVclH )"},
+    {"setting": "Cut-off & Summation - optional report cumulative curve naming", "value": "REP4RHOBH (report short name + curve + H)", "source_page": "cutoffsandsummation.htm", "context": "The same operation was performed for the REP4 column, but only the cumulative permeability thickness curve ( REP4RHOBH ) was required as an output."},
+    {"setting": "Cut-off & Summation - default curves for detailed interval listing", "value": "PHIE , SW and VWCL", "source_page": "cutoffsandsummation.htm", "context": "The default curves for the interval listing are PHIE , SW and VWCL although more curves can be added by clicking on an empty box within the Curves to output"},
+    {"setting": "Cut-off & Summation - default report file extension", "value": ".txt", "source_page": "cutoffsandsummation.htm", "context": "The Normal Report -> File option launches a Save Parameters to File dialog where the results will be written to a specified file name in the default output directory . The default file name uses the name, with the \" .txt \" extension."},
+    {"setting": "Cut-off & Summation - comma delimited output extension", "value": ".csv", "source_page": "cutoffsandsummation.htm", "context": "The Comma Delimited option will write the file using commas to separate the fields and will have a file extension of \" .csv \". This facilitates loading the data into a spreadsheet application."},
+    {"setting": "Cut-off & Summation - tab delimited output extension", "value": ".txt (tab delimited type)", "source_page": "cutoffsandsummation.htm", "context": "The tab Delimited option will write the file using tabs to separate the fields and will also have a \" .txt \" extension but will be a tab Delimited type."},
+    {"setting": "Cut-off & Summation - RTF output extension", "value": ".RTF", "source_page": "cutoffsandsummation.htm", "context": "The RTF format can be used to load into word processing software and contains the formatting information for the text. The output file will have a \" .RTF \" extension."},
+    {"setting": "Cut-off & Summation - Parameter Set listing extension", "value": ".TXT", "source_page": "cutoffsandsummation.htm", "context": "The same name is also used to save the Parameter Set listing to the hard disk with an extension of .TXT ."},
+    {"setting": "Cut-off & Summation - opening Parameter Set", "value": "the Default Parameter Set", "source_page": "cutoffsandsummation.htm", "context": "When the Cutoff and Summation Report dialog is first opened the Default Parameter Set will be displayed in the Parameter Set name box."},
+    {"setting": "Cut-off & Summation - keyboard shortcut", "value": "Ctrl_Alt_X", "source_page": "cutoffsandsummation.htm", "context": "From the Interpretation Menu, Select Cutoff and Summation to display the Cutoff and Summation dialog. Alternatively press the Keyboard Short-cut Ctrl_Alt_X."},
+    {"setting": "Cut-off & Summation - null-data marker in results grid", "value": "$$", "source_page": "cutoffsandsummation.htm", "context": "NOTE: If $$ are seen in the columns then this indicates that there is null data in that zone interval."},
+    {"setting": "Cut-off & Summation - rising-hole TVD marker", "value": "* prefix", "source_page": "cutoffsandsummation.htm", "context": "The summation report adds a ?*? in front of all net and gross TVD thicknesses where the well is rising with measured depth."},
+    {"setting": "Cut-off & Summation - column-edit armed colour", "value": "green (off = grey)", "source_page": "cutoffsandsummation.htm", "context": "This will turn the column header box to green. Now, any one parameter that is changed in that column will change all the parameters in the column to the same value. To turn the column edit off, click the column header again and its color will return to grey."},
+    {"setting": "Multi-Well Cut-off - default report set", "value": "combined Net Reservoir and Net Pay report, labeled Reservoir and Pay", "source_page": "multi_wellcutoffsandsummati.htm", "context": "The Reports tab allows you to set up the type of report to be produced. The default setting is to create a combined Net Reservoir and Net Pay report, labeled Reservoir and Pay for each of the selected wells."},
+    {"setting": "Multi-Well Cut-off - Output TVD depths on same line as Measured Depths", "value": "cleared (second line in report)", "source_page": "multi_wellcutoffsandsummati.htm", "context": "The default option (cleared) is to put a second line in the report that contains the TVD/TVT/ Net results for each zone."},
+    {"setting": "Multi-Well Cut-off - Output files to well directories", "value": "selected (default)", "source_page": "multi_wellcutoffsandsummati.htm", "context": "Output files to well directories if selected (default) will output each file to the individual well directory. If cleared then all files will go to the project directory."},
+    {"setting": "Multi-Well Cut-off - Use Well Name in file name", "value": "selected (default); file name becomes 'Summation ----' where ---- is the well name", "source_page": "multi_wellcutoffsandsummati.htm", "context": "Use Well Name in file name if selected (default) will change the output file name to Summation ---- where ---- is the well name. If not selected the file name will be the same as the cutoff set name for each well."},
+    {"setting": "Multi-Well Cut-off - module tab set", "value": "7 tabs: Curve Set-Up , Input Curves , Output Curves , Zones , Reports , Cutoffs , Results", "source_page": "multi_wellcutoffsandsummati.htm", "context": "Once the wells have been selected the Multi Well Cutoff and Summation module opens. It consists of 7 tabs"},
+    {"setting": "Cutoff Sensitivity - default displayed percentiles", "value": "10th, 50th and 90th", "source_page": "cut_off_sensitivity_results.htm", "context": "The Grid display in the bottom of the window shows the statistical values associated with the plot. IP defaults to display the 10th, 50th and 90th Percentile results."},
+    {"setting": "Cutoff Sensitivity - setup file extension", "value": ".cos", "source_page": "cut_off_sensitivity_results.htm", "context": "Save Format: Displays the Save Cutoff Sensitivity dialog, allows you to save the Cutoff Sensitivity Parameters in a Cutoff Sensitivity Setup file (*.cos)"},
+    {"setting": "Cutoff Sensitivity - results file extension", "value": ".cosr", "source_page": "cut_off_sensitivity_results.htm", "context": "When you run the Cutoff Sensitivity module the inputs, calculated data tables and output graphic defaults can be saved to an external (.cosr) file."},
+    {"setting": "Cutoff Sensitivity - export formats", "value": ".txt for data, .emf file for plot", "source_page": "cut_off_sensitivity_results.htm", "context": "The digital data and Plot can be sent directly to a printer, to external files (.txt for data, .emf file for plot) or into the WINDOWS Clipboard"},
+    {"setting": "Cutoff Sensitivity - default well selection", "value": "the current, in-focus well", "source_page": "cut_off_sensitivity_results.htm", "context": "Select the well or wells to work on. IP defaults to the current, in-focus well."},
+    {"setting": "Cutoff Sensitivity - grid column-active colour", "value": "green", "source_page": "cut_off_sensitivity_results.htm", "context": "Column headers are active in the grid part of the window. Click in the title cell of a column and it turns green (active)."},
+    {"setting": "IP canonical unit - Density", "value": "grams per cubic centimeter (gm/cc)", "source_page": "default_settings.htm", "context": "IP works with Density, Sonic and Caliper log curves defined in units of grams per cubic centimeter, microseconds per foot and inches, respectively. ... the associated conversion factors from the input unit to gm/cc for Density"},
+    {"setting": "IP canonical unit - Sonic", "value": "microseconds per foot (uSec/ft)", "source_page": "default_settings.htm", "context": "IP works with Density, Sonic and Caliper log curves defined in units of grams per cubic centimeter, microseconds per foot and inches, respectively. ... to uSec/ft for Sonic"},
+    {"setting": "IP canonical unit - Caliper", "value": "inches", "source_page": "default_settings.htm", "context": "IP works with Density, Sonic and Caliper log curves defined in units of grams per cubic centimeter, microseconds per foot and inches, respectively. ... and to inches for Caliper"},
+    {"setting": "Defaults file - Curve System Defaults", "value": "CparmDef.xml", "source_page": "default_settings.htm", "context": "The Curve System Defaults are located in the file CparmDef.xml . This file contains the IP default display characteristics (line color, left and right curve display limits, Crossplot & Histogram minimum and maximum scales) that are set for many common log curves when they are loaded into an IP project/database"},
+    {"setting": "Defaults file - user curve display overrides", "value": "CPARMDEF_USER.PAR", "source_page": "default_settings.htm", "context": "This will create a file called CPARMDEF_USER.PAR in the IP directory if it does not already exist ... the two files CparmDef.xml and CPARMDEF_USER.PAR are merged, with the curve display criteria from the _USER file taking precedence over the CparmDef.xml file."},
+    {"setting": "Defaults file - Curve Type Defaults", "value": "CurveType.opt", "source_page": "default_settings.htm", "context": "The Edit Curve Types Defaults menu item provide a shortcut to the file CurveType.opt located in the IP directory. This file contains the list of generic curve Types that IP uses to auto-select curves for some IP modules"},
+    {"setting": "Defaults file - user curve types", "value": "UserCurveType.opt (also written UserCurveTypes.opt on the same page)", "source_page": "default_settings.htm", "context": "Edit User Curve Type Defaults . This will create a file called UserCurveType.opt in the IP directory ... Add Curve Type to file will append the selected Curve Type details to the text file UserCurveTypes.opt"},
+    {"setting": "Defaults file - Curve Alias", "value": "CurveAlias.txt", "source_page": "default_settings.htm", "context": "If an input curve has an alias defined in the CurveAlias.txt file, found in the IP directory, that alias name will appear as the In Name column entry in the Load Data grid"},
+    {"setting": "Curve Alias file - accepted separators", "value": "comma, space, tab and semicolon", "source_page": "default_settings.htm", "context": "The following characters are acceptable to separate the external file name from the IP load name: comma, space, tab and semicolon."},
+    {"setting": "Curve Alias file - pair order", "value": "external curve name first, followed by IP Alias name", "source_page": "default_settings.htm", "context": "$ Curve name order is as shown with external curve name first, followed by IP Alias name."},
+    {"setting": "Curve Alias file - comment prefix", "value": "$", "source_page": "default_settings.htm", "context": "Example alias file lines all begin: $ IP / $ Curve Alias Defaults file / $ Curve name order is as shown..."},
+    {"setting": "Defaults file - Mineral Solver minerals", "value": "MINDEF.PAR (MinDef.par)", "source_page": "default_settings.htm", "context": "The Edit Mineral Solver Mineral System Defaults option allows the user to set up the default minerals for the Mineral Solver probabilistic model located in the file - MINDEF.PAR . This file contains the default minerals and their properties for the Mineral Solver module."},
+    {"setting": "Defaults file - Mineral Solver equations", "value": "MINEQDEF.PAR (MinEqDef.par)", "source_page": "default_settings.htm", "context": "The Edit Mineral Solver Mineral Equation Defaults option allows the user to set up the Mineral Equation defaults for the Mineral Solver probabilistic model located in the file MINEQDEF.PAR ."},
+    {"setting": "Defaults file - crossplot overlay list", "value": "Overlay_Files.ovl", "source_page": "default_settings.htm", "context": "The Edit Crossplot Overlays setup file menu item provides a shortcut to the file Overlay_Files.ovl. This file contains the descriptions and file names of all available Crossplot overlay line files."},
+    {"setting": "Defaults file - Monte Carlo", "value": "MonteCarloDefaults.par", "source_page": "default_settings.htm", "context": "The Edit Monte Carlo Defaults menu item provides a shortcut to the file MonteCarloDefaults.par . This file contains the default settings for the Monte Carlo Error Analysis module, including the parameters to be included, the distribution types (Gaussian, Square , Triangular) and the high and low shift values for each input curve or parameter."},
+    {"setting": "Defaults file - unit conversions", "value": "UnitConversion.par (also written UnitsConversion.par on the same page)", "source_page": "default_settings.htm", "context": "The Unit Conversions Defaults are located in the file - UnitConversion.par . ... The Edit Unit Conversions defaults menu item provides a shortcut to the file UnitsConversion.par"},
+    {"setting": "Defaults file - neutron tool types", "value": "Neu_Parm_Files.neu (user lookup files xxx.neu)", "source_page": "default_settings.htm", "context": "The Edit Neutron tool types setup file menu item provides a shortcut to the file Neu_Parm_Files.neu . This file contains a list of Logging companies and neutron tool types for which neutron parameter look-up tables are available. The user can write a new lookup parameter file (xxx.neu) and add the name to this file"},
+    {"setting": "Defaults - configurable file extensions", "value": "*.opt, *.vol, *.par, *.Neu", "source_page": "default_settings.htm", "context": "The configurable files (*.opt, *.vol, *.par, *.Neu) could be saved to a network drive folder and then each user maps a path to this folder in Corporate Search Folders."},
+    {"setting": "Project-level defaults files", "value": "Lithology.opt , DefaultUnits.opt and ShadeTypes.opt", "source_page": "default_settings.htm", "context": "The Lithology.opt , DefaultUnits.opt and ShadeTypes.opt files are examples of Defaults files that can be saved at the Project level and allow the user to tailor color tables, Lithology shading and Density/Sonic/Caliper Curve settings on a project by project basis."},
+    {"setting": "Defaults precedence - project over IP", "value": "The Project Level Defaults will be used in preference to the IP Defaults, where they exist.", "source_page": "default_settings.htm", "context": "Project Defaults files are files that are created / stored in an IP Project directory and will only be called upon by IP when the user opens that particular project."},
+    {"setting": "Defaults precedence - corporate folder search order", "value": "from the top down", "source_page": "default_settings.htm", "context": "[ Note: When Corporate Folders is enabled all the text files listed are searched for in each folder in turn from the top down."},
+    {"setting": "Defaults - editor used", "value": "Windows Notepad", "source_page": "default_settings.htm", "context": "The menu items are simply shortcuts to editing the files. The editing is performed using Windows (TM) Notepad ."},
+    {"setting": "Defaults - upgrade hazard", "value": "edited defaults are overwritten by a new IP install unless manually preserved", "source_page": "default_settings.htm", "context": "NOTE: if you have changed any Default files and you wish to keep your edited files when a new version of IP is installed on your PC, remember to save the edited files in another folder/directory before installing IP from the installation CD."},
+    {"setting": "Options - Irregular Set depth tolerance", "value": "0.2 ft", "source_page": "options.htm", "context": "Using the default Irregular Set depth tolerance of 0.2 ft then the irregular Set after loading the data will be: 8000.2 / 8010.6 / 8020.3 / 8020.6 / 8040.1 ... The 8000.3 data will be loaded at 8000.2 and the 8040.3 data will be loaded at 8040.1."},
+    {"setting": "Options - Default Log Plot Scale", "value": "Full", "source_page": "options.htm", "context": "Default Log Plot Scale: Select the required Log Plot Scale. Defaults to Full. The Use in Loaded Plot Formats checkbox overrides the scale saved in plot formats."},
+    {"setting": "Options - Default Plots Location", "value": "the IP installation directory, Default Plots sub-directory", "source_page": "options.htm", "context": "Default Plots Location - this parameter, previously stored in the ProgDefs.OPT file, sets up where IP looks for the default log plot format files . The default setting is to the IP installation directory, Default Plots sub-directory, which is shipped with the application."},
+    {"setting": "Options - CSV Delimiter", "value": "Comma or Semicolon (user-selectable)", "source_page": "options.htm", "context": "CSV Delimiter - this allows the user to select either Comma or Semicolon for delimiting their output CSV files. This is especially useful for users of German language Excel."},
+    {"setting": "Options - Interactive Line Sensitivity", "value": "not stated in manual (unit is pixels)", "source_page": "options.htm", "context": "Interactive Line Sensitivity - Specifies how wide the sensitive zone is around interactive lines, in pixels. This can be adjusted to suit touchscreen devices."},
+    {"setting": "Options - Well Security default scope", "value": "All Wells in database", "source_page": "options.htm", "context": "All Wells in database - This is the default option and selects all the wells in database whether they are loaded or not."},
+    {"setting": "Options - main configuration file", "value": "Intpetro.config (found in IP directory - IntPetro36)", "source_page": "options.htm", "context": "The Intpetro.config file (found in IP directory - IntPetro36) contains all the default settings and previously defined definitions and descriptions for a particular IP installation."},
+    {"setting": "Options - config distribution files", "value": "WellAttributes.configUpdate, LogAttributes.configUpdate, Well AttributeMapping.configUpdate, LogAttributeMapping.configUpdate, FileLoaderAttributes.configUpdate", "source_page": "options.htm", "context": "Each Attribute table in the Options interface can be saved separately to an external .configUpdate file. By default these files are saved into the IP installation directory."},
+    {"setting": "Options - fixed-attribute marker", "value": "double asterisk (**) prefix", "source_page": "options.htm", "context": "All the attributes prefixed with a double asterisk (**) ... are considered Fixed attributes and correspond with those attributes that have, to date, been stored in older versions of IP. The fixed attributes are there to ensure compatibility when updating older IP databases to IP V3.3 and later versions."},
+    {"setting": "Options - Lat/long display styles", "value": "Decimal Degrees, or Degrees-Minutes-Seconds", "source_page": "options.htm", "context": "Clicking on the Well Options label allows the user to select the user's default Lat/long display Style (Decimal Degrees, or Degrees-Minutes-Seconds) for wells in the current database."},
+    {"setting": "Options - Corporate folder sub-folder naming", "value": "xxx.hst (histogram), xxx.xpt (crossplot), xxx.plt (log plot)", "source_page": "options.htm", "context": "Sub-folders can be created and as long as they are named xxx .hst (histogram), xxx .xpt (crossplot) or xxx .plt (log plot) and a .hst, .xpt or a .plt file exist within the relevant sub-folder then the sub-folder will appear within the relevant module."},
+    {"setting": "Options - Corporate folder user-program location", "value": "sub-folder called \"UserPrograms\"", "source_page": "options.htm", "context": "Also with User Programs the programs must be stored on a network drive in a sub-folder called \"UserPrograms\" in order for IP to detect them. The Corporate Search Folders should point to the parent directory, it will find the UserPrograms sub-folder inside it automatically."},
+    {"setting": "Options - shared dictionary resolution", "value": "the first available SetDictionary.xml file in the folder list", "source_page": "options.htm", "context": "If the Corporate Search Folders is enabled, IP will get the path of the first available SetDictionary.xml file in the folder list. ... For many users that will mean higher than the [Program Folder] path as that is the default location."},
+    {"setting": "Options - security colour coding", "value": "no-access wells red; read-only wells grey; security-application failures red", "source_page": "options.htm", "context": "Well is shown in red with no details other than the name of the well. Well cannot be loaded or deleted. / Well(s) is shown in grey and loading the well will always create a copy of the well / Failures are shown in red."},
+    {"setting": "Options - access-right levels", "value": "none, read-only or full", "source_page": "options.htm", "context": "A list of usernames and their access rights (none, read-only or full). The special user called All Other Users is used to define the access rights for all users that are not specifically listed."},
+    {"setting": "Tools - Shade Name length limit", "value": "less than 10 characters", "source_page": "tools.htm", "context": "Shade Names must be less than 10 characters in length."},
+    {"setting": "Tools - maximum lithology shadings", "value": "30", "source_page": "tools.htm", "context": "There is currently a maximum of 30 Lithology shadings allowed in the Edit Default Lithology table."},
+    {"setting": "Tools - lithology bitmap dimensions", "value": "16 x 16 pixels", "source_page": "tools.htm", "context": "Bitmaps for lithology fill should be 16 x 16 pixels dimensions to be compatible with Windows 98 installations. Larger bitmaps can be used with Windows NT, 2000 and XP installations."},
+    {"setting": "Tools - shade types defaults file", "value": "ShadeType.opt", "source_page": "tools.htm", "context": "The IP default shading scheme is stored in the IP directory, in the file ShadeType.opt. ... WARNING: If you do not select the Save as Project Default check box before clicking OK, the IP defaults file will be overwritten."},
+    {"setting": "File formats - Interpretation Parameter Sets", "value": ".set", "source_page": "intro_file_formats.htm", "context": "Interpretation Parameter Sets | .set ; Cut-off and Summation module | .set ; Clay Volume Interpretation | .set ; Phi /Sw Interpretation | PhiSw.set"},
+    {"setting": "File formats - additional default files inventory", "value": "ProgDefs.opt, DefaultAlias.cax, ProjectFileDefaultsSets.opt, Lithology.opt, OBG_Files.obg, *.obg, ShadeType.opt, Zonecolors.opt, DipSymbols.opt, UnitsConversion.par, FluidSub_Default_Parameters.par, Neu_Parm_Files.neu, MonteCarloDefaults.par, NMR_Tools.csv, Poisson_Ratio_Lithologies.par, SetDictionary.xml, Sample Set Dictionary.xml", "source_page": "intro_file_formats.htm", "context": "Default IP File Formats table: 'Default Program Settings | ProgDefs.opt', 'Default Curve Aliasing Grid | DefaultAlias.cax', 'Default Project Files | ProjectFileDefaultsSets.opt', 'Default Lithology Settings | Lithology.opt', 'Default Overburden Gradient Files | *.obg', 'Overburden Gradient File List | OBG_Files.obg', 'Default Shading Types | ShadeType.opt', 'Default Zone Colors | Zonecolors.opt', 'Default Tadpole Symbols | DipSymbols.opt', 'Default Unit Conversions | UnitsConversion.par', 'Default Fluid Substitution Parameters | FluidSub_Default_Parameters.par', 'Neutron Parameters Lookup tables | Neu_Parm_Files.neu', 'Default Monte Carlo Parameters | MonteCarloDefaults.par', 'Pre-defined NMR Tools | NMR_Tools.csv', 'Poisson Ratio Lithologies Parameters | Poisson_Ratio_Lithologies.par', 'Curve Set Dictionary Definitions | SetDictionary.xml', 'Default Curve Set Dictionary Definitions | Sample Set Dictionary.xml'"}
+  ],
+
+  "validation_rules": [
+    {"rule": "Net cannot exceed Gross", "status": "NOT STATED IN MANUAL - implicit only. All N/G values in the worked listings are <= 1.000 but the constraint is never written.", "source_page": "cutoffsandsummation.htm; multi_wellcutoffsandsummati.htm"},
+    {"rule": "Flag curves must be produced", "verbatim": "The PayFlag and ResFlag curves are used in the interactive log plot display, and should always be calculated.", "source_page": "cutoffsandsummation.htm"},
+    {"rule": "Flag curves must be produced (multi-well, stronger wording)", "verbatim": "The Pay Flag and Reservoir Flag curves must be output. However, their names can be changed from the default names.", "source_page": "multi_wellcutoffsandsummati.htm"},
+    {"rule": "Porosity and Sw are mandatory inputs; Vcl is conditional", "verbatim": "One must set up the Porosity and Water Saturation curves to be used for the report. A Clay Volume curve is optional. ... The Clay Volume curve is optional, but must be entered if clay volume is used as a cut-off.", "source_page": "multi_wellcutoffsandsummati.htm"},
+    {"rule": "Sub Total zones carry no cut-offs", "verbatim": "Sub Total zones are not displayed on the interactive plot and have no associated cut-offs, but use the interpretation results from the normal zones to determine net pay or net reservoir average properties.", "source_page": "cutoffsandsummation.htm"},
+    {"rule": "Sub Totals excluded from the multi-well cut-off grid", "verbatim": "All zones, set up in the Zones tab, will be displayed here except Sub Totals . Sub Totals have no associated cut-off values, since they are created from other zones, which have their own cut-offs defined .", "source_page": "multi_wellcutoffsandsummati.htm"},
+    {"rule": "Cumulative curves are zone-scoped", "verbatim": "The output cumulative curves are calculated after each zonal computation. They include only the data within all the defined zones. Therefore, if a level is not defined as being in a zone, it will not be included in the cumulative curves, regardless of whether the level meets the cut-off criteria.", "source_page": "cutoffsandsummation.htm"},
+    {"rule": "Geometric/Harmonic averages reject non-positive values", "verbatim": "For the Geometric and Harmonic averages, any input value which is less than or equal to zero, will be ignored and not included in the final average.", "source_page": "cutoffsandsummation.htm"},
+    {"rule": "Post-Run edit lock on the setup tab", "verbatim": "after the first time that the Run button is pressed, any changes to the cut-off parameter values must be made on the Cut-off and Summation Parameters screens or on the interactive log plot. ... once the Run button has been used, the default settings for cut-off values can no longer be edited on the second set-up tab.", "source_page": "cutoffsandsummation.htm"},
+    {"rule": "Re-calculation is explicit, not automatic", "verbatim": "NOTE: Simply changing a parameter in the display will not immediately mean that a zone is re-calculated . You must click the OK button again in order to re-calculate all zones and update all displays.", "source_page": "cutoffsandsummation.htm"},
+    {"rule": "Zone locking blocks all parameter edits in that zone", "verbatim": "The Lock Zone column enables youto lock zones. This prevents any changes being made to the parameters in that zone in any of the tabs within the module. It also prevents changes being made interactively to the zones in the Cut-off and Summation Interactive plot.", "source_page": "cutoffsandsummation.htm"},
+    {"rule": "Gaps between zones are legal", "verbatim": "It is possible to have gaps between zones. To remove a gap, drag the bottom of the zone above a gap to below the top of the zone below the gap.", "source_page": "cutoffsandsummation.htm"},
+    {"rule": "Absent zones encoded as blank top/bottom", "verbatim": "Zones do not have to exist in all wells. Blank zone Top and Bottom depth cells indicate that a zone is absent in a well.", "source_page": "multi_wellcutoffsandsummati.htm"},
+    {"rule": "Zone X/Y in report requires a deviation survey and surface location", "verbatim": "These coordinates can only be computed if the well has a valid deviation survey and surface location loaded into IP.", "source_page": "cutoffsandsummation.htm"},
+    {"rule": "Monte Carlo shift values must be positive", "verbatim": "The Low Value Shift and High Value Shift columns set the ranges for the shifts in the parameters. These values must be positive values .", "source_page": "define_monte_carlo_parameters.htm"},
+    {"rule": "Monte Carlo Gaussian truncation with resampling", "verbatim": "The Gaussian distribution is limited to 2.5 standard deviations either side of the Mean value. If the random number generator comes up with a value outside of this range, then another random number will be chosen.", "source_page": "define_monte_carlo_parameters.htm"},
+    {"rule": "Monte Carlo prerequisite - modules must have been run first", "verbatim": "NOTE: In order for any modules to be used in the work flow, they must have been set up and run on the well data before using the Monte Carlo module. You must, therefore, have made an interpretation before starting . This includes the User Programs .", "source_page": "define_monte_carlo_parameters.htm"},
+    {"rule": "Formula-module constants cannot be perturbed directly", "verbatim": "If you want to use a constant value in an equation and vary that constant during the simulation; then the constant value must be converted into a Constant curve (using the formula module) and use the curve, instead of the constant value, in the original formula.", "source_page": "define_monte_carlo_parameters.htm"},
+    {"rule": "Formula modules skip the depth-range overlap check", "verbatim": "The User Formula and Multi-Line Formula modules, if they are included in the simulation run, do not verify the depth ranges overlap, but just run the interval specified on the formula input.", "source_page": "define_monte_carlo_parameters.htm"},
+    {"rule": "Monte Carlo run errors from out-of-range parameters", "verbatim": "These are caused when the input parameter has been adjusted by IP to have a value that lies outside the normal expected range, and the interpretation module will not run with that value. ... The parameters that are most likely to cause this problem are resistivity-type parameters, which make no sense if they become negative.", "source_page": "define_monte_carlo_parameters.htm"},
+    {"rule": "Cutoff Sensitivity prerequisite", "verbatim": "As a prerequisite to using these modules the ? Cutoff and Summation ? module or the Multi-Well Cutoff and Summation module must initially have been run on all wells that are to be run in the sensitivity computation.", "source_page": "cut_off_sensitivity_results.htm"},
+    {"rule": "Multi-well sensitivity requires identical curve names and a common zone set", "verbatim": "Multi-Well mode requires that input curves (typically the Porosity, Clay volume and Water saturation curves) in all the wells have the same names. In addition, when using multiple wells, a common Zone set should exist. Note that not all zones have to be present in every well. The module identifies if a zone is missing from a well and warns you, before continuing to process other wells.", "source_page": "cut_off_sensitivity_results.htm"},
+    {"rule": "Batch Monte Carlo requires a saved Model file", "verbatim": "Before the Batch Monte Carlo can be run, a parameter model file must be created in the regular Monte Carlo Uncertainty Analysis module. This is done by setting up and running the Monte Carlo Error Analysis module on one well.", "source_page": "batchmontecarlo.htm"},
+    {"rule": "Batch Monte Carlo per-well output directories must differ", "verbatim": "This file will be put into each wells output directory. Therefore, it is important that separate output directories are used for each well, otherwise the results will all be written to the same file.", "source_page": "batchmontecarlo.htm"},
+    {"rule": "Batch Monte Carlo missing-curve tolerance", "verbatim": "If a curve is missing for a well then an Error Dialog will be displayed informing you that an Input Curve is missing and to Continue anyway with the Batch Run. You can choose to ignore the error and continue. If this is done then this curve will be removed from the Monte Carlo input curves. [outputs:] You can continue but no statistics will be generated for the missing output curve.", "source_page": "batchmontecarlo.htm"},
+    {"rule": "Multi-well cut-off overwrites single-well module state", "verbatim": "Once this module is run, all the settings and results produced will also be found populating the single well module . Therefore, if one does not want to lose the settings and results that are currently in the single well cut-offs they should be saved before starting to use the Multi Well cut-off module.", "source_page": "multi_wellcutoffsandsummati.htm"},
+    {"rule": "Multi-well cut-off setup is not persisted on exit", "verbatim": "The Multi Well cut-off setup is not saved when you exit IP or change the database . Therefore, it is good practice to save the format after running the module.", "source_page": "multi_wellcutoffsandsummati.htm"},
+    {"rule": "File Loader attribute names must be unique", "verbatim": "Attribute names must be unique entries.", "source_page": "options.htm"},
+    {"rule": "Fixed attributes cannot be deleted", "verbatim": "Log Attribute Names prefixed with a double asterisk ( ** ) are fixed attributes and cannot be deleted from the reference table.", "source_page": "options.htm"},
+    {"rule": "Reduced well folder structures are not retro-applied", "verbatim": "If the user removes folders from the Well Folder Structure then it is only newly created Wells that will have the reduced Well Folder Structure . ... This is to prevent users from inadvertently deleting data that may reside in the removed folders.", "source_page": "options.htm"},
+    {"rule": "Percentile results are per-parameter, not iteration-consistent", "verbatim": "The Mean and Percentile results are calculated on an individual parameter-by-parameter basis. So, for example, the AvPhi Res P50 value will not necessarily come from the same simulation iteration as the Av VCL Res parameter P50 value.", "source_page": "define_monte_carlo_parameters.htm"}
+  ],
+
+  "tierC_flags": [
+    {
+      "name": "Stealth mode",
+      "kind": "branded IP feature name",
+      "evidence_verbatim": "Stealth mode - Disguises the depths displayed in logplots, so that sensitive or tight hole data can be shown to an audience that would otherwise not be permitted.",
+      "source_page": "options.htm",
+      "action": "NAME + EVIDENCE ONLY. The obfuscation scheme is not described and must not be reconstructed. The generic concept (hiding absolute depths in a display) is not itself protected; the branded name is."
+    },
+    {
+      "name": "Neural Networks module (cross-reference to already-registered Tier-C shipped NN weights)",
+      "kind": "cross-reference, no new detail",
+      "evidence_verbatim": "Clay Volume, Porosity SW, Mineral Solver, Basic Log Analysis , NMR , Cutoff, Formula, Multi-Line Formula, Fuzzy Logic, Neural Networks, Multi-Linear Regression, Cluster Analysis, Curve from Zones, Interp_Demo.",
+      "source_page": "define_monte_carlo_parameters.htm",
+      "action": "No new registration needed; already covered by the existing 'shipped neural-network weights' Tier-C entry."
+    },
+    {
+      "name": "Third-party integration targets (NOT IP's own IP - recorded as Tier-A market intelligence)",
+      "kind": "trademarks of other vendors",
+      "evidence_verbatim": "Dialogs for the connections to GEOLOG (TM) , OpenWorks (TM) , ODM (TM) and PETCOM (TM) are launched by clicking on the appropriate Connection label in the tree view. ... Read from LOGIC DB : a migration tool used to copy Shell LOGIC database projects into an IP project. This module only works with LOGIC version S2001.2. ... Read/Write via Openspirit",
+      "source_page": "options.htm",
+      "action": "Tier A market intelligence: IP2018 ships read/write connectors to Geolog, OpenWorks, ODM, PETCOM/Powerlog, Openspirit and a one-way Shell LOGIC S2001.2 migration path."
+    }
+  ],
+
+  "gaps": [
+    "MonteCarloDefaults.par contents are never shown. The manual names the file and its parameter indices (3, 6, 9, 12, 15, 18 for cut-off inputs; also referenced from clayparameters.htm and swparameters.htm for Clay Volume and Phi/Sw inputs) but lists no default shift value, no per-parameter default distribution, and no syntax for the Results section that controls the percentile convention.",
+    "No shipped default numeric cut-off values anywhere. The 0.1 / 0.5 / 0.5 and > 0.100 / < 0.500 / < 0.500 figures are explicitly the manual's worked EXAMPLE screens. Do not adopt as IP defaults.",
+    "No default Monte Carlo iteration count. Only the auto-stop floor (200 burn-in / 100 check interval / 300 minimum total) and a batch-page prose recommendation of 2000.",
+    "The six summation equations are rasterized GIFs (embim160.gif - embim165.gif) and are not recoverable. The multi-well roll-up worked example on cut_off_sensitivity_results.htm is the only textual statement of the averaging arithmetic.",
+    "Triangular and Square distribution parameterisation beyond the Low/High shift pair - no mode position, no truncation rule. Only Gaussian has a full spec (Low+High = 4 sigma span, +/-2.5 sigma truncation, resample on reject).",
+    "Percentile interpolation method (nearest-rank vs linear vs Hazen) is not stated.",
+    "No user-settable random seed. 'seeded through the CPU clock time' means IP2018 Monte Carlo runs are not reproducible.",
+    "+/-2.5 sigma (Monte Carlo sampler truncation) vs +/-2 sigma (Tornado plot endpoints) are both stated on define_monte_carlo_parameters.htm with no reconciliation.",
+    "'Net cannot exceed Gross' is never asserted as a constraint anywhere in the cut-off documentation.",
+    "The 'Interactive Line Sensitivity' pixel default value is not stated.",
+    "The Cut-off Type drop-down's actual option strings (presumably '>=' / '<=') are never listed verbatim; the manual only describes it as 'the sign of the cut-off type'.",
+    "Internal filename inconsistencies in default_settings.htm: UserCurveType.opt vs UserCurveTypes.opt; UnitConversion.par vs UnitsConversion.par. Also Overlay_Files.ovl (default_settings.htm, tools.htm) vs Overlay_Files.ovlx (intro_file_formats.htm lists BOTH as 'Overlay List File'). Probe for both spellings if ever reading IP config.",
+    "Correlation beyond pairwise: no statement of how three or more mutually-dependent parameters are reconciled, nor whether the resulting joint correlation matrix is guaranteed positive-definite.",
+    ".cos and .cosr file schemas are named but never specified.",
+    "The layout of MonteCarloDefaults.par implied by the 3/6/9/12/15/18 index spacing (three slots per cut-off) is inferred, not stated.",
+    "No Tier-B primary literature citations appear on any of the seven target pages: the cut-off/summation model, the sensitivity module and the Monte Carlo module are all described without reference to published sources."
+  ]
+}

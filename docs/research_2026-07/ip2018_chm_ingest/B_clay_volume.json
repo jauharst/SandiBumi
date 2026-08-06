@@ -1,0 +1,670 @@
+{
+  "target": "B: Clay Volume, Lithology & Basic Log Analysis - Interactive Petrophysics 2018 (PGL / Lloyd's Register / Geoactive) decompiled CHM help",
+  "ingest_date": "2026-08-06",
+  "source_root": "C:\\Users\\ARUNIKA\\AppData\\Local\\Temp\\c18\\_text",
+  "pages_read": [
+    "clayparameters.htm",
+    "clayequationsandmethodology.htm",
+    "clayvolume.htm",
+    "clayplot.htm",
+    "createeditlithologycurves.htm",
+    "basicloganalysis.htm",
+    "basiclogcalculations.htm"
+  ],
+  "supporting_pages_consulted": [
+    "swparameters.htm",
+    "swequationsandmethodology.htm",
+    "curve_average.htm",
+    "tools.htm",
+    "default_settings.htm"
+  ],
+  "raster_verdict": {
+    "question": "Are the Larionov / Clavier / Stieber coefficients recoverable as text?",
+    "answer": "NO - lost to raster. All six GR Vcl forms, plus SP, Neutron, Resistivity, Other-Linear and all four double-indicator forms, are rasterized GIFs on clayequationsandmethodology.htm (equation_images: 16). Only method labels and surrounding prose survive as text.",
+    "what_survives_as_text": [
+      "Curved-method branch thresholds 0.55 and 0.73, and the identity branch VclGr = Z for 0.73 < Z < 1.0",
+      "Stieber Constant STB default = 2.0",
+      "Resistivity branch condition: Rt greater than 2 x Rclay",
+      "Bad-hole null value -999",
+      "The entire organic-shale correction set (GrCorr / NeuCorr / DenCorr) written longhand",
+      "Rt_Hingle = Rt^(-1/m); Vma = 1/Dtmatrix; Vf = 1/Dtfluid; Vlog = 1/Dt",
+      "U = Pef x (RHOB + 0.1883) x 0.93423; Ct = 1000 / Rt; Cxo = 1000 / Rxo; Caliper = DCal + Bit Size; Velocity = 1 / DT; HI_Gas = 2.25 * GasDensity"
+    ],
+    "gif_files_exist_on_disk_for_human_inspection": "C:\\Users\\ARUNIKA\\AppData\\Local\\Temp\\c18\\embim23.gif .. embim38.gif (clay chain); embim14.gif .. embim22.gif (Basic Log Analysis); embim5.gif .. embim13.gif (Basic Log Functions)",
+    "reconstruction_attempted": false,
+    "reason_not_attempted": "A vision-OCR'd exponent is indistinguishable from an invented one once written to a text file. A wrong Larionov coefficient computes, plots, and ships silently."
+  },
+
+  "methods": [
+    {
+      "name": "Gamma Ray clay indicator (VclGr) - Linear",
+      "kind": "single-curve clay indicator",
+      "tier": "B",
+      "parameters": [
+        {"name": "GR Use Flag", "default": "not stated in manual", "units": "on/off", "note": "MonteCarloDefaults.par index (1). 'Set to Off for Vclay from gamma ray to be set to Null values over this zone.'", "source_page": "clayparameters.htm"},
+        {"name": "Gr Clean", "default": "auto-set on first Run to the minimum Gamma Ray value seen in the input curve (Basic Log Analysis wording); Clay Volume module states only 'generally the maximum and minimum readings for the indicator'", "units": "API (curve units)", "note": "MonteCarloDefaults.par index (2). 'Value of the gamma ray in a clean, zero Vclay zone.'", "source_page": "clayparameters.htm; basicloganalysis.htm; clayvolume.htm"},
+        {"name": "Gr Clay", "default": "auto-set on first Run to the maximum Gamma Ray value seen in the input curve", "units": "API (curve units)", "note": "MonteCarloDefaults.par index (3). 'Value of the gamma ray in a 100% clay zone.'", "source_page": "clayparameters.htm; basicloganalysis.htm"},
+        {"name": "Gr Method", "default": "not stated in manual", "units": "list", "note": "MonteCarloDefaults.par index (4). Options: Linear | Curved | Clavier | Stieber | Old Rock | Young Rock", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim23.gif)",
+      "citation": "none given - 'Linear : Linear relationship between Gr and VclGr'",
+      "caveats": ["Output per-indicator curve is NOT clipped to 0-1 by IP; it is a QC curve."],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Gamma Ray clay indicator (VclGr) - Curved (composite)",
+      "kind": "single-curve clay indicator, non-linear correction",
+      "tier": "B",
+      "parameters": [
+        {"name": "Gr Clean / Gr Clay", "default": "as Linear", "units": "API", "note": "Curved operates on Z = the linear VclGr result", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim24.gif for Z < 0.55; embim25.gif for 0.55 < Z < 0.73). STRUCTURE IS TEXT: 'Z = VclGr as above'; 'for Z less than 0.55' -> embim24; 'for Z greater than 0.55 and less than 0.73' -> embim25; 'for Z greater than 0.73 and less than 1.0 VclGr = Z'",
+      "citation": "none given - 'Curved : A composite curved relationship.'",
+      "caveats": ["The two breakpoints 0.55 and 0.73 ARE stated in text and are usable.", "The two curved branch expressions are raster."],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Gamma Ray clay indicator (VclGr) - Clavier",
+      "kind": "single-curve clay indicator, non-linear correction",
+      "tier": "B",
+      "parameters": [
+        {"name": "Gr Clean / Gr Clay", "default": "as Linear", "units": "API", "note": "no method-specific parameter", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim26.gif)",
+      "citation": "'Clavier : As per Clavier et al.' - surname only. NO year, journal, volume or title given anywhere in the manual.",
+      "caveats": ["Coefficients unrecoverable. Reimplement from primary literature and cite the paper, not IP."],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Gamma Ray clay indicator (VclGr) - Stieber",
+      "kind": "single-curve clay indicator, non-linear correction",
+      "tier": "B",
+      "parameters": [
+        {"name": "Stieber Constant (STB)", "default": "2.0", "units": "dimensionless", "note": "MonteCarloDefaults.par index (61). Verbatim: 'This allows the shape of the Stieber equation to be changed. Default is 2.0'. Equations page: 'STB = Stieber Constant shape parameter (default =2.0)'", "source_page": "clayparameters.htm; clayequationsandmethodology.htm"},
+        {"name": "Z", "default": "n/a", "units": "v/v", "note": "'Z = VclGr linear' - Stieber transforms the linear result", "source_page": "clayequationsandmethodology.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim27.gif)",
+      "citation": "'Stieber : As per Stieber et al (South Louisiana Miocene and Pliocene).' - surname + stated applicability only. NOTE: IP spells it 'Stieber', not 'Steiber'.",
+      "caveats": ["Only the shape-constant default (2.0) is recoverable; the equation form is raster.", "Stated applicability is South Louisiana Miocene and Pliocene."],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Gamma Ray clay indicator (VclGr) - Larionov older rocks (IP label: 'Old Rock')",
+      "kind": "single-curve clay indicator, non-linear correction",
+      "tier": "B",
+      "parameters": [
+        {"name": "Gr Clean / Gr Clay", "default": "as Linear", "units": "API", "note": "no method-specific parameter", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim28.gif)",
+      "citation": "'Old Rock : As per Larionov et al for older rocks (Mesozoic).' - surname + stated applicability (Mesozoic) only. No year/journal/title.",
+      "caveats": ["THE COEFFICIENT IS NOT RECOVERABLE FROM THIS MANUAL. Do not fill in from memory."],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Gamma Ray clay indicator (VclGr) - Larionov younger rocks (IP label: 'Young Rock')",
+      "kind": "single-curve clay indicator, non-linear correction",
+      "tier": "B",
+      "parameters": [
+        {"name": "Gr Clean / Gr Clay", "default": "as Linear", "units": "API", "note": "no method-specific parameter", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim29.gif)",
+      "citation": "'Young Rock : As per Larionov for younger rocks (Tertiary clastics).' - surname + stated applicability (Tertiary clastics) only. No year/journal/title.",
+      "caveats": ["THE COEFFICIENT IS NOT RECOVERABLE FROM THIS MANUAL. Do not fill in from memory.", "This is the Mahakam-relevant branch (Tertiary clastics) - most likely to be reached for and therefore most dangerous to guess."],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "SP clay indicator (VclSP)",
+      "kind": "single-curve clay indicator",
+      "tier": "A",
+      "parameters": [
+        {"name": "SP Use Flag", "default": "not stated in manual", "units": "on/off", "note": "index (8)", "source_page": "clayparameters.htm"},
+        {"name": "SP Clean", "default": "auto-set from data range on first Run", "units": "mV (curve units)", "note": "index (9). 'Value of the SP in a clean, zero Vclay zone.'", "source_page": "clayparameters.htm"},
+        {"name": "SP Clay", "default": "auto-set from data range on first Run", "units": "mV (curve units)", "note": "index (10). 'Value of the SP in a 100% clay zone.'", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim30.gif)",
+      "citation": "none given",
+      "caveats": [],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Neutron clay indicator (VclNeu)",
+      "kind": "single-curve clay indicator",
+      "tier": "A",
+      "parameters": [
+        {"name": "Neu Use Flag", "default": "not stated in manual", "units": "on/off", "note": "index (5)", "source_page": "clayparameters.htm"},
+        {"name": "Neu Clean", "default": "auto-set from data range on first Run", "units": "limestone porosity units (v/v)", "note": "index (6). 'Value of the Neutron log in a clean, zero Vclay zone. The Neutron log should have been recorded in Limestone porosity units.'", "source_page": "clayparameters.htm"},
+        {"name": "Neu Clay", "default": "auto-set from data range on first Run", "units": "limestone porosity units (v/v)", "note": "index (7). 'Value of the neutron log in a 100% clay zone.'", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim31.gif)",
+      "citation": "none given",
+      "caveats": [
+        "VERBATIM WARNING: 'NOTE: When setting the Neu Clean Parameter, exercise caution if setting this parameter to any other value than zero. This indicator can easily under-estimate the clay volume if the parameter is set too high.'",
+        "Hard input contract: 'IP makes the assumption that any neutron curve entered is in Limestone matrix units .'"
+      ],
+      "source_pages": ["clayparameters.htm", "clayvolume.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Resistivity clay indicator (VclRes)",
+      "kind": "single-curve clay indicator, branched",
+      "tier": "A",
+      "parameters": [
+        {"name": "Res Use Flag", "default": "not stated in manual", "units": "on/off", "note": "index (11)", "source_page": "clayparameters.htm"},
+        {"name": "Res Clean", "default": "auto-set from data range on first Run", "units": "ohm.m", "note": "index (12). 'Value of the resistivity in a clean, zero Vclay zone. Generally chosen as the highest resistivity in a hydrocarbon-bearing, clay-free zone.'", "source_page": "clayparameters.htm"},
+        {"name": "Res Clay", "default": "auto-set from data range on first Run", "units": "ohm.m", "note": "index (13). 'Value of the resistivity in a 100% clay zone.'", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim32.gif; embim33.gif for the high-Rt branch). BRANCH CONDITION IS TEXT: 'for Rt greater than 2 x Rclay then [embim33.gif]' ; 'otherwise VclRes = Z'",
+      "citation": "none given",
+      "caveats": ["VERBATIM: 'The resistivity indicator will generally only work in hydrocarbon-bearing zones where the surrounding shales have low resistivity.'"],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Other single clay indicator (user-named)",
+      "kind": "single-curve clay indicator, linear",
+      "tier": "A",
+      "parameters": [
+        {"name": "Oth Use Flag", "default": "not stated in manual", "units": "on/off", "note": "index (14)", "source_page": "clayparameters.htm"},
+        {"name": "Oth Clean", "default": "auto-set from data range on first Run", "units": "curve units", "note": "index (15)", "source_page": "clayparameters.htm"},
+        {"name": "Oth Clay", "default": "auto-set from data range on first Run", "units": "curve units", "note": "index (16)", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim34.gif)",
+      "citation": "none given",
+      "caveats": ["'The other single indicator is a linear indicator similar to the gamma ray linear indicator.'"],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Neutron/Density double clay indicator (ND)",
+      "kind": "double-curve crossplot clay indicator (clay point + two-point clean line)",
+      "tier": "A",
+      "parameters": [
+        {"name": "ND Use Flag", "default": "not stated in manual", "units": "on/off", "note": "index (17)", "source_page": "clayparameters.htm"},
+        {"name": "ND Neu Clay", "default": "auto-set: shale point 'towards the bottom right hand edge of the shale points'", "units": "limestone porosity units (v/v)", "note": "index (18)", "source_page": "clayparameters.htm; clayvolume.htm"},
+        {"name": "ND Den Clay", "default": "auto-set: shale point 'towards the bottom right hand edge of the shale points'", "units": "gm/cc", "note": "index (19)", "source_page": "clayparameters.htm; clayvolume.htm"},
+        {"name": "ND Den Clean1", "default": "auto-set: 'the sandstone line for the clean line'", "units": "gm/cc", "note": "index (20). 'The clean line is defined by two points on the crossplot.'", "source_page": "clayparameters.htm; clayvolume.htm"},
+        {"name": "ND Den Clean2", "default": "auto-set: sandstone line", "units": "gm/cc", "note": "index (21)", "source_page": "clayparameters.htm"},
+        {"name": "ND Neu Clean1", "default": "auto-set: sandstone line", "units": "limestone porosity units (v/v)", "note": "index (22)", "source_page": "clayparameters.htm"},
+        {"name": "ND Neu Clean2", "default": "auto-set: sandstone line", "units": "limestone porosity units (v/v)", "note": "index (23)", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim35.gif). PRINCIPLE IS TEXT: 'The Double Clay Indicators work on the principle of defining a clean line and a clay point . The clay volume is calculated as the distance the input data falls between the clay point and the clean line .' Symbol legend given: 'Where DenCl 1 & NeuCl 1 and DenCl 2 & NeuCl 2 are the density and neutron values for the two ends of the clean line.'",
+      "citation": "none given",
+      "caveats": [
+        "'NOTE: the Input Neutron Porosity curve should have been recorded in limestone porosity units.'",
+        "Gated off by the Bad Hole logic (set to Null -999) - singles are not gated."
+      ],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm", "clayvolume.htm"]
+    },
+    {
+      "name": "Sonic/Density double clay indicator (SD)",
+      "kind": "double-curve crossplot clay indicator",
+      "tier": "A",
+      "parameters": [
+        {"name": "SD Use Flag", "default": "not stated in manual", "units": "on/off", "note": "index (24)", "source_page": "clayparameters.htm"},
+        {"name": "SD Son Clay", "default": "auto-set from shale cloud", "units": "uSec/ft", "note": "index (25)", "source_page": "clayparameters.htm"},
+        {"name": "SD Den Clay", "default": "auto-set from shale cloud", "units": "gm/cc", "note": "index (26)", "source_page": "clayparameters.htm"},
+        {"name": "SD Den Clean1", "default": "auto-set: sandstone line", "units": "gm/cc", "note": "index (27)", "source_page": "clayparameters.htm"},
+        {"name": "SD Den Clean2", "default": "auto-set: sandstone line", "units": "gm/cc", "note": "index (28)", "source_page": "clayparameters.htm"},
+        {"name": "SD Son Clean1", "default": "auto-set: sandstone line", "units": "uSec/ft", "note": "index (29)", "source_page": "clayparameters.htm"},
+        {"name": "SD Son Clean2", "default": "auto-set: sandstone line", "units": "uSec/ft", "note": "index (30)", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim36.gif). Legend: 'Where DenCl 1 & SonCl 1 and DenCl 2 & SonCl 2 are the density and sonic values for the two ends of the clean line.'",
+      "citation": "none given",
+      "caveats": ["Bad-hole gated."],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Neutron/Sonic double clay indicator (NS)",
+      "kind": "double-curve crossplot clay indicator",
+      "tier": "A",
+      "parameters": [
+        {"name": "NS Use Flag", "default": "not stated in manual", "units": "on/off", "note": "index (31)", "source_page": "clayparameters.htm"},
+        {"name": "NS Neu Clay", "default": "auto-set from shale cloud", "units": "limestone porosity units (v/v)", "note": "index (32)", "source_page": "clayparameters.htm"},
+        {"name": "NS Son Clay", "default": "auto-set from shale cloud", "units": "uSec/ft", "note": "index (33)", "source_page": "clayparameters.htm"},
+        {"name": "NS Son Clean1", "default": "auto-set: sandstone line", "units": "uSec/ft", "note": "index (34)", "source_page": "clayparameters.htm"},
+        {"name": "NS Son Clean2", "default": "auto-set: sandstone line", "units": "uSec/ft", "note": "index (35)", "source_page": "clayparameters.htm"},
+        {"name": "NS Neu Clean1", "default": "auto-set: sandstone line", "units": "limestone porosity units (v/v)", "note": "index (36)", "source_page": "clayparameters.htm"},
+        {"name": "NS Neu Clean2", "default": "auto-set: sandstone line", "units": "limestone porosity units (v/v)", "note": "index (37)", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim37.gif). Legend: 'Where NeuCl 1 & SonCl 1 and NeuCl 2 & SonCl 2 are the neutron and sonic values for the two ends of the clean line.'",
+      "citation": "none given",
+      "caveats": ["Bad-hole gated.", "NOTE: clayvolume.htm lists the standard double combinations as 'Density/Neutron, Density/Sonic, Sonic/Neutron' while clayparameters.htm's tab example names only 'Neutron/Density, Sonic/ Density' - both recorded as printed."],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Other double clay indicator (OD, user-named)",
+      "kind": "double-curve crossplot clay indicator",
+      "tier": "A",
+      "parameters": [
+        {"name": "OD Use Flag", "default": "not stated in manual", "units": "on/off", "note": "index (38)", "source_page": "clayparameters.htm"},
+        {"name": "OD Curv1 Clay", "default": "auto-set from shale cloud", "units": "curve units", "note": "index (39)", "source_page": "clayparameters.htm"},
+        {"name": "OD Curv2 Clay", "default": "auto-set from shale cloud", "units": "curve units", "note": "index (40)", "source_page": "clayparameters.htm"},
+        {"name": "OD Curv1 Clean1", "default": "auto-set", "units": "curve units", "note": "index (41). Manual's description text for this row reads 'Other double curve 2 value for point 1 on the clean line.' - the name/description mismatch is as-printed.", "source_page": "clayparameters.htm"},
+        {"name": "OD Ot2 Clean2", "default": "auto-set", "units": "curve units", "note": "index (42)", "source_page": "clayparameters.htm"},
+        {"name": "OD Ot1 Clean1", "default": "auto-set", "units": "curve units", "note": "index (43)", "source_page": "clayparameters.htm"},
+        {"name": "OD Ot1 Clean2", "default": "auto-set", "units": "curve units", "note": "index (44)", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim38.gif). Legend: 'Where OD 1 Cl 1 & OD 2 Cl 1 and OD 1 Cl 2 & OD 2 Cl 2 are the other double clay volume input curves ( OD 1 and OD 2) values for the two ends of the clean line.'",
+      "citation": "none given",
+      "caveats": ["'The other double clay indicator is calculated just like the Neutron /Density clay indicators with a clay point and a clean line.'", "IP's own parameter naming in this block is internally inconsistent (Curv1/Curv2 vs Ot1/Ot2) - transcribed as-printed."],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm"]
+    },
+    {
+      "name": "Bad Hole Indicator gating (of double indicators only)",
+      "kind": "discriminator / gate",
+      "tier": "A",
+      "parameters": [
+        {"name": "BadH1 Use Flag", "default": "off - 'Initially, the bad hole indicator logic is not active nor are its cut-off parameters set.'", "units": "on/off", "note": "index (45)", "source_page": "clayparameters.htm; clayplot.htm"},
+        {"name": "BadH1 Min", "default": "not stated in manual (blank)", "units": "indicator curve units", "note": "index (46). UPPER gate despite the name: 'When the Bad Hole Indicator 1 curve values are greater than this minimum value , any double clay indicators will be switched off.' 'When the parameter is left blank, the discriminator curve is ignored.'", "source_page": "clayparameters.htm"},
+        {"name": "BadH1 Max", "default": "not stated in manual (blank)", "units": "indicator curve units", "note": "index (47). LOWER gate despite the name: 'When the Bad Hole Indicator 1 curve values are less than this maximum value , any double clay indicators will be switched off.'", "source_page": "clayparameters.htm"},
+        {"name": "BadH2 Use Flag", "default": "off", "units": "on/off", "note": "index (48)", "source_page": "clayparameters.htm"},
+        {"name": "BadH2 Min", "default": "not stated in manual (blank)", "units": "indicator curve units", "note": "index (49), same semantics as BadH1 Min", "source_page": "clayparameters.htm"},
+        {"name": "BadH2 Max", "default": "not stated in manual (blank)", "units": "indicator curve units", "note": "index (50), same semantics as BadH1 Max", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "TEXT (recoverable): 'If the Bad Hole indicator logic is used, then over any interval which is flagged as Bad Hole all the Double Clay Indicators will be set to Null (-999).'",
+      "citation": "none given",
+      "caveats": [
+        "Min = upper threshold, Max = lower threshold. Confirmed: 'Set the BadH1 Min parameter to the maximum allowable caliper value (in caliper curve units).'",
+        "Two-sided gating requires selecting the SAME curve into both Bad Hole name boxes and setting BadH1 Max + BadH2 Min.",
+        "Illustrative example only (NOT a default): 'where the Bad Hole Indicator (caliper) curve values exceed 10.5 inches.'"
+      ],
+      "source_pages": ["clayparameters.htm", "clayplot.htm", "clayequationsandmethodology.htm", "clayvolume.htm"]
+    },
+    {
+      "name": "VCL (Minimum of indicators)",
+      "kind": "indicator combination",
+      "tier": "A",
+      "parameters": [],
+      "equation": "TEXT (recoverable): 'The Minimum Clay Volume ( VCL ) curve is calculated as the minimum clay volume response of all selected single and double clay indicators, and, by default is picked as the Wet Clay Volume ( VWCL ) curve used in the set up of the Porosity and Water Saturation Module.'",
+      "citation": "none given",
+      "caveats": ["VCL is clipped to between 0 and 1.0.", "Nulled indicators (zone Use flag off, or bad-hole gated) drop out."],
+      "source_pages": ["clayvolume.htm"]
+    },
+    {
+      "name": "VCLAV (Average of indicators) - Mean | Median | Lateral",
+      "kind": "indicator combination",
+      "tier": "A (Lateral variant carries a Tier-B citation)",
+      "parameters": [
+        {"name": "VCLAV method", "default": "not stated in manual; 'Currently the VCL Average is the mean value of all the VCL results at a level' implies Mean is the incumbent behaviour", "units": "list: Mean | Median | Lateral", "source_page": "clayvolume.htm", "note": "'The two new methods are ?Median? and ?Lateral?.'"}
+      ],
+      "equation": "TEXT (recoverable): Mean = mean of all VCL results at a level. Lateral = 'the median value of all the individual pair products'; expanded on curve_average.htm as 'creating pair products of the input data and then taking the median of the results.'",
+      "citation": "Lateral: 'This is almost identical to the Hodges-Lehmann method (J.L Hodges and E. L Lehmann, Basic Concepts of Probability and Statistics, Holden-Day 1970).' (page: curve_average.htm) - the ONLY full primary citation in the entire clay chain.",
+      "caveats": [
+        "CLIPPING ORDER IS STATED AND MATTERS: 'For the VCLAV curve, the separate Vclay indicator curves will first be clipped before the average curve is created.'",
+        "Rationale for Lateral: 'it gives a median-type average that will not be badly skewed by any outliers in the data.'"
+      ],
+      "source_pages": ["clayvolume.htm", "curve_average.htm"]
+    },
+    {
+      "name": "VCLMIX (per-zone selector between VCL Minimum and VCL Average)",
+      "kind": "indicator combination",
+      "tier": "A",
+      "parameters": [
+        {"name": "VCLMIX method", "default": "not stated in manual", "units": "list: Minimum | Average", "source_page": "clayvolume.htm", "note": "'A parameter is set by zone that determines whether the selected curve is VCL Minimum or the VCL Average Curve.' Its MonteCarloDefaults.par index is not listed on clayparameters.htm."}
+      ],
+      "equation": "TEXT (recoverable, trivially): VCLMIX = VCL or VCLAV per zone, by parameter.",
+      "citation": "none given",
+      "caveats": [],
+      "source_pages": ["clayvolume.htm"]
+    },
+    {
+      "name": "Percentile-driven endpoint picking (Gr Clean / Gr Clay from percentiles)",
+      "kind": "endpoint-selection convention",
+      "tier": "A",
+      "parameters": [
+        {"name": "Use Percentiles", "default": "not stated in manual", "units": "on/off", "note": "index (55). Two-way binding: ON -> percentiles drive Gr Clean/Gr Clay; OFF -> Gr Clean/Gr Clay drive the displayed percentiles.", "source_page": "clayparameters.htm"},
+        {"name": "Percentile Clean", "default": "not stated in manual", "units": "%", "note": "index (56) - the heading is missing from the decompiled clayparameters.htm text but the body paragraph survives; described in full on basicloganalysis.htm. 'Numbers can be less than 0%. Negative percentiles are calculated by a linear scaling from the 0% to the 100% percentiles and extrapolating to the negative entered number.' Illustrative example uses a 10th percentile.", "source_page": "basicloganalysis.htm; clayparameters.htm"},
+        {"name": "Percentile Clay", "default": "130%", "units": "%", "note": "index (57). VERBATIM: 'Numbers greater than 100% are allowed and are normal for the calculation of clay volume (default is 130%). Percentiles over 100% are calculated by a linear scaling from the 0% to the 100% percentiles and extrapolating to the entered number.' Illustrative example uses a 90th percentile.", "source_page": "clayparameters.htm; basicloganalysis.htm"},
+        {"name": "Percentile Group", "default": "not stated in manual", "units": "number or letter", "note": "index (58). 'GammRay data from Zones with the same group number are lumped together when calculating or looking up percentiles.'", "source_page": "clayparameters.htm"},
+        {"name": "Clip Low %", "default": "0% per clayparameters.htm; 98% per basicloganalysis.htm - THE TWO PAGES CONFLICT", "units": "%", "note": "index (59). 'Enter a low clip values between 0-100%.'", "source_page": "clayparameters.htm (0%); basicloganalysis.htm (98%)"},
+        {"name": "Clip High %", "default": "98% per clayparameters.htm; not stated on basicloganalysis.htm", "units": "%", "note": "index (60). 'Enter a high clip values between 0-100%.'", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "TEXT (recoverable) - the pipeline: pool GR data by Percentile Group -> clip with Clip Low % / Clip High % -> compute percentile -> linearly extrapolate beyond the 0%-100% range for percentiles outside 0-100 -> result is Gr Clean / Gr Clay.",
+      "citation": "none given",
+      "caveats": [
+        "CLIP-BEFORE-PERCENTILE ORDER IS STATED: 'The GammaRay curve data for each Percentile Group is clipped using the Clip Low % and the Clip High % parameters before the percentiles are calculated.'",
+        "UNRESOLVED CONFLICT on Clip Low % default (0% vs 98%). Do not silently pick one."
+      ],
+      "source_pages": ["clayparameters.htm", "basicloganalysis.htm"]
+    },
+    {
+      "name": "Organic Shale corrections to Gr / Neutron / Density prior to Vcl",
+      "kind": "pre-correction of clay-indicator inputs",
+      "tier": "A",
+      "parameters": [
+        {"name": "Organic Shale Corr.", "default": "not stated in manual", "units": "on/off per zone", "note": "index (62). Controls only whether Vcl consumes corrected or uncorrected curves; the corrected curves are output regardless.", "source_page": "clayparameters.htm; clayequationsandmethodology.htm"},
+        {"name": "Gr Kerogen", "default": "not stated in manual", "units": "API", "note": "index (63). 'The value is the Gamma Ray API reading of 100% Kerogen.' Derivation method given: crossplot (Normal Gr - Uranium-corrected Gr) vs volume TOC, linear regression, extrapolate to 100% TOC. 'If the input Gr curve is a Uranium corrected curve (eg CGR) then set this value to zero.'", "source_page": "clayparameters.htm"},
+        {"name": "Rhob Kerogen", "default": "1.1", "units": "gm/cc", "note": "index (64). VERBATIM: 'Density of Kerogen. Default is 1.1 gm/cc'", "source_page": "clayparameters.htm"},
+        {"name": "Nphi Kerogen", "default": "0.6", "units": "v/v", "note": "index (65). VERBATIM: 'Neutron of Kerogen. Default is 0.6 v/v'", "source_page": "clayparameters.htm"},
+        {"name": "Rhob Heavy_Min.", "default": "4.3", "units": "gm/cc", "note": "index (66). VERBATIM: 'Density of Heavy minerals associated with organic shale (mainly Pyrite). Default is 4.3 gm/cc'", "source_page": "clayparameters.htm"},
+        {"name": "Nphi Heavy_Min.", "default": "-0.03", "units": "v/v", "note": "index (67). VERBATIM: 'Neutron of Heavy minerals associated with organic shale (mainly Pyrite). Default is -0.03 v/v'", "source_page": "clayparameters.htm"},
+        {"name": "Kerogen Wt%_Con.", "default": "2.5", "units": "dimensionless", "note": "index (68). VERBATIM: 'Conversion factor to convert input TOC curve, in weight %, to a volume curve. Default is 2.5'. 'If the input TOC curve is already in volume then set this factor to 1.0'", "source_page": "clayparameters.htm"},
+        {"name": "Heavy_Min. Wt%_Con.", "default": "1.0", "units": "dimensionless", "note": "index (69). VERBATIM: 'Conversion factor to convert input Heavy Mineral curve, in weight %, to a volume curve. Default is 1.0 (input is already in volumes).'", "source_page": "clayparameters.htm"}
+      ],
+      "equation": "TEXT (recoverable, verbatim): GrCorr = Gr_in - TOC_in x Kerogen_Wt%Con x Gr_Kerogen ;; TOCvol = TOC_in x Kerogen_Wt%Con ;; HvyMinVol = HvyMin_in x HvyMin_Wt%Con ;; NeuCorr = (Neu_in - TOCvol x NeuKer ? HvyMinVol x NeuHvy) / (1.0 - TOCvol - HvyMinVol) ;; DenCorr = (Den_in - TOCvol x DenKer ? HvyMinVol x DenHvy) / (1.0 - TOCvol - HvyMinVol)",
+      "citation": "none given",
+      "caveats": [
+        "CHARACTER-MANGLING WARNING: the '?' in the NeuCorr and DenCorr numerators is a character that did not survive CHM decompilation. It is recorded as '?' and NOT silently resolved to a minus sign. Verify before implementing.",
+        "Corrected curves are always output when the feature is on; the per-zone flag only selects which curves Vcl consumes.",
+        "Corrected Vcl applies to 'Vclay Gamma Ray, Vclay Neutron and Vclay Neutron Density' only.",
+        "Input unit auto-detection: units of '%', 'pec' or 'wt%' -> divided by 100 to v/v; all other units assumed already v/v.",
+        "Heavy Mineral Volume input is optional; blank means heavy mineral volume = zero."
+      ],
+      "source_pages": ["clayparameters.htm", "clayequationsandmethodology.htm", "clayvolume.htm"]
+    },
+    {
+      "name": "Basic Log Analysis - Vclay from Gamma Ray",
+      "kind": "simplified single-module clay volume",
+      "tier": "A",
+      "parameters": [
+        {"name": "Vclay Method", "default": "not stated in manual", "units": "list: GammaRay | InputCurve | None", "note": "'Set to None to make the clay volume zero. The output Vcl curve will be set to 0.0 for all levels.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Gr Clean", "default": "the minimum Gamma Ray value seen in the Gamma Ray input curve", "units": "API", "note": "VERBATIM: 'Should be set to the minimum Gamma Ray value seen in clean (non shaley) intervals. This defaults to the minimum Gamma Ray value seen in the Gamma Ray input curve.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Gr Clay", "default": "the maximum Gamma Ray value seen in the Gamma Ray input curve", "units": "API", "note": "VERBATIM: 'Should be set to the maximum Gamma Ray value seen in shale intervals. This defaults to the maximum Gamma Ray value seen in the Gamma Ray input curve.'", "source_page": "basicloganalysis.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim14.gif)",
+      "citation": "none given",
+      "caveats": ["Only a linear GR indicator is offered here; the six-method choice exists only in the full Clay Volume module.", "Output VCL is clipped 0-1."],
+      "source_pages": ["basicloganalysis.htm"]
+    },
+    {
+      "name": "Basic Log Analysis - Porosity (Density | Sonic Wyllie | Sonic Hunt-Raymer | Neutron/Density crossplot)",
+      "kind": "porosity",
+      "tier": "B (Wyllie, Hunt-Raymer)",
+      "parameters": [
+        {"name": "Rho Matrix", "default": "2.65 gm/cc for sandstone; 'Set to 2.71 gm/cc for limestone'", "units": "gm/cc", "note": "VERBATIM: 'Defaults to 2.65 gm/cc for sandstone. Set to 2.71 gm/cc for limestone.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Rho Fluid", "default": "1.0 gm/cc for fresh water; 'Set to 1.1 gm/cc for salt water'", "units": "gm/cc", "note": "VERBATIM: 'Defaults to 1.0 gm/cc for fresh water. Set to 1.1 gm/cc for salt water.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Rho Clay", "default": "'chosen as the maximum density reading over the interval where the sonic is high'", "units": "gm/cc", "note": "auto-picked, no fixed number stated", "source_page": "basicloganalysis.htm"},
+        {"name": "DT Matrix", "default": "55 uSec/ft for sandstone; 'Set to 49 uSec/ft for limestone'", "units": "uSec/ft", "note": "VERBATIM: 'Defaults to 55 uSec/ft for sandstone. Set to 49 uSec/ft for limestone.'", "source_page": "basicloganalysis.htm"},
+        {"name": "DT Fluid", "default": "189 uSec/ft", "units": "uSec/ft", "note": "VERBATIM: 'Default value is189 uSec/ft. For salt-saturated formation water use about 174 usec/ft.' (missing space after 'is' is as-printed)", "source_page": "basicloganalysis.htm"},
+        {"name": "DT Clay", "default": "not stated in manual", "units": "uSec/ft", "note": "'Chosen from log plots as the sonic reading in shale.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Sonic Cp", "default": "1.0", "units": "dimensionless", "note": "VERBATIM: 'Defaults to 1.0. For unconsolidated sands this needs to be increased. A rule of thumb for estimating this parameter is to divide the sonic clay parameter by 100. The result should be greater than 1.0 for a valid Cp value.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Neu Clay", "default": "not stated in manual", "units": "v/v limestone", "note": "'Can be picked from the interactive Neutron / Density crossplot.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Porosity Model", "default": "Density, unless only Sonic entered", "units": "list", "note": "VERBATIM: 'The default porosity method is Density unless only the Sonic curve has been enter in which case the program will select the Sonic method for porosity.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Sonic Equ", "default": "not stated as a hard default; Raymer is recommended", "units": "list: Wyllie | Hunt-Raymer", "note": "VERBATIM: 'It is recommended that the Raymer equation is used by default since this equation automatically takes care of the problem of unconsolidated sands, whilst the Wyllie equation has an extra compaction factor parameter which has to be estimated.'", "source_page": "basicloganalysis.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim15.gif density; embim16.gif + embim17.gif Wyllie; embim18.gif Raymer). TEXT legend recoverable: Vma = 1/Dtmatrix, Vf = 1/Dtfluid, Vlog = 1/Dt. Constraint stated: 'For all methods the calculated Porosity is limited to being greater than 0.0.'",
+      "citation": "'the original Wyllie time average and the empirical field observation Hunt-Raymer formula' - names only, no paper reference",
+      "caveats": ["N/D crossplot porosity is a chartbook lookup, not a closed form: 'The neutron/density crossplot porosity uses the neutron tool type to generate the standard chart book neutron/density crossplots for sandstone, limestone and dolomite. The neutron and density logs are then corrected for clay and the porosity is calculated from the position the clay corrected data falls on the chart.'"],
+      "source_pages": ["basicloganalysis.htm", "basiclogcalculations.htm"]
+    },
+    {
+      "name": "Basic Log Analysis - Water saturation (Archie | Simandoux | Indonesian/Poupon-Leveaux)",
+      "kind": "saturation",
+      "tier": "B",
+      "parameters": [
+        {"name": "Sat Equation", "default": "Archie", "units": "list: Archie | Simandoux | Indonesian", "note": "VERBATIM: 'Water Saturation equation. Defaults to Archie. In clean rock select Archie, in shaley sands the Simandoux or Indonesian equations will make corrections for shale in the rock and give better results.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Rw", "default": "0.1 ohmm", "units": "ohm.m", "note": "VERBATIM: 'Defaults to 0.1 ohmm but must be adjusted to the correct value.'", "source_page": "basicloganalysis.htm"},
+        {"name": "a factor", "default": "1.0", "units": "dimensionless", "note": "VERBATIM: 'Archie equation a factor. Defaults to 1.0.'", "source_page": "basicloganalysis.htm"},
+        {"name": "m Exponent", "default": "2.0", "units": "dimensionless", "note": "VERBATIM: 'Archie equation m (cementation) factor. Defaults to 2.0.'", "source_page": "basicloganalysis.htm"},
+        {"name": "n Exponent", "default": "2.0", "units": "dimensionless", "note": "VERBATIM: 'Archie equation n (saturation exponent) factor. Defaults to 2.0.'", "source_page": "basicloganalysis.htm"},
+        {"name": "Res Clay", "default": "not stated in manual", "units": "ohm.m", "note": "'Used for the Simandoux and Indonesian equations. Can be selected from the Vcl / Resistivity interactive crossplot.'", "source_page": "basicloganalysis.htm"}
+      ],
+      "equation": "rasterized - not recoverable (embim20.gif Archie; embim21.gif Simandoux; embim22.gif Indonesian; embim19.gif Rwapp). TEXT recoverable: 'Rt_Hingle = Rt^(-1/m)' and 'Sw is set to SwU but is limited to be less than or equal to 1.0.'",
+      "citation": "'Indonesian (Poupon-Leveaux) equation' - names only, no paper reference",
+      "caveats": [
+        "Module scope, verbatim: 'No hydrocarbon or bad-hole corrections are made. No flushed zone Sxo calculations are made.'",
+        "SwU is deliberately unclipped as a QC device for setting m/Rw against the 100% wet line.",
+        "Hingle Y-axis is stated two ways on the same page: 'Rt_Hingle = Rt^(-1/m)' and 'The Hingle plot Y-axis is built from (1/Rt)^(-1/m) but scaled in resistivity.' Both recorded verbatim; unreconciled."
+      ],
+      "source_pages": ["basicloganalysis.htm"]
+    },
+    {
+      "name": "Basic Log Functions - text-form utility equations",
+      "kind": "utility / unit conversion",
+      "tier": "A",
+      "parameters": [],
+      "equation": "TEXT (recoverable, verbatim): U = Pef x (RHOB + 0.1883) x 0.93423 ;; Ct = 1000 / Rt ;; Cxo = 1000 / Rxo ;; Caliper = DCal + Bit Size ;; Velocity = 1 / DT ;; HI_Gas = 2.25 * GasDensity ;; Vma = 1/Dtma, Vf = 1/Dtfl, Vlog = 1/Dt",
+      "citation": "see defaults_verbatim / citations block",
+      "caveats": [
+        "Raster on this page: embim5-embim13 (density porosity, porosity->RHOB, Wyllie, Hunt-Raymer, U matrix apparent, M & N lithology identifiers, Archie FF, gas T1).",
+        "Mud resistivity equations: 'The equations are valid for salinities below 70 Kppm. The Lowe and Dunlap option does not calculate Rmc.'",
+        "Permeability: 'These equations are applicable only over zones which are at irreducible water saturation i.e. hydrocarbon zones above the transition zone.'",
+        "Gas T1: 'calculated assuming 100% Methane, assuming a density relative to air of 0.554. (The Gas Density Relative To Air parameter is not used.)'"
+      ],
+      "source_pages": ["basiclogcalculations.htm"]
+    },
+    {
+      "name": "Create/Edit Lithology Curve (LITH flag curve)",
+      "kind": "lithology curve creation",
+      "tier": "A",
+      "parameters": [
+        {"name": "output curve name", "default": "LITH", "units": "flag / index", "note": "'generates a curve called LITH , which is a flag type curve, whose values are mapped to the lithology bitmaps'", "source_page": "createeditlithologycurves.htm"},
+        {"name": "thin-bed resolution", "default": "the well step increment", "units": "ft / m", "note": "VERBATIM: 'Thin beds (down to the well step increment (0.5ft, 0.1524m) can be digitized over the top of a thick interval of a single dominant lithology and the thin bed lithology is inserted into the Flag curve.'", "source_page": "createeditlithologycurves.htm"},
+        {"name": "unknown-lithology fill", "default": "<Clear>", "units": "n/a", "note": "'The <Clear> fill can be used to enter an interval of unknown lithology.'", "source_page": "createeditlithologycurves.htm"},
+        {"name": "shipped lithology count", "default": "39", "units": "entries", "note": "VERBATIM: 'The Default Lithology File ( Lithology.opt ), shipped with IP contains 39 bitmap shading files, linked to lithology descriptions. These descriptions are listed in ascending alphabetic order'", "source_page": "tools.htm"},
+        {"name": "max lithology shadings", "default": "80", "units": "entries", "note": "VERBATIM: 'there is currently an upper limit of 80 lithology shadings permitted in the Edit Default Lithology table.'", "source_page": "tools.htm"},
+        {"name": "bitmap dimensions", "default": "16 x 16 pixels", "units": "pixels", "note": "VERBATIM: 'NOTE: bitmaps should have dimensions of 16 x 16 pixels.'", "source_page": "tools.htm"}
+      ],
+      "equation": "n/a - discrete flag curve, index -> bitmap/description mapping via Lithology.opt",
+      "citation": "none",
+      "caveats": [
+        "Index numbers must be unique; they are user-editable and carry NO petrophysical semantics.",
+        "Two-level override: IP-directory Lithology.opt is the shipped default, a project-directory Lithology.opt overrides it ('The Project Level Defaults will be used in preference to the IP Defaults, where they exist.' - default_settings.htm).",
+        "IP warns that editing indices after digitizing breaks the mapping: 'the Lithology curve shadings could lose their mappings to the Lithology curve values and the curve will not display correctly in the log plot.'",
+        "Optional parallel text curve carries the lithology DESCRIPTION at each depth.",
+        "The manual does NOT enumerate the 39 mappings; they were read read-only from the shipped C:\\Program Files\\IP2018\\Lithology.opt (see lithology_scheme block)."
+      ],
+      "source_pages": ["createeditlithologycurves.htm", "tools.htm", "default_settings.htm"]
+    }
+  ],
+
+  "defaults_verbatim": [
+    {"statement": "This allows the shape of the Stieber equation to be changed. Default is 2.0", "source_page": "clayparameters.htm"},
+    {"statement": "STB = Stieber Constant shape parameter (default =2.0)", "source_page": "clayequationsandmethodology.htm"},
+    {"statement": "Numbers greater than 100% are allowed and are normal for the calculation of clay volume (default is 130%). Percentiles over 100% are calculated by a linear scaling from the 0% to the 100% percentiles and extrapolating to the entered number.", "source_page": "clayparameters.htm"},
+    {"statement": "Numbers can be less than 0%. Negative percentiles are calculated by a linear scaling from the 0% to the 100% percentiles and extrapolating to the negative entered number.", "source_page": "basicloganalysis.htm"},
+    {"statement": "The 'Clip Low %' and the 'Clip High %' parameters are used to eliminate spikes in the data which will artificially change the percentiles. Enter a low clip values between 0-100%. Default is (0%).", "source_page": "clayparameters.htm"},
+    {"statement": "Enter a high clip values between 0-100%. Default is (98%).", "source_page": "clayparameters.htm"},
+    {"statement": "Clip Low % : ... Enter a low clip values between 0-100%. Default is (98%). [CONFLICTS with clayparameters.htm which states 0% for Clip Low and 98% for Clip High]", "source_page": "basicloganalysis.htm"},
+    {"statement": "The GammaRay curve data for each 'Percentile Group' is clipped using the 'Clip Low %' and the 'Clip High %' parameters before the percentiles are calculated. This allows a percentile of say 130% to be calculated with the removal of spikes in the data before the 130% is calculated.", "source_page": "clayparameters.htm"},
+    {"statement": "The Percentile is calculated from the input GammRay curve data for all zones which have the same 'Percentile Group' number as the current zone. Hence if all zones use the same 'Percentile Group' number then a 10th percentile for all zones will give the same Gr Clean for all zones.", "source_page": "clayparameters.htm"},
+    {"statement": "Hence if all zones use the same 'Percentile Group' number then a 90th percentile for all zones will give the same Gr Clay for all zones.", "source_page": "clayparameters.htm"},
+    {"statement": "Density of Kerogen. Default is 1.1 gm/cc", "source_page": "clayparameters.htm"},
+    {"statement": "Neutron of Kerogen. Default is 0.6 v/v", "source_page": "clayparameters.htm"},
+    {"statement": "Density of Heavy minerals associated with organic shale (mainly Pyrite). Default is 4.3 gm/cc", "source_page": "clayparameters.htm"},
+    {"statement": "Neutron of Heavy minerals associated with organic shale (mainly Pyrite). Default is -0.03 v/v", "source_page": "clayparameters.htm"},
+    {"statement": "Conversion factor to convert input TOC curve, in weight %, to a volume curve. Default is 2.5", "source_page": "clayparameters.htm"},
+    {"statement": "Conversion factor to convert input Heavy Mineral curve, in weight %, to a volume curve. Default is 1.0 (input is already in volumes).", "source_page": "clayparameters.htm"},
+    {"statement": "If this is a new Run , then default parameters will be calculated for each clay indicator and these values will populate the Clay Volume Parameters Set. These defaults are not meant to be the optimum interpretation parameters, but are chosen simply to set the parameters within the correct range of values for a particular single curve or pair of curves.", "source_page": "clayvolume.htm"},
+    {"statement": "For the Single Clay Indicators the defaults are generally the maximum and minimum readings for the indicator.", "source_page": "clayvolume.htm"},
+    {"statement": "For the Double Clay Indicators the defaults will be the sandstone line for the clean line , and the shale point will be chosen towards the bottom right hand edge of the shale points , as seen on a standard crossplot.", "source_page": "clayvolume.htm"},
+    {"statement": "Gr Clean : Gamma Ray clean value. Used for calculating Clay Volume. Should be set to the minimum Gamma Ray value seen in clean (non shaley) intervals. This defaults to the minimum Gamma Ray value seen in the Gamma Ray input curve.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Gr Clay : Gamma Ray clay value. Used for calculating Clay Volume. Should be set to the maximum Gamma Ray value seen in shale intervals. This defaults to the maximum Gamma Ray value seen in the Gamma Ray input curve.", "source_page": "basicloganalysis.htm"},
+    {"statement": "NOTE: When setting the Neu Clean Parameter, exercise caution if setting this parameter to any other value than zero. This indicator can easily under-estimate the clay volume if the parameter is set too high.", "source_page": "clayparameters.htm"},
+    {"statement": "Value of the resistivity in a clean, zero Vclay zone. Generally chosen as the highest resistivity in a hydrocarbon-bearing, clay-free zone.", "source_page": "clayparameters.htm"},
+    {"statement": "Rho Matrix : Matrix density of the clean rock. ... Defaults to 2.65 gm/cc for sandstone. Set to 2.71 gm/cc for limestone.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Rho Fluid : Density of the fluid in the rock. ... Defaults to 1.0 gm/cc for fresh water. Set to 1.1 gm/cc for salt water.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Rho Clay : ... The default value is chosen as the maximum density reading over the interval where the sonic is high.", "source_page": "basicloganalysis.htm"},
+    {"statement": "DT Matrix : Sonic matrix transit time of the clean rock. ... Defaults to 55 uSec/ft for sandstone. Set to 49 uSec/ft for limestone.", "source_page": "basicloganalysis.htm"},
+    {"statement": "DT Fluid : Sonic fluid transit time in the rock. ... Default value is189 uSec/ft. For salt-saturated formation water use about 174 usec/ft.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Sonic Cp : Wyllie equation compaction factor. ... Defaults to 1.0. For unconsolidated sands this needs to be increased. A rule of thumb for estimating this parameter is to divide the sonic clay parameter by 100. The result should be greater than 1.0 for a valid Cp value.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Sat Equation : Water Saturation equation. Defaults to Archie.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Rw : Formation water resistivity at formation temperature. Defaults to 0.1 ohmm but must be adjusted to the correct value.", "source_page": "basicloganalysis.htm"},
+    {"statement": "a factor : Archie equation a factor. Defaults to 1.0.", "source_page": "basicloganalysis.htm"},
+    {"statement": "m Exponent : Archie equation m (cementation) factor. Defaults to 2.0.", "source_page": "basicloganalysis.htm"},
+    {"statement": "n Exponent : Archie equation n (saturation exponent) factor. Defaults to 2.0.", "source_page": "basicloganalysis.htm"},
+    {"statement": "The default porosity method is Density unless only the Sonic curve has been enter in which case the program will select the Sonic method for porosity.", "source_page": "basicloganalysis.htm"},
+    {"statement": "It is recommended that the Raymer equation is used by default since this equation automatically takes care of the problem of unconsolidated sands, whilst the Wyllie equation has an extra compaction factor parameter which has to be estimated.", "source_page": "basicloganalysis.htm"},
+    {"statement": "If the Bad Hole indicator logic is used, then over any interval which is flagged as Bad Hole all the Double Clay Indicators will be set to Null (-999).", "source_page": "clayequationsandmethodology.htm"},
+    {"statement": "for Z less than 0.55 [EQUATION IMAGE] / for Z greater than 0.55 and less than 0.73 [EQUATION IMAGE] / for Z greater than 0.73 and less than 1.0 VclGr = Z", "source_page": "clayequationsandmethodology.htm"},
+    {"statement": "for Rt greater than 2 x Rclay then [EQUATION IMAGE] / otherwise VclRes = Z", "source_page": "clayequationsandmethodology.htm"},
+    {"statement": "The Default Lithology File ( Lithology.opt ), shipped with IP contains 39 bitmap shading files, linked to lithology descriptions. These descriptions are listed in ascending alphabetic order so that the Create / Edit Lithology Curve module is easier to work with.", "source_page": "tools.htm"},
+    {"statement": "NOTE: there is currently an upper limit of 80 lithology shadings permitted in the Edit Default Lithology table.", "source_page": "tools.htm"},
+    {"statement": "NOTE: bitmaps should have dimensions of 16 x 16 pixels.", "source_page": "tools.htm"},
+    {"statement": "Thin beds (down to the well step increment (0.5ft, 0.1524m) can be digitized over the top of a thick interval of a single dominant lithology and the thin bed lithology is inserted into the Flag curve.", "source_page": "createeditlithologycurves.htm"},
+    {"statement": "U = Pef x (RHOB + 0.1883) x 0.93423", "source_page": "basiclogcalculations.htm"},
+    {"statement": "Ct = 1000 / Rt and Cxo = 1000 / Rxo", "source_page": "basiclogcalculations.htm"},
+    {"statement": "Caliper = DCal + Bit Size", "source_page": "basiclogcalculations.htm"},
+    {"statement": "HI_Gas = 2.25 * GasDensity", "source_page": "basiclogcalculations.htm"},
+    {"statement": "Gas T1 is calculated assuming 100% Methane, assuming a density relative to air of 0.554. (The Gas Density Relative To Air parameter is not used.)", "source_page": "basiclogcalculations.htm"},
+    {"statement": "The equations are valid for salinities below 70 Kppm. The Lowe and Dunlap option does not calculate Rmc.", "source_page": "basiclogcalculations.htm"},
+    {"statement": "Rt_Hingle = Rt^(-1/m)", "source_page": "basicloganalysis.htm"},
+    {"statement": "For all methods the calculated Porosity is limited to being greater than 0.0.", "source_page": "basicloganalysis.htm"},
+    {"statement": "Sw is set to SwU but is limited to be less than or equal to 1.0.", "source_page": "basicloganalysis.htm"},
+    {"statement": "the example illustrates a Bad Hole logic Flag set up to turn off double clay indicators in 2 zones where the Bad Hole Indicator (caliper) curve values exceed 10.5 inches [ILLUSTRATIVE EXAMPLE, NOT A DEFAULT]", "source_page": "clayplot.htm"}
+  ],
+
+  "terminology": [
+    {
+      "term": "Clay volume vs Shale volume",
+      "ip_position": "A module-level mode switch made BEFORE running, not a relabel. Verbatim: 'Before running this module a fundamental decision has to be made whether you which to calculate Clay volume or Shale volume. The module has been designed for clay volumes. But can be used just as easily for Shale volume calculations.'",
+      "consequences_stated": "'When selected the window labels, output curves and parameter names will adjust appropriately. Note changing this selection on a current parameter set will not change any of the parameter values currently used, it will be up to the user to re-pick the parameters for the type of analysis. However the default output curve names will change. This could mean the wrong input Vcl or Vsh curve could be used in the PhiSw module.'",
+      "source_page": "clayvolume.htm"
+    },
+    {
+      "term": "Shale as a rock type (a mixture), clay as a mineral volume",
+      "ip_position": "Verbatim: 'Shales normally contain 50-80% of clay. The actual clay contain could change at each depth level and is why shales are usually seen as a cloud of points on crossplot.'",
+      "consequences_stated": "'It is clearly easier to pick shale points than clay points, however it must be remembered that the porosity analysis modules work volumetrically and can only handle mineral volumes e.g. clay volume. If shale volumes are picked these have to be converted to clay volume before they can be used correctly.'",
+      "source_page": "clayvolume.htm"
+    },
+    {
+      "term": "Shale pick vs clay pick (crossplot picking convention)",
+      "ip_position": "Verbatim: 'Shale picks are normally made to the edge of the cloud of points while clay picks are made outside the cloud to give around 60-80% clay content.'",
+      "consequences_stated": "Named pick types listed on the page: 'N/D Shale point pick', 'N/D Clay point pick', 'Gamma Ray Shale pick', 'Gamma Ray Clay Pick'.",
+      "source_page": "clayvolume.htm"
+    },
+    {
+      "term": "Clay Shale Ratio (CSR) - the Vsh<->Vcl bridge",
+      "ip_position": "Verbatim (swparameters.htm): '(178) Clay Shale Ratio ? the percentage of clay in 100% shale in decimals (v/v). Used to calculate the clay parameters from the shale parameters or vice versa. Also used to calculate the final Vshale output from the VWCL curve. Vshale = VWCL / CSR'. Also (swequationsandmethodology.htm): 'CSR = input Clay Shale Ratio parameter ( The fraction of clay seen in 100% shale ).'",
+      "consequences_stated": "Endpoint conversions stated in text: 'Rho Wet Clay = Rho Matrix + ((Rho Shale - Rho Matrix) / CSR)'; 'Neu Wet Clay = Neu Matrix + ((Neu Shale - Neu Matrix) / CSR)'; 'Son Wet Clay = Son Matrix + ((Son Shale - Son Matrix) / CSR)'. NO DEFAULT VALUE FOR CSR IS STATED ON ANY PAGE READ.",
+      "source_page": "swparameters.htm; swequationsandmethodology.htm (cross-referenced from clayvolume.htm)"
+    },
+    {
+      "term": "VCL / VCLAV / VCLMIX / VWCL",
+      "ip_position": "VCL = minimum of all selected indicators and by default becomes VWCL (Wet Clay Volume) into the PhiSw module. VCLAV = average (Mean|Median|Lateral). VCLMIX = per-zone selection of Minimum or Average.",
+      "consequences_stated": "'The Minimum Clay Volume ( VCL ) curve is calculated as the minimum clay volume response of all selected single and double clay indicators, and, by default is picked as the Wet Clay Volume ( VWCL ) curve used in the set up of the Porosity and Water Saturation Module.'",
+      "source_page": "clayvolume.htm"
+    },
+    {
+      "term": "Per-indicator QC curves are deliberately unclipped",
+      "ip_position": "Verbatim: 'The curve results for these indicators will not be limited to between 0 and 1.0. These curves are meant for quality control purposes, and should not be used in another module for Vclay, unless they are clipped first to between 0 and 1.0.'",
+      "consequences_stated": "'Vclay minimum ( VCL )and Vclay average ( VCLAV ) curves will also be calculated. These curves are clipped to between 0 and 1.0. For the VCLAV curve, the separate Vclay indicator curves will first be clipped before the average curve is created.' -> CLIP EACH INDICATOR FIRST, THEN AVERAGE.",
+      "source_page": "clayvolume.htm"
+    },
+    {
+      "term": "Neutron curves are always assumed limestone matrix units",
+      "ip_position": "Verbatim: 'IP makes the assumption that any neutron curve entered is in Limestone matrix units . If this is not the case, then the curve should be converted to Limestone porosity units using the appropriate service company environmental correction module or the Basic Log Analysis Functions module.'",
+      "consequences_stated": "Restated on clayparameters.htm and basicloganalysis.htm. Also: 'all Neutron tools are calibrated to read correctly in limestone'.",
+      "source_page": "clayvolume.htm; clayparameters.htm; basicloganalysis.htm"
+    },
+    {
+      "term": "Organic-shale input unit auto-detection",
+      "ip_position": "Verbatim: 'If the units are set at '%', 'pec' or 'wt%' then the input curve will be assumed to be in units of percent and will be divided by 100 to get it in units of ?v/v?. All other units will be assumed to be ?v/v?.'",
+      "consequences_stated": "A unit-string whitelist, not a magnitude heuristic - worth copying as a pattern, but the whitelist is short and case handling is unstated.",
+      "source_page": "clayvolume.htm"
+    },
+    {
+      "term": "Bad Hole 'Min' is an upper gate and 'Max' is a lower gate",
+      "ip_position": "Verbatim: 'When the Bad Hole Indicator 1 curve values are greater than this minimum value , any double clay indicators will be switched off.' / '...less than this maximum value , any double clay indicators will be switched off.'",
+      "consequences_stated": "Confirmed operationally on clayplot.htm: 'Set the BadH1 Min parameter to the maximum allowable caliper value'. Counter-intuitive naming - a direct reimplementation trap.",
+      "source_page": "clayparameters.htm; clayplot.htm"
+    },
+    {
+      "term": "IP spells the method 'Stieber' (not 'Steiber')",
+      "ip_position": "Both clayparameters.htm and clayequationsandmethodology.htm use 'Stieber' consistently, including the parameter name 'Stieber Constant'.",
+      "consequences_stated": "Relevant for parameter-name matching when reading IP parameter sets or .par files.",
+      "source_page": "clayparameters.htm; clayequationsandmethodology.htm"
+    },
+    {
+      "term": "Lithology curve = flag curve + external index map",
+      "ip_position": "Verbatim: 'Lithology Curves in IP are \"flag\" type curves with values mapped to Lithology Bitmaps (stored in Lithology.opt).'",
+      "consequences_stated": "The index->lithology map is user-editable per project, so a LITH curve is meaningless without its accompanying Lithology.opt. Any importer must carry the map alongside the curve.",
+      "source_page": "createeditlithologycurves.htm; tools.htm"
+    }
+  ],
+
+  "lithology_scheme": {
+    "note": "NOT stated in the manual - the manual only gives the count (39), the ordering rule (ascending alphabetic by description), the cap (80) and the bitmap size (16x16 px). The mappings below were read READ-ONLY from the shipped config file; nothing was written to the IP install.",
+    "source_file": "C:\\Program Files\\IP2018\\Lithology.opt",
+    "format": "index,BitmapName,Description (3-column CSV, one per line, 39 rows)",
+    "entries": [
+      {"index": 1, "bitmap": "ANHYDRITE2", "description": "Anhydrite"},
+      {"index": 2, "bitmap": "BASEMENT", "description": "Basement"},
+      {"index": 3, "bitmap": "BENT", "description": "Bentonite"},
+      {"index": 4, "bitmap": "BREC", "description": "Breccia"},
+      {"index": 5, "bitmap": "CHALK", "description": "Chalk"},
+      {"index": 6, "bitmap": "CHLKY_MARL", "description": "Chalky Marl"},
+      {"index": 7, "bitmap": "CHERT", "description": "Chert"},
+      {"index": 8, "bitmap": "CLAY", "description": "Clay"},
+      {"index": 9, "bitmap": "CLAYSTONE", "description": "Claystone"},
+      {"index": 10, "bitmap": "COAL2", "description": "Coal"},
+      {"index": 11, "bitmap": "CONGLOM.", "description": "Conglomerate"},
+      {"index": 12, "bitmap": "DOLOMITE", "description": "Dolomite"},
+      {"index": 13, "bitmap": "DOL-mdy", "description": "Dolomite - muddy"},
+      {"index": 14, "bitmap": "DOL-Sndy", "description": "Dolomite - sandy"},
+      {"index": 15, "bitmap": "GYPSUM2", "description": "Gypsum"},
+      {"index": 16, "bitmap": "HALITE", "description": "Halite"},
+      {"index": 17, "bitmap": "IGNEOUS", "description": "Igneous"},
+      {"index": 18, "bitmap": "LST", "description": "Limestone"},
+      {"index": 19, "bitmap": "LST-Dol", "description": "Limestone - Dolomitic"},
+      {"index": 20, "bitmap": "LST-Mddy", "description": "Limestone - muddy"},
+      {"index": 21, "bitmap": "LST-Sndy", "description": "Limestone - sandy"},
+      {"index": 22, "bitmap": "MARL", "description": "Marl"},
+      {"index": 23, "bitmap": "META", "description": "Metamorphic"},
+      {"index": 24, "bitmap": "MDST", "description": "Mudstone"},
+      {"index": 25, "bitmap": "MDST-Calc.", "description": "Mudstone - calc."},
+      {"index": 26, "bitmap": "MDST-Tuff", "description": "Mudstone - tuff."},
+      {"index": 27, "bitmap": "SANDSTONE", "description": "Sandstone"},
+      {"index": 28, "bitmap": "SST-Arg.", "description": "Sandstone - arg."},
+      {"index": 29, "bitmap": "SST-Ark.", "description": "Sandstone - ark."},
+      {"index": 30, "bitmap": "SST-Calc.", "description": "Sandstone - calc."},
+      {"index": 31, "bitmap": "SST-carb.", "description": "Sandstone - carb."},
+      {"index": 32, "bitmap": "SST-Fine", "description": "Sandstone - fine"},
+      {"index": 33, "bitmap": "SST-Tuff.", "description": "Sandstone - tuff."},
+      {"index": 34, "bitmap": "SST-Slty", "description": "Sandstone - silty"},
+      {"index": 35, "bitmap": "SST-Volc.", "description": "Sandstone - volc."},
+      {"index": 36, "bitmap": "SLTST", "description": "Siltstone"},
+      {"index": 37, "bitmap": "SHALE", "description": "Shale"},
+      {"index": 38, "bitmap": "TUFF", "description": "Tuff"},
+      {"index": 39, "bitmap": "VOLCANICS", "description": "Volcanics"}
+    ],
+    "structural_observations": [
+      "Flat list with modifier suffixes (- sandy, - muddy, - calc., - arg., - silty, - tuff., - volc., - carb., - ark., - fine), not a hierarchy.",
+      "Indices carry no numeric/petrophysical semantics - index 5 (Chalk) is not 'between' 4 and 6 in any physical sense.",
+      "Ordering is alphabetical by description, which is why index 36 (Siltstone) precedes 37 (Shale) - the sort is on 'Siltstone' vs 'Shale'... actually SLTST/Siltstone at 36 before SHALE/Shale at 37 breaks strict alphabetical order; recorded as-is from the file.",
+      "Both 'Clay' (8) and 'Claystone' (9) and 'Shale' (37) exist as separate entries - IP keeps the clay/claystone/shale distinction at the lithology level too."
+    ]
+  },
+
+  "citations_harvested": [
+    {"topic": "Lateral / median-type averaging (VCLAV Lateral method)", "citation_verbatim": "This is almost identical to the Hodges-Lehmann method (J.L Hodges and E. L Lehmann, Basic Concepts of Probability and Statistics, Holden-Day 1970).", "source_page": "curve_average.htm"},
+    {"topic": "Mud filtrate resistivity in fresh-water muds", "citation_verbatim": "The Lowe and Dunlap equations come from \" Estimation of Mud Filtrate Resistivity in Fresh Water Drilling Muds \" The Log Analyst (March-April 1986).", "source_page": "basiclogcalculations.htm"},
+    {"topic": "Electrical properties of drilling fluids vs solids content", "citation_verbatim": "The Overton and Lipson equations come from \"A Correlation of the Electrical Properties of Drilling Fluids with Solids Content\" Transactions AIME (1958)", "source_page": "basiclogcalculations.htm"},
+    {"topic": "Downhole oil and gas densities", "citation_verbatim": "the correlations used are the same as those used in the Rock Physics module and come from the paper by Batzle and Wang \" Seismic Properties of Pore Fluids\", Geophysics (1992) .", "source_page": "basiclogcalculations.htm"},
+    {"topic": "NMR gas hydrogen index and T1", "citation_verbatim": "The relationships for Gas HI and T1 are those published in NMR Logging: Principles and Applications by Coates, Xiao and Prammer (1999).", "source_page": "basiclogcalculations.htm"},
+    {"topic": "Larionov older rocks", "citation_verbatim": "Old Rock : As per Larionov et al for older rocks (Mesozoic).", "source_page": "clayparameters.htm", "completeness": "SURNAME ONLY - no year, journal, volume or title anywhere in the manual"},
+    {"topic": "Larionov younger rocks", "citation_verbatim": "Young Rock : As per Larionov for younger rocks (Tertiary clastics).", "source_page": "clayparameters.htm", "completeness": "SURNAME ONLY"},
+    {"topic": "Clavier", "citation_verbatim": "Clavier : As per Clavier et al.", "source_page": "clayparameters.htm", "completeness": "SURNAME ONLY"},
+    {"topic": "Stieber", "citation_verbatim": "Stieber : As per Stieber et al (South Louisiana Miocene and Pliocene).", "source_page": "clayparameters.htm", "completeness": "SURNAME + APPLICABILITY ONLY"}
+  ],
+
+  "tierC_flags": [
+    {
+      "flag": "NO new patented / proprietary / branded method found in target B",
+      "evidence": "No trademark symbol, patent number, or proprietary claim appears on any of the seven target pages. The clay-volume chain is conventional published petrophysics; only the IMPLEMENTATION is proprietary.",
+      "action": "None - target B adds nothing to the existing Tier-C register (SonicSaturation, Domain Transfer Analysis, Experienced Eye, entropy-based borehole-image speed correction, shipped NN weights)."
+    },
+    {
+      "flag": "TIER-C-ADJACENT (third-party copyright, not patent): shipped vendor chartbook digitizations",
+      "evidence": "IP ships the Schlumberger and Western Atlas chartbooks as executable lookup tables. Verbatim: 'The neutron tool lithology conversions are made using Look-up Tables . These are also used by the Porosity and Water Saturation module.' (basiclogcalculations.htm); 'The Timur , Morris Biggs oil and Morris Biggs gas defaults come from the Western Atlas chartbook, whilst the Schlumberger Chart K3 is from the Schlumberger chartbook.'; 'Sigma Water is calculated using the charts in the Schlumberger chart book (Tcor-2a and Tcor-3b).'; 'Sigma Oil is calculated from GOR using charts in the Western Atlas chart book (8-6 Rev1 12-95 chart book).'; 'Sigma Gas is calculated using the Schlumberger chart for Methane (Tcor-1). If Wet Gas is selected then the methane sigma is corrected as per chart 8-4 in the Western Atlas chart book. If Condensate is selected then the methane sigma is corrected as per chart 8-5 in the Western Atlas chartbook.' Corresponding per-tool response files (.neu, .ovl) are visible in the IP install root.",
+      "action": "SandiBumi must NOT lift these tables from IP or from scanned vendor chartbooks. Needs its own licensed or independently digitized source. The MECHANISM (contractor -> tool -> sandstone/dolomite offset from limestone) is Tier A and freely describable; the COEFFICIENTS are not. This is the largest 'looks like Tier A, is not' trap in target B."
+    },
+    {
+      "flag": "Implementation-language leak (Tier A market intelligence, recorded for completeness)",
+      "evidence": "'?UnitsConversion.pas? contains all the default routines and defaults needed for conversions.' (basiclogcalculations.htm) - confirms a Delphi/Object Pascal codebase.",
+      "action": "No restriction; useful only as competitive context."
+    }
+  ],
+
+  "gaps": [
+    {"gap": "Larionov (older + younger), Clavier, Stieber and Curved-branch coefficients", "why": "rasterized in embim24-embim29; the manual gives surnames only, no full citation", "next_step": "Source the primary papers independently. Do NOT fill from memory - a wrong coefficient computes, plots and ships silently. Human can eyeball C:\\Users\\ARUNIKA\\AppData\\Local\\Temp\\c18\\embim24.gif .. embim29.gif to at least confirm the published forms.", "priority": "P0"},
+    {"gap": "Full bibliographic citations for Larionov, Clavier, Stieber", "why": "manual gives 'As per X et al' with rock-age applicability only", "next_step": "Check the brain (petro-kb) first - Jauhar's KB may already hold the primary references.", "priority": "P0"},
+    {"gap": "Clip Low % default contradicted between pages (0% on clayparameters.htm vs 98% on basicloganalysis.htm)", "why": "basicloganalysis.htm appears to have the Clip-High default text pasted onto Clip Low", "next_step": "Resolve against a live IP run or a saved .par file. Do not silently pick one.", "priority": "P1"},
+    {"gap": "Percentile Clean default", "why": "not stated on any page; parameter index (56) heading is missing from the decompiled clayparameters.htm", "next_step": "Read a shipped IP default .par file, or run IP. The illustrative '10th percentile' in the prose is an example, not a default.", "priority": "P1"},
+    {"gap": "Clay Shale Ratio (CSR) default", "why": "not stated on any page read, despite CSR being the sole Vsh->Vcl bridge", "next_step": "Check swparameters.htm's numbered list against a shipped default parameter set. The manual's own '50-80% clay in shale' / '60-80% clay content' prose is a picking guideline, NOT a stated CSR default - do not conflate.", "priority": "P1"},
+    {"gap": "Gr Kerogen default", "why": "not stated - a derivation method is given instead (spectral GR crossplot extrapolated to 100% TOC)", "next_step": "None needed; the derivation method is the documented answer.", "priority": "P3"},
+    {"gap": "The '?' operator character in the NeuCorr and DenCorr numerators", "why": "CHM decompilation mangled the character; sign unverified", "next_step": "Structurally it must be an operator between 'TOCvol x NeuKer' and 'HvyMinVol x NeuHvy'; a minus is the only reading consistent with the (1 - TOCvol - HvyMinVol) denominator, but that is an INFERENCE. Verify against the original .htm or a live IP run.", "priority": "P2"},
+    {"gap": "Null sentinel outside bad-hole gating", "why": "-999 is stated for bad-hole-nulled doubles; whether the same sentinel applies to zone-level Use-flag nulls is not stated", "next_step": "Check an IP LAS export.", "priority": "P3"},
+    {"gap": "VCLMIX per-zone selector parameter index", "why": "the parameter is described but absent from the numbered (1)-(69) MonteCarloDefaults.par list; that list also skips (51)-(54) and (56)", "next_step": "Inspect MonteCarloDefaults.par in the IP install if the index matters.", "priority": "P3"},
+    {"gap": "Bad Hole Min/Max initial values", "why": "explicitly uninitialised by design ('Initially, the bad hole indicator logic is not active nor are its cut-off parameters set.')", "next_step": "None - this IS the documented behaviour.", "priority": "P3"},
+    {"gap": "Hingle Y-axis stated two ways on the same page", "why": "'Rt_Hingle = Rt^(-1/m)' vs 'The Hingle plot Y-axis is built from (1/Rt)^(-1/m) but scaled in resistivity'", "next_step": "Both recorded verbatim; unreconciled. Resolve before implementing a Hingle plot.", "priority": "P2"},
+    {"gap": "Double-indicator inventory differs between pages", "why": "clayvolume.htm lists 'Density/Neutron, Density/Sonic, Sonic/Neutron'; clayparameters.htm's tab example names only 'Neutron/Density, Sonic/ Density' - but the parameter list (17)-(37) covers ND, SD and NS", "next_step": "Parameter list is authoritative: three standard doubles + one user-defined.", "priority": "P3"}
+  ]
+}

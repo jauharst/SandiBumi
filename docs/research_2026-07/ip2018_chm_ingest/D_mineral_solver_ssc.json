@@ -1,0 +1,558 @@
+{
+  "target": "D - Mineral Solver & the Sand-Silt-Clay / Malay Model",
+  "source": {
+    "product": "Interactive Petrophysics 2018",
+    "vendor": "PGL / Lloyd's Register / Geoactive",
+    "decompiled_text_root": "C:\\Users\\ARUNIKA\\AppData\\Local\\Temp\\c18\\_text",
+    "install_read_only": "C:\\Program Files\\IP2018",
+    "pages_read": [
+      "mineralsolver.htm",
+      "mineral_solver.htm",
+      "minsolveeqandmeth.htm",
+      "minsolvecalibrate.htm",
+      "plot_the_mineral_solver_result.htm",
+      "sand_silt_malay_model.htm"
+    ],
+    "cross_checked": [
+      "default_settings.htm",
+      "tools.htm",
+      "interpretation.htm",
+      "specialinterpretation.htm",
+      "intro_whats_new_in_ip.htm"
+    ],
+    "numeric_discipline": "Every value transcribed exactly as printed. No rounding, unit conversion, or outside knowledge. Absent values recorded as 'not stated in manual'."
+  },
+
+  "rasterized_equation_inventory": {
+    "minsolveeqandmeth.htm": {
+      "embim_count": 99,
+      "range": "embim213 - embim311",
+      "note": "Includes the objective function itself (embim213), the legacy linear error (embim214), all density/neutron/sonic/EPT/U auto-endpoint relations, the CEC-to-Qv conversion (embim257-259), and all 11 Sw equations (embim271-283). None reconstructed."
+    },
+    "sand_silt_malay_model.htm": {
+      "embim_count": 1,
+      "intclip_count": 24,
+      "extractor_undercount": "The extractor header reports equation_images:1 because it counts only embimNN files. Verified by parsing the .htm: ~13 of the 24 _intclip*.png images are equations, not screenshots.",
+      "equation_images": [
+        {"image": "_intclip0056.png", "what": "step 2 - Vsh from GR"},
+        {"image": "_intclip0057.png", "what": "step 3 - apparent HC density"},
+        {"image": "_intclip0058.png", "what": "step 3 - apparent HC neutron HI"},
+        {"image": "_intclip0059.png", "what": "step 5 - Vsh from Neutron-Density"},
+        {"image": "_intclip0061.png", "what": "step 8 - Lithology Conversion Chart (TIER C, see tierC_flags T1)"},
+        {"image": "_intclip0062.png", "what": "step 13 - Archie PhiT"},
+        {"image": "_intclip0063.png", "what": "step 13 - Dual Water"},
+        {"image": "_intclip0064.png", "what": "step 13 - Juhasz (Waxman-Smits)"},
+        {"image": "_intclip0065.png", "what": "step 13 - Waxman-Smits"},
+        {"image": "_intclip0066.png", "what": "step 13 - Qv = a/PhiT + b"},
+        {"image": "embim178.gif", "what": "step 13 - B(T, Rw)"},
+        {"image": "_intclip0067.png", "what": "step 13 - effective Sw from total Sw"},
+        {"image": "_intclip0068.png", "what": "step 14 - Sxo from invasion factor, WBM"}
+      ],
+      "figures_not_equations": ["_intclip0046 (N/D crossplot)", "_intclip0047/0048/0069 (dialogs)", "_intclip0049-0054.zoom70 (interactive plots)", "_intclip0055 (flow diagram)", "_intclip0060.zoom20 (matrix-line projection diagram)"]
+    },
+    "mineral_solver.htm": {"embim_count": 0, "intclip_count": 0, "note": "Richest page - prints all 11 Sw equations in plain ASCII"},
+    "mineralsolver.htm": {"embim_count": 0, "intclip_count": 0},
+    "minsolvecalibrate.htm": {"embim_count": 0, "intclip_count": 0},
+    "plot_the_mineral_solver_result.htm": {"embim_count": 0, "intclip_count": 0}
+  },
+
+  "solver": {
+    "objective_description": "Minimise the Model Normalized Total Error - the normalised misfit between each input curve and its reconstruction from the solved mineral/fluid volumes. Terms named on the page: Crv_i (ith input curve value), Crv_Rec_i (ith reconstructed curve from volumes), Crv_Tol_i (ith input curve tolerance), NumCrvs (number of input curves in the model). Formula is embim213.png - rasterized, not recoverable. For resistivity and conductivity equations all resistivities are first converted to conductivities, then Crv_i, Crv_Rec_i and Crv_Tol_i have the square root taken before entering the error sum. A second legacy metric, the Total Linear Model Error over InputLog_i / Reconstructed_i / Confidence Weight_i (embim214.gif, rasterized), is emitted for backwards compatibility with versions prior to IP4.4. Two solvers run in series: a Singular Value Decomposition linear solver from Numerical Recipes (Cambridge University Press), then the DNOPT Dense Nonlinear OPTimizer from Stanford University seeded by the linear solution. The non-linear optimizer's solution is always checked against the linear solver's and the lowest-total-error solution is always selected.",
+    "equation_form": "Y = Vol1 x Min1 + Vol2 x Min2 + Vol3 x Min3 ...   where Y = input tool curve or fixed value, Vol_i = solved volumes, Min_i = mineral end-point (100% mineral response).",
+    "linear_solver_algorithm": [
+      "1. Each equation is normalized by dividing all terms in the equation by its confidence weighting.",
+      "2. The equations are solved by Singular Value Decomposition.",
+      "3. If any volume result term is negative, the largest negative term is set to zero and removed from the model; the solver re-runs; repeats until all volumes are positive.",
+      "4. Result volumes are adjusted to sum to 1.0 (unity equation tolerance 0.01 by default).",
+      "5. The input logs are reconstructed from the volume results.",
+      "6. The total normalized error is calculated from the difference between input log and results."
+    ],
+    "nonlinearity_handling": "Outer relinearization loop: 'The non-linear equations are made linear by adjusting their input end-point mineral values knowing what the porosity and water saturation values are.' The loop repeats until porosity and Sw converge between loops.",
+    "weighting": {
+      "name": "Confidence (per equation row)",
+      "direction": "The smaller the confidence number, the more weight attached to the equation - EXCEPTION: the resistivity equation.",
+      "units": "In the physical units of the equation itself (e.g. gm/cc for density, API units for gamma ray). Directly relatable to tool reading accuracy.",
+      "curve_allowed": true,
+      "curve_note": "Confidence may be entered as an input curve so it varies per database step - explicitly recommended for badly washed-out hole where density accuracy decreases markedly. Confidence curves can be built in other IP modules (e.g. User Formula).",
+      "resistivity_transform": "For conductivity/resistivity equations the confidence has the 1/m th root taken before use in the solver, matching the curve and endpoint transform. Result-track shading width is therefore in 1/m-th-root space.",
+      "worked_example_conductivity": {"input": "500 mmho", "input_confidence": "5 mmho", "m": "2", "solver_input_value": "22.3 (1/m th root)", "solver_confidence": "2.24", "plus_error": "(22.3 + 2.24)^2 = 602.2 mmho", "minus_error": "(22.3 - 2.24)^2 = 402.4 mmho", "source_page": "minsolveeqandmeth.htm"},
+      "worked_example_resistivity": {"input": "2 ohmm = 500 mmho", "input_confidence": "200 ohmm = 5 mmho", "m": "2", "plus_error": "602.2 mmho = 1.661 ohmm", "minus_error": "402.4 mmho = 2.485 ohmm", "note_as_printed": "The manual's own resistivity row labels the +error as the lower ohmm value - an inversion in the source, transcribed uncorrected.", "source_page": "minsolveeqandmeth.htm"},
+      "uncertainty_output_curves": "Per input curve: ***_re (reconstructed), ***_me (minus-error), ***_pe (plus-error)."
+    },
+    "constraints": [
+      {"name": "Unity", "form": "1 = Vol1 + Vol2 + Vol3 ....", "always_on": true, "tolerance": "0.01 (default)", "source_page": "minsolveeqandmeth.htm"},
+      {"name": "Porosity equalization", "form": "0 = -VwatU - VhydU1 - Vhyd2U - ... + Vwat + Vhyd1 + Vhyd2 + ...", "always_on": false, "note": "Auto-added when both invaded and un-invaded fluids are present in the model.", "source_page": "minsolveeqandmeth.htm"},
+      {"name": "Sxo equation", "form": "0 = ( Sxo-1 ) Vwater + Sxo * Vhydrocarbon1 + Sxo * Vhydrocarbon2 + ...", "always_on": false, "default_state": "on ('Automatically Add Sxo equation into Model' selected by default)", "default_confidence": "0.01 (1 saturation unit)", "source_page": "mineral_solver.htm"},
+      {"name": "Sw equation", "form": "0 = ( Sw-1 ) VwaterU + Sw * VhydrocarbonU1 + Sw * VhydrocarbonU2 + ...", "always_on": false, "default_confidence": "0.01", "note": "Only meaningful if un-invaded fluids are in the model.", "source_page": "mineral_solver.htm"},
+      {"name": "Constant equation", "form": "user linear relation, e.g. 0.02 = VPyrite ; 0 = (0.2 * Quartz) - Orthoclase ; b = VGlau - a * VQtz", "recommended_confidence": "about 0.01 (represents a 1% volume error)", "source_page": "minsolveeqandmeth.htm"},
+      {"name": "Limit equations (<Limit / >Limit)", "form": "inequality on an individual mineral/fluid or a group", "algorithm": "IP first solves without any limit equations, then validates each limit. A violated limit is added as a constant equation and the model is COMPLETELY re-solved; limits are added ONE AT A TIME in grid order. Because they are weighted by their Confidence, results may still fall outside the limit. Vendor guidance: limits should make minor adjustments only; a limit that radically alters the equation balance means the model itself is wrong (build a bad-hole model instead).", "source_page": "minsolveeqandmeth.htm"},
+      {"name": "Invasion Factor (per equation)", "form": "endpoint x IF for invaded fluids, x (1-IF) for un-invaded fluids", "range": "0.0 (un-invaded only) to 1.0 (flushed only); intermediate values mix; may be a curve", "source_page": "minsolveeqandmeth.htm"},
+      {"name": "Mineral Type declaration", "values": ["Water Sxo", "Bound Water", "Hyd. Sxo", "Matrix", "Wet Clay", "Dry Clay", "Water Sw", "Hyd. Sw"], "rule": "Cannot mix Wet Clay and Dry Clay in the same model, nor Wet Clay and Bound Water. Bound Water only in a Dry Clay model.", "source_page": "mineral_solver.htm"}
+    ],
+    "convergence_defaults": [
+      {"control": "Outer loop effective-porosity convergence", "value": "e difference < 0.001", "as_printed": "printed as 'phi [EQUATION_IMAGE embim298.gif] e difference < 0.001'", "source_page": "minsolveeqandmeth.htm"},
+      {"control": "Outer loop Sxo convergence", "value": "Sxo difference < 0.002", "source_page": "minsolveeqandmeth.htm"},
+      {"control": "Main linearization loop iteration cap", "value": "20 iterations", "flag": "PHIFLAG 4", "source_page": "minsolveeqandmeth.htm"},
+      {"control": "Solver iteration cap", "value": "30 iterations", "flag": "PHIFLAG 5", "source_page": "minsolveeqandmeth.htm"},
+      {"control": "Sw equation loop cap", "value": "10 iterations", "flag": "PHIFLAG 8", "source_page": "minsolveeqandmeth.htm"},
+      {"control": "Unity equation tolerance", "value": "0.01", "source_page": "minsolveeqandmeth.htm"},
+      {"control": "Sw / Sxo auto-added equation confidence", "value": "0.01", "source_page": "mineral_solver.htm"},
+      {"control": "Constant-equation confidence (recommended)", "value": "about 0.01", "source_page": "minsolveeqandmeth.htm"},
+      {"control": "Sonic Cp (Wyllie compaction factor)", "value": "Default 1.0", "source_page": "mineral_solver.htm"},
+      {"control": "Cm* (variable-m weighting)", "value": "Default is 1.0", "source_page": "mineral_solver.htm"},
+      {"control": "B fact Juhasz", "value": "Default 1.0 meq/ml", "source_page": "mineral_solver.htm"},
+      {"control": "Sxo Limit exponent (Sxo < Sw**SxoLimit)", "value": "The default value is 0.2", "source_page": "mineral_solver.htm"},
+      {"control": "Invasion factor (OBM branch)", "value": "The default value is 0.5", "source_page": "mineral_solver.htm", "conflict": "See next row - the manual prints two different defaults under the same parameter name on two pages. Both recorded, neither reconciled."},
+      {"control": "Invasion Factor (WBM empirical Sxo-from-Sw)", "value": "The default value of the Invasion Factor is 2.0", "source_page": "minsolveeqandmeth.htm", "conflict": "See previous row."},
+      {"control": "Max models per well", "value": "Up to 20", "source_page": "mineral_solver.htm"},
+      {"control": "Max mixing rule sets", "value": "Up to 5", "source_page": "plot_the_mineral_solver_result.htm"},
+      {"control": "Max mineral end-points per crossplot", "value": "8", "source_page": "mineral_solver.htm"}
+    ],
+    "quality_reporting": {
+      "TotErr": "Model Normalized Total Error curve. Error values greater than 1.0 are displayed in red.",
+      "PHIFLAG": {
+        "normal_value": "0 - 'For a normal execution of IP at any depth level, the PHIFLAG should be zero.'",
+        "table": [
+          {"value": "2", "logic": "A Limit equation was used in the model results"},
+          {"value": "4", "logic": "Main linearization loop did not converge after 20 iterations"},
+          {"value": "5", "logic": "Solver did not converge after 30 iterations"},
+          {"value": "6", "logic": "Sw curve set to 1.0 due to Phi Sw Limit or Vcl Sw Limit parameter limits being reached"},
+          {"value": "7", "logic": "Sw limited to Sw irreducible parameter"},
+          {"value": "8", "logic": "Sw equation loop did not converge after 10 iterations"},
+          {"value": "9", "logic": "Fatal Error with non-linear optimizer. See error log"},
+          {"value": "10", "logic": "Non-linear optimizer. Unbounded Objective"},
+          {"value": "11", "logic": "Non-linear optimizer. Iteration limit reached"},
+          {"value": "12", "logic": "Non-linear optimizer. Major iteration limit reached"},
+          {"value": "14", "logic": "Non-linear optimizer. Terminated during objective evaluation"}
+        ],
+        "unlisted_values": ["0", "1", "3", "13"],
+        "interpretation_guidance": "Error 9 is serious and the level results will be the linear solvers solution. Errors 10-14 indicate the optimizer has had problems finding an optimal solution, however the results are probably still ok and will be better than the linear solution. These errors usually occur where the data and the model do not fit and high total errors are being calculated.",
+        "source_page": "minsolveeqandmeth.htm"
+      },
+      "visual_qc": "One reconstruction track per input equation: original curve, yellow Confidence Band, reconstructed curve in red. The closer the reconstruction, the lower the Total Error. Optional tracks for reconstructed Rt/Rxo (NOT part of the solver - they test the Sw equation, not the endpoints), reconstructed Sw/Sxo, output-equation results, constant/limit equation results, invaded and un-invaded fluid tracks, movable-fluid plot, secondary-porosity curve.",
+      "source_page": "plot_the_mineral_solver_result.htm"
+    },
+    "multi_model_combination": {
+      "max_models": "Up to 20",
+      "max_mixings": "Up to 5",
+      "rule_evaluation": "Sequential top-down; stops at the first true statement; falls back to the Default Model. and/or joins evaluate their two lines before the next line is read.",
+      "Mdl_Merge_Dist": "Smooth transition between models. Worked example as printed: 'if the Mdl Merge Dist is set to 2.0 in a 0.5 step Set then the transition will occur over 4 samples ... 20%/80%, 40%/60%, 60%/40%, 80%/20%'. Implementation: each Model_Num array column set to 1/0, box-filtered with filter length = Mdl Merge Dist, then normalized to sum 1.0 per level.",
+      "transitioned": ["Porosity", "BVW", "Sw", "Sxo", "Vcl", "mineral volumes"],
+      "not_transitioned": ["combined reconstructed curves"],
+      "source_page": "mineral_solver.htm"
+    }
+  },
+
+  "mineral_endpoints": [
+    {"mineral": "Calcite", "properties": {"density": "2.71", "units": "g/cc", "context": "'100% Calcite density would be 2.71 g/cc' - illustrative, not a defaults table"}, "source_page": "mineralsolver.htm"},
+    {"mineral": "Fresh water", "properties": {"density": "1.0", "units": "g/cc", "context": "'for 100% fresh water the density would be set to 1.0 g/cc'"}, "source_page": "mineralsolver.htm"},
+    {"mineral": "Fresh water", "properties": {"density": "1.0", "units": "gm/cc", "context": "fixed end-point example in the calibration regression"}, "source_page": "minsolvecalibrate.htm"},
+    {"mineral": "Wet Clay", "properties": {"dry_grain_density": "2.78", "units": "not stated in manual", "context": "ECS Wt% setup: 'The density of wet clay has been entered as 2.78 which is the dry grain density not the wet grain density'"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Wet Clay", "properties": {"ECS_Clay_Wt%_endpoint": "0.85", "units": "v/v", "clay_total_porosity_in_example": "0.15", "context": "wet-clay model; ECS_Clay (Vol) = ECS_Clay (Wt%) x (1 - 0.15) x (2.78 / 2.78)"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Dry Clay", "properties": {"ECS_Clay_endpoint": "1.0", "units": "v/v", "context": "'For a dry clay model the ECS_Clay parameter would be 1.0'"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Illite", "properties": {"PhiTClay_wet_clay_total_porosity": "0.156", "units": "v/v", "context": "PhiTClay output-equation example"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Chlorite", "properties": {"PhiTClay_wet_clay_total_porosity": "0.101", "units": "v/v", "context": "PhiTClay output-equation example"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Kaolinite", "properties": {"ResClay_wet_clay_resistivity": "2.5", "units": "ohmm", "context": "ResClay output-equation example"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Illite", "properties": {"ResClay_wet_clay_resistivity": "1.2", "units": "ohmm", "context": "ResClay output-equation example"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Calcite", "properties": {"m_cementation_endpoint": "1.8", "units": "dimensionless", "context": "Output Para variable-m example"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Quartz", "properties": {"m_cementation_endpoint": "2.05", "units": "dimensionless", "context": "Output Para variable-m example"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Clay", "properties": {"conductivity": "250", "units": "mmhos", "resistivity": "4.0", "resistivity_units": "ohmm", "context": "conductivity/resistivity equation setup example; also printed as 'Clay resistivity has been set at 4 ohmm'"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Mud filtrate (Rmf)", "properties": {"conductivity": "16,000", "units": "mmhos", "resistivity": "0.063", "resistivity_units": "ohmm", "context": "same example"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Pyrite", "properties": {"volume_constant_equation": "0.02", "units": "v/v", "context": "'2% of the rock contains Pyrite' - constant-equation example, NOT a tool endpoint"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Bound water (in wet clay)", "properties": {"volume_constant_equation": "0.15", "units": "v/v", "context": "constant-equation example"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Calcite", "properties": {"max_volume_limit_example": "0.2", "units": "v/v", "context": "limit-equation example"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "(porosity)", "properties": {"PhiLimit_max_example": "0.3", "PhiLimit_badhole_example": "0.05", "units": "v/v", "context": "limit-equation examples"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Orthoclase / Quartz", "properties": {"ratio_example": "0.2", "units": "fraction", "context": "'If Orthoclase is 20% of Quartz' -> 0 = (0.2 * Quartz) - Orthoclase"}, "source_page": "minsolveeqandmeth.htm"},
+    {"mineral": "Resistivity equation", "properties": {"confidence_example": "200", "units": "ohmm", "context": "'The confidence has been set at 200 ohmm'"}, "source_page": "minsolveeqandmeth.htm"}
+  ],
+
+  "mineral_endpoint_headline_finding": {
+    "statement": "The IP 2018 help publishes NO mineral end-point table anywhere in the Mineral Solver chapter. Verified across all six target pages and by sweeping the full 279-page corpus for Kaolinite/Illite/Chlorite/Smectite/Montmorillonite/Anhydrite/Siderite/Pyrite and for 2.65 / 2.71. The values above are all illustrative worked-example numbers.",
+    "defaults_live_in": [
+      {"file": "MINDEF.PAR", "described_as": "the default minerals and their properties for the Mineral Solver module. The user can add extra minerals and their matrix properties to the table, or edit the properties of existing minerals. Also supplies the mineral grain densities used by the Preprocessor dry-weight-to-volume conversion.", "reached_via": "Tools > Defaults > Edit Mineral Solver Mineral System Defaults", "source_page": "default_settings.htm / mineral_solver.htm / mineralsolver.htm / tools.htm"},
+      {"file": "MINEQDEF.PAR", "described_as": "the mineral Equation default settings. Any equation selected in the Model dialog is set up according to the parameters in this file. New equation types can be added to the list.", "reached_via": "Tools > Defaults > Edit Mineral Solver Mineral Equation Defaults", "source_page": "default_settings.htm / mineral_solver.htm / tools.htm"}
+    ],
+    "behaviour": "Selecting the Equation type FIRST then picking Minerals auto-populates all end-points from these files. 'Names that are not in the drop-down list will not have any default end-point values defined.'",
+    "cross_check_question_for_caller": "Does IP 2018's MINDEF.PAR share the IP 2025 MINDEF.PAR convention - same column order, same mineral roster, same units, same wet-vs-dry clay convention, same values? NOT ANSWERABLE from the help text. Requires diffing C:\\Program Files\\IP2018\\MINDEF.PAR (read-only) against the already-ingested IP 2025 file. Recorded as a question; deliberately not guessed."
+  },
+
+  "ip_stated_conventions": {
+    "auto_endpoints": "Blue-background cells can be auto-calculated; entering 'Auto' triggers it. For IP to use the non-linear neutron equations, the Calcite, Quartz and Dolomite parameters MUST be left at Auto.",
+    "water_endpoints": "With Auto, water density and HI are computed from the Rmf parameter corrected to depth/temperature; for OBM or the un-invaded zone, from Rw. For a Cxo conductivity equation, Auto on a Water Sxo endpoint is computed from Rmf and Rmf Temp.",
+    "hydrocarbon_endpoints": "Green-background cells take down-hole TRUE hydrocarbon density; IP converts internally to the tool response (electron density for RHOB, hydrogen index for NPHI). Neutron additionally gets a gas excavation-factor correction.",
+    "endpoints_as_curves": "Any end-point value can be entered as a curve (Interactive Trend curves), varying a parameter level by level.",
+    "gamma_ray": "There is NO dedicated GR equation type. GR enters as an ordinary linear equation with a per-mineral end-point in API units ('GammaRay in API units' is the Confidence-unit example). GR is therefore a DIRECT end-point, not composed from K/Th/U.",
+    "spectral_gr_ecs_xrd": "Handled by the Wt% equation family: 'Spectral Gamma Ray tools output curves that measure dry weight percent results either in the form of minerals or actual elements. In order to use them inside the mineral solver these curves need to be converted into volumes.' Automatic when the equation type has Wt% in its name; the curve is divided by 100 if its units are % or pec. An output Grain Density equation must also be set up.",
+    "cec_qv": "Qv is defined as 'Cation exchange capacity per unit total pore volume' and Qvn as 'Normalized cation exchange capacity per unit total pore volume' - i.e. PER UNIT VOLUME, not per gram. The Qv output-equation endpoints 'can be calculated from the CEC of the clay and its density and total porosity' but that conversion is embim257-embim259, rasterized and not recoverable, and the manual NEVER states the CEC unit (meq/100g vs meq/mL). The Juhasz normalized B default is printed as 1.0 meq/ml.",
+    "clay_model": "Cannot mix Wet Clay and Dry Clay in one model, nor Wet Clay and Bound Water. Bound Water only in a Dry Clay model. Either way IP computes both Phie and PhiT and any Sw equation may be used. BoundWater constant-equation endpoints = clay total porosity / (1 - clay total porosity), 'to take into account that the output volumes are dry clay volumes'.",
+    "dry_weight_to_wet_volume": "Wet Vol % = (Dry Weight %) x (1 - Porosity) x (Rock Grain Density) / (Mineral Grain Density). Printed on mineralsolver.htm; minsolveeqandmeth.htm prints the same with PhiT for Porosity. 'The Porosity part of this correction is usually the most important input.'",
+    "output_equation_wiring": "Output curves are calculated after each solver loop and BEFORE the water-saturation calculations, so Qv / PhiTClay / ResClay outputs can be fed straight back into the Sw parameter grid. Reference them with no set name, or a set name that does not exist (e.g. Model:Qv_ms), so IP resolves to the current model's output set rather than a global default."
+  },
+
+  "neutron_lookup_table": {
+    "note": "The only tabulated numeric tool-response data printed in scope D. Transcribed verbatim from minsolveeqandmeth.htm.",
+    "file": "Sch_CNL.neu",
+    "contains": "lookup table for Schlumberger CNL TNPH",
+    "column_spec_as_printed": "True Phi, Sandstone Matrix, Dolomite Matrix, Salinity corr Sand, Salinity corr Lime, Salinity corr Dol",
+    "salinity_values_as_printed": "50, 100, 150, 200, 250 Kppm and in this order",
+    "conventions": [
+      "It is assumed that the entered neutron porosity is in Limestone units.",
+      "The values of porosity go up to 60 pu., and it is necessary to complete the table up to this value, even though it is unlikely that there are any published results for these high porosities. It is advisable to extrapolate the data as accurately as possible.",
+      "Porosity values must not be changed.",
+      "The spacing between the parameters is not important, but the number of parameters in each line and the number of porosity lines are.",
+      "New tools are registered in Neu_Parm_Files.neu plus a new xxx.neu table."
+    ],
+    "rows_verbatim": [
+      ".00 .020 -.006 .0000 .0000 .0000 .0000 .0000 .0000 .0000 .0000 .0000 .0000 .0000 .0000 .0000 .0000 .0000",
+      ".02 .022 -.009 -.0012 -.0032 -.0040 -.0056 -.0060 -.0012 -.0024 -.0032 -.0036 -.0040 -.0020 -.0044 -.0064 -.0076 -.0092",
+      ".05 .028 -.012 -.0030 -.0080 -.0100 -.0140 -.0160 -.0030 -.0060 -.0080 -.0090 -.0100 -.0050 -.0110 -.0160 -.0190 -.0230",
+      ".10 .036 -.017 -.0070 -.0140 -.0190 -.0230 -.0280 -.0060 -.0120 -.0160 -.0200 -.0210 -.0100 -.0190 -.0270 -.0330 -.0380",
+      ".15 .045 -.022 -.0120 -.0220 -.0290 -.0340 -.0350 -.0100 -.0190 -.0260 -.0300 -.0340 -.0120 -.0240 -.0330 -.0400 -.0450",
+      ".20 .049 -.030 -.0160 -.0270 -.0340 -.0370 -.0380 -.0140 -.0260 -.0320 -.0350 -.0390 -.1960 -.0290 -.0370 -.0420 -.0440",
+      ".25 .051 -.037 -.0160 -.0370 -.0330 -.0340 -.0330 -.0160 -.0290 -.0350 -.0390 -.0390 -.0180 -.0300 -.0370 -.0400 -.0410",
+      ".30 .052 -.045 -.0150 -.0350 -.0290 -.0290 -.0270 -.0200 -.0310 -.0380 -.0380 -.0380 -.0180 -.0300 -.0340 -.0360 -.0330",
+      ".35 .049 -.052 -.0130 -.0180 -.0190 -.0190 -.0150 -.0200 -.0310 -.0350 -.0350 -.0330 -.0160 -.0260 -.0290 -.0280 -.0260",
+      ".40 .046 -.059 -.0100 -.0140 -.0140 -.0120 -.0070 -.0180 -.0280 -.0310 -.0300 -.0270 -.0150 -.0230 -.0240 -.0210 -.0180",
+      ".45 .043 -.066 -.0120 -.0140 -.0140 -.0100 -.0030 -.0170 -.0240 -.0280 -.0260 -.0220 -.0150 -.0220 -.0210 -.0170 -.0130",
+      ".50 .040 -.073 -.0110 -.0120 -.0110 -.0060 .0020 -.0160 -.0220 -.0250 -.0220 -.0170 -.0140 -.0200 -.0180 -.0130 -.0080",
+      ".55 .037 -.080 -.0100 -.0100 -.0080 -.0020 .0070 -.0150 -.0200 -.0220 -.0180 -.0120 -.0130 -.0180 -.0150 -.0090 -.0030",
+      ".60 .034 -.087 -.0090 -.0080 -.0050 .0020 .0120 -.0140 -.0180 -.0190 -.0140 -.0070 -.0120 -.0160 -.0120 -.0050 .0020"
+    ],
+    "suspected_typos_flagged_not_corrected": [
+      "phi = .20, Dolomite / 50 kppm cell reads -.1960 - roughly 20x its vertical neighbours (.15 -> -.0120, .25 -> -.0180) and 100x out of family with the equivalent sand/lime cells. Almost certainly -.0196 mis-keyed in the vendor manual. Transcribed verbatim; verify against the shipped Sch_CNL.neu before use.",
+      "phi = .25, Sand / 100 kppm cell (-.0370) exceeds the 150/200/250 cells in the same row, breaking the monotonic trend every other row shows. Milder; recorded for completeness."
+    ],
+    "tier": "A",
+    "source_page": "minsolveeqandmeth.htm"
+  },
+
+  "response_equations": [
+    {"name": "Density", "inputs": "RHOB curve; per-mineral density end-points; auto water/HC end-points", "tier": "A", "equation": "rasterized - not recoverable (embim215-embim218)", "citation": "none given", "notes": "Linear. Two HC-density models selectable via the 'Den Hy Model' parameter - see auxiliary_relations.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Neutron", "inputs": "NPHI curve (assumed limestone units); end-points; .neu look-up table; salinity; Sx; excavation factor", "tier": "A", "equation": "rasterized - not recoverable (embim219-embim223)", "citation": "none given", "notes": "NON-LINEAR for sand/lime/dolomite via ASCII look-up tables. Named terms: Vcl (wet clay volume), NeuCl (neutron wet clay endpoint), Exfact (excavation factor), NeuSal (formation salinity correction), Sx (Sw as seen by the neutron tool), NeuHyHI (apparent HC hydrogen index). Water-HI is 1.0 if the Neutron Salinity parameter is off.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Sonic", "inputs": "DT curve; Dtma / Dtfl / Dthy / Dtcl end-points; Cp", "tier": "B", "equation": "rasterized - not recoverable (embim224-embim228)", "citation": "Wyllie time average; Hunt-Raymer (no formal citation given)", "notes": "Wyllie is linear only when Cp = 1.0. Hunt-Raymer is non-linear and hard-coded; the linear solver approximates it via a vendor-fitted Cp relation - see tierC_flags T5. The non-linear optimizer uses the full sonic equations with no Cp approximation. Compaction-factor compromise as stated: 'we multiply all the fluid parameters (water plus hydrocarbon) by the compaction factor and we ignore the compaction factor term in the VolMat term.'", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "EPT", "inputs": "TPL curve; water endpoint Auto from flushed-zone salinity; Sal (ppm 10^-6), T (deg F), Rmf at formation temperature (Rw substituted for OBM)", "tier": "A", "equation": "rasterized - not recoverable (embim229-embim231)", "citation": "none given", "notes": "Calculates flushed-zone Sw directly in the model. If used, remove the Sxo equation and set Sxo Method to Min Model. Also the source for the variable-m-from-EPT/Rxo option.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Wt% family (e.g. ECS_Clay (Wt%), TOC)", "inputs": "dry weight-percent curve + a Grain Density output equation", "tier": "A", "equation": "Wet Vol % = (Dry Weight %) x (1 - PhiT) x (Rock Grain Density) / (Mineral Grain Density)", "citation": "none given", "notes": "Not rasterized. Curve divided by 100 if its units are % or pec. For shale-gas TOC models the kerogen grain density goes in the grain-density output equation and the clay grain density must be the DRY grain density since TOC is measured on dry rock.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "U (volumetric photoelectric cross-section)", "inputs": "U curve, built OUTSIDE the module from PEF and RHOB", "tier": "A", "equation": "U wat = 0.00481 x Sal + 0.3883   [water branch, printed]. Gas branch (Input Hyd Den less than 0.4) and oil branch: rasterized - not recoverable (embim232-embim235). U from PEF: rasterized in minsolveeqandmeth (embim236) but printed on mineralsolver.htm as U = Pef x (RHOB + 0.1883) x 0.93423", "citation": "none given", "notes": "Both HC and water end-points can be auto-calculated from true HC density and water salinity.", "source_page": "minsolveeqandmeth.htm / mineralsolver.htm"},
+    {"name": "Cond. Cxo", "inputs": "flushed-zone conductivity curve; water and conductive-mineral conductivity end-points", "tier": "A", "equation": "rasterized - not recoverable", "citation": "none given", "notes": "Under the NON-LINEAR optimizer this uses the actual selected Sw equation. Sxo Method can then be Min Model and the auto-Sxo equation turned off.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Cond. Ct", "inputs": "un-invaded conductivity curve; Rw-based water end-points", "tier": "A", "equation": "rasterized - not recoverable", "citation": "none given", "notes": "Invasion Factor must be 0.0. Sw Method must be Min Model and the auto-Sw equation off.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Res. Rxo", "inputs": "flushed-zone resistivity curve", "tier": "A", "equation": "rasterized - not recoverable", "citation": "none given", "notes": "'The logic for this is exactly the same as the Conductivity equation above except resistivities are used instead of conductivities.'", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Res. Rt", "inputs": "deep resistivity curve", "tier": "A", "equation": "rasterized - not recoverable", "citation": "none given", "notes": "Un-invaded counterpart of Res. Rxo.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Cxo Archie Lin", "inputs": "Cxo curve; Cwat_i water end-points; Cmin_i conductive-mineral end-points", "tier": "B", "equation": "rasterized - not recoverable (embim237-embim241)", "citation": "Archie (no formal citation given)", "notes": "Linearised Archie with n = m. Curve, end-points AND confidence all raised to the 1/m th root; IP handles the conversions. UNIQUE ADVANTAGE stated by the vendor: 'you can assign conductivity/resistivity to all mineral volumes. This allows conductive minerals like Pyrite to be assigned a resistivity.' Selecting this type under the linear solver is equivalent to the normal Cond./Res. type.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Rxo Archie Lin", "inputs": "Rxo curve; resistivity end-points", "tier": "B", "equation": "rasterized - not recoverable", "citation": "Archie", "notes": "As Cxo Archie Lin; IP converts resistivities to conductivities then takes the 1/m th root.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Ct Archie Lin", "inputs": "Ct curve", "tier": "B", "equation": "rasterized - not recoverable", "citation": "Archie", "notes": "Un-invaded variant; Invasion Factor 0.0, Sw Method Min Model.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Rt Archie Lin", "inputs": "Rt curve", "tier": "B", "equation": "rasterized - not recoverable", "citation": "Archie", "notes": "Un-invaded variant.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Constant", "inputs": "fixed value or curve = linear combination of volumes", "tier": "A", "equation": "e.g. 0.02 = VPyrite ; 0 = (0.2 * Quartz) - Orthoclase ; b = VGlau - a * VQtz", "citation": "none given", "notes": "Recommended confidence about 0.01 (1% volume error). Not rasterized.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "BoundWater (constant preset)", "inputs": "clay total porosity per clay mineral", "tier": "A", "equation": "rasterized - not recoverable (embim242-embim244)", "citation": "none given", "notes": "End-point = clay total porosity / (1 - clay total porosity), because output volumes are DRY clay volumes. Selecting the BoundWater equation auto-sets the defaults.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Unity", "inputs": "-", "tier": "A", "equation": "1 = Vol1 + Vol2 + Vol3 ....", "citation": "none given", "notes": "Always included. Tolerance 0.01 by default.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Sxo (auto-added)", "inputs": "Sxo computed from Rxo via the selected Sw equation, inside the iteration loop", "tier": "A", "equation": "0 = ( Sxo-1 ) Vwater + Sxo * Vhydrocarbon1 + Sxo * Vhydrocarbon2 + ...   (also rasterized as embim245-embim247)", "citation": "none given", "notes": "Default confidence 0.01. 'The use of Sxo as part of the model allows the proper non-linear saturation equations to be used and fully integrated into the model.' Must be turned off if Sxo Method is No Calc.", "source_page": "mineral_solver.htm"},
+    {"name": "Sw (auto-added)", "inputs": "Sw computed from Rt via the selected Sw equation", "tier": "A", "equation": "0 = ( Sw-1 ) VwaterU + Sw * VhydrocarbonU1 + Sw * VhydrocarbonU2 + ...   (also rasterized as embim248-embim250)", "citation": "none given", "notes": "Default confidence 0.01. Only has an effect if un-invaded fluids are in the model.", "source_page": "mineral_solver.htm"},
+    {"name": "PhiLimit", "inputs": "limit value", "tier": "A", "equation": "rasterized - not recoverable (embim253)", "citation": "none given", "notes": "Preset limit equation; auto-configures when selected from the Equation drop-down.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Sigma (cased hole)", "inputs": "sigma curve", "tier": "A", "equation": "not stated in manual", "citation": "none given", "notes": "GAP. The cased-hole recipe is procedural only: Rt and Rxo absent; Sw Method = No Calc; Sxo Method = Min Model; Rmf still entered (used for neutron auto-parameters); both auto-Sw/Sxo equations off; output Sxo/SxoT are the model saturations, differing by the clay bound water. NO sigma equation type, end-point convention, or Sigma unit is named anywhere in scope D.", "source_page": "mineral_solver.htm"},
+    {"name": "Grain Density (output only)", "inputs": "matrix densities of the minerals to include; 0.0 for those to exclude", "tier": "A", "equation": "rasterized - not recoverable (embim255)", "citation": "none given", "notes": "To include clay, set the Wet Clay end point to the clay density. Fluids set to 0.0 are excluded.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Qv (output only)", "inputs": "clay-mineral end-points derived from clay CEC, density and total porosity", "tier": "A", "equation": "rasterized - not recoverable (embim256-embim259)", "citation": "none given", "notes": "Feeds the Waxman-Smits / Dual Water Qv parameter. Separate wet-clay and dry-clay end-point forms.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "PhiTClay (output only)", "inputs": "wet-clay-mineral end-points = PhiT in 100% of that wet clay; others 0", "tier": "A", "equation": "rasterized - not recoverable (embim260-embim261)", "citation": "none given", "notes": "Wet-clay models ONLY. Example: Illite 0.156, Chlorite 0.101; output ranges between them; in zero-clay zones IP outputs the FIRST clay mineral's value. For dry-clay models PhiTClay is the bound water and must be a model mineral set by a constant equation instead.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "ResClay (output only)", "inputs": "clay-mineral resistivity end-points; others 0", "tier": "A", "equation": "rasterized - not recoverable (embim262)", "citation": "none given", "notes": "Feeds the Res Clay / Rxo Clay parameters of the effective-porosity shaly-sand equations. Example: Kaolinite 2.5 ohmm, Illite 1.2 ohmm; zero-clay zones output the first clay mineral's value.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Output Para (output only)", "inputs": "end-points for the minerals to include", "tier": "A", "equation": "rasterized - not recoverable (embim263)", "citation": "none given", "notes": "Generic form of Qv/PhiTClay/ResClay. Example: a variable cementation curve with Calcite m = 1.8 and Quartz m = 2.05.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "SaturationEff (output only)", "inputs": "1.0 on each fluid to include", "tier": "A", "equation": "rasterized - not recoverable (embim251)", "citation": "none given", "notes": "Multiple fluids selectable (e.g. separate flushed-zone gas and oil saturations).", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "SaturationTot (output only)", "inputs": "1.0 on each fluid to include", "tier": "A", "equation": "rasterized - not recoverable (embim252)", "citation": "none given", "notes": "Total-porosity counterpart of SaturationEff.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Generic linear output equation", "inputs": "any linear equation end-points", "tier": "A", "equation": "rasterized - not recoverable (embim254)", "citation": "none given", "notes": "Can synthesise conventional logging curves missing from a well (sonic, density etc).", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Secondary porosity (automatic by-product)", "inputs": "sonic tool present on the model grid - the Use box may be OFF", "tier": "A", "equation": "Wyllie form embim296, Raymer form embim297 - rasterized. PhiSecU = Phie - PhiSonic (wet clay model); PhiSecU = PhiT - PhiSonic (dry clay model); PhiSec = PhiSecU clipped at zero", "citation": "none given", "notes": "Volume-weighted Dtmatrix/Dtwater/Dthydrocarbon/Dtclay built from solved volumes, then sonic porosity computed with the model's own Vclay and Sxo. Stated calibration intent: adjust parameters so the average secondary porosity in non-vuggy rock is zero. PhiSecU is deliberately allowed negative for exactly this QC.", "source_page": "minsolveeqandmeth.htm"}
+  ],
+
+  "sw_equations_printed_ascii": {
+    "note": "Printed in plain ASCII on mineral_solver.htm - the only unrasterized rendering in the chapter (minsolveeqandmeth.htm renders the same set as embim271-embim283). Transcribed exactly as printed.",
+    "vcl_vs_vshale_position": "In the original equation Vcl is Vshale and Rcl is Rshale. In IP we calculate clay volumes and shale is considered a rock type. However the equation can be used if the interpreter picks parameters to represent shale rather than clay.",
+    "equations": [
+      {"name": "Archie", "as_printed": "1/Rt = Phi**m.Sw**n / (a.Rw)", "citation": "none given", "tier": "B"},
+      {"name": "Archie PhiT", "as_printed": "1/Rt = PhiT**m.Sw**n / (a.Rw)", "citation": "none given", "tier": "B", "note": "Same as Archie except PhiT used instead of Phie."},
+      {"name": "Simandoux", "as_printed": "1/Rt = Phi**m.Sw**n / (a.Rw) + Vcl.Sw / Rcl", "citation": "none given", "tier": "B"},
+      {"name": "Modified Simandoux", "as_printed": "1/Rt = Phi**m.Sw**n / (a.Rw.(1-Vcl)) + Vcl.Sw / Rcl", "citation": "none given", "tier": "B"},
+      {"name": "Indonesian (Poupon-Leveaux)", "as_printed": "1/Rt**.5 = ((Phi**m/(a.Rw))**.5 + Vcl**(1-Vcl/2)/Rcl**.5 ).Sw**(n/2)", "citation": "none given", "tier": "B"},
+      {"name": "Dual Water", "as_printed": "1/Rt = PhiT**m.SwT**n/a.(1/Rw + Swb/SwT(1/Rwb-1/Rw))", "citation": "none given", "tier": "B"},
+      {"name": "Juhasz", "as_printed": "1/Rt = PhiT**m.SwT**n.(1+Bn.Qvn/SwT)/(a.Rw)   with Qvn = Vcl*PhiClay / PhiT and Bn = B normalized, entered parameter", "citation": "none given", "tier": "B"},
+      {"name": "Waxman-Smits", "as_printed": "1/Rt = PhiT**m.SwT**n.(1+B.Qv/SwT)/(a.Rw)   with Qv = a / PhiT + b ; B entered or calculated from T and Rw", "citation": "none given (the B formula is embim282, rasterized)", "tier": "B"},
+      {"name": "Woodhouse Tar", "as_printed": "1/Rt = Sw**n.((( Vcl**(1-Vcl))/( Rcl**0.5))+((Phi**(m/2))/((a.Rw)**0.5)))**2", "citation": "R. Woodhouse, 'Athabasca Tar Sands Reservoir Properties Derived from Core and Logs', 1976 17th annual Logging symposium (SPWLA)", "tier": "B", "note": "'This is a modified version of the standard Indonesian (Poupon-Leveaux) equation'"},
+      {"name": "Poupon-Aguilera", "as_printed": "1/Rt = Phi**m.Sw**n / (a.Rw(1-Vcl)) + Vcl / Rcl", "citation": "Roberto Aguilera, 'Extensions of Pickett Plots for the Analysis of Shaly Formations by Well Logs', The Log Analyst, Sept-Oct 1990", "tier": "B", "note": "Called simply 'Poupon' in previous IP versions. IP added the n and m exponents. Assumes laminated sands and shales with the sands being clean."},
+      {"name": "Poupon-Tixier", "as_printed": "1/Rt = (1-Vcl).Phi**m.Sw**n/(a.Rw) + Vcl/Rcl", "citation": "Poupon A, Loy ME, Tixier MP (1954), 'A contribution to electric log interpretation in shaly sands', Trans AIME 6(06):138-145", "tier": "B", "note": "The original Poupon equation with m and n exponents added by IP. Assumes laminated sands and shales with the sands being clean."}
+    ],
+    "sw_method_enum": ["Rt", "Min Model", "No Calc", "Sw = 1"],
+    "sxo_method_enum": ["Rxo", "Min Model", "Inv Fac", "No Calc", "Sxo = 1"],
+    "sw_sxo_invasion_logic": "Default true: Sxo >= Sw in Water Based Mud, Sxo <= Sw in Oil Based Mud. Clearing it disables this logic AND the Sxo Limit logic - intended for complicated invasion (e.g. OBM breakdown with water-fraction invasion).",
+    "source_page": "mineral_solver.htm"
+  },
+
+  "auxiliary_relations_printed": [
+    {"name": "Shell m", "as_printed": "m = 1.87 + 0.019 / Phie", "tier": "B", "source_page": "mineral_solver.htm"},
+    {"name": "Variable m* - Waxman-Smits", "as_printed": "m* = m + Cm(1.128 Y + 0.22 (1-e**(-17.3Y)))   with Y = Qv PhiT / (1 - PhiT)", "tier": "B", "citation": "none given", "source_page": "mineral_solver.htm"},
+    {"name": "Variable m* - Dual Water", "as_printed": "m* = m + Cm(0.258 Y + 0.20 (1-e**(-16.4Y)))", "tier": "B", "citation": "none given", "note": "Printed once as 0.20 and once as '0.2 0' (typographic split). Recorded as printed.", "source_page": "mineral_solver.htm"},
+    {"name": "Qv from PhiT", "as_printed": "Qv = a / PhiT + b", "tier": "B", "note": "a and b pickable on the 1/PhiT - QvApp crossplot", "source_page": "mineral_solver.htm"},
+    {"name": "n from EPT/Rxo", "as_printed": "n = m + mPlus", "tier": "A", "note": "m bounded by min m value / max m value", "source_page": "mineral_solver.htm"},
+    {"name": "m variable with Vcl", "as_printed": "if Vcl > Vcl cut-off then m = m*10**(Vcl-Vcl cut-off)", "tier": "A", "note": "'has the effect of removing any hydrocarbons in zones of high clay content'. Applied AFTER any m* calculation.", "source_page": "mineral_solver.htm"},
+    {"name": "Sxo from invasion factor", "as_printed": "WBM: Sxo = (Sw + Invasion Factor) / (1 + Invasion Factor) ; OBM: Sxo = Invasion Factor", "tier": "A", "source_page": "mineral_solver.htm"},
+    {"name": "Sxo limit", "as_printed": "Sxo < Sw**SxoLimit", "tier": "A", "note": "default exponent 0.2", "source_page": "mineral_solver.htm"},
+    {"name": "U from PEF (preprocessor)", "as_printed": "U = Pef x (RHOB + 0.1883) x 0.93423", "tier": "A", "note": "U must be built outside the solver", "source_page": "mineralsolver.htm"},
+    {"name": "U of water", "as_printed": "U wat = 0.00481 x Sal + 0.3883", "tier": "A", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Apparent HC density - Conventional model", "as_printed": "DenHcApp = RhoH * 2 (10 - 2.5 RhoH) / (16 - 2.5 RhoH)", "tier": "A", "WARNING": "Transcribed as printed but ALMOST CERTAINLY CORRUPTED - the HTML lost superscripts, so '* 2' is likely an exponent. DO NOT IMPLEMENT from this transcription.", "source_page": "mineral_solver.htm"},
+    {"name": "Apparent HC density - Modified model", "as_printed": "DenHcApp = (5.5 * Rhohy (4-Rhohy) -3) / (16 - 2.5 RhoH)", "tier": "A", "WARNING": "Same superscript-loss caveat. Stated purpose: 'corrects better for the calibration of the density tool from electron density to apparent density.'", "source_page": "mineral_solver.htm"},
+    {"name": "Rt for Hingle plot", "as_printed": "Rt_Hingle = Rt^(-1/m)", "tier": "A", "note": "auto-computed, not listed in the output curves", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Apparent water conductivity", "as_printed": "Cwapp = 1 / Rwapp", "tier": "A", "note": "BVW, BVWsxo, Rwapp, Rmfapp, Qvn, QvApp are embim299-embim310, rasterized. Rwapp/Rmfapp/Cwapp are converted to the temperature entered for Rw and Rmf respectively.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Reciprocal PhiT", "as_printed": "PhiT_recp = 1 / PhiT", "tier": "A", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "BVWIRR limits", "as_printed": "BVW > BVWIRR > 0", "tier": "A", "note": "Bulk volume irreducible water from the Rmf-equivalent residual (RMFEQ curve). Computed only when Rxo is entered, Sxo comes from the EPT mineral model, and m is NOT from EPT/Rxo.", "source_page": "minsolveeqandmeth.htm"},
+    {"name": "Wyllie-Cp to Hunt-Raymer bridging relation", "as_printed": "DELIBERATELY NOT TRANSCRIBED - see tierC_flags T5", "tier": "C (pending caller ruling)", "source_page": "minsolveeqandmeth.htm"}
+  ],
+
+  "ssc_malay_model": {
+    "module_name": "Sand/Silt Malay Model",
+    "menu_path": "Interpretation > Sand/Silt Malay Model",
+    "introduced": "IP 4.3 New Feature (intro_whats_new_in_ip.htm - the entry sits between the 'IP 4.3 New Features' and 'IP 4.3 Enhancements' headers)",
+    "citation": "'based loosely on the paper \"Log Interpretation in the Malay Basin by K. Kuttan et al, 21st SPWLA symposium\"'. No year, page numbers, or DOI given. IP's own qualifier is 'based LOOSELY'. Repeated verbatim in interpretation.htm.",
+    "tier": "B framework wrapped around a C calibration core",
+    "tier_reasoning": "Tier B: the three-component sand/silt/clay Neutron-Density framework, matrix-line projection, iterative hydrocarbon correction, grain-density/PhiT chain and the four total-Sw equations are all attributable to published science (Kuttan et al. plus the standard Archie/Dual-Water/Juhasz/Waxman-Smits set) - method name + citation recorded, free to reference. Tier C: the Lithology Conversion Chart (_intclip0061.png) that actually converts matrix-line position into Fsn/Fsi/Fdc. The manual states 'The position of A and B points along Y axis, and the shape of those five curves are determined based on the characteristics of core data acquired in Malay Basin.' That core dataset is unpublished, the chart ships only as a raster, and the five curve shapes carry the model's entire discriminating power. Named and evidenced only - not reconstructed, not digitised, not approximated. PRACTICAL CONSEQUENCE for SandiBumi: the published half is reproducible; the half that makes it work in the Malay Basin is not. A Mahakam-Delta equivalent would need calibration from Jauhar's own core data - exactly the piece IP treats as proprietary.",
+    "stated_intent_verbatim": "designed for very fine grained sediments with fresh to brackish formation water. It was built to overcome interpretation problems of standard shaley sand log analysis of the type used in the 1980's, where an overestimate of clay volume leads to too pessimistic porosities.",
+    "assumptions": [
+      "Built on the Neutron-Density crossplot with a Quartz, Silt and Dry clay point defined (plus a fluid point).",
+      "'The model assumes little to no clay is found at the silt point' - relaxed by the 'Clay at Silt Point' parameter.",
+      "The three matrix fractions give a matrix density, which with the density log gives porosity - PhiT comes from the DENSITY LOG ALONE, not from a neutron-density combination.",
+      "Hydrocarbon corrections are applied to BOTH the neutron and density logs, iteratively.",
+      "Four TOTAL Sw equations only - there is no effective-porosity Sw option.",
+      "Coal is a FLAG, not a solved volume (Vcoal is 0.0 or 1.0).",
+      "Vshale is defined as Vcl + Vsilt - silt counts as shale but NOT as clay. This is the model's central move: it decouples the shale indicator from the clay volume that destroys porosity.",
+      "Bound water is clay-bound only, derived entirely from the dry/wet-clay density contrast. No capillary-bound-water term, no silt-bound water."
+    ],
+    "three_component_framework": {
+      "components": ["Dry Sand fraction Fsn (quartz)", "Dry Silt fraction Fsi", "Dry Clay fraction Fdc"],
+      "resolution": "The hydrocarbon- and bad-hole-corrected point is projected onto the matrix line; its relative position between the Quartz, Dry Silt and Dry Clay points is read through the Lithology Conversion Chart to give Fsn, Fsi, Fdc.",
+      "silt_point_handling": "If the dry silt point does not fall on the matrix line then it is projected onto the line.",
+      "chart_anchors": "The B point value is the input parameter 'Clay at Silt Point'. The A point value is '1.0 - B'.",
+      "worked_example_printed": {"Fsn": "0.45", "Fsi": "0.50", "Fdc": "0.05"},
+      "source_page": "sand_silt_malay_model.htm"
+    },
+    "printed_equations_recoverable": {
+      "hydrocarbon_correction": [
+        "DenCorr = Rhob + Phie x (1.0 - Sxo) x (Rhofl - DenHydApp)",
+        "NeuCorr = PhiNeu + exfact + Phie x (1.0 - Sxo) * (1.0 - NeuHydHI)",
+        "exfact = sqrt(Rhoma/2.65) x (2.0 x SwH x Phie x Phie + 0.04 x Phie) x (1.0 - SwH)",
+        "SwH = Sxo + (1-Sxo)* NeuHydHI)   [as printed, including the unbalanced parenthesis]"
+      ],
+      "grain_density_and_porosity": [
+        "Rhoma = Fsn x Denmat + Fsi x Densilt + Fdc x Dendcl",
+        "PhiT = (Rhoma - DenCorr) / (Rhoma - Denfl)"
+      ],
+      "volumes": [
+        "Vsand = Fsn x (1 - PhiT)     output curve 'Vol Sand'",
+        "Vsilt = Fsi x (1 - PhiT)     output curve 'Vol Silt'",
+        "Vdcl  = Fdc x (1 - PhiT)     output curve 'Vol dry clay'",
+        "PhiTclay = (Dendcl - Denwcl) / (Dendcl - Denfl)",
+        "Vcl = Vdcl / (1 - PhiTclay)  output curve 'Vol wet clay'",
+        "Vshale = Vcl + Vsilt         output curve 'Vol shale'"
+      ],
+      "effective_porosity_three_way_blend": [
+        "(1) Phie = PhiT - Vcl x PhiTclay",
+        "(2) Phie = PhiT - Vcl x PhiT",
+        "(3) Phie = (1 - PhiT) x (PhiT - Vcl x PhiTclay) + Vcl x (PhiT - Vcl x PhiT)   [the one used]"
+      ],
+      "effective_porosity_note": "Vendor rationale printed: 'The implication of this equation in very shaly reservoirs (Vcl > 70%, and Vsand = 0), in some cases the Phie value is still significantly big. To adjust ... another equation is used to make sure Phie turns out to 0 when Vcl = 1.' Stated behaviour: 'When Vcl is closed to 0, then Phie turns out to the first equation. When Vcl is closed to 1, then Phie turns out to the second equation.' CAUTION (analytical, offered not corrected): the stated blend weights (1 - PhiT) and Vcl do not sum to 1 for general PhiT, Vcl. Whether the manual's rendering is exact or has lost a term is NOT resolvable from the text - verify against IP behaviour before adopting. This equation is IP-derived and NOT attributed to Kuttan et al. - see tierC_flags T6.",
+      "phie_limits": [
+        "Phie <= MaxPhie x (1.0 - Vcl)",
+        "If Vshale > VShale Cutoff then Phie = 0"
+      ],
+      "bound_water": [
+        "Vbw = PhiT - Phie                         volume bound water",
+        "if Vbw > Vcl x PhiTclay x 1.5  then  Vbw = Vcl x PhiTclay x 1.5  and  PhiT = Phie + Vbw",
+        "If PhiT has been changed then all the matrix and shale volumes are recalculated."
+      ],
+      "bound_water_note": "Clay-bound water only, from the dry/wet-clay density contrast (PhiTclay), with a hard 1.5x ceiling. Vendor caution: 'The user should check that these limits are only applied in non-reservoir sections.' Coupling flagged: 'there is a strong correlation between the bound water volume (PhiT-Phie) and the Bn factor. If you change the bound water by changing the dry or wet clay density then the Qvn/Cwapp will change and the Bn should be adjusted.'",
+      "final_calculations": [
+        "BVW = Phie x Sw            Bulk volume water",
+        "BVW = Phie x Sxo           Bulk volume flushed zone water  [as printed - the manual reuses the name BVW for both; the output curve is BVWSXO]",
+        "Rwapp = PhiTm x Rt / a     Rw apparent   [PhiTm = PhiT**m; superscript lost in the HTML]",
+        "CwApp = 1.0 / Rwapp        Cw apparent",
+        "QvNorm = VCL x PhiTClay / PhiT      Qv normalized",
+        "QvApp = a / (B x Rt x PhiTm) - 1.0 / (B x Rw)   Qv apparent",
+        "RecPhiT = 1.0 / PhiT       reciprocal PhiT"
+      ],
+      "coal_logic": "If Density Log < Den Coal AND Neutron Log > Neu Coal: PhiT, Phie, Vcl, Vshale, Vquartz, Vsilt, Vdclay = 0 ; SwT, SxoT, Sw, Sxo = 1.0 ; Vcoal = 1.0"
+    },
+    "rasterized_equations": [
+      "step 2 Vsh from GR (_intclip0056.png)",
+      "step 3 apparent HC density (_intclip0057.png)",
+      "step 3 apparent HC neutron HI (_intclip0058.png)",
+      "step 5 Vsh from Neutron-Density (_intclip0059.png)",
+      "step 8 Lithology Conversion Chart (_intclip0061.png) - TIER C",
+      "step 13 Archie PhiT (_intclip0062.png)",
+      "step 13 Dual Water (_intclip0063.png)",
+      "step 13 Juhasz Waxman-Smits (_intclip0064.png)",
+      "step 13 Waxman-Smits (_intclip0065.png)",
+      "step 13 Qv = a/PhiT + b (_intclip0066.png)",
+      "step 13 B(T, Rw) (embim178.gif)",
+      "step 13 effective Sw from total Sw (_intclip0067.png)",
+      "step 14 Sxo from invasion factor WBM (_intclip0068.png)"
+    ],
+    "parameters": [
+      {"tab": "Zones", "name": "Zone Name / Zone Top / Zone Bottom / Zone Color / Lock Zone", "default": "n/a"},
+      {"tab": "VShale", "name": "Gr Clean", "default": "not stated in manual"},
+      {"tab": "VShale", "name": "Gr Shale", "default": "not stated in manual"},
+      {"tab": "Logic Options", "name": "Mud Type (WBM / OBM)", "default": "not stated in manual"},
+      {"tab": "Logic Options", "name": "Sw Equation (Waxman Smt / Juhasz W&S / Dual Water / Archie PhiT)", "default": "not stated in manual"},
+      {"tab": "Logic Options", "name": "Sxo Logic (ND Separation / Input Curve / Invasion Factor)", "default": "not stated in manual"},
+      {"tab": "Logic Options", "name": "Bad Hole Logic", "default": "not stated in manual"},
+      {"tab": "Logic Options", "name": "Max Phie", "default": "not stated in manual", "note": "0.6 is given as the value that DISABLES the limit, not as a default"},
+      {"tab": "Logic Options", "name": "Vshale Cutoff", "default": "1.0", "note": "'By default this has a value of 1.0 and is on the extreme right edge of the track'"},
+      {"tab": "Matrix-Clay", "name": "Den Matrix (sand)", "default": "not stated in manual"},
+      {"tab": "Matrix-Clay", "name": "Neu Matrix (sand)", "default": "not stated in manual"},
+      {"tab": "Matrix-Clay", "name": "Den Dry Clay", "default": "not stated in manual"},
+      {"tab": "Matrix-Clay", "name": "Neu Dry Clay", "default": "not stated in manual"},
+      {"tab": "Matrix-Clay", "name": "Den Silt", "default": "not stated in manual"},
+      {"tab": "Matrix-Clay", "name": "Neu Silt", "default": "not stated in manual"},
+      {"tab": "Matrix-Clay", "name": "Clay at Silt Point", "default": "not stated in manual", "note": "'If set to zero then all the silt is clay free'. This is the chart's B point; A point = 1.0 - B"},
+      {"tab": "Matrix-Clay", "name": "Den Wet Clay", "default": "not stated in manual", "note": "used to calculate the Neutron of the Wet clay and also VshND"},
+      {"tab": "Fluids", "name": "Temp Units (deg F / deg C)", "default": "not stated in manual", "note": "applies to the Rw/Rmf/Rwb/Rmbf Temp PARAMETERS only - the input temperature curve's units are read from the curve's own units field, which must start with F or C"},
+      {"tab": "Fluids", "name": "Rw / Rw Temp / Rmf / Rmf Temp", "default": "not stated in manual"},
+      {"tab": "Fluids", "name": "Den Water / Neu Water", "default": "not stated in manual"},
+      {"tab": "Fluids", "name": "Den Hyd", "default": "not stated in manual"},
+      {"tab": "Water Saturation", "name": "a factor / m exponent / n exponent", "default": "not stated in manual"},
+      {"tab": "Water Saturation", "name": "Invasion factor", "default": "not stated in manual", "note": "WBM: Sxo = (Sw + IF)/(1 + IF). If OBM selected, this factor BECOMES Sxo"},
+      {"tab": "Waxman Smt eq.", "name": "B W&S Source (Curve or Value / Formula)", "default": "not stated in manual"},
+      {"tab": "Waxman Smt eq.", "name": "B factor W&S", "default": "not stated in manual"},
+      {"tab": "Waxman Smt eq.", "name": "Qv W&S Source (Curve or Value / Equation)", "default": "not stated in manual"},
+      {"tab": "Waxman Smt eq.", "name": "Qv W&S / Qv 'a' const / Qv 'b' const", "default": "not stated in manual"},
+      {"tab": "Juhasz eq.", "name": "B Fact Juhasz", "default": "not stated in manual", "note": "cf. the Mineral Solver page which prints 1.0 meq/ml for the same-named parameter"},
+      {"tab": "Dual Water eq.", "name": "Rwb / Rwb Temp / Rmfb / Rmfb Temp", "default": "not stated in manual"},
+      {"tab": "Coal", "name": "Coal Logic", "default": "not stated in manual"},
+      {"tab": "Coal", "name": "Den Coal / Neu Coal", "default": "not stated in manual"}
+    ],
+    "defaults": [
+      {"control": "Vshale Cutoff", "value": "1.0", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "Max Phie disabling value (suggested, NOT a default)", "value": "0.6", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "SxoT search step in the ND-separation route", "value": "0.01", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "PhiT convergence", "value": "PhiT difference < 0.0001", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "SxoT convergence", "value": "SxoT difference < 0.001", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "Main iterative hydrocarbon loop cap", "value": "max 40", "flag": "LogicFlag 2", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "Sxo correction loop cap", "value": "max 100", "flag": "LogicFlag 3", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "Sw equation loop cap", "value": "10 iterations", "flag": "LogicFlag 4", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "Bad hole correction loop cap", "value": "max 100", "flag": "LogicFlag 5", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "Bound-water ceiling factor", "value": "1.5 (Vbw <= Vcl x PhiTclay x 1.5)", "source_page": "sand_silt_malay_model.htm"},
+      {"control": "Excavation-factor reference matrix density (hard-wired)", "value": "2.65 (inside sqrt(Rhoma/2.65))", "source_page": "sand_silt_malay_model.htm"}
+    ],
+    "logic_flag_table": [
+      {"value": "0", "meaning": "Logic run with no problems."},
+      {"value": "1", "meaning": "ND SxoT hydrocarbon correction did not match VshGR and VshND. This does not necessarily mean that there is a problem, could be that this is a water interval hence no hydrocarbon corrections can be applied. (Shown as a Yellow flag on the interactive plot.)"},
+      {"value": "2", "meaning": "Main Iterative hydrocarbon loop reached limit max 40."},
+      {"value": "3", "meaning": "Sxo Correction loop reached max 100."},
+      {"value": "4", "meaning": "Sw equation iterative loop did not converge after 10 iterations."},
+      {"value": "5", "meaning": "Bad hole correction loop reached max 100."},
+      {"value": "6", "meaning": "Bad hole logic used."},
+      {"value": "7", "meaning": "PhieMax logic used."},
+      {"value": "8", "meaning": "Vshale cutoff logic used."},
+      {"value": "9", "meaning": "Input found NullValues so no output."}
+    ],
+    "input_curves": ["Density (gm/cc)", "Neutron (v/v)", "Rt (ohm.m)", "Rxo (ohm.m, optional)", "Gamma Ray", "Temperature (units must start with F or C)"],
+    "output_curves": ["PhiT", "Phie", "BVW", "BVWSXO", "Vbw", "Vcl", "Vshale", "Vsh_Gr", "Vsh_ND", "Vdcl", "Vsilt", "Vquartz", "Vcoal", "Rhoma", "Rwapp", "Rmfapp", "SwT", "SwTu", "Sw", "SxoT", "SxoTu", "Sxo", "Rhob_corr", "Nphi_Corr", "QvNorm", "CwApp", "QvApp", "RecPhiT", "LogicFlag"],
+    "reporting_discipline_stated": "The clipped curves SwT and SxoT are not displayed in the interactive plot but SHOULD BE USED for final plots and summation reports. The unlimited SwTu/SxoTu exist only so the >100% overshoot is visible during parameterisation.",
+    "bad_hole_logic": "If VshND < VshGr the module assumes washouts are pulling the density low and increases the input density until VshND equals VshGr or the corrected density-neutron point falls on the wet clay line. Vendor caution: 'this logic can have drastic effects on the results if the VshGr clean and shale picks overestimate the VshGr. It should only be turned on when bad hole affects to the density have been identified.'",
+    "sxo_routes": ["ND Separation - SxoT stepped in increments of 0.01 until VshND equals VshGr, re-correcting the logs at every step, clamped so SxoT never crosses SwT", "Input Curve - same Sw equation using Rxo with Rmf and Rfmb", "Invasion Factor - WBM form rasterized (_intclip0068.png); OBM printed as Sxo = Invasion Factor input parameter, then SxoT = Sxo x (1 - Swb) + Swb"],
+    "crossplot_calibration_procedure": "W&S: 'plot the data over a wet shaley interval and, if such a relationship exists, interactively set the line. If no relationship exists then the user must enter Qv into the model as a fixed value or curve after establishing Qv at each depth level using a different methodology.' Juhasz: 'The left side of the interactive line is anchored at the Rw value. The right side of the line should be interactive moved to follow the trend in the data of increasing Qv. The normalized B factor is calculated from the slope of the line and is displayed at the base of the crossplot.'",
+    "source_page": "sand_silt_malay_model.htm"
+  },
+
+  "calibration": {
+    "what_is_calibrated_against_what": "The mineral END-POINTS are regressed against CORE mineral volumes (typically XRD), one equation row at a time, by multiple linear regression.",
+    "regression_form": "Input Curve = Min1 x Vol1 + Min2 x Vol2 + Min3 x Vol3 ...  where Min_i are the end-points solved for and Vol_i are the input core volume curves.",
+    "key_difference_stated": "Notice that the difference between this equation and the normal multi-linear regression is that there is NO CONSTANT TERM in the result co-efficient.",
+    "fixed_vs_variable": "Each mineral is Fixed or Variable. Fixed end-points are subtracted from the input curve before the regression runs. 'It may be necessary to fix several of the mineral end-points in order to get a sensible result. Several iterations will normally be needed to obtain the optimum result.'",
+    "quality_reported": ["Corr Coeff - the correlation (R^2) coefficient of the regression, non-editable", "Num Points - the number of points used in the regression, non-editable"],
+    "multi_well": "Any well loaded in memory, with per-well Top Depth / Bottom Depth and a per-well Use toggle 'to quickly evaluate the influence of individual wells on the calibration results'.",
+    "discriminators": "Filter the calibration data. Example given: permeability greater than 0.1 mD. 'If using log data from multiple wells, then any discriminator curve must be available in all wells.'",
+    "one_blank_volume_allowed": "'If you leave an input curve volume blank, then IP will add up all the volumes from the other curves and assume the remainder belongs to the blank input entry. It is only possible to leave one input curve blank.' Units of input volume curves must be declared as Dec (V/V) or Percent %.",
+    "prerequisite": "XRD dry-weight % must first be converted to wet volume % in the Preprocessor: Wet Vol % = (Dry Weight %) x (1 - Porosity) x (Rock Grain Density) / (Mineral Grain Density).",
+    "copy_back": "Copy Parameters pushes selected end-points back to the Model grid, selectable per cell via the Use column and row selectors. It is not necessary to transfer all the parameters used in the regression.",
+    "reset_caveat": "The Reset button re-syncs the Calibrate grid to the Model grid but CLEARS ALL INPUT VOLUME CURVE NAMES.",
+    "stated_numeric_defaults": "none, beyond two illustrative values: fresh water 1.0 gm/cc as a fixed end-point, and 0.1 mD as a discriminator example.",
+    "interactive_crossplot_calibration": "Separate path on mineral_solver.htm: end-points render as draggable red circles labelled with the mineral name; releasing the mouse re-runs the model (Interactive Run can disable this on slow machines); max 8 end-points per crossplot; points shared across multiple open crossplots move in sync; undo/redo arrows appear once points have moved. Auto (blue) and true-HC-density (green) cells are excluded from the pickable list.",
+    "source_page": "minsolvecalibrate.htm / mineral_solver.htm"
+  },
+
+  "market_intelligence": {
+    "elan_import": "Load Model > File Type 'Elan Model' reads Schlumberger Elan .elp parameter files. Stated limits: loads minerals, fluids, input equations and end-points ONLY - 'IP will not load any model constraints or model mixing rules. These are not directly compatible with IP and will have to be manually entered.' Elan usually carries un-invaded fluids IP does not need; Sw is calculated differently; the wet/dry clay model must be sorted out manually. Multiple models inside one .elp load sequentially and can overwrite existing IP models (warning shown). Name mapping is user-editable in ElanToIPMapping.par.",
+    "everything_is_ascii": ["MINDEF.PAR", "MINEQDEF.PAR", "Neu_Parm_Files.neu + per-tool xxx.neu", "ElanToIPMapping.par", "UnitConversion.par", "MonteCarloDefaults.par", "Overlay_Files.ovl", "Mineral Solver Preprocessor .mpp files", "individual model files under ..\\Mineral Solver Models"],
+    "design_lesson": "Every customisation surface is a plain ASCII file in the install directory, not a database. Models save as individual files for reuse across wells and projects. This is a convention (Tier A), not expression - SandiBumi/SandiMin can adopt it wholesale.",
+    "portability_caveat": "Models must be moved between wells with Load/Save Parameter Sets, NOT Save Model / Load Model, because only the former carries the Mixings.",
+    "destructive_behaviours": ["Deleted model numbers are never reused", "Deleting a model also deletes its curve set (rename first to keep it)", "Calibration Reset clears all input volume curve names"],
+    "audit_trail_pattern": "Print Parameters to File writes 'all the models, parameters and mixing's used in the analysis' to a .txt named after the Parameter Set.",
+    "no_calculation_flag": "A flag curve can disable calculation over intervals (any value other than Zero or -999). In such zones Sw = 1.0, porosity = 0.0, mineral volumes = 0.0. Vendor example: coal beds picked with the interactive curve splice."
+  },
+
+  "tierC_flags": [
+    {
+      "id": "T1",
+      "name": "Malay-Basin Lithology Conversion Chart",
+      "status": "NEW",
+      "evidence": "sand_silt_malay_model.htm, image _intclip0061.png: 'The position of A and B points along Y axis, and the shape of those five curves are determined based on the characteristics of core data acquired in Malay Basin.'",
+      "what_it_is": "The five-curve chart that converts the projected matrix-line position into Dry Sand / Dry Silt / Dry Clay fractions (Fsn, Fsi, Fdc). It carries the entire discriminating power of the Sand/Silt Malay model.",
+      "action_taken": "Named and evidenced only. NOT reconstructed, NOT digitised, NOT approximated. Proprietary calibration on unpublished core data delivered only as a raster."
+    },
+    {
+      "id": "T2",
+      "name": "DNOPT Dense Nonlinear OPTimizer (Stanford University)",
+      "status": "NEW",
+      "evidence": "minsolveeqandmeth.htm and mineral_solver.htm: 'The Non-Linear Solver used in this module is the DNOPT Dense Nonlinear OPTimizer from Stanford University.'",
+      "what_it_is": "The commercial third-party non-linear optimiser IP embeds - not IP's own IP, but a licensed component.",
+      "action_taken": "Named for procurement awareness. SandiBumi cannot inherit this; an independent NLP (open-source SQP or interior-point) would be needed for the equivalent capability."
+    },
+    {
+      "id": "T3",
+      "name": "MINDEF.PAR / MINEQDEF.PAR shipped default content",
+      "status": "NEW",
+      "evidence": "mineral_solver.htm, default_settings.htm, tools.htm, mineralsolver.htm",
+      "what_it_is": "The vendor's shipped mineral roster and per-equation defaults.",
+      "action_taken": "The MECHANISM (two cooperating user-editable ASCII default files) is Tier A and adoptable. The SHIPPED NUMERIC CONTENTS are vendor data files inside a licensed install - any values read from them need their own tier ruling before adoption. Flagged so the IP2018-vs-IP2025 diff is done deliberately, not incidentally."
+    },
+    {
+      "id": "T4",
+      "name": "Schlumberger Elan .elp import and ElanToIPMapping.par",
+      "status": "NEW",
+      "evidence": "mineral_solver.htm 'Load Elan Parameter file' section",
+      "what_it_is": "Competitor-format interoperability.",
+      "action_taken": "Tier A as market intelligence - the valuable parts are the EXISTENCE of the bridge and the stated incompatibilities (constraints and mixing rules do not transfer; Sw and clay-model logic must be redone by hand). Do not replicate Schlumberger's .elp schema from IP's mapping file."
+    },
+    {
+      "id": "T5",
+      "name": "Wyllie-Cp to Hunt-Raymer bridging relation (4-coefficient empirical fit)",
+      "status": "NEW - judgment call, reversible",
+      "evidence": "minsolveeqandmeth.htm, Sonic section: 'To accommodate this in the linear solver, a relationship has been determined between the Wyllie compaction factor and the Hunt-Raymer equations above.'",
+      "what_it_is": "A vendor-fitted 4-coefficient relation letting the linear solver emulate the non-linear Hunt-Raymer equation via the Wyllie compaction factor. Used inside the iteration loop with Dtma and Phi from the solver results.",
+      "action_taken": "The coefficients ARE printed in plain text on that page, but this is a vendor-fitted relation with no published source, so they were DELIBERATELY NOT TRANSCRIBED into this report or the JSON. If the caller rules this Tier A, the values are one line away at minsolveeqandmeth.htm in the Sonic section."
+    },
+    {
+      "id": "T6",
+      "name": "IP's three-way blended effective-porosity equation (SSC step 11)",
+      "status": "NEW - low severity",
+      "evidence": "sand_silt_malay_model.htm section 11: the manual derives it in its own words and does not attribute it to Kuttan et al.",
+      "what_it_is": "The blend of Phie = PhiT - Vcl x PhiTclay with Phie = PhiT - Vcl x PhiT.",
+      "action_taken": "Transcribed here because it is plainly stated in text and its vendor provenance is explicit in the manual. It must NOT be cited as 'the Malay Basin published method' - it is IP's own extension."
+    },
+    {
+      "id": "PRE-EXISTING",
+      "name": "Already-registered Tier C items",
+      "status": "checked - ABSENT from scope D",
+      "evidence": "SonicSaturation (Omovie, US Patent 12,242,011 B2), Domain Transfer Analysis, Experienced Eye, entropy-based borehole-image speed correction, shipped neural-network weights.",
+      "action_taken": "None of these appear anywhere in the Mineral Solver or Sand/Silt Malay chapters. Those chapters are clean of them."
+    }
+  ],
+
+  "gaps": [
+    "NO mineral end-point table exists anywhere in the IP 2018 help. All defaults live in MINDEF.PAR / MINEQDEF.PAR. Anything claiming to be 'IP 2018's kaolinite density' must come from those files, not this manual. Verified across all six target pages plus a full-corpus sweep.",
+    "CROSS-CHECK QUESTION FOR THE CALLER (not guessed): does IP 2018's MINDEF.PAR share the IP 2025 MINDEF.PAR convention - column order, mineral roster, units, wet-vs-dry-clay convention, and values? Answerable only by diffing C:\\Program Files\\IP2018\\MINDEF.PAR (read-only) against the already-ingested IP 2025 file.",
+    "99 formulas in minsolveeqandmeth.htm are rasterized (embim213-embim311), including the objective function itself, all neutron/density/sonic/EPT/U auto-endpoint relations, the CEC-to-Qv conversion, and all 11 Sw equations. The ASCII Sw equations on mineral_solver.htm recover 11 of them; the rest need OCR or manual reading of the GIFs.",
+    "13 SSC equations are rasterized as _intclip*.png and are INVISIBLE to the current extractor's equation_images counter (which only counts embimNN). Re-extraction should treat _intclip* as candidate equations on that page, not screenshots.",
+    "The SSC model has NO published parameter defaults at all - sand, silt, dry-clay and wet-clay N-D points, Clay at Silt Point, Max Phie, Gr Clean / Gr Shale, Archie a/m/n. Directly blocking for any Mahakam-Delta adaptation. Recoverable only from an IP parameter-set export or a shipped default .par, not from the help.",
+    "CEC units are never stated. Qv/Qvn are defined per unit total pore VOLUME; B fact Juhasz default is printed as 1.0 meq/ml; but the clay CEC feeding the Qv output equation has no unit given and the conversion is rasterized (embim257-259).",
+    "Sigma is not documented as an equation type. Cased-hole operation is described procedurally only - no Sigma end-point convention, no Sigma unit, no auto-endpoint rule.",
+    "Suspected typo in the printed Sch_CNL.neu table at phi = .20, Dolomite / 50 kppm: -.1960, roughly 20x its neighbours. Transcribed verbatim, NOT corrected. Verify against the shipped file before use. Milder oddity at phi = .25, Sand / 100 kppm (-.0370) breaking the row's monotonic trend.",
+    "The Conventional and Modified apparent-hydrocarbon-density equations are corrupted in the HTML (superscripts lost). Transcribed as printed with an explicit do-not-implement warning.",
+    "Invasion-factor default is printed as BOTH 0.5 (mineral_solver.htm, OBM branch) and 2.0 (minsolveeqandmeth.htm, WBM empirical Sxo-from-Sw). Both recorded; not reconciled - they appear to be two uses of one parameter name.",
+    "PHIFLAG values 0, 1, 3 and 13 are unlisted in the manual's table. 0 is stated elsewhere to mean normal execution; 1, 3, 13 are unknown.",
+    "The SSC blended-Phie weights (1 - PhiT) and Vcl do not obviously sum to 1. Cannot be resolved from the text.",
+    "plot_the_mineral_solver_result.htm contains no equations and no numeric defaults. Its value is the QC-workflow structure (error track, confidence bands, reconstruction tracks, Pickett / Hingle / Cwapp-Qvn / 1-over-PhiT crossplot suite), which is Tier A and adoptable."
+  ]
+}

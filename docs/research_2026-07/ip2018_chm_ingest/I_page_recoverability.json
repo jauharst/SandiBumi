@@ -1,0 +1,1392 @@
+[
+ {
+  "page": "3d_petrophysics.htm",
+  "formula_images": 0,
+  "screenshot_images": 56
+ },
+ {
+  "page": "3d_viewer.htm",
+  "formula_images": 1,
+  "screenshot_images": 21
+ },
+ {
+  "page": "3dparview.htm",
+  "formula_images": 2,
+  "screenshot_images": 19
+ },
+ {
+  "page": "abbreviations_and_definitions.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "aboutipdatabase.htm",
+  "formula_images": 1,
+  "screenshot_images": 1
+ },
+ {
+  "page": "acoustic_waveform_processing.htm",
+  "formula_images": 4,
+  "screenshot_images": 57
+ },
+ {
+  "page": "arraydatacurves.htm",
+  "formula_images": 0,
+  "screenshot_images": 19
+ },
+ {
+  "page": "autoplot.htm",
+  "formula_images": 1,
+  "screenshot_images": 10
+ },
+ {
+  "page": "autoplot2.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "basicloganalysis.htm",
+  "formula_images": 7,
+  "screenshot_images": 20
+ },
+ {
+  "page": "basiclogcalculations.htm",
+  "formula_images": 15,
+  "screenshot_images": 30
+ },
+ {
+  "page": "batch_ascii_loader.htm",
+  "formula_images": 6,
+  "screenshot_images": 8
+ },
+ {
+  "page": "batch_loading_tvd_survey.htm",
+  "formula_images": 5,
+  "screenshot_images": 10
+ },
+ {
+  "page": "batchformula.htm",
+  "formula_images": 2,
+  "screenshot_images": 9
+ },
+ {
+  "page": "batchmontecarlo.htm",
+  "formula_images": 0,
+  "screenshot_images": 8
+ },
+ {
+  "page": "box_plots.htm",
+  "formula_images": 2,
+  "screenshot_images": 16
+ },
+ {
+  "page": "calculationandcorrection.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "capillarypressuredataloader.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "cappressurefunctions.htm",
+  "formula_images": 11,
+  "screenshot_images": 67
+ },
+ {
+  "page": "cappressuresetup.htm",
+  "formula_images": 4,
+  "screenshot_images": 36
+ },
+ {
+  "page": "cased_hole.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "cat_rat_image.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "cat_rat_normalise.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "cementeval.htm",
+  "formula_images": 14,
+  "screenshot_images": 46
+ },
+ {
+  "page": "chronolog_help.htm",
+  "formula_images": 12,
+  "screenshot_images": 43
+ },
+ {
+  "page": "clayequationsandmethodology.htm",
+  "formula_images": 16,
+  "screenshot_images": 2
+ },
+ {
+  "page": "clayparameters.htm",
+  "formula_images": 0,
+  "screenshot_images": 13
+ },
+ {
+  "page": "clayplot.htm",
+  "formula_images": 0,
+  "screenshot_images": 9
+ },
+ {
+  "page": "clayvolume.htm",
+  "formula_images": 1,
+  "screenshot_images": 10
+ },
+ {
+  "page": "cleandata.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "cluster_analysis.htm",
+  "formula_images": 5,
+  "screenshot_images": 28
+ },
+ {
+  "page": "cm_copy_curves_from_well.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "cm_curve_statistics.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "cm_delete_curves.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "cm_drag_and_drop_curves.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "connectionprotocols.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "createacrossplot.htm",
+  "formula_images": 1,
+  "screenshot_images": 22
+ },
+ {
+  "page": "createcurvearraycurve.htm",
+  "formula_images": 0,
+  "screenshot_images": 5
+ },
+ {
+  "page": "createeditlithologycurves.htm",
+  "formula_images": 0,
+  "screenshot_images": 10
+ },
+ {
+  "page": "createeditpointcurve.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "crossplot_functions.htm",
+  "formula_images": 2,
+  "screenshot_images": 66
+ },
+ {
+  "page": "crossplotsfeatures.htm",
+  "formula_images": 0,
+  "screenshot_images": 19
+ },
+ {
+  "page": "crossplottypes.htm",
+  "formula_images": 0,
+  "screenshot_images": 29
+ },
+ {
+  "page": "curve_average.htm",
+  "formula_images": 0,
+  "screenshot_images": 7
+ },
+ {
+  "page": "curve_despike.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "curve_filter.htm",
+  "formula_images": 1,
+  "screenshot_images": 1
+ },
+ {
+  "page": "curve_masks.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "curve_rescale.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "curvefromzonesparameters.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "curveintegration.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "curvelisting.htm",
+  "formula_images": 0,
+  "screenshot_images": 12
+ },
+ {
+  "page": "curvemanagement.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "curvepredictionusingdta.htm",
+  "formula_images": 0,
+  "screenshot_images": 19
+ },
+ {
+  "page": "cut_off_sensitivity_results.htm",
+  "formula_images": 0,
+  "screenshot_images": 9
+ },
+ {
+  "page": "cutoffsandsummation.htm",
+  "formula_images": 6,
+  "screenshot_images": 34
+ },
+ {
+  "page": "database_security.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "dataediting.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "dataloading.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "datasaving.htm",
+  "formula_images": 0,
+  "screenshot_images": 43
+ },
+ {
+  "page": "dataviewing.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "dbase_4_loader.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "default_settings.htm",
+  "formula_images": 0,
+  "screenshot_images": 14
+ },
+ {
+  "page": "define_monte_carlo_parameters.htm",
+  "formula_images": 1,
+  "screenshot_images": 28
+ },
+ {
+  "page": "delete_parameter_set.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "densityestimation2.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "depth_based_pl_passes___ascii_.htm",
+  "formula_images": 0,
+  "screenshot_images": 5
+ },
+ {
+  "page": "depth_based_pl_passes___las_fo.htm",
+  "formula_images": 0,
+  "screenshot_images": 5
+ },
+ {
+  "page": "depth_shift_other_curves.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "depthshifting.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "differentiate.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "discrete_depth_analysis.htm",
+  "formula_images": 0,
+  "screenshot_images": 60
+ },
+ {
+  "page": "dlis_loader.htm",
+  "formula_images": 0,
+  "screenshot_images": 22
+ },
+ {
+  "page": "easteuroperescorrections.htm",
+  "formula_images": 84,
+  "screenshot_images": 36
+ },
+ {
+  "page": "edit_plot_limits.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "editplotannotationsandlogtitle.htm",
+  "formula_images": 0,
+  "screenshot_images": 5
+ },
+ {
+  "page": "elastic_impedance.htm",
+  "formula_images": 4,
+  "screenshot_images": 9
+ },
+ {
+  "page": "environmentalcorrections.htm",
+  "formula_images": 0,
+  "screenshot_images": 40
+ },
+ {
+  "page": "expanded_plot_mode.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "export.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "fileoptions.htm",
+  "formula_images": 0,
+  "screenshot_images": 27
+ },
+ {
+  "page": "fill_data_gaps.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "flow_from_temperature.htm",
+  "formula_images": 0,
+  "screenshot_images": 10
+ },
+ {
+  "page": "fluidsubstitution.htm",
+  "formula_images": 56,
+  "screenshot_images": 23
+ },
+ {
+  "page": "formation_test_analysis.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "ft_create_and_analyse_a_formation.htm",
+  "formula_images": 1,
+  "screenshot_images": 33
+ },
+ {
+  "page": "ft_define_the_formation_testing_p.htm",
+  "formula_images": 1,
+  "screenshot_images": 11
+ },
+ {
+  "page": "ft_equations_and_methodology.htm",
+  "formula_images": 14,
+  "screenshot_images": 4
+ },
+ {
+  "page": "gas_analysis.htm",
+  "formula_images": 0,
+  "screenshot_images": 5
+ },
+ {
+  "page": "geolog_ascii_loader.htm",
+  "formula_images": 6,
+  "screenshot_images": 17
+ },
+ {
+  "page": "geosteering.htm",
+  "formula_images": 20,
+  "screenshot_images": 44
+ },
+ {
+  "page": "gettinghelpforip.htm",
+  "formula_images": 1,
+  "screenshot_images": 9
+ },
+ {
+  "page": "graphical_workflow_manager.htm",
+  "formula_images": 0,
+  "screenshot_images": 8
+ },
+ {
+  "page": "hfu.htm",
+  "formula_images": 14,
+  "screenshot_images": 41
+ },
+ {
+  "page": "histogram.htm",
+  "formula_images": 15,
+  "screenshot_images": 61
+ },
+ {
+  "page": "historymodule.htm",
+  "formula_images": 0,
+  "screenshot_images": 18
+ },
+ {
+  "page": "image_analysis.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "imageanalysisandpicks.htm",
+  "formula_images": 0,
+  "screenshot_images": 117
+ },
+ {
+  "page": "imageanalysisoverview.htm",
+  "formula_images": 4,
+  "screenshot_images": 76
+ },
+ {
+  "page": "import_oh.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "import_pl.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "import_pl_for_sondex_maps_tool.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "importing_plwin_wells.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "input___output.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "installandregisterip.htm",
+  "formula_images": 0,
+  "screenshot_images": 25
+ },
+ {
+  "page": "interactive_bulk_depth_shift.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "interactive_curves_edit.htm",
+  "formula_images": 0,
+  "screenshot_images": 22
+ },
+ {
+  "page": "interactive_curves_splice.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "interactive_dip_picking.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "interactiveblockdepthshift.htm",
+  "formula_images": 0,
+  "screenshot_images": 9
+ },
+ {
+  "page": "interactivecurveedit.htm",
+  "formula_images": 0,
+  "screenshot_images": 9
+ },
+ {
+  "page": "interactivedepthshift.htm",
+  "formula_images": 2,
+  "screenshot_images": 15
+ },
+ {
+  "page": "interactivefilter.htm",
+  "formula_images": 1,
+  "screenshot_images": 7
+ },
+ {
+  "page": "interp_demo.htm",
+  "formula_images": 0,
+  "screenshot_images": 16
+ },
+ {
+  "page": "interpretation.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "intervalloader.htm",
+  "formula_images": 0,
+  "screenshot_images": 9
+ },
+ {
+  "page": "intro_curves_and_curve_sets.htm",
+  "formula_images": 0,
+  "screenshot_images": 8
+ },
+ {
+  "page": "intro_database_browser.htm",
+  "formula_images": 2,
+  "screenshot_images": 15
+ },
+ {
+  "page": "intro_discalimer_of_warranty.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "intro_file_formats.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "intro_getting_started___step_by_step.htm",
+  "formula_images": 0,
+  "screenshot_images": 13
+ },
+ {
+  "page": "intro_text_boxes.htm",
+  "formula_images": 1,
+  "screenshot_images": 6
+ },
+ {
+  "page": "intro_toolbars_and_menus.htm",
+  "formula_images": 1,
+  "screenshot_images": 5
+ },
+ {
+  "page": "intro_useful_links.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "intro_whats_new_in_ip.htm",
+  "formula_images": 1,
+  "screenshot_images": 6
+ },
+ {
+  "page": "ip_query.htm",
+  "formula_images": 0,
+  "screenshot_images": 7
+ },
+ {
+  "page": "laminated_sands_workflow.htm",
+  "formula_images": 0,
+  "screenshot_images": 10
+ },
+ {
+  "page": "laminatedfluidsubs.htm",
+  "formula_images": 38,
+  "screenshot_images": 36
+ },
+ {
+  "page": "las_batch_load.htm",
+  "formula_images": 4,
+  "screenshot_images": 9
+ },
+ {
+  "page": "las_lbs_load.htm",
+  "formula_images": 2,
+  "screenshot_images": 10
+ },
+ {
+  "page": "link_zone_sets.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "load___save_parameter_set.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "load_ascii_data.htm",
+  "formula_images": 7,
+  "screenshot_images": 15
+ },
+ {
+  "page": "load_las_data.htm",
+  "formula_images": 1,
+  "screenshot_images": 4
+ },
+ {
+  "page": "load_lis_data.htm",
+  "formula_images": 0,
+  "screenshot_images": 9
+ },
+ {
+  "page": "loadwellattributes.htm",
+  "formula_images": 0,
+  "screenshot_images": 10
+ },
+ {
+  "page": "log_plots.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "logplot_edit_the_log_plot_format.htm",
+  "formula_images": 3,
+  "screenshot_images": 34
+ },
+ {
+  "page": "logplot_log_plot_styles.htm",
+  "formula_images": 2,
+  "screenshot_images": 63
+ },
+ {
+  "page": "logplot_log_plot_track_management.htm",
+  "formula_images": 0,
+  "screenshot_images": 16
+ },
+ {
+  "page": "logplot_navigating_the_log_plot_window.htm",
+  "formula_images": 0,
+  "screenshot_images": 34
+ },
+ {
+  "page": "logplot_save_default_plot_format.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "logswversusheightfunctions.htm",
+  "formula_images": 8,
+  "screenshot_images": 27
+ },
+ {
+  "page": "manage_zones_and_picks.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "managecurveheaders.htm",
+  "formula_images": 0,
+  "screenshot_images": 15
+ },
+ {
+  "page": "managecurvesets.htm",
+  "formula_images": 1,
+  "screenshot_images": 21
+ },
+ {
+  "page": "manageimagetools.htm",
+  "formula_images": 1,
+  "screenshot_images": 32
+ },
+ {
+  "page": "managepicks.htm",
+  "formula_images": 0,
+  "screenshot_images": 18
+ },
+ {
+  "page": "managewellheaderinfo.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "managewells.htm",
+  "formula_images": 0,
+  "screenshot_images": 18
+ },
+ {
+  "page": "managezones.htm",
+  "formula_images": 1,
+  "screenshot_images": 26
+ },
+ {
+  "page": "mineral_solver.htm",
+  "formula_images": 1,
+  "screenshot_images": 30
+ },
+ {
+  "page": "mineralsolver.htm",
+  "formula_images": 0,
+  "screenshot_images": 5
+ },
+ {
+  "page": "minsolvecalibrate.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "minsolveeqandmeth.htm",
+  "formula_images": 76,
+  "screenshot_images": 62
+ },
+ {
+  "page": "montagebuilder.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "multi_depth_analysis_workflow.htm",
+  "formula_images": 8,
+  "screenshot_images": 22
+ },
+ {
+  "page": "multi_line_user_formula.htm",
+  "formula_images": 9,
+  "screenshot_images": 18
+ },
+ {
+  "page": "multi_user_access_guide.htm",
+  "formula_images": 0,
+  "screenshot_images": 9
+ },
+ {
+  "page": "multi_user_access_guide_2.htm",
+  "formula_images": 0,
+  "screenshot_images": 8
+ },
+ {
+  "page": "multi_well_notes.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "multi_wellcutoffsandsummati.htm",
+  "formula_images": 0,
+  "screenshot_images": 13
+ },
+ {
+  "page": "multiphase_array_flow_calculat.htm",
+  "formula_images": 0,
+  "screenshot_images": 11
+ },
+ {
+  "page": "multiphaseflowcalculations.htm",
+  "formula_images": 0,
+  "screenshot_images": 16
+ },
+ {
+  "page": "multiphaseinflowcurves.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "multiple_well_batch_tvd.htm",
+  "formula_images": 0,
+  "screenshot_images": 8
+ },
+ {
+  "page": "multiplelinearregression.htm",
+  "formula_images": 0,
+  "screenshot_images": 9
+ },
+ {
+  "page": "multiwell.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "multiwellcorrelationview.htm",
+  "formula_images": 1,
+  "screenshot_images": 31
+ },
+ {
+  "page": "multiwellcorrelationview2.htm",
+  "formula_images": 1,
+  "screenshot_images": 32
+ },
+ {
+  "page": "multiwellcurvestats.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "navigation_qc.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "navigationanddataentry.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "neural_networks.htm",
+  "formula_images": 0,
+  "screenshot_images": 15
+ },
+ {
+  "page": "nmrinterpretation.htm",
+  "formula_images": 35,
+  "screenshot_images": 52
+ },
+ {
+  "page": "nmrnormalization.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "normalizearray.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "open.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "options.htm",
+  "formula_images": 3,
+  "screenshot_images": 45
+ },
+ {
+  "page": "parametersets.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "pc_configuration.htm",
+  "formula_images": 0,
+  "screenshot_images": 7
+ },
+ {
+  "page": "petrel_interface.htm",
+  "formula_images": 0,
+  "screenshot_images": 12
+ },
+ {
+  "page": "petrel_link_2014_and_later.htm",
+  "formula_images": 1,
+  "screenshot_images": 22
+ },
+ {
+  "page": "picturecorephotodata.htm",
+  "formula_images": 0,
+  "screenshot_images": 7
+ },
+ {
+  "page": "pl_array_workflow.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "pllateralaverage.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "plot_composer.htm",
+  "formula_images": 2,
+  "screenshot_images": 38
+ },
+ {
+  "page": "plot_header_editor.htm",
+  "formula_images": 0,
+  "screenshot_images": 13
+ },
+ {
+  "page": "plot_the_mineral_solver_result.htm",
+  "formula_images": 0,
+  "screenshot_images": 13
+ },
+ {
+  "page": "plotaheader.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "plotdata.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "plotoutput.htm",
+  "formula_images": 14,
+  "screenshot_images": 38
+ },
+ {
+  "page": "plotrangeeditor.htm",
+  "formula_images": 1,
+  "screenshot_images": 7
+ },
+ {
+  "page": "plotting.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "plotting_image_analysis_data.htm",
+  "formula_images": 15,
+  "screenshot_images": 164
+ },
+ {
+  "page": "plottoprinter.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "plset.htm",
+  "formula_images": 0,
+  "screenshot_images": 15
+ },
+ {
+  "page": "plt_availablereports.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "pltavailablereports.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "porepressurecalculations2.htm",
+  "formula_images": 18,
+  "screenshot_images": 53
+ },
+ {
+  "page": "porosityandwatersaturation.htm",
+  "formula_images": 1,
+  "screenshot_images": 19
+ },
+ {
+  "page": "powerlogloglanconverter.htm",
+  "formula_images": 0,
+  "screenshot_images": 8
+ },
+ {
+  "page": "pressuredifferentiation.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "principal_component_analysis.htm",
+  "formula_images": 1,
+  "screenshot_images": 8
+ },
+ {
+  "page": "printparametersets.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "production_log_analysis_module.htm",
+  "formula_images": 22,
+  "screenshot_images": 3
+ },
+ {
+  "page": "production_logging.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "project.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "pvtfluidproperties.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "qc_edit.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "read_from_logic_db.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "read_from_openworks_db.htm",
+  "formula_images": 2,
+  "screenshot_images": 22
+ },
+ {
+  "page": "read_write_from_odm_database.htm",
+  "formula_images": 2,
+  "screenshot_images": 23
+ },
+ {
+  "page": "read_write_to_geolog_db.htm",
+  "formula_images": 2,
+  "screenshot_images": 22
+ },
+ {
+  "page": "read_write_to_petcom_db.htm",
+  "formula_images": 2,
+  "screenshot_images": 20
+ },
+ {
+  "page": "read_write_via_openspirit.htm",
+  "formula_images": 4,
+  "screenshot_images": 29
+ },
+ {
+  "page": "rebuild_auto_plot.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "rebuildsensorplot.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "recalculateplotlimits.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "restorebackupcurves.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "rock_mechanics.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "rock_strength.htm",
+  "formula_images": 41,
+  "screenshot_images": 34
+ },
+ {
+  "page": "rock_stress.htm",
+  "formula_images": 3,
+  "screenshot_images": 24
+ },
+ {
+  "page": "rockphysics.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "rwfromsp.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "sand_silt_malay_model.htm",
+  "formula_images": 14,
+  "screenshot_images": 12
+ },
+ {
+  "page": "sandpit3d.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "saturation_height_modelling.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "saturation_versus_height_curve.htm",
+  "formula_images": 2,
+  "screenshot_images": 13
+ },
+ {
+  "page": "saveparametersets.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "selectiveinflowperformance.htm",
+  "formula_images": 0,
+  "screenshot_images": 12
+ },
+ {
+  "page": "sensorblockdepthshift.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "sensorplot.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "shearsonic.htm",
+  "formula_images": 3,
+  "screenshot_images": 4
+ },
+ {
+  "page": "sigma.htm",
+  "formula_images": 11,
+  "screenshot_images": 23
+ },
+ {
+  "page": "som.htm",
+  "formula_images": 11,
+  "screenshot_images": 34
+ },
+ {
+  "page": "specialinterpretation.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "specify_rock_mechanics_options.htm",
+  "formula_images": 0,
+  "screenshot_images": 3
+ },
+ {
+  "page": "spinnercalibrationapparentvelocity.htm",
+  "formula_images": 0,
+  "screenshot_images": 14
+ },
+ {
+  "page": "spinnerthresholds.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "standalone_contingency_table.htm",
+  "formula_images": 3,
+  "screenshot_images": 7
+ },
+ {
+  "page": "star_plots.htm",
+  "formula_images": 1,
+  "screenshot_images": 13
+ },
+ {
+  "page": "statisticalcurveprediction.htm",
+  "formula_images": 4,
+  "screenshot_images": 20
+ },
+ {
+  "page": "stretchdepthshift.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "swequationsandmethodology.htm",
+  "formula_images": 103,
+  "screenshot_images": 39
+ },
+ {
+  "page": "swparameters.htm",
+  "formula_images": 0,
+  "screenshot_images": 39
+ },
+ {
+  "page": "swplot.htm",
+  "formula_images": 0,
+  "screenshot_images": 25
+ },
+ {
+  "page": "synthetic_seismorgram.htm",
+  "formula_images": 10,
+  "screenshot_images": 43
+ },
+ {
+  "page": "temperaturegradient.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "ternary.htm",
+  "formula_images": 3,
+  "screenshot_images": 40
+ },
+ {
+  "page": "textcurves.htm",
+  "formula_images": 5,
+  "screenshot_images": 14
+ },
+ {
+  "page": "third_party_software_licenses.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "time_based_pl_station_data___a.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "time_based_pl_station_data___l.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "toolbox.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "tools.htm",
+  "formula_images": 2,
+  "screenshot_images": 26
+ },
+ {
+  "page": "total_organic_carbon_content.htm",
+  "formula_images": 0,
+  "screenshot_images": 6
+ },
+ {
+  "page": "transformcurveunits.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "trueverticalstratigraphic.htm",
+  "formula_images": 0,
+  "screenshot_images": 4
+ },
+ {
+  "page": "tvdcalculations.htm",
+  "formula_images": 2,
+  "screenshot_images": 7
+ },
+ {
+  "page": "ucr.htm",
+  "formula_images": 51,
+  "screenshot_images": 77
+ },
+ {
+  "page": "user_definedformula.htm",
+  "formula_images": 0,
+  "screenshot_images": 11
+ },
+ {
+  "page": "user_set_up.htm",
+  "formula_images": 0,
+  "screenshot_images": 11
+ },
+ {
+  "page": "userapps.htm",
+  "formula_images": 0,
+  "screenshot_images": 24
+ },
+ {
+  "page": "using_the_license_server_manag.htm",
+  "formula_images": 0,
+  "screenshot_images": 15
+ },
+ {
+  "page": "velocity_for_array_tools.htm",
+  "formula_images": 0,
+  "screenshot_images": 8
+ },
+ {
+  "page": "velocity_images.htm",
+  "formula_images": 0,
+  "screenshot_images": 2
+ },
+ {
+  "page": "welcometointeractivepetrophysics.htm",
+  "formula_images": 2,
+  "screenshot_images": 4
+ },
+ {
+  "page": "well_diagram_cross_section.htm",
+  "formula_images": 0,
+  "screenshot_images": 8
+ },
+ {
+  "page": "well_diagram_manager.htm",
+  "formula_images": 2,
+  "screenshot_images": 20
+ },
+ {
+  "page": "well_security.htm",
+  "formula_images": 1,
+  "screenshot_images": 11
+ },
+ {
+  "page": "wellbore_stability.htm",
+  "formula_images": 5,
+  "screenshot_images": 46
+ },
+ {
+  "page": "wellheaderinfo.htm",
+  "formula_images": 0,
+  "screenshot_images": 10
+ },
+ {
+  "page": "wellmap.htm",
+  "formula_images": 2,
+  "screenshot_images": 11
+ },
+ {
+  "page": "wells.htm",
+  "formula_images": 0,
+  "screenshot_images": 1
+ },
+ {
+  "page": "witsmllink.htm",
+  "formula_images": 3,
+  "screenshot_images": 6
+ },
+ {
+  "page": "workflow.htm",
+  "formula_images": 0,
+  "screenshot_images": 0
+ },
+ {
+  "page": "working_with_parameters_in_mul.htm",
+  "formula_images": 1,
+  "screenshot_images": 19
+ },
+ {
+  "page": "workingwithcurvesinmultiplewells.htm",
+  "formula_images": 4,
+  "screenshot_images": 30
+ }
+]

@@ -1,0 +1,2901 @@
+{
+ "source": "C:\\Program Files\\IP2018 (identical files present in IP2025)",
+ "note": "Verbatim extraction. 'stated_default' is populated ONLY where the file literally states a default; null means not stated.",
+ "modules": {
+  "ClayVol": {
+   "module": "Clay Volume",
+   "source_file": "ClayVol.hlp",
+   "count": 70,
+   "parameters": [
+    {
+     "n": 1,
+     "name": "Gr Use",
+     "description": "Flag\n'Check' the cell if you wish to use the gamma ray log as a clay indicator in this zone.\n'Un-check' the cell for 'Vclay gamma ray' to be set to Null values over this zone.",
+     "stated_default": null
+    },
+    {
+     "n": 2,
+     "name": "Gr Clean",
+     "description": "'Gamma Ray curve value in a clean, 0%, Vclay zone'.",
+     "stated_default": null
+    },
+    {
+     "n": 3,
+     "name": "Gr Clay",
+     "description": "'Gamma Ray curve value in a 100% clay zone'.",
+     "stated_default": null
+    },
+    {
+     "n": 4,
+     "name": "Gr Method",
+     "description": "The following methods can be selected\n 'Linear' : Linear relationship between GR and VclGr\n 'Curved' : A composite, curved relationship\n 'Clavier' : As per Clavier et al.\n 'Stieber' : As per Stieber et al. (South Louisiana Miocene and Pliocene)\n 'Old Rock' : As per Larionov et al. for older (Mesozoic)rocks \n 'Young Rock' : As per Larionov for younger (Tertiary clastic)rocks",
+     "stated_default": null
+    },
+    {
+     "n": 5,
+     "name": "Neu Use",
+     "description": "Flag\n'Check' the cell if you wish to use the Neutron log as a clay indicator in this zone.\n'Un-check' the cell for 'Vclay neutron' to be set to Null values over this zone.",
+     "stated_default": null
+    },
+    {
+     "n": 6,
+     "name": "Neu Clean",
+     "description": "'Value of the Neutron curve in a clean, zero Vclay zone'. \nThe user should use care in setting the 'Neu Clean' parameter at any value other than zero, since the indicator can easily under-estimate the clay volume if 'Neu clean' is set too high.",
+     "stated_default": null
+    },
+    {
+     "n": 7,
+     "name": "Neu Clay",
+     "description": "'Value of the Neutron curve in a 100% clay zone'.",
+     "stated_default": null
+    },
+    {
+     "n": 8,
+     "name": "SP Use",
+     "description": "Flag\n'Check' the cell if you wish to use the SP log as a clay indicator in this zone.\n'Un-check' the cell for 'Vclay SP' to be set to Null values over this zone.",
+     "stated_default": null
+    },
+    {
+     "n": 9,
+     "name": "SP Clean",
+     "description": "'Value of the SP in a clean zero Vclay zone'.",
+     "stated_default": null
+    },
+    {
+     "n": 10,
+     "name": "SP Clay",
+     "description": "'Value of the SP in a 100% clay zone'.",
+     "stated_default": null
+    },
+    {
+     "n": 11,
+     "name": "Res Use",
+     "description": "Flag\n'Check' the cell if you wish to use the Resistivity log as a clay indicator in this zone.\n'Un-check' the cell for 'Vclay resistivity' to be set to Null values over this zone.\nThe resistivity indicator will generally only work in hydrocarbon-bearing zones where the surrounding shales have low resistivities.",
+     "stated_default": null
+    },
+    {
+     "n": 12,
+     "name": "Res Clean",
+     "description": "'Value of the resistivity curve in a clean, zero Vclay zone'. Generally chosen as the highest resistivity in a hydrocarbon-bearing, clay-free zone.",
+     "stated_default": null
+    },
+    {
+     "n": 13,
+     "name": "Res Clay",
+     "description": "'Value of the resistivity curve in a 100% clay zone'.",
+     "stated_default": null
+    },
+    {
+     "n": 14,
+     "name": "Oth Use",
+     "description": "Flag\n'Check' the cell if you wish to use another log as a single clay indicator in this zone.\n'Un-check' the cell for 'Vclay other single' to be set to Null values over this zone.\nThe other single indicator is assumed to be a linear indicator, similar to the Gamma Ray linear indicator.",
+     "stated_default": null
+    },
+    {
+     "n": 15,
+     "name": "Oth Clean",
+     "description": "'Value of the other single indicator in a clean, zero Vclay zone'.",
+     "stated_default": null
+    },
+    {
+     "n": 16,
+     "name": "Oth Clay",
+     "description": "'Value of the other single indicator in a 100% clay zone'.",
+     "stated_default": null
+    },
+    {
+     "n": 17,
+     "name": "ND Use",
+     "description": "Flag\n'Check' the cell if you wish to use the Neutron / Density curve combination as a clay indicator in this zone.\n'Un-check' the cell for Vclay Neutron/Density to be set to Null values over this zone.",
+     "stated_default": null
+    },
+    {
+     "n": 18,
+     "name": "ND Neu Clay",
+     "description": "'Neutron value in clay zone' for the Neutron / Density clay indicator.",
+     "stated_default": null
+    },
+    {
+     "n": 19,
+     "name": "ND Den Clay",
+     "description": "'Density value in clay zone' for the Neutron / Density clay indicator.",
+     "stated_default": null
+    },
+    {
+     "n": 20,
+     "name": "ND Den Clean1",
+     "description": "'Density value for point 1' on the 'clean' line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 21,
+     "name": "ND Den Clean2",
+     "description": "'Density value for point 2' on the 'clean' line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 22,
+     "name": "ND Neu Clean1",
+     "description": "'Neutron value for point 1' on the 'clean' line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 23,
+     "name": "ND Neu Clean2",
+     "description": "'Neutron value for point 2' on the 'clean' line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 24,
+     "name": "SD Use",
+     "description": "Flag\n'Check' the cell if you wish to use the Sonic / Density curve combination as a clay indicator in this zone.\n'Un-check' the cell for Vclay Sonic/Density to be set to Null values over this zone.",
+     "stated_default": null
+    },
+    {
+     "n": 25,
+     "name": "SD Son Clay",
+     "description": "'Sonic value in clay zone' for the Sonic / Density clay indicator.",
+     "stated_default": null
+    },
+    {
+     "n": 26,
+     "name": "SD Den Clay",
+     "description": "'Density value in clay zone' for the Sonic / Density clay indicator.",
+     "stated_default": null
+    },
+    {
+     "n": 27,
+     "name": "SD Den Clean1",
+     "description": "'Density value for point 1' on the 'Clean' line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 28,
+     "name": "SD Den Clean2",
+     "description": "'Density value for point 2' on the clean line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 29,
+     "name": "SD Son Clean1",
+     "description": "'Sonic value for point 1' on the clean line.\nThe'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 30,
+     "name": "SD Son Clean2",
+     "description": "'Sonic value for point 2' on the clean line.\nThe'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 31,
+     "name": "NS Use",
+     "description": "Flag\n'Check' the cell if you wish to use the Neutron / Sonic curve combination as a clay indicator in this zone.\n'Un-check' the cell for Vclay Neutron / Sonic to be set to Null values over this zone.",
+     "stated_default": null
+    },
+    {
+     "n": 32,
+     "name": "NS Neu Clay",
+     "description": "'Neutron value in clay zone' for the Neutron / Sonic clay indicator.",
+     "stated_default": null
+    },
+    {
+     "n": 33,
+     "name": "NS Son Clay",
+     "description": "'Sonic value in clay zone' for the Neutron / Sonic clay indicator.",
+     "stated_default": null
+    },
+    {
+     "n": 34,
+     "name": "NS Son Clean1",
+     "description": "'Sonic value for point 1' on the clean line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 35,
+     "name": "NS Son Clean2",
+     "description": "'Sonic value for point 2' on the clean line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 36,
+     "name": "NS Neu Clean1",
+     "description": "'Neutron value for point 1' on the clean line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 37,
+     "name": "NS Neu Clean2",
+     "description": "'Neutron value for point 2' on the clean line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 38,
+     "name": "OD Use",
+     "description": "Flag\n'Check' the cell if you wish to use another double indicator as a clay indicator in this zone.\n'Un-check' the cell for 'Vclay other double' to be set to Null values over this zone.\nThe 'other double clay indicator' is calculated like the Neutron /Density clay indicators, with a clay point and a 'Clean' line.",
+     "stated_default": null
+    },
+    {
+     "n": 39,
+     "name": "OD Ot1 Clay",
+     "description": "'Clay value for curve 1' for the other double clay indicator.",
+     "stated_default": null
+    },
+    {
+     "n": 40,
+     "name": "OD Ot2 Clay",
+     "description": "'Clay value for curve 2' for the other double clay indicator.",
+     "stated_default": null
+    },
+    {
+     "n": 41,
+     "name": "OD Ot2 Clean1",
+     "description": "'Other double curve 2 value' for point 1 on the clean line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 42,
+     "name": "OD Ot2 Clean2",
+     "description": "'Other double curve 2 value' for point 2 on the clean line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 43,
+     "name": "OD Ot1 Clean1",
+     "description": "'Other double curve 1 value' for point 1 on the clean line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 44,
+     "name": "OD Ot1 Clean2",
+     "description": "'Other double curve 1 value' for point 2 on the clean line.\nThe 'Clean' line is defined by two points on the crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 45,
+     "name": "BadH1 Use",
+     "description": "Flag\n'Check' the cell if you wish to use the 'bad-hole indicator 1' in this zone.\n'Un-check' the cell to turn 'bad-hole indicator 1' to 'off', in this zone.",
+     "stated_default": null
+    },
+    {
+     "n": 46,
+     "name": "BadH1 Min",
+     "description": "'Bad hole indicator 1 - Minimum value'.\nWhen the input 'bad-hole indicator' curve value > 'BadH1 Min' value, then the double clay-indicator will not be used.\nWhen left 'blank', the discriminator is ignored.\nWhen both the 'BadH1 Min' and 'BadH1 Max' values are set, double clay-indicators will be used when the 'BadH1' curve values lie between 'BadH1 Min' and 'BadH1 Max'.",
+     "stated_default": null
+    },
+    {
+     "n": 47,
+     "name": "BadH1 Max",
+     "description": "'Bad-hole indicator 1 Maximum value'.\nWhen the input 'bad-hole indicator' curve value < 'BadH1 Max' value, then the double clay-indicator will not be used.\nWhen left 'blank' the discriminator is ignored.\nWhen both the 'BadH1 Min' and 'BadH1 Max' values are set, double clay-indicators will be used when the 'BadH1 curve values lie between 'BadH1 Min' and 'BadH1 Max'.",
+     "stated_default": null
+    },
+    {
+     "n": 48,
+     "name": "BadH2 Use",
+     "description": "Flag\n'Check' the cell if you wish to use the 'bad-hole indicator 2' curve in this zone.\n'Un-check' the cell to turn 'bad-hole indicator 2'curve off in this zone.",
+     "stated_default": null
+    },
+    {
+     "n": 49,
+     "name": "BadH2 Min",
+     "description": "'Bad hole indicator 2 - Minimum value'.\nWhen the input 'bad-hole indicator' curve value > 'BadH2 Min' value, then the double clay-indicator will not be used.\nWhen left 'blank', the discriminator is ignored.\nWhen both the 'BadH2 Min' and 'BadH2 Max' values are set, double clay-indicators will be used when the 'BadH2' curve values lie between 'BadH2 Min' and 'BadH1 Max'.",
+     "stated_default": null
+    },
+    {
+     "n": 50,
+     "name": "BadH2 Max",
+     "description": "'Bad-hole indicator 2 Maximum value'.\nWhen the input 'bad-hole indicator' curve value < 'BadH2 Max' value, then the double clay-indicator will not be used.\nWhen left 'blank' the discriminator is ignored.\nWhen both the 'BadH2 Min' and 'BadH2 Max' values are set, double clay-indicators will be used when the 'BadH2 curve values lie between 'BadH2 Min' and 'BadH2 Max'.",
+     "stated_default": null
+    },
+    {
+     "n": 51,
+     "name": "Link Clay Paras",
+     "description": "Flag\n'Check' the cell / column if you wish a Double Clay parameter that is common to 2 Double Clay Indicators to be updated simultaneously if one clay parameter is changed. \n\nFor example, If 'checked', changing the Neutron/Density Clay Density parameter (ND Den Clay) will update the Sonic/ Density Clay Density parameter (SD Den Clay) with the same value.\n'Un-check' the cell / column if you do not wish to link Double Clay Indicator parameters.",
+     "stated_default": null
+    },
+    {
+     "n": 52,
+     "name": "Link PhiSw Clay",
+     "description": "Flag\nWhen 'Checked' the 'Density', 'Neutron' and 'Sonic clay' parameters are linked to the equivalent parameters in the PhiSw module.\nThis also links the 'Neutron/Density clean point 1' 'Density' Parameter to the PhiSw module 'Matrix Density' parameter.\nThe Clay Volume and PhiSw parameters sets must also be linked for this to work.",
+     "stated_default": null
+    },
+    {
+     "n": 53,
+     "name": "Vcl Av Method",
+     "description": "This parameter controls the way the VCLav curve is calculated \nOption are :\n Mean : The mean value of all the individual Vcl curves is taken\n Median : The median value of all the individual Vcl curves is taken\n Lateral : The Lateral average value of all the individual Vcl curves is taken. \n \nThe Lateral average is the median value of all the individual pair products. This is almost identical to the Hodges-Lehmann method.",
+     "stated_default": null
+    },
+    {
+     "n": 54,
+     "name": "Vcl Mix Method",
+     "description": "The Vclmix output curve allows the mixing of the Vcl minimum and Vcl average curves by zone. The parameter controls the selection.\n Minimum : The Vclmix output curve will be the same as the Vcl minimum curve\n Average : The Vclmix output curve will be the same as the Vcl average curve",
+     "stated_default": null
+    },
+    {
+     "n": 55,
+     "name": "Use Percentile",
+     "description": "When ticked the percentiles entered under the 'Percentile Clean' and the 'Percentile Clay' parameters will be used to calculate the 'Gr Clean' and 'Gr Clay' parameters which are used for the calculation of Vcl GammaRay.\n \n If Organic shale corrections are being made then this option to Use Percentiles will become unavailable.",
+     "stated_default": null
+    },
+    {
+     "n": 56,
+     "name": "Percentile Clean",
+     "description": "When 'Use Percentile' is ticked this parameter is used to calculate the 'Gr Clean' parameter. Enter the number in %. Numbers can be less than 0%. Negative percentiles are calculated by a linear scaling from the 0% to the 100% percentiles and extrapolating to the negative entered number. \n \n The Percentile is calculated from the input GammRay curve data for all zones which have the same 'Percentile Group' number as the current zone. Hence if all zones use the same 'Percentile Group' number then a 10th percentile for all zones will give the same Gr Clean for all zones.\n \n When 'Use Percentile' is un-ticked this parameter is calculated from the 'Gr Clean' parameter using the input GammRay curve data for all zones which have the same 'Percentile Group' number as the current zone.",
+     "stated_default": null
+    },
+    {
+     "n": 57,
+     "name": "Percentile Clay",
+     "description": "When 'Use Percentile' is ticked this parameter is used to calculate the 'Gr Clay' parameter. Enter the number in %. Numbers greater than 100% are allowed and are normal for the calculation of clay volume. Percentiles over 100% are calculated by a linear scaling from the 0% to the 100% percentiles and extrapolating to the entered number.\n \n The Percentile is calculated from the input GammRay curve data for all zones which have the same 'Percentile Group' number as the current zone. Hence if all zones use the same 'Percentile Group' number then a 90th percentile for all zones will give the same Gr Clay for all zones.\n \n When 'Use Percentile' is un-ticked this parameter is calculated from the 'Gr Clay' parameter using the input GammRay curve data for all zones which have the same 'Percentile Group' number as the current zone.",
+     "stated_default": null
+    },
+    {
+     "n": 58,
+     "name": "Percentile Group",
+     "description": "The 'Percentile Group' is used for determining which GammRay curve data is used for the percentile calculations or for the lookup of percentiles from 'Gr clean' / 'Gr Clay' parameters when the 'Use Percentile' is un-ticked.",
+     "stated_default": null
+    },
+    {
+     "n": 59,
+     "name": "Clip Low %",
+     "description": "The 'Clip Low %' and the 'Clip High %' parameters are used to eliminate spikes in the data which will artificially change the percentiles. Enter a low clip values between 0-100%.\n \n The GammaRay curve data for each 'Percentile Group' is clipped using the 'Clip Low %' and the 'Clip High %' parameters before the percentiles are calculated. This allows a percentile of say 130% to be calculated with the removal of spikes in the data before the 130% is calculated.",
+     "stated_default": null
+    },
+    {
+     "n": 60,
+     "name": "Clip High %",
+     "description": "The 'Clip Low %' and the 'Clip High %' parameters are used to eliminate spikes in the data which will artificially change the percentiles. Enter a high clip values between 0-100%.\n \n The GammaRay curve data for each 'Percentile Group' is clipped using the 'Clip Low %' and the 'Clip High %' parameters before the percentiles are calculated.",
+     "stated_default": null
+    },
+    {
+     "n": 61,
+     "name": "Stieber Constant",
+     "description": "When the 'Gr Method' parameter is set to 'Stieber' then this constant (default 2.0) is used to control the shape of the curve in the Stieber equation.\n \n VcGr = Z / (1 + STB (1 - Z))\n Where Z is linear Vclay gamma ray and STB is the Stieber constant.",
+     "stated_default": "2"
+    },
+    {
+     "n": 62,
+     "name": "Organic Shale_Corr.",
+     "description": "When checked the Vclay Gamma Ray, Vclay Neutron and Vclay Neutron Density will be calculated from the organic shale corrected curves for Gr, Neutron and Density. When unchecked Vclay will be calculated as normal.",
+     "stated_default": null
+    },
+    {
+     "n": 63,
+     "name": "Gr Kerogen",
+     "description": "Used to correct the input Gr curve for Kerogen (Uranium). If the input Gr curves is an Uranium corrected curve (eg CGR) then set this value to zero.\n The value is the API reading of 100% Kerogen. \n \n GrCorr = Gr_in - TOC_in x Kerogen_Wt%Con x Gr_Kerogen \n Where\n Gr_in = Input Gamma Ray curve\n TOC_in = Input TOC curve in weight percent\n Kerogen_Wt%Con = Conversion factor used to convert input TOC curve in weight % to volumes\n Gr_Kerogen = Gr API reading in 100% Kerogen \n GrCorr = Output Kerogen corrected Gamma Ray\n \n This value can be obtained from wells where a spectral gamma ray has been run. Crossplot the difference between Normal Gr and Uranium corrected Gr against volume TOC (need to correct TOC from weight % to volume before crossplotting). Make a linear regression through the data and extrapolate the line to 100% TOC. This will be the Gr Kerogen value.",
+     "stated_default": null
+    },
+    {
+     "n": 64,
+     "name": "Rhob Kerogen",
+     "description": "Density of Kerogen. Default is 1.1 gm/cc",
+     "stated_default": "1"
+    },
+    {
+     "n": 65,
+     "name": "Nphi Kerogen",
+     "description": "Neutron of Kerogen. Default is 0.6 v/v",
+     "stated_default": "0"
+    },
+    {
+     "n": 66,
+     "name": "Rhob Heavy_Min.",
+     "description": "Density of Heavy minerals associated with organic shale (mainly Pyrite). Default is 4.3 gm/cc",
+     "stated_default": "4"
+    },
+    {
+     "n": 67,
+     "name": "Nphi Heavy_Min.",
+     "description": "Neutron of Heavy minerals associated with organic shale (mainly Pyrite). Default is -0.03 v/v",
+     "stated_default": "-0"
+    },
+    {
+     "n": 68,
+     "name": "Kerogen Wt%_Con.",
+     "description": "Conversion factor to convert input TOC curve in weight % to a volume curve. Default is 2.5 \n \n If the input TOC curve is already in volume then set this factor to 1.0",
+     "stated_default": "2"
+    },
+    {
+     "n": 69,
+     "name": "Heavy_Min. Wt%_Con.",
+     "description": "Conversion factor to convert input Heavy Mineral curve in weight % to a volume curve. Default is 1.0 (input is already in volumes). \n \n If the input Heavy Mineral curve is already in volume then set this factor to 1.0.",
+     "stated_default": "1"
+    },
+    {
+     "n": 70,
+     "name": "Link Clean Paras",
+     "description": "Flag\n'Check' the cell / column if you wish a Double Clean parameter that is common to 2 Double Clay Indicators to be updated simultaneously if one clean parameter is changed. \n\nFor example, If 'checked', changing the Neutron/Density Clean1 Density parameter (ND Den Clean1) will update the Sonic/Density Clean1 Density parameter (SD Den Clean1) with the same value.\n'Un-check' the cell / column if you do not wish to link Clean line Double Indicator parameters.",
+     "stated_default": null
+    }
+   ]
+  },
+  "PhiSw": {
+   "module": "Porosity / Water Saturation",
+   "source_file": "PhiSw.hlp",
+   "count": 189,
+   "parameters": [
+    {
+     "n": 1,
+     "name": "Rw",
+     "description": "Formation water resistivity.",
+     "stated_default": null
+    },
+    {
+     "n": 2,
+     "name": "Temp Rw",
+     "description": "'Temperature associated with Rw' - units set on curve input/output screen. The program will convert the Rw to formation temperature using the entered Temperature curve.\nIf 'Rw Temp' is 'blank' then the Rw will be assumed to be at formation temperature and no further conversion will be made.",
+     "stated_default": null
+    },
+    {
+     "n": 3,
+     "name": "Rmf",
+     "description": "Mud filtrate resistivity",
+     "stated_default": null
+    },
+    {
+     "n": 4,
+     "name": "Temp Rmf",
+     "description": "'Temperature associated with Rmf' - units set on curve input/output screen. The program will convert the Rmf to formation temperature using the entered Temperature curve.\nIf 'Rmf Temp' is 'blank' then the Rmf will be assumed to be at formation temperature and no further conversion will be made.",
+     "stated_default": null
+    },
+    {
+     "n": 5,
+     "name": "Rw bound",
+     "description": "'Clay-bound water resistivity'. Used in the 'Dual Water' saturation equation option. \nThe value can be estimated from the Rw apparent curve in the shaly wet sections. Rw bound can be adjusted to give 100% Sw in these zones.",
+     "stated_default": null
+    },
+    {
+     "n": 6,
+     "name": "Temp Rwb",
+     "description": "'Temperature associated with Rw bound' - units set on curve input/output screen. The program will convert Rw bound to formation temperature using the entered Temperature curve.\nIf 'Rw bound Temp' is 'blank' then Rw bound will be assumed to be at formation temperature and no further conversion will be made.",
+     "stated_default": null
+    },
+    {
+     "n": 7,
+     "name": "Rmf bound",
+     "description": "'Clay-bound water resistivity'. Used in the 'Dual Water' saturation equation option. Normally the same as Rw bound but can be different due to the different responses of the microresistivity curve & the deep resistivity curve in shaly zones.\nThe value can be estimated from the Rmf apparent curve in the shaly wet sections. Rmf bound can be adjusted to give 100% Sxo in these zones.",
+     "stated_default": null
+    },
+    {
+     "n": 8,
+     "name": "Temp Rmfb",
+     "description": "'Temperature associated with Rmf bound' - units set on curve input/output screen. The program will convert Rmf bound to formation temperature using the entered Temperature curve.\nIf 'Rwf bound Temp' is 'blank' then Rmf bound will be assumed to be at formation temperature and no further conversion will be made.",
+     "stated_default": null
+    },
+    {
+     "n": 9,
+     "name": "Rho Sxo zone",
+     "description": "'Flushed zone water density' in gm/cc. Used in the 'Density' equation for the density of the water seen by the tool.\nIf 'Rho Sxo zone' is 'blank' the value is calculated from Rmf. \nIn oil-based mud 'Rho Sxo' is calculated from Rw if the cell is left 'blank'.",
+     "stated_default": null
+    },
+    {
+     "n": 10,
+     "name": "Salin Sxo zone",
+     "description": "'Flushed zone water salinity' in decimal notation (25 KPPM entered as .025). Used for making formation salinity corrections to the neutron and calculate TP water.\nIf 'Salin Sxo zone' is 'blank', the value is calculated from Rmf. \nIn oil-based mud 'Salin Sxo zone' is calculated from Rw if the cell is left 'blank'.",
+     "stated_default": null
+    },
+    {
+     "n": 11,
+     "name": "Rho Wet Clay",
+     "description": "'Density of Wet Clay' in gm/cc. Used for calculating porosity from the density and calculating Wet Clay Total Porosity if not entered.\nMust be entered if a density tool is used.",
+     "stated_default": null
+    },
+    {
+     "n": 12,
+     "name": "Rho Dry Clay",
+     "description": "'Density of dry clay' in gm/cc. Used for calculating Clay Total Porosity.",
+     "stated_default": null
+    },
+    {
+     "n": 13,
+     "name": "Neu Wet Clay",
+     "description": "'Neutron reading in Wet Clay' in decimals. Used for calculating Neutron Porosity.\nMust be entered if a neutron tool is used.",
+     "stated_default": null
+    },
+    {
+     "n": 14,
+     "name": "Sonic Wet Clay",
+     "description": "'Sonic reading in Wet Clay' in uSec/ft. Used for calculating Sonic Porosity.\nMust be entered if a sonic tool is used.",
+     "stated_default": null
+    },
+    {
+     "n": 15,
+     "name": "Res Clay",
+     "description": "'Resistivity of the clay'. Used for the 'Simandoux', 'Modified Simandoux' and 'Indonesian' water saturation equations.\nCan be selected interactively from the 'Resistivity vs. Vclay' crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 16,
+     "name": "Rxo Clay",
+     "description": "'Resistivity of the clay seen by the microresistivity tool'. Used for the 'Simandoux', 'Modified Simandoux' and 'Indonesian' water saturation equations for calculating Sxo.\nNormally the same as 'Res Clay', but can be different due to the different response of the microresistivity curve and the deep resistivity curve in shaly zones.\nCan be selected interactively from the 'Rxo vs. Vclay' crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 17,
+     "name": "Hc Den",
+     "description": "'Hydrocarbon Density' in gm/cc. Used to calculate the apparent hydrocarbon density seen by the Density tool and the apparent hydrocarbon hydrogen Index seen by the Neutron tool.\nIf using the DENSITY/NEUTRON model and the 'variable hydrocarbon density' flag is set, then 'Hc Den' will be the maximum allowable hydrocarbon density.\nIf 'Hc Den' is left 'blank', the value defaults to 1.0 gm/cc.",
+     "stated_default": "1"
+    },
+    {
+     "n": 18,
+     "name": "Hc Den Min",
+     "description": "'Minimum allowable hydrocarbon density' in gm/cc. Used only in the DENSITY/NEUTRON model and with the variable hydrocarbon density flag set. This value will set the minimum possible hydrocarbon density.",
+     "stated_default": null
+    },
+    {
+     "n": 19,
+     "name": "Neu Hc HI",
+     "description": "'Neutron hydrocarbon hydrogen index' in decimals. If you want to override the default calculation, enter the value here, otherwise it will be calculated from the HC Den parameter.\nDefault calculation is 'Neu Hc HI' = RhoH * 9 (4 - 2.5 RhoH) / (16 - 2.5 RhoH)\nwhere RhoH is the input hydrocarbon density (Hc Den)\nWhen entered no neutron excavation corrections are made.",
+     "stated_default": "calculation, enter the value here, otherwise it will be calc"
+    },
+    {
+     "n": 20,
+     "name": "Den Hc app",
+     "description": "'Density tool apparent hydrocarbon density' in gm/cc. If you want to override the default calculation than enter the value here otherwise it will be calculated from the HC Den parameter.\n \nDefault calculation depends on the Density hydrocarbon model set on the Density tab : \n \n Conventional model : Den Hc app = RhoH * 2 (10 - 2.5 RhoH) / (16 - 2.5 RhoH)\n Modified model : Den Hc app = (5.5 * Rhohy (4-Rhohy) -3) / (16 - 2.5 RhoH) \n \n Where RhoH is the input hydrocarbon density (Hc Den)",
+     "stated_default": "calculation than enter the value here otherwise it will be c"
+    },
+    {
+     "n": 21,
+     "name": "Sonic Hc",
+     "description": "'Sonic hydrocarbon response' in uSec/ft. Must be entered if the Sonic porosity model is chosen.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiShr limit",
+     "description": "Volume of hydrocarbon limit seen in the flushed zone in decimals (Phi*(1-Sxo) default 0.02 . Used only in the DENSITY/NEUTRON model and with the 'variable hydrocarbon density' flag set. \nWhen Phi*(1-Sxo) is less than 'PhiShr limit' then the depth increment is considered to have too little hydrocarbon to accurately calculate a hydrocarbon density and the default value (Hc Den) is used.\n(Parameter 22)",
+     "stated_default": "0"
+    },
+    {
+     "n": 23,
+     "name": "GD source",
+     "description": "'Matrix grain density source'. Options are:\n 'Fixed value entered as a parameter'\n 'Variable value entered as a curve' \n 'Multi-mineral'. Grain density is calculated from mineral volumes using the TRUE mineral densities.",
+     "stated_default": null
+    },
+    {
+     "n": 24,
+     "name": "Rho GD",
+     "description": "'Matrix grain density' in gm/cc. Used if the 'GD source' parameter is set to 'param'.\nFor the Density porosity model this is the matrix density used to calculate porosity.\nFor the Neutron/Density porosity model this is the starting input matrix density. If the 'variable matrix density' flag is set then this value can be different to the output matrix density.\nFor the Neutron porosity model this value will set neutron matrix as longs as the 'Neutron matrix value' is blank. For example, if you wanted to calculate a Neutron sandstone enter 2.65 and the non-linear neutron sandstone transform will be used.",
+     "stated_default": null
+    },
+    {
+     "n": 25,
+     "name": "Rho GD max",
+     "description": "'Matrix grain density maximum value' in gm/cc. Used only in the DENSITY/NEUTRON model and with the 'variable matrix density' flag set. This value will set the maximum possible matrix density.",
+     "stated_default": null
+    },
+    {
+     "n": 26,
+     "name": "Rho GD min",
+     "description": "'Matrix grain density minimum value' in gm/cc. Used only in the DENSITY/NEUTRON model and with the 'variable matrix density' flag set. This value will set the minimum possible matrix density.",
+     "stated_default": null
+    },
+    {
+     "n": 27,
+     "name": "Neu matrix",
+     "description": "'Neutron matrix value' in decimals porosity units. Used only in the Neutron porosity model. This is the neutron difference between 0% porosity limestone (assumed entered neutron porosity matrix) and 0% porosity of the formation matrix.\nA linear response is used. Therefore if you want to convert to either sandstone or dolomite it is better to enter a value of 'Rho GD' and the non-linear transform will be used.\nAny value for the 'Neu Matrix' parameter will totally override 'Rho GD', therefore if you want to use 'Rho GD' to set the neutron matrix, blank out the 'Neu Matrix' parameter.",
+     "stated_default": null
+    },
+    {
+     "n": 28,
+     "name": "Sonic matrix",
+     "description": "'Sonic matrix travel time' in uSec/ft. Used for sonic porosity model and bad-hole sonic porosity.",
+     "stated_default": null
+    },
+    {
+     "n": 29,
+     "name": "TP water",
+     "description": "'Propagation time for water' in nsec/m. Used for calculating Sxo from the EPT. If not entered will be calculate from formation temperature and salinity in the flushed zone.",
+     "stated_default": null
+    },
+    {
+     "n": 30,
+     "name": "TP Lime",
+     "description": "'Propagation time for limestone' in nsec/m. Used for calculating Sxo from the EPT. Must be entered if the EPT is used. Default value is 9.1.",
+     "stated_default": "value is 9"
+    },
+    {
+     "n": 31,
+     "name": "TP Sand",
+     "description": "'Propagation time for sandstone' in nsec/m. Used for calculating Sxo from the EPT. Must be entered if the EPT is used. Default value is 7.2.",
+     "stated_default": "value is 7"
+    },
+    {
+     "n": 32,
+     "name": "TP Dol",
+     "description": "'Propagation time for dolomite' in nsec/m. Used for calculating Sxo from the EPT. Must be entered if the EPT is used. Default value is 8.7.",
+     "stated_default": "value is 8"
+    },
+    {
+     "n": 33,
+     "name": "TP Clay",
+     "description": "'Propagation time for clay' in nsec/m. Used for calculating Sxo from the EPT. Must be entered if the EPT is used. Default value is 8.0. Normal range 7-16.",
+     "stated_default": "value is 8"
+    },
+    {
+     "n": 34,
+     "name": "TP Hc",
+     "description": "'Propagation time for hydrocarbon' in nsec/m. Used for calculating Sxo from the EPT. Must be entered if the EPT is used. Normal values gas 3.3, oil 4.7-5.2.",
+     "stated_default": null
+    },
+    {
+     "n": 35,
+     "name": "TP Sp mineral",
+     "description": "'Propagation time for special mineral' in nsec/m. Used for calculating Sxo from the EPT when mineral model chosen includes a defined special mineral.",
+     "stated_default": null
+    },
+    {
+     "n": 36,
+     "name": "Sonic Equ",
+     "description": "'Equation used for calculating sonic porosity'. Options are :\n Wyllie time average equation \n Hunt Raymer equation",
+     "stated_default": null
+    },
+    {
+     "n": 37,
+     "name": "Sonic Lime",
+     "description": "'Sonic limestone travel time' in uSec/ft. Used for Neutron/Sonic porosity model. Default value is 49.",
+     "stated_default": "value is 49"
+    },
+    {
+     "n": 38,
+     "name": "Sonic Sand",
+     "description": "'Sonic sandstone travel time' in uSec/ft. Used for Neutron/Sonic porosity model. Default value is 56.",
+     "stated_default": "value is 56"
+    },
+    {
+     "n": 39,
+     "name": "Sonic Dol",
+     "description": "'Sonic dolomite travel time' in uSec/ft. Used for Neutron/Sonic porosity model. Default value is 44.",
+     "stated_default": "value is 44"
+    },
+    {
+     "n": 40,
+     "name": "Sonic water",
+     "description": "'Sonic water travel time' in uSec/ft. Used for Neutron/Sonic and Sonic porosity model and bad-hole Sonic porosity. Default value is 189.",
+     "stated_default": "value is 189"
+    },
+    {
+     "n": 41,
+     "name": "Sonic Cp",
+     "description": "'Sonic compaction factor'. Used in the Wyllie time average equation. Default value is 1.0.",
+     "stated_default": "value is 1"
+    },
+    {
+     "n": 42,
+     "name": "DT Sp mineral",
+     "description": "'Sonic special mineral travel time' in uSec/ft. Used for Neutron/Sonic porosity model when the mineral model chosen includes a defined special mineral.",
+     "stated_default": null
+    },
+    {
+     "n": 43,
+     "name": "Rho Sp mineral",
+     "description": "'Density special mineral' in gm/cc. Used for Neutron/Density porosity model when the mineral model chosen includes a defined special mineral.",
+     "stated_default": null
+    },
+    {
+     "n": 44,
+     "name": "Neu Form Sal",
+     "description": "'Neutron formation salinity correction flag'. Set to 'on' (ticked) if you want the program to make formation salinity corrections. The formation salinity correction depends on true porosity and water saturation.\nIf the Neutron tool has already had formation salinity corrections applied, then set this option to 'Off'(unchecked).\nIt is better to have the program perform the salinity correction, since it will take into account water saturation in the flushed zone.",
+     "stated_default": null
+    },
+    {
+     "n": 45,
+     "name": "Neu Log Cont",
+     "description": "'Neutron logging contractor'. Select the appropriate contractor.",
+     "stated_default": null
+    },
+    {
+     "n": 46,
+     "name": "Neu Tool Type",
+     "description": "'Neutron Tool Type'. Select appropriate tool type. \nIf tool type can not be found and its response is significantly different to any other tool type it is possible for the user to create a new tool type and tool response parameter file.",
+     "stated_default": null
+    },
+    {
+     "n": 47,
+     "name": "Neu Sp mineral",
+     "description": "'Neutron Special Mineral' in decimal porosity units. Used for Neutron/Density and Neutron/Sonic porosity models when the selected mineral model includes a defined special mineral.",
+     "stated_default": null
+    },
+    {
+     "n": 48,
+     "name": "Porosity Method",
+     "description": "Porosity method. Options are :\n 'Neutron/Density'\n 'Neutron/Sonic'\n 'Neutron'\n 'Density'\n 'Sonic'\n 'Input curve'. A user-selected input curve is used directly as the porosity curve. Need to set the 'Input Porosity' parameter to select 'Total' or 'Effective' porosity.",
+     "stated_default": null
+    },
+    {
+     "n": 49,
+     "name": "Variable Hc Den",
+     "description": "'Variable Hydrocarbon Density flag'. Used in the Neutron/Density porosity model. \nSet to 'On' (ticked) to calculate hydrocarbon density in the hydrocarbon zones, defined by 'PhiShr limit' parameter. Parameters 'Hc Den Min' and 'Hc Den' define the limits of the result.",
+     "stated_default": null
+    },
+    {
+     "n": 50,
+     "name": "Variable GD",
+     "description": "'Variable Matrix Grain Density' flag. Used in the Neutron/Density porosity model.\nSet to 'On' (ticked) to calculate matrix density. Parameters 'Rho GD max' and 'Rho GD min' define the limits of the result.\nIf the 'Variable Hc Den' flag is also set, then the hydrocarbon density will be calculated first using the input matrix density. Only if the 'Hc Den' is outside its limits will the matrix density be varied.",
+     "stated_default": null
+    },
+    {
+     "n": 51,
+     "name": "Variable Vcl",
+     "description": "'Variable Clay Volume' flag. Used in the Neutron/Density porosity model.\nSet to 'On' (ticked) to calculate Clay Volume. Result must be between 0 and 1.\nIf the 'Variable Hc Den' or 'Variable GD' flag is also set, then these will be varied first. Only if both are at their limits will the input clay volume be varied.\nIf 'Hc Den', 'Matrix Den' and 'Clay Vol' are all at their limits and no solution is possible then the Neutron and/or Density input curve will be reduced in order to resolve the solution given the input variables. When this happens the 'PHIFLAG' curve will be set to '6' for a reduction in density and '7' for a reduction in neutron.",
+     "stated_default": null
+    },
+    {
+     "n": 52,
+     "name": "Mineral Model",
+     "description": "'Mineral Model' option. Used in the Neutron/Density, Neutron/Sonic and Neutron porosity models and for the EPT to calculate TP matrix.\nOptions are :\n 'Sandstone/Limestone/Dolomite'. If matrix density is greater than 2.71 than the model will be Limestone/Dolomite, less than 2.71 Sandstone/Limestone.\n 'Sandstone/Dolomite'.\n 'Sandstone/Special mineral'. The special mineral matrix values must be entered.\n 'Limestone/Special mineral'.\n 'Dolomite/special mineral'.",
+     "stated_default": null
+    },
+    {
+     "n": 53,
+     "name": "OBM ?",
+     "description": "'Oil based mud' flag. If set to 'On' (ticked) then the following logic is applied:\n Sxo must be less than or equal to Sw.\n Invasion factor logic with OBM assumes that Sxo <= Invasion factor. Therefore if the Invasion factor is set at .5 then Sxo will be the minimum of .5 or Sw.",
+     "stated_default": null
+    },
+    {
+     "n": 54,
+     "name": "Phi max",
+     "description": "'Maximum Porosity in Clean Zone' in decimal porosity units. \n \nUsed to calculate Silt volume and also to limit porosity using the bad-hole logic with the 'Vcl cutoff'. \n Silt volume is computed as VSILT = 1 - VolwetClay - Phie / PhiMax \nAlso used for calculation of Shale type using the Thomas-Stieber techneque.\n Laminated / Dispersed model\n Vlam = (Vcl + Phie - PhiMax) / (1 - PhiMax)\n Vstruc = 0\n Vdisp = Vcl - Vlam\n Laminated / Structual model\n Vlam = (PhiMax - Phie) / PhiMax\n Vdisp = 0\n Vstruc = Vcl - Vlam",
+     "stated_default": null
+    },
+    {
+     "n": 55,
+     "name": "Delta Phi max",
+     "description": "'Addition to Phi Max'. Used for bad-hole with the Vcl cutoff.\nIf Vcl > Vcl cutoff then Phie <= (PhiMax+DeltaPhiMax)*(1.0-Vcl)*10**(-10.0*(Vcl-VclCutoff)**1.6))",
+     "stated_default": null
+    },
+    {
+     "n": 56,
+     "name": "m vari wth Vcl",
+     "description": "'Variable Cementation factor 'm' with Vcl' flag. Used for bad-hole with the Vcl cutoff.\nIf set to 'On' (ticked) and If Vcl > Vcl cutoff then m = m*10**(Vcl-VclCutoff). This has the effect of removing any hydrocarbons in zones of high clay content.",
+     "stated_default": null
+    },
+    {
+     "n": 57,
+     "name": "Vcl cutoff",
+     "description": "'Vclay cutoff' in decimals. Used with the following logic for bad-hole or shale zones.\nIf Vcl > Vcl cutoff then Phie <= (PhiMax+DeltaPhiMax)*(1.0-Vcl)*10**(-10.0*(Vcl-VclCutoff)**1.6))\nIf Vcl > Vcl cutoff and m variable with Vcl flag is set then m = m*10**(Vcl-VclCutoff).\nIf Vcl > Vcl cutoff and variable Vcl logic is chosen then VolWetClay (Vcl out) >= Vcl input.",
+     "stated_default": null
+    },
+    {
+     "n": 58,
+     "name": "Sxo Limit ?",
+     "description": "'Limit Sxo' flag. If set to 'On' (ticked) then Sxo will be limited by the equation Sxo < Sw**SxoLimit.",
+     "stated_default": null
+    },
+    {
+     "n": 59,
+     "name": "Sxo Limit",
+     "description": "'Sxo Limit exponent'. If the 'Sxo Limit' flag is set to 'On' then Sxo will be limited by the equation Sxo < Sw**SxoLimit.",
+     "stated_default": null
+    },
+    {
+     "n": 60,
+     "name": "Bad Hole Disc ?",
+     "description": "'Bad Hole Discriminator' flag. If set to 'On' (ticked) then the bad-hole discriminator logic is enabled.\nIf the input discriminator curve has values greater than the 'Disc Min' parameter and less than the 'Disc Max' parameter then Phie <= PhiSonic.",
+     "stated_default": null
+    },
+    {
+     "n": 61,
+     "name": "Disc Min",
+     "description": "'Discriminator Minimum' value, units of discriminator input curve. If the parameter is 'blank' then this discriminator is not used. \nIf the input discriminator curve has values greater than the 'Disc Min' parameter and less than the 'Disc Max' parameter then Phie <= PhiSonic. \nIf both the minimum and maximum discriminators are left 'blank', then Phie is always limited to less than PhiSonic.",
+     "stated_default": null
+    },
+    {
+     "n": 62,
+     "name": "Disc Max",
+     "description": "'Discriminator Maximum' value, units of discriminator input curve. If the parameter is left 'blank', then this discriminator is not used. \nIf the input discriminator curve is greater than the 'Disc Min' parameter and less than the 'Disc Max' parameter then Phie <= PhiSonic. \nIf both the minimum and maximum discriminators are 'blank' then Phie is always <= PhiSonic if the 'Bad Hole Disc' flag is turned on.",
+     "stated_default": null
+    },
+    {
+     "n": 63,
+     "name": "Sat Equation",
+     "description": "'Saturation equation'. Used both for calculation of Sxo and Sw. The following equation are available\n \n Archie 1/Rt = Phi**m.Sw**n / (a.Rw)\n Archie PhiT 1/Rt = PhiT**m.Sw**n / (a.Rw) \n Same as Archie except PhiT used instead of Phie.\n Simandoux 1/Rt = Phi**m.Sw**n / (a.Rw) + Vcl.Sw / Rcl\n Modified Simandoux 1/Rt = Phi**m.Sw**n / (a.Rw.(1-Vcl)) + Vcl.Sw / Rcl\n Indonesian (Poupon-Leveaux) 1/Rt**.5 = ((Phi**m/(a.Rw))**.5 + Vcl**(1-Vcl/2)/Rcl**.5 ).Sw**(n/2)\n Woodhouse Tar 1/Rt**.5 = ((Phi**m/(a.Rw))**.5 + Vcl**(1-Vcl)/Rcl**.5 ).Sw**(n/2)\n Dual Water 1/Rt = PhiT**m.SwT**n/a.(1/Rw + Swb/SwT(1/Rwb-1/Rw))\n Juhasz 1/Rt = PhiT**m.SwT**n.(1+Bn.Qvn/SwT)/(a.Rw)\n Qvn = Vcl*PhiClay / PhiT\n Bn = B normalized, entered parameter\n Waxman-Smits 1/Rt = PhiT**m.SwT**n.(1+B.Qv/SwT)/(a.Rw)\n B = entered parameter or calculated from T and Rw\n Qv = a/PhiT + b where 'a' and 'b' are entered parameters. Qv can also be entered as a input curve.\n Poupon-Aguilera 1/Rt = Phi**m.Sw**n / (a.Rw(1-Vsh)) + Vsh / Rsh\n Use for Laminated clean Sand / Shale formations. Do not use if the Laminated Sw model is turned on\n Poupon-Tixier 1/Rt = (1-Vsh).Phi**m.Sw**n / (a.Rw) + Vsh / Rsh\n Use for Laminated clean Sand / Shale formations. Do not use if the Laminated Sw model is turned on",
+     "stated_default": null
+    },
+    {
+     "n": 64,
+     "name": "a factor",
+     "description": "'Archie equation 'a' / tortuosity factor'.",
+     "stated_default": null
+    },
+    {
+     "n": 65,
+     "name": "m exponent",
+     "description": "'Archie 'm' / cementation factor'. Use when 'm source' parameter is set to parameter.",
+     "stated_default": null
+    },
+    {
+     "n": 66,
+     "name": "n exponent",
+     "description": "'Archie 'n' / saturation exponent'. Use when 'n source' parameter is set to parameter.",
+     "stated_default": null
+    },
+    {
+     "n": 67,
+     "name": "Invasion factor",
+     "description": "'Invasion factor'. Used to calculate Sxo when no Sxo device is available.\n For water-based mud Sxo = (Sw+InvasionFactor)/(1+InvasionFactor).\n For Oil-based mud Sxo = InvasionFactor",
+     "stated_default": null
+    },
+    {
+     "n": 68,
+     "name": "Sxo Method",
+     "description": "'Method for Sxo calculation'. Options are :\n 'Rxo' Sxo will be calculated from Rxo resistivity.\n 'TPL' Sxo will be calculated from EPT TPL curve.\n 'Invasion Factor' Sxo will be calculated from Sw and the Invasion Factor.",
+     "stated_default": null
+    },
+    {
+     "n": 69,
+     "name": "m source",
+     "description": "'Source for Archie 'm' factor'. Options are :\n 'Parameter' Input from fixed parameter.\n 'Curve' Input from a curve.\n 'Shell' Calculate from the Shell formula m = 1.87 + 0.019 / Phie\n 'm*' 'm*' is calculated from the input 'm' parameter modified by Qv\n m* = m + Cm (0.258 Y + 0.2 (1-e**(-16.4 Y)))\n Y = Qv PhiT / (1- PhiT) \n Cm is an input parameter\n 'Rxo and Ept' A variable 'm' is calculated from Rxo, using the Sxo calculated from the EPT. The resultant 'm' value is limited by the parameters 'min m value' and 'max m value'.",
+     "stated_default": null
+    },
+    {
+     "n": 70,
+     "name": "n source",
+     "description": "'Source for Archie 'n' factor'. Options are :\n 'Parameter' Input from fixed parameter.\n 'Curve' Input from a curve.\n 'Rxo and Ept' A variable 'm' is calculated from Rxo using the Sxo calculate from the EPT. 'n' is set equal to the resultant 'm' plus the parameter 'm plus value'. n = m + mPlus",
+     "stated_default": null
+    },
+    {
+     "n": 71,
+     "name": "min m value",
+     "description": "'Minimum 'm' value' when 'm' is calculated from Rxo and Ept.",
+     "stated_default": null
+    },
+    {
+     "n": 72,
+     "name": "max m value",
+     "description": "'Maximum 'm' value' when 'm' is calculated from Rxo and Ept.",
+     "stated_default": null
+    },
+    {
+     "n": 73,
+     "name": "m plus value",
+     "description": "'Addition to variable 'm'' to calculate 'n'. Used when 'n source' is set to Rxo and Ept. n = m + mPlus.",
+     "stated_default": null
+    },
+    {
+     "n": 74,
+     "name": "Coal Logic",
+     "description": "'Flag to turn on the Coal Logic'. The depth level is considered to be Coal when :\n Density < 'Rho Coal'\n Neutron > 'Neu Coal'\n Sonic > 'Dt Coal'\nIf either 'Rho Coal', 'Neu Coal' or 'Dt Coal' is left blank then they will not be used in the logic.",
+     "stated_default": null
+    },
+    {
+     "n": 75,
+     "name": "Rho Coal",
+     "description": "'Density Limit to test for Coal'. The depth level is considered to be Coal when :\n Density < 'Rho Coal'\n Neutron > 'Neu Coal'\n Sonic > 'Dt Coal'\nIf either 'Rho Coal', 'Neu Coal' or 'Dt Coal' is left blank then they will not be used in the logic",
+     "stated_default": null
+    },
+    {
+     "n": 76,
+     "name": "Neu Coal",
+     "description": "'Neutron Limit to test for Coal'. The depth level is considered to be Coal when :\n Density < 'Rho Coal'\n Neutron > 'Neu Coal'\n Sonic > 'Dt Coal'\nIf either 'Rho Coal', 'Neu Coal' or 'Dt Coal' is left blank then they will not be used in the logic",
+     "stated_default": null
+    },
+    {
+     "n": 77,
+     "name": "DT Coal",
+     "description": "'Sonic Limit to test for Coal'. The depth level is considered to be Coal when :\n Density < 'Rho Coal'\n Neutron > 'Neu Coal'\n Sonic > 'Dt Coal'\nIf either 'Rho Coal', 'Neu Coal' or 'Dt Coal' is left blank then they will not be used in the logic",
+     "stated_default": null
+    },
+    {
+     "n": 78,
+     "name": "Salt Logic",
+     "description": "'Flag to turn on the Salt Logic'. The depth level is considered to be Salt when :\n Density < 'Rho salt'\n Neutron < 'Neu salt'\n Sonic < 'Dt salt\nIf either 'Rho salt', 'Neu salt' or 'Dt salt' is left blank then they will not be used in the logic.",
+     "stated_default": null
+    },
+    {
+     "n": 79,
+     "name": "Rho Salt",
+     "description": "'Density Limit to test for Salt'. The depth level is considered to be Salt when :\n Density < 'Rho salt'\n Neutron < 'Neu salt'\n Sonic < 'Dt salt\nIf either 'Rho salt', 'Neu salt' or 'Dt salt' is left blank then they will not be used in the logic.",
+     "stated_default": null
+    },
+    {
+     "n": 80,
+     "name": "Neu Salt",
+     "description": "'Neutron Limit to test for Salt'. The depth level is considered to be Salt when :\n Density < 'Rho salt'\n Neutron < 'Neu salt'\n Sonic < 'Dt salt\nIf either 'Rho salt', 'Neu salt' or 'Dt salt' is left blank then they will not be used in the logic.",
+     "stated_default": null
+    },
+    {
+     "n": 81,
+     "name": "DT Salt",
+     "description": "'Sonic Limit to test for Salt'. The depth level is considered to be Salt when :\n Density < 'Rho salt'\n Neutron < 'Neu salt'\n Sonic < 'Dt salt\nIf either 'Rho salt', 'Neu salt' or 'Dt salt' is left blank then they will not be used in the logic.",
+     "stated_default": null
+    },
+    {
+     "n": 82,
+     "name": "PhiT Clay",
+     "description": "'Total Porosity of the Clay'. If left 'blank' 'PHiT Clay' will be calculated from the 'Density Dry Clay' and 'Density Wet Clay' values.",
+     "stated_default": null
+    },
+    {
+     "n": 83,
+     "name": "Neu Dry Clay",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 84,
+     "name": "Son Dry Clay",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 85,
+     "name": "Rt Matrix",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 86,
+     "name": "Vcl Matrix",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 87,
+     "name": "Res low",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 88,
+     "name": "Res high",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 89,
+     "name": "Phi Low",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 90,
+     "name": "Phi High",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 91,
+     "name": "Av Form Temp",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 92,
+     "name": "Vclay Clay!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 93,
+     "name": "Neu Fluid!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 94,
+     "name": "B fact Juhasz",
+     "description": "'B factor Normalized' (equivalent conductance of clay cations) in the Juhasz Waxman-Smits equation.\n Default 1.0 meq/ml\n Can be set interactively using the 'Cwa vs. Qvn' crossplot.",
+     "stated_default": "1"
+    },
+    {
+     "n": 95,
+     "name": "Qvn low point !",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 96,
+     "name": "Qvn High point !",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 97,
+     "name": "Cwa Low !",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 98,
+     "name": "Cwa High !",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 99,
+     "name": "Input Porosity",
+     "description": "Used when porosity is entered as an input curve.\n Set to 'Total' if input curve is total porosity'\n Set to 'Effective' if input curve is effective porosity'\nThe program will calculate Total Porosity if 'Effective Porosity' is selected and Effective Porosity if 'Total Porosity' is selected.",
+     "stated_default": null
+    },
+    {
+     "n": 100,
+     "name": "Model Type",
+     "description": "Multi-mineral model type.\n 'U/Rho' : 3 mineral volumes will be calculated from Umatrix and Rhomatrix \n 'Rho/Dt' : 3 mineral volumes will be calculated from Rhomatrix and DTmatrix \n 'U/Rh/Dt' : 4 mineral volumes will be calculated from Umatrix, Rhomatrix and DTmatrix\n 'Mineral 1' : mineral volumes will be set to 0 except mineral 1 which will be 1-Phie-Vcl\n 'Mineral 2' : mineral volumes will be set to 0 except mineral 2 which will be 1-Phie-Vcl\n 'Mineral 3' : mineral volumes will be set to 0 except mineral 3 which will be 1-Phie-Vcl\n 'Mineral 4' : mineral volumes will be set to 0 except mineral 4 which will be 1-Phie-Vcl\nThe 'Mineral X' methods are used to force the mineralogy to a fixed value.",
+     "stated_default": null
+    },
+    {
+     "n": 101,
+     "name": "Min1 Umat",
+     "description": "'U matrix of Mineral 1'",
+     "stated_default": null
+    },
+    {
+     "n": 102,
+     "name": "Min2 Umat",
+     "description": "'U matrix of Mineral 2'",
+     "stated_default": null
+    },
+    {
+     "n": 103,
+     "name": "Min3 Umat",
+     "description": "'U matrix of Mineral 3'",
+     "stated_default": null
+    },
+    {
+     "n": 104,
+     "name": "Min4 Umat",
+     "description": "'U matrix of Mineral 4'",
+     "stated_default": null
+    },
+    {
+     "n": 105,
+     "name": "Min1 RhoMat",
+     "description": "'Rho matrix Mineral 1'",
+     "stated_default": null
+    },
+    {
+     "n": 106,
+     "name": "Min2 RhoMat",
+     "description": "'Rho matrix Mineral 2'",
+     "stated_default": null
+    },
+    {
+     "n": 107,
+     "name": "Min3 RhoMat",
+     "description": "'Rho matrix Mineral 3'",
+     "stated_default": null
+    },
+    {
+     "n": 108,
+     "name": "Min4 RhoMat",
+     "description": "'Rho matrix Mineral 4'",
+     "stated_default": null
+    },
+    {
+     "n": 109,
+     "name": "Min1 DtMat",
+     "description": "'DT matrix Mineral 1'",
+     "stated_default": null
+    },
+    {
+     "n": 110,
+     "name": "Min2 DtMat",
+     "description": "'DT matrix Mineral 2'",
+     "stated_default": null
+    },
+    {
+     "n": 111,
+     "name": "Min3 DtMat",
+     "description": "'DT matrix Mineral 3'",
+     "stated_default": null
+    },
+    {
+     "n": 112,
+     "name": "Min4 DtMat",
+     "description": "'DT matrix Mineral 4'",
+     "stated_default": null
+    },
+    {
+     "n": 113,
+     "name": "Min1 Rho True",
+     "description": "'Rho matrix true Mineral 1'. This is used along with the calculated mineral volumes to calculate a total clean matrix density. The clean matrix density is used to calculate porosity from the density if the grain density source parameter (GD source) is set to multi-mineral. This is the default setting if the multi-mineral options are activated.",
+     "stated_default": "setting if the multi-mineral options are activated"
+    },
+    {
+     "n": 114,
+     "name": "Min2 Rho True",
+     "description": "'Rho matrix true Mineral 2'. This is used along with the calculated mineral volumes to calculate a total clean matrix density. The clean matrix density is used to calculate porosity from the density if the grain density source parameter (GD source) is set to multi-mineral. This is the default setting if the multi-mineral options are activated.",
+     "stated_default": "setting if the multi-mineral options are activated"
+    },
+    {
+     "n": 115,
+     "name": "Min3 Rho True",
+     "description": "'Rho matrix true Mineral 3'. This is used along with the calculated mineral volumes to calculate a total clean matrix density. The clean matrix density is used to calculate porosity from the density if the grain density source parameter (GD source) is set to multi-mineral. This is the default setting if the multi-mineral options are activated.",
+     "stated_default": "setting if the multi-mineral options are activated"
+    },
+    {
+     "n": 116,
+     "name": "Min4 Rho True",
+     "description": "'Rho matrix true Mineral 4'. This is used along with the calculated mineral volumes to calculate a total clean matrix density. The clean matrix density is used to calculate porosity from the density if the grain density source parameter (GD source) is set to multi-mineral. This is the default setting if the multi-mineral options are activated.",
+     "stated_default": "setting if the multi-mineral options are activated"
+    },
+    {
+     "n": 117,
+     "name": "Min1 Dt True",
+     "description": "'DT matrix true Mineral 1'. This is used along with the calculated mineral volumes to calculate a total clean matrix DT. The DT matrix is used to calculate secondary porosity from the sonic.",
+     "stated_default": null
+    },
+    {
+     "n": 118,
+     "name": "Min2 Dt True",
+     "description": "'DT matrix true Mineral 2'. This is used along with the calculated mineral volumes to calculate a total clean matrix DT. The DT matrix is used to calculate secondary porosity from the sonic.",
+     "stated_default": null
+    },
+    {
+     "n": 119,
+     "name": "Min3 Dt True",
+     "description": "'DT matrix true Mineral 3'. This is used along with the calculated mineral volumes to calculate a total clean matrix DT. The DT matrix is used to calculate secondary porosity from the sonic.",
+     "stated_default": null
+    },
+    {
+     "n": 120,
+     "name": "Min4 Dt True",
+     "description": "'DT matrix true Mineral 4. This is used along with the calculated mineral volumes to calculate a total clean matrix DT. The DT matrix is used to calculate secondary porosity from the sonic.",
+     "stated_default": null
+    },
+    {
+     "n": 121,
+     "name": "Min1 TP",
+     "description": "'TPL matrix Mineral 1'. Propagation time for mineral 1 in nsec/m. Used for calculating Sxo from the EPT. Must be entered if the EPT is used. This is used along with the calculated mineral volumes to calculate a total clean matrix Propagation time.",
+     "stated_default": null
+    },
+    {
+     "n": 122,
+     "name": "Min2 TP",
+     "description": "'TPL matrix Mineral 2'. Propagation time for mineral 2 in nsec/m. Used for calculating Sxo from the EPT. Must be entered if the EPT is used. This is used along with the calculated mineral volumes to calculate a total clean matrix Propagation time.",
+     "stated_default": null
+    },
+    {
+     "n": 123,
+     "name": "Min3 TP",
+     "description": "'TPL matrix Mineral 3'. Propagation time for mineral 3 in nsec/m. Used for calculating Sxo from the EPT. Must be entered if the EPT is used. This is used along with the calculated mineral volumes to calculate a total clean matrix Propagation time.",
+     "stated_default": null
+    },
+    {
+     "n": 124,
+     "name": "Min4 TP",
+     "description": "'TPL matrix Mineral 4'. Propagation time for mineral 4 in nsec/m. Used for calculating Sxo from the EPT. Must be entered if the EPT is used. This is used along with the calculated mineral volumes to calculate a total clean matrix Propagation time.",
+     "stated_default": null
+    },
+    {
+     "n": 125,
+     "name": "Clay Corr Input",
+     "description": "Flag: if set to 'On' (checked) then the 'Umatrix', 'DTmatrix' and 'RhoMatrix' curves are corrected for clay using the input clay volume. The input clay volume curve is also used to clay-correct any water saturation equation. \n If set to 'Off' (unchecked) then the input 'Vcl' curve is ignored and clay can be calculated as one of the minerals. \n This is used only with the multi-mineral option.",
+     "stated_default": null
+    },
+    {
+     "n": 126,
+     "name": "Min1 Clay ?",
+     "description": "If the 'Clay Corr Input' flag is set to ' Off' (unchecked), then setting this flag to true allows this mineral to be counted as clay. The VWCL output curve will be the same as the mineral volume for mineral 1. This clay volume will also be used to correct the water saturation equations for clay.\n If the 'Clay Corr Input' flag is set to ' On' (checked), then this parameter has no effect. Clay volume is taken as the input VCL curve.",
+     "stated_default": null
+    },
+    {
+     "n": 127,
+     "name": "Min2 Clay ?",
+     "description": "If the 'Clay Corr Input' flag is set to ' Off' (unchecked), then setting this flag to true allows this mineral to be counted as clay. The VWCL output curve will be the same as the mineral volume for mineral 2. This clay volume will also be used to correct the water saturation equations for clay. \n If the 'Clay Corr Input' flag is set to ' On' (checked), then this parameter has no effect. Clay volume is taken as the input VCL curve.",
+     "stated_default": null
+    },
+    {
+     "n": 128,
+     "name": "Min3 Clay ?",
+     "description": "If the 'Clay Corr Input' flag is set to ' Off' (unchecked), then setting this flag to true allows this mineral to be counted as clay. The VWCL output curve will be the same as the mineral volume for mineral 2. This clay volume will also be used to correct the water saturation equations for clay. \n If the 'Clay Corr Input' flag is set to ' On' (checked), then this parameter has no effect. Clay volume is taken as the input VCL curve.",
+     "stated_default": null
+    },
+    {
+     "n": 129,
+     "name": "Min4 Clay ?",
+     "description": "If the 'Clay Corr Input' flag is set to ' Off' (unchecked), then setting this flag to true allows this mineral to be counted as clay. The VWCL output curve will be the same as the mineral volume for mineral 2. This clay volume will also be used to correct the water saturation equations for clay. \n If the 'Clay Corr Input' flag is set to ' On' (checked), then this parameter has no effect. Clay volume is taken as the input VCL curve.",
+     "stated_default": null
+    },
+    {
+     "n": 130,
+     "name": "Pef Clay",
+     "description": ",Pef Value of Clay,. Used in the multi-mineral analysis to clay correct Umatrix when the 'Clay Corr Input' flag is set to 'Yes'.",
+     "stated_default": null
+    },
+    {
+     "n": 131,
+     "name": "Rw Form_Temp",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 132,
+     "name": "B fact W-S",
+     "description": "'B factor' (equivalent conductance of clay cations) in the Waxman-Smits equation.\n If left blank then this is calculated from formation temperature and Rw.",
+     "stated_default": null
+    },
+    {
+     "n": 133,
+     "name": "Qv W-S Source",
+     "description": "'Qv source' in the Waxman-Smits equation.\n Set to 'Param' for calculation of Qv from the equation :\n Qv = a / PhiT + b\n Where 'a' and 'b' are the entered Qv 'a' and 'b' constant parameters. 'a' and 'b' can be selected interactively from the 1/PhiT QvApp crossplot.\n If set to 'Curve' then Qv is taken from the input curve.",
+     "stated_default": null
+    },
+    {
+     "n": 134,
+     "name": "Qv 'a' Const",
+     "description": "The 'a' Constant in the Qv equation : \n Qv = a / PhiT + b\n Used in the Waxman-Smits Sw equation.\n 'a' and 'b' can be selected interactively from the 1/PhiT QvApp crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 135,
+     "name": "Qv 'b' Const",
+     "description": "The 'b' Constant in the Qv equation : \n Qv = a / PhiT + b\n Used in the Waxman-Smits Sw equation.\n 'a' and 'b' can be selected interactively from the 1/PhiT QvApp crossplot.",
+     "stated_default": null
+    },
+    {
+     "n": 136,
+     "name": "1/Phit Low!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 137,
+     "name": "1/Phit High!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 138,
+     "name": "Qvapp Low!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 139,
+     "name": "Qvapp High!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 140,
+     "name": "Cm*",
+     "description": "Cm parameter used in the 'm*' calculation. \n Used for W&S and Dual water Sw equations\n m* (Dual Water) = m + Cm (0.258 Y + 0.2 (1-e**(-16.4 Y)))\n m* (W&S) = m + Cm (1.128 Y + 0.22 (1-e**(-17.3 Y)))\n Y = Qv PhiT / (1- PhiT)",
+     "stated_default": null
+    },
+    {
+     "n": 141,
+     "name": "Phie Sw Limit",
+     "description": "If the calculated 'Phie' is less than the 'Phie Sw Limit' then all output saturation curves are set to 1.0",
+     "stated_default": null
+    },
+    {
+     "n": 142,
+     "name": "Phie Limit",
+     "description": "If the calculated 'Phie' is less than the 'Phie Limit' then \n Phie = 0.0001\n All output saturation curves are set to 1.0",
+     "stated_default": null
+    },
+    {
+     "n": 143,
+     "name": "Vcl Limit",
+     "description": "If the calculated 'Vwclay' is greater than the Vcl Limit' then \n Phie = 0.0001\n All output saturation curves are set to 1.0",
+     "stated_default": null
+    },
+    {
+     "n": 144,
+     "name": "Rmf Form_Temp!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 145,
+     "name": "Kill Logic",
+     "description": "This turns on the no analysis logic. \n Used to flag sections of the well where no analysis will be performed. Could be used to flag bad hole sections or special formation like volcanic rock where normal analysis does not work.\n This is only available when a 'Kill Analysis Flag' output curve is setup.",
+     "stated_default": null
+    },
+    {
+     "n": 146,
+     "name": "Kill Val/Crv_1",
+     "description": "When the 'Kill Logic' parameter is turned on this parameter is used with the 'Kill Operator' and 'Kill Val/Crv 2' parameter to discriminate whether the analysis should be killed.\n This parameter can be a curve or a fixed value.",
+     "stated_default": null
+    },
+    {
+     "n": 147,
+     "name": "Kill Operator",
+     "description": "When the 'Kill Logic' parameter is turned on this parameter is used with the 'Kill Val/Crv 1' and 'Kill Val/Crv 2' parameter to discriminate whether the analysis should be killed.\n This text parameter describes the logic to use to decide whether to kill the analysis.",
+     "stated_default": null
+    },
+    {
+     "n": 148,
+     "name": "Kill Val/Crv_2",
+     "description": "When the 'Kill Logic' parameter is turned on this parameter is used with the 'Kill Operator' and 'Kill Val/Crv 1' parameter to discriminate whether the analysis should be killed.\n This parameter can be a curve or a fixed value.",
+     "stated_default": null
+    },
+    {
+     "n": 149,
+     "name": "Link Clay Vol",
+     "description": "Flag\nWhen turned on the Density, Neutron and Sonic clay parameters are linked to the equivalent parameters in the Clay Volume module.\nThis also links the Matrix Density parameter to the Clay volume Neutron/Density clean point 1 Density Parameter.\nThe Clay Volume and PhiSw parameters sets must also be linked for this to work.",
+     "stated_default": null
+    },
+    {
+     "n": 150,
+     "name": "Swi Limit",
+     "description": "Sw irreducible limit\n For Total porosity Sw equations this is the minimum value of SwT \n For Effective porosity Sw equations this is the minimum value of Sw",
+     "stated_default": null
+    },
+    {
+     "n": 151,
+     "name": "Sat Model",
+     "description": "Saturation model : Normal / Laminated\n \n Set to Laminated for Sw's to be calculated in the sand lamination \nIn the laminated model Sw is calculated using the laminated porosity and laminated clay volume. \n \nIf the Rt Lam Model is set to 'Normal' then Rt in the lamination is taken either from the entered 'Rt Lam Sand' parameter/curve or 'Rxo Lam Sand' for the flushed zone. If these parameters/curves are left blank then it is calculated from the normal Rt/Rxo entered curve and the 'Rt Lam Shale' parameter using the following formula :\n Rt Sand = (1 - Vlam) * Res * Rshale / (Rshale - Res * Vlam) \n \n Where \n Vlam = Volume of the shale laminations\n Res = Total resistivity of the rock\n RShale = Resistivity of shale laminations \n \n Result is limited to 2000 ohmm \n \nIf the Rt Lam Model is set to a 'Tensor' model then Rt sand is calculated from the input Tensor resistivities.",
+     "stated_default": null
+    },
+    {
+     "n": 152,
+     "name": "Rt Lam Sand",
+     "description": "Used when the Saturation model is set to 'Laminated' and the Rt Lam Model is set to 'Normal'. \n Resistivity of the sand lamination. Enter a curve or fixed value. \n Leave blank to calculate this from the 'Res Lam Shale' parameter, Rt and the volume of shale laminations.",
+     "stated_default": null
+    },
+    {
+     "n": 153,
+     "name": "Res Lam Shale",
+     "description": "Used when the Saturation model is set to 'Laminated' \n \n When Rt Lam Model is set to 'Normal'.\n Resistivity of the shale lamination. Enter a curve or fixed value. \n This is used when 'Rt Sand Lam' or 'Rxo Lam Sand' parameters are left blank to calculate the sand resistivity.\n \n When Rt Lam Model is set to 'Tensor Vlam'.\n This parameter is used to decide whether the Resistivity of the sand lamination is greater than or less than the resistivity of the shale lamination. The model gives two different answers depending of this.\n Enter the Resistivity of the shale lamination. Lower this value if the calculated Rt sand is less than Rt shale and the correct solution should be the other way round.",
+     "stated_default": null
+    },
+    {
+     "n": 154,
+     "name": "Rxo Lam Sand",
+     "description": "Used when the Saturation model is set to 'Laminated' and the Rt Lam Model is set to 'Normal'.\n Resistivity of the flushed zone sand lamination. Enter a curve or fixed value. \n Leave blank to calculate this from the 'Res Lam Shale' parameter, Rxo and the volume of shale laminations.",
+     "stated_default": null
+    },
+    {
+     "n": 155,
+     "name": "O.0_Xp Point!",
+     "description": "Interactive Xplot 0.0 point",
+     "stated_default": null
+    },
+    {
+     "n": 156,
+     "name": "1.0_Xp Point!",
+     "description": "Interactive Xplot 1.0 point",
+     "stated_default": null
+    },
+    {
+     "n": 157,
+     "name": "Rt_Lam model",
+     "description": "Rt laminated model\n \n Normal : Does not use the Tensor input resistivities. Rt Sand calculated from Rt and Res Lam Shale \n \n Tensor Vlam : Tensor resistivities used to calculate Res Sand and Res Shale from RtHori, RtVert and Thomas Stieber Vlam.\n \n Tensor Rsh : Tensor resistivities used to calculate Res Sand and Vlam from RtHori, RtVert, RshHori, RshVert.\n \n Tensor Rsh Mod : Tensor resistivities used to calculate Res Sand and Vlam from RtHori, RtVert, RshHori, RshVert. Vlam is used to modify the Thomas Stieber Vlam.",
+     "stated_default": null
+    },
+    {
+     "n": 158,
+     "name": "Res_Shale Hori",
+     "description": "Resistivity of the horizontal shale lamination. Enter a curve or fixed value. \n Used in 'Tensor Rsh' and 'Tensor Rsh Mod' models",
+     "stated_default": null
+    },
+    {
+     "n": 159,
+     "name": "Res_Shale Vert",
+     "description": "Resistivity of the vertical shale lamination. Enter a curve or fixed value. \n Used in 'Tensor Rsh' and 'Tensor Rsh Mod' models",
+     "stated_default": null
+    },
+    {
+     "n": 160,
+     "name": "RshVert_/ RshHori",
+     "description": "Shale lamination resistivity anisotropy ratio. Enter a curve or fixed value. \n Used in 'Tensor Vlam' model",
+     "stated_default": null
+    },
+    {
+     "n": 161,
+     "name": "PhiTCl Calc",
+     "description": "PhiT clay calculated, used on xplot",
+     "stated_default": null
+    },
+    {
+     "n": 162,
+     "name": "Anhydrite Logic",
+     "description": "'Flag to turn on the Anhydrite Logic'. The depth level is considered to be Anhydrite when :\n Density > 'Rho Anhydrite'\n Neutron < 'Neu Anhydrite'\n Sonic < 'Dt Anhydrite'\nIf either 'Rho Anhydrite', 'Neu Anhydrite' or 'Dt Anhydrite' is left blank then they will not be used in the logic.",
+     "stated_default": null
+    },
+    {
+     "n": 163,
+     "name": "Rho Anhydrite",
+     "description": "'Density Limit to test for Anhydrite'. The depth level is considered to be Anhydrite when :\n Density > 'Rho Anhydrite'\n Neutron < 'Neu Anhydrite'\n Sonic < 'Dt Anhydrite'\nIf either 'Rho Anhydrite', 'Neu Anhydrite' or 'Dt Anhydrite' is left blank then they will not be used in the logic",
+     "stated_default": null
+    },
+    {
+     "n": 164,
+     "name": "Neu Anhydrite",
+     "description": "'Neutron Limit to test for Anhydrite'. The depth level is considered to be Anhydrite when :\n Density > 'Rho Anhydrite'\n Neutron < 'Neu Anhydrite'\n Sonic < 'Dt Anhydrite'\nIf either 'Rho Anhydrite', 'Neu Anhydrite' or 'Dt Anhydrite' is left blank then they will not be used in the logic",
+     "stated_default": null
+    },
+    {
+     "n": 165,
+     "name": "DT Anhydrite",
+     "description": "'Sonic Limit to test for Anhydrite'. The depth level is considered to be Anhydrite when :\n Density > 'Rho Anhydrite'\n Neutron < 'Neu Anhydrite'\n Sonic < 'Dt Anhydrite'\nIf either 'Rho Anhydrite', 'Neu Anhydrite' or 'Dt Anhydrite' is left blank then they will not be used in the logic",
+     "stated_default": null
+    },
+    {
+     "n": 166,
+     "name": "Den Hyd model",
+     "description": "'Density hydrocarbon model'\n \n When set to 'Convensional' Density hydrocarbon apparent is calculated as :\n Den Hc app = RhoH * 2 (10 - 2.5 RhoH) / (16 - 2.5 RhoH)\n \n When set to 'Modified' model as :\n Den Hc app = (5.5 * Rhohy (4-Rhohy) -3) / (16 - 2.5 RhoH) \n \n Where RhoH is the input hydrocarbon density (Hc Den)",
+     "stated_default": null
+    },
+    {
+     "n": 167,
+     "name": "Organic Shale",
+     "description": "Flag to turn on the Organic Shale analysis.\n \n The Weight % or volume of TOC is entered as an input curve, plus (optionally) the Weight % or volume of heavy mineral (normally assumed to be Pyrite).\n \n The Density and Neutron equations are corrected for Kerogen (calculated from TOC input) and heavy mineral before porosity and grain densities are calculated.\n \n If the Neu/Den porosity equation is used the calculated grain density is that of the matrix of the rock minus clay, Kerogen and heavy mineral.",
+     "stated_default": null
+    },
+    {
+     "n": 168,
+     "name": "Rho Kerogen",
+     "description": "Density of the Kerogen. Used to correct the density equation for Kerogen\n TOC is an input curve from which the volume of Kerogen is calculated",
+     "stated_default": null
+    },
+    {
+     "n": 169,
+     "name": "Neu Kerogen",
+     "description": "Neutron reading of Kerogen. Used to correct the Neutron equation for Kerogen\n TOC is an input curve from which the volume of Kerogen is calculated",
+     "stated_default": null
+    },
+    {
+     "n": 170,
+     "name": "Rho Heavy Min",
+     "description": "Density of the entered Heavy mineral (Pyrite). Used to correct the density equation for the heavy mineral \n The volume of the heavy mineral is entered as an input curve",
+     "stated_default": null
+    },
+    {
+     "n": 171,
+     "name": "Neu Heavy Min",
+     "description": "Neutron of the entered Heavy mineral (Pyrite). Used to correct the neutron equation for the heavy mineral \n The volume of the heavy mineral is entered as an input curve",
+     "stated_default": null
+    },
+    {
+     "n": 172,
+     "name": "Kerogen Wt% Con.",
+     "description": "Conversion factor to convert the TOC input curve to volumes of Kerogen.\n If the input TOC curve is in weight percent then this parameter multiplied by the TOC input gives the Kerogen volumes.\n If left blank then the conversion factor is calculated from the dry density of the rock as follows :\n Conversion Factor = ( (Dry Rock Density) / (Density of Kerogen) ) x (1 - PhiT) \n \n If the input TOC input curve is already a volume then the Conversion factor should be set to 1.0",
+     "stated_default": null
+    },
+    {
+     "n": 173,
+     "name": "Heavy Min Wt% Con.",
+     "description": "Conversion factor to convert the Heavy Mineral input curve to volumes of Heavy Mineral.\n If the input Heavy Mineral curve is in weight percent then this parameter multiplied by the input gives the Heavy Mineral volumes.\n If left blank then the conversion factor is calculated from the dry density of the rock as follows :\n Conversion Factor = ( (Dry Rock Density) / (Density of Heavy Mineral) ) x (1 - PhiT) \n \n If the input Heavy Mineral input curve is already a volume then the Conversion factor should be set to 1.0",
+     "stated_default": null
+    },
+    {
+     "n": 174,
+     "name": "Use Multi-min",
+     "description": "Flag to turn on or off the Multi-Mineral analysis.\n When turning on it is important to set the \"Porosity Method\" parameter (Phi Logic tab) to \"Density\" and to set the \"GD Source\" parameter Matrix tab) to \"Mlt-Min\". Otherwise the volumetric results will not be used in the calculation of porosity.",
+     "stated_default": null
+    },
+    {
+     "n": 175,
+     "name": "Variable Sxo",
+     "description": "'Variable Sxo flag'. Used in the Neutron/Density porosity model. \nSet to 'On' (ticked) to calculate Sxo from the Neutron and Density separation. When on Sxo will not be calculated from the input Rxo curve. \nSxo Limits will be applied to the results. If the result falls outside the Sxo limits then the next Neutron/Density \"variable\" option will be used with the limited Sxo.",
+     "stated_default": null
+    },
+    {
+     "n": 176,
+     "name": "Rho Shale",
+     "description": "'Density of Shale' in gm/cc (KG/m3). Used for interactive crossplots when an input shale volume curve is entered. This is used to calculate Clay density from the Clay/Shale ratio parameter. It is not used in the actual calculation of porosity.",
+     "stated_default": null
+    },
+    {
+     "n": 177,
+     "name": "Neu Shale",
+     "description": "'Neutron of Shale' in V/V. Used for interactive crossplots when an input shale volume curve is entered. This is used to calculate Neutron Clay from the Clay/Shale ratio parameter. It is not used in the actual calculation of porosity.",
+     "stated_default": null
+    },
+    {
+     "n": 178,
+     "name": "Clay Shale Ratio",
+     "description": "'Clay to Shale Ratio' in V/V. This is the fraction of clay see in 100% shale. Used for converting clay parameters to shale parameter or the inverse.\nUsed also for converting an input Vshale curve to a Vclay curve and creating an output Vshale curve from the VWCL curve.",
+     "stated_default": null
+    },
+    {
+     "n": 179,
+     "name": "Son Shale",
+     "description": "'Sonic of Shale' in uSec/ft (Km/m). Used for interactive crossplots when an input shale volume curve is entered. This is used to calculate Clay sonic from the Clay/Shale ratio parameter. It is not used in the actual calculation of porosity.",
+     "stated_default": null
+    },
+    {
+     "n": 180,
+     "name": "Rwb @Temp",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 181,
+     "name": "Swb Clean!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 182,
+     "name": "Swb Clay!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 183,
+     "name": "Force 100%_Wet",
+     "description": "Forces the zone to be 100% wet. Sw, SwT, Swu, SwTu, Sxo, SxoT, Sxou, SxoTu are all set to 1.0.\n Any comparison Sw calculations are unaffected",
+     "stated_default": null
+    },
+    {
+     "n": 184,
+     "name": "Neu_Mat Xplot!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 185,
+     "name": "Rw Clean!",
+     "description": "Crossplot dummy parameter not used in parameter screen",
+     "stated_default": null
+    },
+    {
+     "n": 186,
+     "name": "Rw Salinity Kppm",
+     "description": "Rw salinity in Kppm NaCl equivalent. \nEnter a value to change the actual Rw value. Changing the Rw parameter will update the salinity.",
+     "stated_default": null
+    },
+    {
+     "n": 187,
+     "name": "Rmf Salinity Kppm",
+     "description": "Rmf salinity in Kppm NaCl equivalent. \nEnter a value to change the actual Rmf value. Changing the Rmf parameter will update the salinity.",
+     "stated_default": null
+    },
+    {
+     "n": 188,
+     "name": "Rwb Salinity Kppm   Crossplot dummy parameter not used in parameter screen",
+     "description": "Rwb salinity in Kppm NaCl equivalent. \nEnter a value to change the actual Rwb value. Changing the Rwb parameter will update the salinity.",
+     "stated_default": null
+    },
+    {
+     "n": 189,
+     "name": "Rmfb Salinity Kppm",
+     "description": "Rmfb salinity in Kppm NaCl equivalent. \nEnter a value to change the actual Rmfb value. Changing the Rmfb parameter will update the salinity.",
+     "stated_default": null
+    }
+   ]
+  },
+  "Cutoff": {
+   "module": "Cut-off & Summation",
+   "source_file": "Cutoff.hlp",
+   "count": 220,
+   "parameters": [
+    {
+     "n": null,
+     "name": "Phi Net Use",
+     "description": "Flag\nSet to Yes to use the porosity input for a Net reservoir cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Pay Use",
+     "description": "Flag\nSet to Yes to use the porosity input for a Net pay cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Cutoff",
+     "description": "Porosity cutoff value for Pay and Reservoir report.\nIf the input porosity curve is greater than or equal to this value then the level can be considered for pay or reservoir if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Net Use",
+     "description": "Flag\nSet to Yes to use the water saturation input for a Net reservoir cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Pay Use",
+     "description": "Flag\nSet to Yes to use the water saturation input for a Net pay cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Cutoff",
+     "description": "Water saturation cutoff value for Pay and Reservoir report.\nIf the input water saturation curve is less than or equal to this value then the level can be considered for pay or reservoir if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Net Use",
+     "description": "Flag\nSet to Yes to use the clay volume input for a Net reservoir cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Pay Use",
+     "description": "Flag\nSet to Yes to use the clay volume input for a Net pay cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Cutoff",
+     "description": "Clay volume cutoff value for Pay and Reservoir report.\nIf the input clay volume curve is less than or equal to this value then the level can be considered for pay or reservoir if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Net Use",
+     "description": "Flag\nSet to Yes to use curve 4 input for a Net reservoir cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Pay Use",
+     "description": "Set to Yes to use curve 4 input for a Net pay cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Cutoff",
+     "description": "Curve 4 cutoff value for Pay and Reservoir report.\nIf Curve 4 input curve is > or < (depending on setting on input curve window) to this value then the level can be considered for pay or reservoir if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Net Use",
+     "description": "Set to Yes to use curve 5 input for a Net reservoir cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Pay Use",
+     "description": "Set to Yes to use curve 5 input for a Net pay cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Cutoff for Pay and Reservoir report",
+     "description": "Curve 5 cutoff value.\nIf Curve 5 input is > or < (depending on setting on input curve window) to this value then the level can be considered for pay or reservoir if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Net Use",
+     "description": "Set to Yes to use the curve 6 input for a Net reservoir cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Pay Use",
+     "description": "Set to Yes to use the curve 6 input for a Net pay cutoff.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Cutoff for Pay and Reservoir report",
+     "description": "Curve 6 cutoff value.\nIf curve 6 input is > or < (depending on setting on input curve window) to this value then the level can be considered for pay or reservoir if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Gross interval",
+     "description": "Gross interval\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net Pay",
+     "description": "Net pay interval\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Av Phi Pay",
+     "description": "Average porosity in the pay interval.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Av Sw Pay",
+     "description": "Average water saturation in the pay interval. This is a porosity weighted average.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Av Vcl Pay",
+     "description": "Average clay volume in the pay interval.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Av Pay",
+     "description": "Average of curve 4 in the pay interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Av Pay",
+     "description": "Average of curve 5 in the pay interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Av Pay",
+     "description": "Average of curve 6 in the pay interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net Res",
+     "description": "Net reservoir interval\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net/Gross Res",
+     "description": "Net/Gross ration for the reservoir interval\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Av Phi Res",
+     "description": "Average porosity in the reservoir interval.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Av Sw Res",
+     "description": "Average water saturation in the reservoir interval. This is a porosity weighted average.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Av Vcl Res",
+     "description": "Average clay volume in the reservoir interval.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Av Res",
+     "description": "Average of curve 4 in the reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Av Res",
+     "description": "Average of curve 5 in the reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Av Res",
+     "description": "Average of curve 6 in the reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "TVD/TVT Top",
+     "description": "TVD or TVT depth curve top of zone.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "TVD/TVT Bottom",
+     "description": "TVD or TVT depth curve bottom of zone.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "TVD/TVT Gross",
+     "description": "TVD or TVT depths gross zone thickness.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "TVD/TVT Net Res",
+     "description": "TVD or TVT depths net reservoir.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "TVD/TVT Net Pay",
+     "description": "TVD or TVT depths net pay.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "TVD Net/Gross",
+     "description": "TVD or TVT depths net/gross ratio.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sub Total Zones",
+     "description": "Flag\nSet to Yes to make this zone a sub total zone. Sub total zones are not displayed on the plot and are designed to be part totals of other zones (for example you could have a sub total zone which is the sum of zones 1, 2 and 3, or have a sub total zone which is half the thickness of zone 1). Sub total zones have no associated cutoffs but use the results from normal zones to determine net pay or reservoir.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Min Res Height",
+     "description": "Allows the user to set the minimum thickness of a zone in order for it to count as net reservoir.\nDefault is 0. (All depth intervals will count towards net if they meet the cutoff criteria).",
+     "stated_default": "0"
+    },
+    {
+     "n": null,
+     "name": "Min Pay Height",
+     "description": "Allows the user to set the minimum thickness of a zone in order for it to count as net pay.\nDefault is 0. (All depth intervals will count towards net if they meet the cutoff criteria).",
+     "stated_default": "0"
+    },
+    {
+     "n": null,
+     "name": "Phi Report 3 Use",
+     "description": "Flag\nSet to Yes to use Porosity as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Report 4 Use",
+     "description": "Flag\nSet to Yes to use Porosity as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Report 5 Use",
+     "description": "Flag\nSet to Yes to use Porosity as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Cut Report 3",
+     "description": "Porosity cutoff value for report 3.\nIf Porosity input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Cut Report 4",
+     "description": "Porosity cutoff value for report 4.\nIf Porosity input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Cut Report 5",
+     "description": "Porosity cutoff value for report 5.\nIf Porosity input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Av Report 3",
+     "description": "Average of Porosity in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Av Report 4",
+     "description": "Average of Porosity in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Phi Av Report 5",
+     "description": "Average of Porosity in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Res",
+     "description": "Porosity Height in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Pay",
+     "description": "Porosity Height in the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Report 3",
+     "description": "Porosity Height in the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Report 4",
+     "description": "Porosity Height in the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Report 5",
+     "description": "Porosity Height in the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Report 3 Use",
+     "description": "Flag\nSet to Yes to use Sw as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Report 4 Use",
+     "description": "Flag\nSet to Yes to use Sw as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Report 5 Use",
+     "description": "Flag\nSet to Yes to use Sw as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Cut Report 3",
+     "description": "Sw cutoff value for report 3.\nIf Sw input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Cut Report 4",
+     "description": "Sw cutoff value for report 4.\nIf Sw input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Cut Report 5",
+     "description": "Sw cutoff value for report 5.\nIf Sw input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Av Report 3",
+     "description": "Average of Sw in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Av Report 4",
+     "description": "Average of Sw in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Sw Av Report 5",
+     "description": "Average of Sw in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhSoH Res",
+     "description": "Hydrocarbon pore volume Phi*So*H in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhSoH Pay",
+     "description": "Hydrocarbon pore volume Phi*So*H the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhSoH Report 3",
+     "description": "Hydrocarbon pore volume Phi*So*H the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhSoH Report 4",
+     "description": "Hydrocarbon pore volume Phi*So*H the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhSoH Report 5",
+     "description": "Hydrocarbon pore volume Phi*So*H the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Report 3 Use",
+     "description": "Flag\nSet to Yes to use Clay Volume Curve as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Report 4 Use",
+     "description": "Flag\nSet to Yes to use Clay Volume Curve as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Report 5 Use",
+     "description": "Flag\nSet to Yes to use Clay Volume Curve as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Cut Report 3",
+     "description": "Clay Volume cutoff value for report 3.\nIf Clay Volume input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Cut Report 4",
+     "description": "Clay Volume cutoff value for report 4.\nIf Clay Volume input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Cut Report 5",
+     "description": "Clay Volume cutoff value for report 5.\nIf Clay Volume input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Av Report 3",
+     "description": "Average of Clay Volume in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Av Report 4",
+     "description": "Average of Clay Volume in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Vcl Av Report 5",
+     "description": "Average of Clay Volume in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Res",
+     "description": "Clay Volume Height in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Pay",
+     "description": "Clay Volume Height in the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Report 3",
+     "description": "Clay Volume Height in the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Report 4",
+     "description": "Clay Volume Height in the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "PhiH Report 5",
+     "description": "Clay Volume Height in the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Report 3 Use",
+     "description": "Flag\nSet to Yes to use Curve 4 as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Report 4 Use",
+     "description": "Flag\nSet to Yes to use Curve 4 as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Report 5 Use",
+     "description": "Flag\nSet to Yes to use Curve 4 as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Cut Report 3",
+     "description": "Curve 4 cutoff value for report 3.\nIf Curve 4 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Cut Report 4",
+     "description": "Curve 4 cutoff value for report 4.\nIf Curve 4 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Cut Report 5",
+     "description": "Curve 4 cutoff value for report 5.\nIf Curve 4 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Av Report 3",
+     "description": "Average of Curve 4 in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Av Report 4",
+     "description": "Average of Curve 4 in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 Av Report 5",
+     "description": "Average of Curve 4 in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 AvH Res",
+     "description": "Curve 4 average x net thickness in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 AvH Pay",
+     "description": "Curve 4 average x net thickness in the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 AvH Report 3",
+     "description": "Curve 4 average x net thickness in the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 AvH Report 4",
+     "description": "Curve 4 average x net thickness in the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 4 AvH Report 5",
+     "description": "Curve 4 average x net thickness in the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Report 3 Use",
+     "description": "Flag\nSet to Yes to use Curve 5 as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Report 4 Use",
+     "description": "Flag\nSet to Yes to use Curve 5 as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Report 5 Use",
+     "description": "Flag\nSet to Yes to use Curve 5 as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Cut Report 3",
+     "description": "Curve 5 cutoff value for report 3.\nIf Curve 5 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Cut Report 4",
+     "description": "Curve 5 cutoff value for report 4.\nIf Curve 5 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Cut Report 5",
+     "description": "Curve 5 cutoff value for report 5.\nIf Curve 5 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Av Report 3",
+     "description": "Average of Curve 5 in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Av Report 4",
+     "description": "Average of Curve 5 in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 Av Report 5",
+     "description": "Average of Curve 5 in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 AvH Res",
+     "description": "Curve 5 average x net thickness in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 AvH Pay",
+     "description": "Curve 5 average x net thickness in the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 AvH Report 3",
+     "description": "Curve 5 average x net thickness in the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 AvH Report 4",
+     "description": "Curve 5 average x net thickness in the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 5 AvH Report 5",
+     "description": "Curve 5 average x net thickness in the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Report 3 Use",
+     "description": "Flag\nSet to Yes to use Curve 6 as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Report 4 Use",
+     "description": "Flag\nSet to Yes to use Curve 6 as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Report 5 Use",
+     "description": "Flag\nSet to Yes to use Curve 6 as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Cut Report 3",
+     "description": "Curve 6 cutoff value for report 3.\nIf Curve 6 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Cut Report 4",
+     "description": "Curve 6 cutoff value for report 4.\nIf Curve 6 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Cut Report 5",
+     "description": "Curve 6 cutoff value for report 5.\nIf Curve 6 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Av Report 3",
+     "description": "Average of Curve 6 in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Av Report 4",
+     "description": "Average of Curve 6 in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 Av Report 5",
+     "description": "Average of Curve 6 in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 AvH Res",
+     "description": "Curve 6 average x net thickness in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 AvH Pay",
+     "description": "Curve 6 average x net thickness in the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 AvH Report 3",
+     "description": "Curve 6 average x net thickness in the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 AvH Report 4",
+     "description": "Curve 6 average x net thickness in the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 6 AvH Report 5",
+     "description": "Curve 6 average x net thickness in the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Res Use",
+     "description": "Flag\nSet to Yes to use Curve 7 as a cutoff for Reservoir report",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Pay Use",
+     "description": "Flag\nSet to Yes to use Curve 7 as a cutoff for Pay Report.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Report 3 Use",
+     "description": "Flag\nSet to Yes to use Curve 7 as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Report 4 Use",
+     "description": "Flag\nSet to Yes to use Curve 7 as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Report 5 Use",
+     "description": "Flag\nSet to Yes to use Curve 7 as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Cut Res/Pay",
+     "description": "Curve 7 cutoff value for reservoir and Pay reports\nIf Curve 7 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for reservoir / pay reports if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Cut Report 3",
+     "description": "Curve 7 cutoff value for report 3.\nIf Curve 7 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Cut Report 4",
+     "description": "Curve 7 cutoff value for report 4.\nIf Curve 7 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Cut Report 5",
+     "description": "Curve 7 cutoff value for report 5.\nIf Curve 7 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Av Res",
+     "description": "Average of Curve 7 in the Reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Av Pay",
+     "description": "Average of Curve 7 in the Pay interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Av Report 3",
+     "description": "Average of Curve 7 in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Av Report 4",
+     "description": "Average of Curve 7 in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 Av Report 5",
+     "description": "Average of Curve 7 in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 AvH Res",
+     "description": "Curve 7 average x net thickness in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 AvH Pay",
+     "description": "Curve 7 average x net thickness in the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 AvH Report 3",
+     "description": "Curve 7 average x net thickness in the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 AvH Report 4",
+     "description": "Curve 7 average x net thickness in the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 7 AvH Report 5",
+     "description": "Curve 7 average x net thickness in the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Res Use",
+     "description": "Flag\nSet to Yes to use Curve 8 as a cutoff for Reservoir report",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Pay Use",
+     "description": "Flag\nSet to Yes to use Curve 8 as a cutoff for Pay Report.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Report 3 Use",
+     "description": "Flag\nSet to Yes to use Curve 8 as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Report 4 Use",
+     "description": "Flag\nSet to Yes to use Curve 8 as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Report 5 Use",
+     "description": "Flag\nSet to Yes to use Curve 8 as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Cut Res/Pay",
+     "description": "Curve 8 cutoff value for reservoir and Pay reports\nIf Curve 8 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for reservoir / pay reports if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Cut Report 3",
+     "description": "Curve 8 cutoff value for report 3.\nIf Curve 8 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Cut Report 4",
+     "description": "Curve 8 cutoff value for report 4.\nIf Curve 8 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Cut Report 5",
+     "description": "Curve 8 cutoff value for report 5.\nIf Curve 8 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Av Res",
+     "description": "Average of Curve 8 in the Reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Av Pay",
+     "description": "Average of Curve 8 in the Pay interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Av Report 3",
+     "description": "Average of Curve 8 in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Av Report 4",
+     "description": "Average of Curve 8 in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 Av Report 5",
+     "description": "Average of Curve 8 in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 AvH Res",
+     "description": "Curve 8 average x net thickness in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 AvH Pay",
+     "description": "Curve 8 average x net thickness in the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 AvH Report 3",
+     "description": "Curve 8 average x net thickness in the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 AvH Report 4",
+     "description": "Curve 8 average x net thickness in the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 8 AvH Report 5",
+     "description": "Curve 8 average x net thickness in the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Res Use",
+     "description": "Flag\nSet to Yes to use Curve 9 as a cutoff for Reservoir report",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Pay Use",
+     "description": "Flag\nSet to Yes to use Curve 9 as a cutoff for Pay Report.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Report 3 Use",
+     "description": "Flag\nSet to Yes to use Curve 9 as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Report 4 Use",
+     "description": "Flag\nSet to Yes to use Curve 9 as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Report 5 Use",
+     "description": "Flag\nSet to Yes to use Curve 9 as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Cut Res/Pay",
+     "description": "Curve 9 cutoff value for reservoir and Pay reports\nIf Curve 9 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for reservoir / pay reports if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Cut Report 3",
+     "description": "Curve 9 cutoff value for report 3.\nIf Curve 9 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Cut Report 4",
+     "description": "Curve 9 cutoff value for report 4.\nIf Curve 9 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Cut Report 5",
+     "description": "Curve 9 cutoff value for report 5.\nIf Curve 9 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Av Res",
+     "description": "Average of Curve 9 in the Reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Av Pay",
+     "description": "Average of Curve 9 in the Pay interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Av Report 3",
+     "description": "Average of Curve 9 in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Av Report 4",
+     "description": "Average of Curve 9 in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 Av Report 5",
+     "description": "Average of Curve 9 in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 AvH Res",
+     "description": "Curve 9 average x net thickness in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 AvH Pay",
+     "description": "Curve 9 average x net thickness in the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 AvH Report 3",
+     "description": "Curve 9 average x net thickness in the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 AvH Report 4",
+     "description": "Curve 9 average x net thickness in the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 9 AvH Report 5",
+     "description": "Curve 9 average x net thickness in the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Res Use",
+     "description": "Flag\nSet to Yes to use Curve 10 as a cutoff for Reservoir report",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Pay Use",
+     "description": "Flag\nSet to Yes to use Curve 10 as a cutoff for Pay Report.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Report 3 Use",
+     "description": "Flag\nSet to Yes to use Curve 10 as a cutoff for Report 3.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Report 4 Use",
+     "description": "Flag\nSet to Yes to use Curve 10 as a cutoff for Report 4.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Report 5 Use",
+     "description": "Flag\nSet to Yes to use Curve 10 as a cutoff for Report 5.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Cut Res/Pay",
+     "description": "Curve 10 cutoff value for reservoir and Pay reports\nIf Curve 10 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for reservoir / pay reports if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Cut Report 3",
+     "description": "Curve 10 cutoff value for report 3.\nIf Curve 10 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 3 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Cut Report 4",
+     "description": "Curve 10 cutoff value for report 4.\nIf Curve 10 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 4 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Cut Report 5",
+     "description": "Curve 10 cutoff value for report 5.\nIf Curve 10 input is > or < (depending on setting on input curve window) to this value then the level can be considered as net for Report 5 if the level also meets all the other cutoffs.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Av Res",
+     "description": "Average of Curve 10 in the Reservoir interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Av Pay",
+     "description": "Average of Curve 10 in the Pay interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Av Report 3",
+     "description": "Average of Curve 10 in the Report 3 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Av Report 4",
+     "description": "Average of Curve 10 in the Report 4 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 Av Report 5",
+     "description": "Average of Curve 10 in the Report 5 interval. Average type (Arithmetic, Geometric, Harmonic) is specified on the input curve window.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 AvH Res",
+     "description": "Curve 10 average x net thickness in the Reservoir interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 AvH Pay",
+     "description": "Curve 10 average x net thickness in the Pay interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 AvH Report 3",
+     "description": "Curve 10 average x net thickness in the Report 3 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 AvH Report 4",
+     "description": "Curve 10 average x net thickness in the Report 4 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Curve 10 AvH Report 5",
+     "description": "Curve 10 average x net thickness in the Report 5 interval.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net Report 3",
+     "description": "Net Thickness Report 3.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net Report 4",
+     "description": "Net Thickness Report 4.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net Report 5",
+     "description": "Net Thickness Report 5.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net/Gross Report 2",
+     "description": "Net/Gross Thickness Report 2\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net/Gross Report 3",
+     "description": "Net/Gross Thickness Report 3.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net Report 4",
+     "description": "Net/Gross Thickness Report 4.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net Report 5",
+     "description": "Net/Gross Thickness Report 5.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net TVD Report 3",
+     "description": "Net TVD Thickness Report 3.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net TVD Report 4",
+     "description": "Net TVD Thickness Report 4.\nResult TVD parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net TVD Report 5",
+     "description": "Net TVD Thickness Report 5.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net/Gross TVD Report 2",
+     "description": "Net/Gross Thickness Report 2\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net/Gross TVD Report 3",
+     "description": "Net/Gross Thickness Report 3.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net/Gross TVD Report 4",
+     "description": "Net/Gross Thickness Report 4.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Net/Gross TVD Report 5",
+     "description": "Net/Gross Thickness Report 5.\nResult parameter. Non editable.",
+     "stated_default": null
+    },
+    {
+     "n": null,
+     "name": "Min Report 3 Height",
+     "description": "Allows the user to set the minimum thickness of a zone in order for it to count as net pay.\nDefault is 0. (All depth intervals will count towards net if they meet the cutoff criteria).",
+     "stated_default": "0"
+    },
+    {
+     "n": null,
+     "name": "Min Report 4 Height",
+     "description": "Allows the user to set the minimum thickness of a zone in order for it to count as net pay.\nDefault is 0. (All depth intervals will count towards net if they meet the cutoff criteria).",
+     "stated_default": "0"
+    },
+    {
+     "n": null,
+     "name": "Min Report 5 Height",
+     "description": "Allows the user to set the minimum thickness of a zone in order for it to count as net pay.\nDefault is 0. (All depth intervals will count towards net if they meet the cutoff criteria).",
+     "stated_default": "0"
+    }
+   ]
+  }
+ }
+}
