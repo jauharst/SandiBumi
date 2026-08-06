@@ -5,7 +5,11 @@
 
 Desktop application for multi-well (2000+) petrophysical log analysis. Stack: **Tauri (Rust) + DuckDB (embedded, bundled) + TypeScript/WebGPU**.
 
-This file is the Claude Code equivalent of `.cursorrules` (kept in this repo for Cursor). Keep both in sync if the rules change.
+**This file is the single authoritative home for every working rule and contract in this repository.**
+`AGENTS.md` and `.cursorrules` are pointers at it, not copies — they used to be copies, and by
+2026-08-06 `AGENTS.md` had fallen 383 lines behind while `.cursorrules` had never carried rules 6–11
+at all, so an agent could break a contract it had never been shown. Both files read as authoritative,
+which is what made the drift silent. Add a rule HERE and nowhere else.
 
 ## Critical implementation rules
 
@@ -13,7 +17,7 @@ This file is the Claude Code equivalent of `.cursorrules` (kept in this repo for
 2. **Missing values**: never use `Option<f32>` for continuous logs. Missing data is strictly `f32::NAN`, so matrix arithmetic stays branch-free.
 3. **Serialization & IPC**: never pass raw data arrays over Tauri's IPC bridge as JSON strings. Convert `Vec<f32>` matrices to raw bytes with `bytemuck`, return `Vec<u8>`, and cast to `Float32Array` on the frontend.
 4. **Concurrency**: `rayon` for CPU-bound cell/well-parallel work; `tokio` for background async scheduling (long-running inversions, I/O).
-5. **Code delivery**: concise, modular, production-speed-focused. No extensive unit test blocks unless explicitly requested.
+5. **Code delivery**: concise, modular, production-speed-focused. Do not pad a change with ceremonial coverage — a test that only restates the code it calls proves nothing and still has to be maintained. **A contract stated in this file gets exactly one named test that pins it**, and the name is the sentence it pins (`a_none_in_a_zone_batch_clears_the_row_instead_of_writing_zero`); where a rule could be satisfied by a lazier implementation, pin it from BOTH sides so neither alone would pass. A test whose subject needs an optional package (Pillow, scipy, scikit-learn, openpyxl) is `#[ignore]`d so the green gate can never depend on it, and a fixture test reads its data through `SANDIBUMI_FIELD_FIXTURES` and skips with a printed reason when unset. The suite under `src-tauri/` is that record — it is what "Pinned by" means everywhere below, and it is not coverage for its own sake.
 6. **Writes are whitelisted**: the frontend never sends SQL for writes — only explicit commands (`db.rs` `TABLE_SPECS` + update fns). The SQL Query panel is read-only (SELECT/WITH only).
 7. **Python equations run as a SUBPROCESS** (`python_engine.rs`), never PyO3/embedded — a missing Python must never stop the app from launching. Discovery: `SANDIBUMI_PYTHON` (the pre-rename `ARSHILLA_PYTHON` is still honoured so no existing setup breaks, but is never named in a message) → `%LOCALAPPDATA%\Programs\Python\Python31x` → PATH; requires numpy. **scipy is OPTIONAL** — when present the worker binds `scipy` plus `signal`/`interpolate`/`optimize`/`stats`/`ndimage` into the user-equation namespace (despike, Savitzky-Golay, resample, `curve_fit`); when absent each name is a stub whose first use raises a message naming the interpreter and the pip command, never a bare `NameError`. A CURVE MNEMONIC ALWAYS SHADOWS a scipy name — the user's data never yields. This is for the user's own equations; core petrophysics stays in Rust. `python_status()` probes numpy+scipy once per session so the editor can say so before a run. **DLIS import (`dlis.rs`) reuses the same subprocess mechanism** (`find_python` + a `dlisio` helper script), never a native parser; needs the `dlisio` pip package (installed: `dlisio 1.0.4` in the Python312 env). A missing `dlisio` fails only the DLIS import, with a clear message — never the app.
 8. **Data/UI edits must be undoable** (`src/undo.ts` `pushUndo`); module runs are re-runnable, not undone.
@@ -3429,38 +3433,30 @@ Two hard runtime rules (both learned the painful way):
 
 ## Delegating work to subagents
 
-Split by **task shape, not task size**. The cost driver in this repo is the verify loop
-(`cargo check` through vcvars, ~minutes), not tokens: a cheap-model edit that fails to
-compile twice costs more wall-clock than one correct expensive-model pass.
+Split by **task shape, not task size**. **The ladder itself — the four tiers, the
+announce-on-dispatch-and-again-on-return rule, and the lower-effort-before-downgrading-the-model
+dial — lives in the machine-level `~\.claude\CLAUDE.md`. Read it there; it is deliberately not
+restated here.** This repo had its own copy of that table and the two had already drifted into
+disagreement about which tier a domain-aware-but-independently-checkable task belongs to, with both
+reading as authoritative. One table, one home.
 
-**The rule: cheap model + cheap verification = good. Cheap model + expensive verification
-= bad. Never delegate to a cheaper model when a wrong answer would be SILENT** — a number
-that is wrong but compiles ships into a client report, and no `cargo check` catches it.
+What is specific to THIS repo, and is the part that decides a tier here:
 
-| Task shape | Model | Why |
-|---|---|---|
-| Read-only retrieval — "which modules lack tests", "find every call site of `phie`", inventory/grep sweeps | **haiku** | Verification is free: you read the answer |
-| Mechanical edits with a compiler gate — renames, a Tauri command wrapper, docs, test scaffolding, TS/dockview plumbing, i18n dictionary entries | **sonnet** | `cargo check` / `npx tsc --noEmit` is the verifier; a wrong answer is caught, not shipped |
-| Anything numeric or convention-bound — `equations.rs`, `multimin.rs`/`multimin2.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`, `hfu.rs`, `montecarlo.rs`, chart overlays, the theme var contract, dockview layout | **session model (default)** | Silent numeric/behavioural wrongness that no compiler catches |
-
-The ladder is session-relative. On an **opus** session the strong tier IS the session model.
-On a **fable** session, **opus** additionally becomes a mid-strong delegation tier — full
-domain judgment at half fable's rate — for domain-aware work the main agent will
-independently re-check (second-opinion reviews of numeric modules, domain test suites);
-final judgment and sign-off still never leave the session model.
-
-Mechanics:
-
-- The `Agent` tool takes `model: haiku | sonnet | opus | fable`. Subagents otherwise
-  inherit the session model.
-- Only `Workflow` scripts expose per-agent `effort`. **Lower effort before downgrading the
-  model** on domain work — `opus` at `effort: "low"` keeps the petrophysics judgment while
-  cutting emitted tokens; downgrading the model throws the judgment away.
-- Whatever the tier, a delegated edit is not done until `npx tsc --noEmit` + `cargo check`
-  pass. Do not report a subagent's result as verified on the subagent's own say-so.
-- Two things stay with the main agent regardless of size: **physics defaults** (they must
-  be traced to `docs/` or a cited source per collaboration rule 5) and **anything touching
-  the DuckDB write discipline** (the PK-less `computed_curves` contract).
+- **The cost driver is the verify loop, not tokens.** `cargo check` runs through vcvars and takes
+  minutes, so a cheap-model edit that fails to compile twice costs more wall-clock than one correct
+  expensive-model pass. Weigh a tier against that, never against a per-token rate.
+- **The gate is `npx tsc --noEmit` + `cargo check`**, or `tools\check.ps1` for the full bar. A
+  delegated edit is not done until the gate passes, and never on the subagent's own say-so.
+- **What counts as silent wrongness here** — the files where a wrong answer compiles, plots and
+  ships into a client report with no gate to catch it: `equations.rs`, `multimin.rs`/`multimin2.rs`,
+  `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`, `hfu.rs`, `montecarlo.rs`, `distribution.rs`,
+  `petrography.rs`, the chart overlays, the theme var contract, and dockview layout.
+- **Mechanical and gated here** — renames, a Tauri command wrapper, docs, test scaffolding,
+  TS/dockview plumbing, i18n dictionary entries. The compiler is the verifier, so a wrong answer is
+  caught rather than shipped.
+- **Never delegated regardless of size**: physics defaults, which must trace to `docs/` or a cited
+  source per collaboration rule 6, and anything touching the DuckDB write discipline — the
+  deliberately PK-less `computed_curves` contract.
 
 ## Collaboration protocol (Jauhar ↔ Claude)
 
