@@ -8558,3 +8558,34 @@ Nothing to click through here; these are judgement calls to accept or redirect.
       pointed at the PR rule ever since that rule was inserted. It reads rule 6 now.
 - [ ] CLAUDE.md is still 282 KB and still loads in full every session. That is the one audit
       finding not addressed here, because where to draw the line needs your call.
+
+### CLAUDE.md carries the contract; the reasoning moved to docs/
+
+The last audit finding, the one left for your call: CLAUDE.md was 283 KB and every byte of it
+loaded on every session, most of it dated build records for work that had already shipped and been
+accepted. It is 95 KB now — a third of the size — and nothing was deleted.
+
+- [ ] Open `CLAUDE.md`. Everything that governs how the code is written is still there, in the
+      same words: the eleven implementation rules, the write discipline, the store contracts, the
+      Organic design system, the dockview traps, the dev commands, the collaboration protocol.
+- [ ] The new **The build record** section sits after Open-path hardening. Each line in it is a
+      contract a session must not break — the ones that are wrong *silently* if broken. Read a
+      few and check I kept the right half: e.g. "a fit is the algebraic inverse of the module's
+      own equation", "`core_data.depth_orig` is the record and nothing ever shifts it", "an
+      apparent answer and a corrected one get different item names".
+- [ ] Six new files in `docs/` hold the reasoning that moved: `record_calibration.md`,
+      `record_core_depth.md`, `record_petrography.md`, `record_core_imaging.md`,
+      `record_data_tools.md`, `record_fixes.md`. Open one and check a section you remember —
+      the text is byte-identical to what CLAUDE.md carried, moved by script rather than retyped,
+      and verified line by line against the original.
+- [ ] The section headed **Current state (2026-07-20)** is now **Shipped capability, and the
+      conventions it set**. It had been describing Phase 9 as "STARTED" for work the same file
+      later recorded as finished, and a section labelled current that is not is its own hazard.
+      Its lead paragraph now says plainly to trust the build record and `ROADMAP.md` over the
+      phase labels.
+- [ ] Nothing that stayed moved. `## Refusing a click that needs a well`, the Organic design
+      system and the launch screen are standing rules rather than dated records, so they stayed
+      put — and the launch screen now sits next to the design system, where it belongs.
+- [ ] One thing to watch, and the reason to click through rather than take my word: the split was
+      done by line range. If a future session finds a contract in a `record_*.md` that CLAUDE.md
+      should have kept, that is the failure mode — tell me and it comes back up.

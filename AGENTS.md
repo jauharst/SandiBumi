@@ -32,6 +32,7 @@ the drift is silent: both files read as authoritative. So this is a pointer now,
 | | |
 |---|---|
 | method math and solver specs | `docs/` |
+| what each increment settled, and why | `docs/record_*.md` — indexed in `CLAUDE.md` under **The build record**, which keeps the binding one-liner for each |
 | the backlog | `ROADMAP.md` — §4b is the active correctness/perf backlog |
 | the field-verification checklist | `REVIEW.md` |
 | new-machine setup | `CONTRIBUTING.md` |
