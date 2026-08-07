@@ -5076,12 +5076,18 @@ textarea {
    Input / Data QC / Model / Results as a segmented strip. The strip is sticky so the section names
    stay reachable while a long Results panel scrolls under them - switching section by scrolling back
    to the top is the thing that makes tabs feel worse than one long column. */
+/* A full-width sticky BAR holding the tab pills, not the pill group itself. `.seg` sizes to its
+   content, so making it the sticky element pinned a background only as wide as the tabs and let the
+   form scroll through beside them - the segmented controls and the tabs drawn over each other. The
+   bar spans the pane, so there is no gap for content to show through. */
 .ml-sections {
   position: sticky;
   top: 0;
   z-index: 2;
   margin-bottom: 10px;
+  padding: 6px 0 8px;
   background: var(--bg-panel);
+  display: flex;
 }
 .ml-section[hidden] {
   display: none;

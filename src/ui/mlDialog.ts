@@ -339,7 +339,14 @@ export async function buildMlContent(
   type SectionId = (typeof SECTIONS)[number][0];
 
   const tabStrip = document.createElement("div");
-  tabStrip.className = "seg ml-sections";
+  tabStrip.className = "seg";
+  // The sticky bar is a WRAPPER, not the pill group itself. `.seg` sizes to its content, so making
+  // it sticky pinned a background only as wide as the four tabs and let the scrolling form show
+  // through beside them — the segmented control and the fields underneath drawn on top of each
+  // other. Same failure as any sticky header with a background narrower than its container.
+  const tabBar = document.createElement("div");
+  tabBar.className = "ml-sections";
+  tabBar.appendChild(tabStrip);
   const panels = new Map<SectionId, HTMLElement>();
   const tabs = new Map<SectionId, HTMLButtonElement>();
   const sectionHost = document.createElement("div");
@@ -373,7 +380,7 @@ export async function buildMlContent(
     panels.set(id, panel);
     sectionHost.appendChild(panel);
   }
-  content.append(tabStrip, sectionHost);
+  content.append(tabBar, sectionHost);
   const sIn = panels.get("input") as HTMLElement;
   const sQc = panels.get("qc") as HTMLElement;
   const sModel = panels.get("model") as HTMLElement;
@@ -402,6 +409,59 @@ export async function buildMlContent(
   algoDesc.className = "mc-chain-note";
   sModel.appendChild(formRow("Algorithm", algoSel));
   sModel.appendChild(algoDesc);
+
+  // --- Also run (comparison) ------------------------------------------------
+  // Jauhar, 2026-08-07: *"in model user should have option to run multiple model simultaneously, so
+  // later in result it can be compared at instant"*. Compare algorithms already scored many
+  // estimators — but scoring is not shipping. This runs them for real: each writes its own curve,
+  // keeps its own blind score and saves its own model, so the comparison is over the curves that
+  // would actually be delivered rather than over a cross-validation number.
+  //
+  // They run one after another, not concurrently. DuckDB is a single writer and each fit is its own
+  // Python subprocess, so concurrency would buy little — and "simultaneously" here means one click,
+  // not one instant. What makes them COMPARABLE is that they share the run's seed, split fraction
+  // and split mode, so every model is fitted and scored on exactly the same rows.
+  const alsoWrap = document.createElement("div");
+  alsoWrap.className = "mc-settings ml-also";
+  const alsoChecks = new Map<string, HTMLInputElement>();
+  const alsoNote = document.createElement("div");
+  alsoNote.className = "ml-norm-why";
+  const alsoRow = formRow("Also run", alsoWrap);
+  alsoRow.appendChild(alsoNote);
+  sModel.appendChild(alsoRow);
+
+  function renderAlso(): void {
+    alsoWrap.innerHTML = "";
+    alsoChecks.clear();
+    const others = task.algos.filter((a) => a.id !== algo.id);
+    alsoRow.style.display = others.length ? "" : "none";
+    for (const a of others) {
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      const l = document.createElement("label");
+      l.className = "mc-field ml-also-item";
+      l.append(cb, document.createTextNode(` ${a.label}`));
+      l.title = a.desc;
+      cb.addEventListener("change", syncAlso);
+      alsoChecks.set(a.id, cb);
+      alsoWrap.appendChild(l);
+    }
+    syncAlso();
+  }
+  /** Every algorithm this click will fit, the picked one first. */
+  const alsoSelected = (): AlgoSpec[] => [
+    algo,
+    ...task.algos.filter((a) => a.id !== algo.id && alsoChecks.get(a.id)?.checked),
+  ];
+  function syncAlso(): void {
+    const picked = alsoSelected();
+    alsoNote.textContent =
+      picked.length === 1
+        ? "One model, writing one curve. Tick others to fit them on the same rows, with the same split and the same seed, and compare the curves you would actually deliver."
+        : `${picked.length} models on the same rows, the same split and the same seed - so the scores are comparable. Each writes its own curve suffixed with its name (${picked
+            .map((a) => `${outInput.value || "PRED"}_${a.id.toUpperCase()}`)
+            .join(", ")}) and saves its own model, because ${picked.length} models cannot share one curve name. Only ${algo.label}'s parameters are editable above; the rest run at their defaults, which the run records as defaults.`;
+  }
 
   // SB-MLA-008. What about the chosen configuration would not reproduce on another machine, said
   // BEFORE the run rather than discovered when somebody cannot repeat the result. Hidden unless
@@ -922,6 +982,7 @@ export async function buildMlContent(
     if (!outEdited) outInput.value = algo.out ?? task.defaultOut;
     echoTransform();
     renderParams();
+    renderAlso();
     syncNorm();
     syncCoverage();
     // "Target sampling" has no meaning without a target, so the whole row is supervised-only rather
@@ -1447,6 +1508,10 @@ export async function buildMlContent(
       seed: Math.round(parseFloat(seedInput.value) || 42),
     };
     for (const { spec, get } of paramInputs) params[spec.key] = get();
+    const picked = alsoSelected();
+    const multi = picked.length > 1;
+    const base = outInput.value.trim() || task.defaultOut;
+    const saveBase = saveInput.value.trim();
     const req: MlRequest = {
       task: task.id,
       algorithm: algo.id,
@@ -1470,8 +1535,52 @@ export async function buildMlContent(
     statusLine.textContent = "Running…";
     const t0 = performance.now();
     try {
-      const res = await runMl(req);
+      // One request per algorithm, run in order. Everything that decides WHICH ROWS a model sees —
+      // the wells, the curves, the mask, the split fraction, the split mode and the seed — is shared
+      // verbatim, so the scores are comparable; only the algorithm, its parameters and the names it
+      // writes under differ.
+      const runs: { algo: AlgoSpec; res: MlResult }[] = [];
+      for (const [i, a] of picked.entries()) {
+        if (multi) statusLine.textContent = `Running ${a.label} (${i + 1} of ${picked.length})…`;
+        // Distinct names once there is more than one model. Every run is suffixed, including the
+        // picked one — privileging it with the bare name would make "which curve is the comparison
+        // baseline" a question about the order boxes were ticked in.
+        const one: MlRequest = {
+          ...req,
+          algorithm: a.id,
+          // Only the picked algorithm's parameter fields are on screen. The others take their
+          // manifest defaults, which `effective_params` records AS defaults, so the record stays
+          // true even though the form never showed them.
+          params: a.id === algo.id ? params : { standardize: stdCb.checked, seed: params.seed },
+          output_curve: multi ? `${base}_${a.id.toUpperCase()}` : base,
+          save_model_as: task.supervised && saveBase ? (multi ? `${saveBase}_${a.id.toUpperCase()}` : saveBase) : null,
+        };
+        runs.push({ algo: a, res: await runMl(one) });
+      }
+      const res = runs[0].res;
       const ms = Math.round(performance.now() - t0);
+      if (multi) {
+        const okRuns = runs.filter((r) => !r.res.error);
+        const wrote = okRuns.flatMap((r) => r.res.outputs).join(", ");
+        statusLine.textContent =
+          `Done in ${ms} ms → ${okRuns.length}/${runs.length} model(s)` + (wrote ? ` → ${wrote}` : "");
+        if (okRuns.length > 0) {
+          recordProcess("ML", `Compared ${okRuns.length} model(s) on ${req.target_curve ?? "-"}: wrote ${wrote}`);
+          setStatus(`Ran ${okRuns.length} model(s): ${wrote}`);
+        }
+        for (const r of runs) {
+          if (r.res.model_name) {
+            recordProcess("ML", `Saved model '${r.res.model_name}' (${r.algo.label} on ${req.target_curve ?? "-"})`);
+          }
+        }
+        if (okRuns.some((r) => r.res.model_name)) {
+          saveInput.value = "";
+          void refreshSaved();
+        }
+        if (okRuns.length > 0) bumpDataVersion();
+        renderMultiResults(results, runs, nameOf);
+        return;
+      }
       if (res.error) {
         statusLine.textContent = `Failed: ${res.error}`;
       } else {
@@ -1892,6 +2001,108 @@ export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: st
     wellsTable.appendChild(tr);
   }
   host.appendChild(wellsTable);
+}
+
+/**
+ * Several models run in one click, compared at the top and detailed underneath.
+ *
+ * The comparison is over the CURVES, not over a cross-validation score — that is what separates this
+ * from Compare algorithms. Every row here is a model that actually wrote a log and saved an artifact,
+ * so the reading is "which of these would I deliver", not "which scores best on paper".
+ *
+ * The scores are comparable because the runs share the wells, curves, mask, split fraction, split
+ * mode and seed; only the estimator differs. The caption says so, because a table of scores with no
+ * statement of what was held constant is a table nobody can act on.
+ *
+ * A failed run keeps its row. Dropping it would leave a comparison that looks complete and quietly
+ * excludes the model that could not fit — usually the most interesting fact on the screen.
+ */
+function renderMultiResults(
+  host: HTMLElement,
+  runs: { algo: AlgoSpec; res: MlResult }[],
+  nameOf?: (id: string) => string,
+): void {
+  host.innerHTML = "";
+  const cap = document.createElement("div");
+  cap.className = "ml-seg-cap";
+  cap.textContent =
+    `${runs.length} models on the same wells, the same curves, the same split and the same seed — only the ` +
+    "estimator differs, which is what makes these scores comparable. Each wrote its own curve and saved its " +
+    "own model, so this compares what you would deliver rather than a cross-validation number.";
+  host.appendChild(cap);
+
+  const table = document.createElement("table");
+  table.className = "mc-table ml-multi-table";
+  const head = document.createElement("tr");
+  for (const h of ["Model", "Curve", "Wells", "Blind", "Saved as"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    head.appendChild(th);
+  }
+  table.appendChild(head);
+  // Best blind score marked, and ONLY when more than one run produced one — a "best" badge on a
+  // field of one is a ranking of nothing.
+  const scoreOf = (r: MlResult): number | null => {
+    const b = (r.metrics as Record<string, unknown> | null)?.["blind"] as Record<string, unknown> | undefined;
+    return b?.["performed"] === true && typeof b["value"] === "number" ? (b["value"] as number) : null;
+  };
+  const scored = runs.map((r) => scoreOf(r.res)).filter((v): v is number => v != null);
+  const best = scored.length > 1 ? Math.max(...scored) : null;
+
+  for (const { algo, res } of runs) {
+    const tr = document.createElement("tr");
+    if (res.error) tr.classList.add("ml-well-refused");
+    const s = scoreOf(res);
+    const ok = res.wells.filter((w) => !w.error).length;
+    const cells = res.error
+      ? [algo.label, "—", "—", "—", "—"]
+      : [
+          algo.label,
+          res.outputs.join(", ") || "—",
+          `${ok}/${res.wells.length}`,
+          s == null ? "not requested" : s.toFixed(4),
+          res.model_name ?? "not saved",
+        ];
+    for (const [i, c] of cells.entries()) {
+      const td = document.createElement("td");
+      td.textContent = c;
+      if (i === 3 && s != null && best != null && s === best) {
+        td.classList.add("ml-diag");
+        td.title = "Highest blind score of these runs — read it beside the crossplot before trusting it";
+      }
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+    if (res.error) {
+      const why = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 5;
+      td.className = "ml-seg-why";
+      td.textContent = res.error;
+      why.appendChild(td);
+      table.appendChild(why);
+    }
+  }
+  host.appendChild(table);
+
+  // The full per-run result, collapsed. Everything the single-model view shows is still reachable —
+  // notes, split report, per-well outcomes — without burying the comparison under five copies of it.
+  for (const { algo, res } of runs) {
+    const box = document.createElement("details");
+    box.className = "ml-eff";
+    const sum = document.createElement("summary");
+    sum.textContent = `${algo.label} — full result`;
+    box.appendChild(sum);
+    const inner = document.createElement("div");
+    if (res.error) {
+      inner.className = "mc-note mc-note-err";
+      inner.textContent = res.error;
+    } else {
+      renderResults(inner, res, nameOf);
+    }
+    box.appendChild(inner);
+    host.appendChild(box);
+  }
 }
 
 /**
