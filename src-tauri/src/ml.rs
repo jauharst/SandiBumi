@@ -3112,6 +3112,101 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **SB-MLA-060 — no vendor model or weight file is read, converted or imported.**
+    ///
+    /// This one is already true, so the test is not a fix: it is the LOCK. The boundary would be
+    /// crossed for an entirely reasonable-sounding product reason — "let the customer keep using the
+    /// model they already trained" — and the cost of crossing it is not recoverable, so it must fail
+    /// the build rather than be caught in review. Reading a weight file to apply it is using the
+    /// capability; reading it to understand it is reconstruction. Neither is available.
+    ///
+    /// Three checks, because there are three doors. A DEPENDENCY that can parse a model artifact is
+    /// the widest one — a crate added for some other reason brings the capability with it. A Python
+    /// IMPORT is the same door on the other side of the subprocess boundary, where `cargo` cannot
+    /// see it. And the SOURCE of model bytes is the invariant itself: the only bytes any runner
+    /// deserializes come from a buffer handed to it on stdin, which came from SandiBumi's own
+    /// `ml_models` table — no runner opens a file at all.
+    ///
+    /// Interchange with an incumbent stays possible where the requirement allows it: the vendor's
+    /// *outputs*, exported as ordinary curves, come in through LAS and DLIS like any other log.
+    #[test]
+    fn no_code_path_reads_a_vendor_model_or_weight_file() {
+        use std::path::Path;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+        // 1. Dependencies. A model-format reader in the manifest is the capability, whether or not
+        //    anything calls it yet.
+        let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("Cargo.toml");
+        for crate_name in [
+            "onnxruntime", "tract-onnx", "tract-core", "tch", "candle-core", "burn",
+            "tensorflow", "safetensors", "hdf5", "netcdf",
+        ] {
+            assert!(
+                !manifest.lines().any(|l| l.trim_start().starts_with(crate_name)),
+                "'{crate_name}' can read a trained-model artifact - SB-MLA-060 forbids the capability, \
+                 not merely its use",
+            );
+        }
+
+        // 2. The subprocess side. cargo cannot see a Python import, and the runners are strings.
+        for (which, src) in [
+            ("train", ml_runner()),
+            ("leaderboard", ml_eval_runner()),
+            ("apply", ML_APPLY_RUNNER.to_string()),
+        ] {
+            for module in ["torch", "tensorflow", "keras", "onnx", "h5py", "tflite"] {
+                assert!(
+                    !src.contains(&format!("import {module}")),
+                    "the {which} runner imports {module}, which exists to read somebody else's weights",
+                );
+            }
+            // 3. The invariant. No runner opens a file — every byte it deserializes arrived on
+            //    stdin from SandiBumi's own table.
+            assert!(
+                !src.contains("open("),
+                "the {which} runner opens a file; model bytes must arrive on stdin from ml_models",
+            );
+        }
+        assert!(
+            ML_APPLY_RUNNER.contains("joblib.load(_io.BytesIO(blob))"),
+            "the apply runner must deserialize from the in-memory blob it was handed, never a path",
+        );
+        assert_eq!(
+            ML_APPLY_RUNNER.matches("joblib.load").count(),
+            1,
+            "one load site, or the one that is checked is not the only one",
+        );
+
+        // 4. And no file-format handler anywhere names a model artifact. A dialog filter is how the
+        //    first one would arrive: the reader gets written because the picker already offers it.
+        let mut offenders: Vec<String> = Vec::new();
+        let scan = |dir: std::path::PathBuf, ext: &str, out: &mut Vec<String>| -> usize {
+            let Ok(entries) = std::fs::read_dir(&dir) else { return 0 };
+            let mut seen = 0usize;
+            for e in entries.flatten() {
+                let p = e.path();
+                if !p.extension().map(|x| x == ext).unwrap_or(false) {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(&p) else { continue };
+                seen += 1;
+                for bad in [".onnx", ".hdf5", ".caffemodel", ".tflite", ".safetensors", ".ckpt", ".pth"] {
+                    // This very test names them, so it cannot be its own offender.
+                    if text.contains(bad) && !p.ends_with("ml.rs") {
+                        out.push(format!("{} names {bad}", p.display()));
+                    }
+                }
+            }
+            seen
+        };
+        let rs = scan(root.join("src"), "rs", &mut offenders);
+        let ts = scan(root.parent().expect("repo root").join("src").join("ui"), "ts", &mut offenders);
+        assert!(offenders.is_empty(), "a vendor model artifact is named in the source: {offenders:?}");
+        // A file scan that found nothing passes for the wrong reason, which on a check this
+        // load-bearing is worse than a failure — it would go on passing after the tree moved.
+        assert!(rs > 40 && ts > 20, "the scan reached {rs} Rust and {ts} TypeScript files - it is looking in the wrong place");
+    }
+
     /// SB-MLA-001. Every parameter the runner reads must go through `P`, which records what was
     /// actually used and whether it was a default. A stray `p.get` is the whole defect — it reads
     /// a value, changes the answer with it, and leaves nothing in the record — and `cargo check`

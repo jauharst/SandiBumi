@@ -2253,10 +2253,28 @@ it is a boundary that would be crossed for an entirely reasonable-sounding produ
 the customer keep using the model they already trained" — and the cost of crossing it is not
 recoverable.
 
-**As-built.** `PRESENT-OK` — the only model format read anywhere is SandiBumi's own joblib blob
-from its own `ml_models` table (`ml.rs:259`–`:312`, `db.rs:2701`). No vendor format is parsed.
+**As-built.** `PRESENT-OK`, and LOCKED as of 2026-08-07. The only model format read anywhere is
+SandiBumi's own joblib blob from its own `ml_models` table; no vendor format is parsed. Since the
+requirement was already satisfied, what it needed was not a fix but a test that fails the build if
+the boundary is ever crossed — this is a P0 precisely because it would be crossed for a
+reasonable-sounding reason, and a boundary held only by good intentions is held until the first
+customer asks.
 
-**Verified by.** SB-MLA-T57
+The lock checks three doors. A **dependency** that can parse a model artifact is the widest one, and
+the requirement's own test text says so ("a new dependency … fails the check") — a crate added for
+some other reason brings the capability with it whether or not anything calls it. A **Python import**
+is the same door on the far side of the subprocess boundary, where `cargo` cannot see it. And the
+**source of the bytes** is the invariant itself: `joblib.load(_io.BytesIO(blob))` deserializes a
+buffer handed to the runner on stdin, and no runner calls `open(` at all, so there is no path for a
+file to enter. A fourth check refuses a vendor model extension named anywhere in the source, because
+a file-dialog filter is how the first reader arrives — the parser gets written because the picker
+already offers it.
+
+Interchange with an incumbent stays available exactly where the requirement allows: the vendor's
+*outputs*, exported as ordinary curves, come in through LAS and DLIS like any other log.
+
+**Verified by.** SB-MLA-T57 — `ml::tests::no_code_path_reads_a_vendor_model_or_weight_file`
+(needs no Python and no network, so it fails the green gate).
 
 ### Group G — Platform and scale
 
