@@ -3,6 +3,7 @@ import {
   deleteMlModel,
   listCurveCatalog,
   listMlModels,
+  listTops,
   listWells,
   mlDeterminismNote,
   mlModelWarnings,
@@ -20,14 +21,17 @@ import {
   type MlRequest,
   type MlResult,
   type SplitBalance,
+  type TopEntry,
   type WellSummary,
 } from "../ipc";
-import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup, setStatus } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
 import { FACIES_PALETTE } from "./plotCanvas";
 import { formRow } from "./modal";
+import { buildParamSources } from "./paramSources";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
+import { buildImageExportButtons } from "./plotExport";
 
 /** Machine-learning dialog (Phase 10-4): one entry point for the whole catalog —
  *  supervised regression/classification (fit on labelled train wells, predict on apply
@@ -178,6 +182,13 @@ interface AlgoSpec {
   params: ParamSpec[];
   /** reduction only: overrides the task's default output base name. */
   out?: string;
+  /** Entries sharing a family across BOTH supervised tasks are ONE entry in the picker, under
+   *  Universal. Random Forest is `rf` in both; Support Vector is `svr` fitting a value and `svm`
+   *  fitting a class — different estimators, one idea, and listing them as two algorithms claimed a
+   *  choice the user does not actually have to make until they know what they are predicting. */
+  family?: string;
+  /** The name the family goes under when it is listed once. Set on the regression side. */
+  familyLabel?: string;
 }
 
 interface TaskSpec {
@@ -214,13 +225,13 @@ const TASKS: TaskSpec[] = [
     supervised: true,
     defaultOut: "ML_PRED",
     algos: [
-      { id: "rf", label: "Random Forest Regressor",
+      { id: "rf", label: "Random Forest Regressor", family: "rf", familyLabel: "Random Forest",
         desc: "Ensemble of averaged decision trees — non-linear and resistant to overfitting.",
         params: [num("n_estimators", "trees", 200), num("max_depth", "max depth (0 = none)", 0)] },
       { id: "gbdt", label: "Gradient Boosting (XGBoost)",
         desc: "Sequential trees minimizing error — highest accuracy in complex settings. Falls back to sklearn boosting if xgboost isn't installed.",
         params: [num("n_estimators", "trees", 300), num("learning_rate", "learning rate", 0.1), num("max_depth", "max depth", 4)] },
-      { id: "svr", label: "Support Vector Regression",
+      { id: "svr", label: "Support Vector Regression", family: "svec", familyLabel: "Support Vector",
         desc: "Margin-of-tolerance hyperplane — performs well on smaller, localized datasets.",
         params: [num("C", "C", 10), num("epsilon", "epsilon", 0.1)] },
       { id: "ann", label: "Neural Network (MLP)",
@@ -238,13 +249,13 @@ const TASKS: TaskSpec[] = [
     supervised: true,
     defaultOut: "ML_CLASS",
     algos: [
-      { id: "svm", label: "Support Vector Machine",
+      { id: "svm", label: "Support Vector Machine", family: "svec",
         desc: "Non-linear separator for distinct rock types via high-dimensional mapping.",
         params: [num("C", "C", 10)] },
       { id: "knn", label: "K-Nearest Neighbors",
         desc: "Labels each sample by the most common class among its nearest neighbours.",
         params: [num("n_neighbors", "neighbours", 7)] },
-      { id: "rf", label: "Random Forest Classifier",
+      { id: "rf", label: "Random Forest Classifier", family: "rf",
         desc: "Ensemble trees — robust against noisy or incomplete log data.",
         params: [num("n_estimators", "trees", 200)] },
       { id: "gnb", label: "Gaussian Naive Bayes",
@@ -314,11 +325,13 @@ export async function buildMlContent(
 
   let task = TASKS[0];
   let algo = task.algos[0];
+  /** What was being predicted before the last picker change — see the change handler. */
+  let prevTask = task;
 
   const content = document.createElement("div");
   content.className = "mc-dialog ml-pane";
 
-  // --- The four sections ----------------------------------------------------
+  // --- The five sections ----------------------------------------------------
   //
   // Jauhar, 2026-08-07: *"better to split into subpanes inside ML, for input, data qc, model,
   // result visualization"*. One scrolling column had grown to a dozen form rows in no particular
@@ -326,15 +339,22 @@ export async function buildMlContent(
   // below that — so setting up a run meant scrolling past everything twice.
   //
   // The order is the order the work is done in, and each section answers one question: what am I
-  // learning from, is that data fit to learn from, what shall I fit, and what came out. A segmented
-  // strip rather than a new tab component — `.seg`/`.seg-opt` is already this app's segmented
-  // control (Organic increment 2), and a second mechanism for "pick one of these" would be a second
-  // thing to keep in agreement.
+  // learning from, is that data fit to learn from, what shall I fit, what came out, and — once I
+  // believe it — where else does it go. A segmented strip rather than a new tab component —
+  // `.seg`/`.seg-opt` is already this app's segmented control (Organic increment 2), and a second
+  // mechanism for "pick one of these" would be a second thing to keep in agreement.
+  //
+  // Distribution sits AFTER Results (Jauhar, 2026-08-07: *"swap model dist and result position"*),
+  // and the reason is more than tidiness: propagating a model you have not looked at is the one
+  // move this pane should not make easy. The blind-well scores and the predicted-vs-measured
+  // crossplot are what decide whether a model is fit to leave the wells it was trained on, so the
+  // section that spends that judgement comes after the section that supplies it.
   const SECTIONS = [
-    ["input", "Input", "Which curves, which wells, and which stored values to read them from."],
+    ["input", "Input", "Which curves, which wells, over which interval, and which stored values to read them from."],
     ["qc", "Data QC", "Whether the data you just chose can support the model you are about to fit."],
-    ["model", "Model", "What to fit, how it is validated, and what the outputs are called."],
+    ["model", "Model", "What to fit, how it is validated, and what the outputs are called. Run Model lives here."],
     ["results", "Results", "What the run produced, how the models compare, and the models you have kept."],
+    ["dist", "Model Distribution", "Propagate a kept model to the rest of the field — its own wells, interval and names."],
   ] as const;
   type SectionId = (typeof SECTIONS)[number][0];
 
@@ -384,31 +404,128 @@ export async function buildMlContent(
   const sIn = panels.get("input") as HTMLElement;
   const sQc = panels.get("qc") as HTMLElement;
   const sModel = panels.get("model") as HTMLElement;
+  const sDist = panels.get("dist") as HTMLElement;
   const sRes = panels.get("results") as HTMLElement;
 
-  // --- Algorithm: ONE grouped picker ---------------------------------------
-  // Was two cascading selects. The task is now DERIVED from which group the chosen algorithm sits
-  // in, so `Random Forest` can appear under both continuous and discrete without either entry
-  // having to explain itself.
+  // --- Algorithm: THREE groups, by what kind of log comes out ---------------
+  //
+  // Jauhar, 2026-08-07: *"for model, i want only 3 option, Universal for continous & discrete,
+  // continous only, and discrete only"*. The picker had four groups, one per task, which asked the
+  // user to know the statistical name of what they wanted before they could find it.
+  //
+  // The three groups are derived, not hand-listed, so they cannot drift from what the runner
+  // actually supports:
+  //
+  // - **Universal** — the families the runner fits BOTH ways. Random Forest is `rf` in each;
+  //   Support Vector is `svr` for a value and `svm` for a class. Listed ONCE, with a
+  //   Continuous/Discrete choice appearing beside it, because until you know what you are predicting
+  //   there is no choice to make between them.
+  // - **Continuous only** / **Discrete only** — everything else, grouped by the kind of log it
+  //   writes. That puts electrofacies clustering under Discrete (it writes class codes) and PCA /
+  //   t-SNE under Continuous (they write component curves), which loses no capability and drops the
+  //   two groups whose headings named a method rather than an answer. An entry needing no target
+  //   says so in its own label, since it sits beside ones that do.
   const algoSel = document.createElement("select");
   algoSel.className = "form-control";
-  for (const t of TASKS) {
+  const reg = TASKS.find((t) => t.id === "regression") as TaskSpec;
+  const cls = TASKS.find((t) => t.id === "classification") as TaskSpec;
+  /** Families the runner fits both ways — the Universal group, and nothing else. */
+  const universal = reg.algos.filter((a) => a.family && cls.algos.some((b) => b.family === a.family));
+  const isUniversal = (a: AlgoSpec) => !!a.family && universal.some((u) => u.family === a.family);
+  const writesDiscrete = (t: TaskSpec) => t.id === "classification" || t.id === "clustering";
+  const GROUPS: [string, [TaskSpec, AlgoSpec][]][] = [
+    [
+      "Universal  —  continuous or discrete",
+      universal.map((a) => [reg, a] as [TaskSpec, AlgoSpec]),
+    ],
+    [
+      "Continuous only  —  predicts a value",
+      TASKS.filter((t) => !writesDiscrete(t)).flatMap((t) =>
+        t.algos.filter((a) => !isUniversal(a)).map((a) => [t, a] as [TaskSpec, AlgoSpec]),
+      ),
+    ],
+    [
+      "Discrete only  —  predicts a class",
+      TASKS.filter(writesDiscrete).flatMap((t) =>
+        t.algos.filter((a) => !isUniversal(a)).map((a) => [t, a] as [TaskSpec, AlgoSpec]),
+      ),
+    ],
+  ];
+  for (const [heading, entries] of GROUPS) {
+    if (!entries.length) continue;
     const g = document.createElement("optgroup");
-    g.label = t.group;
-    for (const a of t.algos) {
+    g.label = heading;
+    for (const [t, a] of entries) {
       const o = document.createElement("option");
-      // task:algo, because an algorithm id alone is ambiguous once `rf` is in two groups.
+      // task:algo, because an algorithm id alone is ambiguous once `rf` is in two tasks.
       o.value = `${t.id}:${a.id}`;
-      o.textContent = a.label;
+      // A universal family goes under its family name; the per-task labels ("… Regressor",
+      // "… Classifier") would each be half a truth in a group that covers both.
+      o.textContent = isUniversal(a)
+        ? (a.familyLabel ?? a.label)
+        : t.supervised
+          ? a.label
+          : `${a.label} — no target curve`;
       g.appendChild(o);
     }
     algoSel.appendChild(g);
   }
-  algoSel.value = `${task.id}:${algo.id}`;
+  /**
+   * The option that stands for a (task, algorithm) pair.
+   *
+   * A universal family is listed ONCE, under its regression-side value, so `classification:svm` is
+   * not an option that exists — assigning it silently blanked the picker while the run underneath
+   * was correctly configured. The select names the FAMILY; the Predicting control beside it carries
+   * the task. This is the one place that knows that, so the two cannot disagree.
+   */
+  const pickerValue = (t: TaskSpec, a: AlgoSpec): string => {
+    if (isUniversal(a)) {
+      const twin = reg.algos.find((x) => x.family === a.family);
+      if (twin) return `${reg.id}:${twin.id}`;
+    }
+    return `${t.id}:${a.id}`;
+  };
+  algoSel.value = pickerValue(task, algo);
   const algoDesc = document.createElement("div");
   algoDesc.className = "mc-chain-note";
   sModel.appendChild(formRow("Algorithm", algoSel));
   sModel.appendChild(algoDesc);
+
+  // The Continuous/Discrete choice a universal family needs, and only it. Shown beside the picker
+  // rather than as a separate concept: it is the second half of "which algorithm", not a new
+  // setting. Switching it swaps to the same family's estimator in the other task — Random Forest
+  // stays Random Forest, and the parameter grid follows because the two take different parameters.
+  const kindSeg = document.createElement("div");
+  kindSeg.className = "seg";
+  const kindBtns = new Map<MlRequest["task"], HTMLButtonElement>();
+  for (const [id, label] of [
+    ["regression", "Continuous"],
+    ["classification", "Discrete"],
+  ] as [MlRequest["task"], string][]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "seg-opt";
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      const t = TASKS.find((x) => x.id === id) as TaskSpec;
+      const twin = t.algos.find((x) => x.family === algo.family);
+      if (!twin) return;
+      task = t;
+      algo = twin;
+      prevTask = t;
+      algoSel.value = pickerValue(task, algo);
+      syncAlgo();
+    });
+    kindBtns.set(id, b);
+    kindSeg.appendChild(b);
+  }
+  const kindRow = formRow("Predicting", kindSeg);
+  sModel.appendChild(kindRow);
+  function syncKind(): void {
+    const uni = isUniversal(algo);
+    kindRow.style.display = uni ? "" : "none";
+    for (const [id, b] of kindBtns) b.setAttribute("aria-pressed", String(uni && task.id === id));
+  }
 
   // --- Also run (comparison) ------------------------------------------------
   // Jauhar, 2026-08-07: *"in model user should have option to run multiple model simultaneously, so
@@ -422,29 +539,166 @@ export async function buildMlContent(
   // not one instant. What makes them COMPARABLE is that they share the run's seed, split fraction
   // and split mode, so every model is fitted and scored on exactly the same rows.
   const alsoWrap = document.createElement("div");
-  alsoWrap.className = "mc-settings ml-also";
+  alsoWrap.className = "ml-also";
   const alsoChecks = new Map<string, HTMLInputElement>();
   const alsoNote = document.createElement("div");
   alsoNote.className = "ml-norm-why";
-  const alsoRow = formRow("Also run", alsoWrap);
-  alsoRow.appendChild(alsoNote);
+  // Where the ONE open parameter panel renders. One at a time rather than all of them inline: the
+  // whole complaint about this control was its height, and four expanded parameter grids would be
+  // the same problem with more in it.
+  const alsoParamsHost = document.createElement("div");
+  alsoParamsHost.className = "ml-also-params";
+  alsoParamsHost.hidden = true;
+  // ONE block child, not three siblings. `.form-row` is a flex ROW, so appending the note and the
+  // parameter panel beside the chips made all three compete for the same horizontal space — the
+  // chips shrank to their widest item and every one of them wrapped onto its own line, rebuilding
+  // the stacked column this was meant to replace. Same shape as the Output-resolution row above.
+  const alsoStack = document.createElement("div");
+  alsoStack.className = "ml-also-stack";
+  alsoStack.append(alsoWrap, alsoNote, alsoParamsHost);
+  const alsoRow = formRow("Also run", alsoStack);
   sModel.appendChild(alsoRow);
 
+  /**
+   * Per-algorithm parameter OVERRIDES for the also-run models, keyed by algorithm id.
+   *
+   * Jauhar, 2026-08-07: *"where is customized parameter for each alg?"* — it did not exist. Every
+   * co-run model took its manifest defaults, and the note said so, which is honest and is not the
+   * same as being able to do the thing: comparing a tuned Random Forest against a default XGBoost
+   * is not a comparison of the two methods.
+   *
+   * **Only CHANGED values are stored, and only changed values are sent.** Sending a parameter at its
+   * own default would make `P()` record it as user-supplied, and SB-MLA-001's whole point is that
+   * the run record distinguishes a value somebody chose from one nobody touched. Kept by algorithm
+   * id so switching the primary algorithm back and forth does not discard tuning.
+   */
+  const alsoParams = new Map<string, Map<string, number | string>>();
+  let alsoOpen: string | null = null;
+  /** Per-chip appearance refresh, so a parameter edit can update its own chip without a rebuild —
+   *  rebuilding the chip row from inside an input handler would destroy the field being typed in. */
+  const alsoChipSync = new Map<string, () => void>();
+
+  /** The params to SEND for one co-run algorithm: the shared run settings plus its own overrides. */
+  const alsoParamsFor = (a: AlgoSpec): Record<string, number | string | boolean> => {
+    const out: Record<string, number | string | boolean> = {
+      standardize: stdCb.checked,
+      seed: Math.round(parseFloat(seedInput.value) || 42),
+      spectral_texture: task.id === "regression" && specCb.checked,
+    };
+    for (const [k, v] of alsoParams.get(a.id) ?? []) out[k] = v;
+    return out;
+  };
+
+  function renderAlsoParams(): void {
+    alsoParamsHost.innerHTML = "";
+    const a = alsoOpen ? task.algos.find((x) => x.id === alsoOpen) : null;
+    alsoParamsHost.hidden = !a;
+    if (!a) return;
+    const head = document.createElement("div");
+    head.className = "ml-also-params-head";
+    head.textContent = a.params.length
+      ? `${a.label} — anything left untouched runs at its default, and the run records it as one.`
+      : `${a.label} has nothing to tune — it is fitted from the data alone.`;
+    alsoParamsHost.appendChild(head);
+    const grid = document.createElement("div");
+    grid.className = "mc-settings";
+    const store = alsoParams.get(a.id) ?? new Map<string, number | string>();
+    alsoParams.set(a.id, store);
+    for (const spec of a.params) {
+      const label = document.createElement("label");
+      label.className = "mc-field";
+      const t = document.createElement("span");
+      t.textContent = spec.label;
+      let input: HTMLInputElement | HTMLSelectElement;
+      if (spec.kind === "select") {
+        input = document.createElement("select");
+        for (const opt of spec.options ?? []) {
+          const o = document.createElement("option");
+          o.value = opt;
+          o.textContent = opt;
+          input.appendChild(o);
+        }
+      } else {
+        input = document.createElement("input");
+        input.type = spec.kind === "num" ? "number" : "text";
+        if (spec.kind === "num") input.step = "any";
+      }
+      input.className = "form-control";
+      input.value = String(store.get(spec.key) ?? spec.def);
+      input.title = `${spec.label} — default ${spec.def}`;
+      const mark = () => label.classList.toggle("mc-field-changed", String(input.value) !== String(spec.def));
+      input.addEventListener("input", () => {
+        // Back to the default means REMOVE the override, not store the default — otherwise the run
+        // record would report a value the user had merely typed back.
+        if (String(input.value) === String(spec.def) || input.value === "") store.delete(spec.key);
+        else store.set(spec.key, spec.kind === "num" ? Number(input.value) : input.value);
+        mark();
+        alsoChipSync.get(a.id)?.();
+        syncAlso();
+      });
+      input.addEventListener("change", () => input.dispatchEvent(new Event("input")));
+      mark();
+      label.append(t, input);
+      grid.appendChild(label);
+    }
+    alsoParamsHost.appendChild(grid);
+  }
+
   function renderAlso(): void {
+    // Snapshot BEFORE clearing: this now re-runs when a gear is opened, not only when the algorithm
+    // changes, and rebuilding from an already-cleared map would silently untick every model the user
+    // had chosen — a click that appears to open a panel and quietly cancels four runs.
+    const wasChecked = new Set(
+      [...alsoChecks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id),
+    );
     alsoWrap.innerHTML = "";
     alsoChecks.clear();
+    alsoChipSync.clear();
     const others = task.algos.filter((a) => a.id !== algo.id);
     alsoRow.style.display = others.length ? "" : "none";
     for (const a of others) {
+      // One compact chip per algorithm instead of a stacked checkbox row per algorithm. Same
+      // controls, a quarter of the height, and it wraps at whatever width the pane happens to be.
+      const chip = document.createElement("label");
+      chip.className = "ml-also-chip";
+      chip.title = a.desc;
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      const l = document.createElement("label");
-      l.className = "mc-field ml-also-item";
-      l.append(cb, document.createTextNode(` ${a.label}`));
-      l.title = a.desc;
-      cb.addEventListener("change", syncAlso);
+      cb.checked = wasChecked.has(a.id);
+      const name = document.createElement("span");
+      name.textContent = a.label;
+      // The gear appears only once the model is actually going to run, because parameters for a
+      // model nobody ticked are a control with no effect.
+      const gear = document.createElement("button");
+      gear.type = "button";
+      gear.className = "ml-also-gear";
+      gear.textContent = "⚙";
+      gear.title = `Parameters for ${a.label}`;
+      gear.hidden = true;
+      gear.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        alsoOpen = alsoOpen === a.id ? null : a.id;
+        renderAlso();
+        renderAlsoParams();
+      });
+      const sync = () => {
+        gear.hidden = !cb.checked;
+        chip.classList.toggle("ml-also-on", cb.checked);
+        chip.classList.toggle("ml-also-tuned", (alsoParams.get(a.id)?.size ?? 0) > 0);
+        gear.classList.toggle("ml-also-gear-open", alsoOpen === a.id);
+      };
+      cb.addEventListener("change", () => {
+        if (!cb.checked && alsoOpen === a.id) alsoOpen = null;
+        sync();
+        renderAlsoParams();
+        syncAlso();
+      });
+      sync();
+      alsoChipSync.set(a.id, sync);
+      chip.append(cb, name, gear);
       alsoChecks.set(a.id, cb);
-      alsoWrap.appendChild(l);
+      alsoWrap.appendChild(chip);
     }
     syncAlso();
   }
@@ -455,12 +709,30 @@ export async function buildMlContent(
   ];
   function syncAlso(): void {
     const picked = alsoSelected();
+    // Jauhar, 2026-08-07: *"assume there are 7 alg than can be used for continuous, i only see also
+    // run for other 4"*. The picker groups by the KIND OF LOG that comes out, so "Continuous"
+    // holds the regressions and PCA/t-SNE together; Also run offers only the same TASK, because a
+    // reduction has no target and writes component curves, so there is no shared curve to compare
+    // against and no score that means the same thing. Correct, and it was invisible — a user counts
+    // the dropdown, counts the checkboxes, and is left to guess which of the two is wrong.
+    // The picker's grouping, not TaskSpec.group: "Continuous only" spans regression AND reduction,
+    // which is exactly why the counts differ.
+    const writesDiscreteTask = (t: TaskSpec) => t.id === "classification" || t.id === "clustering";
+    const otherTasks = TASKS.filter(
+      (t) => t.id !== task.id && writesDiscreteTask(t) === writesDiscreteTask(task) && !t.supervised,
+    ).flatMap((t) => t.algos.map((a) => a.label));
+    const cannot = otherTasks.length
+      ? ` ${otherTasks.join(" and ")} are in the same group in the list above but cannot be co-run here: they have no target curve, so there is nothing to compare a prediction of ${targetSel.value || "the target"} against.`
+      : "";
+    const tuned = picked.slice(1).filter((a) => (alsoParams.get(a.id)?.size ?? 0) > 0).map((a) => a.label);
     alsoNote.textContent =
       picked.length === 1
-        ? "One model, writing one curve. Tick others to fit them on the same rows, with the same split and the same seed, and compare the curves you would actually deliver."
-        : `${picked.length} models on the same rows, the same split and the same seed - so the scores are comparable. Each writes its own curve suffixed with its name (${picked
+        ? `One model, writing one curve. Tick others to fit them on the same rows, with the same split and the same seed, and compare the curves you would actually deliver.${cannot}`
+        : `${picked.length} models on the same rows, the same split and the same seed — so the scores are comparable. Each writes its own curve suffixed with its name (${picked
             .map((a) => `${outInput.value || "PRED"}_${a.id.toUpperCase()}`)
-            .join(", ")}) and saves its own model, because ${picked.length} models cannot share one curve name. Only ${algo.label}'s parameters are editable above; the rest run at their defaults, which the run records as defaults.`;
+            .join(", ")}) and saves its own model, because ${picked.length} models cannot share one curve name. Use ⚙ to tune any of them; ${
+            tuned.length ? `${tuned.join(", ")} ${tuned.length === 1 ? "carries" : "carry"} your own settings, and the rest run` : "untouched ones run"
+          } at their defaults, which the run records as defaults.${cannot}`;
   }
 
   // SB-MLA-008. What about the chosen configuration would not reproduce on another machine, said
@@ -492,6 +764,10 @@ export async function buildMlContent(
     label.append(cb, document.createTextNode(` ${c.name}`), tail);
     featBox.appendChild(label);
   }
+  // The fixed-limits table is per input curve, so it follows the ticks. Delegated on the box rather
+  // than bound per checkbox: the list carries every imported log on a real delivery, and one
+  // listener that outlives the rows is cheaper than several hundred that do not.
+  featBox.addEventListener("change", () => renderBasisLimits());
   sIn.appendChild(
     formRow(
       "Input curves",
@@ -873,6 +1149,40 @@ export async function buildMlContent(
   }
   resStep.addEventListener("input", syncRes);
 
+  // --- The second, textured curve (round-3 item 5) ---------------------------
+  //
+  // Sampling and resolution are different things, so this sits beside the sampling control rather
+  // than inside it: blocking to the target's step stops a curve OVERSTATING its resolution, and this
+  // addresses the opposite complaint — a prediction that is smoother than the log it was fitted
+  // against, because a regression predicts the conditional mean and can only carry through detail
+  // its inputs contain.
+  //
+  // OFF by default, and it writes a SECOND curve rather than changing the first. The plain
+  // prediction is the defensible one; a textured curve looks more like a real log, which is exactly
+  // backwards from how much it can be trusted, so it has to be asked for and it has to be named.
+  const specCb = document.createElement("input");
+  specCb.type = "checkbox";
+  const specLabel = document.createElement("label");
+  specLabel.className = "mc-field ml-cov";
+  const specText = document.createElement("span");
+  specText.textContent = "Also write a spectrally textured copy";
+  specLabel.append(specCb, specText);
+  const specWhy = document.createElement("div");
+  specWhy.className = "ml-norm-why";
+  const specWrap = document.createElement("div");
+  specWrap.className = "ml-cov";
+  specWrap.append(specLabel, specWhy);
+  const specRow = formRow("Missing detail", specWrap);
+  sModel.appendChild(specRow);
+  function syncSpec(): void {
+    const base = (outInput.value.trim() || task.defaultOut).toUpperCase();
+    specRow.style.display = task.id === "regression" ? "" : "none";
+    specWhy.textContent = specCb.checked
+      ? `A second curve, ${base}_SIM, gets the frequency content ${targetSel.value || "the target"} has and the prediction lacks — matched to the measured target's own spectrum, well by well. ${base} itself is untouched. The added detail is NOT a measurement: it is one realisation of many, right in its statistics and arbitrary in its placement, so do not correlate a bed seen only in ${base}_SIM between wells.`
+      : `${base} will be smoother than ${targetSel.value || "the target"}, because a model can only carry through detail its inputs contain. Tick this to also write a copy carrying the detail the target has — as a separate curve, never in place of this one.`;
+  }
+  specCb.addEventListener("change", syncSpec);
+
   covCb.addEventListener("change", () => {
     syncCoverage();
     void refreshQc();
@@ -884,6 +1194,11 @@ export async function buildMlContent(
   // prediction went before this was selectable.
   const setPicker = buildLogSetPicker({ write: "ML" });
   for (const row of setPicker.rows) sIn.appendChild(row);
+
+  // Which interval the FIT learns from. In Input, beside the wells and curves, because it is part
+  // of "what am I learning from" rather than of "what shall I fit".
+  const fitInterval = buildIntervalPicker("Interval");
+  sIn.appendChild(fitInterval.row);
 
   // Every parameter the runner reads through `P(p, key, default)` has a field here, and always did.
   // What it did not have was any way to see WHICH of them you had changed — a grid of numbers looks
@@ -953,6 +1268,13 @@ export async function buildMlContent(
       });
     }
     paramsGrid.appendChild(paramsReset);
+    // SB-CORE-013. Appended BELOW the grid rather than into a cell: the grid is a compact
+    // two-column form and a four-row citation panel inside one of its cells would wreck it. The
+    // panel is per PARAMETER, so it is attached where that parameter is set — here, the cluster
+    // count, which is the corpus's densest disagreement and the same number `facies.rs` sets.
+    if (algo.params.some((p) => p.key === "k")) {
+      paramsGrid.appendChild(buildParamSources("cluster_count"));
+    }
   }
   paramsReset.addEventListener("click", () => {
     for (const p of paramInputs) p.reset();
@@ -981,6 +1303,7 @@ export async function buildMlContent(
     }
     if (!outEdited) outInput.value = algo.out ?? task.defaultOut;
     echoTransform();
+    syncKind();
     renderParams();
     renderAlso();
     syncNorm();
@@ -989,6 +1312,7 @@ export async function buildMlContent(
     // than offering a choice one of whose options cannot apply.
     resRow.style.display = task.supervised ? "" : "none";
     syncRes();
+    syncSpec();
     // Asked per selection rather than once: the answer depends on which algorithm is chosen, and
     // the backend caches the runtime probe, so every call after the first is free. A generation
     // counter drops a stale answer — the user can change the algorithm faster than the round trip.
@@ -1010,6 +1334,17 @@ export async function buildMlContent(
     const [taskId, algoId] = algoSel.value.split(":");
     task = TASKS.find((t) => t.id === taskId) ?? TASKS[0];
     algo = task.algos.find((a) => a.id === algoId) ?? task.algos[0];
+    // A universal family is listed on its regression side, so choosing it would always land on
+    // Continuous — silently discarding a Discrete choice the user had already made and left set.
+    // Picking Random Forest while predicting a facies log should keep predicting a facies log.
+    if (isUniversal(algo) && prevTask.id === "classification") {
+      const twin = cls.algos.find((a) => a.family === algo.family);
+      if (twin) {
+        task = cls;
+        algo = twin;
+      }
+    }
+    prevTask = task;
     syncAlgo();
   });
 
@@ -1051,7 +1386,84 @@ export async function buildMlContent(
   normLab.append(normCb, document.createTextNode(" Standardize inputs (z-score)"));
   const normWhy = document.createElement("div");
   normWhy.className = "ml-norm-why";
-  normWrap.append(normLab, normWhy);
+
+  // SB-MLA-033 — what the feature space is normalized AGAINST.
+  //
+  // On a data-derived basis, adding one well to the build set recomputes every mean and scale, so
+  // every boundary expressed in it moves in the wells that were ALREADY there. Nothing looks wrong
+  // afterwards, which is why this needs a control rather than a warning.
+  //
+  // The limits are never filled in for the user. A GR normalized 0-150 and the same GR normalized
+  // 0-200 give different clusters and both look right, so the range is the analyst's statement
+  // about their field (SB-CORE-004) and the run refuses until every input has one.
+  let normBasis: "data" | "limits" = "data";
+  const basisLimits = new Map<string, { lo: string; hi: string }>();
+  const basisSeg = document.createElement("div");
+  basisSeg.className = "seg ml-basis-seg";
+  const basisTable = document.createElement("div");
+  basisTable.className = "ml-basis-limits";
+  basisTable.hidden = true;
+
+  /** Rebuilds the limits table for the currently ticked inputs, keeping anything already typed. */
+  function renderBasisLimits(): void {
+    const feats = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    basisTable.hidden = normBasis !== "limits";
+    if (normBasis !== "limits") return;
+    basisTable.innerHTML = "";
+    if (feats.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ml-norm-why";
+      empty.textContent = "Tick some input curves first — the limits are per curve.";
+      basisTable.appendChild(empty);
+      return;
+    }
+    for (const name of feats) {
+      const row = document.createElement("div");
+      row.className = "ml-basis-row";
+      const label = document.createElement("span");
+      label.className = "ml-basis-curve";
+      label.textContent = name;
+      row.appendChild(label);
+      const held = basisLimits.get(name) ?? { lo: "", hi: "" };
+      for (const end of ["lo", "hi"] as const) {
+        const box = document.createElement("input");
+        box.type = "number";
+        box.className = "form-control ml-basis-num";
+        box.placeholder = end === "lo" ? "low" : "high";
+        box.value = held[end];
+        box.addEventListener("input", () => {
+          const cur = basisLimits.get(name) ?? { lo: "", hi: "" };
+          cur[end] = box.value;
+          basisLimits.set(name, cur);
+        });
+        row.appendChild(box);
+      }
+      basisTable.appendChild(row);
+    }
+  }
+
+  for (const [id, label] of [
+    ["data", "From the data"],
+    ["limits", "Fixed limits"],
+  ] as ["data" | "limits", string][]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "seg-opt";
+    b.setAttribute("aria-pressed", String(id === normBasis));
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      normBasis = id;
+      for (const o of Array.from(basisSeg.children)) {
+        o.setAttribute("aria-pressed", String((o as HTMLElement).textContent === label));
+      }
+      renderBasisLimits();
+      syncNorm();
+    });
+    basisSeg.appendChild(b);
+  }
+  const basisWhy = document.createElement("div");
+  basisWhy.className = "ml-norm-why";
+  normWrap.append(normLab, normWhy, basisSeg, basisWhy, basisTable);
 
   /** Says what standardizing would do FOR THE CHOSEN ALGORITHM, which is the only form of the
    *  question with an answer. Mirrors the Model section's state in both directions. */
@@ -1064,6 +1476,22 @@ export async function buildMlContent(
         "whether or not it carries information. The scaler is fitted on the FIT rows only and stored with " +
         "the model, so an apply run reuses the same transform rather than refitting one on different wells.";
     normWhy.classList.toggle("ml-norm-off", !stdCb.checked && !SCALE_FREE.has(algo.id));
+    // The basis only means anything when something is being normalized.
+    basisSeg.hidden = !stdCb.checked;
+    basisWhy.hidden = !stdCb.checked;
+    if (!stdCb.checked) {
+      basisTable.hidden = true;
+    } else {
+      basisWhy.textContent =
+        normBasis === "data"
+          ? "Mean and spread come from the wells in THIS run. Add a well and they are recomputed — " +
+            "which moves every boundary expressed in them, including in the wells you did not touch. " +
+            "A retrain reports how far the space moved."
+          : "Each curve is normalized onto 0–1 against limits you set, so the basis does not move when " +
+            "the well set does. Give every input a low and a high — SandiBumi will not choose them, " +
+            "because the same curve over two ranges gives two answers and both look right.";
+      renderBasisLimits();
+    }
   }
   normCb.addEventListener("change", () => {
     stdCb.checked = normCb.checked;
@@ -1180,11 +1608,17 @@ export async function buildMlContent(
   }
   qcBtn.addEventListener("click", () => void refreshQc());
 
-  // --- Run: a FOOTER, outside the sections ---------------------------------
-  // Run has to be reachable from every section. Inside Results it would mean switching sections to
-  // start a run and switching back to change a setting, and inside Model it would imply the run is
-  // a property of the model section rather than of the whole pane. The Organic module-pane spec
-  // puts the primary action in a footer for exactly this reason.
+  // --- Run: inside the Model section ---------------------------------------
+  //
+  // Jauhar, 2026-08-07: *"run model should only shown on model tab, and only applied to defined
+  // input wells and data that shown in qc"*. It was a pane FOOTER, visible from every section,
+  // which is what made the second half of that sentence a fair question: a button standing under
+  // Data QC reads as acting on what Data QC is showing, and a button standing under Results reads
+  // as re-running whatever produced them.
+  //
+  // It fits, and fitting is the Model section's subject. Propagating a fitted model is a different
+  // action with a different scope, and it now has its own section and its own button — which is the
+  // real answer to "what does this apply to": each button sits with the choices it consumes.
   const runBtn = document.createElement("button");
   runBtn.type = "button";
   runBtn.textContent = "Run Model";
@@ -1194,7 +1628,6 @@ export async function buildMlContent(
   const runRow = document.createElement("div");
   runRow.className = "mc-run-row ml-footer";
   runRow.append(runBtn, statusLine);
-  content.appendChild(runRow);
 
   // --- Keep the fitted model ------------------------------------------------
   // Until now the fit died with the subprocess: you could not train on the cored wells and
@@ -1209,6 +1642,8 @@ export async function buildMlContent(
     "Keeps the fitted model (and its scaler) so it can be applied to other wells later, without refitting",
   );
   sModel.appendChild(saveRow);
+  // Last in the section, because it consumes everything above it.
+  sModel.appendChild(runRow);
 
   // --- Compare (leaderboard) — supervised only ------------------------------
   const subsetSel = document.createElement("select");
@@ -1311,6 +1746,176 @@ export async function buildMlContent(
   hint.textContent = "Needs Python with numpy + scikit-learn (pip install scikit-learn); xgboost optional.";
   sRes.appendChild(hint);
 
+  // --- Model Distribution ---------------------------------------------------
+  //
+  // Jauhar, 2026-08-07: *"for propagation, add new subpanes there, use phrase Model Distribution, so
+  // final well selection, interval selection, set/cons name, and log name behave like other
+  // modules"*. Propagating was previously an Apply button on a row in the saved-models list, which
+  // made it look like a property of that row rather than a run of its own — and it silently borrowed
+  // the FIT's wells, interval and names, so "apply this to the rest of the field" meant editing the
+  // Input section until it no longer described the fit that had been reviewed.
+  //
+  // So it is its own section with its own scope, its own interval and its own names, shaped like
+  // every other batch run in the application. The one thing it does NOT restate is the model's
+  // features and the log set they came from: those travel inside the artifact, and letting a caller
+  // restate them would invite them to differ (SB-MLA-006).
+  const distModel = document.createElement("select");
+  distModel.className = "form-control";
+  const distModelNote = document.createElement("div");
+  distModelNote.className = "mc-chain-note";
+  sDist.appendChild(formRow("Model", distModel));
+  sDist.appendChild(distModelNote);
+
+  const distScope = await buildWellScope();
+  sDist.appendChild(distScope.el);
+  const distInterval = buildIntervalPicker("Interval");
+  sDist.appendChild(distInterval.row);
+
+  const distSetPicker = buildLogSetPicker({ write: "ML" });
+  for (const row of distSetPicker.rows) sDist.appendChild(row);
+
+  const distOut = document.createElement("input");
+  distOut.className = "form-control";
+  distOut.placeholder = "e.g. RHOB_PRED";
+  sDist.appendChild(
+    formRow(
+      "Output curve",
+      distOut,
+      "The name the propagated log is written under. Give it its own name — a distribution written over the curve the fit produced would overwrite the one you reviewed.",
+    ),
+  );
+
+  const distMask = document.createElement("select");
+  distMask.className = "form-control";
+  {
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "(none)";
+    distMask.appendChild(none);
+    for (const name of curveNames) {
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      distMask.appendChild(o);
+    }
+  }
+  sDist.appendChild(
+    formRow(
+      "Mask (exclude)",
+      distMask,
+      "Its own mask, not the fit's: the wells being propagated to are different wells, and a bad-hole flag is a property of the hole it was computed in.",
+    ),
+  );
+
+  const distBtn = document.createElement("button");
+  distBtn.type = "button";
+  distBtn.textContent = "Distribute Model";
+  distBtn.classList.add("primary");
+  const distStatus = document.createElement("div");
+  distStatus.className = "mc-status";
+  const distRun = document.createElement("div");
+  distRun.className = "mc-run-row ml-footer";
+  distRun.append(distBtn, distStatus);
+  sDist.appendChild(distRun);
+  const distResults = document.createElement("div");
+  sDist.appendChild(distResults);
+
+  /** Kept in step with the saved-model list, which is the only source of models to distribute. */
+  let distModels: MlModelInfo[] = [];
+  function syncDistModels(models: MlModelInfo[]): void {
+    distModels = models;
+    const keep = distModel.value;
+    distModel.innerHTML = "";
+    if (models.length === 0) {
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = "(no saved models yet)";
+      distModel.appendChild(o);
+      distModelNote.textContent =
+        "Fit something on the Model section with a name in Save model as, and it will appear here. " +
+        "Distribution deliberately runs from a SAVED model rather than from the last run: a refit on " +
+        "different data is a different model, and a curve that cannot name the model it came from " +
+        "cannot be defended in a report.";
+      return;
+    }
+    for (const m of models) {
+      const o = document.createElement("option");
+      o.value = m.model_id;
+      o.textContent = `${m.name}  —  ${m.algorithm} on ${m.target_curve ?? "?"}`;
+      distModel.appendChild(o);
+    }
+    if (models.some((m) => m.model_id === keep)) distModel.value = keep;
+    syncDistNote();
+  }
+  function syncDistNote(): void {
+    const m = distModels.find((x) => x.model_id === distModel.value);
+    if (!m) {
+      distModelNote.textContent = "";
+      return;
+    }
+    // The features and their ORDER are the apply contract and are read from the artifact, so they
+    // are stated here rather than offered as choices. A model fitted on [GR, RHOB] fed [RHOB, GR]
+    // returns confident nonsense nothing downstream can catch.
+    distModelNote.textContent =
+      `Needs ${m.feature_curves.join(", ")} — in that order, from the artifact, not from Input. ` +
+      `Fitted on ${m.n_train.toLocaleString()} rows from ${m.trained_on.length} well(s)` +
+      (m.sklearn_version ? ` with scikit-learn ${m.sklearn_version}` : "") +
+      ". Leave the input log set on (current values) and it reads the set it was fitted on.";
+    if (!distOut.value.trim()) distOut.value = `${m.target_curve ?? "ML"}_DIST`;
+  }
+  distModel.addEventListener("change", syncDistNote);
+
+  distBtn.addEventListener("click", async () => {
+    const m = distModels.find((x) => x.model_id === distModel.value);
+    if (!m) {
+      distStatus.textContent = "Pick a saved model first.";
+      return;
+    }
+    const wellIds = distScope.getWellIds();
+    if (wellIds.length === 0) {
+      distStatus.textContent = "No wells in scope — pick a group, pin or select wells, or choose All.";
+      return;
+    }
+    if (!distOut.value.trim()) {
+      distStatus.textContent = "Give the distributed curve a name.";
+      return;
+    }
+    distBtn.disabled = true;
+    distStatus.textContent = `Distributing '${m.name}' to ${wellIds.length} well(s)…`;
+    const t0 = performance.now();
+    try {
+      const res = await applyMlModel({
+        model_id: m.model_id,
+        apply_well_ids: wellIds,
+        output_curve: distOut.value.trim(),
+        input_set: distSetPicker.inputSet(),
+        output_set: distSetPicker.outputSet(),
+        mask_curve: distMask.value || null,
+        interval: distInterval.getWindow(),
+      });
+      const ms = Math.round(performance.now() - t0);
+      if (res.error) {
+        distStatus.textContent = `Failed: ${res.error}`;
+      } else {
+        const total = res.wells.length || wellIds.length;
+        const ok = res.wells.filter((w) => !w.error).length;
+        const outs = res.outputs.join(", ");
+        distStatus.textContent =
+          `Done in ${ms} ms → ${outs}` + (ok < total ? ` — ${total - ok} well(s) need attention` : "");
+        if (ok > 0) {
+          recordProcess("ML", `Distributed model '${m.name}' → ${outs} on ${ok}/${total} well(s)`);
+          setStatus(`Distributed '${m.name}': ${outs} on ${ok}/${total} well(s)`);
+          bumpDataVersion();
+        }
+      }
+      renderResults(distResults, res, nameOf);
+    } catch (e) {
+      distStatus.textContent = `Failed: ${e}`;
+    } finally {
+      distBtn.disabled = false;
+    }
+  });
+
   // --- Saved models ---------------------------------------------------------
   // A trained model is a named, dated, citable artifact here: apply it to new wells without
   // refitting, because a refit on different data is a different model.
@@ -1339,8 +1944,12 @@ export async function buildMlContent(
       warnings = new Map(warned.map((w) => [w.model_id, w.notes]));
     } catch (e) {
       savedNote.textContent = `Could not list saved models: ${e}`;
+      syncDistModels([]);
       return;
     }
+    // ONE fetch feeds both the list and the distribution picker. Two calls would let the two
+    // disagree about which models exist — a model deleted here and still offered there.
+    syncDistModels(models);
     savedList.innerHTML = "";
     if (models.length === 0) {
       savedNote.textContent =
@@ -1480,12 +2089,38 @@ export async function buildMlContent(
         if (!window.confirm(`Delete the saved model '${m.name}'?\n\nCurves it already produced are kept, but they can no longer be reproduced from this model.`)) {
           return;
         }
+        // SB-MLA-007. The backend REFUSES while a live curve names this model, and its refusal
+        // lists what would be orphaned — so the second question quotes that list rather than the
+        // generic warning above. A curve citing a model id that resolves to nothing is a provenance
+        // block in a report naming something nobody can produce, and it surfaces months later.
         try {
           await deleteMlModel(m.model_id);
-          await refreshSaved();
+          recordProcess("ML", `Deleted saved model '${m.name}' (no delivered curve cited it)`);
         } catch (e) {
-          savedNote.textContent = `Delete failed: ${e}`;
+          const msg = String(e);
+          // Only a citation refusal deserves a second question; anything else is a real failure.
+          if (!msg.includes("name this model")) {
+            savedNote.textContent = `Delete failed: ${e}`;
+            return;
+          }
+          if (!window.confirm(`${msg}\n\nDelete '${m.name}' anyway?`)) {
+            savedNote.textContent = "Kept.";
+            return;
+          }
+          try {
+            await deleteMlModel(m.model_id, true);
+          } catch (e2) {
+            savedNote.textContent = `Delete failed: ${e2}`;
+            return;
+          }
+          // SB-MLA-007. A forced deletion is the one that changed what the project can defend, so
+          // it goes in the permanent record with the reason it was refused — the curves are still
+          // there and still cite it, and six months on the only question worth answering is whether
+          // somebody knew that at the time. The refusal text carries the wells and curves, so the
+          // record names them too rather than saying a deletion merely happened.
+          recordProcess("ML", `Force-deleted saved model '${m.name}' while curves still cited it — ${msg}`);
         }
+        await refreshSaved();
       });
     }
   };
@@ -1506,12 +2141,32 @@ export async function buildMlContent(
     const params: Record<string, number | string | boolean> = {
       standardize: stdCb.checked,
       seed: Math.round(parseFloat(seedInput.value) || 42),
+      // Regression only: there is no "missing frequency content" in a class code.
+      spectral_texture: task.id === "regression" && specCb.checked,
     };
     for (const { spec, get } of paramInputs) params[spec.key] = get();
     const picked = alsoSelected();
     const multi = picked.length > 1;
     const base = outInput.value.trim() || task.defaultOut;
     const saveBase = saveInput.value.trim();
+    // SB-MLA-033, refused here as well as in Rust — and this is the case Rust cannot catch on its
+    // own. `Number("")` is 0, not NaN, so a blank low box would reach the backend as a perfectly
+    // valid limit of zero and normalize the curve against a range nobody typed.
+    if (stdCb.checked && normBasis === "limits") {
+      const bad = features.filter((c) => {
+        const l = basisLimits.get(c);
+        if (!l || l.lo.trim() === "" || l.hi.trim() === "") return true;
+        const [lo, hi] = [Number(l.lo), Number(l.hi)];
+        return !Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo;
+      });
+      if (bad.length > 0) {
+        setStatus(
+          `Fixed limits need a low and a high above it for every input — ${bad.join(", ")} ${bad.length === 1 ? "does" : "do"} not have one yet`,
+        );
+        statusLine.textContent = `Set the limits for ${bad.join(", ")}, or switch the basis back to the data.`;
+        return;
+      }
+    }
     const req: MlRequest = {
       task: task.id,
       algorithm: algo.id,
@@ -1530,6 +2185,18 @@ export async function buildMlContent(
       coverage_segments: task.supervised && covCb.checked,
       output_step:
         task.supervised && resMode === "step" && Number(resStep.value) > 0 ? Number(resStep.value) : null,
+      interval: fitInterval.getWindow(),
+      // SB-MLA-033. Only sent when the user actually chose fixed limits, so an omitted field keeps
+      // meaning "the data-derived basis" for every payload written before this existed. A blank box
+      // travels as NaN and the backend refuses by name rather than treating it as zero.
+      norm_basis: normBasis === "limits" ? "limits" : null,
+      norm_limits:
+        normBasis === "limits"
+          ? features.map((curve) => {
+              const l = basisLimits.get(curve) ?? { lo: "", hi: "" };
+              return { curve, low: Number(l.lo), high: Number(l.hi) };
+            })
+          : [],
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
@@ -1548,10 +2215,11 @@ export async function buildMlContent(
         const one: MlRequest = {
           ...req,
           algorithm: a.id,
-          // Only the picked algorithm's parameter fields are on screen. The others take their
-          // manifest defaults, which `effective_params` records AS defaults, so the record stays
-          // true even though the form never showed them.
-          params: a.id === algo.id ? params : { standardize: stdCb.checked, seed: params.seed },
+          // The picked algorithm takes the form's fields; every other takes its own ⚙ overrides
+          // merged over the shared run settings. Only values the user actually CHANGED are sent —
+          // passing a parameter at its own default would make the runner record it as
+          // user-supplied, and SB-MLA-001 exists to keep those two apart.
+          params: a.id === algo.id ? params : alsoParamsFor(a),
           output_curve: multi ? `${base}_${a.id.toUpperCase()}` : base,
           save_model_as: task.supervised && saveBase ? (multi ? `${saveBase}_${a.id.toUpperCase()}` : saveBase) : null,
         };
@@ -1579,6 +2247,7 @@ export async function buildMlContent(
         }
         if (okRuns.length > 0) bumpDataVersion();
         renderMultiResults(results, runs, nameOf);
+        if (okRuns.length > 0) showSection("results");
         return;
       }
       if (res.error) {
@@ -1611,6 +2280,11 @@ export async function buildMlContent(
         bumpDataVersion(); // ML wrote curves — refresh open plots/log views/catalog
       }
       renderResults(results, res, nameOf);
+      // Show what came out, since Run Model is on the Model tab and the answer is rendered two
+      // sections away. Only on SUCCESS: `statusLine` sits in this section, so a failed run must
+      // leave the user where its message is, rather than switching them to an empty Results panel
+      // and reporting the failure on a tab they can no longer see.
+      if (!res.error) showSection("results");
     } catch (e) {
       statusLine.textContent = `Failed: ${e}`;
     } finally {
@@ -1619,7 +2293,15 @@ export async function buildMlContent(
   });
 
   syncAlgo();
-  return { el: content, dispose: () => scope.dispose() };
+  return {
+    el: content,
+    dispose: () => {
+      scope.dispose();
+      distScope.dispose();
+      fitInterval.dispose();
+      distInterval.dispose();
+    },
+  };
 }
 
 function fmtMetric(v: unknown): string {
@@ -2497,7 +3179,12 @@ export function renderBlindCrossplot(host: HTMLElement, res: MlEvalResult, isClf
     cap.textContent =
       `Predicted vs measured on held-out rows · ${res.blind_sampled.toLocaleString()} of ` +
       `${res.blind_total.toLocaleString()} shown · both axes on one scale, so the dashed line is 1:1`;
-    plotHost.appendChild(blindScatterSvg(res, row, wells));
+    const scatter = blindScatterSvg(res, row, wells);
+    plotHost.appendChild(scatter);
+    // Re-attached on every redraw, because the export has to copy the model currently on screen. A
+    // toolbar built once beside a picker that swaps the chart under it would quietly go on
+    // exporting whichever model happened to be drawn first.
+    attachChartExport(plotHost, scatter, `ML predicted vs measured - ${row.algorithm}`);
     const legend = document.createElement("div");
     legend.className = "ml-xplot-legend";
     wells.forEach((w, wi) => {
@@ -3013,6 +3700,227 @@ function svgEl<K extends keyof SVGElementTagNameMap>(
   return el;
 }
 
+/** A depth window, as the backend's `DepthWindow` takes it. An open side stays null. */
+interface IntervalPick {
+  top: number | null;
+  base: number | null;
+}
+
+/**
+ * "Which interval" — by marker, or by typed depths, or neither.
+ *
+ * Jauhar, 2026-08-07: *"it should be tops bounded as well by user"*. A model fitted over a whole
+ * well learns one relation for every formation it passed through, and a deltaic sand and the
+ * carbonate below it do not share a porosity-permeability transform.
+ *
+ * The markers come from ONE well — whichever is selected — and are then applied as DEPTHS to every
+ * well in the run. That is a real limitation and the control says so, because the alternative would
+ * be worse in a way that is hard to see: resolving "Gumai" per well sounds more correct, but a well
+ * that lacks the marker would silently fall back to its whole length and join the fit as a
+ * different population. A depth window is at least the same window everywhere.
+ *
+ * Returns `getWindow`, which is what the request carries, and a `dispose` for the well subscription.
+ */
+function buildIntervalPicker(
+  label: string,
+): { row: HTMLElement; getWindow: () => IntervalPick; dispose: () => void } {
+  let tops: TopEntry[] = [];
+  const sel = document.createElement("select");
+  sel.className = "form-control ml-interval-sel";
+  const topIn = document.createElement("input");
+  const baseIn = document.createElement("input");
+  for (const i of [topIn, baseIn]) {
+    i.type = "number";
+    i.step = "any";
+    i.className = "form-control";
+  }
+  const mkNum = (text: string, input: HTMLInputElement) => {
+    const l = document.createElement("label");
+    l.className = "mc-field ml-interval-num";
+    const s = document.createElement("span");
+    s.textContent = text;
+    l.append(s, input);
+    return l;
+  };
+  const why = document.createElement("div");
+  why.className = "ml-norm-why";
+  const wrap = document.createElement("div");
+  wrap.className = "ml-cov";
+  const line = document.createElement("div");
+  line.className = "mc-settings";
+  line.append(sel, mkNum("Top", topIn), mkNum("Base", baseIn));
+  wrap.append(line, why);
+  const row = formRow(label, wrap);
+
+  const describe = () => {
+    const t = topIn.value.trim();
+    const b = baseIn.value.trim();
+    why.textContent =
+      !t && !b
+        ? "The whole logged interval of every well in this run."
+        : `${t || "the top of the log"} to ${b || "TD"}, applied as DEPTHS to every well here — the marker list is read from the selected well only, so check it suits the others.`;
+  };
+  sel.addEventListener("change", () => {
+    // A marker fills the boxes and then lets go. The depths stay editable, and a run always sends
+    // numbers — so what was actually used is recoverable from the record even after the tops move.
+    const i = Number(sel.value);
+    if (!Number.isFinite(i) || i < 0) {
+      topIn.value = "";
+      baseIn.value = "";
+    } else {
+      topIn.value = String(tops[i].depth);
+      // The interval is this marker down to the NEXT one; the deepest marker runs to TD, which is
+      // an EMPTY base rather than a guessed number.
+      baseIn.value = i + 1 < tops.length ? String(tops[i + 1].depth) : "";
+    }
+    describe();
+  });
+  for (const i of [topIn, baseIn]) {
+    i.addEventListener("input", () => {
+      sel.value = "-1";
+      describe();
+    });
+  }
+
+  const load = async (): Promise<void> => {
+    const w = appState.selectedWell.get();
+    sel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "-1";
+    none.textContent = w ? "(whole well)" : "(no well selected — type depths)";
+    sel.appendChild(none);
+    tops = w ? await listTops(w.well_id).catch(() => [] as TopEntry[]) : [];
+    tops.sort((a, b) => a.depth - b.depth);
+    tops.forEach((t, i) => {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = `${t.top_name} (${t.depth})`;
+      sel.appendChild(o);
+    });
+    sel.value = "-1";
+    describe();
+  };
+  void load();
+  const off = appState.selectedWell.subscribe(() => void load());
+  describe();
+
+  return {
+    row,
+    getWindow: () => ({
+      top: topIn.value.trim() === "" ? null : Number(topIn.value),
+      base: baseIn.value.trim() === "" ? null : Number(baseIn.value),
+    }),
+    dispose: off,
+  };
+}
+
+/** The presentation properties a standalone SVG has to carry itself. */
+const SVG_PAINT = [
+  "fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "stroke-opacity",
+  "stroke-linecap", "opacity", "font-family", "font-size", "font-weight", "text-anchor",
+  "dominant-baseline",
+] as const;
+
+/**
+ * A copy of an ML chart that survives leaving the application.
+ *
+ * These charts are drawn as live SVG and painted from the stylesheet — `var(--text)`, `--accent`,
+ * the class rules in `styles.css`. Serialize one as it stands and every one of those references
+ * dangles: the file opens as black-on-transparent line art, or as nothing. So each element's
+ * COMPUTED paint is written onto the element before serializing. The result is a file that looks
+ * the same in Illustrator, in a browser, and pasted into a report — which is the only reason to
+ * export a vector rather than a picture of one.
+ *
+ * The theme is baked in, deliberately. An export is a copy of what was on the screen, and a figure
+ * that silently re-themed itself in somebody else's document would not be that copy.
+ */
+function inlineSvgPaint(src: SVGSVGElement): string {
+  const clone = src.cloneNode(true) as SVGSVGElement;
+  const from = src.querySelectorAll<SVGElement>("*");
+  const to = clone.querySelectorAll<SVGElement>("*");
+  const apply = (a: Element, b: SVGElement) => {
+    const cs = getComputedStyle(a);
+    for (const p of SVG_PAINT) {
+      const v = cs.getPropertyValue(p);
+      if (v && v !== "none" && v !== "normal") b.style.setProperty(p, v);
+    }
+  };
+  apply(src, clone);
+  for (let i = 0; i < from.length && i < to.length; i++) apply(from[i], to[i]);
+  // An explicit ground: SVG defaults to transparent, which reads as black once the file lands in a
+  // document with a dark page or a slide with a photo behind it.
+  const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg-panel").trim();
+  if (bg) clone.style.setProperty("background", bg);
+  clone.setAttribute("xmlns", SVG_NS);
+  const box = src.getBoundingClientRect();
+  if (box.width > 0 && box.height > 0) {
+    clone.setAttribute("width", String(Math.round(box.width)));
+    clone.setAttribute("height", String(Math.round(box.height)));
+  }
+  return new XMLSerializer().serializeToString(clone);
+}
+
+/** The same chart rasterized, for the clipboard, a PNG and the printer — all three of which take a
+ *  canvas. Drawn from the self-contained SVG above, so the picture carries the chart's real colours
+ *  rather than the browser's defaults. */
+async function svgToCanvas(src: SVGSVGElement, scale = 2): Promise<HTMLCanvasElement> {
+  const box = src.getBoundingClientRect();
+  const w = Math.max(1, Math.round(box.width));
+  const h = Math.max(1, Math.round(box.height));
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(inlineSvgPaint(src))}`;
+  const img = new Image();
+  await new Promise<void>((res, rej) => {
+    img.onload = () => res();
+    img.onerror = () => rej(new Error("the chart could not be rasterized"));
+    img.src = url;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = w * scale;
+  canvas.height = h * scale;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    // Opaque, for the same reason the SVG gets a ground: a transparent PNG pasted into a dark slide
+    // becomes an unreadable figure, and nobody re-exports it because it looked fine in the preview.
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg-panel").trim();
+    if (bg) {
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  }
+  return canvas;
+}
+
+/**
+ * Copy / PNG / SVG / Print on an ML chart — the same four the canvas plots have carried since
+ * `plotExport.ts` (Jauhar, 2026-08-07: *"add option to print to cliboard, svg, etc such other
+ * visualization"*).
+ *
+ * The actions themselves are `plotExport`'s, not re-implemented: a second definition of "save this
+ * plot" is a second place for the file naming, the status wording and the Processing-history entry
+ * to drift. What is new here is only the bridge from an SVG chart to the canvas those actions take.
+ */
+function attachChartExport(host: HTMLElement, svg: SVGSVGElement, name: string): HTMLElement {
+  let lastRaster: HTMLCanvasElement | null = null;
+  const bar = buildImageExportButtons(
+    // Rasterization is async and `imageAction` wants a canvas now, so the most recent raster is
+    // kept and refreshed on hover — the first click after the chart appears is the only one that
+    // could miss, and the buttons are unreachable without passing over them.
+    () => lastRaster,
+    name,
+    setStatus,
+    () => inlineSvgPaint(svg),
+  );
+  const refresh = () => {
+    void svgToCanvas(svg).then((c) => (lastRaster = c)).catch(() => undefined);
+  };
+  refresh();
+  bar.addEventListener("pointerenter", refresh);
+  bar.classList.add("ml-chart-export");
+  host.appendChild(bar);
+  return bar;
+}
+
 /**
  * The leaderboard, drawn.
  *
@@ -3127,6 +4035,7 @@ export function renderScoreChart(
   }
 
   wrap.appendChild(svg);
+  attachChartExport(wrap, svg, "ML model scores");
   host.appendChild(wrap);
 }
 

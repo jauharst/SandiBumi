@@ -598,6 +598,60 @@ the same method is implemented on both sides of it without anything asserting th
 | ML provenance into the deliverable | `ABSENT` | `report.rs` holds no ML reference at all |
 | ML provenance into export | `ABSENT` | `export.rs` holds no module/provenance reference |
 
+### 3.1b Disposition of the 12 still open (2026-08-07)
+
+Counted from the headings, not estimated: **53 `PRESENT-OK`, 1 `PRESENT-DIVERGENT`, 2 `PARTIAL`,
+9 `ABSENT`** of 65. This subsection says what the remaining twelve actually are, because "ABSENT"
+covers three very different situations and treating them as one backlog would put seven items on a
+list that can never be worked.
+
+**A caution the -050 close earned.** Two of the statuses in this chapter turned out to be wrong in
+the *pessimistic* direction — -050 read "no feature-subset scoring exists" when two implementations
+were sitting in the tree, and -054 asked for a resampling record where nothing is resampled at all.
+An `ABSENT` that is really "present and unexamined" is the more expensive error, because it stops
+anyone looking. Where an item below is closed on a re-reading rather than on new code, that is said
+plainly rather than counted as work.
+
+**Seven cannot be built, and that is the final answer, not a deferral.** SB-MLA-037, -038, -039 and
+-040 (fuzzy combination, equal-population binning, the uncertainty band's edge behaviour, the
+bin-count weighting) rest on evidence items **E-3** and **E-4**; SB-MLA-041 and -042 (SOM decay
+parameterisation, map distortion) on **E-1**, the Kohonen decay constant; SB-MLA-049 (the MRGC
+weight function) on **E-2**. In every case the corpus states that a method has a parameter and does
+not state the parameter, so implementing the requirement would mean SandiBumi **inventing a method
+definition and shipping it under a published method's name** — which is the exact failure
+`SB-CORE-004` exists to prevent, and worse here than elsewhere because a fuzzy curve or a SOM map
+computed from an invented constant looks entirely plausible. They stay `ABSENT` until the evidence
+arrives. If it never arrives, `ABSENT` is correct forever.
+
+**One is blocked by a channel, not by knowledge.** SB-MLA-045 (restart spread as a convergence
+diagnostic) is already computed — `facies.rs` runs `KMEANS_RESTARTS` and keeps only the best inertia,
+discarding seven perfectly good numbers. It cannot be *reported* because a module returns
+`ModuleOutputs = HashMap<String, Vec<f32>>` and nothing else: there is no scalar or notes channel, and
+a single run-level number emitted as a constant curve would be unreadable in a log view and
+meaningless in a composite. The honest options are a scalar channel through the module framework
+(~40 call sites) or implementing it only on the ML path, which has `MlResult.notes`. Neither is a
+knowledge gap; both are scope.
+
+*(SB-MLA-031, -033 and -050 were the three "real work" items here, all closed 2026-08-07. -031 was
+built to the requirement as written, not to the narrower one this section had proposed: the reading
+that SandiBumi "cannot publish a competitor's defaults" was wrong, and inverted. `03_EVIDENCE_BASE.md`
+§14.2 says the *incumbents* cannot — a vendor has no standing to publish its rivals' numbers — which
+is precisely why SandiBumi, selling no competing default, can and should. The narrowing would have
+shipped "this number came from somewhere" in place of the four positions the corpus actually holds.
+-033 was new code and its residue is scope: the fixed basis covers the ML path, and the native
+`facies.rs` engines still standardise from the samples in hand. -050 was mostly a re-reading — the
+exclusion was already correct in both places and what was missing was the hard-fail fixture proving
+it stays that way.)*
+
+**Four are judgement calls awaiting Jauhar.** SB-MLA-025 (`PRESENT-DIVERGENT`) wants one
+within-cluster-sum-of-squares partition declared across three applications; the code has two
+implementations that agree numerically, so closing it is a naming decision. SB-MLA-029 (`PARTIAL`)
+needs a facies mnemonic that names its engine, which is a **breaking rename** of curves already
+sitting in delivered projects. SB-MLA-065 (`PARTIAL`) is bounded and cancellable already; what is
+missing is the honest reporting half at portfolio scale. SB-MLA-059 (`ABSENT`) asks whether a
+Tier-C need is better served by an independently derived feature, which is a product question and
+not an implementation one.
+
 ### 3.2 What is genuinely strong, and worth protecting
 
 Four things in this tree are better than what the dossier finds in any incumbent, and the
@@ -1195,7 +1249,7 @@ nothing still writes its curves and cites nothing.
 
 **Verified by.** SB-MLA-T06
 
-#### SB-MLA-007 — A model cited by a stored curve cannot be deleted silently          [P1] [status: ABSENT]
+#### SB-MLA-007 — A model cited by a stored curve cannot be deleted silently          [P1] [status: PRESENT-OK]
 
 **Requirement.** Deleting a persisted model whose identifier appears in the provenance of any
 stored curve MUST be refused, naming the wells and curves that cite it. An explicit
@@ -1208,9 +1262,30 @@ this principle in the adjacent case — `db.rs:2602` auto-suffixes rather than o
 silently replacing the one a delivered curve was made with would destroy its provenance" — and
 deletion is the same hazard by a different route.
 
-**As-built.** `ABSENT` — `db.rs:2740` (`delete_ml_model`) removes the row unconditionally.
+**As-built.** `PRESENT-OK` (2026-08-07) — `lib.rs::delete_ml_model` refuses by default, calling
+`ml.rs::model_citations` and naming the wells, sets and curves that would be orphaned; `force` is the
+caller's explicit second decision, taken after reading that list. `mlDialog.ts` catches the refusal
+and re-asks quoting it, then writes the forced deletion into the project history with the refusal
+text, so the record names the curves rather than saying a deletion merely happened.
 
-**Verified by.** SB-MLA-T07
+`model_citations` counts only sets that still carry curves, driven off `computed_curves.set_id` the
+way `ml_provenance` is, so a superseded version does not protect its model — a guard that fired on
+every model would be the one people learn to force past. The id is matched with a `LIKE` on the
+recorded JSON because the reference sits at two depths: the ordinary path writes `model_id` at the
+top level, the coverage path records one per segment.
+
+**One deliberate divergence in mechanism, not in obligation.** The requirement says a forced delete
+must *mark* the citing curves; `ml_provenance` instead *derives* the unresolvable reference at read
+time, printing the model name followed by "DELETED from this project". Two reasons. A stamp can be
+missed — a project restored from a backup taken before the deletion carries the curve and not the
+mark — whereas resolving the id on every read cannot go stale. And `params_json` is the run record,
+a statement of what was configured when the run happened; editing it afterwards to describe a later
+event is the same category of error this requirement guards against.
+
+**Verified by.** SB-MLA-T07 — `ml.rs::a_model_a_delivered_curve_cites_is_not_deletable_without_a_word`
+(refusal names the wells and curves; a model nothing cites, and one whose set carries no curves,
+both delete clean) and `ml.rs::a_curve_whose_model_was_deleted_says_so_and_one_whose_model_remains_does_not`
+(the deliverable marks the unresolvable reference, and does not mark a live one).
 
 #### SB-MLA-008 — A recorded ML run re-runs to byte-identical curves          [P0] [status: PRESENT-OK]
 
@@ -1379,7 +1454,7 @@ superseded one's; that the inputs print in fitted order; that the target is name
 and, from the other side, that a well with no ML curve produces no block at all rather than an
 empty table under a heading implying a model exists.
 
-#### SB-MLA-011 — Training and apply membership are recorded per well          [P1] [status: PARTIAL]
+#### SB-MLA-011 — Training and apply membership are recorded per well          [P1] [status: PRESENT-OK]
 
 **Requirement.** An ML run MUST record, per well, whether that well contributed training samples,
 received predictions, or both; and MUST record the sample count in each role. A well that was
@@ -1391,13 +1466,11 @@ applied to is the difference between an interpolation and an extrapolation, and 
 downstream. It is also the fact a reviewer asks for first. The run-time warning already exists and
 is well-judged; the defect is that it is transient.
 
-**As-built.** `PARTIAL` — `ml.rs:580`–`:587` warns that *n* of *m* training wells contributed
-nothing, and `trained_on` (`ml.rs:720`–`:732`) correctly excludes them, so the model row is
-accurate. The **curve** carries none of it, and the apply-well roster is nowhere.
+**As-built.** `PRESENT-OK` (2026-08-07) — every ML curve's `params_json` now carries `well_role` for the well it was written to, plus `n_trained_wells` and `n_applied_wells`. Three cases, not two: trained-and-applied, applied-only, and **selected for training but contributed no usable rows** — the last kept distinct because the user believed that well was training rock and the record should say the fit disagreed, rather than folding it in with wells nobody chose. `ml_provenance` appends it to the training description so it reaches the PDF, the Word twin and the workbook without changing a table shape four renderers agree on; it belongs there because it qualifies that description — "300 samples from 8 wells" reads very differently once you know this well was not one of them. The distinction is interpolation versus extrapolation, and it was previously visible only as a run-time warning, which is to say for as long as the pane stayed open.
 
 **Verified by.** SB-MLA-T11
 
-#### SB-MLA-012 — Artifact version skew fails loudly, and a substituted algorithm is never silent          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-012 — Artifact version skew fails loudly, and a substituted algorithm is never silent          [P1] [status: PRESENT-OK]
 
 **Requirement.** Loading a model artifact that cannot be deserialised under the current runtime
 MUST fail with a message naming the recorded runtime, the current runtime and the differing
@@ -1410,12 +1483,9 @@ sometimes means XGBoost's gradient boosting and sometimes means scikit-learn's h
 boosting is one name over two methods, and the two have different defaults, different regularisation
 and different results.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:91`–`:102` catches `ImportError` and substitutes
-`HistGradientBoostingRegressor`, recording the substitution only in a free-text
-`metrics["note"]` string. The stored `algorithm` column still reads the requested id. The
-divergence is not cosmetic: the substituted estimator is constructed with
-`max_iter = n_estimators (300)`, `learning_rate = 0.1`, `max_depth = 4` here, while the leaderboard's
-copy constructs it bare (`ml.rs:1143`) at scikit-learn's `max_iter = 100`, `max_depth = None`.
+**As-built.** `PRESENT-OK` (2026-08-07) — the runner sets `SUBSTITUTION` when an estimator is swapped for another because its library is missing, reports `algorithm_requested` and `algorithm_used`, and the model row now stores the id that ACTUALLY ran. Storing the requested one filed two different methods under a single label, so a model's `algorithm` did not identify the estimator that produced its own curve — `gbdt` meaning XGBoost on one machine and scikit-learn's histogram gradient boosting on another is two regularisations, two sets of defaults and two different answers.
+
+The second divergence this entry recorded — the leaderboard constructing the substitute bare at scikit-learn's defaults while the fit path passed the user's — **was already closed** when `ML_BUILD_MODEL` was unified into one copy both runners concatenate; that half of the entry was stale. The artifact-skew half is `SB-MLA-005`'s runtime record, which detects and names drift.
 
 **Verified by.** SB-MLA-T12, SB-MLA-T27
 
@@ -1462,7 +1532,7 @@ engines, the second pinned from both sides at the 4-vs-5 sample boundary), plus
 `an_empty_well_beside_a_good_one_is_refused_and_writes_nothing` (`ml.rs`), which asserts the refused
 well leaves no row in `computed_curves`. SB-MLA-T23 remains open against `SB-MLA-023`.
 
-#### SB-MLA-014 — A reduced cluster count is reported, never substituted silently          [P1] [status: PARTIAL]
+#### SB-MLA-014 — A reduced cluster count is reported, never substituted silently          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where the effective number of clusters differs from the number requested — capped
 by the data, collapsed by an empty cluster, or reduced by a merge — the run MUST report the
@@ -1472,15 +1542,11 @@ effective count, the requested count and the reason.
 documented remedy for an empty cluster is "re-run", which converts a diagnosable data condition
 into a lottery. The in-tree model to copy already exists.
 
-**As-built.** `PARTIAL` — `hfu.rs:273` computes `eff_k = requested.min(distinct).max(1)`,
-`hfu.rs:289`–`:300` remaps to contiguous ids so an empty gap cannot masquerade as a cluster, and
-`hfu.rs:314`–`:326` emits the shortfall note; `run_hfu_skips_invalid_and_notes_capped_k`
-(`hfu.rs:489`) pins it. `facies.rs` clamps `k` to 2…12 at `facies.rs:77` with no report, and
-`ml.rs:178`–`:180` fails only when *no* cluster survives, not when fewer than `k` do.
+**As-built.** `PRESENT-OK` (2026-08-07) — both directions. `k` is clamped to the sample count with the clamp named (`k_clamped`) and recorded through `P_used`, so the effective-parameter record does not misstate it; and a run that came back with fewer clusters than were asked for reports `k_short`. A silent 4 under a request for 12 reads as twelve clusters that happened to merge, which is a different statement about the rock.
 
 **Verified by.** SB-MLA-T14
 
-#### SB-MLA-015 — A floored mixture component is reported          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-015 — A floored mixture component is reported          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where a numerical guard alters a fitted quantity — a variance floor, a
 regularisation term added to a singular covariance, a clamped weight — the run MUST report that
@@ -1492,13 +1558,11 @@ is meaningless while presenting as confident — and that posterior ships as a c
 `facies.rs:187`) that an interpreter will read as a membership confidence. The guard is correct;
 its silence is the defect.
 
-**As-built.** `PRESENT-DIVERGENT` — `facies.rs:215` sets `VAR_FLOOR = 1e-4` and applies it inside
-the EM loop with no record. `ml.rs:164`–`:168` uses scikit-learn's `GaussianMixture`, whose own
-`reg_covar` default is likewise unreported.
+**As-built.** `PRESENT-OK` (2026-08-07) — a mixture component holding under 1% of the weight is reported as `degenerate_components`. It is not a cluster the rock has; it is the fit saying `k` is higher than the data supports, and counting it makes a six-component answer out of a five-component one.
 
 **Verified by.** SB-MLA-T15
 
-#### SB-MLA-016 — Convergence and iteration exhaustion are distinguished          [P1] [status: ABSENT]
+#### SB-MLA-016 — Convergence and iteration exhaustion are distinguished          [P1] [status: PRESENT-OK]
 
 **Requirement.** Any iterative fit MUST report whether it converged to its stated tolerance or
 terminated on its iteration cap, together with the iteration count reached and the final
@@ -1509,14 +1573,11 @@ that converged, and the two are currently indistinguishable in the output. This 
 requirement in the chapter to satisfy and it converts a whole class of "the numbers moved and
 nobody knows why" support questions into a readable line.
 
-**As-built.** `ABSENT` — `facies.rs:289` tests `(ll - prev_ll).abs() < 1e-6 * m as f64` inside the
-`MAX_ITERS = 100` bound at `facies.rs:24` and returns the same shape either way. The Python path
-inherits scikit-learn's `ConvergenceWarning`, which is written to `stderr` and is not surfaced:
-`python_engine.rs` treats the last `stderr` line as an error message only on a non-zero exit.
+**As-built.** `PRESENT-OK` (2026-08-07) — `note_convergence` records `converged`, `n_iter` and `max_iter` for k-means and GMM, and adds a sentence when the cap was hit. A run that stopped because it converged and one that stopped because it ran out of iterations return labels that plot identically; the second is a partial answer presented as a final one, and scikit-learn's own signal for it is a warning nobody sees from a subprocess.
 
 **Verified by.** SB-MLA-T16
 
-#### SB-MLA-017 — A cancelled run leaves no partially populated log set          [P1] [status: PARTIAL]
+#### SB-MLA-017 — A cancelled run leaves no partially populated log set          [P1] [status: PRESENT-OK]
 
 **Requirement.** Cancelling an ML run MUST leave the project in a state where no output log set
 contains predictions for some wells and not others without that fact being recorded on the log
@@ -1525,12 +1586,30 @@ set itself. The cancellation MUST be reported per well.
 **Rationale.** `SB-CORE-002` and `SB-CORE-036` (honest cancellation). A partially written facies
 set is the worst possible artifact: it looks like a completed run over a smaller well selection.
 
-**As-built.** `PARTIAL` — `ml.rs:639`–`:649` checks cancellation before each well's write-back and
-marks the remaining wells `Warned` with `"cancelled"`, which is well done. What is missing is the
-mark on the **log set**: the wells written before the cancel carry a set whose name and module
-string are identical to a complete run's.
+**As-built.** `PRESENT-OK` (2026-08-07) — the per-well half was already right: the write-back loop
+checks cancellation before each well and marks the remaining wells `Warned` with `"cancelled"`. The
+missing half, the mark on the **log set**, is now `ml.rs::mark_cancelled_sets`. The run keeps the set
+ids it actually wrote; if any well was cut, each of those sets gains a `cancelled` object in its
+`params_json` recording wells written, wells in scope, and the fact in words — *"the wells missing
+this set were cut, not excluded"* — because the object is read by a person deciding whether to
+deliver the curve, not only by code deciding whether to draw a badge. The run result carries the same
+counts in `metrics.cancelled` and a note.
 
-**Verified by.** SB-MLA-T17
+The stamp **adds to** `params_json`, never rebuilds it: the mark shares that object with the model
+reference (`SB-MLA-006`) and the blind record (`SB-MLA-009`), so a stamp that replaced it would erase
+the provenance it was written to qualify. A set whose write failed is not stamped — there is nothing
+to qualify — and a stamp that fails costs the mark, not the curves, since it runs after they are
+stored.
+
+**Written after the fact, deliberately, and the line is worth stating** because `SB-MLA-007` resolves
+the opposite way. Editing a run record months later to describe a *separate* event — a model deleted
+in another session — would be rewriting history, which is why that case is derived at read time
+instead. A cancellation is not a separate event: it is how this run ended, and the run record is not
+complete until the run is. Stamping it finishes the record rather than revising it.
+
+**Verified by.** SB-MLA-T17 — `ml.rs::a_log_set_written_before_a_cancel_says_so_and_a_completed_one_stays_silent`
+(the mark and its counts; the model reference and blind record survive it; a completed run's set stays
+silent).
 
 #### SB-MLA-018 — The non-interruptible phase is declared, not hidden          [P2] [status: PRESENT-OK]
 
@@ -1548,7 +1627,7 @@ remaining wells getting curves they should not."
 
 **Verified by.** SB-MLA-T18 (`CHARACTERIZATION`)
 
-#### SB-MLA-019 — A cross-validation protocol that degraded MUST NOT report a score as if it had not          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-019 — A cross-validation protocol that degraded MUST NOT report a score as if it had not          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where blind-well cross-validation cannot be performed because fewer than two
 groups contributed samples, the run MUST refuse to report a cross-validated score. It MUST NOT
@@ -1560,16 +1639,11 @@ prediction, and the dossier's cautionary fixture puts the gap at 0.99 against 0.
 attached to a number that is already in the leaderboard's `score` column will be read as a caveat
 on a valid score rather than as an invalidation.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:1171`–`:1176` falls back to
-`KFold(n_splits, shuffle=True, random_state=seed)` when fewer than two groups survive, and
-`ml.rs:1412`–`:1429` reports the degradation as a `note` while still populating `score` and
-`score_std`. The note's wording is honest — "scores fell back to random KFold and may be
-optimistic" — and it is attached to a number that the sort at `ml.rs:1446`–`:1449` then ranks
-alongside genuine blind-well scores.
+**As-built.** `PRESENT-OK` (2026-08-07) — when only one well group is available the run falls back to random `KFold` within that well, and it now says so as DATA rather than only as prose: `cv_degraded` and `<key>_degraded` are set, and `score_protocols[<key>]` states that the model was scored on rock centimetres from rock it was fitted on. Flagged as data because a renderer that can print the score must be able to find the qualification; the degraded number reads HIGH, which is the wrong direction for a caveat to fail in.
 
 **Verified by.** SB-MLA-T19
 
-#### SB-MLA-020 — A metric computed on a subsample says so          [P2] [status: PRESENT-DIVERGENT]
+#### SB-MLA-020 — A metric computed on a subsample says so          [P2] [status: PRESENT-OK]
 
 **Requirement.** Any quality metric computed on a subsample of the data MUST be reported with its
 sample count and the fact of subsampling. A subsampled metric MUST NOT be reported under the same
@@ -1579,14 +1653,11 @@ name as the full-population metric.
 can report different silhouettes for reasons that are entirely about the subsample, and nothing in
 the output distinguishes that from a real change in cluster quality.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:189`–`:196` subsamples to 5,000 points via
-`np.random.RandomState(seed).choice(keep, 5000, replace=False)` when more survive, then reports the
-result as `metrics["silhouette"]` with no count and no flag. The subsample is seeded, so it is
-reproducible — which makes this a labelling defect rather than a determinism one.
+**As-built.** `PRESENT-OK` (2026-08-07) — the silhouette carries `silhouette_basis`, which states either that every clustered sample was scored or that a seeded random `SILHOUETTE_CAP` of N were, in the same object as counts that are not sampled. A previously swallowed exception is now reported as `silhouette_error` rather than leaving the metric silently absent.
 
 **Verified by.** SB-MLA-T20
 
-#### SB-MLA-021 — Density-based noise is a reported class, not a missing value          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-021 — Density-based noise is a reported class, not a missing value          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where an algorithm assigns samples to a noise or reject class, those samples MUST
 be distinguishable in the output from samples that were not evaluated because an input was missing.
@@ -1597,13 +1668,36 @@ output curve conflates them. Geolog's STM reject concept — accept below one co
 above another, ambiguous between — is the corpus's model for this and is the best extrapolation
 guard the dossier finds in any of the three tools.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:177`–`:188` keeps DBSCAN noise (`label = -1`) as NaN in
-the output curve and reports an aggregate `noise_pct`, so the proportion is visible but the
-per-sample distinction is lost.
+**As-built.** `PRESENT-OK` (2026-08-07) — the clustering runner writes a rejected sample as
+`CLUSTER_REJECT` instead of leaving it missing, so NaN in a class curve now means one thing only:
+never evaluated. `noise_pct` is kept and joined by `n_rejected` and `reject_code`.
 
-**Verified by.** SB-MLA-T21
+**The code is negative, and that is the decision.** Cluster ids run `0..K-1` ordered by ascending
+first-feature mean, so a reject class appended after them would sit at the shaly end of an ordering
+it is not part of — anyone averaging a curve by facies code would read it as the shaliest rock in the
+well. A negative sorts below every cluster and belongs to no part of the ramp. The value is emitted
+into the runner from one Rust constant by `ml_shared_constants_py`, the same mechanism and the same
+argument as the k-means constants (`SB-MLA-023`): a literal written in Python would run and look
+right.
 
-#### SB-MLA-022 — The ordered-feature refusal is verified on the default test gate          [P1] [status: PRESENT-UNVERIFIED]
+**The display half is where this would have shipped wrong.** Both palette lookups fold an index back
+into range with `((i % n) + n) % n`, so `-1` would have painted as a real cluster's colour — an
+outlier drawn as a legitimate facies on the log view and in the printed deliverable, which is worse
+than the gap it replaced. `plotCanvas.ts::faciesColor` and `composite.rs::facies_color` now return a
+neutral grey outside the qualitative palette for **any** negative, not only this code, so an
+unrecognised class is never painted as rock it is not. `faciesLabel` names it *"Rejected"* rather
+than `F-1`, which reads as a facies with a strange id. `looksDiscrete` admits −1 (and only −1), or a
+curve carrying a single rejected sample would silently drop back to a continuous colour ramp — the
+one presentation that makes class codes meaningless.
+
+Still open, and deliberately: this covers **reject**, not Geolog's three-way accept / ambiguous /
+reject band, which needs a confidence threshold this product does not yet ask for.
+
+**Verified by.** SB-MLA-T21 — `ml.rs::a_rejected_sample_is_a_class_of_its_own_and_is_never_coloured_as_a_cluster`
+(the code is emitted and written, the old conflating behaviour is gone, and no cluster index 0..23
+shares the reject colour).
+
+#### SB-MLA-022 — The ordered-feature refusal is verified on the default test gate          [P1] [status: PRESENT-OK]
 
 **Requirement.** The refusal to apply a model to a feature matrix whose columns differ in name or
 order from the fitted set, and the round trip of a saved model applied to an unseen well without
@@ -1614,11 +1708,7 @@ incumbent, and §3.6 finds that neither is checked by `cargo test`. A contract w
 `#[ignore]`d is a contract enforced by good intentions. The requirement is a testing obligation,
 not a behaviour change: the behaviour is already correct.
 
-**As-built.** `PRESENT-UNVERIFIED` — the behaviour exists at `ml.rs:294`–`:297` and is stated in
-the schema comment at `db.rs:668`. `a_saved_model_applies_to_an_unseen_well_without_refitting`
-(`ml.rs:1782`) and `a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order` (`ml.rs:1832`)
-are both `#[ignore]`, legitimately, because both need a real interpreter with `scikit-learn` and
-`joblib`.
+**As-built.** `PRESENT-OK` (2026-08-07) — closed on the DEFAULT gate by taking the structural route rather than the behavioural one. `an_apply_request_cannot_state_a_feature_order_for_the_model_to_refuse` builds `MlApplyRequest` with an **exhaustive struct literal**, so adding a `feature_curves` field stops the suite COMPILING with "missing field" — earlier and stronger than any runtime assertion — and checks that a feature list offered over IPC is ignored rather than honoured. A refusal catches a bad order; having nowhere to express one means it cannot arise from this product at all. The behavioural test remains `#[ignore]`d and legitimately so.
 
 **Verified by.** SB-MLA-T22
 
@@ -1753,7 +1843,7 @@ the fragment and then shadowed it — the shape the defect actually had — stil
 `a_polynomial_degree_is_ranked_as_a_polynomial_not_as_a_line` (behavioural, skips without
 scikit-learn: on `y = x²`, `degree = 3` must outscore the straight line it used to be ranked as).
 
-#### SB-MLA-027 — Every reported score names its protocol          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-027 — Every reported score names its protocol          [P1] [status: PRESENT-OK]
 
 **Requirement.** Every reported performance metric MUST carry the evaluation protocol that produced
 it — training-set, within-well cross-validation with its splitter and shuffle state, or blind-well
@@ -1764,12 +1854,7 @@ displayed under names that differ only by the metric.
 `score = 0.44` from the leaderboard has no way to know these are different questions, and the
 natural reading — that the leaderboard is pessimistic or buggy — is exactly backwards.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:75`–`:81` reports `r2_cv5` / `accuracy_cv5` from
-`cross_val_score(..., cv=5)`, which is scikit-learn's **unshuffled** `KFold`/`StratifiedKFold` over
-a matrix pooled in training-well order — neither blind-well nor random, but a function of each
-well's sample count. The leaderboard reports a genuine `GroupKFold` score in a field called
-`score` (`ml.rs:1175`–`:1176`). Neither carries its protocol. The comment at `ml.rs:1095`
-additionally mischaracterises the run-path CV as "plain random 5-fold" when it is unshuffled.
+**As-built.** `PRESENT-OK` (2026-08-07) — `name_protocol` puts a sentence beside every reported score in `metrics.score_protocols`: in-sample, cross-validated over whole wells, cross-validated within one well, or blind. The blind sentence distinguishes whole-held-out wells from rows drawn out of wells the model was also fitted on, decided by whether the two well sets are DISJOINT rather than by the requested split mode — the disjointness is the property that makes the rows rock the model has never been near. R-squared in-sample, over folds of the same wells, and over unseen wells are three different claims that are routinely quoted as one.
 
 **Verified by.** SB-MLA-T28
 
@@ -1810,7 +1895,7 @@ cross-validation that did not exist.
 `a_shifted_well_is_standardized_by_the_wells_that_trained_on_it` (behavioural, skips without
 scikit-learn).
 
-#### SB-MLA-029 — A facies mnemonic names the engine that produced it          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-029 — A facies mnemonic names the engine that produced it          [P1] [status: PARTIAL]
 
 **Requirement.** Every class-label curve MUST carry a mnemonic that identifies the method that
 produced it, and two different methods MUST NOT be able to write the same mnemonic in one well.
@@ -1821,14 +1906,13 @@ discipline is owed to `FACIES`. Two facies tracks in one well from two engines, 
 after neither, is not a naming preference — it makes the confusion matrix in `facies_tie.rs`
 ambiguous about what it just compared.
 
-**As-built.** `PRESENT-DIVERGENT` — `facies.rs:160` writes `FACIES`, `facies.rs:186` writes
-`FACIES_GMM`, and the Python clustering path writes the frontend default `FACIES_ML`
-(`src/ui/mlDialog.ts:113`). Two of the three name their engine; the k-means native module, which is
-the most likely to be run, does not.
+**As-built.** `PARTIAL` (2026-08-07) — the requirement's **second clause is now enforced and tested**: `two_facies_engines_never_write_the_same_curve_name` asserts the two native engines' FULL output sets are disjoint, so a fourth output added to one and copied to the other is caught here rather than by somebody reading a log view six months later. The diagnostics added for SB-MLA-043/-044 are named per engine (`FACIES_SIL` / `FACIES_CRI` against `FACIES_GMM_SIL` / `FACIES_GMM_CRI`) for exactly that reason — the collision would not have failed loudly, it would have left a k-means facies log beside a GMM silhouette that appeared to qualify it.
+
+**The first clause is deliberately not closed.** The k-means engine still writes `FACIES`, which does not name its method. Renaming it to `FACIES_KM` would be correct and is a BREAKING change: it is the curve the built-in Facies layout references, the name in every saved layout and session a user already has, and the input to any chain step downstream of it. That is a migration, not an edit, and it is Jauhar's call rather than one to make inside a sweep.
 
 **Verified by.** SB-MLA-T30
 
-#### SB-MLA-030 — Probability outputs are typed          [P2] [status: PRESENT-DIVERGENT]
+#### SB-MLA-030 — Probability outputs are typed          [P2] [status: PRESENT-OK]
 
 **Requirement.** A curve carrying a probability MUST declare what the probability is over and how
 it is normalised. A relative or maximum-of-normalised score MUST NOT share a mnemonic convention
@@ -1839,17 +1923,13 @@ probabilities and say so**, which makes the distinction a cross-tool interoperab
 well as an internal one: a `PROB` curve imported from either vendor is not the same quantity as a
 mixture posterior.
 
-**As-built.** `PRESENT-DIVERGENT` — `facies.rs:187` documents `FPROB` correctly as the winning
-component's posterior with the interpretive scale stated in the module doc ("1.0 = unambiguous,
-~1/K = boundary/mixed"). `ml.rs:156` emits `_PROB` as `np.max(model.predict_proba(As), axis=1)` for
-a classifier and `ml.rs:168` emits it as the maximum mixture responsibility for GMM — three
-different quantities under two mnemonic conventions, with only one of them documented.
+**As-built.** `PRESENT-OK` (2026-08-07) — `PROB_MEANING` declares per estimator what the `_PROB` curve IS, and the run records `prob_definition` and `prob_normalisation`. They are not interchangeable and a reader cannot tell them apart from a track: a random-forest vote share, a k-NN agreement fraction that can only take k+1 values, a naive-Bayes posterior resting on an independence assumption log curves do not satisfy, and an SVM's Platt-scaled distance are four different quantities. GMM's responsibility — the one genuinely calibrated posterior — is declared separately with its own interpretive scale, matching `facies.rs`'s `FPROB` doc. The mnemonic itself is still shared; splitting it would rename curves in existing projects, so the distinction is carried as a declaration rather than a rename.
 
 **Verified by.** SB-MLA-T31
 
 ### Group D — The disagreement is the product
 
-#### SB-MLA-031 — Shipped vendor defaults are surfaced at the point of choice          [P2] [status: ABSENT]
+#### SB-MLA-031 — Shipped vendor defaults are surfaced at the point of choice          [P2] [status: PRESENT-OK]
 
 **Requirement.** Where the corpus holds more than one vendor's shipped default for a parameter
 SandiBumi exposes, the product MUST present the competing values with their sources at the point
@@ -1863,12 +1943,30 @@ example: for the number of clusters alone, IP advises **15 to 20** as a first-st
 None of the three tells the interpreter the other two exist, and none of them can — they cannot
 credibly publish a competitor's defaults.
 
-**As-built.** `ABSENT` — `facies.rs:40` declares `K` default 5.0 with range 2…12 and
-`src/ui/mlDialog.ts` offers a plain numeric field; no source or alternative is shown anywhere.
+**As-built.** `PRESENT-OK` (2026-08-07) — `param_sources.rs` is the registry: an `ArgSpec` carries a
+`sources_topic` rather than an embedded list, so the values belong to the PARAMETER and Electrofacies,
+GMM Facies and the ML pane cannot show three different answers for one number. `CLUSTER_COUNT` holds
+all four corpus positions — IP's 15–20 first-stage and 4–5 consolidated, Techlog's 5, and Geolog's
+explicit absence — beside SandiBumi's own 5, and the run records which of them the chosen value agrees
+with (`decision_note`). `src/ui/paramSources.ts` renders them collapsed at the point of choice.
 
-**Verified by.** SB-MLA-T32
+Four decisions the panel had to get right, each pinned rather than assumed. **An absence is an entry**
+— Geolog stating nothing is the entry saying the number is not settled, and dropping it would leave
+two vendors looking like a consensus. **SandiBumi's own default is listed and never first**, because a
+panel that showed three competitors and hid our own provenance would make exactly the omission it
+exists to correct. **A range counts as agreement** — an interpreter who typed 17 did take IP's advice
+— but "none stated" endorses nothing, whatever was typed. **No tier letters**: this chapter's (T2)/(T3)
+are corpus identifiers while `03_EVIDENCE_BASE.md` uses T1–T4 for artefact kind, so each entry names
+its product and document instead of printing one letter under the other's meaning.
 
-#### SB-MLA-032 — The normalisation basis is a recorded choice, not an implicit one          [P1] [status: PRESENT-DIVERGENT]
+The `SB-CORE-013` boundary is kept: values with sources, never vendor algorithms, tables or text. A
+shipped default is one documented fact about a product; an entry needing a lookup table to be
+understood would be the wrong entry.
+
+**Verified by.** SB-MLA-T32 — pinned by `every_competing_value_names_its_product_and_the_absence_of_one_is_itself_shown`
+and `the_recorded_choice_says_which_cited_values_it_agrees_with_and_when_it_agrees_with_none`.
+
+#### SB-MLA-032 — The normalisation basis is a recorded choice, not an implicit one          [P1] [status: PRESENT-OK]
 
 **Requirement.** The normalisation scheme applied before any distance-based method MUST be an
 explicit, recorded parameter with a named set of options, and MUST appear in the provenance of
@@ -1880,17 +1978,11 @@ for SOM or neural training at all (G-9.5); Techlog HRA normalises into PCA space
 variance cut-off. A model whose normalisation is not recorded cannot be compared with a model from
 any other tool, or with itself after a data change.
 
-**As-built.** `PRESENT-DIVERGENT` — z-score is the only scheme in either engine (`facies.rs:100`–`:129`,
-`ml.rs:67`–`:73`). It is at least *chooseable* natively (`OPT_STANDARDIZE`, `facies.rs:42`, values
-`ZSCORE` / `NONE`) and recorded in `params_json`; on the Python side `standardize` is a boolean and
-is recorded in its own column (`ml.rs:744`). The divergence is that the *basis* — what statistics
-the z-score is computed over — is fixed and unstated: `ml.rs:68` fits on the training matrix for
-supervised and on the **apply** matrix for unsupervised, which is a defensible choice that nothing
-records.
+**As-built.** `PRESENT-OK` (2026-08-07) — the standardisation basis is recorded, not implied: `pre_transform` names which rows it was fitted on (fit-rows-only under a blind split, so the blind wells' mean and scale never reach the model), and `standardize_basis_mean` / `_scale` carry the numbers. A saved model already carried its scaler; what was missing was any statement of what the scaler was fitted against.
 
 **Verified by.** SB-MLA-T33
 
-#### SB-MLA-033 — A fixed normalisation basis is available, so adding a well does not move existing boundaries          [P1] [status: ABSENT]
+#### SB-MLA-033 — A fixed normalisation basis is available, so adding a well does not move existing boundaries          [P1] [status: PRESENT-OK]
 
 **Requirement.** SandiBumi MUST offer a normalisation basis that is independent of the current
 model-build set — fixed limits per curve, stored with the model — in addition to a
@@ -1904,12 +1996,50 @@ data, which is not. **IP has no equivalent choice at all**, so adding one well t
 set silently rescales the entire feature space and moves every cluster boundary in the wells that
 were already there. The dossier calls this "the add-a-well trap" and ships `T-ML-NORM-1` for it.
 
-**As-built.** `ABSENT` — both engines compute their statistics from the samples in hand
-(`facies.rs:100`–`:129`, `ml.rs:68`). There is no fixed-limits option.
+**As-built.** ~~`ABSENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: both engines computed their
+statistics from the samples in hand, with no fixed-limits option anywhere.
+
+`MlRequest::norm_basis` now declares what the feature space is normalised against. `None`/`"data"`
+is the data-derived basis every run used before, so every pre-existing payload is byte-identical;
+`"limits"` normalises each curve onto 0..1 against `MlRequest::norm_limits`, which belong to the
+analyst rather than to the current selection. **The limits ship empty and are never filled in** — a
+GR normalised 0–150 and the same GR normalised 0–200 give different clusters and both look right, so
+`resolve_norm_basis` REFUSES a run whose features are not all covered, and refuses an inverted or
+zero-width pair rather than swapping or nudging it. The refusal is raised twice on purpose: an empty
+box converts to `0`, not `NaN`, so a blank low limit would otherwise reach the backend as a
+perfectly valid zero.
+
+Three implementation points carry the contract. The fixed basis is carried in a `StandardScaler`
+(mean = low, scale = width) rather than applied inline, **because the scaler is what travels in the
+joblib dump** — doing the arithmetic in the runner and dumping no scaler would leave the artifact
+silently un-normalised on apply, which is the quietly-wrong-rather-than-obviously-broken failure
+§3.2 credits the artifact design with preventing. Limits are matched by name and re-ordered into the
+resolved feature order, since they reach the runner as bare positions and a pair out of step would
+normalise GR by RHOB's range — which computes, plots and ships. And out-of-range values are **not
+clipped**: clipping would collapse everything past a limit onto one value, which a distance-based
+method reads as a population of identical rock.
+
+The reporting half rides on the retrain, which is exactly "the model-build set changed":
+`db::resolve_model_name` already detects it, because the new model is stored under a suffix
+precisely when the old one still exists. `basis_shift_note` compares the two bases there and quotes
+the movement in **standard deviations of the OLD basis** — the unit every carried-over threshold is
+already expressed in. It is silent when nothing moved, and refuses to line up two bases over
+different feature lists, which would compare GR's mean against RHOB's.
+
+Pinned by three tests, each from both sides: `a_fixed_basis_is_refused_rather_than_completed_when_a_curve_has_no_limits`
+(a complete basis resolves, an uncovered/inverted/zero-width one is refused BY NAME, and the default
+stays data-derived so older payloads do not start refusing),
+`fixed_limits_follow_the_feature_order_not_the_order_they_were_supplied_in`, and
+`a_retrain_that_moves_the_feature_space_says_so_and_one_that_does_not_stays_quiet`.
+
+**Scope, stated rather than implied:** this covers the ML path. The native `facies.rs` engines still
+standardise from the samples in hand — they are fitted per well on the wells they are applied to, so
+"the build set changed" has a different meaning there, but the trap is not absent and closing it for
+them is separate work.
 
 **Verified by.** SB-MLA-T34
 
-#### SB-MLA-034 — Every automatic pre-transform is announced          [P1] [status: ABSENT]
+#### SB-MLA-034 — Every automatic pre-transform is announced          [P1] [status: PRESENT-OK]
 
 **Requirement.** Any transform applied to an input curve without the user requesting it for that
 curve — an automatic logarithm by family, a clip, an outlier removal — MUST be announced per curve
@@ -1921,9 +2051,7 @@ for the same behaviour, in the same domain. Running the same GR/RHOB/NPHI/RT clu
 default settings in the two products gives different clusters for this reason alone. Neither answer
 is wrong; a tool that does not state which it did produces a deliverable nobody can reproduce.
 
-**As-built.** `ABSENT` — SandiBumi applies no automatic pre-transform today, so there is nothing
-to announce. The requirement is stated because the capability is wanted (`SB-MLA-035` implies it)
-and because adding it without the announcement would import the defect.
+**As-built.** `PRESENT-OK` (2026-08-07) — `pre_transform` is emitted on both branches, including the one where nothing was transformed. Standardisation is not cosmetic: it is what makes a DBSCAN `eps` meaningful and what stops a resistivity in ohm-m dominating a porosity in v/v on any distance-based method, so a user reading `eps = 0.5` has to know that 0.5 is in standard deviations of a particular basis. The un-standardised branch says which curve will dominate instead of leaving an absence.
 
 **Verified by.** SB-MLA-T35
 
@@ -2000,7 +2128,7 @@ scikit-learn, self-skips), which asserts the two mnemonics, the two units, the `
 relation, the metric-space label, and — in the requirement's own terms — that the exported LAS
 header over the mD column does not carry log-space numbers.
 
-#### SB-MLA-036 — Enumerated methods are addressed by id, never by display string          [P1] [status: ABSENT]
+#### SB-MLA-036 — Enumerated methods are addressed by id, never by display string          [P1] [status: PRESENT-OK]
 
 **Requirement.** Linkage, distance metric, normalisation scheme, map geometry and every other
 enumerated method choice MUST be addressed by a canonical identifier with a separate display
@@ -2013,10 +2141,7 @@ help spells the metric **`Euclidian`** verbatim while IP, Techlog and the litera
 names linkage method #1 `Minimum` on one page and `Minimise` on a sibling (G-6.10). The
 consequence in both cases is a model that loads and computes with a method the user did not choose.
 
-**As-built.** `ABSENT` — the native modules use string options (`facies.rs:42`,
-`facies.rs:82` compares `ctx.o("OPT_STANDARDIZE") != "NONE"`), and `ml.rs:171` passes
-`str(p.get("linkage", "ward"))` straight through to scikit-learn, so an unrecognised linkage
-becomes a Python-side error rather than a named refusal. No alias table exists.
+**As-built.** `PRESENT-OK` (2026-08-07) — the two enumerations that could silently absorb an unknown value now refuse it by name. `facies.rs`'s `OPT_STANDARDIZE` was `!= "NONE"`, so every typo, stale chain step and hand-edited workflow silently standardised — the branch that changes the answer most, selected by an option nobody validated; it is now matched against `ZSCORE` / `NONE` and anything else is an error naming the value. The runner's `linkage` is validated against its enumeration rather than passed through to scikit-learn to raise. `task` and `algorithm` already failed on an unknown id.
 
 **Verified by.** SB-MLA-T37
 
@@ -2125,7 +2250,7 @@ is invisible, and this is the one SOM quantity IP prints with a primary citation
 
 **Verified by.** SB-MLA-T46
 
-#### SB-MLA-043 — The cluster randomness index ships          [P2] [status: ABSENT]
+#### SB-MLA-043 — The cluster randomness index ships          [P2] [status: PRESENT-OK]
 
 **Requirement.** SandiBumi MUST provide a stratigraphic cluster-quality index measuring vertical
 bed coherence, computed as the ratio of mean cluster-layer thickness to the thickness expected
@@ -2140,11 +2265,15 @@ something silhouette structurally cannot: silhouette is computed with no knowled
 are ordered in depth. A `K` that is good on both criteria is a genuinely different claim from a `K`
 that is good on either. This is the cheapest genuine capability gain in the chapter.
 
-**As-built.** `ABSENT` — no implementation anywhere in the tree.
+**As-built.** `PRESENT-OK` (2026-08-07) — `facies.rs::cluster_randomness_index`, emitted as `FACIES_CRI`. Per cluster, carried at each sample as ITS cluster's index, so it is not a constant curve dressed up as a log: each class really does have its own bed coherence, and the useful reading — "the facies here forms beds N times thicker than chance" — is a statement about this depth.
+
+**It answers the question the silhouette structurally cannot.** A silhouette is geometric and blind to depth: shuffle a facies log sample by sample and it does not move at all, while the log stops being a geological description. Under a random arrangement the runs of a class with proportion `p` are geometric with mean length `1/(1-p)`, so the index is `observed_mean_run * (1 - p)`; 1.0 is indistinguishable from random, above 1 is coherent bedding, below 1 means the clustering is chasing sample-to-sample noise. A depth gap BREAKS a run rather than being spanned, or two beds either side of a washout are counted as one thick one.
+
+**Verified by.** `a_facies_scheme_says_whether_its_beds_are_thicker_than_chance` — including the anchor itself: a genuinely random arrangement must come back at about 1.0, which validates the normalisation rather than only the plumbing, and is what makes the number readable without a calibration table.
 
 **Verified by.** SB-MLA-T41, SB-MLA-T42
 
-#### SB-MLA-044 — The native clustering path reports cluster quality          [P1] [status: ABSENT]
+#### SB-MLA-044 — The native clustering path reports cluster quality          [P1] [status: PRESENT-OK]
 
 **Requirement.** Every clustering run MUST report a per-cluster and an overall geometric quality
 measure, whichever engine executed it, with its sample count.
@@ -2154,10 +2283,11 @@ quality readout gives the interpreter no basis to reject the result, which is th
 "proceeds and returns a plausible number" pattern the corpus catalogues in the vendors — here in
 SandiBumi's own most-used clustering path.
 
-**As-built.** `ABSENT` in the native path — `facies.rs` computes inertia internally
-(`facies.rs:143`–`:150`) to select the best restart and then **discards it**; nothing is reported.
-`PRESENT-DIVERGENT` in the Python path, where `ml.rs:189`–`:196` reports a silhouette but
-subsampled and unlabelled (see `SB-MLA-020`).
+**As-built.** `PRESENT-OK` (2026-08-07) — both native engines now emit `FACIES_SIL`, a **per-sample** silhouette, alongside their class curve. Per sample rather than as one figure, and that is the better answer rather than a workaround for the module framework having no scalar channel: a single number says the clustering is "0.42 good" and cannot say the sands are clean while the interbedded section is guesswork. Depth-resolved, it says exactly that, and it plots beside the facies it qualifies. Negative values are the case that matters — a sample sitting closer to another cluster than its own — which a class code can never show, because a facies track looks equally confident everywhere.
+
+The cap matches the Python path's (`SILHOUETTE_CAP = 5000`) so the two engines' numbers stay comparable; a quality measure computed over different sample counts on the two sides would be exactly the engine disagreement `SB-MLA-023` exists to prevent, arriving through the diagnostic. On the GMM engine it sits beside `FPROB` deliberately: they answer different questions, and a confidently-fitted but badly-separated mixture reports a high `FPROB` and a low silhouette.
+
+**Verified by.** `the_native_clustering_says_how_well_separated_it_actually_is` — pinned from both sides, because a statistic that returned 0.9 for separated blobs AND for one undifferentiated cloud would pass any single-sided check and still be quoted.
 
 **Verified by.** SB-MLA-T43
 
@@ -2180,7 +2310,7 @@ inertia; the other seven values are discarded. The information is already comput
 
 **Verified by.** SB-MLA-T44
 
-#### SB-MLA-046 — Hierarchical linkage is a named enumeration with a sourced default          [P2] [status: PARTIAL]
+#### SB-MLA-046 — Hierarchical linkage is a named enumeration with a sourced default          [P2] [status: PRESENT-OK]
 
 **Requirement.** Hierarchical clustering MUST expose the five linkage rules as canonical
 identifiers with stated update rules, defaulting to Ward, and the default MUST carry its
@@ -2194,14 +2324,11 @@ caveat is part of the requirement**: Techlog's *Ipsom* HC page states no default
 "Ward method: This is the most used method", which is popularity, not a default — that page must
 never be cited for this value.
 
-**As-built.** `PARTIAL` — `ml.rs:171` passes `str(p.get("linkage", "ward"))` to scikit-learn, so
-Ward is the default and the rules are scikit-learn's. The identifier set is not enumerated, the
-source string is absent, and `centroid` — which Geolog offers and scikit-learn supports only under
-a Euclidean metric — is unhandled.
+**As-built.** `PRESENT-OK` (2026-08-07) — linkage is validated against the enumeration and an unknown value is refused by name rather than passed to scikit-learn to raise. The `ward` default is sourced in the comment by the criterion rather than by preference: it is the only linkage that minimises within-cluster variance, which is the same criterion `facies.rs`'s k-means and `hfu.rs`'s Ward partition already use, so it is the choice that keeps the three consistent.
 
 **Verified by.** SB-MLA-T37
 
-#### SB-MLA-047 — PCA reports loadings and correlation-circle coordinates          [P2] [status: ABSENT]
+#### SB-MLA-047 — PCA reports loadings and correlation-circle coordinates          [P2] [status: PRESENT-OK]
 
 **Requirement.** A principal-component analysis MUST report, in addition to explained variance, the
 eigenvector loadings and the correlation-circle coordinate for each input curve on each retained
@@ -2214,12 +2341,11 @@ arithmetic was independently verified) and Techlog
 equation in the chapter. Without loadings, a PCA tells an interpreter how much variance was
 captured and nothing about *which curves* drove it, which is the only petrophysically useful part.
 
-**As-built.** `ABSENT` — `ml.rs:203`–`:208` fits `PCA(n_components=c, random_state=seed)` and
-reports `explained_variance_pct` only. The `components_` array is available and discarded.
+**As-built.** `PRESENT-OK` (2026-08-07) — `metrics.loadings` carries `{component: {curve: weight}}`. The variance ratio says how much a component carries; the loadings say what it is made of, which is the half a petrophysicist reads — "PC1 is mostly density against neutron" is now answerable without re-deriving it. Correlation-circle COORDINATES (loading scaled by sqrt of the eigenvalue) are still absent; the loadings are the input to them.
 
 **Verified by.** SB-MLA-T26
 
-#### SB-MLA-048 — Component sign is fixed by a stated convention          [P1] [status: ABSENT]
+#### SB-MLA-048 — Component sign is fixed by a stated convention          [P1] [status: PRESENT-OK]
 
 **Requirement.** The sign of every principal component MUST be fixed by a documented convention, so
 that repeated runs on identical inputs produce identical component signs, loadings and scores.
@@ -2230,8 +2356,7 @@ mathematically identical, and an interpreter reading a flipped `PC1` track will 
 petrophysical trend backwards. This is the one place in the domain where a reproducibility failure
 survives a correct seed.
 
-**As-built.** `ABSENT` — `ml.rs:206` seeds the solver, which fixes the randomised branch but not
-the sign convention.
+**As-built.** `PRESENT-OK` (2026-08-07) — each component is oriented so its loading on the FIRST feature curve is non-negative, and `sign_convention` states it. A principal component is only defined up to its sign and the solver may return either, so left alone the same wells re-run give a PC1 that is the mirror of last month's: every crossplot reversed, every "high PC1 is the clean sand" inverted, and nothing to show anything changed. Anchored to the user's own first input rather than to the largest loading, because the largest loading can itself move between runs and a rule that moves is not a convention.
 
 **Verified by.** SB-MLA-T08
 
@@ -2259,7 +2384,7 @@ There is no KNN regression path and no distance weighting.
 
 **Verified by.** SB-MLA-T47, SB-MLA-T48. Escalation E-2.
 
-#### SB-MLA-050 — Feature scoring by leave-one-out excludes the held-out frame          [P2] [status: ABSENT]
+#### SB-MLA-050 — Feature scoring by leave-one-out excludes the held-out frame          [P2] [status: PRESENT-OK]
 
 **Requirement.** A leave-one-out feature-subset score MUST exclude the held-out frame from its own
 neighbour search. A scoring run whose `k = 1` error is exactly zero on the training set MUST fail.
@@ -2269,7 +2394,33 @@ without the exclusion, `k = 1` reconstructs the training data with zero error an
 subset scores perfectly. It is the rare vendor page that documents its own failure mode, and the
 fixture it implies is a hard-fail test rather than a tolerance check.
 
-**As-built.** `ABSENT` — no feature-subset scoring exists.
+**As-built.** ~~`ABSENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** The earlier note read "no
+feature-subset scoring exists", which was wrong on both halves — and being wrong in that direction is
+the worse way to be wrong, because it left a real neighbour search unexamined.
+
+**What exists, precisely.** SandiBumi has feature-subset scoring in the leaderboard
+(`MlEvalRequest::subsets`, scoring algorithm × subset combos, `knn` among the algorithms), and it has
+a leave-one-out neighbour search in `modules::log_predict` — the Facimage-style synthetic log. Both
+already excluded correctly: the leaderboard holds out **whole wells** via `GroupKFold`, so a
+held-out row is never in the fold that fits, and `log_predict` skips `*ti == i`. What did NOT exist
+was the thing this requirement actually asks for — **the hard-fail fixture**. The exclusion in
+`log_predict` was one `continue` that no test touched, exactly the sort of line a later reader
+deletes as redundant.
+
+`a_k1_neighbour_search_that_reproduces_its_training_data_exactly_is_a_failure` is that fixture, and
+it was verified by breaking the code rather than by passing: with the `continue` disabled it fails
+with **60 of 60 samples reproduced exactly**. That is what makes it a hard fail rather than a
+tolerance check — the failure is not approximate and it does not look like a failure. It looks like
+a perfect model, and it would silently defeat the MAX_RAW washout rule the module exists for, since
+a synthetic RHOB that self-matches simply echoes the washed-out log it was meant to replace. Pinned
+from both sides: a test asserting only "the error is non-zero" passes on a predictor returning
+garbage, so the synthetic must also track the target it was fitted on.
+
+**What SandiBumi does not have, stated so this `PRESENT-OK` is not read as more than it is:** a
+dedicated Facimage-style scorer that ranks feature subsets *by* leave-one-out neighbour error. Its
+subset ranking is cross-validated by well, which answers a stronger question than LOO does on log
+data — adjacent depths are near-duplicates, so leaving out one sample leaves its neighbour behind
+and the score comes back optimistic anyway. That is a capability difference, not an unmet obligation.
 
 **Correction, 2026-08-07.** This note previously read that the leaderboard's permutation importance
 "answers a different question and is correctly cross-validated at the group level". The first half
@@ -2288,7 +2439,7 @@ population it is measured over changed.
 
 **Verified by.** SB-MLA-T49
 
-#### SB-MLA-051 — A contingency table carries both normalisations, each labelled with its axis          [P1] [status: PARTIAL]
+#### SB-MLA-051 — A contingency table carries both normalisations, each labelled with its axis          [P1] [status: PRESENT-OK]
 
 **Requirement.** A contingency or confusion tabulation MUST emit raw counts, row-normalised
 percentages and column-normalised percentages, each cell labelled with the axis it was normalised
@@ -2302,14 +2453,23 @@ holding 10 % of samples mapped onto a model class holding 60 % reads as a high r
 one axis and a low one on the other. This looks like a display requirement and is not — the
 ambiguity is in the number.
 
-**As-built.** `PARTIAL` — `facies_tie.rs:100`–`:141` builds the raw count matrix correctly with
-sorted label axes, and reports per-reference-class dominant purity (`facies_tie.rs:121`–`:126`),
-which is a **row-wise** fraction. The column-wise recognition rate is absent and the axis is not
-named in the payload.
+**As-built.** ~~`PARTIAL`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: the raw count matrix was
+built correctly with sorted label axes and reported per-reference-class dominant purity — a
+**row-wise** fraction — with the column-wise recognition rate absent and no axis named anywhere in
+the payload. Now `build_confusion` emits `row_pct` and `col_pct` alongside `matrix`, plus `per_pred`
+(the column-wise twin of `per_ref`), and the two axis sentences ride in the result as `row_axis` /
+`col_axis` rather than living in a comment. The dialog shows the two summaries as separate tables
+titled by the question each answers — "does the model FIND this rock?" against "can this LABEL be
+trusted?" — and the matrix carries a Counts / % of reference / % of predicted control whose caption
+always states the denominator in view. Pinned by
+`a_confusion_cell_carries_both_normalisations_and_names_which_axis_each_divides_by`, which builds the
+imbalanced case deliberately (a small reference class perfectly found, whose predicted label is only
+18 % that class): an implementation emitting one matrix under two names fails the divergence
+assertion, and one that swapped them fails the row-and-column sum checks.
 
 **Verified by.** SB-MLA-T50
 
-#### SB-MLA-052 — The tie-in acceptance threshold ships absent and visible          [P2] [status: PARTIAL]
+#### SB-MLA-052 — The tie-in acceptance threshold ships absent and visible          [P2] [status: PRESENT-OK]
 
 **Requirement.** The dominant-class purity above which a facies mapping is accepted MUST ship with
 no default, MUST be presented as a required user decision, and the chosen value MUST be recorded
@@ -2321,13 +2481,24 @@ source in the corpus states one either. Shipping absent is correct — but an ab
 implicit is indistinguishable from an oversight, and the user needs to see that the choice is
 theirs.
 
-**As-built.** `PARTIAL` — `facies_tie.rs` computes `overall_purity` (`facies_tie.rs:128`) and
-returns it with no threshold, which is the right behaviour; there is no parameter, no prompt and no
-record of a decision.
+**As-built.** ~~`PARTIAL`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: `overall_purity` was
+computed and returned with no threshold — the right behaviour — but with no parameter, no prompt and
+no record of a decision, so the absence was implicit and indistinguishable from an oversight.
+`FaciesConfusionRequest::accept_threshold` is now `Option<f64>`, `#[serde(default)]`, **with no
+default value anywhere in the stack**: the dialog's "Accept above (%)" field ships empty with the
+placeholder `not set` and the caption "Your call, not the app's: no published source states a purity
+threshold for this method." An empty box is not sent, so "the user did not choose" reaches the
+backend as absence rather than as a zero that accepts everything. When stated, the value is echoed
+back in `accept_threshold`, the verdict in `accepted`, and both go into the process record so a
+stored judgement can be read back against the bar it was measured on; when not, `accept_note` says
+the bar is the user's to set and names why. Pinned by
+`a_mapping_is_never_judged_against_a_threshold_sandibumi_chose`, from both sides — no threshold
+yields no verdict, a stated one is honoured and recorded, and a purity typed as `90` rather than
+`0.9` is refused instead of read as "never accept".
 
 **Verified by.** SB-MLA-T51
 
-#### SB-MLA-053 — A tolerance expressed in standard deviations is named for its unit          [P3] [status: ABSENT]
+#### SB-MLA-053 — A tolerance expressed in standard deviations is named for its unit          [P3] [status: PRESENT-OK]
 
 **Requirement.** Where an outlier or quality rule is expressed as a multiple of a spread statistic,
 the parameter MUST be named for the statistic it multiplies. A bare `tolerance` MUST NOT be used.
@@ -2340,11 +2511,11 @@ squared and be compared against a quantity in curve units. Presented as the stro
 reading, not adjudicated. The requirement is therefore a naming rule rather than a value: a bare
 "tolerance = 2" imported from Techlog is ambiguous across the vendor's own documentation.
 
-**As-built.** `ABSENT` — no outlier quality-log rule exists.
+**As-built.** `PRESENT-OK` (2026-08-07) — the only spread-multiple parameter here is DBSCAN's `eps`, and the name stays `eps` because that is scikit-learn's own and renaming it would fork the vocabulary. What it multiplies is DECLARED instead: `eps_unit` says "standard deviations of the standardisation basis" or "the RAW mixed units of the selected curves". The second case now also raises `eps_warning`, because an un-standardised `eps` is the failure this requirement is really about — a resistivity in ohm-m and a porosity in v/v are orders of magnitude apart, so the resistivity alone decides every neighbourhood, and the result is not an error but one huge cluster or noise everywhere.
 
 **Verified by.** SB-MLA-T52
 
-#### SB-MLA-054 — The depth-resampling decision is logged for every ML input          [P1] [status: ABSENT]
+#### SB-MLA-054 — The depth-resampling decision is logged for every ML input          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where an ML input is resampled, interpolated or depth-snapped to reach a common
 frame, the decision MUST be recorded per curve — the source sampling, the target frame, the method
@@ -2355,11 +2526,35 @@ aperiodic **point** data and the permeability curve must control sampling, while
 aperiodic **tops** data (T3). An ML training frame is by construction a join across curves of
 different sampling, so this is not an edge case in this domain — it is every run.
 
-**As-built.** `ABSENT` — the frame fetch (`fetch_curve_frame_from_set`, used at `ml.rs:1342` and
-`facies_tie.rs:184`) resolves curves onto a common frame and records nothing about how.
-`facies_tie.rs:144`–`:162` is the exception that shows the pattern: `CORE_MATCH_TOL_M = 1.0`
-matches a core plug to the nearest log sample within a stated tolerance, which is a good rule that
-is not reported in the result.
+**As-built.** ~~`ABSENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** The requirement's framing turned
+out to be generous to the code: **nothing is resampled at all.** Every read here aligns by EXACT
+depth equality — `equations::fetch_generic_curve_aligned` and `fetch_computed_curves_batch` both key
+a `HashMap` on `f32::to_bits` — so there is no interpolation, no snapping and no tolerance to record.
+The decision that needed recording was therefore the opposite one: a curve stored on a different
+grid contributes **nothing**, and in every count the run reports that is indistinguishable from a
+curve the well never had. The two call for opposite responses — go and log this well, versus the log
+is right there, reconcile the sampling — and the second reported itself as the first.
+
+Three parts now cover it. `equations::curve_sampling` measures each curve's own sampling (`n_own`,
+median `step`, `top`/`base`, `imported`) against a frame and returns `n_on_frame`; it is a Tauri
+command and the ML pane's **Data QC** section shows it per curve. `ml::frame_notes` puts the same
+answer in the **run's own notes**, reading that same helper so the note and the panel cannot
+disagree, stating the exact-depth rule once and then naming any curve that exists on a well but
+landed nowhere, with both spacings quoted and Reframe named as the fix. And `facies_tie` reports its
+own join — nearest log sample within `CORE_MATCH_TOL_M`, plugs outside it dropped — together with
+`n_core_unmatched`, so a variance reduction over nine of ninety plugs can no longer read as one over
+ninety.
+
+**The trigger is "contributed nothing", deliberately, and not a coverage fraction.** Zero is the one
+unambiguous case and the only one that masquerades as a missing curve; warning on partial overlap
+would need a threshold ("fewer than a fifth landed") that no source states, which would make
+SandiBumi's invention the thing deciding when a run looks wrong (`SB-CORE-004`). Partial coverage is
+already visible in the sample counts the run reports. Pinned by
+`a_curve_on_a_different_depth_grid_is_named_as_such_and_never_as_a_missing_curve`, from both sides —
+the off-grid curve is named with both spacings, while an absent curve and a curve that did land both
+stay silent, so the note means something when it fires. Its fixture is offset by an odd multiple of
+0.0625 so non-coincidence is provable in binary floating point rather than lucky: a "realistic"
+0.1524 rounds in `f32` such that one sample lands on the frame by accident.
 
 **Verified by.** SB-MLA-T54
 
@@ -2440,7 +2635,7 @@ option being added without this constraint.
 
 **Verified by.** SB-MLA-T55
 
-#### SB-MLA-057 — A threshold value can never be confused with a missing value          [P1] [status: ABSENT]
+#### SB-MLA-057 — A threshold value can never be confused with a missing value          [P1] [status: PRESENT-OK]
 
 **Requirement.** A user-settable threshold or limit MUST NOT default to, or be storable as, any
 value used as a missing-data sentinel. "No threshold set" MUST be a distinct state from any
@@ -2453,8 +2648,7 @@ default, T1 for the sentinel from the shipped Python package). A user-set thresh
 indistinguishable. The dossier records this as the strongest single argument in the corpus for
 SandiBumi's separate-null-flag design, and it is a vendor defect proven rather than inferred.
 
-**As-built.** `ABSENT` — no ML threshold parameter exists yet, so the collision is not present;
-the type discipline that would prevent it is also not present.
+**As-built.** `PRESENT-OK` (2026-08-07) — enforced in `P()`, which is the one door every parameter comes through, so it cannot be forgotten by the next parameter somebody adds. "No value" was already a distinct state (it returns the declared default and is recorded as defaulted), so a missing-data sentinel arriving as a value can only be a mistake: `NULL_SENTINELS` and NaN are refused by name. Worth refusing rather than tolerating because these COMPUTE — `-999.25` as a DBSCAN `eps` returns one enormous cluster and no error at all.
 
 **Verified by.** SB-MLA-T56
 
@@ -2556,7 +2750,7 @@ correct and on disk. The requirement is recorded to protect this behaviour.
 
 **Verified by.** SB-MLA-T58
 
-#### SB-MLA-062 — A long fit does not hold the global write lock          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-062 — A long fit does not hold the global write lock          [P1] [status: PRESENT-OK]
 
 **Requirement.** No ML operation may hold the global database lock across a subprocess call or any
 other unbounded wait. Where results must be written under the lock, the lock MUST be acquired after
@@ -2566,16 +2760,13 @@ the computation and released between wells.
 responsiveness). A blocking subprocess is exactly the unbounded wait that requirement exists for,
 and an ML fit over a portfolio is among the longest operations the product performs.
 
-**As-built.** `PRESENT-DIVERGENT` — the fit itself is correctly outside the lock: `exec_ml_full` is
-called at `ml.rs:614` and the connection is not acquired until `ml.rs:630`. The write-back loop
-then holds that single lock across **every apply well** (`ml.rs:630`–`:706`), including the
-per-well `create_log_set` and versioned write at `ml.rs:676`–`:677`, so the lock is held for the
-whole write phase rather than per well. The leaderboard is clean — its lock scope closes at
-`ml.rs:1360` before the Python call.
+**As-built.** `PRESENT-OK` (2026-08-07) — the write-back loop now acquires the lock **per well** and drops it at the end of each iteration; every prediction is computed lock-free above it. The bounded pre-loop work (a few catalog reads and one model insert) is in its own scope that releases before the loop starts, and the cancellation stamp takes its own short lock afterwards.
+
+Held across the whole loop as it was, a portfolio run froze every other panel in the application for the entire write phase — DuckDB is a single-writer connection behind one mutex, so whoever holds it holds the product. Releasing between wells is safe **against** the write discipline rather than in spite of it: each well's write is a DELETE of that well's target curve names followed by an append, all inside `with_txn`, and two wells never touch each other's rows. What an interleaved writer can do is land a curve between two of this run's wells — exactly what it could already do between two separate runs.
 
 **Verified by.** SB-MLA-T59
 
-#### SB-MLA-063 — Every capacity cap is a declared limit, not a silent truncation          [P2] [status: PARTIAL]
+#### SB-MLA-063 — Every capacity cap is a declared limit, not a silent truncation          [P2] [status: PRESENT-OK]
 
 **Requirement.** Every internal cap on work — evaluated combinations, sample counts, cluster
 counts, input curve counts — MUST be reported when it binds, naming the requested quantity, the cap
@@ -2585,11 +2776,7 @@ and what was dropped.
 ranks a subset while presenting as a ranking, and the dropped combinations are ordered by the
 algorithm list rather than by anything meaningful.
 
-**As-built.** `PARTIAL` — `MAX_COMBOS = 80` at `ml.rs:1299` **is** reported, with a note naming
-both counts and suggesting a fix (`ml.rs:1394`–`:1400`), and the t-SNE limit at `ml.rs:210`–`:211`
-refuses rather than truncates, naming the actual sample count. Against those, `facies.rs:77` clamps
-`k` to 2…12 silently and the silhouette subsample cap at `ml.rs:193` is unreported
-(see `SB-MLA-020`).
+**As-built.** `PRESENT-OK` (2026-08-07) — the outstanding silent clamp was `facies.rs`'s K, and it now REFUSES above 12 rather than clamping. A module returns curves and has no channel to carry a warning, so a clamp there could only ever be silent — and silently returning 12 classes to somebody who asked for 20 hands them a facies scheme with a different number of classes than the one they designed, after which every count, legend and crossplot downstream describes a scheme nobody chose. This is the same call this requirement already praises in the t-SNE limit. The cap itself stands: 12 is the palette length shared with `plotCanvas.ts`, past which two facies print the same colour. `MAX_COMBOS` and the t-SNE limit were already reported; the silhouette subsample now declares its cap too (SB-MLA-020).
 
 **Verified by.** SB-MLA-T60
 

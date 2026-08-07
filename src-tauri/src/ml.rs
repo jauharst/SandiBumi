@@ -44,6 +44,38 @@ use std::sync::Mutex;
 const ML_BUILD_MODEL: &str = r#"
 EFFECTIVE = {}
 
+# SB-MLA-012. Set when an estimator is swapped for another because its library is missing. Recorded
+# here rather than only in a free-text note, because a note is prose and the `algorithm` a model row
+# stores is what a later reader matches on.
+SUBSTITUTION = {}
+
+# SB-MLA-057. The values a log file uses to mean "no reading". A parameter is a THRESHOLD or a
+# LIMIT, and one of these arriving as a threshold is never a threshold - it is an absence that lost
+# its type somewhere upstream. They are worth refusing by name because they compute: -999.25 as a
+# DBSCAN eps produces one enormous cluster and no error at all.
+NULL_SENTINELS = (-999.25, -999.0, -9999.0, -99999.0, -9999.25)
+
+# SB-MLA-030. What a `_PROB` curve actually IS, per estimator. These are not interchangeable and a
+# reader cannot tell them apart from the track: a calibrated posterior answers "how likely is this
+# class", a Platt-scaled SVM distance answers "how far inside the margin is it", and a k-NN vote
+# fraction answers "how many of the seven nearest agreed" - which on k=7 can only ever take seven
+# values. The dossier records that both IP and Geolog emit relative-only probabilities and SAY so;
+# emitting one under the same convention as a posterior without saying so is the interoperability
+# defect this closes.
+PROB_MEANING = {
+    "rf": "the fraction of trees voting for the winning class - a vote share, not a calibrated "
+          "posterior, and it is optimistic near the training data",
+    "knn": "the fraction of the k nearest neighbours agreeing on the winning class - it can only "
+           "take k+1 distinct values, so it is coarse by construction",
+    "gaussian_nb": "the winning class's posterior under the naive-Bayes independence assumption - "
+                   "calibrated only to the extent the inputs really are independent, which log "
+                   "curves are not",
+    "logreg": "the winning class's logistic posterior - the best calibrated of these, and still "
+              "conditional on the model being right",
+    "svm": "the winning class's Platt-scaled score - a monotone squashing of distance from the "
+           "decision boundary fitted by internal cross-validation, NOT a posterior",
+}
+
 def P(p, key, default):
     """Read a parameter, and RECORD what was actually used (SB-MLA-001).
 
@@ -53,11 +85,24 @@ def P(p, key, default):
     goes through here and every default is recorded AS a default, naming where it came from.
     Reading `P(p, key, default)` directly is the defect this exists to prevent; there should be
     no `p.get` left in either runner.
+
+    SB-MLA-057 is enforced here too, for the same reason: this is the ONE door every parameter
+    comes through, so a check here cannot be forgotten by the next parameter somebody adds.
+    "No value" is already a distinct state - it returns the declared default and is recorded as
+    defaulted - so a missing-data sentinel arriving as a value can only be a mistake.
     """
     v = dict.get(p, key) if p else None
     if v is None or v == "":
         EFFECTIVE[key] = {"value": default, "defaulted": True, "source": "ml.rs build_model default"}
         return default
+    if isinstance(v, float) and v != v:
+        fail("parameter '" + key + "' is not-a-number. Leave it blank to use the default (" +
+             str(default) + ") - blank is a real state here and means 'use the default', which NaN "
+             "cannot say.")
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and float(v) in NULL_SENTINELS:
+        fail("parameter '" + key + "' was given " + str(v) + ", which is a missing-data sentinel, "
+             "not a setting. It would compute rather than fail. Leave it blank to use the default (" +
+             str(default) + ").")
     EFFECTIVE[key] = {"value": v, "defaulted": False}
     return v
 
@@ -84,6 +129,14 @@ def build_model(task, algo, p, seed):
                                     random_state=seed, verbosity=0), None
             except ImportError:
                 from sklearn.ensemble import HistGradientBoostingRegressor
+                # SB-MLA-012. The substitution is recorded as the algorithm ACTUALLY used, not under
+                # the requested id. One name over two methods is the failure: `gbdt` meaning
+                # XGBoost's gradient boosting on one machine and scikit-learn's histogram gradient
+                # boosting on another is two different regularisations, two sets of defaults and two
+                # different answers, filed under a single label - so a model's stored `algorithm`
+                # would not identify the estimator that produced its curve.
+                SUBSTITUTION["requested"] = algo
+                SUBSTITUTION["used"] = "sklearn_hist_gbdt"
                 return HistGradientBoostingRegressor(max_iter=int(P(p, "n_estimators", 300)),
                                                      learning_rate=float(P(p, "learning_rate", 0.1)),
                                                      max_depth=int(P(p, "max_depth", 4)) or None,
@@ -139,6 +192,16 @@ pub(crate) const LOG10_SUFFIX: &str = "_LOG10";
 /// the quantity the user asked for and the log-space prediction is the derived one. A control
 /// character keeps it from ever colliding with a real suffix (`""`, `_PROB`, `1`..`n`).
 const BACK_SUFFIX: &str = "\u{1}BACK";
+
+/// The suffix a SPECTRALLY TEXTURED prediction carries (round-3 item 5).
+///
+/// Jauhar, 2026-08-07, asked for two versions and got a name for each, which is the same argument
+/// `LOG10_SUFFIX` makes: the difference between these two curves cannot live in a dialog the reader
+/// never saw. `_SIM` rather than `_SPEC` because the property that matters to whoever picks the
+/// curve up is not that a spectrum was involved — it is that the detail was SIMULATED. The plain
+/// prediction keeps the base name, so the defensible curve is the one you get by default and the
+/// textured one has to be asked for by name.
+pub(crate) const SIM_SUFFIX: &str = "_SIM";
 
 /// The unit a quantity is in, from wherever the catalog happens to record it.
 ///
@@ -393,6 +456,64 @@ fn blind_sentence(blind: Option<&serde_json::Value>) -> String {
 ///
 /// This is the point of the whole provenance group: a parameter that carries the paper it came from,
 /// through the computation, into the deliverable. Until now the lineage stopped at the database.
+/// One live curve that names a saved model as the thing that produced it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModelCitation {
+    pub well_name: String,
+    pub set_name: String,
+    pub curves: Vec<String>,
+}
+
+/// Which delivered curves would be orphaned by deleting this model (SB-MLA-007).
+///
+/// A saved model is the answer to "which model produced this curve", and that is the entire reason
+/// artifacts exist here. Deleting one silently does not corrupt anything — the curve keeps its
+/// numbers — it does something quieter and worse: the curve goes on citing a model id that resolves
+/// to nothing, so the provenance block in a delivered report names a model nobody can produce. The
+/// failure surfaces in front of a client, months later, as a question that cannot be answered.
+///
+/// Driven from `computed_curves.set_id` like `ml_provenance`, so it counts what a deliverable would
+/// actually PRINT rather than every run the project has ever seen. A superseded version is not in
+/// the deliverable, and refusing a deletion to protect a curve nobody will ever read would make this
+/// check the thing people learn to force past.
+pub fn model_citations(conn: &Connection, model_id: &str) -> Vec<ModelCitation> {
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT w.well_name, ls.set_name, ls.set_id
+         FROM log_sets ls
+         JOIN wells w ON w.well_id = ls.well_id
+         WHERE ls.module LIKE 'ml:%'
+           AND ls.params_json LIKE ?1
+           AND EXISTS (SELECT 1 FROM computed_curves cc WHERE cc.set_id = ls.set_id)
+         ORDER BY w.well_name, ls.set_name",
+    ) else {
+        return Vec::new();
+    };
+    // Matched on the id as it appears in the recorded JSON. A LIKE rather than a JSON extract
+    // because the reference sits at two different depths - the ordinary path writes `model_id` at
+    // the top level, the coverage path records one per segment - and a query that knew only one
+    // shape would silently report "not cited" for the other.
+    let needle = format!("%\"{model_id}\"%");
+    let rows = stmt.query_map(duckdb::params![needle], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+    });
+    let Ok(rows) = rows else { return Vec::new() };
+
+    let mut out = Vec::new();
+    for (well_name, set_name, set_id) in rows.flatten() {
+        let curves: Vec<String> = conn
+            .prepare("SELECT DISTINCT curve_name FROM computed_curves WHERE set_id = ?1 ORDER BY curve_name")
+            .and_then(|mut s| {
+                s.query_map(duckdb::params![set_id], |r| r.get::<_, String>(0))
+                    .map(|it| it.flatten().collect())
+            })
+            .unwrap_or_default();
+        if !curves.is_empty() {
+            out.push(ModelCitation { well_name, set_name, curves });
+        }
+    }
+    out
+}
+
 pub fn ml_provenance(conn: &Connection, well_id: &str) -> Vec<MlProvenanceRow> {
     let Ok(mut stmt) = conn.prepare(
         "SELECT ls.set_id, ls.set_name, ls.module, ls.params_json, ls.inputs_json,
@@ -439,11 +560,28 @@ pub fn ml_provenance(conn: &Connection, well_id: &str) -> Vec<MlProvenanceRow> {
         // truth: the curve was made by it, and it is gone.
         let model_id = p.get("model_id").and_then(|v| v.as_str());
         let info = model_id.and_then(|id| crate::db::get_ml_model(conn, id).ok().map(|(i, _)| i));
-        let model = p
-            .get("model_name")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| "not kept (this fit was not saved as a model)".into());
+        // SB-MLA-007's second half: a curve whose model has been force-deleted must SAY the
+        // reference is unresolvable. Printing the name alone reads as a live reference, and a
+        // deliverable that names a model nobody can produce asserts an audit trail it cannot
+        // honour - which is the whole hazard the deletion guard exists for.
+        //
+        // Derived HERE, at read time, rather than stamped onto the citing rows when the deletion
+        // happens. Two reasons. A stamp can be missed - a project restored from a backup taken
+        // before the deletion carries the curve and not the mark - whereas resolving the id every
+        // time cannot go stale. And params_json is the RUN RECORD, a statement of what was
+        // configured when the run happened; editing it afterwards to describe a later event is the
+        // same category of error as the one being guarded against.
+        let unresolved = model_id.is_some() && info.is_none();
+        let model = match p.get("model_name").and_then(|v| v.as_str()) {
+            Some(name) if unresolved => format!(
+                "{name} - DELETED from this project, so this curve cannot be re-applied or re-examined"
+            ),
+            Some(name) => name.to_string(),
+            None if unresolved => {
+                "a model that has since been DELETED from this project (its name was not recorded)".into()
+            }
+            None => "not kept (this fit was not saved as a model)".into(),
+        };
         let target = info
             .as_ref()
             .and_then(|i| i.target_curve.clone())
@@ -456,6 +594,14 @@ pub fn ml_provenance(conn: &Connection, well_id: &str) -> Vec<MlProvenanceRow> {
                 .and_then(|v| v.as_array())
                 .map(|a| format!("{} well(s)", a.len()))
                 .unwrap_or_else(|| "not recorded".into()),
+        };
+        // SB-MLA-011. Appended rather than given its own column, so the fact reaches the PDF, the
+        // Word twin and the workbook without changing a table shape four renderers agree on. It
+        // belongs beside the training description because it qualifies it: "300 samples from 8
+        // wells" reads very differently once you know THIS well was not one of them.
+        let training = match p.get("well_role").and_then(|v| v.as_str()) {
+            Some(role) => format!("{training}; this well: {role}"),
+            None => training,
         };
         out.push(MlProvenanceRow {
             curves: curves.join(", "),
@@ -546,13 +692,37 @@ fn ml_shared_constants_py() -> String {
          KMEANS_N_INIT = {}\n\
          KMEANS_MAX_ITER = {}\n\
          KMEANS_TOL = {:e}\n\
-         SEED_DEFAULT = {}\n",
+         SEED_DEFAULT = {}\n\
+         # SB-MLA-021 - the class code for a sample an algorithm REJECTED, as opposed to one it was\n\
+         # never given. Emitted rather than written here so the runner, the log-view block track and\n\
+         # the print path cannot disagree about which code means 'not one of the clusters'.\n\
+         CLUSTER_REJECT = {}\n\
+         # Round-3 item 5 - the suffix the spectrally textured prediction is emitted under. Emitted\n\
+         # so the runner cannot spell it differently from the name resolver that has to place it.\n\
+         SIM_SUFFIX = \"{}\"\n",
         crate::facies::KMEANS_RESTARTS,
         crate::facies::KMEANS_MAX_ITERS,
         crate::facies::KMEANS_TOL,
         crate::facies::SEED_DEFAULT as i64,
+        CLUSTER_REJECT,
+        SIM_SUFFIX,
     )
 }
+
+/// SB-MLA-021 — the class code meaning "this sample was evaluated and belongs to no cluster".
+///
+/// Distinct from `NaN`, which in a class curve now means one thing only: never evaluated. A sample
+/// DBSCAN rejects was measured, standardized and tested, and found not to belong to anything — that
+/// is a finding about the rock, and storing it as missing throws the finding away.
+///
+/// Negative on purpose. Cluster ids run `0..K-1` ordered by ascending first-feature mean, so a reject
+/// class appended after them would sit at the shaly end of an ordering it is not part of, and anyone
+/// averaging a curve by facies code would read it as the shaliest rock in the well. A negative sorts
+/// below every cluster and belongs to no part of the ramp.
+///
+/// Both renderers treat ANY negative class as rejected rather than testing this exact value, so the
+/// display cannot silently mis-colour a code it does not recognise.
+pub const CLUSTER_REJECT: i64 = -1;
 
 /// SB-MLA-005 — the runtime probe, shared by the fitting runner and the apply runner.
 ///
@@ -666,7 +836,46 @@ from sklearn.preprocessing import StandardScaler
 seed = int(P(p, "seed", SEED_DEFAULT))
 supervised = task in ("regression", "classification")
 metrics = {}
-if bool(P(p, "standardize", True)):
+norm_basis = str(header.get("norm_basis") or "data")
+norm_limits = header.get("norm_limits") or []
+if bool(P(p, "standardize", True)) and norm_basis == "limits":
+    # SB-MLA-033. A basis that does NOT come from the samples in hand, so adding a well to the
+    # build set cannot move it - and therefore cannot move every boundary in the wells that were
+    # already there. Rust has already checked that every feature has a usable pair and put them
+    # in feature order; nothing is inferred here.
+    #
+    # Carried in a StandardScaler rather than applied inline, because the scaler is what travels
+    # in the joblib dump. Doing the arithmetic here and dumping scaler=None would leave the
+    # artifact silently un-normalised on apply - the exact "different transform, quietly wrong
+    # rather than obviously broken" failure the artifact design exists to prevent. Setting
+    # mean_ = low and scale_ = high - low makes transform() compute (x - low) / (high - low),
+    # which maps the declared range onto 0..1.
+    lo = np.array([float(a) for a, _ in norm_limits], dtype=float)
+    hi = np.array([float(b) for _, b in norm_limits], dtype=float)
+    scaler = StandardScaler()
+    scaler.mean_ = lo
+    scaler.scale_ = hi - lo
+    scaler.var_ = scaler.scale_ ** 2
+    scaler.n_features_in_ = int(lo.shape[0])
+    scaler.n_samples_seen_ = 0
+    Xs = scaler.transform(X) if n_train else X
+    As = scaler.transform(A) if n_apply else A
+    metrics["norm_basis"] = "limits"
+    metrics["pre_transform"] = (
+        "inputs normalised onto 0..1 against FIXED limits you set, not against the samples in "
+        "this run. The basis does not move when the well set changes, so a boundary found today "
+        "means the same thing after another well is added. A parameter in distance units - "
+        "DBSCAN eps above all - is in fractions of each curve's declared range."
+    )
+    metrics["standardize_basis_mean"] = [round(float(v), 6) for v in lo]
+    metrics["standardize_basis_scale"] = [round(float(v), 6) for v in (hi - lo)]
+    # Values outside the declared range are NOT clipped: they land below 0 or above 1 and stay
+    # ordered. Clipping would quietly merge everything past the limit into one value, which on a
+    # distance-based method reads as a population of identical rock.
+    _oob = int(np.sum((X < lo) | (X > hi))) if n_train else 0
+    if _oob:
+        metrics["norm_out_of_range"] = _oob
+elif bool(P(p, "standardize", True)):
     # Fitted on the FIT rows only when a blind split is in force. A scaler that has seen the
     # blind wells' mean and scale makes the blind score optimistic by construction - the same
     # leak SB-MLA-028 closed in the leaderboard, and it would arrive here through the back door.
@@ -674,13 +883,54 @@ if bool(P(p, "standardize", True)):
     scaler = StandardScaler().fit(basis)
     Xs = scaler.transform(X) if n_train else X
     As = scaler.transform(A) if n_apply else A
+    metrics["norm_basis"] = "data"
+    # SB-MLA-034 / SB-MLA-032. The pre-transform is ANNOUNCED, and so is the basis it was fitted on.
+    # Standardisation is not cosmetic: it is what makes a DBSCAN eps meaningful, what stops a
+    # resistivity in ohm-m dominating a porosity in v/v on any distance-based method, and it is
+    # fitted on a particular set of rows - so the same model applied to a different well set is
+    # standing on a different mean and scale. A user reading "eps = 0.5" needs to know that 0.5 is in
+    # standard deviations of THIS basis.
+    # SB-MLA-033's other half. The basis is DERIVED FROM THIS SELECTION, so it moves when the
+    # selection does - and every boundary expressed in it moves with it, in the wells that were
+    # already there. Saying so on every data-derived run is the only warning available at fit time;
+    # the size of the move is reported on a retrain, where there is a previous basis to compare to.
+    metrics["pre_transform"] = (
+        "inputs standardised to zero mean and unit variance, fitted on %s (%d row(s)). Any parameter "
+        "in distance units - DBSCAN eps above all - is in standard deviations of that basis, not in "
+        "the curves' own units. This basis is computed from the wells in THIS run: change the well "
+        "set and it is recomputed, which moves every boundary expressed in it - including in the "
+        "wells you did not touch. Use fixed limits if you need a basis that holds still." % (
+            "the FIT rows only, so the blind wells' mean and scale never reach the model"
+            if (supervised and fit_rows is not None) else
+            ("the training rows" if supervised else "the wells being clustered"),
+            int(len(basis)),
+        )
+    )
+    metrics["standardize_basis_mean"] = [round(float(v), 6) for v in np.atleast_1d(scaler.mean_)]
+    metrics["standardize_basis_scale"] = [round(float(v), 6) for v in np.atleast_1d(scaler.scale_)]
 else:
     scaler = None
     Xs, As = X, A
+    # Stated as a choice rather than left as an absence: on any distance-based method this is the
+    # difference between clustering rock and clustering whichever curve has the largest numbers.
+    metrics["pre_transform"] = (
+        "inputs used in their own units, NOT standardised - on a distance-based method (k-means, "
+        "GMM, DBSCAN, k-NN, SVM) the curve with the largest numeric range will dominate the result"
+    )
 
 def fit_xy(yv):
     """The rows the model is allowed to learn from. Everything else is being kept honest."""
     return (Xs[fit_rows], yv[fit_rows]) if fit_rows is not None else (Xs, yv)
+
+def name_protocol(key, sentence):
+    """SB-MLA-027 - a score is a claim, and a claim without its protocol is not checkable.
+
+    R-squared over the fitted rows, over folds of the same wells, and over wells the model never saw
+    are three different numbers that answer three different questions, and they are routinely quoted
+    as one. Kept as DATA next to the score rather than as prose in a note, so a renderer that prints
+    the number can always find the sentence that qualifies it.
+    """
+    metrics.setdefault("score_protocols", {})[key] = sentence
 
 def cv_score(model, scoring, key):
     """Validation score over the FIT wells.
@@ -706,11 +956,24 @@ def cv_score(model, scoring, key):
                                  cv=GroupKFold(n_splits=nsp), groups=gf, scoring=scoring)
             metrics[key] = float(np.mean(sc))
             metrics[key + "_folds"] = "%d wells held out one at a time" % nsp if nsp == ng else "%d well groups" % nsp
+            name_protocol(key, "whole wells held out (%s) - this answers 'will it work on the next well'"
+                          % metrics[key + "_folds"])
         else:
             # One well: there is no blind fold to be had, and saying so is the point.
             sc = cross_val_score(est, X if fit_rows is None else X[fit_rows], yf, cv=KFold(n_splits=5, shuffle=True, random_state=seed), scoring=scoring)
             metrics[key] = float(np.mean(sc))
             metrics[key + "_folds"] = "random folds within ONE well - not a blind score"
+            # SB-MLA-019. The protocol DEGRADED, and the number it produced sits under the same key a
+            # sound protocol would have used. Random folds within one well score the model on rock a
+            # few centimetres from rock it was fitted on, so the number is a smoothness measure, not
+            # a validation - and it reads HIGH, which is the wrong direction for a caveat to fail in.
+            # Flagged as data rather than left in prose so a renderer cannot print the score without
+            # being able to find the qualification.
+            metrics["cv_degraded"] = True
+            metrics[key + "_degraded"] = True
+            name_protocol(key, "random folds inside ONE well - the model is scored on rock centimetres "
+                               "from rock it was fitted on, so this measures smoothness, not validity, "
+                               "and it reads higher than a real blind score would")
     except Exception as e:
         metrics["cv_error"] = str(e)
 
@@ -724,6 +987,25 @@ def blind_score(model, kind):
     if groups is not None:
         metrics["n_blind_wells"] = int(len(np.unique(groups[blind])))
         metrics["n_fit_wells"] = int(len(np.unique(groups[fit_rows])))
+    # SB-MLA-027. Whole wells and drawn rows are not the same claim, and only the first answers
+    # "will this work on the next well" - a row split leaves the held-out samples centimetres from
+    # fitted ones. The protocol is stated with the score rather than inferred from the split mode.
+    whole_wells = False
+    if groups is not None:
+        # Disjoint well sets is the property that matters, not the requested mode: it is what makes
+        # the held-out rows rock the model has never been near.
+        whole_wells = not (set(np.unique(groups[blind])) & set(np.unique(groups[fit_rows])))
+    if whole_wells:
+        blind_protocol = (
+            "%d row(s) from %d WHOLE well(s) the model never saw - this answers 'will it work on the "
+            "next well'" % (int(np.sum(blind)), int(metrics.get("n_blind_wells", 0)))
+        )
+    else:
+        blind_protocol = (
+            "%d row(s) drawn out of wells the model was also fitted on - held-out samples sit "
+            "centimetres from fitted ones, so this reads higher than a whole-well score would"
+            % int(np.sum(blind))
+        )
     # How alike the two sides are, per feature and on the target. This is the evidence for
     # "similar statistics", and it is reported rather than asserted: a stratified draw is
     # SUPPOSED to make these match, so a pair that does not match is the signal that the strata
@@ -746,10 +1028,142 @@ def blind_score(model, kind):
             ss_res = float(np.sum((yb - pb) ** 2)); ss_tot = max(float(np.sum((yb - np.mean(yb)) ** 2)), 1e-12)
             metrics["r2_blind"] = 1.0 - ss_res / ss_tot
             metrics["rmse_blind"] = float(np.sqrt(np.mean((yb - pb) ** 2)))
+            for kk in ("r2_blind", "rmse_blind"):
+                name_protocol(kk, blind_protocol)
         else:
             metrics["accuracy_blind"] = float(np.mean(model.predict(Xb) == yb.astype(int)))
+            name_protocol("accuracy_blind", blind_protocol)
     except Exception as e:
         metrics["blind_error"] = str(e)
+
+SILHOUETTE_CAP = 5000
+
+def note_convergence(n_iter, cap, converged):
+    """SB-MLA-016 - did the fit STOP, or did it merely run out of iterations?
+
+    Two runs that both return labels, plot identically, and mean completely different things. An
+    exhausted fit is a partial answer presented as a final one, and scikit-learn's own signal for it
+    is a warning nobody sees from a subprocess.
+    """
+    metrics["converged"] = bool(converged)
+    metrics["n_iter"] = int(n_iter)
+    metrics["max_iter"] = int(cap)
+    if not converged:
+        metrics["convergence_note"] = (
+            "the fit did NOT converge: it stopped after hitting the %d-iteration cap, so this is "
+            "where the optimiser had got to and not where it was going. Raise max_iter, or take the "
+            "result as provisional." % int(cap)
+        )
+
+SPEC_GRID = np.linspace(0.0, 0.5, 257)
+
+def target_spectrum(measured, gf):
+    """The measured target's amplitude density, averaged over the fit wells.
+
+    PER WELL, not over the pooled matrix. The fit rows are many wells stacked end to end, and an
+    FFT across that stack reads every well boundary as a step - the spectrum would then be
+    dominated by the joins, which are an artifact of how the matrix was assembled and not a
+    property of any rock. Averaged on a common normalised-frequency grid because the wells have
+    different lengths, and normalised per sample so a long well does not outvote a short one.
+    """
+    dens = []
+    wells = np.unique(gf) if gf is not None else [None]
+    for w in wells:
+        yw = measured if w is None else measured[gf == w]
+        yw = yw[np.isfinite(yw)]
+        if len(yw) < 32:
+            continue
+        s = yw - np.mean(yw)
+        a = np.abs(np.fft.rfft(s)) / float(len(s))
+        dens.append(np.interp(SPEC_GRID, np.fft.rfftfreq(len(s)), a))
+    if not dens:
+        return None, 0
+    return np.mean(np.asarray(dens), axis=0), len(dens)
+
+SPEC_SMOOTH = 5
+
+def smooth_band(power, w):
+    """Boxcar-average a periodogram over neighbouring frequencies.
+
+    A raw periodogram FLUCTUATES about the true spectral density - it is an inconsistent estimator,
+    its variance does not fall with sample count. About half its bins therefore read low by chance,
+    and because the deficit below is rectified at zero, every one of those becomes energy that gets
+    ADDED. Left unsmoothed, a prediction that already had exactly its target's resolution came back
+    measurably rougher than the log it was matched to.
+
+    The window makes the two sides comparable rather than tuning a result: the target density is
+    already averaged over every fit well, while a single segment's periodogram has no averaging at
+    all, so one side was a density and the other was noise around one. Measured on synthetic logs at
+    widths 1/5/9/17/33 - 5 reproduced the target's roughness to within 0.2%, and wider windows were
+    worse in both directions because they flatten the peaks the deficit is measured against.
+    """
+    if w <= 1:
+        return power
+    pad = w // 2
+    return np.convolve(np.pad(power, pad, mode="edge"), np.ones(w) / float(w), mode="valid")[:len(power)]
+
+def spectral_texture(pred, measured, gf, seed):
+    """Round-3 item 5 - give the prediction the frequency content its target has and it lacks.
+
+    A regression predicts the CONDITIONAL MEAN, so it is smooth by construction: it can only carry
+    through detail its inputs contain, and a curve read over feet cannot produce detail measured
+    over inches. Writing that smooth curve under the target's name overstates what was resolved.
+
+    What this does is add a seeded random-phase realisation whose amplitude spectrum makes up the
+    DEFICIT between the measured target's density and the prediction's own. So the result has the
+    target's frequency content while keeping the prediction's low frequencies untouched - the
+    deficit is zero wherever the prediction already has as much energy as the target, and the DC
+    term is forced to zero so the mean never moves.
+
+    **The added detail is not a measurement.** It is one plausible realisation of infinitely many:
+    correct in its statistics, arbitrary in its placement. That is why this is off by default, why
+    it is written under its OWN curve name, and why the note says so in the words a reader needs -
+    no bed in the added detail should be correlated between wells.
+
+    Applied only across gap-free runs of 32+ samples. An FFT spanning a gap reads the gap as
+    periodicity and stamps that invented period across the whole segment.
+    """
+    dens, n_wells = target_spectrum(measured, gf)
+    if dens is None:
+        return None, "not applied: no fit well has 32+ measured target samples to take a spectrum from"
+    out = np.array(pred, dtype=np.float64)
+    ok = np.isfinite(out)
+    rng = np.random.RandomState(int(seed) & 0x7FFFFFFF)
+    applied = 0
+    runs = 0
+    i = 0
+    n = len(out)
+    while i < n:
+        if not ok[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and ok[j]:
+            j += 1
+        length = j - i
+        if length >= 32:
+            seg = out[i:j]
+            centred = seg - np.mean(seg)
+            have = smooth_band(np.abs(np.fft.rfft(centred)) ** 2, SPEC_SMOOTH) ** 0.5
+            want = np.interp(np.fft.rfftfreq(length), SPEC_GRID, dens) * float(length)
+            deficit = np.sqrt(np.maximum(0.0, want ** 2 - have ** 2))
+            deficit[0] = 0.0
+            phase = rng.uniform(0.0, 2.0 * np.pi, len(deficit))
+            resid = np.fft.irfft(deficit * (np.cos(phase) + 1j * np.sin(phase)), length)
+            out[i:j] = seg + resid
+            applied += length
+            runs += 1
+        i = j
+    if applied == 0:
+        return None, "not applied: no gap-free run of 32 or more samples to take a spectrum across"
+    return out.astype(np.float32), (
+        "%d sample(s) across %d gap-free run(s) carry ADDED detail, matched to the amplitude "
+        "spectrum of the measured target over %d fit well(s). The added detail is consistent with "
+        "the target's frequency content and is NOT a measurement: it is one realisation of many, "
+        "correct in its statistics and arbitrary in its placement. Do not correlate a bed seen only "
+        "in this curve between wells, and quote the plain prediction for anything that has to be "
+        "defended sample by sample." % (applied, runs, n_wells)
+    )
 
 outs = []
 if task == "regression":
@@ -758,6 +1172,10 @@ if task == "regression":
         fail("unknown regression algorithm '" + algo + "'")
     if build_note:
         metrics["note"] = build_note
+    if SUBSTITUTION:
+        # SB-MLA-012: the id a later reader must match on is the one that actually ran.
+        metrics["algorithm_requested"] = SUBSTITUTION["requested"]
+        metrics["algorithm_used"] = SUBSTITUTION["used"]
     cv_score(model, "r2", "r2_cv")
     Xf, yf = fit_xy(y)
     # NOT refitted on the blind wells afterwards. The blind wells still get their curve, so the
@@ -770,8 +1188,23 @@ if task == "regression":
     metrics["r2_train"] = 1.0 - ss_res / ss_tot
     metrics["rmse_train"] = float(np.sqrt(np.mean((yf - pred) ** 2)))
     metrics["n_train"] = n_train
+    # SB-MLA-027. The in-sample score. It is the one most likely to be quoted as an answer and the
+    # one that answers least: a model with enough capacity drives it toward 1 by memorising, so it
+    # measures capacity, not skill.
+    for kk in ("r2_train", "rmse_train"):
+        name_protocol(kk, "the rows the model was FITTED ON - in-sample, so it measures how much the "
+                          "model could memorise and not how it will behave on rock it has not seen")
     blind_score(model, "r2")
-    outs.append(("", model.predict(As).astype(np.float32)))
+    base_pred = model.predict(As).astype(np.float32)
+    outs.append(("", base_pred))
+    # Round-3 item 5, second half. OFF by default: the plain prediction is the defensible curve,
+    # and a textured one that arrived without being asked for would be quoted as a measurement.
+    if bool(P(p, "spectral_texture", False)):
+        gf_spec = groups[fit_rows] if (groups is not None and fit_rows is not None) else groups
+        sim, spec_note = spectral_texture(base_pred, yf, gf_spec, seed)
+        if sim is not None:
+            outs.append((SIM_SUFFIX, sim))
+        metrics["spectral_texture"] = spec_note
 
 elif task == "classification":
     yi = y.astype(int)
@@ -780,40 +1213,120 @@ elif task == "classification":
         fail("unknown classification algorithm '" + algo + "'")
     if build_note:
         metrics["note"] = build_note
+    if SUBSTITUTION:
+        # SB-MLA-012: the id a later reader must match on is the one that actually ran.
+        metrics["algorithm_requested"] = SUBSTITUTION["requested"]
+        metrics["algorithm_used"] = SUBSTITUTION["used"]
     cv_score(model, "accuracy", "accuracy_cv")
     Xf, yf = fit_xy(yi)
     model.fit(Xf, yf)
     metrics["accuracy_train"] = float(np.mean(model.predict(Xf) == yf))
+    name_protocol("accuracy_train", "the rows the model was FITTED ON - in-sample, so it measures how "
+                                    "much the model could memorise and not how it will behave on rock "
+                                    "it has not seen")
     metrics["class_counts"] = {str(c): int(np.sum(yf == c)) for c in np.unique(yf)}
     metrics["n_train"] = n_train
     blind_score(model, "accuracy")
     outs.append(("", model.predict(As).astype(np.float32)))
     outs.append(("_PROB", np.max(model.predict_proba(As), axis=1).astype(np.float32)))
+    # SB-MLA-030. A `_PROB` curve is not one quantity across this product, and the differences
+    # matter: a calibrated posterior, a distance-derived score squeezed through Platt scaling, and a
+    # k-NN vote fraction are read the same way off a track and mean different things. Declared per
+    # run, in words, rather than left to a mnemonic that cannot carry the distinction.
+    metrics["prob_definition"] = PROB_MEANING.get(
+        algo, "the winning class's score from %s, normalised across classes to sum to 1" % algo)
+    metrics["prob_normalisation"] = "across the classes at each depth, summing to 1"
 
 elif task == "clustering":
     k = int(P(p, "k", 5))
     prob = None
+    # SB-MLA-014. k cannot exceed the number of samples there are to cluster, and scikit-learn
+    # would raise rather than explain. Reported as a CLAMP, not silently substituted: "you asked
+    # for 12 and got 4" is a fact about the data the user needs, and a run that quietly returned
+    # 4 clusters under a request for 12 would be read as 12 clusters that happened to merge.
+    if n_apply and k > n_apply:
+        k = max(1, int(n_apply))
+        P_used("k", k)
+        metrics["k_clamped"] = "k was reduced to %d: there are only %d samples to cluster" % (k, n_apply)
     if algo == "kmeans":
         from sklearn.cluster import KMeans
         # SB-MLA-023: n_init / max_iter / tol come from facies.rs, not from scikit-learn's defaults
         # and not from a number typed here. Restart count and iteration cap decide WHICH local
         # optimum k-means lands in, so two engines configured differently are two methods.
-        labels = KMeans(n_clusters=k, n_init=KMEANS_N_INIT, max_iter=KMEANS_MAX_ITER,
-                        tol=KMEANS_TOL, random_state=seed).fit_predict(As)
+        km = KMeans(n_clusters=k, n_init=KMEANS_N_INIT, max_iter=KMEANS_MAX_ITER,
+                    tol=KMEANS_TOL, random_state=seed)
+        labels = km.fit_predict(As)
+        # SB-MLA-016. A run that stopped because it converged and one that stopped because it hit
+        # the iteration cap are different results, and both return labels that plot identically.
+        # The second is a partial answer presented as a final one.
+        note_convergence(int(km.n_iter_), int(KMEANS_MAX_ITER), int(km.n_iter_) < int(KMEANS_MAX_ITER))
     elif algo == "gmm":
         from sklearn.mixture import GaussianMixture
-        gm = GaussianMixture(n_components=k, random_state=seed).fit(As)
+        gm_max = int(P(p, "max_iter", 100))
+        gm = GaussianMixture(n_components=k, random_state=seed, max_iter=gm_max).fit(As)
+        note_convergence(int(gm.n_iter_), gm_max, bool(gm.converged_))
         resp = gm.predict_proba(As)
         labels = np.argmax(resp, axis=1); prob = np.max(resp, axis=1)
+        # SB-MLA-015. A component the fit drove to (almost) no weight is not a cluster the rock has;
+        # it is the mixture telling you k was too high. Silently leaving it in the count makes a
+        # 6-component answer out of a 5-component one.
+        tiny = [int(i) for i, w in enumerate(gm.weights_) if float(w) < 0.01]
+        if tiny:
+            metrics["degenerate_components"] = (
+                "%d of %d mixture component(s) hold under 1%% of the weight - the fit is telling you "
+                "k is higher than the data supports" % (len(tiny), k)
+            )
     elif algo == "hier":
         from sklearn.cluster import AgglomerativeClustering
-        labels = AgglomerativeClustering(n_clusters=k, linkage=str(P(p, "linkage", "ward"))).fit_predict(As)
+        # SB-MLA-046. The linkage names are scikit-learn's own enumeration, and 'ward' is its
+        # default; it is the only one that minimises within-cluster variance, which is the same
+        # criterion facies.rs's k-means and hfu.rs's Ward partition use - so it is the choice that
+        # keeps the three consistent rather than an arbitrary pick.
+        link = str(P(p, "linkage", "ward"))
+        if link not in ("ward", "complete", "average", "single"):
+            fail("unknown linkage '" + link + "' - one of: ward, complete, average, single")
+        labels = AgglomerativeClustering(n_clusters=k, linkage=link).fit_predict(As)
     elif algo == "dbscan":
         from sklearn.cluster import DBSCAN
-        labels = DBSCAN(eps=float(P(p, "eps", 0.5)), min_samples=int(P(p, "min_samples", 10))).fit_predict(As)
+        eps = float(P(p, "eps", 0.5))
+        # SB-MLA-053. `eps` is a DISTANCE, and what one unit of it means is decided entirely by the
+        # pre-transform. Standardised, it is a multiple of a standard deviation and the same 0.5
+        # means the same thing on any field. Un-standardised, it is in the mixed units of whatever
+        # curves were picked - a deep resistivity in ohm-m and a porosity in v/v are three orders of
+        # magnitude apart, so the resistivity alone decides every neighbourhood and the porosity
+        # contributes nothing. The result is not an error; it is one huge cluster, or noise
+        # everywhere, and nothing says why.
+        #
+        # The name stays `eps` because that is scikit-learn's own and renaming it would fork the
+        # vocabulary. What it multiplies is DECLARED instead, and the meaningless case is called out
+        # rather than left for the user to infer from a bad answer.
+        metrics["eps_unit"] = (
+            "standard deviations of the standardisation basis" if scaler is not None
+            else "the RAW mixed units of the selected curves"
+        )
+        if scaler is None:
+            metrics["eps_warning"] = (
+                "eps = %g is being applied in the curves' own units because standardisation is off. "
+                "Whichever input has the largest numeric range decides every neighbourhood on its "
+                "own, and the others contribute nothing - this usually returns one huge cluster or "
+                "noise everywhere, with no error. Turn standardisation on, or set eps in the units "
+                "of your largest-range curve deliberately." % eps
+            )
+        labels = DBSCAN(eps=eps, min_samples=int(P(p, "min_samples", 10))).fit_predict(As)
     else:
         fail("unknown clustering algorithm '" + algo + "'")
-    # DBSCAN noise (-1) stays NaN; real clusters get ids ordered by first-feature mean.
+    # SB-MLA-021. Real clusters get ids ordered by first-feature mean; a sample the algorithm
+    # REJECTED (DBSCAN noise) is written as CLUSTER_REJECT (-1), not as NaN.
+    #
+    # "this sample is an outlier the model refuses to classify" and "this sample had no RHOB" are
+    # different statements about the rock, and leaving both missing conflates them - the rejected
+    # sample was measured, evaluated, and found not to belong to anything, which is a finding. NaN
+    # in this curve now means one thing only: never evaluated.
+    #
+    # -1 rather than an id after the clusters, because cluster ids are ordered by ascending
+    # first-feature mean and appending the reject class would put it at the shaly end of an ordering
+    # it is not part of - anyone averaging a curve by facies code would read it as the shaliest rock
+    # in the well. A negative sorts below every cluster and belongs to no part of the ramp.
     ids = [int(c) for c in np.unique(labels) if c >= 0]
     if not ids:
         fail("clustering found no clusters (DBSCAN: widen eps / lower min_samples)")
@@ -822,20 +1335,48 @@ elif task == "clustering":
     out = np.full(n_apply, np.nan, dtype=np.float32)
     for c, i in remap.items():
         out[labels == c] = i
+    n_reject = int(np.sum(labels < 0))
+    if n_reject:
+        out[labels < 0] = CLUSTER_REJECT
     metrics["cluster_sizes"] = {str(remap[c]): int(np.sum(labels == c)) for c in order}
     if algo == "dbscan":
         metrics["noise_pct"] = round(float(np.mean(labels < 0) * 100), 2)
+        metrics["n_rejected"] = n_reject
+        metrics["reject_code"] = CLUSTER_REJECT
+    # SB-MLA-014, the other half. Fewer clusters came back than were asked for. For k-means that is
+    # an empty cluster; for DBSCAN it is the density parameters. Either way the answer is not the
+    # one requested and the count is what a reader will quote.
+    if algo != "dbscan" and len(ids) < k:
+        metrics["k_short"] = (
+            "%d cluster(s) came back out of the %d asked for - the rest were empty, which means the "
+            "data does not separate that far" % (len(ids), k)
+        )
     if len(ids) > 1:
         try:
             from sklearn.metrics import silhouette_score
             keep = np.where(labels >= 0)[0]
-            if len(keep) > 5000:
-                keep = np.random.RandomState(seed).choice(keep, 5000, replace=False)
+            n_scored = len(keep)
+            # SB-MLA-020. Subsampled because the score is O(n^2); the CAP is stated with the number
+            # so it is never read as a whole-field figure beside metrics that are.
+            if len(keep) > SILHOUETTE_CAP:
+                keep = np.random.RandomState(seed).choice(keep, SILHOUETTE_CAP, replace=False)
             metrics["silhouette"] = round(float(silhouette_score(As[keep], labels[keep])), 4)
-        except Exception:
-            pass
+            metrics["silhouette_basis"] = (
+                "all %d clustered sample(s)" % n_scored if n_scored <= SILHOUETTE_CAP else
+                "a seeded random %d of %d clustered sample(s) - this score is a sample, unlike the "
+                "counts beside it" % (SILHOUETTE_CAP, n_scored)
+            )
+        except Exception as e:
+            metrics["silhouette_error"] = str(e)
     outs.append(("", out))
     if prob is not None:
+        # SB-MLA-030. GMM's is the one genuinely calibrated posterior here, and it deserves to be
+        # distinguished from the classifier scores rather than sharing an undifferentiated name.
+        metrics["prob_definition"] = (
+            "the winning mixture component's RESPONSIBILITY - a true posterior over the components. "
+            "1.0 is unambiguous; about 1/K means the sample sits on a boundary between components"
+        )
+        metrics["prob_normalisation"] = "across the K mixture components at each depth, summing to 1"
         outs.append(("_PROB", prob.astype(np.float32)))
 
 elif task == "reduction":
@@ -845,7 +1386,36 @@ elif task == "reduction":
         P_used("n_components", c)
         pca = PCA(n_components=c, random_state=seed)
         Z = pca.fit_transform(As)
+        # SB-MLA-048. A principal component is only defined up to its SIGN - the eigenvector solver
+        # may return either, and which one it returns can change with the sample set, the LAPACK
+        # build or the scikit-learn version. Left alone, the same wells re-run next month give a PC1
+        # that is the mirror of the one in last month's report: every crossplot reversed, every
+        # "high PC1 is the clean sand" statement inverted, and nothing to show anything changed.
+        #
+        # The convention: each component is oriented so its loading on the FIRST feature curve is
+        # non-negative. Anchored to the user's own first input rather than to the largest loading,
+        # because the largest loading can itself change between runs and a rule that moves is not a
+        # convention. Same reasoning as the cluster ordering - put the curve you want to read the
+        # component against first.
+        flip = np.where(pca.components_[:, 0] < 0.0, -1.0, 1.0)
+        Z = Z * flip[np.newaxis, :]
+        loadings = pca.components_ * flip[:, np.newaxis]
         metrics["explained_variance_pct"] = [round(float(v) * 100, 2) for v in pca.explained_variance_ratio_]
+        # SB-MLA-047. The variance ratios say how much each component carries; the LOADINGS say what
+        # it is made of, which is the half a petrophysicist reads. Reported per component as
+        # {curve: weight}, so "PC1 is mostly density against neutron" is answerable without
+        # re-deriving it.
+        # The header's feature list is the authority; the positional fallback keeps a loadings table
+        # readable rather than absent if it ever arrives short.
+        fname = lambda j: str(feature_names[j]) if j < len(feature_names) else ("x%d" % j)
+        metrics["loadings"] = {
+            str(i + 1): {fname(j): round(float(loadings[i, j]), 4) for j in range(loadings.shape[1])}
+            for i in range(loadings.shape[0])
+        }
+        metrics["sign_convention"] = (
+            "each component is oriented so its loading on %s is non-negative, so a re-run cannot "
+            "silently mirror a crossplot" % fname(0)
+        )
     elif algo == "tsne":
         if n_apply > 20000:
             fail("t-SNE is limited to 20000 samples (got " + str(n_apply) + ") - select fewer wells")
@@ -1078,6 +1648,212 @@ pub struct MlRequest {
     /// answer on the user's behalf.
     #[serde(default)]
     pub output_step: Option<f64>,
+    /// Confine BOTH the fit and the prediction to this depth window. Open by default, so every
+    /// pre-existing payload keeps running over the whole well.
+    #[serde(default)]
+    pub interval: DepthWindow,
+    /// What the feature space is normalised AGAINST, when `standardize` is on (`SB-MLA-033`).
+    ///
+    /// `None` / `"data"` is the data-derived basis every run used before this existed: mean and
+    /// scale computed from the samples in hand. `"limits"` uses the fixed per-curve limits in
+    /// [`MlRequest::norm_limits`], which belong to the analyst rather than to the current selection.
+    ///
+    /// **This is the add-a-well trap, and it is silent.** On a data-derived basis, adding one well
+    /// to a model-build set recomputes every mean and every scale, which moves every cluster
+    /// boundary and every distance threshold in the wells that were *already there* — a `DBSCAN`
+    /// `eps` of 0.5 is 0.5 standard deviations of whatever happened to be selected. The old
+    /// interpretation does not come back, nothing reports that anything changed, and both answers
+    /// look equally reasonable. A basis fixed to limits the analyst chose is stable across wells, so
+    /// the same rock lands in the same place whoever else is in the run.
+    #[serde(default)]
+    pub norm_basis: Option<String>,
+    /// Fixed per-curve limits for `norm_basis = "limits"`. Matched to features BY NAME here and
+    /// re-ordered into the resolved feature order before they are sent, so a caller can no more
+    /// reorder a basis than it can reorder the features themselves.
+    ///
+    /// **Ships empty and is never filled in by the backend.** A limit is a statement about what
+    /// range of a curve matters in this field, which is exactly the kind of number `SB-CORE-004`
+    /// forbids inventing — a GR normalised 0–150 and one normalised 0–200 give different clusters,
+    /// and both look right. A `"limits"` run whose features are not all covered is REFUSED.
+    #[serde(default)]
+    pub norm_limits: Vec<CurveLimit>,
+}
+
+/// One curve's fixed normalisation range (`SB-MLA-033`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CurveLimit {
+    pub curve: String,
+    pub low: f64,
+    pub high: f64,
+}
+
+/// The declared normalisation bases. A string on the wire, an enum here, so an unrecognised value
+/// is refused by name instead of falling through to whichever branch happens to be the `else`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum NormBasis {
+    /// Mean and scale from the samples in hand — what every run did before `SB-MLA-033`.
+    Data,
+    /// Fixed limits, in resolved feature order: `(low, high)` per feature.
+    Limits(Vec<(f64, f64)>),
+}
+
+/// Resolves the request's declared basis against its resolved feature order, or refuses.
+///
+/// Refuses rather than substitutes, in all three failure modes, because each of them has a
+/// plausible-looking fallback that would silently change the answer: a missing limit could fall back
+/// to the data-derived basis (which is the very thing the user asked to avoid), an inverted pair
+/// could be swapped (making the transform negative-going without saying so), and a zero-width pair
+/// could be nudged (dividing by a number nobody chose).
+pub(crate) fn resolve_norm_basis(
+    basis: Option<&str>,
+    limits: &[CurveLimit],
+    features: &[String],
+) -> Result<NormBasis, String> {
+    match basis.map(str::trim).unwrap_or("").to_lowercase().as_str() {
+        "" | "data" => Ok(NormBasis::Data),
+        "limits" => {
+            let mut out = Vec::with_capacity(features.len());
+            let mut missing: Vec<&str> = Vec::new();
+            for f in features {
+                match limits.iter().find(|l| l.curve.trim().eq_ignore_ascii_case(f)) {
+                    Some(l) if l.low.is_finite() && l.high.is_finite() && l.high > l.low => {
+                        out.push((l.low, l.high))
+                    }
+                    Some(l) => {
+                        return Err(format!(
+                            "the fixed limits for {f} are {} to {} - the high limit has to be above \
+                             the low one, and neither can be blank. Fix that pair or switch the \
+                             basis back to the data in hand",
+                            l.low, l.high
+                        ))
+                    }
+                    None => missing.push(f),
+                }
+            }
+            if !missing.is_empty() {
+                return Err(format!(
+                    "a fixed normalisation basis needs a low and a high for EVERY input, and {} \
+                     has none: {}. SandiBumi will not choose them - a curve normalised over one \
+                     range and the same curve normalised over another give different answers and \
+                     both look right",
+                    if missing.len() == 1 { "this input" } else { "these inputs" },
+                    missing.join(", ")
+                ));
+            }
+            Ok(NormBasis::Limits(out))
+        }
+        other => Err(format!(
+            "unknown normalisation basis '{other}' - use 'data' for the samples in hand, or \
+             'limits' for fixed per-curve limits"
+        )),
+    }
+}
+
+/// Pulls a stored basis out of a model's `metrics_json`: `(kind, means, scales)`.
+fn stored_basis(metrics_json: &str) -> Option<(String, Vec<f64>, Vec<f64>)> {
+    let v: serde_json::Value = serde_json::from_str(metrics_json).ok()?;
+    let nums = |k: &str| -> Option<Vec<f64>> {
+        Some(v.get(k)?.as_array()?.iter().filter_map(serde_json::Value::as_f64).collect())
+    };
+    let kind = v.get("norm_basis").and_then(|k| k.as_str()).unwrap_or("data").to_string();
+    Some((kind, nums("standardize_basis_mean")?, nums("standardize_basis_scale")?))
+}
+
+/// SB-MLA-033's reporting half — how far the feature space MOVED between the model a name already
+/// pointed at and the one just fitted under a suffixed name.
+///
+/// A retrain on a changed well set is exactly the case the requirement names, and
+/// `db::resolve_model_name` already detects it: the new model is stored as `PERM_RF_1` precisely
+/// because `PERM_RF` is still there. That is the one moment a previous basis exists to compare
+/// against, so it is where the comparison belongs.
+///
+/// The movement is quoted in **standard deviations of the OLD basis**, because that is the unit
+/// every threshold carried over from the earlier model is expressed in — a DBSCAN `eps` of 0.5, a
+/// cluster edge, a distance cutoff. Saying "the mean moved 4 API" would leave the reader to work out
+/// whether that matters; saying it moved 0.42 of the spread the old model was reading in says it.
+///
+/// Silent when nothing moved, which is the honest outcome of a retrain on identical data — a note
+/// that fires on every retrain is one people stop reading.
+fn basis_shift_note(
+    conn: &Connection,
+    desired: &str,
+    stored_name: &str,
+    metrics: &serde_json::Value,
+    features: &[String],
+) -> Option<String> {
+    // No collision means no earlier model of this name, so there is nothing this fit replaced and
+    // nothing to have moved away from.
+    if desired.trim().eq_ignore_ascii_case(stored_name) {
+        return None;
+    }
+    let (prev_json, prev_feats): (String, String) = conn
+        .query_row(
+            "SELECT metrics_json, feature_curves FROM ml_models WHERE upper(name) = upper(?1) LIMIT 1",
+            duckdb::params![desired.trim()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok()?;
+    let (old_kind, old_mean, old_scale) = stored_basis(&prev_json)?;
+    let (new_kind, new_mean, new_scale) = stored_basis(&metrics.to_string())?;
+
+    // A basis is a vector in feature order, so comparing across different feature lists would be
+    // comparing GR's mean against RHOB's. Say so rather than lining them up by position.
+    let prev_list: Vec<String> = serde_json::from_str(&prev_feats).unwrap_or_default();
+    if prev_list.len() != features.len()
+        || !prev_list.iter().zip(features).all(|(a, b)| a.eq_ignore_ascii_case(b))
+    {
+        return Some(format!(
+            "'{}' was fitted on different inputs ({}), so its feature space and this one cannot be \
+             compared - treat any threshold carried over from it as meaningless here",
+            desired.trim(),
+            prev_list.join(", ")
+        ));
+    }
+    if old_kind != new_kind {
+        return Some(format!(
+            "the normalisation basis CHANGED between '{}' ({old_kind}) and this fit ({new_kind}). \
+             Every threshold expressed in the old basis - a DBSCAN eps above all - is in different \
+             units here, even where the numbers look comparable",
+            desired.trim()
+        ));
+    }
+    if old_kind == "limits" {
+        // Fixed limits are the point of the feature: if they are the same, nothing moved, and if the
+        // user changed them they changed them deliberately and the pair above already said so.
+        return None;
+    }
+    if old_mean.len() != new_mean.len() || old_mean.len() != features.len() {
+        return None;
+    }
+
+    // Largest mover, in old standard deviations for the centre and as a ratio for the spread.
+    let mut worst: Option<(&str, f64, f64)> = None;
+    for i in 0..features.len() {
+        let os = old_scale.get(i).copied().unwrap_or(0.0);
+        if !(os.is_finite() && os > 0.0) {
+            continue;
+        }
+        let shift = ((new_mean[i] - old_mean[i]) / os).abs();
+        let ratio = new_scale.get(i).copied().unwrap_or(os) / os;
+        if worst.is_none_or(|(_, s, _)| shift > s) {
+            worst = Some((features[i].as_str(), shift, ratio));
+        }
+    }
+    let (curve, shift, ratio) = worst?;
+    // Below this the two spaces are the same space to any practical reading, and a note about a
+    // move of 0.001 standard deviations would train the user to ignore the ones that matter.
+    if shift < 0.01 && (ratio - 1.0).abs() < 0.01 {
+        return None;
+    }
+    Some(format!(
+        "the feature space was RESCALED against '{}': the basis is derived from the wells in each \
+         run, and this run's wells are not that run's. {curve} moved most - its centre by {shift:.2} \
+         standard deviations of the old basis, its spread to {:.0}% of what it was. A boundary or a \
+         distance threshold read off the earlier model does NOT mean the same thing here, including \
+         in the wells both runs share. Fixed limits would have held the basis still",
+        desired.trim(),
+        ratio * 100.0
+    ))
 }
 
 /// Applying an already-fitted model. Deliberately NOT an `MlRequest`: there is no training
@@ -1088,6 +1864,13 @@ pub struct MlApplyRequest {
     /// Read the model's feature curves from this log set (see [`MlRequest::input_set`]).
     #[serde(default)]
     pub input_set: Option<String>,
+    /// Confine the prediction to this depth window. Open by default. NOT inherited from the model:
+    /// the interval a model was FITTED over is a statement about where it learned, and the interval
+    /// it is being applied to is a separate decision the user makes per distribution — propagating a
+    /// model fitted in one formation into a different one is a choice, and usually a wrong one, but
+    /// it is theirs to make and to see.
+    #[serde(default)]
+    pub interval: DepthWindow,
     /// Version the applied curves into this log set (default `ML`).
     #[serde(default)]
     pub output_set: Option<String>,
@@ -1152,6 +1935,57 @@ pub struct SplitReport {
     /// How many wells contributed rows. Present in both modes: in `sample` mode it is the answer
     /// to "how much rock is this really?", which the well lists no longer give.
     pub wells_pooled: usize,
+}
+
+/// The depth window a run is confined to.
+///
+/// Jauhar, 2026-08-07: *"it should be tops bounded as well by user"*. A model fitted over a whole
+/// well learns one relation for every formation it passed through, and a shale-prone deltaic sand
+/// and the carbonate below it do not share a porosity-permeability transform. Confining the fit to
+/// the interval the interpreter actually means is the difference between a model and an average.
+///
+/// **Each side is independent, and an open side is open.** That is the same convention
+/// `TopInterval` already follows in the frontend — the last top in a well runs to TD, which is
+/// expressed as no base rather than as a guessed one. Treating a missing base as "no window" would
+/// silently widen the run back to the whole well.
+///
+/// Applied like the run MASK, and for the same reason: a sample outside the window is not sent to
+/// python, so the scatter-back leaves it NaN. A depth outside the interval was not interpreted, and
+/// an empty sample says exactly that.
+#[derive(Debug, Clone, Copy, Default, Deserialize, serde::Serialize)]
+pub struct DepthWindow {
+    #[serde(default)]
+    pub top: Option<f64>,
+    #[serde(default)]
+    pub base: Option<f64>,
+}
+
+impl DepthWindow {
+    /// True when this window constrains nothing — used to keep the notes quiet on an ordinary run.
+    pub fn is_open(&self) -> bool {
+        self.top.is_none() && self.base.is_none()
+    }
+
+    /// Inclusive at the top, EXCLUSIVE at the base — so two abutting intervals cannot both claim
+    /// the sample sitting exactly on their shared marker, which would double-count it in any run
+    /// that swept a well zone by zone.
+    pub fn contains(&self, d: f32) -> bool {
+        let d = d as f64;
+        if !d.is_finite() {
+            return false;
+        }
+        self.top.map_or(true, |t| d >= t) && self.base.map_or(true, |b| d < b)
+    }
+
+    /// How the window reads in a note, for a run that has to say what it was confined to.
+    pub fn describe(&self) -> String {
+        match (self.top, self.base) {
+            (Some(t), Some(b)) => format!("{t} to {b}"),
+            (Some(t), None) => format!("{t} to TD"),
+            (None, Some(b)) => format!("the top of the log to {b}"),
+            (None, None) => "the whole well".to_string(),
+        }
+    }
 }
 
 fn fail(msg: &str) -> MlResult {
@@ -1535,6 +2369,10 @@ fn out_name_for(base: &str, suffix: &str, transform: &str) -> String {
     match (transform.is_empty(), suffix) {
         (false, "") => format!("{base}{LOG10_SUFFIX}"),
         (false, BACK_SUFFIX) => base.to_string(),
+        // The textured curve is a texturing OF the model's own output, so under a transform it is
+        // named after the log-space curve it was made from — `PERM_LOG10_SIM`, never `PERM_SIM`,
+        // which would read as millidarcies and be out by orders of magnitude on a plot.
+        (false, SIM_SUFFIX) => format!("{base}{LOG10_SUFFIX}{SIM_SUFFIX}"),
         _ => format!("{base}{suffix}"),
     }
 }
@@ -1546,9 +2384,13 @@ fn out_name_for(base: &str, suffix: &str, transform: &str) -> String {
 /// left out of the declaration entirely rather than declared empty.
 fn unit_for_output(suffix: &str, transform: &str, target_unit: Option<&str>) -> Option<String> {
     let tu = target_unit.unwrap_or_default();
-    let u = if suffix.is_empty() && !transform.is_empty() {
+    // The textured curve is the model's own output with detail added, so it is in whatever space
+    // that output is in — the same unit as the base curve, transformed or not. Leaving it undeclared
+    // would export a curve in log space with no unit beside one that has millidarcies.
+    let base_space = suffix.is_empty() || suffix == SIM_SUFFIX;
+    let u = if base_space && !transform.is_empty() {
         transformed_unit(transform, Some(tu))
-    } else if suffix.is_empty() || suffix == BACK_SUFFIX {
+    } else if base_space || suffix == BACK_SUFFIX {
         tu.to_string()
     } else {
         return None;
@@ -1641,6 +2483,77 @@ fn block_to_step(depth: &[f32], values: &mut [f32], step: f64, class_curve: bool
         }
     }
     answer.len()
+}
+
+/// How rough a curve is: the mean absolute step between neighbouring live samples, divided by the
+/// curve's own standard deviation.
+///
+/// Dividing by the spread is what makes two curves comparable — a permeability in millidarcies and a
+/// density in g/cc have wildly different step sizes and the question is not how big the steps are but
+/// how big they are RELATIVE to the range the curve covers. Gaps are skipped rather than bridged: a
+/// step across a washout is not a measurement of anything.
+///
+/// Deliberately not an FFT. The question a petrophysicist is asking here is "does this log wiggle
+/// like the log it is predicting", and the mean absolute difference answers it in a number that can
+/// be explained, checked by hand, and computed on a curve with holes in it. A power spectrum needs a
+/// regular grid, and these curves have gaps.
+fn roughness(values: &[f32]) -> Option<f64> {
+    let live: Vec<f64> = values.iter().filter(|v| v.is_finite()).map(|v| *v as f64).collect();
+    if live.len() < 8 {
+        return None;
+    }
+    let mean = live.iter().sum::<f64>() / live.len() as f64;
+    let var = live.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / live.len() as f64;
+    let sd = var.sqrt();
+    if !(sd > 0.0) {
+        return None;
+    }
+    // Steps taken only between samples that are BOTH live, so a gap contributes nothing rather than
+    // one enormous jump that would read as high-frequency detail.
+    let mut steps = 0usize;
+    let mut total = 0f64;
+    for w in values.windows(2) {
+        if w[0].is_finite() && w[1].is_finite() {
+            total += (w[1] - w[0]).abs() as f64;
+            steps += 1;
+        }
+    }
+    (steps >= 4).then(|| total / steps as f64 / sd)
+}
+
+/// What a predicted curve's vertical resolution is worth, measured against the target it learned
+/// from.
+///
+/// Jauhar, 2026-08-07: *"rhob and dres with same sampling at 0.5 f can have different resolution or
+/// curve/wave frequency, if we wanna predict rhob, predicted rhob log frequency should follow
+/// original rhob as well"*. He is right, and it is the harder half of the sampling question: two
+/// curves on one 0.5 ft frame can carry completely different vertical resolution, because a density
+/// pad reads a few inches and a deep induction reads several feet.
+///
+/// **A prediction is always smoother than its target, and that is physics, not a bug.** The model
+/// can only carry through the detail its INPUTS contain; asked to predict a sharp density from a
+/// smooth resistivity, it returns the sharpness the resistivity had. So this reports the shortfall
+/// rather than correcting it: restoring the missing detail means SYNTHESIZING it, which produces a
+/// curve that looks better resolved without being better known, and that is a decision for the
+/// interpreter to make explicitly rather than a default to inherit.
+///
+/// Returned as a ratio and a sentence. Below 1 the prediction is smoother than the measured log by
+/// roughly that factor.
+fn resolution_note(target_train: &[f32], predicted: &[f32], target_name: &str) -> Option<String> {
+    let (rt, rp) = (roughness(target_train)?, roughness(predicted)?);
+    if !(rt > 0.0) {
+        return None;
+    }
+    let ratio = rp / rt;
+    // A prediction within a quarter of its target's roughness is doing as well as this measure can
+    // tell. Saying so on every run would train the eye to skip the line that matters.
+    if ratio >= 0.75 {
+        return None;
+    }
+    Some(format!(
+        "vertical resolution: this prediction varies about {:.0}% as much between neighbouring samples as the measured {target_name} it learned from, so it is a SMOOTHER log than the one it is standing in for. That is the resolution its inputs carry, not a fault in the fit - a curve read over feet cannot produce detail measured over inches. Read thin beds off it with that in mind; nothing here has invented the missing detail, and nothing should without saying so",
+        ratio * 100.0
+    ))
 }
 
 /// Most feature subsets one run will fit models for.
@@ -1813,7 +2726,7 @@ fn run_ml_coverage(
                     let mut avail = vec![0u32; depth.len()];
                     let mut masked = 0usize;
                     for i in 0..depth.len() {
-                        if mcol.is_some_and(|m| m[i] == 1.0) {
+                        if mcol.is_some_and(|m| m[i] == 1.0) || !req.interval.contains(depth[i]) {
                             masked += 1;
                             continue;
                         }
@@ -1899,7 +2812,7 @@ fn run_ml_coverage(
         // Trains on every row carrying this subset, whatever else those rows carry.
         let (mut x_train, mut y_train, mut groups, _empty, roster) = {
             let conn = db.lock().unwrap();
-            assemble_training(&conn, &req.train_well_ids, &sub, &target, mask_curve.as_ref(), req.input_set.as_deref())
+            assemble_training(&conn, &req.train_well_ids, &sub, &target, mask_curve.as_ref(), req.input_set.as_deref(), req.interval)
         };
         let transform = req
             .target_transform
@@ -1982,20 +2895,28 @@ fn run_ml_coverage(
             .map(|s| format!("{s}_{sd}CURVE"));
         let save_features = save_name.as_ref().map(|_| sub.as_slice());
 
-        let run = match exec_ml_full(
-            &python,
-            &req.task,
-            &req.algorithm,
-            &req.params,
-            sd,
-            &x_train,
-            Some(&y_train),
-            &x_apply,
-            n_apply,
-            save_features,
-            Some(&groups),
-            &blind_mask,
-        ) {
+        // SB-MLA-033, resolved against THIS segment's features rather than the full list. Each
+        // segment is a separate model over a different subset, so it takes the limits for the
+        // curves it actually uses — a basis carrying a column the model never sees would put the
+        // pairs out of step with the matrix.
+        let run = match resolve_norm_basis(req.norm_basis.as_deref(), &req.norm_limits, &sub)
+            .and_then(|norm| {
+                exec_ml_full(
+                    &python,
+                    &req.task,
+                    &req.algorithm,
+                    &req.params,
+                    sd,
+                    &x_train,
+                    Some(&y_train),
+                    &x_apply,
+                    n_apply,
+                    save_features,
+                    Some(&groups),
+                    &blind_mask,
+                    &norm,
+                )
+            }) {
             Ok(r) => r,
             Err(e) => {
                 segments.push(CoverageSegment {
@@ -2413,6 +3334,95 @@ fn resolve_input_set(conn: &Connection, well_id: &str, set_name: &str) -> Option
     .ok()
 }
 
+/// SB-MLA-054's provenance half — how every ML input landed on the run's depth frame, as run notes.
+///
+/// The Data QC section already SHOWS this per curve, through `equations::curve_sampling`. What was
+/// missing is that the answer never reached the run's own record: a user who did not open that
+/// section got a fit quietly assembled from fewer curves than they picked, and the result said only
+/// "missing input curve" — which sends an interpreter hunting for a log that is sitting right there
+/// on a different grid. This reads the SAME helper, so the note and the panel cannot disagree.
+///
+/// Reports the join rule once, then names any curve that EXISTS on a well but contributed no sample.
+/// Silent otherwise — a note on every run is a note nobody reads.
+///
+/// **The trigger is "contributed NOTHING", deliberately, and not a coverage fraction.** Zero is the
+/// one unambiguous case, and it is the one that masquerades as a missing curve. A curve where some
+/// depths coincide and most do not is a real hazard too, but warning on it needs a threshold —
+/// "fewer than a fifth landed" — and no source states one, so it would be SandiBumi's invention
+/// deciding when a run looks wrong (`SB-CORE-004`). Partial coverage is already visible in the
+/// sample counts this run reports; total absence was not visible anywhere.
+fn frame_notes(
+    conn: &Connection,
+    well_ids: &[String],
+    names: &[String],
+    input_set: Option<&str>,
+) -> Vec<String> {
+    // curve -> (wells it is off-frame on, one spacing pair to quote)
+    let mut off: std::collections::BTreeMap<String, (Vec<String>, Option<(f64, f64)>)> =
+        Default::default();
+    for well_id in well_ids {
+        let Ok((depth, _)) = fetch_curve_frame_from_set(conn, well_id, names, input_set, None) else {
+            continue;
+        };
+        if depth.is_empty() {
+            continue;
+        }
+        let Ok(sampling) = crate::equations::curve_sampling(conn, well_id, names, &depth) else {
+            continue;
+        };
+        // The frame's own spacing, measured the same way `curve_sampling` measures a curve's.
+        let frame_step = {
+            let mut gaps: Vec<f64> =
+                depth.windows(2).map(|w| (w[1] - w[0]) as f64).filter(|g| *g > 0.0).collect();
+            gaps.sort_by(|a, b| a.partial_cmp(b).expect("finite by construction"));
+            (!gaps.is_empty()).then(|| gaps[gaps.len() / 2])
+        };
+        for s in sampling {
+            // Stored somewhere, and not one of its depths is on the frame. A curve the well simply
+            // does not carry has `n_own == 0` and is a MISSING curve — a different diagnosis with a
+            // different fix, already reported as such.
+            if s.n_own == 0 || s.n_on_frame > 0 {
+                continue;
+            }
+            let entry = off.entry(s.curve.clone()).or_default();
+            entry.0.push(well_name(conn, well_id));
+            if entry.1.is_none() {
+                if let (Some(a), Some(b)) = (s.step, frame_step) {
+                    entry.1 = Some((a, b));
+                }
+            }
+        }
+    }
+    if off.is_empty() {
+        return vec![];
+    }
+    let mut notes = vec![
+        "inputs are joined to the run frame by EXACT depth equality - nothing is interpolated, \
+         snapped or gap-filled, and there is no depth tolerance"
+            .to_string(),
+    ];
+    for (curve, (wells, steps)) in off {
+        let spacing = match steps {
+            Some((own, frame)) => format!(
+                " (stored at about {own:.4} against a run frame at about {frame:.4}, in the project's depth unit)"
+            ),
+            None => String::new(),
+        };
+        let shown = if wells.len() > 4 {
+            format!("{}, and {} more", wells[..4].join(", "), wells.len() - 4)
+        } else {
+            wells.join(", ")
+        };
+        notes.push(format!(
+            "{curve} EXISTS on {} well(s) but none of its samples land on the run frame{spacing}, \
+             so it contributed nothing: {shown}. This is a different problem from a missing curve - \
+             put the inputs on one frame with Reframe before fitting",
+            wells.len()
+        ));
+    }
+    notes
+}
+
 fn assemble_training(
     conn: &Connection,
     train_well_ids: &[String],
@@ -2420,6 +3430,7 @@ fn assemble_training(
     tgt: &str,
     mask_curve: Option<&String>,
     input_set: Option<&str>,
+    window: DepthWindow,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<String>, Vec<TrainWellRecord>) {
     let mut fetch_names = features.to_vec();
     fetch_names.push(tgt.to_string());
@@ -2447,6 +3458,13 @@ fn assemble_training(
                     // MASK convention (workflow.rs): a mask value of exactly 1.0 excludes the
                     // sample from X/y; 0.0 / NaN / absent keeps it.
                     if mcol.map_or(false, |m| m[i] == 1.0) {
+                        masked += 1;
+                        continue;
+                    }
+                    // Counted with the masked rows rather than the incomplete ones: both are
+                    // deliberate exclusions, whereas `incomplete` means a curve was never measured
+                    // there, and a well refused for having no rows has to name which it was.
+                    if !window.contains(depth[i]) {
                         masked += 1;
                         continue;
                     }
@@ -2542,6 +3560,79 @@ pub struct CoverageSegment {
     pub skipped: Option<String>,
 }
 
+/// Refuses a fit that would LEARN FROM manufactured detail.
+///
+/// A `_SIM` curve carries a spectrally simulated high-frequency component: right in its statistics,
+/// arbitrary in its placement. Reading it back in as a feature or a target launders that into
+/// something a model treats as measurement, and the provenance chain records only that a curve named
+/// `X_SIM` was an input — which is true and tells the reader nothing about what happened.
+///
+/// This is the failure this whole two-curve design exists to prevent, and a naming convention alone
+/// does not prevent it: the checkbox list offers every curve in the well, and `PERM_SIM` sorts
+/// directly beside `PERM`. The refusal is here rather than only in the pane because the pane is one
+/// caller — a workflow chain or a future batch route would otherwise walk straight past it.
+///
+/// Deliberately a REFUSAL and not a warning. There is no defensible reason to fit against invented
+/// detail, so there is nothing for the user to weigh, and a warning would simply be clicked through.
+fn refuse_simulated_inputs(features: &[String], target: Option<&str>) -> Option<String> {
+    let is_sim = |c: &str| c.trim().to_uppercase().ends_with(SIM_SUFFIX);
+    let mut named: Vec<String> =
+        features.iter().filter(|c| is_sim(c)).map(|c| c.trim().to_uppercase()).collect();
+    if target.is_some_and(is_sim) {
+        named.push(target.unwrap_or_default().trim().to_uppercase());
+    }
+    if named.is_empty() {
+        return None;
+    }
+    named.sort();
+    named.dedup();
+    Some(format!(
+        "{} carries simulated detail, not measurement - it is a prediction with high-frequency \
+         content added to match a target's spectrum, correct in its statistics and arbitrary in its \
+         placement. A model fitted against it would learn that invented detail and report the usual \
+         scores for it. Use the plain curve (the same name without {SIM_SUFFIX}) instead.",
+        named.join(" and ")
+    ))
+}
+
+/// The runner source, written to a temp file for the life of one run and deleted after.
+///
+/// **This exists because `python -c <source>` has a hard ceiling and we hit it.** Windows caps a
+/// command line at about 32 KB, and the runner had grown past it — every ML feature failed at once
+/// with `The filename or extension is too long. (os error 206)`, a message naming neither Python nor
+/// machine learning, triggered by nothing more than added comments. Nothing guarded it, so the
+/// ceiling was invisible right up to the moment it was a total outage.
+///
+/// Passing a path removes the ceiling rather than raising it, so the runner can be commented and
+/// extended like ordinary code. `-c` is kept only for the one-line probes (`import numpy`), which
+/// cannot approach any limit.
+///
+/// Deleted on `Drop`, so an early return or a panic cannot leave the file behind. It holds only the
+/// runner's own source: no well data, no curve values, nothing client-identifying.
+struct ScriptFile(std::path::PathBuf);
+
+impl ScriptFile {
+    fn new(tag: &str, source: &str) -> std::io::Result<Self> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        // Process id AND a counter: two runs in one session must not collide, and neither must two
+        // copies of the app open at once.
+        let name = format!("sandibumi-{tag}-{}-{}.py", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed));
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, source)?;
+        Ok(Self(path))
+    }
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for ScriptFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::jobs::JobHandle>) -> MlResult {
     let supervised = matches!(req.task.as_str(), "regression" | "classification");
     // Jauhar, 2026-08-07: *"model should still run even 1 curves only half depth coverage, (model
@@ -2550,6 +3641,11 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     // model, and threading a second set through the transform, the split, the fingerprint, the model
     // save and the provenance would leave five places where a segment could silently inherit
     // another's record.
+    // Checked BEFORE the coverage path branches away, or one of the two routes into a fit would not
+    // be guarded at all.
+    if let Some(refusal) = refuse_simulated_inputs(&req.feature_curves, req.target_curve.as_deref()) {
+        return fail(&refusal);
+    }
     if req.coverage_segments && supervised {
         return run_ml_coverage(db, req, progress);
     }
@@ -2598,22 +3694,36 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     let mut roster: Vec<TrainWellRecord> = Vec::new();
     let mut apply: Vec<ApplyWell> = Vec::new();
     let mut x_apply: Vec<f32> = Vec::new();
+    let frame_report: Vec<String>;
     {
         let conn = db.lock().unwrap();
         if supervised {
             let tgt = target.clone().unwrap();
             let (xt, yt, gt, empty, rec) =
-                assemble_training(&conn, &req.train_well_ids, &features, &tgt, mask_curve.as_ref(), req.input_set.as_deref());
+                assemble_training(&conn, &req.train_well_ids, &features, &tgt, mask_curve.as_ref(), req.input_set.as_deref(), req.interval);
             x_train = xt;
             y_train = yt;
             groups = gt;
             empty_train = empty;
             roster = rec;
         }
+        // SB-MLA-054. Asked on the wells the model LEARNS from, and on the target as well as the
+        // features — a target on a different grid empties the fit just as thoroughly as an input
+        // does, and reads exactly the same in every count.
+        {
+            let mut framed = features.clone();
+            if let Some(t) = &target {
+                framed.push(t.clone());
+            }
+            let scope: &[String] =
+                if supervised { &req.train_well_ids } else { &req.apply_well_ids };
+            frame_report = frame_notes(&conn, scope, &framed, req.input_set.as_deref());
+        }
         let mut apply_fetch = features.clone();
         if let Some(mk) = &mask_curve {
             apply_fetch.push(mk.clone());
         }
+        let window = req.interval;
         for well_id in &req.apply_well_ids {
             match fetch_curve_frame_from_set(&conn, well_id, &apply_fetch, req.input_set.as_deref(), None) {
                 Ok((depth, cols)) => {
@@ -2634,7 +3744,9 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     for i in 0..depth.len() {
                         // Masked apply rows (mask == 1.0) are never sent to python, so scatter-back
                         // leaves them NaN — the OUTPUT-blanking half of the module MASK convention.
-                        if mcol.map_or(false, |m| m[i] == 1.0) {
+                        // A depth outside the run's interval takes the same route: it was never
+                        // interpreted, and an empty sample says exactly that.
+                        if mcol.map_or(false, |m| m[i] == 1.0) || !window.contains(depth[i]) {
                             masked += 1;
                             continue;
                         }
@@ -2704,6 +3816,20 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     // fully masked). Without this, a 20-well selection fit on 3 wells looks like a clean 20-well
     // run — the exact silent-degradation the app's cardinal rule forbids.
     let mut notes: Vec<String> = transform_notes;
+    // SB-MLA-054, before the sample-count notes: a curve that never reached the frame is the
+    // reason those counts look the way they do, so it has to be read first.
+    notes.extend(frame_report);
+    // SB-CORE-013 / SB-MLA-031, the recording half. The cluster count is already stored with the
+    // run; what this adds is that it was chosen against a KNOWN disagreement and where it sits in
+    // it. "k = 5" read back in a year says nothing about whether anybody knew 15 was on the table.
+    // The default is the runner's own (5), so an untouched field is recorded as the choice it is.
+    if req.task == "clustering" {
+        let k = req.params.get("k").and_then(serde_json::Value::as_f64).unwrap_or(5.0);
+        if let Some(n) = crate::param_sources::decision_note(crate::param_sources::CLUSTER_COUNT, k)
+        {
+            notes.push(n);
+        }
+    }
     if supervised && !empty_train.is_empty() {
         let requested = req.train_well_ids.len();
         notes.push(format!(
@@ -2849,6 +3975,12 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         }
     });
 
+    // SB-MLA-033. Resolved AFTER the features are resolved and before anything is fitted, so a
+    // basis that does not cover the inputs costs the user a message rather than a run.
+    let norm = match resolve_norm_basis(req.norm_basis.as_deref(), &req.norm_limits, &features) {
+        Ok(n) => n,
+        Err(e) => return fail(&e),
+    };
     match exec_ml_full(
         &python,
         &req.task,
@@ -2862,6 +3994,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         save_features,
         if supervised { Some(groups.as_slice()) } else { None },
         &blind_mask,
+        &norm,
     ) {
         Err(e) => fail(&e),
         Ok(MlRun { mut metrics, outs, model_blob, sklearn, runtime }) => {
@@ -2937,8 +4070,41 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             if let Some(step) = out_step {
                 metrics["output_step"] = serde_json::json!(step);
             }
+            if !req.interval.is_open() {
+                // Said on every confined run, whether or not it changed the row count. A model
+                // fitted over one zone and read as a whole-well answer is the error this prevents,
+                // and it is only preventable if the confinement is on the record beside the score.
+                notes.push(format!(
+                    "confined to {} - both the rows this was fitted on and the depths it wrote. Its scores describe that interval and nothing above or below it",
+                    req.interval.describe()
+                ));
+            }
+            if !req.interval.is_open() {
+                metrics["interval"] = serde_json::json!({ "top": req.interval.top, "base": req.interval.base });
+            }
+            // Measured on the model's OWN output (the untransformed one), against the target rows it
+            // was fitted on. Reported, never corrected: see `resolution_note`.
+            if let Some(tgt) = target.as_deref() {
+                if let Some((_, native)) = outs.iter().find(|(sfx, _)| sfx.is_empty()) {
+                    if let Some(n) = resolution_note(&y_train, native, tgt) {
+                        notes.push(n);
+                    }
+                }
+            }
             let mut blocks_written = 0usize;
             let mut wells = Vec::new();
+            // SB-MLA-062. This block's lock is BOUNDED — a handful of catalog reads and one model
+            // insert — and it is released at the closing brace, before the per-well write loop
+            // below re-acquires it once per well. Held across the whole loop instead, a field-scale
+            // run froze every other panel in the application for the entire write phase: DuckDB is
+            // a single-writer connection behind one mutex, so whoever holds it holds the product.
+            //
+            // Releasing between wells is safe against the write discipline rather than in spite of
+            // it: each well's write is a DELETE of that well's target curve names followed by an
+            // append, all under `with_txn`, and two wells never touch each other's rows. What an
+            // interleaved writer can do is land a curve between two of this run's wells, which is
+            // exactly what it could do between two separate runs.
+            let (units, blind, model_id, model_name) = {
             let conn = db.lock().unwrap();
             // The unit of every curve about to be written, so a reader can tell log10(mD) from mD
             // (SB-MLA-035). A blank target unit stays blank: "we do not know" must not be dressed
@@ -3028,7 +4194,15 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                         &crate::db::NewMlModel {
                             name,
                             task: &req.task,
-                            algorithm: &req.algorithm,
+                            // SB-MLA-012. The estimator that ACTUALLY ran. Where a library was
+                            // missing and another was substituted, the runner reports the id it
+                            // used, and storing the requested one instead would file two different
+                            // methods under a single name — the model row would then not identify
+                            // the estimator that produced its own curve.
+                            algorithm: metrics
+                                .get("algorithm_used")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(&req.algorithm),
                             feature_curves: &features,
                             target_curve: target.as_deref(),
                             params_json: &params_json,
@@ -3053,6 +4227,11 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                                 notes.push(format!(
                                     "a model named '{name}' already exists, so this one was saved as '{stored}' - retraining makes a NEW model rather than replacing the one an existing curve was made with"
                                 ));
+                                // SB-MLA-033. The rename already told the user there are now two
+                                // models; this says whether they are two models of the same space.
+                                if let Some(n) = basis_shift_note(&conn, name, &stored, &metrics, &features) {
+                                    notes.push(n);
+                                }
                             }
                             model_id = Some(id);
                             model_name = Some(stored);
@@ -3061,7 +4240,12 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     }
                 }
             }
+            (units, blind, model_id, model_name)
+            };
             let mut start = 0usize;
+            // SB-MLA-017. The set ids this run actually wrote, and whether a cancel cut it short.
+            let mut written_sets: Vec<String> = Vec::new();
+            let mut cancelled_wells = 0usize;
             if let Some(p) = progress {
                 p.set_current(Some("Writing predictions…".into()));
             }
@@ -3073,6 +4257,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     if let Some(p) = progress {
                         p.finish_item(&aw.well_id, crate::jobs::ItemState::Warned, Some("cancelled".into()));
                     }
+                    cancelled_wells += 1;
                     wells.push(MlWellResult {
                         well_id: aw.well_id.clone(),
                         rows_predicted: 0,
@@ -3117,6 +4302,11 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     curves.push((name.clone(), full));
                 }
                 let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
+                // SB-MLA-062. Acquired HERE, per well, and dropped at the end of this iteration —
+                // every prediction above was computed lock-free. On a portfolio run this is the
+                // difference between the rest of the application being usable throughout and being
+                // frozen until the last well is written.
+                let conn = db.lock().unwrap();
                 // SB-MLA-006. The model reference rides in `params_json` beside the effective
                 // parameters, in the SAME shape the apply path writes, so one reader answers
                 // "which model made this curve?" for both paths. `module` keeps its existing
@@ -3138,6 +4328,25 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                             "algorithm": req.algorithm,
                             "params": params_record,
                         });
+                        // SB-MLA-011. Whether THIS well trained the model or only received its
+                        // predictions is the difference between an interpolation and an
+                        // extrapolation, and it is the first thing a reviewer asks. It was visible
+                        // only as a run-time warning, which is to say it was visible for as long as
+                        // the pane stayed open; on the curve it was invisible. A well selected for
+                        // training that contributed nothing is recorded as its own case rather than
+                        // folded into "applied only" — the user believed it was training rock, and
+                        // the record should say the fit disagreed.
+                        rec["well_role"] = serde_json::json!(if !req.train_well_ids.contains(&aw.well_id) {
+                            "applied only - this well did not train the model, so its curve is an extrapolation from other wells"
+                        } else if empty_train.contains(&aw.well_id) {
+                            "selected for training but contributed no usable rows - it did NOT train the model, so its curve is an extrapolation"
+                        } else {
+                            "trained and applied - this well's own rock is part of what the model learned from"
+                        });
+                        rec["n_trained_wells"] = serde_json::json!(
+                            req.train_well_ids.iter().filter(|id| !empty_train.contains(*id)).count()
+                        );
+                        rec["n_applied_wells"] = serde_json::json!(apply.len());
                         if let (Some(id), Some(nm)) = (&model_id, &model_name) {
                             rec["model_id"] = serde_json::json!(id);
                             rec["model_name"] = serde_json::json!(nm);
@@ -3152,10 +4361,15 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     },
                     inputs_json: serde_json::to_string(&req.feature_curves).unwrap_or_default(),
                 };
-                let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec)
-                    .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id));
+                let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec).and_then(|(set_id, _)| {
+                    write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id).map(|()| set_id)
+                });
                 match versioned {
-                    Ok(()) => {
+                    Ok(set_id) => {
+                        // SB-MLA-017. Kept so a cancel arriving later can stamp the sets this run
+                        // already wrote. A set that failed to write is deliberately not in here:
+                        // there is nothing to qualify.
+                        written_sets.push(set_id);
                         // SB-MLA-035. The unit is declared with the curve, not left to be inferred
                         // from the mnemonic later. Like the model save above, a failure here is a
                         // note rather than a return — the prediction is written either way.
@@ -3187,6 +4401,26 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 start += m;
             }
 
+            // SB-MLA-017. A partially written set is the worst artifact this pane can leave: on the
+            // Wells pane it is indistinguishable from a completed run over a smaller well selection,
+            // because the set name and the module string are the ones a complete run writes. So the
+            // sets that DID get written say what they are.
+            if cancelled_wells > 0 && !written_sets.is_empty() {
+                // Its own short lock — the loop released the last one, and this is a handful of
+                // UPDATEs (SB-MLA-062).
+                let conn = db.lock().unwrap();
+                let n = mark_cancelled_sets(&conn, &written_sets, written_sets.len(), apply.len());
+                notes.push(format!(
+                    "this run was CANCELLED after {} of {} well(s) - the {n} log set(s) already written are marked as coming from a cancelled run, so they are not mistaken for a complete run over fewer wells. The wells that were cut are listed above with 'cancelled'",
+                    written_sets.len(),
+                    apply.len()
+                ));
+                metrics["cancelled"] = serde_json::json!({
+                    "wells_written": written_sets.len(),
+                    "wells_in_scope": apply.len(),
+                });
+            }
+
             if let Some(step) = out_step {
                 // Stated whether or not it changed anything, and the "no blocks" case is stated too:
                 // a resolution setting that silently did nothing is the one a reader would go on
@@ -3210,6 +4444,52 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     }
 }
 
+/// SB-MLA-017 — stamps the log sets a cancelled run DID write with the fact that it was cancelled.
+///
+/// Returns how many sets were successfully marked, which is not always `set_ids.len()`: this runs
+/// after the curves are already stored, so a failure here must cost the mark, never the work.
+///
+/// **Written after the fact, and that is not the objection it looks like.** Marking a curve's run
+/// record months later to describe a separate event — a model deleted in a different session — would
+/// be rewriting history, which is why `ml_provenance` derives that case at read time instead. A
+/// cancellation is not a separate event: it is how THIS run ended, and the run record is not complete
+/// until the run is. Stamping it here finishes the record rather than revising it.
+fn mark_cancelled_sets(conn: &Connection, set_ids: &[String], written: usize, in_scope: usize) -> usize {
+    let mut done = 0usize;
+    for set_id in set_ids {
+        let current: Option<String> = conn
+            .query_row("SELECT params_json FROM log_sets WHERE set_id = ?1", duckdb::params![set_id], |r| r.get(0))
+            .ok()
+            .flatten();
+        let mut rec: serde_json::Value = current
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        if !rec.is_object() {
+            // A params record that is not an object cannot carry the mark, and replacing it would
+            // throw away whatever it was. Leave it and let the count say fewer were marked.
+            continue;
+        }
+        rec["cancelled"] = serde_json::json!({
+            "wells_written": written,
+            "wells_in_scope": in_scope,
+            // In words, because this object is read by a person deciding whether to deliver the
+            // curve, not only by code deciding whether to show a badge.
+            "note": format!(
+                "this run was cancelled after {written} of {in_scope} well(s); the field is covered in part, and the wells missing this set were cut, not excluded"
+            ),
+        });
+        let Ok(text) = serde_json::to_string(&rec) else { continue };
+        if conn
+            .execute("UPDATE log_sets SET params_json = ?1 WHERE set_id = ?2", duckdb::params![text, set_id])
+            .is_ok()
+        {
+            done += 1;
+        }
+    }
+    done
+}
+
 /// Applies a saved model to wells it has never seen. Never fits anything.
 pub fn apply_ml_model(
     db: &Mutex<Connection>,
@@ -3227,6 +4507,7 @@ pub fn apply_ml_model(
         return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
     };
     let mask_curve = req.mask_curve.as_deref().map(|m| m.trim().to_uppercase()).filter(|m| !m.is_empty());
+    let window = req.interval;
 
     let (info, blob) = {
         let conn = db.lock().unwrap();
@@ -3322,7 +4603,7 @@ pub fn apply_ml_model(
                     let mut idx = Vec::new();
                     let mut masked = 0usize;
                     for i in 0..depth.len() {
-                        if mcol.map_or(false, |m| m[i] == 1.0) {
+                        if mcol.map_or(false, |m| m[i] == 1.0) || !window.contains(depth[i]) {
                             masked += 1;
                             continue;
                         }
@@ -3357,8 +4638,12 @@ pub fn apply_ml_model(
     let header = serde_json::json!({
         "d": d, "n_apply": n_apply, "model_len": blob.len(), "features": features,
     });
+    let script = match ScriptFile::new("apply", &ml_apply_runner()) {
+        Ok(s) => s,
+        Err(e) => return fail(&format!("could not write the runner to a temporary file: {e}")),
+    };
     let mut cmd = Command::new(&python);
-    cmd.args(["-c", &ml_apply_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.arg(script.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -3544,8 +4829,11 @@ pub(crate) fn exec_ml(
     x_apply: &[f32],
     n_apply: usize,
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>), String> {
-    exec_ml_full(python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None, None, &[])
-        .map(|r| (r.metrics, r.outs))
+    exec_ml_full(
+        python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None, None, &[],
+        &NormBasis::Data,
+    )
+    .map(|r| (r.metrics, r.outs))
 }
 
 /// What one fitting subprocess returned. A named struct rather than the 4-tuple this used to be:
@@ -3583,12 +4871,22 @@ pub(crate) fn exec_ml_full(
     // drawing individual rows reach the runner as the same thing and cannot diverge there.
     groups: Option<&[f32]>,
     blind_mask: &[f32],
+    // SB-MLA-033. Already resolved against the feature order by `resolve_norm_basis`, so the runner
+    // receives positions and never has to match a curve name — the same discipline the ordered
+    // feature contract follows, for the same reason.
+    norm: &NormBasis,
 ) -> Result<MlRun, String> {
     let n_train = if d == 0 { 0 } else { x_train.len() / d };
     let groups = groups.filter(|g| g.len() == n_train);
     // A mask of the wrong length is dropped rather than sent: the runner reads a fixed byte count
     // from the payload, so a short one would silently shift every column after it.
     let blind_mask = if blind_mask.len() == n_train { blind_mask } else { &[][..] };
+    let (norm_basis, norm_limits) = match norm {
+        NormBasis::Data => ("data", vec![]),
+        NormBasis::Limits(pairs) => {
+            ("limits", pairs.iter().map(|&(a, b)| vec![a, b]).collect::<Vec<_>>())
+        }
+    };
     let header = serde_json::json!({
         "task": task, "algorithm": algorithm, "params": params,
         "d": d, "n_train": n_train, "has_target": y_train.is_some(), "n_apply": n_apply,
@@ -3596,10 +4894,14 @@ pub(crate) fn exec_ml_full(
         "features": save_features.unwrap_or(&[]),
         "has_groups": groups.is_some(),
         "has_blind": !blind_mask.is_empty(),
+        "norm_basis": norm_basis,
+        "norm_limits": norm_limits,
     });
 
+    let script = ScriptFile::new("fit", &ml_runner())
+        .map_err(|e| format!("could not write the runner to a temporary file: {e}"))?;
     let mut cmd = Command::new(python);
-    cmd.args(["-c", &ml_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.arg(script.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
     {
@@ -4249,8 +5551,10 @@ pub(crate) fn exec_ml_eval(
         "params": params, "params_for": params_for,
     });
 
+    let script = ScriptFile::new("eval", &ml_eval_runner())
+        .map_err(|e| format!("could not write the runner to a temporary file: {e}"))?;
     let mut cmd = Command::new(python);
-    cmd.args(["-c", &ml_eval_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.arg(script.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
     {
@@ -4285,6 +5589,71 @@ mod tests {
 
     fn params(pairs: &[(&str, serde_json::Value)]) -> serde_json::Map<String, serde_json::Value> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    }
+
+    /// **SB-MLA-054.** The training frame is an exact-depth join, so a curve stored on a different
+    /// sampling contributes nothing — and used to be indistinguishable, in every count the run
+    /// reports, from a curve the well never had. One says "log this well and refit"; the other says
+    /// "the log is there, put it on one frame". No number in the result told them apart.
+    ///
+    /// Pinned from both sides: the off-frame curve must be NAMED with both spacings, and a curve
+    /// that genuinely is not there must NOT produce the note — otherwise the diagnostic would fire
+    /// on every run with an absent optional curve and stop being read.
+    #[test]
+    fn a_curve_on_a_different_depth_grid_is_named_as_such_and_never_as_a_missing_curve() {
+        use uuid::Uuid;
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "SANDI-54", None, None, None).unwrap();
+        // The well's own frame: 0.5 units.
+        let n = 40usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        crate::db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![40.0; n],
+            vec![10.0; n],
+            vec![0.2; n],
+            vec![2.4; n],
+            vec![80.0; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let ids = id.to_string();
+        // A computed curve on a DIFFERENT grid, offset so that NOT ONE depth coincides — and
+        // chosen so that is provable rather than lucky. 0.0625 + 0.125i is always an odd multiple
+        // of 0.0625, so it can never equal 0.5j; every value is a sum of powers of two and so is
+        // exact in f32, which matters because the join compares raw bit patterns. A "realistic"
+        // 0.1524 does NOT work: it rounds in f32 so that one sample lands on the frame by
+        // accident, and one landed sample means the curve did contribute.
+        let odd: Vec<f32> = (0..120).map(|i| 2000.0625 + i as f32 * 0.125).collect();
+        let vals: Vec<f32> = odd.iter().map(|_| 1.0f32).collect();
+        crate::equations::write_computed_curve(&conn, &ids, &odd, "OFFGRID", &vals).unwrap();
+
+        let wells = vec![ids.clone()];
+
+        // The curve exists and is unusable — say so, name it, and quote both spacings.
+        let notes = frame_notes(&conn, &wells, &["OFFGRID".to_string()], None);
+        assert!(!notes.is_empty(), "off-frame curve produced no note");
+        let all = notes.join(" | ");
+        assert!(all.contains("EXACT depth equality"), "join rule not stated: {all}");
+        assert!(all.contains("OFFGRID") && all.contains("SANDI-54"), "curve/well not named: {all}");
+        assert!(all.contains("0.1250") && all.contains("0.5000"), "spacings not quoted: {all}");
+        assert!(all.contains("Reframe"), "no actionable fix named: {all}");
+
+        // The other side. A curve this well simply does not carry is a MISSING curve, and must not
+        // be reported as a framing problem — the fix is different and so is the diagnosis.
+        assert!(
+            frame_notes(&conn, &wells, &["NOSUCHCURVE".to_string()], None).is_empty(),
+            "an absent curve was reported as an off-frame one"
+        );
+        // And a curve that IS on the frame stays silent, so the note means something when it fires.
+        assert!(
+            frame_notes(&conn, &wells, &["GR".to_string()], None).is_empty(),
+            "a curve that landed on the frame produced a framing note"
+        );
     }
 
     /// **SB-MLA-023, the half that fails the build.** The product has two k-means engines for
@@ -4483,6 +5852,9 @@ mod tests {
             target_transform: None,
             coverage_segments: false,
             output_step: None,
+            interval: DepthWindow::default(),
+            norm_basis: None,
+            norm_limits: vec![],
         }
     }
 
@@ -4736,6 +6108,116 @@ mod tests {
         assert_eq!(transformed_unit("log10", Some("mD")), "log10(mD)");
         assert_eq!(transformed_unit("log10", Some("  ")), "log10");
         assert_eq!(transformed_unit("log10", None), "log10");
+    }
+
+    /// **Sampling is not resolution, and a prediction says which one it fell short on.**
+    ///
+    /// Jauhar, 2026-08-07: *"rhob and dres with same sampling at 0.5 f can have different resolution
+    /// or curve/wave frequency"*. He is right, and it is the harder half of the sampling question: a
+    /// density pad reads a few inches and a deep induction reads several feet, so two curves on one
+    /// 0.5 ft frame carry completely different vertical resolution. Blocking to a thickness cannot
+    /// see that at all - both curves have the same sample spacing.
+    ///
+    /// A prediction is always smoother than its target, because the model can only carry through the
+    /// detail its INPUTS contain. So this is measured and reported, never corrected: restoring the
+    /// missing detail means synthesizing it, and a curve that looks better resolved without being
+    /// better known is the more expensive failure.
+    ///
+    /// Pinned from both sides. A smooth prediction of a rough target must be REPORTED, and a
+    /// prediction that already matches its target's roughness must be SILENT - a line printed on
+    /// every run is a line the eye learns to skip, and this one has to be read when it appears.
+    #[test]
+    fn a_smooth_prediction_of_a_rough_log_says_so_and_a_faithful_one_stays_quiet() {
+        // A rough target: fine detail on a trend, as a density pad reads it.
+        let rough: Vec<f32> = (0..200)
+            .map(|i| 2.4 + 0.02 * ((i % 2) as f32) + 0.0005 * i as f32)
+            .collect();
+        // A smooth prediction of the same thing: the trend, none of the detail. This is what a model
+        // fed only low-resolution curves returns, and it plots as a perfectly plausible density.
+        let smooth: Vec<f32> = (0..200).map(|i| 2.41 + 0.0005 * i as f32).collect();
+
+        let note = resolution_note(&rough, &smooth, "RHOB").expect("a smoother prediction must be reported");
+        assert!(note.contains("vertical resolution"), "{note}");
+        assert!(note.contains("RHOB"), "the note must name the target it fell short of: {note}");
+        assert!(note.contains("SMOOTHER"), "{note}");
+
+        // The other side: a prediction that wiggles like its target says nothing.
+        assert!(
+            resolution_note(&rough, &rough, "RHOB").is_none(),
+            "a prediction matching its target's roughness must not print a warning"
+        );
+
+        // Roughness is RELATIVE to the curve's own spread, or a permeability in millidarcies would
+        // always look rougher than a porosity in fractions and the two could never be compared.
+        let big: Vec<f32> = rough.iter().map(|v| v * 1000.0).collect();
+        let (a, b) = (roughness(&rough).unwrap(), roughness(&big).unwrap());
+        assert!((a - b).abs() < 1e-4, "scaling a curve must not change how rough it is: {a} vs {b}");
+
+        // A gap contributes no step. Bridged, the jump across it would read as fine detail - the
+        // exact opposite of the truth, since nothing was measured there at all.
+        let mut holed = rough.clone();
+        for i in 90..110 {
+            holed[i] = f32::NAN;
+        }
+        let r = roughness(&holed).expect("a curve with a gap still has a roughness");
+        assert!(r < a * 1.5, "a gap must not be counted as a step: {r} against {a}");
+
+        // Too little to say anything is None, not zero: zero would read as "perfectly smooth".
+        assert!(roughness(&[1.0, 2.0, 3.0]).is_none());
+        assert!(roughness(&[2.5f32; 50]).is_none(), "a flat curve has no spread to be rough relative to");
+    }
+
+    /// **A tops-bounded run is bounded on BOTH sides of the work: what it learns from, and what it
+    /// writes.**
+    ///
+    /// Jauhar, 2026-08-07: *"it should be tops bounded as well by user"*. A model fitted over a
+    /// whole well learns one relation for every formation it passed through, and a deltaic sand and
+    /// the carbonate below it do not share a porosity-permeability transform.
+    ///
+    /// Three things here are the ones that go wrong quietly:
+    ///
+    /// An open side must stay open. The last top in a well runs to TD, expressed as no base rather
+    /// than a guessed one — read as "no window", the run silently widens back to the whole well and
+    /// the interpreter gets a field-wide model under a zone's name.
+    ///
+    /// The base is EXCLUSIVE while the top is inclusive, so two abutting zones cannot both claim the
+    /// sample sitting exactly on their shared marker. Swept zone by zone, an inclusive base would
+    /// count that sample twice — once in each model, in both scores.
+    ///
+    /// And a NaN depth is in no window at all. `contains` on a non-finite depth has to be false, or
+    /// a comparison that is false in both directions lets it fall through whichever branch was
+    /// written second.
+    #[test]
+    fn a_tops_bounded_run_is_confined_on_both_sides_and_an_open_side_stays_open() {
+        let both = DepthWindow { top: Some(2000.0), base: Some(2100.0) };
+        assert!(!both.is_open());
+        assert!(both.contains(2000.0), "the top marker's own sample is INSIDE its zone");
+        assert!(both.contains(2099.9));
+        assert!(!both.contains(2100.0), "the base marker belongs to the zone BELOW, or it is counted twice");
+        assert!(!both.contains(1999.9));
+
+        // An open side is open, not zero and not the top of the log.
+        let to_td = DepthWindow { top: Some(2000.0), base: None };
+        assert!(to_td.contains(9999.0), "no base means run to TD");
+        assert!(!to_td.contains(1999.0));
+        let from_top = DepthWindow { top: None, base: Some(2100.0) };
+        assert!(from_top.contains(0.0), "no top means start at the top of the log");
+        assert!(!from_top.contains(2100.0));
+
+        // The default constrains nothing, which is what keeps every pre-existing payload whole.
+        let open = DepthWindow::default();
+        assert!(open.is_open());
+        assert!(open.contains(-1.0) && open.contains(1e9));
+
+        // A depth that is not a number is in no window, including the open one.
+        assert!(!both.contains(f32::NAN));
+        assert!(!open.contains(f32::NAN));
+
+        // The description is what the run's note quotes, so an open side must not read as a number.
+        assert_eq!(both.describe(), "2000 to 2100");
+        assert_eq!(to_td.describe(), "2000 to TD");
+        assert_eq!(from_top.describe(), "the top of the log to 2100");
+        assert_eq!(open.describe(), "the whole well");
     }
 
     /// **A depth is predicted by the largest model whose curves it carries, and by nothing else.**
@@ -6043,7 +7525,7 @@ mod tests {
         let features = vec!["GR".to_string()];
         let ids = vec![a.to_string()];
         let (_x, y, _g, empty, roster) =
-            assemble_training(&conn, &ids, &features, "RHOB", Some(&"BADHOLE".to_string()), None);
+            assemble_training(&conn, &ids, &features, "RHOB", Some(&"BADHOLE".to_string()), None, DepthWindow::default());
 
         assert!(empty.is_empty(), "the well contributed, so it is not an empty well");
         assert_eq!(y.len(), 5, "10 depths, 3 masked, 2 with no target");
@@ -6056,7 +7538,7 @@ mod tests {
 
         // The other side: the same well with no mask loses nothing to one.
         let (_x2, y2, _g2, _e2, roster2) =
-            assemble_training(&conn, &ids, &features, "RHOB", None, None);
+            assemble_training(&conn, &ids, &features, "RHOB", None, None, DepthWindow::default());
         assert_eq!(y2.len(), 8, "the three flagged depths are ordinary rows without a mask");
         assert_eq!(roster2[0].masked, 0, "no mask, nothing attributed to one");
         assert_eq!(roster2[0].incomplete, 2);
@@ -6115,6 +7597,150 @@ mod tests {
         }
     }
 
+    /// **SB-MLA-033.** A fixed basis is a set of numbers only the analyst can supply — a GR
+    /// normalised 0–150 and the same GR normalised 0–200 give different clusters and both look
+    /// right. So an incomplete or unusable basis is REFUSED by name rather than completed from the
+    /// data, which is precisely the thing the user asked to stop doing.
+    ///
+    /// Pinned from both sides. A complete basis must resolve, or the refusals are just a broken
+    /// feature; and the DEFAULT must stay data-derived, or every payload written before this
+    /// existed would start refusing.
+    #[test]
+    fn a_fixed_basis_is_refused_rather_than_completed_when_a_curve_has_no_limits() {
+        let feats: Vec<String> = vec!["GR".into(), "RHOB".into()];
+        let lim = |c: &str, lo: f64, hi: f64| CurveLimit { curve: c.into(), low: lo, high: hi };
+
+        // Complete and usable — resolves.
+        let ok = resolve_norm_basis(
+            Some("limits"),
+            &[lim("GR", 0.0, 150.0), lim("RHOB", 1.9, 2.9)],
+            &feats,
+        )
+        .expect("a complete basis must resolve");
+        match ok {
+            NormBasis::Limits(p) => assert_eq!(p, vec![(0.0, 150.0), (1.9, 2.9)]),
+            NormBasis::Data => panic!("asked for limits, got the data-derived basis"),
+        }
+
+        // One curve uncovered — refused, and the message NAMES it, because "invalid basis" leaves
+        // the user checking every row of the table by hand.
+        let err = resolve_norm_basis(Some("limits"), &[lim("GR", 0.0, 150.0)], &feats).unwrap_err();
+        assert!(err.contains("RHOB"), "the uncovered curve must be named: {err}");
+        assert!(!err.to_lowercase().contains("gr,"), "the covered curve must not be blamed: {err}");
+
+        // Inverted and zero-width pairs are refused too. Both have a plausible-looking repair —
+        // swap them, nudge them apart — and both would silently change the transform.
+        for (lo, hi) in [(150.0, 0.0), (150.0, 150.0)] {
+            let e = resolve_norm_basis(
+                Some("limits"),
+                &[lim("GR", lo, hi), lim("RHOB", 1.9, 2.9)],
+                &feats,
+            )
+            .unwrap_err();
+            assert!(e.contains("GR"), "the bad pair must be named: {e}");
+        }
+
+        // The other side: nothing declared is the data-derived basis, exactly as before this
+        // existed. An older payload carries neither field and must run unchanged.
+        for basis in [None, Some(""), Some("data")] {
+            assert!(
+                matches!(resolve_norm_basis(basis, &[], &feats), Ok(NormBasis::Data)),
+                "{basis:?} must stay data-derived"
+            );
+        }
+        // An unrecognised value is refused rather than falling through to either branch.
+        assert!(resolve_norm_basis(Some("minmax"), &[], &feats).is_err());
+    }
+
+    /// **SB-MLA-033, the silent half.** The basis reaches the runner as bare positions, so a pair
+    /// out of step with the matrix would normalise GR by RHOB's range — and that computes, plots and
+    /// ships. Limits are therefore matched BY NAME and re-ordered into the resolved feature order,
+    /// the same discipline the ordered-feature contract follows, for the same reason.
+    ///
+    /// Pinned from both sides: supplied out of order they must follow the FEATURES, and a
+    /// case-different name must still match, or a user typing `gr` would get a spurious refusal.
+    #[test]
+    fn fixed_limits_follow_the_feature_order_not_the_order_they_were_supplied_in() {
+        let feats: Vec<String> = vec!["GR".into(), "RHOB".into(), "NPHI".into()];
+        // Supplied in a deliberately different order, one of them lower-cased.
+        let limits = vec![
+            CurveLimit { curve: "NPHI".into(), low: 0.0, high: 0.6 },
+            CurveLimit { curve: "gr".into(), low: 0.0, high: 150.0 },
+            CurveLimit { curve: "RHOB".into(), low: 1.9, high: 2.9 },
+        ];
+        let NormBasis::Limits(pairs) = resolve_norm_basis(Some("limits"), &limits, &feats).unwrap()
+        else {
+            panic!("expected fixed limits");
+        };
+        assert_eq!(
+            pairs,
+            vec![(0.0, 150.0), (1.9, 2.9), (0.0, 0.6)],
+            "the basis must be in FEATURE order, not supplied order"
+        );
+    }
+
+    /// **SB-MLA-033, the reporting half — the add-a-well trap.** On a data-derived basis, adding one
+    /// well recomputes every mean and scale, so every boundary expressed in it moves *in the wells
+    /// that were already there*. Nothing about the new run looks wrong; the old interpretation
+    /// simply no longer means what it did, and both answers are equally plausible on the screen.
+    ///
+    /// Pinned from both sides, and the second side is what makes the first usable: a retrain on
+    /// data that did NOT move the basis must stay quiet, or the note fires on every retrain and
+    /// stops being read. The movement is quoted in standard deviations of the OLD basis because
+    /// that is the unit every carried-over threshold is already in.
+    #[test]
+    fn a_retrain_that_moves_the_feature_space_says_so_and_one_that_does_not_stays_quiet() {
+        use crate::db;
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let feats: Vec<String> = vec!["GR".into(), "RHOB".into()];
+        let on: Vec<String> = vec!["A".into()];
+        let blob = vec![1u8, 2, 3];
+
+        // The model the name already points at: GR centred on 75 with a spread of 20.
+        let basis = |mean: [f64; 2], scale: [f64; 2]| {
+            serde_json::json!({
+                "norm_basis": "data",
+                "standardize_basis_mean": mean,
+                "standardize_basis_scale": scale,
+            })
+        };
+        let first = basis([75.0, 2.4], [20.0, 0.15]).to_string();
+        let mut fixture = model_fixture("PERM_RF", &feats, &on, &blob, None);
+        fixture.metrics_json = &first;
+        let (_, stored) = db::insert_ml_model(&conn, &fixture).unwrap();
+        assert_eq!(stored, "PERM_RF");
+
+        // Retrain after adding a shalier well: GR's centre moves half a standard deviation of the
+        // basis the earlier model was reading in.
+        let moved = basis([85.0, 2.4], [24.0, 0.15]);
+        let note = basis_shift_note(&conn, "PERM_RF", "PERM_RF_1", &moved, &feats)
+            .expect("a basis that moved must be reported");
+        assert!(note.contains("RESCALED"), "{note}");
+        assert!(note.contains("GR"), "the largest mover must be named: {note}");
+        assert!(note.contains("0.50"), "the shift is in OLD standard deviations: {note}");
+        assert!(note.contains("120%"), "the spread change must be quoted: {note}");
+        assert!(note.contains("Fixed limits"), "the fix must be named: {note}");
+
+        // Quiet where nothing moved — same data, same space, nothing to warn about.
+        assert!(
+            basis_shift_note(&conn, "PERM_RF", "PERM_RF_1", &basis([75.0, 2.4], [20.0, 0.15]), &feats)
+                .is_none(),
+            "an unchanged basis must not produce a note"
+        );
+        // Quiet where there was no earlier model of that name: nothing was replaced.
+        assert!(
+            basis_shift_note(&conn, "PERM_RF", "PERM_RF", &moved, &feats).is_none(),
+            "a first save has nothing to compare against"
+        );
+        // A basis over different inputs is not comparable, and says so rather than lining the
+        // vectors up by position — that would compare GR's mean against RHOB's.
+        let other: Vec<String> = vec!["GR".into(), "NPHI".into()];
+        let mismatch = basis_shift_note(&conn, "PERM_RF", "PERM_RF_1", &moved, &other)
+            .expect("a feature-list change must be reported, not silently skipped");
+        assert!(mismatch.contains("different inputs"), "{mismatch}");
+    }
+
     #[test]
     fn a_retrained_model_never_overwrites_the_one_a_delivered_curve_was_made_with() {
         use crate::db;
@@ -6129,6 +7755,448 @@ mod tests {
         assert_eq!(first, "PERM_RF");
         assert_eq!(second, "PERM_RF_1", "a second fit is a NEW model, not a replacement");
         assert_eq!(db::list_ml_models(&conn).unwrap().len(), 2);
+    }
+
+    /// **SB-MLA-007 — a model a delivered curve cites is not deletable without a word, and one
+    /// nothing cites is.**
+    ///
+    /// Deleting a cited model corrupts nothing: the curve keeps its numbers. It does something
+    /// quieter and more expensive — the curve goes on naming a model id that resolves to nothing, so
+    /// the provenance block in a report names something nobody can produce, and the failure surfaces
+    /// in front of a client months later as a question that cannot be answered.
+    ///
+    /// Pinned from both sides, because the second is what decides whether the first is any use. A
+    /// check that flagged every model would be one people learn to click past, so a model nothing
+    /// cites must come back clean — and so must one whose log set carries no curves, since a
+    /// superseded version is not in the deliverable and protecting it would make the refusal noise.
+    #[test]
+    fn a_model_a_delivered_curve_cites_is_not_deletable_without_a_word() {
+        use crate::db;
+        use crate::equations::{create_log_set, write_computed_curves_versioned, LogSetSpec};
+        use uuid::Uuid;
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-CITE", None, None, Some(0.0)).unwrap();
+        let well_id = well.to_string();
+
+        let feats: Vec<String> = vec!["GR".into()];
+        let on: Vec<String> = vec!["SANDI-CITE".into()];
+        let blob = vec![1u8, 2, 3];
+        let (cited_id, _) = db::insert_ml_model(&conn, &model_fixture("CITED", &feats, &on, &blob, None)).unwrap();
+        let (lonely_id, _) = db::insert_ml_model(&conn, &model_fixture("LONELY", &feats, &on, &blob, None)).unwrap();
+
+        // A curve made by CITED, recorded the way the fit path records it.
+        let depths: Vec<f32> = (0..20).map(|i| 1000.0 + i as f32).collect();
+        let vals: Vec<f32> = (0..20).map(|i| 0.1 + i as f32 * 0.001).collect();
+        let spec = LogSetSpec {
+            set_name: "ML".into(),
+            module: "ml:regression:rf".into(),
+            params_json: serde_json::json!({ "algorithm": "rf", "model_id": cited_id, "model_name": "CITED" })
+                .to_string(),
+            inputs_json: "[\"GR\"]".into(),
+        };
+        let (set_id, _) = create_log_set(&conn, &well_id, &spec).unwrap();
+        write_computed_curves_versioned(&conn, &well_id, &depths, &[("PHIT_ML", vals.as_slice())], &set_id).unwrap();
+
+        // The cited one is found, and the citation says WHERE — a refusal naming no curve is one
+        // nobody can act on.
+        let cited = model_citations(&conn, &cited_id);
+        assert_eq!(cited.len(), 1, "the delivered curve must be found: {cited:?}");
+        assert_eq!(cited[0].well_name, "SANDI-CITE");
+        assert_eq!(cited[0].set_name, "ML");
+        assert_eq!(cited[0].curves, vec!["PHIT_ML".to_string()]);
+
+        // The other side. A model nothing cites is clean, or the check becomes noise.
+        assert!(
+            model_citations(&conn, &lonely_id).is_empty(),
+            "a model no curve names must not be protected, or the refusal is one people click past"
+        );
+
+        // A log set with no rows is not in any deliverable. Protecting it would flag a model whose
+        // curves were re-run and superseded, which is the commonest case of all.
+        let empty_spec = LogSetSpec {
+            set_name: "ML".into(),
+            module: "ml:regression:rf".into(),
+            params_json: serde_json::json!({ "model_id": lonely_id }).to_string(),
+            inputs_json: "[]".into(),
+        };
+        create_log_set(&conn, &well_id, &empty_spec).unwrap();
+        assert!(
+            model_citations(&conn, &lonely_id).is_empty(),
+            "a set carrying no curves is not in a deliverable and must not protect its model"
+        );
+    }
+
+    /// **SB-MLA-007, second half — a curve whose model was force-deleted says the reference is
+    /// unresolvable, and one whose model is still there does not.**
+    ///
+    /// The refusal can be overridden, so the deleted case is reachable by design. Once it happens the
+    /// provenance block is the last line of defence: printing the model NAME alone reads as a live
+    /// reference, and a report naming a model nobody can produce asserts an audit trail it cannot
+    /// honour — which is the hazard the guard exists for, arriving by the one route the guard allows.
+    ///
+    /// The second assertion is the load-bearing one. A block that marked every row would tell a
+    /// reader nothing, so the live case must come back with the bare name.
+    #[test]
+    fn a_curve_whose_model_was_deleted_says_so_and_one_whose_model_remains_does_not() {
+        use crate::db;
+        use crate::equations::{create_log_set, write_computed_curves_versioned, LogSetSpec};
+        use uuid::Uuid;
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-GONE", None, None, Some(0.0)).unwrap();
+        let well_id = well.to_string();
+
+        let feats: Vec<String> = vec!["GR".into()];
+        let on: Vec<String> = vec!["SANDI-GONE".into()];
+        let blob = vec![9u8; 8];
+        let (doomed, _) = db::insert_ml_model(&conn, &model_fixture("DOOMED", &feats, &on, &blob, None)).unwrap();
+        let (kept, _) = db::insert_ml_model(&conn, &model_fixture("KEPT", &feats, &on, &blob, None)).unwrap();
+
+        let depths: Vec<f32> = (0..10).map(|i| 900.0 + i as f32).collect();
+        let vals: Vec<f32> = (0..10).map(|i| 0.2 + i as f32 * 0.001).collect();
+        for (name, id, curve) in [("ML_A", &doomed, "PERM_A"), ("ML_B", &kept, "PERM_B")] {
+            let spec = LogSetSpec {
+                set_name: name.into(),
+                module: "ml:regression:rf".into(),
+                params_json: serde_json::json!({ "model_id": id, "model_name": name }).to_string(),
+                inputs_json: "[\"GR\"]".into(),
+            };
+            let (set_id, _) = create_log_set(&conn, &well_id, &spec).unwrap();
+            write_computed_curves_versioned(&conn, &well_id, &depths, &[(curve, vals.as_slice())], &set_id).unwrap();
+        }
+
+        // Both models are live: neither row may claim otherwise.
+        let before = ml_provenance(&conn, &well_id);
+        assert_eq!(before.len(), 2, "both ML log sets carry curves: {before:?}");
+        assert!(
+            before.iter().all(|r| !r.model.contains("DELETED")),
+            "a live model must print as a bare name, or the mark tells a reader nothing: {before:?}"
+        );
+
+        db::delete_ml_model(&conn, &doomed).unwrap();
+
+        let after = ml_provenance(&conn, &well_id);
+        let gone = after.iter().find(|r| r.curves.contains("PERM_A")).expect("the curve outlives its model");
+        let still = after.iter().find(|r| r.curves.contains("PERM_B")).expect("the untouched set is unchanged");
+        assert!(
+            gone.model.contains("DELETED"),
+            "the deliverable must say the reference is unresolvable, not just name it: {}",
+            gone.model
+        );
+        assert!(gone.model.contains("ML_A"), "and must still say WHICH model, or the record is useless");
+        assert_eq!(still.model, "ML_B", "the surviving model's row is untouched");
+    }
+
+    /// **SB-MLA-017 — a log set written before a cancel says it came from a cancelled run, and one
+    /// from a run that finished says nothing.**
+    ///
+    /// A partially written set is the worst artifact this pane can leave. It is not corrupt and it is
+    /// not empty: on the Wells pane it carries the same set name and the same module string a
+    /// complete run writes, so it reads as a finished interpretation over a smaller well selection —
+    /// and the wells that were cut look like wells somebody chose to exclude.
+    ///
+    /// The third assertion is the one that would actually bite. The mark shares `params_json` with
+    /// the model reference (SB-MLA-006) and the blind record (SB-MLA-009), so a stamp that rebuilt
+    /// the object instead of adding to it would erase the provenance it was written to qualify.
+    #[test]
+    fn a_log_set_written_before_a_cancel_says_so_and_a_completed_one_stays_silent() {
+        use crate::db;
+        use crate::equations::{create_log_set, LogSetSpec};
+        use uuid::Uuid;
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-CUT", None, None, Some(0.0)).unwrap();
+        let well_id = well.to_string();
+
+        let spec = |set: &str| LogSetSpec {
+            set_name: set.into(),
+            module: "ml:regression:rf".into(),
+            params_json: serde_json::json!({
+                "algorithm": "rf",
+                "model_id": "m-123",
+                "model_name": "PERM_RF",
+                "blind": { "performed": true, "metric": "r2", "value": 0.81 },
+            })
+            .to_string(),
+            inputs_json: "[\"GR\"]".into(),
+        };
+        let (cut, _) = create_log_set(&conn, &well_id, &spec("ML_CUT")).unwrap();
+        let (whole, _) = create_log_set(&conn, &well_id, &spec("ML_WHOLE")).unwrap();
+
+        // Two of five wells were written before the user pressed Cancel.
+        let marked = mark_cancelled_sets(&conn, std::slice::from_ref(&cut), 2, 5);
+        assert_eq!(marked, 1, "the set that was written must be marked");
+
+        let read = |set_id: &str| -> serde_json::Value {
+            let s: Option<String> = conn
+                .query_row("SELECT params_json FROM log_sets WHERE set_id = ?1", duckdb::params![set_id], |r| r.get(0))
+                .unwrap();
+            serde_json::from_str(&s.unwrap()).unwrap()
+        };
+
+        let c = read(&cut);
+        assert_eq!(c["cancelled"]["wells_written"], 2);
+        assert_eq!(c["cancelled"]["wells_in_scope"], 5);
+        assert!(
+            c["cancelled"]["note"].as_str().unwrap_or("").contains("cut, not excluded"),
+            "the mark is read by a person deciding whether to deliver the curve, so it says so in words: {}",
+            c["cancelled"]
+        );
+
+        // The mark QUALIFIES the provenance; it must not replace it.
+        assert_eq!(c["model_id"], "m-123", "the model reference must survive the stamp");
+        assert_eq!(c["blind"]["value"], 0.81, "and so must the blind record");
+        assert_eq!(c["algorithm"], "rf");
+
+        // The other side: a run that finished leaves nothing to explain, and a mark on every set
+        // would tell a reader nothing.
+        let w = read(&whole);
+        assert!(w.get("cancelled").is_none(), "a completed run's set must stay silent: {w}");
+    }
+
+    /// **SB-MLA-021 — a rejected sample is a class, and it is never drawn as one of the clusters.**
+    ///
+    /// "This sample is an outlier the model refuses to classify" and "this sample had no RHOB" are
+    /// different statements about the rock. Writing both as missing left the class curve unable to
+    /// say which, and the aggregate `noise_pct` could only say how much, never where.
+    ///
+    /// The colour half is the part that would have shipped wrong. Both palette lookups fold an index
+    /// back into range with `((i % n) + n) % n`, so `-1` would have painted as a real cluster's
+    /// colour — an outlier drawn as a legitimate facies on the log view and in the printed
+    /// deliverable, which is worse than the gap it replaced.
+    #[test]
+    fn a_rejected_sample_is_a_class_of_its_own_and_is_never_coloured_as_a_cluster() {
+        // One definition, emitted into the runner rather than written there — the same rule the
+        // k-means constants follow, for the same reason: a literal would run and look right.
+        let preamble = ml_shared_constants_py();
+        assert!(
+            preamble.contains(&format!("CLUSTER_REJECT = {CLUSTER_REJECT}")),
+            "the runner preamble must carry the reject code:\n{preamble}"
+        );
+        assert!(CLUSTER_REJECT < 0, "the reject code must sort below every cluster id");
+        assert!(
+            ML_RUNNER_BODY.contains("out[labels < 0] = CLUSTER_REJECT"),
+            "the runner must WRITE the reject code, not leave the sample missing"
+        );
+        assert!(
+            !ML_RUNNER_BODY.contains("# DBSCAN noise (-1) stays NaN"),
+            "the old conflating behaviour must be gone, not merely supplemented"
+        );
+
+        // The colour separation. A reject must not collide with ANY cluster colour, including the
+        // one the modulo wrap would have handed it.
+        let reject = crate::composite::facies_color_for_test(CLUSTER_REJECT);
+        for c in 0..24i64 {
+            assert_ne!(
+                crate::composite::facies_color_for_test(c),
+                reject,
+                "cluster {c} shares the reject colour, so an outlier prints as real rock"
+            );
+        }
+        // Any negative, not only this code: an unrecognised class must not be painted as rock.
+        assert_eq!(crate::composite::facies_color_for_test(-7), reject);
+    }
+
+    /// **Round-3 item 5 — the textured prediction is a SECOND curve, named for what it is, and it is
+    /// never what you get by default.**
+    ///
+    /// Jauhar asked for two versions. The reason two names matter rather than two dialog settings is
+    /// that the dialog is seen once and the curve is read for years: a smooth prediction and one
+    /// carrying simulated detail plot identically to a reader who was not told which is which, and
+    /// the simulated one looks BETTER — more detailed, more like a real log — which is exactly
+    /// backwards from how much it can be trusted.
+    ///
+    /// Under a transform the texturing is of the model's own log-space output, so it must be named
+    /// after that curve. `PERM_SIM` beside a `PERM` in millidarcies would be read as millidarcies and
+    /// plot orders of magnitude out.
+    #[test]
+    fn a_spectrally_textured_prediction_is_a_second_named_curve_and_never_the_default() {
+        // Named for the simulation, not the method: what matters to whoever picks the curve up is
+        // that the detail was invented, not that a Fourier transform was involved.
+        assert_eq!(out_name_for("PERM", SIM_SUFFIX, ""), "PERM_SIM");
+        assert_eq!(out_name_for("PERM", "", ""), "PERM", "the plain prediction keeps the base name");
+        assert_eq!(
+            out_name_for("PERM", SIM_SUFFIX, "log10"),
+            "PERM_LOG10_SIM",
+            "under a transform the texturing is OF the log-space curve and must say so"
+        );
+
+        // Same space as the curve it was made from, so an export cannot put an undeclared log-space
+        // curve beside one in millidarcies.
+        assert_eq!(unit_for_output(SIM_SUFFIX, "", Some("mD")).as_deref(), Some("mD"));
+        assert_eq!(
+            unit_for_output(SIM_SUFFIX, "log10", Some("mD")),
+            unit_for_output("", "log10", Some("mD")),
+            "the textured curve carries whatever unit the model's own output carries"
+        );
+
+        // One spelling, emitted, for the same reason the reject code is.
+        assert!(ml_shared_constants_py().contains(&format!("SIM_SUFFIX = \"{SIM_SUFFIX}\"")));
+        assert!(
+            ML_RUNNER_BODY.contains("outs.append((SIM_SUFFIX, sim))"),
+            "the runner must emit under the shared name, not a literal it could misspell"
+        );
+
+        // OFF unless asked for. The plain prediction is the defensible curve; a textured one that
+        // arrived unrequested would be quoted as a measurement by somebody who never chose it.
+        assert!(
+            ML_RUNNER_BODY.contains("P(p, \"spectral_texture\", False)"),
+            "spectral texture must default to off, and go through P so the record says it was off"
+        );
+        // The added detail must never move the answer the plain curve already gives.
+        assert!(
+            ML_RUNNER_BODY.contains("deficit[0] = 0.0"),
+            "the DC term must be forced to zero or the textured curve shifts the mean"
+        );
+        assert!(
+            ML_RUNNER_BODY.contains("np.maximum(0.0, want ** 2 - have ** 2)"),
+            "only the DEFICIT is added, so a prediction already as rough as its target is left alone"
+        );
+        // ...and the deficit is measured against a SMOOTHED periodogram. Without this the estimator
+        // is inconsistent, half its bins read low by chance, and rectifying at zero turns every one
+        // of those into energy added to a curve that did not need it — measured: a prediction
+        // already at its target's resolution came back rougher than the log it was matched to.
+        assert!(
+            ML_RUNNER_BODY.contains("smooth_band(np.abs(np.fft.rfft(centred)) ** 2, SPEC_SMOOTH)"),
+            "the segment's spectrum must be smoothed, or the deficit is measured against noise"
+        );
+    }
+
+    /// **A model may not be fitted against a curve carrying simulated detail.**
+    ///
+    /// This is the failure the two-curve design exists to prevent, and it is the one a naming
+    /// convention does NOT prevent on its own: the input list offers every curve in the well, and
+    /// `PERM_SIM` sorts directly beside `PERM`. Tick the wrong one and the model learns invented
+    /// high-frequency detail, reports the usual scores for it, and the provenance records only that
+    /// a curve named `PERM_SIM` was an input — true, and silent about what it means.
+    ///
+    /// Pinned from both sides. A refusal that also caught ordinary curves would be one people route
+    /// around, and `SIMPSON` or `MAX_SIM_1` must go through: the rule is a SUFFIX, not a substring.
+    #[test]
+    fn a_model_may_not_be_fitted_against_a_curve_carrying_simulated_detail() {
+        let sim = |v: &[&str], t: Option<&str>| {
+            refuse_simulated_inputs(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>(), t)
+        };
+
+        // As a feature, as a target, and named in the refusal so the user knows which to swap.
+        let f = sim(&["GR", "perm_sim"], None).expect("a simulated feature is refused");
+        assert!(f.contains("PERM_SIM"), "the refusal must name the offender: {f}");
+        assert!(f.contains("without _SIM"), "and must say what to use instead: {f}");
+        assert!(sim(&["GR"], Some("PHIE_SIM")).is_some(), "a simulated TARGET is refused too");
+
+        // Both offenders named, once each, rather than only the first.
+        let both = sim(&["A_SIM", "GR", "A_SIM", "B_SIM"], None).unwrap();
+        assert!(both.contains("A_SIM") && both.contains("B_SIM"), "{both}");
+        assert_eq!(both.matches("A_SIM").count(), 1, "deduped: {both}");
+
+        // The other side. A refusal that fired on ordinary curves would be routed around, and the
+        // rule is a suffix — a curve that merely CONTAINS the letters must run.
+        assert!(sim(&["GR", "RHOB", "NPHI"], Some("PERM")).is_none());
+        assert!(sim(&["SIMPSON", "MAX_SIM_1", "SIMILARITY"], Some("PERM")).is_none());
+        assert!(sim(&[], None).is_none());
+    }
+
+    /// **The runner is launched from a FILE, so its length is not a cliff — and a temp file cannot
+    /// outlive the run.**
+    ///
+    /// This is a scar, not a precaution. `python -c <source>` was the launch mechanism, Windows caps
+    /// a command line near 32 KB, and the runner crossed it — every ML feature failed at once with
+    /// `The filename or extension is too long. (os error 206)`, a message naming neither Python nor
+    /// machine learning. The trigger was added comments. Nothing guarded it, so the ceiling was
+    /// invisible until it was a total outage, and the natural "fix" under it — delete some comments —
+    /// would have restored service while leaving the cliff exactly where it was.
+    ///
+    /// So the assertion is not "the runner is short enough". It is that **no runner is launched with
+    /// `-c` at all**, which is the property that has no ceiling. The runners are deliberately checked
+    /// against the old limit too, purely to record that they are past it: this is not a hypothetical.
+    #[test]
+    fn a_runner_is_launched_from_a_file_so_its_length_is_not_a_cliff() {
+        const CMDLINE_CEILING: usize = 32_767;
+
+        // The evidence. If these ever fall back under the ceiling the test still passes — it is the
+        // launch mechanism that matters — but the numbers are here so nobody re-litigates this.
+        let sizes = [("fit", ml_runner().len()), ("apply", ml_apply_runner().len()), ("eval", ml_eval_runner().len())];
+        assert!(
+            sizes.iter().any(|(_, n)| *n > CMDLINE_CEILING),
+            "a runner used to exceed {CMDLINE_CEILING} chars and that is why this exists: {sizes:?}"
+        );
+
+        // The property that actually holds: no runner rides on the command line.
+        let src = include_str!("ml.rs");
+        for bad in ["-c\", &ml_runner()", "-c\", &ml_apply_runner()", "-c\", &ml_eval_runner()"] {
+            assert!(
+                !src.contains(bad),
+                "a runner is being passed with -c again, which reinstates a ~{CMDLINE_CEILING}-char \
+                 cliff that fails with an error naming neither Python nor ML: {bad}"
+            );
+        }
+
+        // And the file does not outlive the run — a fit per well across a field would otherwise
+        // leave one temp file per run behind for the session.
+        let path = {
+            let s = ScriptFile::new("selftest", "print('hi')\n").expect("temp script");
+            assert!(s.path().exists(), "the script must exist while the run holds it");
+            s.path().to_path_buf()
+        };
+        assert!(!path.exists(), "the temp script must be removed when the run drops it");
+    }
+
+    /// **SB-MLA-022 — the ordered-feature contract is checked on the DEFAULT gate.**
+    ///
+    /// The runtime refusal lives inside the joblib artifact and needs a real interpreter, so the test
+    /// that exercises it is `#[ignore]`d and legitimately so. That left one of the four things this
+    /// tree does better than any incumbent resting on somebody remembering to run the ignored set.
+    ///
+    /// The gap is closable without scikit-learn because the strongest guarantee here is STRUCTURAL,
+    /// not behavioural: an apply request has no feature list at all, so a caller cannot state an
+    /// order to get wrong. `apply_ml_model` drives the fetch from the artifact's own list. A refusal
+    /// catches a bad order; having nowhere to express one means it cannot arise from this product at
+    /// all, and that property is checkable here.
+    #[test]
+    fn an_apply_request_cannot_state_a_feature_order_for_the_model_to_refuse() {
+        // An EXHAUSTIVE struct literal, deliberately. If a `feature_curves` field is ever added to
+        // the apply request this stops COMPILING with "missing field", which is a stronger and
+        // earlier guard than any runtime assertion — and the reason is here for whoever hits it: a
+        // caller-supplied order is a second place to state the feature list, therefore a second
+        // place to get it wrong, and a model fed [RHOB, GR] where it was fitted on [GR, RHOB]
+        // returns confident nonsense that nothing downstream can catch.
+        let _shape = MlApplyRequest {
+            input_set: None,
+            interval: DepthWindow::default(),
+            output_set: None,
+            model_id: "m-1".into(),
+            apply_well_ids: vec!["w-1".into()],
+            output_curve: "PERM_ML".into(),
+            mask_curve: None,
+        };
+
+        // And a feature list offered over IPC is ignored rather than honoured — an older or
+        // hand-built caller cannot smuggle one in.
+        let json = serde_json::json!({
+            "model_id": "m-1",
+            "apply_well_ids": ["w-1"],
+            "output_curve": "PERM_ML",
+            "feature_curves": ["RHOB", "GR"],
+        });
+        let req: MlApplyRequest =
+            serde_json::from_value(json).expect("an unknown feature list must be ignored, not fatal");
+        assert_eq!(req.model_id, "m-1", "the model id is the only thing that selects features");
+
+        // And the runner still refuses a mismatch, for models applied by anything that is not this
+        // request type. Source-level, which is the weaker kind of assertion — the behavioural test
+        // is `a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order`, which needs sklearn.
+        let src = ml_apply_runner();
+        assert!(
+            src.contains("features") && (src.contains("!=") || src.contains("fail(")),
+            "the apply runner must still check the artifact's feature list"
+        );
     }
 
     #[test]
@@ -6175,6 +8243,7 @@ mod tests {
                 apply_well_ids: vec![blind.clone()],
                 output_curve: "PHIT_ML".into(),
                 mask_curve: None,
+                interval: DepthWindow::default(),
             },
             None,
         );
@@ -6193,6 +8262,205 @@ mod tests {
             let want = 0.4 - 0.002 * gr[i] + 0.05 * rhob[i];
             assert!((pred[i] - want).abs() < 1e-3, "row {i}: predicted {} want {want}", pred[i]);
         }
+    }
+
+    /// **End to end, the whole round-2/round-3 workflow in one run: bound the fit to an interval,
+    /// fit a model per available-input pattern, write at a stated resolution, save the artifact, and
+    /// propagate it to an unseen well over a DIFFERENT interval.**
+    ///
+    /// Each of those has its own unit test. This one exists because they interact, and the
+    /// interactions are where the silent failures live: an interval applied to the fit but not to
+    /// the write, a coverage segment that ignores the interval, a block that spans the interval
+    /// edge, a distribution that inherits the fit's window instead of taking its own. Every one of
+    /// those produces a full, plausible curve.
+    ///
+    /// Needs sklearn + joblib, so it is `#[ignore]`d and the green gate can never depend on it.
+    #[test]
+    #[ignore]
+    fn the_whole_ml_workflow_holds_together_from_bounded_fit_to_distribution() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy");
+            return;
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 240usize;
+        // RES_DEEP stops half way down, so the deep half can only be predicted without it - the
+        // coverage case. Depths run 1000..1239 so the interval below cuts a real boundary.
+        let mk = |name: &str, with_target: bool| -> String {
+            let id = Uuid::new_v4();
+            db::insert_well(&conn, id, name, None, None, Some(0.0)).unwrap();
+            let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+            let gr: Vec<f32> = (0..n).map(|i| 20.0 + (i % 53) as f32).collect();
+            let rhob: Vec<f32> = (0..n).map(|i| 2.0 + (i % 7) as f32 * 0.05).collect();
+            let rt: Vec<f32> = (0..n)
+                .map(|i| if i >= n / 2 { f32::NAN } else { 5.0 + (i % 11) as f32 })
+                .collect();
+            db::insert_standard_curves(
+                &conn, id, depths.clone(), gr.clone(), rt.clone(), vec![f32::NAN; n],
+                rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
+            )
+            .unwrap();
+            if with_target {
+                let t: Vec<f32> = (0..n).map(|i| 0.4 - 0.002 * gr[i] + 0.05 * rhob[i]).collect();
+                crate::equations::write_computed_curve(&conn, &id.to_string(), &depths, "PHIT_CORE", &t).unwrap();
+            }
+            id.to_string()
+        };
+        let cored = mk("SANDI-E2E-1", true);
+        let blind = mk("SANDI-E2E-2", false);
+        let dbm = std::sync::Mutex::new(conn);
+
+        // --- 1. Bounded, segmented, blocked fit -------------------------------
+        const TOP: f64 = 1020.0;
+        const BASE: f64 = 1200.0;
+        let mut req = mk_req(
+            "regression",
+            &["GR", "RHOB", "RES_DEEP"],
+            Some("PHIT_CORE"),
+            &[cored.clone()],
+            &[cored.clone()],
+        );
+        req.output_curve = "PHIT_ML".into();
+        req.save_model_as = Some("PHIT_E2E".into());
+        req.coverage_segments = true;
+        req.output_step = Some(4.0);
+        req.interval = DepthWindow { top: Some(TOP), base: Some(BASE) };
+        let fit = run_ml(&dbm, &req, None);
+        assert!(fit.error.is_none(), "fit failed: {:?}", fit.error);
+        assert!(fit.wells[0].error.is_none(), "{:?}", fit.wells[0].error);
+
+        // Two segments: one where RES_DEEP exists, one where it does not. Neither averaged.
+        let segs = fit.metrics.get("coverage_segments").and_then(|v| v.as_array()).expect("segments reported");
+        let fitted: Vec<&serde_json::Value> =
+            segs.iter().filter(|s| s.get("skipped").is_some_and(|x| x.is_null())).collect();
+        assert_eq!(fitted.len(), 2, "one model with RES_DEEP, one without: {segs:#?}");
+        let widths: Vec<usize> =
+            fitted.iter().map(|s| s["features"].as_array().unwrap().len()).collect();
+        assert!(widths.contains(&3) && widths.contains(&2), "expected a 3-curve and a 2-curve model, got {widths:?}");
+
+        // --- 2. The interval bounded the WRITE, not only the fit ---------------
+        {
+            let conn = dbm.lock().unwrap();
+            let (depth, cols) =
+                crate::equations::fetch_curve_frame(&conn, &cored, &["PHIT_ML".into()]).unwrap();
+            let pred = cols.get("PHIT_ML").unwrap();
+            let mut inside = 0usize;
+            for i in 0..depth.len() {
+                let d = depth[i] as f64;
+                if d < TOP || d >= BASE {
+                    assert!(
+                        !pred[i].is_finite(),
+                        "depth {d} is outside {TOP}..{BASE} and must be MISSING, got {}",
+                        pred[i]
+                    );
+                } else if pred[i].is_finite() {
+                    inside += 1;
+                }
+            }
+            assert!(inside > 100, "the interval should carry most of its depths, got {inside}");
+
+            // --- 3. The block held one value across each 4 m interval ----------
+            // Anchored on an absolute grid, so blocks are [1020,1024), [1024,1028)... Neighbours
+            // inside one block must be identical; a block boundary is where a change is allowed.
+            let mut same_within = 0usize;
+            for i in 1..depth.len() {
+                if !pred[i].is_finite() || !pred[i - 1].is_finite() {
+                    continue;
+                }
+                let (a, b) = ((depth[i - 1] as f64 / 4.0).floor(), (depth[i] as f64 / 4.0).floor());
+                if a == b {
+                    assert!(
+                        (pred[i] - pred[i - 1]).abs() < 1e-6,
+                        "depths {} and {} are in one 4 m block and must hold one value",
+                        depth[i - 1], depth[i]
+                    );
+                    same_within += 1;
+                }
+            }
+            assert!(same_within > 50, "the run should have produced many within-block pairs, got {same_within}");
+        }
+
+        // --- 4. The artifacts, and what they carry -----------------------------
+        let models = {
+            let conn = dbm.lock().unwrap();
+            db::list_ml_models(&conn).unwrap()
+        };
+        assert_eq!(
+            models.len(),
+            2,
+            "one saved model per fitted segment: {:?}",
+            models.iter().map(|m| m.name.clone()).collect::<Vec<_>>()
+        );
+        let three = models
+            .iter()
+            .find(|m| m.feature_curves.len() == 3)
+            .expect("the three-curve segment kept a model");
+        assert!(three.name.contains("3CURVE"), "a saved model names the curves it needs: {}", three.name);
+
+        // --- 5. Distribute to an unseen well, over its OWN interval ------------
+        // Deliberately a different window: the apply path must NOT inherit the fit's.
+        const DTOP: f64 = 1100.0;
+        let applied = apply_ml_model(
+            &dbm,
+            &MlApplyRequest {
+                input_set: None,
+                output_set: None,
+                model_id: three.model_id.clone(),
+                apply_well_ids: vec![blind.clone()],
+                output_curve: "PHIT_DIST".into(),
+                mask_curve: None,
+                interval: DepthWindow { top: Some(DTOP), base: None },
+            },
+            None,
+        );
+        assert!(applied.error.is_none(), "distribution failed: {:?}", applied.error);
+        assert!(applied.wells[0].error.is_none(), "{:?}", applied.wells[0].error);
+
+        let conn = dbm.lock().unwrap();
+        let (depth, cols) = crate::equations::fetch_curve_frame(
+            &conn,
+            &blind,
+            &["GR".into(), "RHOB".into(), "PHIT_DIST".into()],
+        )
+        .unwrap();
+        let gr = cols.get("GR").unwrap();
+        let rhob = cols.get("RHOB").unwrap();
+        let pred = cols.get("PHIT_DIST").unwrap();
+        let mut checked = 0usize;
+        for i in 0..depth.len() {
+            let d = depth[i] as f64;
+            if d < DTOP {
+                assert!(!pred[i].is_finite(), "depth {d} is above the distribution top and must be MISSING");
+                continue;
+            }
+            // The three-curve model needs RES_DEEP, which this well lacks below the halfway point,
+            // so a missing prediction there is correct - the model was never fed, not misapplied.
+            if !pred[i].is_finite() {
+                continue;
+            }
+            let want = 0.4 - 0.002 * gr[i] + 0.05 * rhob[i];
+            assert!(
+                (pred[i] - want).abs() < 5e-3,
+                "row {i} at {d}: distributed {} want {want}",
+                pred[i]
+            );
+            checked += 1;
+        }
+        // Exactly 20, and the number is the whole point of the case. The distribution starts at
+        // 1100; RES_DEEP, which this model needs, runs out after 1119. So the three-curve model can
+        // answer 1100..1119 and nothing else — bounded above by the interval the user chose and
+        // below by the curve the model requires. A looser floor here would pass just as happily if
+        // the interval were being ignored and the whole well came back predicted.
+        assert_eq!(
+            checked, 20,
+            "the distribution is bounded above by its own interval (1100) and below by where \
+             RES_DEEP stops (1119), so it must answer exactly those 20 depths"
+        );
     }
 
     /// The ordering contract. A model fitted on [GR, RHOB] fed a matrix ordered [RHOB, GR] would
@@ -6223,8 +8491,9 @@ mod tests {
         let header = serde_json::json!({
             "d": 2, "n_apply": 2, "model_len": blob.len(), "features": ["RHOB", "GR"],
         });
+        let script = ScriptFile::new("apply-test", &ml_apply_runner()).unwrap();
         let mut cmd = Command::new(&python);
-        cmd.args(["-c", &ml_apply_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.arg(script.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         hide_console(&mut cmd);
         let mut child = cmd.spawn().unwrap();
         {
@@ -6450,7 +8719,8 @@ mod tests {
 
         let features = vec!["GR".to_string()];
         let ids = vec![good.to_string(), bad.to_string()];
-        let (_x, y, groups, empty, roster) = assemble_training(&conn, &ids, &features, "RHOB", None, None);
+        let (_x, y, groups, empty, roster) =
+            assemble_training(&conn, &ids, &features, "RHOB", None, None, DepthWindow::default());
         assert_eq!(groups.len(), y.len(), "every training row carries the well it came from");
 
         assert_eq!(y.len(), n, "the well with the target contributes all its rows");

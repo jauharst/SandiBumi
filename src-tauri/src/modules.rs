@@ -53,6 +53,14 @@ pub struct ArgSpec {
     /// decides net pay. The curve looks entirely normal and nothing downstream can catch it.
     #[serde(default)]
     pub choice_labels: Vec<String>,
+    /// `SB-CORE-013` topic key: the parameter this arg sets is one the corpus records COMPETING
+    /// shipped values for, so the editor shows them with their sources at the point of choice
+    /// (`param_sources::sources_for`). Empty for the overwhelming majority of args, which is why it
+    /// is a key rather than an embedded list — the values belong to the topic, not to the module, and
+    /// electrofacies, GMM facies and the ML dialog must not be able to show three different answers
+    /// for the same number.
+    #[serde(default)]
+    pub sources_topic: String,
     /// Validation range for Param args.
     pub min: Option<f64>,
     pub max: Option<f64>,
@@ -110,6 +118,7 @@ pub(crate) fn param(name: &str, desc: &str, unit: &str, default: f64, min: f64, 
         required: true,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
 }
 
@@ -127,6 +136,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         required: true,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
 }
 
@@ -187,6 +197,7 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         required: false,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
 }
 
@@ -204,7 +215,26 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         required,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
+}
+
+/// A [`param`] the corpus records COMPETING shipped values for (`SB-CORE-013`).
+///
+/// The editor shows those values with their sources beside the field, and the run records which of
+/// them the interpreter's choice agrees with. Reach for this only where
+/// [`crate::param_sources::sources_for`] actually has entries — a topic key with nothing behind it
+/// renders an empty panel, which reads as "nobody disagrees" and is the opposite of the point.
+pub(crate) fn param_sourced(
+    name: &str,
+    desc: &str,
+    unit: &str,
+    default: f64,
+    min: f64,
+    max: f64,
+    topic: &str,
+) -> ArgSpec {
+    ArgSpec { sources_topic: topic.into(), ..param(name, desc, unit, default, min, max) }
 }
 
 /// A [`param`] that cannot be overridden per zone (see [`ArgSpec::well_scope`]).
@@ -244,6 +274,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         required: true,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
 }
 
@@ -2851,7 +2882,12 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
         let mut best: Vec<(f64, f64)> = Vec::with_capacity(k + 1); // (dist², value)
         for (ti, tx, tv) in &scaled {
             if *ti == i {
-                continue; // leave-one-out
+                // Leave-one-out. Without this every training sample self-matches at distance 0,
+                // so at k = 1 the synthetic reproduces the raw curve EXACTLY and every predictor
+                // set scores perfectly — the trap SB-MLA-050 names, pinned by
+                // `a_k1_neighbour_search_that_reproduces_its_training_data_exactly_is_a_failure`,
+                // which fails with 60 of 60 samples exact if this line is removed.
+                continue;
             }
             let d2: f64 = (0..dims).map(|d| (xs[d] - tx[d]).powi(2)).sum();
             if !d2.is_finite() {
@@ -2953,6 +2989,74 @@ mod tests {
             params: params.iter().map(|(k, v)| (k.to_string(), vec![*v; n])).collect(),
             opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             depth_unit: Default::default(),
+        }
+    }
+
+    /// **SB-MLA-050 — the k = 1 self-match trap, as a hard fail.**
+    ///
+    /// A leave-one-out neighbour search must exclude the held-out sample from its own neighbour
+    /// list. Without the exclusion, at `k = 1` every training sample's nearest neighbour is ITSELF
+    /// at distance zero: the synthetic reproduces the raw curve exactly, the error is exactly zero,
+    /// and every predictor set scores perfectly. Geolog's own reference-HC page documents this trap
+    /// for its product, and the requirement takes it as a **hard-fail fixture rather than a
+    /// tolerance check** — which is the right call, because the failure is not approximate. It is
+    /// exact, and it looks like a triumph.
+    ///
+    /// The exclusion is one `continue` in `log_predict`. Deleting it broke nothing in this suite
+    /// before this test existed; it is the kind of line a later reader removes as redundant, and
+    /// the result is a synthetic RHOB that silently echoes the washed-out log it was meant to
+    /// replace — defeating the MAX_RAW rule the module exists for.
+    ///
+    /// Pinned from BOTH sides, and the second side is what makes the first mean anything: a test
+    /// asserting only "the error is not zero" passes on a predictor returning garbage. So the
+    /// synthetic must ALSO track the target it was fitted on.
+    #[test]
+    fn a_k1_neighbour_search_that_reproduces_its_training_data_exactly_is_a_failure() {
+        // A clean monotone relation on ONE predictor: TARGET = 2*GR + 10, sampled on distinct GR.
+        // Each sample's true nearest OTHER neighbour is an adjacent GR, so the honest k = 1
+        // prediction is close but never equal.
+        let n = 60usize;
+        let gr: Vec<f32> = (0..n).map(|i| 20.0 + i as f32 * 1.5).collect();
+        let target: Vec<f32> = gr.iter().map(|g| 2.0 * g + 10.0).collect();
+        let ctx = ctx_with(
+            n,
+            &[("TARGET", target.clone()), ("P1", gr.clone())],
+            &[("K", 1.0)],
+            &[("OPT_COMBINE", "SYNTHETIC")],
+        );
+        let out = log_predict(&ctx);
+        let syn = &out["SYN"];
+
+        // Side one: NOT a reconstruction. Every sample must differ from its own measured value,
+        // because its own value was withheld from the search that produced it.
+        let mut exact = 0usize;
+        let mut worst = 0.0f32;
+        for i in 0..n {
+            assert!(syn[i].is_finite(), "sample {i} produced no prediction");
+            let err = (syn[i] - target[i]).abs();
+            if err == 0.0 {
+                exact += 1;
+            }
+            worst = worst.max(err);
+        }
+        assert_eq!(
+            exact, 0,
+            "{exact} of {n} samples were reproduced EXACTLY - the neighbour search is matching each \
+             sample against itself, so a k=1 score on this data is meaningless and every predictor \
+             set would look perfect"
+        );
+        // The spacing is 1.5 gAPI, so the nearest other neighbour differs by 3.0 in the target.
+        // Anything much below that would mean a self-match is leaking in partially.
+        assert!(worst >= 2.9, "the largest error was {worst}, too small for a genuine hold-out");
+
+        // Side two: still a working predictor, or side one is satisfied by returning nonsense.
+        // Away from the two ends every neighbour is one step out, so the error stays near 3.0.
+        for i in 1..n - 1 {
+            let err = (syn[i] - target[i]).abs();
+            assert!(
+                err <= 4.0,
+                "sample {i} missed by {err} - the exclusion must hold out the sample, not break the fit"
+            );
         }
     }
 

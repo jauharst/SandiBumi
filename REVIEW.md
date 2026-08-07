@@ -9260,3 +9260,335 @@ dark does a see-through panel become obvious.
 - [ ] **A fourth, found independently the same day and fixed on the ML branch**: the coverage-segment
       cards in the ML pane's Results. Same token, same white-on-dark result. Mentioned here so the
       count in this section's title is not read as the whole tally.
+
+## ML pane, round 3 — the five points from your click-through (2026-08-07)
+
+**1 + 2 — Run Model moved, and propagation became its own section.** These were one change: the
+same question ("what does this button apply to") answered by putting each button with the choices it
+consumes. Run Model was a pane FOOTER visible from every section — standing under Data QC it read as
+acting on what Data QC was showing. It is now last in **Model**, after everything it consumes.
+
+**Model Distribution** is a fifth section with its own well scope, interval, log sets, output name
+and mask. Its mask is its own on purpose: those are different wells, and a bad-hole flag is a
+property of the hole it was computed in. What it does NOT restate is the model's features and their
+order — those travel inside the artifact, and letting a caller restate them would invite them to
+differ. It prints them instead.
+
+**Tops bounding** confines both the rows a model learns from and the depths it writes. Pick a marker
+and it fills two editable depth boxes; the run always sends numbers, so what was used stays
+recoverable after somebody moves the tops. Three rules, all silent when wrong: an open side stays
+OPEN (the deepest marker runs to TD, and reading a missing base as "no window" would widen the run
+back to the whole well under a zone's name); the base is EXCLUSIVE while the top is inclusive, so two
+abutting zones cannot both claim the sample on their shared marker; and a NaN depth is in no window.
+**The limitation, stated in the control:** markers are read from the SELECTED well and applied as
+depths to every well in the run. Resolving per well sounds more correct, but a well lacking the
+marker would fall back to its whole length and join the fit as a different population.
+
+**3 — Three algorithm groups.** Universal (Random Forest, Support Vector — the families the runner
+fits both ways, listed once with a Continuous/Discrete control beside them), Continuous only,
+Discrete only. Electrofacies clustering sits under Discrete because it writes class codes; PCA and
+t-SNE under Continuous because they write component curves. Nothing was dropped.
+
+**4 — Copy / Image / SVG / Print** under the score chart and the predicted-vs-measured crossplot.
+
+**5 — sampling is not resolution.** You are right, and this is the half that needs no decision from
+you: every supervised run now MEASURES how much the prediction wiggles against the measured target it
+learned from, and says so when it falls short. A prediction is always smoother than its target
+because the model can only carry through the detail its inputs contain — a curve read over feet
+cannot produce detail measured over inches. **Nothing synthesizes the missing detail**, because that
+produces a log that looks better resolved without being better known. Two questions on that are
+waiting for you.
+
+- [ ] **Open ML Models.** Five sections. Run Model is at the bottom of **Model** and nowhere else.
+- [ ] **On Input, pick a marker in Interval.** Top and Base fill in; the deepest marker leaves Base
+      empty (runs to TD). Type over them and the marker selection clears — the depths win.
+- [ ] **Run bounded.** The written curve should be blank above the top and below the base, and the
+      notes should say what it was confined to.
+- [ ] **Check the base marker's own sample.** It belongs to the zone BELOW. Run two abutting zones
+      into two curves and no depth should appear in both.
+- [ ] **Save a model, then go to Model Distribution.** Pick it: the note names the curves it needs
+      and the order. Choose a DIFFERENT well set and a different interval, give the curve its own
+      name, Distribute. It must not inherit the fit's wells or interval.
+- [ ] **Open the Algorithm list.** Three groups. Random Forest and Support Vector appear once, under
+      Universal, with Continuous/Discrete beside the picker.
+- [ ] **Switch Support Vector to Discrete.** The picker keeps its name and the parameters drop to the
+      classifier's set. Then pick Random Forest — it should STAY on Discrete.
+- [ ] **Run a regression where the target is much sharper than the inputs** (core porosity from GR
+      and deep resistivity). The notes should say the prediction is smoother than the measured log,
+      and by roughly how much. Read a thin bed off it and see whether you agree.
+- [ ] **Export a chart.** Copy, Image, SVG and Print under the score chart and the crossplot. Open
+      the SVG somewhere else — the colours must survive leaving the app.
+
+**Section order — Distribution now follows Results.** Propagating a model you have not looked at is
+the one move this pane should not make easy, so the section that spends that judgement comes after
+the one that supplies it. A successful run now jumps you to Results; a failed one deliberately does
+NOT, because the failure message lives on the Model tab.
+
+**Three from the ML PRD backlog.** A cancelled run's log sets now say they came from a cancelled run
+(a partial set is not corrupt and not empty — it looks exactly like a finished run over fewer wells).
+A sample DBSCAN rejects is now its own class rather than a gap, so a hole in a facies curve means one
+thing only: never evaluated. And a model a delivered curve still cites cannot be deleted without a
+word.
+
+- [ ] **Run a model, watch where you land.** A successful run should drop you on Results. Make one
+      fail (uncheck every input curve, or pick a target no well carries) — you should STAY on Model,
+      with the reason under the button.
+- [ ] **Model Distribution is now the last tab**, after Results.
+- [ ] **Start a run over many wells and press Cancel partway.** The wells that were cut say
+      "cancelled". Then open the log set on a well that DID get written — it should say it came from
+      a cancelled run and how many wells of how many were covered. Without that mark it would be
+      indistinguishable from a clean run over the wells you kept.
+- [ ] **Run DBSCAN clustering** with a tight eps so it rejects a good fraction. On the log view the
+      rejected samples should be a NEUTRAL GREY block, not one of the facies colours, and the
+      crossplot legend should say **Rejected** rather than F-1. Gaps in that curve should now mean
+      only "no input data here".
+- [ ] **Print that same DBSCAN curve to a composite/PDF.** The grey must survive to paper — this is
+      the one that would have quietly printed an outlier as real rock.
+- [ ] **Delete a saved model that produced a curve you still have.** It must refuse and NAME the
+      wells and curves. Say yes to the second question, then look at that curve's provenance — it
+      should say the model was DELETED, not just print its name. Delete a model nothing used: that
+      one should just go, with no second question.
+
+**Item 5's second half, and a PRD sweep.** Spectral matching and two curves, as you chose. Plus
+twelve more PRD requirements, all of the same family: a run that did something other than what was
+asked and did not say so. And an outage found while writing it up — the Python runner was passed on
+the command line, Windows caps that near 32 KB, and adding comments broke every ML feature at once.
+
+- [ ] **Tick "Also write a spectrally textured copy" and run a regression.** You get TWO curves:
+      `<name>` unchanged, and `<name>_SIM` with the frequency content the target has. Plot both.
+      `_SIM` should look like a real log; `<name>` should look like a prediction. **The point is that
+      the honest one is the plainer one.** Read the note under the run — it should say the detail is
+      one realisation of many, right in its statistics and arbitrary in its placement.
+- [ ] **Check the means agree.** `_SIM` must not shift the level of the curve, only add wiggle.
+- [ ] **Try to use `<name>_SIM` as an input curve for another model.** It must REFUSE and tell you to
+      use the plain curve. This is the one that would otherwise quietly train a model on invented
+      detail.
+- [ ] **Run the same fit twice with the same seed.** `_SIM` must be identical both times — it is a
+      simulation, not a random doodle.
+- [ ] **Run PCA twice.** PC1 must not flip sign between runs. Check `loadings` in the results — it
+      should tell you what each component is made of, per input curve.
+- [ ] **Run a clustering with k larger than you have samples**, and one with k too high for the data.
+      The first should say it clamped k; the second should say fewer clusters came back than asked.
+      Neither should quietly return a different number of clusters than you typed.
+- [ ] **Run k-means with a very low iteration cap** if you can — the result should say it did NOT
+      converge, rather than handing you labels that look final.
+- [ ] **Look at any score in the results.** Every one should now be able to tell you what it is a
+      score OF — fitted rows, folds of the same wells, or wells the model never saw. A one-well run
+      should say its cross-validation is not a blind score.
+- [ ] **Open a curve made by ML on a well that was NOT in the training set** and read its provenance.
+      It should say this well did not train the model, so its curve is an extrapolation.
+- [ ] **Sanity check that ML still runs at all.** This is the outage check: any fit, any algorithm. If
+      you see "The filename or extension is too long", something reverted.
+
+## ML — Also run, in a row that fits, with each algorithm's own settings (2026-08-07)
+
+Your three points from the screenshot.
+
+**The space.** Also run was a column of full-width checkboxes — about 168px for seven algorithms, in
+a pane whose whole job is the panel beside it. It is now a row of chips that wrap: 50px, two rows at
+the usual pane width. Same algorithms, same ticks.
+
+**The missing settings.** Each chip carries a **⚙**. Open it and you get that algorithm's own
+parameters, the same fields the main picker shows. Only what you actually CHANGE is stored and sent —
+an untouched field stays a default and is recorded as one. That distinction is not cosmetic: a
+co-run that silently posted the full default set would make every comparison read as hand-tuned, and
+the run record could no longer tell your choice from the runner's. A **dot** on a chip marks the
+algorithms carrying settings of their own, and the note under the row names them.
+
+**7 versus 4.** You counted seven algorithms available for a continuous task and only four offered
+as co-runs. The three missing ones are Analysis (PCA), t-SNE and the clustering family: they have no
+target curve, so there is nothing to score a prediction against, and putting them on a leaderboard
+beside a regression would be comparing two different questions. The row now says that itself rather
+than leaving you to count.
+
+- [ ] **Open ML Models → Model.** Also run should be a wrapping row of chips, not a column. Count the
+      rows it costs you.
+- [ ] **Tick two or three.** Then open one chip's ⚙ — the other ticks must survive. (They used to be
+      cleared by the re-render.)
+- [ ] **Change a parameter in the ⚙ panel.** The dot should appear on THAT chip immediately, and the
+      note under the row should name it.
+- [ ] **Change it back to the default value.** The dot should go — nothing is stored, so nothing is
+      claimed.
+- [ ] **Run with two tuned co-runs.** Open the run record for each: the parameter you changed should
+      read as yours, everything else as a default.
+- [ ] **Read the note about the algorithms that cannot be co-run.** Does the reason match what you
+      expected when you counted seven?
+
+## Panes that fill the space they are given (2026-08-07)
+
+Your point about resizing. These panes were pinned to a 620px column — the right width for a
+one-shot fit form, and wrong for a pane carrying tables, a confusion matrix and a leaderboard. In a
+wide window the card simply ended and the dock showed past it. **ML, Facies tie-in, Monte Carlo,
+Lorenz and HFU now fill their pane.** Thomeer and saturation-height deliberately do not: they really
+are a column of fields, and widening them would only stretch the fields.
+
+**Filling is not stretching**, which is the part worth checking. Lifting the cap on its own gave a
+1210px-wide Output curve box — worse than the gap it filled. So single-line controls keep the width
+they always had, and where the pane is wide enough the **ML form gains a second column** instead.
+That is measured against the pane, not the window, so a narrow ML pane in a wide window stays one
+column, which is the normal case in a docked workspace.
+
+- [ ] **Open ML Models and drag its splitter wider.** The card should grow with the pane, not stop
+      at a fixed column with grey to the right of it.
+- [ ] **Keep widening.** Around the point where two readable columns fit, the form should go to two
+      columns and get shorter — you should see more of it without scrolling.
+- [ ] **Check nothing looks stretched.** The Algorithm picker and the Output curve box should stay a
+      sensible width; the notes, the co-run chips, the tables and the charts are the things that
+      should be using the extra room.
+- [ ] **Narrow it back down.** It should return to one column cleanly, with no clipped controls.
+- [ ] **Maximise the window with ML docked beside the Wells pane.** The ML pane can be narrow in a
+      wide window — it should stay one column there, not split because the *window* is wide.
+- [ ] **Same widening check on Facies tie-in, Monte Carlo, Lorenz and HFU.** Tables and plots should
+      use the width.
+
+## Facies tie-in: two percentages, and a threshold that is yours (2026-08-07)
+
+**A purity and a recognition rate are different numbers.** The tie-in reported one percentage per
+reference class — of the samples core calls RT2, how many the model found — and called it purity.
+Geolog reports the *other* axis for the same table and calls it a recognition rate. They disagree
+whenever the classes are imbalanced: a small rock type can be perfectly found (100% by row) while
+the label the model gives it is mostly something else (18% by column). Both are true of the same
+cell, and a bare "72%" in a report says nothing about which was meant.
+
+You now get both, as two tables titled by the question each answers, and the confusion matrix has a
+**Counts / % of reference / % of predicted** control with the denominator stated under it.
+
+**The acceptance threshold ships empty and stays empty.** The method note says to accept the mapping
+when dominant-class purity is above a threshold and names no value; nothing SandiBumi holds names
+one either. So there is no default. Leave it blank and you get the purity with no verdict and a line
+saying the bar is yours to set for this field. Fill it in and the verdict is recorded together with
+the number it was judged against.
+
+**Core plugs that landed nowhere are counted.** Plugs are matched to the nearest log sample within a
+metre and dropped when there is none. That rule, and how many plugs it dropped, now print with the
+result — a k variance reduction over nine of ninety plugs used to look identical to one over ninety.
+
+- [ ] **Run a tie-in on a well where one rock type is much rarer than the others.** Do the two
+      tables disagree for that class? They should — that disagreement is the point.
+- [ ] **Switch the matrix between Counts, % of reference and % of predicted.** Does the caption under
+      it always tell you what the numbers are divided by?
+- [ ] **Run with the threshold empty.** No verdict, and a line saying why.
+- [ ] **Set it to something you would actually accept and re-run.** Verdict appears; check the
+      Processing history records the threshold as well as the purity.
+- [ ] **Type 90 instead of 0.9 — or rather, check the field is in percent.** It should refuse
+      anything that is not a purity, rather than reading it as "never accept".
+- [ ] **Run on a well whose core extends below the logged interval.** Does it say how many plugs
+      found no sample in range?
+
+## ML: a curve on the wrong depth grid now says so (2026-08-07)
+
+The one that would have cost you a day. Inputs are joined to the run frame by **exact depth
+equality** — nothing is interpolated, snapped or gap-filled. So a curve delivered on 0.1524 m, used
+in a run whose frame is 0.5 m, coincides at no depth at all: it is fully logged, fully stored, and
+reads as absent. Every count the run reported treated it exactly like a curve the well never had,
+and the message said "missing input curve" — which sends you hunting for a log that is sitting
+right there.
+
+The run notes now tell the two apart, and name Reframe as the fix. This reads the same measurement
+the **Data QC** section already shows per curve, so the note and the panel cannot disagree.
+
+- [ ] **Fit a model using a curve that came in on a different sampling from the well's frame** (an
+      old run, a re-framed set, a vendor delivery at 0.1524). The notes should name that curve, say
+      it exists but landed nowhere, quote both spacings and point at Reframe.
+- [ ] **Now try one the well genuinely does not have.** That must still read as a *missing* curve —
+      different problem, different fix.
+- [ ] **Run an ordinary fit where everything shares the frame.** No framing note at all. If it fires
+      on every run it stops being read.
+
+## A normalization basis that holds still when you add a well (2026-08-07)
+
+This one is worth reading before you use it, because the problem it fixes leaves no trace.
+
+**What was happening.** When inputs are standardized, the mean and spread come from the wells in
+the run. Add one well to a model-build set and every mean and every spread is recomputed — so every
+boundary expressed in them moves, **including in the wells you did not touch**. A DBSCAN `eps` of
+0.5 is 0.5 standard deviations of whatever happened to be selected that day. Your earlier
+interpretation does not come back, nothing tells you anything changed, and both answers look
+equally sensible on screen. Geolog offers a fixed basis for exactly this; IP has no equivalent.
+
+**What you get now.** In **Data QC → Normalization**, under the standardize tick, a choice:
+
+- **From the data** — what every run did before, unchanged. The note now says plainly that the
+  basis moves when the well set does.
+- **Fixed limits** — each curve normalized onto 0–1 against a low and a high *you* set. Those do
+  not move when the well set does, so a boundary found today still means the same thing next month.
+
+**The limits are yours and stay empty.** GR normalized 0–150 and the same GR normalized 0–200 give
+different clusters and both look right, so SandiBumi will not pick them. A run whose inputs are not
+all covered is refused, naming the ones that are not.
+
+**And a retrain now tells you if the space moved.** Refit a model under a name you have used before
+and the run says how far the basis shifted — in standard deviations of the *old* basis, because
+that is the unit any threshold you carried over is already in.
+
+- [ ] **Open Data QC.** Under the standardize tick: a **From the data / Fixed limits** control, with
+      a line explaining each.
+- [ ] **Untick standardize.** The basis control should disappear — it means nothing when nothing is
+      being normalized.
+- [ ] **Pick Fixed limits.** A row per ticked input curve, each with an empty low and high.
+- [ ] **Tick another input curve on the Input tab, come back.** The table should have gained that
+      curve, and anything you already typed should still be there.
+- [ ] **Press Run with a box still empty.** It must refuse and name the curve — not run with a zero.
+- [ ] **Fill them in and run a clustering.** Read the notes: they should say the basis is your fixed
+      limits and that `eps` is in fractions of each declared range.
+- [ ] **Now the real test.** Fit a model on a set of wells with **From the data** and save it. Add
+      one more well — ideally a shalier or cleaner one — and refit under the *same* name. The run
+      should tell you the feature space was rescaled, name the curve that moved most, and say by how
+      much. **Then judge whether your earlier boundaries still mean what you thought.**
+- [ ] **Do the same with Fixed limits.** No rescale message, because nothing moved. That is the
+      whole point of the feature.
+- [ ] **Apply a saved fixed-limits model to a new well.** It must use the same limits it was fitted
+      with, not recompute anything.
+
+## The synthetic log cannot cheat by copying itself (2026-08-07)
+
+Nothing to click for this one — it is a guard, and the reason it is worth knowing about is that the
+failure it prevents looks like success.
+
+**Synthetic Log (KNN Predict)** works by finding, for each depth, the most similar depths elsewhere
+in the well and averaging what the target curve reads there. If it were allowed to count a sample as
+its own neighbour, then at K = 1 the closest match to any depth would be that depth itself, at
+distance zero — so the synthetic would reproduce the raw curve **exactly**, every time. The error
+would be zero, any set of predictors would look perfect, and a synthetic RHOB would simply echo the
+washed-out log it was there to replace, quietly defeating MAX_RAW.
+
+The guard has always been there. What was missing was anything to keep it there: it is one line, of
+the kind a later reader removes as redundant. There is now a test that fails loudly without it — I
+checked by disabling the line, and it reports **60 of 60 samples reproduced exactly** rather than
+drifting slightly off.
+
+- [ ] **If you use Synthetic Log with MAX_RAW on a washed-out RHOB**, sanity-check the result against
+      a good-hole interval: the synthetic should differ from the raw curve everywhere, not track it.
+      If it ever looks identical to the input, that is the failure above and worth telling me about.
+
+## Where the vendors disagree, the disagreement is on screen (2026-08-07)
+
+Three packages ship three different values for the number of clusters, and none of them tells you the
+other two exist. None of them can, either — no vendor has standing to publish a competitor's
+defaults. SandiBumi sells no competing default, so it is the one tool that can put them side by side,
+and that is now what the **K** field does.
+
+- [ ] **Open Electrofacies (Facies ribbon) and look under the K field.** There should be a collapsed
+      line reading *Shipped values elsewhere (5) — this number is not settled*. Expand it.
+- [ ] **Read the four positions.** IP advises 15–20 as a first-stage count and 4–5 consolidated;
+      Techlog ships a hard 5 in two separate modules; Geolog states none at all. Each names its
+      product and the document it was read from.
+- [ ] **Check that Geolog's row is there at all.** "None stated" is an entry, not a blank to be
+      dropped — it is the row that says the number is not settled. Two vendors alone would read as
+      agreement.
+- [ ] **Check where SandiBumi's own 5 sits.** It must be in the list and it must be **last**, marked
+      as ours, and it must say plainly that it is a starting point rather than a fitted number.
+- [ ] **Open GMM Facies and the ML pane.** Same panel, same four values. They read one registry, so
+      the three places can never disagree about one number.
+- [ ] **Run a clustering with K left at 5, then again at 17.** The run notes should say which cited
+      values your choice agrees with — 17 agrees with IP's first-stage range, 5 agrees with Techlog
+      and with IP's consolidated range. A range counts as agreement: if you typed 17 you did take
+      IP's advice, and a record that only matched exact numbers would say you invented it.
+- [ ] **Type something nobody ships — 9, say.** It must say it agrees with none of them, and still
+      run. This is a record, not a gate.
+- [ ] **Confirm Geolog is never quoted as endorsing anything**, whatever you type. A vendor that
+      ships no default cannot be cited as approving your choice.
+
+What is deliberately NOT here: no vendor algorithm, table or wording. A shipped default is one
+documented fact about a product, cited to the page documenting it. If an entry needed a lookup table
+to make sense, it would be the wrong entry.

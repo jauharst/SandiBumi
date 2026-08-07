@@ -9,6 +9,7 @@ import {
 import { appState } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow, openModal } from "./modal";
+import { buildParamSources } from "./paramSources";
 import { buildWellScope } from "./wellScope";
 
 export interface ModulePaneCallbacks {
@@ -179,6 +180,16 @@ export async function buildModuleContent(
         u.textContent = arg.unit;
         wrap.append(input, u);
         control = wrap;
+      }
+      // SB-CORE-013. Where the corpus records competing shipped values for this parameter, they
+      // are shown WITH the field rather than in a manual — the point of choice is the only place
+      // the disagreement can change a decision. Renders nothing when the topic has no entries, so
+      // this is safe on every numeric arg.
+      if (arg.sources_topic) {
+        const stack = document.createElement("div");
+        stack.className = "param-with-sources";
+        stack.append(control, buildParamSources(arg.sources_topic));
+        control = stack;
       }
       argsGrid.appendChild(formRow(arg.name, control, arg.desc));
     }

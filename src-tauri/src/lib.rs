@@ -41,6 +41,7 @@ mod multimin2;
 mod netflag;
 mod neutron_charts;
 mod office;
+mod param_sources;
 mod parsers;
 #[cfg(test)]
 mod pipeline_field_test;
@@ -1845,6 +1846,16 @@ async fn list_ml_models(db: tauri::State<'_, DbState>) -> Result<Vec<db::MlModel
 /// absent or delivered on a grid that coincides with the frame at no depth, and those call for
 /// opposite responses. Measured per well because sampling is a property of the delivery, and a field
 /// where one well came from a different vendor is exactly where this bites.
+/// The competing shipped values the corpus records for one parameter (`SB-CORE-013`).
+///
+/// Synchronous and connection-free on purpose: it is a static table, it is read while a dialog is
+/// being built, and a round-trip through `spawn_blocking` for four struct literals would be the only
+/// slow thing about opening a parameter editor.
+#[tauri::command]
+fn param_sources(topic: String) -> Vec<param_sources::ParamSource> {
+    param_sources::sources_for(&topic).to_vec()
+}
+
 #[tauri::command]
 async fn curve_sampling(
     db: tauri::State<'_, DbState>,
@@ -1897,9 +1908,50 @@ fn rename_ml_model(db: tauri::State<'_, DbState>, model_id: String, new_name: St
     db::rename_ml_model(&conn, &model_id, &new_name).map_err(|e| e.to_string())
 }
 
+/// SB-MLA-007. Which delivered curves name this model as the thing that produced them.
 #[tauri::command]
-fn delete_ml_model(db: tauri::State<'_, DbState>, model_id: String) -> Result<(), String> {
+fn ml_model_citations(db: tauri::State<'_, DbState>, model_id: String) -> Vec<ml::ModelCitation> {
     let conn = db.0.lock().unwrap();
+    ml::model_citations(&conn, &model_id)
+}
+
+/// SB-MLA-007 — a model a delivered curve cites cannot be deleted SILENTLY.
+///
+/// Deleting one corrupts nothing; the curve keeps its numbers. It does something quieter: the curve
+/// goes on citing a model id that resolves to nothing, so the provenance block in a report names a
+/// model nobody can produce, and the failure surfaces in front of a client months later as a
+/// question that cannot be answered.
+///
+/// It REFUSES by default and names what would be orphaned. `force` is the user's own decision, taken
+/// after reading that list — which is the difference between a deletion that was chosen and one that
+/// merely happened.
+#[tauri::command]
+fn delete_ml_model(
+    db: tauri::State<'_, DbState>,
+    model_id: String,
+    force: Option<bool>,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    if !force.unwrap_or(false) {
+        let cited = ml::model_citations(&conn, &model_id);
+        if !cited.is_empty() {
+            let where_ = cited
+                .iter()
+                .take(4)
+                .map(|c| format!("{} ({}: {})", c.well_name, c.set_name, c.curves.join(", ")))
+                .collect::<Vec<_>>()
+                .join("; ");
+            let more = cited.len().saturating_sub(4);
+            return Err(format!(
+                "{} live curve set(s) name this model as what produced them - {where_}{}. Deleting it \
+                 leaves those curves citing a model that no longer exists, which is a provenance \
+                 block in a report naming something nobody can produce. Delete it anyway only if you \
+                 mean to.",
+                cited.len(),
+                if more > 0 { format!(", and {more} more") } else { String::new() }
+            ));
+        }
+    }
     db::delete_ml_model(&conn, &model_id).map_err(|e| e.to_string())
 }
 
@@ -3335,8 +3387,10 @@ pub fn run() {
             ml_model_warnings,
             ml_determinism_note,
             curve_sampling,
+            param_sources,
             rename_ml_model,
             delete_ml_model,
+            ml_model_citations,
             run_ml_eval,
             run_cuddy_foil,
             run_shf_fit,

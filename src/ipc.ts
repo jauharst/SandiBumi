@@ -711,9 +711,37 @@ export interface ArgSpec {
    *  picking the wrong Larionov returns a shale volume more than half again too high right where
    *  the VSH cutoff decides net pay (`docs/review_triage.md` finding 21). */
   choice_labels?: string[];
+  /** `SB-CORE-013`: this parameter is one the corpus records COMPETING shipped values for, so the
+   *  editor shows them with their sources at the point of choice. A topic key rather than an
+   *  embedded list, because the values belong to the topic — electrofacies, GMM facies and the ML
+   *  dialog must not be able to show three different answers for the same number. Empty for almost
+   *  every arg; fetch with `paramSources`. */
+  sources_topic?: string;
   min: number | null;
   max: number | null;
   required: boolean;
+}
+
+/** One product's shipped or advised value for a parameter (`SB-CORE-013`). */
+export interface ParamSource {
+  /** The product that ships or advises it — including SandiBumi, which is never listed first. */
+  product: string;
+  /** The value as its source states it. A STRING because "15-20" and "none stated" are both real
+   *  answers and neither is a number. */
+  value: string;
+  /** What the value is FOR, where the source distinguishes stages or modules. */
+  note: string;
+  /** Where the claim was read. Empty for SandiBumi's own, which is this repository. */
+  source: string;
+}
+
+/** The competing shipped values recorded for a parameter topic, or empty where there are none.
+ *
+ *  Three packages routinely ship three different values for one constant and none of them tells the
+ *  interpreter the others exist — none of them can, because no vendor can credibly publish a
+ *  competitor's defaults. Showing the disagreement is the point. */
+export function paramSources(topic: string): Promise<ParamSource[]> {
+  return invoke<ParamSource[]>("param_sources", { topic });
 }
 
 export interface ModuleSpec {
@@ -1170,6 +1198,32 @@ export interface MlRequest {
    *  Omit or null to write at the input frame, which is what every run did before this existed. A
    *  saved model records it, and applying that model inherits it. */
   output_step?: number | null;
+  /** Confine BOTH the fit and the prediction to this depth window (Jauhar: *"it should be tops
+   *  bounded as well by user"*). A model fitted over a whole well learns one relation for every
+   *  formation it passed through. Omit for the whole logged interval. */
+  interval?: DepthWindow;
+  /** What the feature space is normalized AGAINST, when `standardize` is on.
+   *
+   *  Omit or null for the data-derived basis every run used before this existed: mean and spread
+   *  computed from the samples in hand. `"limits"` uses the fixed per-curve ranges in `norm_limits`.
+   *
+   *  **This is the add-a-well trap.** On a data-derived basis, adding one well recomputes every mean
+   *  and scale, which moves every boundary expressed in them — in the wells that were *already
+   *  there*. Nothing reports that anything changed and both answers look reasonable. A basis fixed
+   *  to limits the analyst chose is stable across wells. */
+  norm_basis?: string | null;
+  /** Fixed per-curve limits for `norm_basis: "limits"`. Matched to features by name and re-ordered
+   *  into the resolved feature order by the backend, so a caller can no more reorder a basis than it
+   *  can reorder the features. Never filled in for you: a run whose inputs are not all covered is
+   *  refused, because the same curve over two ranges gives two answers and both look right. */
+  norm_limits?: CurveLimit[];
+}
+
+/** One curve's fixed normalization range. */
+export interface CurveLimit {
+  curve: string;
+  low: number;
+  high: number;
 }
 
 /** One feature subset a coverage-segmented run fitted a model for, or declined to. Reported per
@@ -1286,6 +1340,15 @@ export interface MlModelInfo {
   runtime_json: string | null;
 }
 
+/** A depth window a run is confined to.
+ *
+ *  Each side is independent and an open side stays open: no base means run to TD, exactly as the
+ *  last top in a well does. Omit the whole object for the full logged interval. */
+export interface DepthWindow {
+  top?: number | null;
+  base?: number | null;
+}
+
 export interface MlApplyRequest {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
@@ -1295,6 +1358,9 @@ export interface MlApplyRequest {
   apply_well_ids: string[];
   output_curve: string;
   mask_curve?: string | null;
+  /** Confine the prediction to this depth window. NOT inherited from the model: where a model
+   *  LEARNED and where you choose to propagate it are separate decisions. */
+  interval?: DepthWindow;
 }
 
 export function listMlModels(): Promise<MlModelInfo[]> {
@@ -1363,8 +1429,22 @@ export function renameMlModel(modelId: string, newName: string): Promise<string>
   return invoke<string>("rename_ml_model", { modelId, newName });
 }
 
-export function deleteMlModel(modelId: string): Promise<void> {
-  return invoke<void>("delete_ml_model", { modelId });
+/** One live curve set that names a saved model as what produced it (SB-MLA-007). */
+export interface ModelCitation {
+  well_name: string;
+  set_name: string;
+  curves: string[];
+}
+
+/** Which delivered curves would be orphaned by deleting this model. */
+export function mlModelCitations(modelId: string): Promise<ModelCitation[]> {
+  return invoke<ModelCitation[]>("ml_model_citations", { modelId });
+}
+
+/** Deletes a saved model. REFUSES when a live curve cites it, naming what would be orphaned;
+ *  `force` is the user's own decision taken after reading that list. */
+export function deleteMlModel(modelId: string, force = false): Promise<void> {
+  return invoke<void>("delete_ml_model", { modelId, force });
 }
 
 /** Model-comparison leaderboard (Wave B item 3). */
@@ -1583,12 +1663,26 @@ export interface FaciesConfusionRequest {
   well_ids: string[];
   pred_curve: string;
   ref_curve: string;
+  /** Dominant-class purity (0..1) at or above which the mapping is accepted. **No default** — omit
+   *  it and the result is reported unjudged (SB-MLA-052). The method note states a threshold is
+   *  required and states no value; neither does any source the app holds. */
+  accept_threshold?: number;
 }
 
 export interface RefClassRow {
   ref_label: number;
   dominant_pred: number;
+  /** ROW-normalised — of this reference class's samples, the fraction in `dominant_pred`. */
   purity: number;
+  count: number;
+}
+
+/** The column-wise counterpart of `RefClassRow` — the "recognition rate" axis. */
+export interface PredClassRow {
+  pred_label: number;
+  dominant_ref: number;
+  /** COLUMN-normalised — of the samples called `pred_label`, the fraction really `dominant_ref`. */
+  recognition: number;
   count: number;
 }
 
@@ -1597,8 +1691,25 @@ export interface FaciesConfusionResult {
   pred_labels: number[];
   /** matrix[i][j] = count where reference == ref_labels[i] and prediction == pred_labels[j]. */
   matrix: number[][];
+  /** `matrix` over its ROW sums, as fractions 0..1. Read it with `row_axis`, never bare. */
+  row_pct: number[][];
+  /** `matrix` over its COLUMN sums, as fractions 0..1. Read it with `col_axis`, never bare. */
+  col_pct: number[][];
+  /** Prose statement of what `row_pct` and `per_ref[].purity` divide by (SB-MLA-051). */
+  row_axis: string;
+  /** Prose statement of what `col_pct` and `per_pred[].recognition` divide by. */
+  col_axis: string;
   per_ref: RefClassRow[];
+  per_pred: PredClassRow[];
+  /** ROW-normalised: Σ dominant-cell counts / total pairs. */
   overall_purity: number;
+  /** The threshold the USER stated, echoed back, or `null` when they stated none. */
+  accept_threshold: number | null;
+  /** `null` when no threshold was stated — a mapping is never judged against a number the app
+   *  chose for itself (SB-MLA-052). */
+  accepted: boolean | null;
+  /** Why there is no verdict, when there is none. */
+  accept_note: string | null;
   n: number;
   /** ANOVA variance reduction of log10(core k) grouped by the predicted class (1 − SS_within/
    *  SS_total): 1 = the typing explains all core-perm variance, 0 = none. `null` when no core
@@ -1606,6 +1717,12 @@ export interface FaciesConfusionResult {
   k_var_reduction: number | null;
   /** Core plugs that contributed to `k_var_reduction`. */
   n_core_plugs: number;
+  /** Plugs with usable permeability that found no log sample inside the match tolerance, and so
+   *  contributed to nothing. Reported so a statistic over 9 of 90 plugs cannot read as one over
+   *  90 (SB-MLA-054). */
+  n_core_unmatched: number;
+  /** How a core plug was put on the log's depth frame — the method and its tolerance, in words. */
+  core_match_note: string;
   error: string | null;
 }
 

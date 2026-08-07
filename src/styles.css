@@ -5117,6 +5117,207 @@ textarea {
   color: var(--text-dim);
   margin-top: 2px;
 }
+/* SB-MLA-033 — what the feature space is normalized against. The segmented control sits under the
+   checkbox because it only means something while normalization is on, and the per-curve table under
+   that because it only means something once "Fixed limits" is chosen. */
+.ml-basis-seg {
+  margin-top: 6px;
+  align-self: flex-start;
+}
+.ml-basis-limits {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* A delivery can carry a lot of ticked inputs; the table scrolls rather than pushing the run
+     button off the pane. */
+  max-height: 168px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.ml-basis-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ml-basis-curve {
+  flex: 0 0 116px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  /* A long mnemonic truncates rather than shoving the number boxes out of alignment down the
+     column — two ragged edges are harder to read than one clipped name. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-basis-num.form-control {
+  flex: 0 0 84px;
+  max-width: 84px;
+}
+
+/* SB-CORE-013 — the competing shipped values for a parameter, at the point of choice.
+   Collapsed by default: this is context for a decision, not something to read on every run. The
+   header carries the count so a user knows there is something here without opening it. */
+.param-with-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.param-sources {
+  margin-top: 2px;
+}
+.param-sources-head {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--accent-dim);
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.param-sources-head:hover {
+  color: var(--accent);
+}
+.param-sources-body {
+  margin-top: 5px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-panel-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.param-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+.param-source-value {
+  /* The number is what the eye is here for, so it leads and it is fixed-width — four values in a
+     ragged column cannot be compared at a glance, which is the only reason to show them together. */
+  flex: 0 0 76px;
+  font-weight: 700;
+  color: var(--text);
+}
+.param-source-product {
+  font-weight: 600;
+  color: var(--text);
+}
+.param-source-note,
+.param-source-cite {
+  color: var(--text-dim);
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.param-source-cite {
+  font-size: var(--fs-xs);
+  flex-basis: 100%;
+  /* Indented under its claim: a citation floating level with the value reads as another value. */
+  padding-left: 84px;
+}
+/* Our own entry is MARKED, never hidden and never promoted — a panel that showed three competitors
+   and quietly omitted SandiBumi's own provenance would make exactly the omission it exists to
+   correct. A left rule rather than a highlight: this is identification, not emphasis. */
+.param-source-own {
+  border-left: 2px solid var(--brand);
+  padding-left: 7px;
+  margin-left: -9px;
+}
+.param-sources-foot {
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+/* "Also run": one compact chip per algorithm, wrapping to the pane's width. Was a stacked column of
+   checkbox-above-label rows, which cost four rows of height to offer four tick boxes and pushed the
+   rest of the Model form off screen (Jauhar, 2026-08-07). Chips are the app's own density rule -
+   chrome goes Organic, data-adjacent controls stay dense. */
+/* The row's single block child: chips, then the note, then the one open parameter panel. */
+.ml-also-stack {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ml-also {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  /* `.form-row` is itself a flex container, so without this the wrapper shrink-wraps to its widest
+     chip and every chip then wraps onto its own line - the stacked column this replaced, rebuilt out
+     of chips. `min-width: 0` so a long algorithm name cannot push the row past the pane. */
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Chips size to their text instead of stretching to the row's height. */
+  align-items: flex-start;
+  align-content: flex-start;
+}
+.ml-also-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--bg-panel);
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s;
+}
+.ml-also-chip:hover { background: var(--accent-soft); }
+.ml-also-chip input { margin: 0; }
+/* Ticked reads as selected, not merely hovered - these decide how many models a click fits. */
+.ml-also-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+/* Carries the user's own parameters rather than defaults. A dot, not a colour change: the chip is
+   already tinted for "on", and a second tint would make tuned-and-on indistinguishable from on. */
+.ml-also-tuned::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+.ml-also-gear {
+  border: 0;
+  background: none;
+  padding: 0 1px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-dim);
+  border-radius: var(--r-sm);
+}
+.ml-also-gear:hover { color: var(--accent-dim); }
+.ml-also-gear-open { color: var(--accent); }
+/* The one open parameter panel. Bounded and set off from the chips so it reads as belonging to the
+   chip that opened it rather than to the form field below. */
+.ml-also-params {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--bg-panel-alt);
+}
+.ml-also-params-head {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
 /* Off, on an estimator that needs it. Not an alarm - the run is legitimate and the QC panel below
    states the size of the effect - but it is the one combination worth catching the eye. */
 .ml-norm-off {
@@ -5149,6 +5350,33 @@ textarea {
 }
 .ml-res-step input {
   width: 88px;
+}
+
+/* Export buttons under a chart rather than in a panel toolbar: these charts live inside a scrolling
+   Results section with several of them stacked, so a single toolbar at the top would be ambiguous
+   about which chart it acts on. Right-aligned and quiet, so they read as an afterthought to the
+   figure rather than as part of it. */
+/* Interval picker: marker list, then the two depths it fills in. The depths stay editable after a
+   marker sets them, so the run always sends numbers - what was used stays recoverable from the
+   record even after somebody moves the tops. */
+.ml-interval-sel {
+  min-width: 170px;
+  flex: 1 1 170px;
+}
+.ml-interval-num {
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+}
+.ml-interval-num input {
+  width: 84px;
+}
+
+.ml-chart-export {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
 }
 .ml-qc-item {
   margin: 6px 0;
@@ -6512,6 +6740,74 @@ input[type="number"].num-editing:focus {
  * form-column dialogs that share the .mc-dialog class. */
 .dock-multimin .mc-dialog {
   max-width: none;
+}
+
+/* --- Wide-content panes fill the pane they are given (2026-08-07) --------------------
+ * `.mc-dialog` caps at 620px, which is the Organic form-column width and is right for a
+ * one-shot fit form. Five of these panes stopped being that: they carry tables, a confusion
+ * matrix, charts and a leaderboard, and in a wide pane they left most of it empty — the card
+ * simply ended, with the dock's background showing past it (Jauhar, 2026-08-07: "when
+ * resized, it wont fill"). They opt out exactly as SandiMin already did.
+ *
+ * The two calibration fits (Thomeer, saturation-height) KEEP the cap deliberately. They
+ * genuinely are a column of fields, which is the same split the `.module-pane` rule below
+ * already draws — a picture tool squeezed into a form column is the complaint, a form column
+ * that stays a form column is not. */
+.dock-ml .mc-dialog,
+.dock-facies-tie .mc-dialog,
+.dock-montecarlo .mc-dialog,
+.dock-lorenz .mc-dialog,
+.dock-hfu .mc-dialog {
+  max-width: none;
+}
+
+/* Filling is not stretching. Lifting the cap alone gave a 1210px-wide Output curve box and a
+ * 1210px algorithm picker, which is worse than the gap it filled — a text field that wide is
+ * harder to read and to aim at. So single-line controls keep roughly the width they had at the
+ * form-column size, and the space goes to the things that can use it. */
+.dock-ml .form-row > select,
+.dock-ml .form-row > input,
+.dock-facies-tie .form-row > select,
+.dock-facies-tie .form-row > input,
+.dock-montecarlo .form-row > select,
+.dock-montecarlo .form-row > input,
+.dock-lorenz .form-row > select,
+.dock-lorenz .form-row > input,
+.dock-hfu .form-row > select,
+.dock-hfu .form-row > input {
+  max-width: 460px;
+}
+
+/* Where the pane is wide enough for two readable columns, the FORM gains a second column
+ * rather than every field growing. Measured with a container query against the section's own
+ * box, not a media query against the window: a pane can be narrow in a wide window, which is
+ * the normal case in a docked workspace and exactly where a window-keyed rule answers wrong. */
+.dock-ml .ml-section-host {
+  container-type: inline-size;
+}
+.dock-ml .ml-section {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 34px;
+  align-items: start;
+}
+@container (min-width: 1060px) {
+  .dock-ml .ml-section {
+    grid-template-columns: 1fr 1fr;
+  }
+  /* A row carrying explanatory prose, the co-run chips, a table or a chart takes the full
+   * section width. Splitting a sentence into a column makes it a narrower sentence, not a
+   * shorter one, and a leaderboard in half a pane is the original complaint again. */
+  .dock-ml .ml-section > *:has(.ml-norm-why),
+  .dock-ml .ml-section > *:has(.ml-also-stack),
+  .dock-ml .ml-section > *:has(.mc-chain-note),
+  .dock-ml .ml-section > *:has(table),
+  .dock-ml .ml-section > *:has(canvas),
+  .dock-ml .ml-section > .mc-run-row,
+  .dock-ml .ml-section > .mc-results,
+  .dock-ml .ml-section > .mc-status {
+    grid-column: 1 / -1;
+  }
 }
 /* Form-column panes keep the dialog-era column width; the composite/report previews
  * scale with the pane instead. */

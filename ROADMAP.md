@@ -2466,3 +2466,55 @@ frontend-only; 1, 2 and 5 change what the pane IS; 4 is an export pass.
    GROUP, which sizes to its content, so the pinned background was only as wide as the four tabs and
    the form scrolled through beside them. The sticky element is now a full-width bar holding
    the pills.
+
+### A-ML status after the round-3 work (2026-08-07)
+
+Items 1, 2, 3, 4 and 6 of the click-through are DONE (PRs #16 and #18). Item 5 is half done: the
+resolution shortfall is measured and reported on every supervised run; **synthesizing** the missing
+frequency content is not built, and should not be until Jauhar answers two questions — should the
+added detail be spectrally matched to the training target or should the tool simply report and leave
+the curve smooth, and if synthesized, should it carry a separate curve name the way the log10
+back-transform does.
+
+**ML PRD (`docs/PRD_v2/24_ml-advanced.md`) audit, same day.** Of 65 requirements: 22 PRESENT-OK,
+11 PRESENT-DIVERGENT, 8 PARTIAL, 23 ABSENT, 1 PRESENT-UNVERIFIED — **now 34 PRESENT-OK / 7
+PRESENT-DIVERGENT / 5 PARTIAL / 18 ABSENT / 1 PRESENT-UNVERIFIED (2026-08-07), counted from the file
+rather than estimated.** Closed that day: -007, -014, -015, -016, -017, -020, -021, -032, -034, -046,
+-047, -048. The harsh critique of what remains weak is `docs/critique_ml.md`, and its §13 is a
+shorter and more useful backlog than the list below: extrapolation detection, carrying the
+"simulated" fact on the curve rather than in a run note, and moving the runner into a real `.py`
+file behind `include_str!`. That backlog is real but it is
+not all reachable work — a large part of the ABSENT set describes capabilities SandiBumi has not
+built at all (SOM maps and their distortion measure, fuzzy-logic combination and its uncertainty
+band, the tie-in acceptance threshold, the native non-sklearn clustering path with its own quality
+index and restart spread). Those are feature decisions, not gaps in shipped code.
+
+The ABSENT/PARTIAL items that DO describe code already in the tree, and are therefore the honest
+next backlog, in priority order:
+
+- ~~**SB-MLA-007** — a model cited by a stored curve cannot be deleted silently.~~ **Done
+  2026-08-07.** `delete_ml_model` refuses and names the wells, sets and curves; `force` is the
+  user's own decision after reading that list, and it goes in the project history. The
+  unresolvable reference is derived in `ml_provenance` at read time rather than stamped on the
+  curves — a stamp can be missed (a project restored from a backup predating the deletion), and
+  `params_json` is the run record, not a place to describe a later event.
+- ~~**SB-MLA-017** — a cancelled run must leave no partially populated log set.~~ **Done
+  2026-08-07.** `mark_cancelled_sets` stamps the sets a cut-short run did write with the wells
+  written, the wells in scope, and the fact in words. Stamped after the fact, which is the opposite
+  resolution to -007 and deliberately so: a cancellation is how THIS run ended, so recording it
+  completes the run record rather than revising it.
+- ~~**SB-MLA-021** — density-based noise (DBSCAN) is a reported class, not a missing value.~~
+  **Done 2026-08-07.** A rejected sample is written as `CLUSTER_REJECT` (negative, so it sorts
+  below an ordering it is not part of), emitted into the runner from one Rust constant. Both
+  palette lookups now return a neutral grey for any negative — the modulo wrap would have painted
+  an outlier as a legitimate facies, in the log view and in the printed deliverable. Still open by
+  choice: Geolog's three-way accept/ambiguous/reject band needs a confidence threshold this product
+  does not yet ask for.
+- **SB-MLA-022** — the ordered-feature refusal is verified on the DEFAULT gate. The test exists and
+  is `#[ignore]`d, so the contract is proven only when somebody remembers to run the ignored set.
+  Note this is not a code gap: the refusal is enforced inside the joblib artifact by
+  `ML_APPLY_RUNNER`, so proving it on the default gate means checking the ORDER contract on the
+  Rust side too, where no scikit-learn is needed.
+- **SB-MLA-011 / -012** — per-well training/apply roles, and a substituted algorithm recorded under
+  the name that was requested. The runtime half of -012 shipped; the algorithm-name half did not.
+- **SB-MLA-030 / -063 / -065** — typed probability outputs, and declared rather than silent caps.

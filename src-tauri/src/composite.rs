@@ -1472,7 +1472,25 @@ const FACIES_PALETTE: [&str; 12] = [
     "#edc948", "#ff9da7", "#9c755f", "#8cd17d", "#86bcb6", "#d37295",
 ];
 
+/// Neutral grey for a REJECTED sample (SB-MLA-021), deliberately outside the qualitative palette.
+/// Keep in sync with `REJECT_COLOR` in src/ui/plotCanvas.ts.
+const FACIES_REJECT_COLOR: &str = "#9aa0a6";
+
+/// The print path's class colour, reachable from `ml.rs`'s SB-MLA-021 test. Exposed rather than
+/// duplicating the palette in the test, which would pin a copy instead of the thing that draws.
+#[cfg(test)]
+pub(crate) fn facies_color_for_test(class: i64) -> &'static str {
+    facies_color(class)
+}
+
 fn facies_color(class: i64) -> &'static str {
+    // SB-MLA-021. A negative class is one the algorithm REJECTED, not one of the clusters — and the
+    // wrap below would otherwise fold it back onto a real cluster's colour, printing an outlier as a
+    // legitimate facies. Any negative, not just CLUSTER_REJECT: a code this renderer does not
+    // recognise must not be painted as rock it is not.
+    if class < 0 {
+        return FACIES_REJECT_COLOR;
+    }
     let n = FACIES_PALETTE.len() as i64;
     FACIES_PALETTE[(((class % n) + n) % n) as usize]
 }
