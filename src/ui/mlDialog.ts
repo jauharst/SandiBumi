@@ -3029,6 +3029,21 @@ export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: b
       td.textContent = c;
       tr.appendChild(td);
     }
+    // A candidate whose optimiser gave up is not one that merely lost, and the score cannot show the
+    // difference — an MLP that never converged scored −50 on real data and read as a poor model. It
+    // keeps its row (the fit did produce something, and hiding it would be its own lie) but it is
+    // marked, and the reason is on the row rather than in a footnote nobody reads.
+    if (!row.error && row.n_unconverged > 0) {
+      tr.classList.add("ml-lb-unconverged");
+      tr.title =
+        `Did not converge in ${row.n_unconverged} of ${res.n_splits} folds — the optimiser stopped at its ` +
+        `iteration limit, so this score is of a half-trained model.` +
+        (row.converge_note ? ` scikit-learn said: ${row.converge_note}` : "");
+      const flag = document.createElement("span");
+      flag.className = "ml-lb-unconverged-flag";
+      flag.textContent = " ⚠ did not converge";
+      tr.children[1]?.appendChild(flag);
+    }
     // Only mark a winner the fold spread can actually separate. Where it cannot, every row in the
     // tie is marked instead of the first one, so the table stops answering a question it can't.
     if (!row.error && i < tied) tr.classList.add(tied === 1 ? "mc-best" : "ml-lb-tied");

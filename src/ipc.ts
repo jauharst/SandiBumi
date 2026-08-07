@@ -1522,6 +1522,11 @@ export interface MlEvalRow {
   /** Folds `score` and `score_std` are computed over. Below `n_splits`, some fold produced no
    *  score and the mean is over fewer wells than it looks. */
   n_score_folds: number;
+  /** Folds where the optimiser hit its iteration limit instead of converging. A candidate that
+   *  gave up is not one that merely lost, and the score cannot tell them apart. */
+  n_unconverged: number;
+  /** scikit-learn's own words for the last such warning, so the fix it suggests is not lost. */
+  converge_note: string;
   metrics: Record<string, unknown>;
   /**
    * Permutation importance measured on each fold's HELD-OUT rows, then averaged — the same

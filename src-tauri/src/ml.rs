@@ -833,6 +833,34 @@ except ImportError:
     fail("scikit-learn is not installed for this Python - run: pip install scikit-learn")
 from sklearn.preprocessing import StandardScaler
 
+# A model whose optimiser GAVE UP is not a model that merely scored badly, and the two are
+# indistinguishable from the score alone - an MLP that hit `max_iter` without converging returned
+# an R2 of -50 on real data and sat in the table looking like a candidate that had simply lost.
+# scikit-learn says so, loudly, through `ConvergenceWarning`; the runner used to discard it because
+# warnings go to stderr and only the LAST stderr line is read, as the error.
+#
+# Recorded rather than raised: the fit did produce a model and the user may still want to look at
+# it. What must not happen is the number being quoted without the qualification.
+import warnings as _warnings
+try:
+    from sklearn.exceptions import ConvergenceWarning
+except ImportError:
+    ConvergenceWarning = None
+
+CONVERGED = {"ok": True, "detail": ""}
+
+def fit_model(model, Xf, yf):
+    """`model.fit`, remembering whether the optimiser finished or ran out of iterations."""
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        model.fit(Xf, yf)
+    for w in caught:
+        if ConvergenceWarning is not None and issubclass(w.category, ConvergenceWarning):
+            CONVERGED["ok"] = False
+            # One line, bounded: it is a note in a result panel, not a traceback.
+            CONVERGED["detail"] = " ".join(str(w.message).split())[:400]
+    return model
+
 seed = int(P(p, "seed", SEED_DEFAULT))
 supervised = task in ("regression", "classification")
 metrics = {}
@@ -1171,7 +1199,7 @@ if task == "regression":
     # prediction there can be laid against core and looked at - which is the whole reason a
     # petrophysicist holds a well back. Refitting would make that curve in-sample and leave the
     # reported score describing a model that no longer exists.
-    model.fit(Xf, yf)
+    fit_model(model, Xf, yf)
     pred = model.predict(Xf)
     ss_res = float(np.sum((yf - pred) ** 2)); ss_tot = max(float(np.sum((yf - np.mean(yf)) ** 2)), 1e-12)
     metrics["r2_train"] = 1.0 - ss_res / ss_tot
@@ -1208,7 +1236,7 @@ elif task == "classification":
         metrics["algorithm_used"] = SUBSTITUTION["used"]
     cv_score(model, "accuracy", "accuracy_cv")
     Xf, yf = fit_xy(yi)
-    model.fit(Xf, yf)
+    fit_model(model, Xf, yf)
     metrics["accuracy_train"] = float(np.mean(model.predict(Xf) == yf))
     name_protocol("accuracy_train", "the rows the model was FITTED ON - in-sample, so it measures how "
                                     "much the model could memorise and not how it will behave on rock "
@@ -1449,6 +1477,12 @@ if save_model and supervised:
         # Never lose the RUN because the artifact could not be saved - the curves are already
         # computed. Report it and let the caller say so.
         metrics["model_save_error"] = str(e)
+
+# The optimiser gave up rather than finished. Carried as DATA rather than folded into a prose note,
+# so a renderer cannot print the score without being able to find the qualification - the same rule
+# `cv_degraded` follows, and for the same reason: this one reads as a plausible bad score.
+if not CONVERGED["ok"]:
+    metrics["not_converged"] = CONVERGED["detail"] or "the optimiser stopped at its iteration limit"
 
 # SB-MLA-005. Reported on EVERY run, not only when a model is saved: the curve is as much a product
 # of this library set as the artifact is, and a run that saved nothing still has to be reproducible.
@@ -3859,12 +3893,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             let missing: Vec<&str> =
                 roster.iter().filter(|r| r.set_id.is_none()).map(|r| r.well.as_str()).collect();
             if !missing.is_empty() {
-                notes.push(format!(
-                    "{} of {} training well(s) have no log set named '{set}', so their rows were read from the CURRENT store instead: {}",
-                    missing.len(),
-                    roster.len(),
-                    missing.join(", ")
-                ));
+                notes.push(ml_set_note(set, &missing, roster.len()));
             }
         }
     }
@@ -4072,6 +4101,17 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             }
             if !req.interval.is_open() {
                 metrics["interval"] = serde_json::json!({ "top": req.interval.top, "base": req.interval.base });
+            }
+            // The optimiser stopped at its iteration limit rather than finishing. Said FIRST-CLASS,
+            // as a note, because every score below it describes a model that is not the one the
+            // settings asked for — and the giveaway looks exactly like an ordinary bad result.
+            if let Some(detail) = metrics.get("not_converged").and_then(|v| v.as_str()) {
+                notes.push(format!(
+                    "this fit did not converge - the optimiser stopped at its iteration limit rather than \
+                     finishing, so every score here describes a half-trained model and not the one the \
+                     settings describe. Raise max_iter, or standardise the inputs if that is off. \
+                     scikit-learn said: {detail}"
+                ));
             }
             // Measured on the model's OWN output (the untransformed one), against the target rows it
             // was fitted on. Reported, never corrected: see `resolution_note`.
@@ -4840,6 +4880,36 @@ pub(crate) struct MlRun {
     pub runtime: serde_json::Value,
 }
 
+/// The note for training wells that do not carry the requested input set.
+///
+/// "Set" names two different stores in this product, and choosing the wrong one is SILENT: import
+/// sets resolve by mnemonic, so the run reads exactly the rows the user wanted and then reports a
+/// note they have no reason to connect to the box they filled in. A **log set** is a version of an
+/// interpretation (RAW / EDIT / FINAL, written by a module run); an **import set** is a delivery of
+/// measured curves, named in the LAS wizard (FPROOH, WIRE).
+///
+/// The explanation is added only when NO well matched, because that is the shape a wrong-store
+/// guess makes. A genuinely missing interpretation version is patchy across a field — some wells
+/// were re-run and some were not — and telling that user they picked the wrong KIND of set would be
+/// a confident wrong answer.
+fn ml_set_note(set: &str, missing: &[&str], total: usize) -> String {
+    let mut s = format!(
+        "{} of {total} training well(s) have no LOG set named '{set}', so their rows were read from \
+         the CURRENT store instead: {}.",
+        missing.len(),
+        missing.join(", "),
+    );
+    if missing.len() == total {
+        s.push_str(&format!(
+            " No well has it, which usually means '{set}' is an IMPORT set (a delivery named in the \
+             LAS wizard) rather than a LOG set (a version of an interpretation - RAW, EDIT, FINAL - \
+             written by a module run). Import sets are resolved automatically by mnemonic and do not \
+             need choosing here, so the rows above are the ones you wanted either way."
+        ));
+    }
+    s
+}
+
 /// How many bins the mode is read off.
 ///
 /// A mode on continuous data has no meaning without a binning, and the two sides of a split must
@@ -5130,6 +5200,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GroupKFold, KFold
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import r2_score, accuracy_score, f1_score, confusion_matrix
+# A candidate whose optimiser GAVE UP is not a candidate that merely lost, and the leaderboard
+# cannot tell them apart from the score. Counted per row and per fold, because "it failed in one
+# well of five" and "it never converged anywhere" are different findings about the same model.
+import warnings as _warnings
+try:
+    from sklearn.exceptions import ConvergenceWarning
+except ImportError:
+    ConvergenceWarning = None
 
 # Nothing is standardized here. A transform fitted before the split has seen the held-out well,
 # so every score reported as blind is optimistic by construction (SB-MLA-028). The scalers are
@@ -5197,6 +5275,8 @@ for combo in combos:
     oof = np.full(n, np.nan)
     fold_scores = []
     fold_imps = []
+    n_unconverged = 0
+    conv_detail = ""
     err = None
     try:
         for k in range(len(SP)):
@@ -5204,7 +5284,14 @@ for combo in combos:
             if m is None:
                 err = "unknown algorithm '" + str(algo) + "'"; break
             tr, te, Xtr, Xte = fold_xy(k, fidx)
-            m.fit(Xtr, yt[tr])
+            with _warnings.catch_warnings(record=True) as caught:
+                _warnings.simplefilter("always")
+                m.fit(Xtr, yt[tr])
+            for w in caught:
+                if ConvergenceWarning is not None and issubclass(w.category, ConvergenceWarning):
+                    n_unconverged += 1
+                    conv_detail = " ".join(str(w.message).split())[:400]
+                    break
             pred = m.predict(Xte)
             oof[te] = pred
             fold_scores.append(accuracy_score(yt[te], pred.astype(int)) if clf else r2_score(y[te], pred))
@@ -5261,7 +5348,9 @@ for combo in combos:
         imp_std = [float(v) for v in M.std(axis=0)] if M.shape[0] > 1 else [0.0] * len(fidx)
     rows.append({"algorithm": algo, "feat_idx": fidx, "score": score,
                  "score_std": float(np.std(fold_scores)), "score_pooled": pooled,
-                 "n_score_folds": int(len(fold_scores)), "metrics": metrics,
+                 "n_score_folds": int(len(fold_scores)),
+                 "n_unconverged": int(n_unconverged), "converge_note": conv_detail,
+                 "metrics": metrics,
                  "importances": imp, "importances_std": imp_std,
                  "n_imp_folds": int(len(fold_imps)), "confusion": conf, "labels": labs,
                  "blind_pred": _finite(oof[XP])})
@@ -5352,6 +5441,17 @@ pub struct MlEvalRow {
     /// `n_splits`, some fold produced no score, and the mean is over fewer wells than it appears.
     #[serde(default)]
     pub n_score_folds: usize,
+    /// Folds in which the optimiser hit its iteration limit instead of converging.
+    ///
+    /// A candidate that GAVE UP is not a candidate that merely lost, and the score cannot tell them
+    /// apart — an MLP that never converged returned −50 R² on real data and sat in the table looking
+    /// like a model that had simply done badly. Counted per fold rather than as a flag, because
+    /// "it failed in one well of five" and "it never converged anywhere" are different findings.
+    #[serde(default)]
+    pub n_unconverged: usize,
+    /// scikit-learn's own words for the last such warning, so the fix it suggests is not lost.
+    #[serde(default)]
+    pub converge_note: String,
     pub metrics: serde_json::Value,
     /// Permutation importance, measured on each fold's HELD-OUT rows by the model that fold fitted,
     /// then averaged. It answers the same question `score` does — what carried to a well the model
@@ -5622,6 +5722,8 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                     score_std: r.score_std,
                     score_pooled: r.score_pooled,
                     n_score_folds: r.n_score_folds,
+                    n_unconverged: r.n_unconverged,
+                    converge_note: r.converge_note,
                     metrics: r.metrics,
                     importances: r.importances,
                     importances_std: r.importances_std,
@@ -5677,6 +5779,10 @@ struct PyEvalRow {
     score_pooled: Option<f64>,
     #[serde(default)]
     n_score_folds: usize,
+    #[serde(default)]
+    n_unconverged: usize,
+    #[serde(default)]
+    converge_note: String,
     #[serde(default)]
     metrics: serde_json::Value,
     #[serde(default)]
@@ -9069,6 +9175,84 @@ mod tests {
         let ev = metrics["explained_variance_pct"].as_array().unwrap();
         let total: f64 = ev.iter().map(|v| v.as_f64().unwrap()).sum();
         assert!(total > 99.0, "explained variance = {total}%");
+    }
+
+    /// "Set" names two different stores, and choosing the wrong one is silent: the run reads the
+    /// right rows anyway (import sets resolve by mnemonic) and reports a note the user has no reason
+    /// to connect to the box they filled in. Seen on real data — every well reported as lacking a
+    /// log set that was in fact the name of the LAS delivery.
+    ///
+    /// Pinned from both sides: unanimous absence earns the explanation, and a PATCHY one must not,
+    /// because a genuinely missing interpretation version is patchy across a field and telling that
+    /// user they picked the wrong kind of set would be wrong.
+    #[test]
+    fn a_log_set_no_well_has_is_explained_as_the_other_kind_of_set_and_a_patchy_one_is_not() {
+        let all_missing = ml_set_note("FPROOH", &["W1", "W2", "W3"], 3);
+        assert!(
+            all_missing.contains("IMPORT set") && all_missing.contains("LAS wizard"),
+            "a set no well has should name the other store: {all_missing}",
+        );
+        let patchy = ml_set_note("FINAL", &["W2"], 3);
+        assert!(
+            !patchy.contains("IMPORT set"),
+            "a version genuinely missing from ONE well of three is not a wrong-store guess: {patchy}",
+        );
+        assert!(
+            patchy.contains("FINAL") && patchy.contains("W2"),
+            "it still has to say which set and which well: {patchy}",
+        );
+    }
+
+    /// An optimiser that gave up looks exactly like a model that merely did badly — on real data an
+    /// MLP that hit `max_iter` returned −50 R² and sat in the leaderboard as an ordinary losing
+    /// candidate. scikit-learn says so through `ConvergenceWarning`, and the runner used to discard
+    /// it: warnings go to stderr, and only the LAST stderr line is read, as the error.
+    ///
+    /// Pinned from both sides. A run capped at one iteration must SAY it did not converge; the same
+    /// algorithm given room to finish must stay silent — without that half, a runner that reported
+    /// "did not converge" unconditionally would pass, and the flag would mean nothing.
+    #[test]
+    fn a_fit_that_ran_out_of_iterations_says_so_instead_of_reporting_a_bad_score() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // Deliberately the EASIEST target an MLP has: linear, and small enough in range that the
+        // loss reaches the solver's own tolerance rather than merely trending toward it. A harder
+        // fixture makes the second half of this test measure the fixture instead of the flag.
+        let n = 240usize;
+        let x: Vec<f32> = (0..n).map(|i| i as f32 * 0.05).collect();
+        let y: Vec<f32> = x.iter().map(|v| 0.05 * v).collect();
+
+        let run = |iters: i64| {
+            let (metrics, _outs) = exec_ml(
+                &py,
+                "regression",
+                "ann",
+                &params(&[("max_iter", serde_json::json!(iters)), ("hidden", serde_json::json!("32,16"))]),
+                1,
+                &x,
+                Some(&y),
+                &x,
+                n,
+            )
+            .expect("ann run failed");
+            metrics
+        };
+
+        let starved = run(1);
+        let note = starved.get("not_converged").and_then(|v| v.as_str());
+        assert!(
+            note.is_some_and(|s| !s.trim().is_empty()),
+            "a fit stopped at one iteration must report that it did not converge, not only a poor \
+             score: {starved}",
+        );
+
+        let finished = run(20000);
+        assert!(
+            finished.get("not_converged").is_none(),
+            "a fit given room to finish must stay silent, or the flag says nothing: {finished}",
+        );
     }
 
     /// Two sides of a split can agree exactly on mean and standard deviation and still be different

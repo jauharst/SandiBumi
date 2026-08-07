@@ -9685,3 +9685,50 @@ runner is only told the feature names when it is saving a model, so the table us
 
 Known and NOT fixed here: the three-score table above it (train / CV / blind) still overflows a pane
 narrower than about 440px. Pre-existing, unrelated to this change, and worth a separate look.
+
+## A model that gave up no longer looks like a model that lost (2026-08-07)
+
+Three things found by running the ML pane against real wells, now fixed.
+
+### The optimiser giving up was invisible
+
+On the real five-well run the neural net returned **R² of −50.9** and sat in the leaderboard looking
+like a candidate that had simply done badly. It had not done badly — it had never finished
+training. `MLPRegressor` stops at `max_iter` whether or not it has converged, and scikit-learn says
+so loudly through a `ConvergenceWarning`. SandiBumi was throwing that away: warnings go to stderr,
+and the runner reads only the last stderr line, as the error.
+
+A half-trained model and a poor model are indistinguishable from the score, and they call for
+opposite responses — one needs more iterations, the other needs different inputs.
+
+- [ ] **Run ML Models with the neural net (ANN) and a low max_iter** — 50 will do it. The run should
+      now tell you it did not converge, quote scikit-learn's own wording, and suggest raising
+      max_iter or standardising the inputs.
+- [ ] **Raise max_iter until the message stops.** That is the point at which the score starts
+      describing the model your settings actually asked for.
+- [ ] **Run a Compare with ANN among the candidates.** Its row should be greyed with an inline
+      **⚠ did not converge**, and hovering it should say in how many folds. It keeps its place in
+      the table — the fit did produce something — but it must not read as an ordinary poor result.
+- [ ] **Check the other rows are untouched.** Only a model that actually hit its limit is marked.
+
+### "Set" means two different things, and picking the wrong one was silent
+
+Choosing **FPROOH** as the input set produced *"5 of 5 training wells have no log set named
+'FPROOH'"* — correct, and useless: import sets and log sets are different stores. A **log set** is a
+version of an interpretation (RAW / EDIT / FINAL, written by a module run). An **import set** is a
+delivery of measured curves, named in the LAS wizard. The run read exactly the right rows anyway,
+because import sets resolve by mnemonic — so the note looked like a problem and was not one.
+
+The message now explains that, **but only when no well matched at all**. A version genuinely missing
+from some wells is patchy across a field — some were re-run, some were not — and telling that user
+they picked the wrong *kind* of set would be a confident wrong answer.
+
+- [ ] **Pick an input set that is the name of a LAS delivery** rather than an interpretation version.
+      The note should explain the difference and say the rows you got are the ones you wanted.
+- [ ] **Now run a module on some wells but not others, then use that log set.** The note must
+      name the wells and must NOT claim you chose the wrong kind of set.
+
+### The curves in the balance table are named
+
+Covered in the section above; it was the same root cause — the runner is only told the feature
+names when it is saving a model.
