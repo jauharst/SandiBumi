@@ -2163,7 +2163,7 @@ that is good on either. This is the cheapest genuine capability gain in the chap
 
 **Verified by.** SB-MLA-T41, SB-MLA-T42
 
-#### SB-MLA-044 — The native clustering path reports cluster quality          [P1] [status: ABSENT]
+#### SB-MLA-044 — The native clustering path reports cluster quality          [P1] [status: PRESENT-OK]
 
 **Requirement.** Every clustering run MUST report a per-cluster and an overall geometric quality
 measure, whichever engine executed it, with its sample count.
@@ -2173,10 +2173,11 @@ quality readout gives the interpreter no basis to reject the result, which is th
 "proceeds and returns a plausible number" pattern the corpus catalogues in the vendors — here in
 SandiBumi's own most-used clustering path.
 
-**As-built.** `ABSENT` in the native path — `facies.rs` computes inertia internally
-(`facies.rs:143`–`:150`) to select the best restart and then **discards it**; nothing is reported.
-`PRESENT-DIVERGENT` in the Python path, where `ml.rs:189`–`:196` reports a silhouette but
-subsampled and unlabelled (see `SB-MLA-020`).
+**As-built.** `PRESENT-OK` (2026-08-07) — both native engines now emit `FACIES_SIL`, a **per-sample** silhouette, alongside their class curve. Per sample rather than as one figure, and that is the better answer rather than a workaround for the module framework having no scalar channel: a single number says the clustering is "0.42 good" and cannot say the sands are clean while the interbedded section is guesswork. Depth-resolved, it says exactly that, and it plots beside the facies it qualifies. Negative values are the case that matters — a sample sitting closer to another cluster than its own — which a class code can never show, because a facies track looks equally confident everywhere.
+
+The cap matches the Python path's (`SILHOUETTE_CAP = 5000`) so the two engines' numbers stay comparable; a quality measure computed over different sample counts on the two sides would be exactly the engine disagreement `SB-MLA-023` exists to prevent, arriving through the diagnostic. On the GMM engine it sits beside `FPROB` deliberately: they answer different questions, and a confidently-fitted but badly-separated mixture reports a high `FPROB` and a low silhouette.
+
+**Verified by.** `the_native_clustering_says_how_well_separated_it_actually_is` — pinned from both sides, because a statistic that returned 0.9 for separated blobs AND for one undifferentiated cloud would pass any single-sided check and still be quoted.
 
 **Verified by.** SB-MLA-T43
 

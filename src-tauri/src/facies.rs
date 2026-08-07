@@ -85,6 +85,12 @@ pub fn electrofacies_spec() -> ModuleSpec {
             log_in("CURVE4", "Curve 4 (optional)", "", "DT", false),
             log_in("CURVE5", "Curve 5 (optional)", "", "SP", false),
             log_out("FACIES", "Electrofacies cluster index (0..K-1)", ""),
+            log_out(
+                "FACIES_SIL",
+                "Silhouette per sample: +1 fits its cluster well, 0 on a boundary, NEGATIVE means it \
+                 sits closer to another cluster than its own",
+                "",
+            ),
         ],
     }
 }
@@ -218,6 +224,84 @@ fn prep_samples(ctx: &ModuleContext) -> Result<Prep, String> {
     Ok(Prep { present, idx, pts, dims, k, seed })
 }
 
+/// Sample count above which the silhouette is computed on a seeded subsample (SB-MLA-044).
+///
+/// The statistic is O(n²) in distance evaluations, so a 20,000-sample well would cost 400 million
+/// of them for a diagnostic. Matches the Python path's cap so the two engines' numbers are
+/// comparable — a quality measure computed over different sample counts on the two sides would be
+/// the very engine disagreement `SB-MLA-023` exists to prevent, arriving through the diagnostic.
+pub(crate) const SILHOUETTE_CAP: usize = 5000;
+
+/// Per-sample silhouette: how much better this sample fits its own cluster than the nearest other.
+///
+/// `s = (b - a) / max(a, b)`, where `a` is the mean distance to the sample's own cluster and `b` the
+/// smallest mean distance to any other. +1 is unambiguous, 0 is on a boundary, **negative means the
+/// sample is closer to another cluster than its own** — which is the reading a facies track cannot
+/// show, because a class code looks equally confident everywhere.
+///
+/// Returned PER SAMPLE rather than as one number on purpose. A module has no channel for a scalar,
+/// but that constraint pushes toward the more useful answer anyway: a single figure says the
+/// clustering is "0.42 good" and cannot say the sands are clean and the interbedded section is
+/// guesswork. Depth-resolved, it can, and it plots beside the facies it qualifies.
+///
+/// A cluster of one has no within-cluster distance to speak of and scores 0, not 1 — the convention
+/// Rousseeuw defines, and the honest one: a singleton is not a well-supported class.
+pub(crate) fn silhouette_per_sample(pts: &[Vec<f64>], labels: &[usize], k: usize, seed: u64) -> Vec<f32> {
+    let n = pts.len();
+    let mut out = vec![f32::NAN; n];
+    if n < 2 || k < 2 {
+        return out;
+    }
+    // Which samples take part in the O(n^2) comparison. Every sample still GETS a score; the cap
+    // limits who it is measured against, so the cost is O(n * cap) rather than O(n^2).
+    let refs: Vec<usize> = if n <= SILHOUETTE_CAP {
+        (0..n).collect()
+    } else {
+        let mut rng = Rng::new(seed ^ 0x5DEE_CE66_D5D0_1F3B);
+        let mut all: Vec<usize> = (0..n).collect();
+        // Partial Fisher-Yates: seeded, so the diagnostic is reproducible like everything else here.
+        for i in 0..SILHOUETTE_CAP {
+            let j = i + (rng.next_u64() as usize) % (n - i);
+            all.swap(i, j);
+        }
+        all.truncate(SILHOUETTE_CAP);
+        all
+    };
+    let dist = |a: &[f64], b: &[f64]| -> f64 {
+        a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum::<f64>().sqrt()
+    };
+    for i in 0..n {
+        let mut sums = vec![0.0f64; k];
+        let mut counts = vec![0usize; k];
+        for &j in &refs {
+            if j == i {
+                continue;
+            }
+            sums[labels[j]] += dist(&pts[i], &pts[j]);
+            counts[labels[j]] += 1;
+        }
+        let own = labels[i];
+        if counts[own] == 0 {
+            // Nothing else of its kind in the comparison set: no evidence either way, not a perfect
+            // fit. Rousseeuw's convention for a singleton cluster.
+            out[i] = 0.0;
+            continue;
+        }
+        let a = sums[own] / counts[own] as f64;
+        let b = (0..k)
+            .filter(|&c| c != own && counts[c] > 0)
+            .map(|c| sums[c] / counts[c] as f64)
+            .fold(f64::INFINITY, f64::min);
+        out[i] = if b.is_finite() {
+            let m = a.max(b);
+            if m > 0.0 { ((b - a) / m) as f32 } else { 0.0 }
+        } else {
+            0.0
+        };
+    }
+    out
+}
+
 pub fn electrofacies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let n = ctx.n;
     let mut out = vec![f32::NAN; n];
@@ -242,7 +326,16 @@ pub fn electrofacies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         out[i] = order[best_labels[s]] as f32;
     }
 
-    Ok(HashMap::from([("FACIES".to_string(), out)]))
+    // SB-MLA-044. The native engine now reports cluster quality too. Without it a facies run offered
+    // no measure of its own worth on this side while the Python side reported a silhouette, so the
+    // choice of engine silently changed how much a user could tell about the answer.
+    let sil = silhouette_per_sample(&pts, &best_labels, k, seed);
+    let mut sil_out = vec![f32::NAN; n];
+    for (s, &i) in idx.iter().enumerate() {
+        sil_out[i] = sil[s];
+    }
+
+    Ok(HashMap::from([("FACIES".to_string(), out), ("FACIES_SIL".to_string(), sil_out)]))
 }
 
 pub fn gmm_facies_spec() -> ModuleSpec {
@@ -270,6 +363,12 @@ pub fn gmm_facies_spec() -> ModuleSpec {
             log_in("CURVE5", "Curve 5 (optional)", "", "SP", false),
             log_out("FACIES_GMM", "GMM facies index (0..K-1)", ""),
             log_out("FPROB", "Posterior probability of the winning facies", "v/v"),
+            log_out(
+                "FACIES_SIL",
+                "Silhouette per sample: how far apart the clusters actually are here, which is a \
+                 different question from how sure the mixture is (FPROB)",
+                "",
+            ),
         ],
     }
 }
@@ -394,7 +493,21 @@ pub fn gmm_facies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         prob[i] = resp[s][labels[s]] as f32;
     }
 
-    Ok(HashMap::from([("FACIES_GMM".to_string(), out), ("FPROB".to_string(), prob)]))
+    // SB-MLA-044, the same measure on the soft engine. FPROB and the silhouette answer DIFFERENT
+    // questions and both are worth having: FPROB says how sure the mixture is that this sample
+    // belongs to the component it won, which a confidently-fitted but badly-separated mixture can
+    // report high; the silhouette says whether the clusters are geometrically apart at all.
+    let sil = silhouette_per_sample(&pts, &labels, k, seed);
+    let mut sil_out = vec![f32::NAN; n];
+    for (s, &i) in idx.iter().enumerate() {
+        sil_out[i] = sil[s];
+    }
+
+    Ok(HashMap::from([
+        ("FACIES_GMM".to_string(), out),
+        ("FPROB".to_string(), prob),
+        ("FACIES_SIL".to_string(), sil_out),
+    ]))
 }
 
 /// One k-means run: k-means++ seeding + Lloyd iterations. Returns (labels, inertia).
@@ -597,6 +710,89 @@ mod tests {
         let out = electrofacies(&ctx(logs, 2.0, 6)).expect("clustering should succeed")["FACIES"].clone();
         assert!(out[1].is_nan(), "sample with missing input stays MISSING");
         assert!(out.iter().filter(|v| !v.is_nan()).count() == 5);
+    }
+
+    /// **SB-MLA-044 — the native engines report how good the clustering actually is, and the
+    /// measure has to be able to say "bad".**
+    ///
+    /// A facies track looks equally confident everywhere: every sample carries a class code, and
+    /// nothing on it distinguishes a clean sand that plainly belongs to its cluster from an
+    /// interbedded sample that landed in one by a hair. The Python engine reported a silhouette and
+    /// the native engines reported nothing, so the choice of engine silently changed how much a user
+    /// could tell about the answer.
+    ///
+    /// Pinned from both sides, which is the whole test: separated blobs must score HIGH, and one
+    /// undifferentiated cloud must score LOW. A statistic that returned 0.9 for both would pass any
+    /// single-sided check and be worthless — and worse than worthless, because it would be quoted.
+    #[test]
+    fn the_native_clustering_says_how_well_separated_it_actually_is() {
+        // Two clearly separated groups, and the same number of samples drawn as one blur.
+        let mut apart = Vec::new();
+        let mut blur = Vec::new();
+        for i in 0..60 {
+            let t = i as f32;
+            apart.push(if i < 30 { 10.0 + t * 0.1 } else { 200.0 + t * 0.1 });
+            // A single gentle ramp: real values, no clusters in it.
+            blur.push(10.0 + t * 0.5);
+        }
+        let score = |v: Vec<f32>| -> f32 {
+            let logs = HashMap::from([("CURVE1".to_string(), v)]);
+            let out = electrofacies(&ctx(logs, 2.0, 60)).expect("clustering should succeed");
+            let sil = out.get("FACIES_SIL").expect("the native run must report its own quality");
+            let live: Vec<f32> = sil.iter().copied().filter(|x| x.is_finite()).collect();
+            assert!(!live.is_empty(), "the quality curve must carry values where facies exist");
+            live.iter().sum::<f32>() / live.len() as f32
+        };
+
+        let good = score(apart);
+        let poor = score(blur);
+        assert!(good > 0.75, "two clearly separated groups must score high, got {good}");
+        assert!(
+            poor < good - 0.2,
+            "one undifferentiated cloud must score materially worse than real separation \
+             ({poor} vs {good}) - a measure that cannot say 'bad' is worse than none, because it \
+             gets quoted"
+        );
+
+        // The measure must be able to go NEGATIVE, or it cannot report the case that matters most:
+        // a sample sitting closer to another cluster than its own.
+        let pts = vec![vec![0.0], vec![10.0], vec![0.2], vec![9.8]];
+        let mislabelled = silhouette_per_sample(&pts, &[0, 0, 1, 1], 2, 7);
+        assert!(
+            mislabelled.iter().any(|s| *s < 0.0),
+            "a deliberately wrong labelling must produce negative silhouettes, got {mislabelled:?}"
+        );
+    }
+
+    /// SB-MLA-063 / SB-MLA-036 — the two silent behaviours in this module, pinned from both sides.
+    ///
+    /// K above the palette length was CLAMPED, handing somebody who asked for 20 classes a 12-class
+    /// scheme with no way to know, after which every count and legend downstream describes a scheme
+    /// nobody chose. And `OPT_STANDARDIZE` was read as `!= "NONE"`, so a typo, a stale chain step or
+    /// a hand-edited workflow silently took the standardising branch — the one that changes the
+    /// answer most.
+    ///
+    /// The other side matters as much: a value inside the enumeration, and a K inside the range,
+    /// must still run. A module that refused everything would satisfy the first half alone.
+    #[test]
+    fn an_out_of_range_k_and_an_unknown_scaling_option_are_refused_rather_than_guessed_at() {
+        let logs = || HashMap::from([("CURVE1".to_string(), (0..40).map(|i| i as f32).collect::<Vec<f32>>())]);
+
+        let err = electrofacies(&ctx(logs(), 20.0, 40)).expect_err("K = 20 must be refused");
+        assert!(err.contains("20") && err.contains("12"), "both numbers must be named: {err}");
+
+        let mut c = ctx(logs(), 4.0, 40);
+        c.opts.insert("OPT_STANDARDIZE".to_string(), "ZSCROE".to_string()); // a real typo
+        let err = electrofacies(&c).expect_err("an unknown scaling option must be refused");
+        assert!(err.contains("ZSCROE"), "the refusal must quote the value it did not know: {err}");
+
+        // Both valid spellings still run, or the refusal has simply become an outage.
+        for opt in ["ZSCORE", "NONE"] {
+            let mut c = ctx(logs(), 4.0, 40);
+            c.opts.insert("OPT_STANDARDIZE".to_string(), opt.to_string());
+            assert!(electrofacies(&c).is_ok(), "{opt} is in the enumeration and must run");
+        }
+        assert!(electrofacies(&ctx(logs(), 12.0, 40)).is_ok(), "K at the cap must still run");
     }
 
     /// SB-MLA-T13 case (a). A well where no input curve carries a single reading cannot be
