@@ -476,12 +476,14 @@ pub struct MlRequest {
     pub save_model_as: Option<String>,
     #[serde(default)]
     pub model_note: Option<String>,
-    /// Hold this fraction of the TRAINING wells back from the fit and score the model on them.
+    /// Hold roughly this fraction of the pooled training SAMPLES back from the fit and score the
+    /// model on them.
     ///
-    /// A fraction of the wells, not of the samples — see `split_blind_wells`. Supervised tasks
-    /// only: clustering and reduction are fitted on the very wells they are applied to, so
-    /// "held out" would not mean anything there. `None` keeps the old behaviour exactly, which
-    /// is what lets every saved workflow and older IPC payload run unchanged.
+    /// A share of the data, held back as whole wells — see `split_blind_wells` for why those are
+    /// two separate decisions and why the achieved share is reported beside the requested one.
+    /// Supervised tasks only: clustering and reduction are fitted on the very wells they are
+    /// applied to, so "held out" would not mean anything there. `None` keeps the old behaviour
+    /// exactly, which is what lets every saved workflow and older IPC payload run unchanged.
     #[serde(default)]
     pub blind_fraction: Option<f64>,
     /// Seed for the well shuffle. Fixed by default so the same request re-runs to the same
@@ -551,15 +553,22 @@ pub struct MlResult {
 
 /// The split as it was actually performed, not as it was requested.
 ///
-/// The requested percentage is kept alongside the two counts on purpose: a request for 30% of
-/// five wells is 1.5 wells, and reporting only "30%" would leave which way it rounded — and
-/// therefore what the blind score is a score of — unstated. Well NAMES, because a blind score
-/// is a claim about specific rock and the next question is always "which ones?".
+/// The requested fraction is kept beside the ACHIEVED one on purpose, and both row counts beside
+/// both. The fraction asks for a share of the DATA, but the thing held back is a whole well (see
+/// `split_blind_wells`), and whole wells are lumpy: five wells cannot usually be divided into
+/// exactly 30% of their pooled samples. Reporting only the request would make the blind score a
+/// claim about an unstated amount of rock. Well NAMES, because the next question after a blind
+/// score is always "which ones?".
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SplitReport {
     pub fit_wells: Vec<String>,
     pub blind_wells: Vec<String>,
+    /// Usable training rows on each side — what the fraction is really a fraction of.
+    pub fit_rows: usize,
+    pub blind_rows: usize,
     pub requested_fraction: f64,
+    /// `blind_rows / (fit_rows + blind_rows)`. What the user actually got.
+    pub achieved_fraction: f64,
     pub seed: u64,
 }
 
@@ -581,24 +590,42 @@ fn fail(msg: &str) -> MlResult {
 /// returns an all-NaN column for a curve the well lacks, so a wrong target mnemonic lands here
 /// rather than as an error), or fully masked. That list is the honesty signal the caller
 /// surfaces, so a 20-well selection cannot silently be fit on 3.
-/// Choose which of `n` wells are held blind, deterministically from `seed`.
+/// Choose which wells are held blind, deterministically from `seed`, so that the rows they carry
+/// land as near as possible to `fraction` of the pooled training rows. `counts[i]` is the number
+/// of usable samples well `i` contributed.
 ///
-/// The unit is the WELL, never the sample. Splitting pooled samples 70/30 puts consecutive
-/// depths from one well on both sides of the line, so the model is scored on rock it already
-/// saw a metre away and the blind score is optimistic by construction — the same failure
-/// `SB-MLA-028` closed in the leaderboard.
+/// **The fraction is a share of the DATA; the thing held back is a whole WELL.** Those are two
+/// different statements and both are deliberate.
 ///
-/// The count is rounded, and the caller reports both numbers rather than the percentage: on
-/// five wells "30%" is 1.5 wells, and which way that rounded is the whole meaning of the split.
-/// At least one well stays on each side whenever there are two to divide, because a request for
-/// a blind test that silently produces no blind well is the kind of clean-looking nothing
-/// `SB-CORE-002` exists to forbid.
-fn split_blind_wells(n: usize, fraction: f64, seed: u64) -> Vec<usize> {
-    if n < 2 || !(fraction > 0.0) {
+/// A share of the data, because that is what the user is deciding — "hold 30% of what these five
+/// wells gave me" (Jauhar, 2026-08-07: *"not 30% of wells, but from 30% of total data those 5
+/// wells gave"*). Counting wells instead would make the same 30% mean 6% of the rock when the two
+/// wells drawn happen to be short re-entries, and 55% when they are the deep ones — a blind score
+/// whose meaning moves with the draw.
+///
+/// A whole well, because splitting pooled SAMPLES 70/30 puts consecutive depths from one well on
+/// both sides of the line. At a 0.1524 m sampling the row above and the row below are all but the
+/// same rock, so the model is scored on what it already saw a few centimetres away and the blind
+/// score is optimistic by construction — the same failure `SB-MLA-028` closed in the leaderboard.
+///
+/// So the fraction is a TARGET rather than a count. Walk the wells in seeded-shuffled order and
+/// take one whenever taking it moves the running row total CLOSER to the target; the whole list is
+/// scanned rather than stopped at the first well that overshoots, so one big well early does not
+/// force the split — a smaller one later can still fill the gap. Whole wells are lumpy and the
+/// target is often unreachable; the caller reports what was achieved beside what was asked
+/// (`SplitReport::achieved_fraction`), because a miss the user cannot see is a blind score about
+/// an unstated amount of rock.
+///
+/// At least one well stays on each side whenever there are two to divide: a request for a blind
+/// test that silently produces no blind well is the kind of clean-looking nothing `SB-CORE-002`
+/// exists to forbid.
+fn split_blind_wells(counts: &[usize], fraction: f64, seed: u64) -> Vec<usize> {
+    let n = counts.len();
+    let total: usize = counts.iter().sum();
+    if n < 2 || total == 0 || !(fraction > 0.0) {
         return Vec::new();
     }
-    let want = ((n as f64) * fraction.min(1.0)).round() as usize;
-    let want = want.clamp(1, n - 1);
+    let target = (total as f64) * fraction.min(1.0);
     // SplitMix64, the generator facies.rs already uses — one definition of "seeded shuffle" in
     // this repo, and reproducible across platforms in a way a hash-map iteration order is not.
     let mut s = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -614,7 +641,41 @@ fn split_blind_wells(n: usize, fraction: f64, seed: u64) -> Vec<usize> {
         let j = (next() % (i as u64 + 1)) as usize;
         order.swap(i, j);
     }
-    let mut blind: Vec<usize> = order.into_iter().take(want).collect();
+    let mut blind: Vec<usize> = Vec::new();
+    let mut acc = 0f64;
+    for &i in &order {
+        let c = counts[i] as f64;
+        if (acc + c - target).abs() < (acc - target).abs() {
+            blind.push(i);
+            acc += c;
+        }
+    }
+    // Both guards restore the ONE well per side floor the doc comment promises. Empty happens when
+    // every well overshoots on its own (one well holds more than twice the target); full happens at
+    // a fraction near 1. In each case the shuffled order decides, so the result stays seeded.
+    if blind.is_empty() {
+        // The well that lands nearest on its own — not simply the first, which on a lopsided field
+        // can be the one well that overshoots worst.
+        let pick = *order
+            .iter()
+            .min_by(|&&a, &&b| {
+                let da = (counts[a] as f64 - target).abs();
+                let db = (counts[b] as f64 - target).abs();
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap();
+        blind.push(pick);
+    } else if blind.len() == n {
+        // Give back whichever well leaves the remainder nearest the target.
+        let drop_at = (0..blind.len())
+            .min_by(|&a, &b| {
+                let da = (acc - counts[blind[a]] as f64 - target).abs();
+                let db = (acc - counts[blind[b]] as f64 - target).abs();
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap();
+        blind.remove(drop_at);
+    }
     blind.sort_unstable();
     blind
 }
@@ -853,27 +914,44 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     // rows can be held out — holding back a well that turned out to be empty would reserve a
     // blind set of nothing and score the model on it.
     let split_seed = req.split_seed.unwrap_or(42);
-    let contributing: Vec<usize> = {
-        let mut seen: Vec<usize> = groups.iter().map(|g| *g as usize).collect();
-        seen.sort_unstable();
-        seen.dedup();
-        seen
-    };
+    // Rows per contributing well, in one pass — the fraction is a share of THESE, so the counts
+    // have to come from the pooled matrix rather than from the requested well list (a well that
+    // contributed nothing is not 20% of a five-well field).
+    let mut row_counts: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+    for g in &groups {
+        *row_counts.entry(*g as usize).or_insert(0) += 1;
+    }
+    let contributing: Vec<usize> = row_counts.keys().copied().collect();
+    let counts: Vec<usize> = row_counts.values().copied().collect();
     let blind_pos = req
         .blind_fraction
         .filter(|f| supervised && *f > 0.0)
-        .map(|f| split_blind_wells(contributing.len(), f, split_seed))
+        .map(|f| split_blind_wells(&counts, f, split_seed))
         .unwrap_or_default();
     let blind_groups: Vec<usize> = blind_pos.iter().map(|&i| contributing[i]).collect();
-    let split = req.blind_fraction.filter(|f| supervised && *f > 0.0).map(|f| SplitReport {
-        fit_wells: contributing
-            .iter()
-            .filter(|g| !blind_groups.contains(g))
-            .filter_map(|&g| req.train_well_ids.get(g).cloned())
-            .collect(),
-        blind_wells: blind_groups.iter().filter_map(|&g| req.train_well_ids.get(g).cloned()).collect(),
-        requested_fraction: f,
-        seed: split_seed,
+    let split = req.blind_fraction.filter(|f| supervised && *f > 0.0).map(|f| {
+        let blind_rows: usize = blind_pos.iter().map(|&i| counts[i]).sum();
+        let total_rows: usize = counts.iter().sum();
+        SplitReport {
+            fit_wells: contributing
+                .iter()
+                .filter(|g| !blind_groups.contains(g))
+                .filter_map(|&g| req.train_well_ids.get(g).cloned())
+                .collect(),
+            blind_wells: blind_groups
+                .iter()
+                .filter_map(|&g| req.train_well_ids.get(g).cloned())
+                .collect(),
+            fit_rows: total_rows - blind_rows,
+            blind_rows,
+            requested_fraction: f,
+            achieved_fraction: if total_rows == 0 {
+                0.0
+            } else {
+                blind_rows as f64 / total_rows as f64
+            },
+            seed: split_seed,
+        }
     });
 
     match exec_ml_full(
@@ -2112,30 +2190,90 @@ mod tests {
         assert!(body.contains(r#"metrics["effective_params"] = EFFECTIVE"#), "the record is never emitted");
     }
 
-    /// The unit of a train/test split is the WELL. Five wells at 30% is 1.5 wells, which does not
-    /// exist, so the count rounds — and the caller reports the two counts rather than the
-    /// percentage, because which way it rounded is what the blind score is a score of.
+    /// The percentage is a share of the DATA; the thing held back is a whole WELL. The lopsided
+    /// case is the one that matters and the one a well-count split got wrong: five wells of
+    /// 3000/1000/500/300/200 rows asked for 30% must land near 1500 ROWS, where "two of the five
+    /// wells" would give either 12% or 68% of the rock depending on which two the shuffle drew.
     ///
-    /// Pinned from both sides: a fraction too small to round up to a whole well still yields ONE
-    /// blind well rather than none, and a fraction of 1.0 still leaves one well to fit on. A
-    /// request for a blind test that silently produces no blind well is the clean-looking nothing
-    /// SB-CORE-002 forbids; a "split" that keeps nothing to train on is the same failure mirrored.
+    /// Pinned from both sides. Too small an ask still yields ONE blind well rather than none, and
+    /// 1.0 still leaves one well to fit on — a blind test that silently produces no blind well is
+    /// the clean-looking nothing SB-CORE-002 forbids, and a "split" with nothing to train on is
+    /// that failure mirrored. And a well holding most of the field is NOT held out for a 30% test:
+    /// without that, the guarantee could be met by a fallback that grabs the first shuffled well
+    /// and calls 97% a 30% split.
     #[test]
-    fn a_percentage_split_rounds_and_always_leaves_a_well_on_each_side() {
-        assert_eq!(split_blind_wells(5, 0.3, 42).len(), 2, "1.5 wells rounds to 2");
-        assert_eq!(split_blind_wells(5, 0.2, 42).len(), 1, "1.0 well needs no rounding");
-        assert_eq!(split_blind_wells(10, 0.3, 42).len(), 3);
-        assert_eq!(split_blind_wells(5, 0.05, 42).len(), 1, "0.25 wells rounds to 0 - floored to 1");
-        assert_eq!(split_blind_wells(5, 1.0, 42).len(), 4, "all-blind still leaves one to fit on");
-        assert!(split_blind_wells(1, 0.5, 42).is_empty(), "one well cannot be split");
-        assert!(split_blind_wells(5, 0.0, 42).is_empty(), "no split asked for");
+    fn a_share_of_the_samples_is_reached_with_whole_wells_and_always_leaves_one_on_each_side() {
+        let rows = |c: &[usize], b: &[usize]| -> usize { b.iter().map(|&i| c[i]).sum() };
+
+        // Five EQUAL wells: 30% of the data is 1.5 wells' worth, so either 1 or 2 lands 10 points
+        // off and the pick is the seed's. What must hold is that it is one of those two - never 0,
+        // never 3.
+        let equal = [1000usize; 5];
+        let b = split_blind_wells(&equal, 0.3, 42);
+        assert!((1..=2).contains(&b.len()), "1.5 wells' worth is 1 or 2, got {}", b.len());
+
+        // Five LOPSIDED wells - the case that made the old well-count split wrong. Asking for 30%
+        // of 5000 rows (1500) must land near 1500 rows, NOT on "two of the five wells", which here
+        // would be either 600 rows (12%) or 3400 (68%) depending on the draw.
+        let lop = [3000usize, 1000, 500, 300, 200];
+        for seed in 1..30u64 {
+            let b = split_blind_wells(&lop, 0.3, seed);
+            let got = rows(&lop, &b);
+            assert!(
+                (900..=2100).contains(&got),
+                "seed {seed}: asked 1500 rows, got {got} from wells {b:?}"
+            );
+        }
+
+        // A well that is most of the field cannot be held out for a 30% test, and the fallback is
+        // the CLOSEST well rather than the first shuffled one.
+        let whale = [10_000usize, 400, 300];
+        for seed in 1..30u64 {
+            let b = split_blind_wells(&whale, 0.3, seed);
+            assert!(!b.contains(&0), "seed {seed}: the 10k-row well is not 30% of anything");
+        }
+
+        // Floors and degenerate asks.
+        assert_eq!(split_blind_wells(&equal, 0.01, 42).len(), 1, "a tiny ask still holds one well");
+        assert_eq!(split_blind_wells(&equal, 1.0, 42).len(), 4, "all-blind still leaves one to fit on");
+        assert!(split_blind_wells(&[1000], 0.5, 42).is_empty(), "one well cannot be split");
+        assert!(split_blind_wells(&equal, 0.0, 42).is_empty(), "no split asked for");
+        assert!(split_blind_wells(&[0, 0, 0], 0.3, 42).is_empty(), "no rows, nothing to divide");
 
         // Every index is a real well, and no well is on both sides of the line.
-        let b = split_blind_wells(7, 0.4, 1);
+        let seven = [900usize, 100, 400, 250, 800, 150, 600];
+        let b = split_blind_wells(&seven, 0.4, 1);
         assert!(b.iter().all(|&i| i < 7));
         let mut u = b.clone();
         u.dedup();
         assert_eq!(u, b, "a well is held out once or not at all");
+    }
+
+    /// The fraction the user typed and the fraction they got are different numbers whenever whole
+    /// wells cannot divide the rows exactly — which is most of the time. Reporting only the request
+    /// would make the blind score a claim about an unstated amount of rock, so the two are pinned
+    /// to travel together and the achieved one is pinned to be the truth about the ROWS, not a copy
+    /// of the ask.
+    #[test]
+    fn the_split_reports_the_share_of_data_it_reached_not_the_share_it_was_asked_for() {
+        let counts = [3000usize, 1000, 500, 300, 200];
+        let total: usize = counts.iter().sum();
+        let blind = split_blind_wells(&counts, 0.3, 42);
+        let blind_rows: usize = blind.iter().map(|&i| counts[i]).sum();
+        let achieved = blind_rows as f64 / total as f64;
+
+        assert!(blind_rows > 0 && blind_rows < total, "both sides carry rows");
+        assert!(
+            (achieved - 0.3).abs() < 0.2,
+            "asked 30% of the data, reached {:.1}% - the target is on ROWS",
+            achieved * 100.0
+        );
+        // The whole point: it is allowed to miss, and the miss must be visible rather than rounded
+        // away into the requested number.
+        assert!(
+            (achieved * (total as f64) - blind_rows as f64).abs() < 1e-9,
+            "the achieved fraction is computed from the rows, not restated from the request"
+        );
     }
 
     /// A blind score that moves when nothing changed cannot be cited, so the shuffle is seeded and
@@ -2144,10 +2282,11 @@ mod tests {
     /// behaviour — every study in the field would hold out the same wells.
     #[test]
     fn the_same_seed_splits_the_same_wells_and_a_different_seed_does_not() {
-        assert_eq!(split_blind_wells(12, 0.25, 7), split_blind_wells(12, 0.25, 7));
+        let c = [700usize, 300, 1200, 450, 900, 150, 600, 800, 250, 1100, 350, 500];
+        assert_eq!(split_blind_wells(&c, 0.25, 7), split_blind_wells(&c, 0.25, 7));
         let mut differs = false;
         for s in 1..40u64 {
-            if split_blind_wells(12, 0.25, s) != split_blind_wells(12, 0.25, 7) {
+            if split_blind_wells(&c, 0.25, s) != split_blind_wells(&c, 0.25, 7) {
                 differs = true;
                 break;
             }

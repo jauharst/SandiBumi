@@ -259,10 +259,14 @@ export async function buildMlContent(
   content.appendChild(trainRow);
 
   // --- Blind test split ----------------------------------------------------
-  // The split is over WELLS, and the control says so, because the number a user types here is the
-  // one thing that decides whether the reported score means anything. A percentage of samples
-  // would put consecutive depths from one well on both sides of the line, and the model would be
-  // scored on rock it saw a metre away.
+  // The percentage is a share of the DATA — of the samples these wells actually gave, not of the
+  // well count (Jauhar, 2026-08-07). But what gets held back is still a WHOLE WELL: splitting
+  // pooled samples would put consecutive depths from one well on both sides of the line, and the
+  // model would be scored on rock it saw a few centimetres away.
+  //
+  // So the control asks for a target and cannot promise to hit it — whole wells are lumpy, and how
+  // many samples each well will contribute is not known until the curves are read and masked. The
+  // echo therefore says what will be AIMED at; the result panel says what was reached.
   const splitWrap = document.createElement("div");
   splitWrap.className = "ml-split-ctl";
   const splitOn = document.createElement("input");
@@ -288,13 +292,20 @@ export async function buildMlContent(
   const splitFields = document.createElement("div");
   splitFields.className = "ml-split-fields";
   const pctLab = document.createElement("label");
-  pctLab.append(splitPct, document.createTextNode(" % of wells held blind"));
+  pctLab.append(splitPct, document.createTextNode(" % of samples held blind"));
   const seedLab = document.createElement("label");
   seedLab.append(document.createTextNode("seed "), splitSeed);
   splitFields.append(pctLab, seedLab);
   splitWrap.append(splitOnLabel, splitFields, splitEcho);
 
-  /** Say what the percentage will actually do to THIS many wells, before the run. */
+  /** Say what the percentage is aiming at, and what it CANNOT promise, before the run.
+   *
+   *  Deliberately no predicted well count. The old echo mirrored `split_blind_wells` and printed
+   *  "3 wells fitted, 2 held blind"; that arithmetic no longer exists here, because the answer now
+   *  depends on how many usable samples each well contributes — which is known only after the
+   *  curves are read and the mask applied. A number the frontend guessed and the backend then
+   *  contradicted would be worse than no number.
+   */
   function echoSplit(): void {
     const n = [...train.checks.values()].filter((c) => c.checked).length;
     if (!splitOn.checked) {
@@ -309,20 +320,12 @@ export async function buildMlContent(
       splitEcho.classList.add("ml-split-thin");
       return;
     }
-    const f = Math.max(0, Math.min(100, Number(splitPct.value) || 0)) / 100;
-    // Mirrors split_blind_wells in ml.rs: round, then keep one well on each side. The two
-    // rounding rules differ on negative halves (Rust rounds away from zero, JS toward +∞) and
-    // agree everywhere here because n * f cannot be negative — if this ever takes a signed
-    // quantity, the mirror breaks silently and the echo starts promising a split that is not
-    // the one performed.
-    const blind = Math.min(Math.max(Math.round(n * f), 1), n - 1);
-    const thin = blind < 2 || n - blind < 2;
+    const pct = Math.max(0, Math.min(100, Number(splitPct.value) || 0));
     splitEcho.textContent =
-      `${n - blind} well(s) fitted, ${blind} held blind` +
-      (Math.abs(n * f - blind) > 0.01 ? ` — ${(n * f).toFixed(1)} wells rounded to ${blind}` : "") +
-      (blind === 1 ? ". A blind set of one well is one opinion, not a spread." : "") +
-      (n - blind < 2 ? ". Fitting on one well is a model of that well." : "");
-    splitEcho.classList.toggle("ml-split-thin", thin);
+      `SandiBumi picks whole wells from the ${n} selected until about ${pct}% of their pooled samples are held back. ` +
+      `Whole wells rarely divide the data exactly — the share actually reached is reported with the score.` +
+      (n < 4 ? " With few wells the steps are coarse, so expect to land some way off." : "");
+    splitEcho.classList.toggle("ml-split-thin", n < 4);
   }
   splitOn.addEventListener("change", () => {
     splitPct.disabled = splitSeed.disabled = !splitOn.checked;
@@ -890,16 +893,18 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
   const box = document.createElement("div");
   box.className = "ml-split-report";
 
+  const askedPct = sp.requested_fraction * 100;
+  const gotPct = sp.achieved_fraction * 100;
   const head = document.createElement("div");
   head.className = "ml-split-head";
   head.textContent =
-    `Blind test — ${sp.fit_wells.length} well(s) fitted, ${sp.blind_wells.length} held back ` +
-    `(asked for ${Math.round(sp.requested_fraction * 100)}%, seed ${sp.seed})`;
+    `Blind test — ${gotPct.toFixed(1)}% of the data held back ` +
+    `(asked for ${Math.round(askedPct)}%, seed ${sp.seed})`;
   box.appendChild(head);
 
-  for (const [label, ids, cls] of [
-    ["Fitted on", sp.fit_wells, "ml-split-fit"],
-    ["Held blind", sp.blind_wells, "ml-split-blind"],
+  for (const [label, ids, rows, cls] of [
+    ["Fitted on", sp.fit_wells, sp.fit_rows, "ml-split-fit"],
+    ["Held blind", sp.blind_wells, sp.blind_rows, "ml-split-blind"],
   ] as const) {
     const row = document.createElement("div");
     row.className = `ml-split-row ${cls}`;
@@ -907,9 +912,27 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
     k.className = "ml-split-key";
     k.textContent = label;
     const v = document.createElement("span");
-    v.textContent = ids.length ? ids.map(name).join(", ") : "—";
+    // Samples beside the names, because the names alone do not say how much rock this is — two
+    // wells can be a third of the field or a twentieth of it.
+    v.textContent = ids.length
+      ? `${ids.map(name).join(", ")} — ${rows.toLocaleString()} samples`
+      : "—";
     row.append(k, v);
     box.appendChild(row);
+  }
+
+  // Whole wells are lumpy, so the request is a target and missing it is normal. Say so when the
+  // miss is big enough to change what the score means — silently printing the achieved number
+  // beside the requested one would leave the user to notice the gap themselves.
+  const miss = Math.abs(gotPct - askedPct);
+  if (miss >= 5) {
+    const g = document.createElement("div");
+    g.className = miss >= 15 ? "ml-split-gap ml-split-gap-warn" : "ml-split-gap";
+    g.textContent =
+      `Whole wells could not divide these samples at ${Math.round(askedPct)}% — the nearest reachable split holds ` +
+      `${gotPct.toFixed(1)}%. Wells are held back whole so the model is never scored on rock it saw a few centimetres away; ` +
+      `that is what makes the share coarse.`;
+    box.appendChild(g);
   }
 
   // Regression and classification report different things; show whichever pair exists.

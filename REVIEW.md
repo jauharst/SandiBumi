@@ -8697,19 +8697,35 @@ failure was not merely silent; it was disguised as an absence of work. Both engi
       every well by **name** rather than by the UUID it used to print. A refusal is a result, not a
       footnote; on a 200-well run it would otherwise be three lines somewhere in the middle.
 
-## ML — automatic train/blind split by percentage of WELLS (2026-08-07)
+## ML — automatic train/blind split by percentage of the DATA (2026-08-07)
 
 Jauhar asked for it directly: give five wells and a percentage, and have SandiBumi choose the split.
 It did not exist — "Train wells" was a manual checklist, and the only validation number on offer
 (`r2_cv5`) was a random 5-fold over **pooled samples**, which puts consecutive depths from one well
 on both sides of the fold. The model was being scored on rock it had already seen a metre away.
 
-- [ ] **Tick "Hold wells back as a blind test", set a percentage.** The line under it says what that
-      percentage will actually do to the wells you have ticked — "3 well(s) fitted, 2 held blind" —
-      **before** you run. On 5 wells at 30% it also says "1.5 wells rounded to 2", because which way
-      it rounded is what the blind score is a score of.
-- [ ] **It splits WELLS, never samples.** A 70/30 split of pooled samples would leak the same way
-      the old CV did. With fewer than 2 training wells the control says so rather than pretending.
+Built first as a percentage of the WELL COUNT, which Jauhar corrected the same day: *"not 30% of
+wells, but from 30% of total data those 5 wells gave"*. He is right, and it is not cosmetic — on
+five wells of 3000/1000/500/300/200 samples, "two of the five wells" is anywhere from 12% to 68% of
+the actual rock depending on which two the shuffle draws. The percentage now targets **samples**,
+and the well subset is chosen to reach it.
+
+- [ ] **Tick "Hold wells back as a blind test", set a percentage — of SAMPLES.** SandiBumi picks
+      whole wells until about that share of the pooled samples is held back. Try it on wells of very
+      different length: the number of wells held out will change to suit, which is the whole point.
+- [ ] **The result reports the share it REACHED, not the one you asked for**, with the sample count
+      beside each side's well names. Whole wells are lumpy and the target is often unreachable; when
+      the miss is 5 points or more it says so in a line of its own, and explains that holding wells
+      back whole is what makes the share coarse. Two wells can be a third of the field or a
+      twentieth of it — the names alone never said which.
+- [ ] **It still holds back WHOLE WELLS, never loose samples.** A 70/30 split of pooled samples
+      would leak the same way the old CV did — at 0.1524 m sampling the row above and the row below
+      are all but the same rock. With fewer than 2 training wells the control says so rather than
+      pretending.
+- [ ] **The pre-run line no longer predicts a well count**, deliberately: how many samples each well
+      contributes is not known until the curves are read and the mask applied, and a number the
+      dialog guessed and the run then contradicted would be worse than no number. It says what is
+      being aimed at, and warns that few wells make the steps coarse.
 - [ ] **It warns when a side is too thin** — "A blind set of one well is one opinion, not a spread",
       "Fitting on one well is a model of that well". Both are legitimate runs, so neither is refused.
 - [ ] **The seed is yours and it is stated.** Same seed, same wells — a blind score you cannot

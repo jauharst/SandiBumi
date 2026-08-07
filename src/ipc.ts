@@ -1128,22 +1128,30 @@ export interface MlRequest {
    *  tasks only — clustering and reduction are fitted on the wells they are applied to. */
   save_model_as?: string | null;
   model_note?: string | null;
-  /** Hold this fraction of the TRAINING wells back from the fit and score the model on them.
-   *  A fraction of the WELLS, not of the samples: splitting pooled samples puts consecutive
-   *  depths from one well on both sides, and the blind score comes back optimistic. Omit for
-   *  no split (every training well is fitted on, exactly as before). */
+  /** Hold roughly this fraction of the pooled training SAMPLES back from the fit and score the
+   *  model on them. A share of the data, held back as WHOLE WELLS: splitting pooled samples would
+   *  put consecutive depths from one well on both sides and the blind score would come back
+   *  optimistic, so the fraction is a target the well subset is chosen to approach rather than a
+   *  quantity it can hit exactly. Omit for no split (every training well is fitted on, exactly as
+   *  before). */
   blind_fraction?: number | null;
   /** Seed for the well shuffle, so the same request re-runs to the same split. */
   split_seed?: number | null;
 }
 
-/** The split as it was actually performed, not as it was requested — the requested percentage is
- *  kept beside the two well lists because on five wells "30%" is 1.5, and which way it rounded is
- *  what the blind score is a score of. */
+/** The split as it was actually performed, not as it was requested — the requested share is kept
+ *  beside the achieved one because whole wells rarely divide the samples exactly, and the gap is
+ *  what the blind score is really a score of. */
 export interface SplitReport {
   fit_wells: string[];
   blind_wells: string[];
+  /** Usable training samples on each side — what the fraction is really a fraction of. */
+  fit_rows: number;
+  blind_rows: number;
   requested_fraction: number;
+  /** `blind_rows / (fit_rows + blind_rows)`. Whole wells rarely divide the data exactly, so
+   *  this is what was actually reached — never a restatement of the request. */
+  achieved_fraction: number;
   seed: number;
 }
 
