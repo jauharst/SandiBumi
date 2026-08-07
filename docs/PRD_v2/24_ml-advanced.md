@@ -1136,7 +1136,7 @@ copy constructs it bare (`ml.rs:1143`) at scikit-learn's `max_iter = 100`, `max_
 
 ### Group B — Fail loud inward
 
-#### SB-MLA-013 — An unclusterable well fails; it never emits a clean empty curve          [P0] [status: PRESENT-DIVERGENT]
+#### SB-MLA-013 — An unclusterable well fails; it never emits a clean empty curve          [P0] [status: PRESENT-OK]
 
 **Requirement.** A clustering run that cannot produce a labelling for a well — because no input
 curve carries data, or because the count of complete samples is fewer than the requested cluster
@@ -1149,13 +1149,33 @@ failure is not merely silent — it is disguised as an absence of work. The vend
 instructive: IP, whose fail-silent behaviour this corpus catalogues in three other places, **does**
 print "One or more of the clusters had zero data points!" for this case (T2).
 
-**As-built.** `PRESENT-DIVERGENT` — `prep_samples` returns `None` at `facies.rs:72`–`:74` (no slot
-carries data) and `facies.rs:95`–`:97` (`pts.len() < k`); both callers then return the pre-allocated
-all-NaN output as success, at `facies.rs:137`–`:139` and `facies.rs:196`–`:198`. The Python path
-does this correctly at `ml.rs:589`–`:597`, distinguishing "missing an input" from "excluded by the
-mask", which makes this a divergence between two engines in one product as well as a defect.
+**As-built.** `PRESENT-OK` as of 2026-08-07. `prep_samples` now returns `Result<Prep, String>` with
+two distinct named causes, and `electrofacies`/`gmm_facies` return `Result<ModuleOutputs, String>`,
+so `modules.rs` propagates the refusal instead of wrapping an all-NaN vector in `Ok`. On the Python
+path a well that yields no rows is refused **before** `create_log_set` runs, so a run that reports
+failure does not also version an interpretation — the rule `docs/record_fixes.md` already states for
+every other module. The refusal names *which* emptiness it is (`no_rows_reason`): masked out and
+never measured call for opposite fixes, and the old wording "no complete samples in this well" said
+both.
 
-**Verified by.** SB-MLA-T13, SB-MLA-T23
+> **Correction, 2026-08-07.** The as-built above previously read that "the Python path does this
+> correctly at `ml.rs:589`–`:597`, distinguishing 'missing an input' from 'excluded by the mask'".
+> That was false in two ways, and checked at source before this requirement was closed. Those lines
+> are the scatter-back index loop, not a refusal; and the actual per-well outcome was
+> `ItemState::Warned` with `error: Some("no complete samples in this well")` set **after**
+> `write_computed_curves_versioned` had already written the all-NaN curve and allocated a log-set
+> version for it. Both engines had the defect. The whole-run guards at `ml.rs:659`/`:933` masked it
+> in testing: they refuse when *no* apply well has data, so the per-well case only surfaces in the
+> field-scale run where some wells are good and some are not — which is the only run where it
+> matters. This is the second as-built claim in this chapter found to certify behaviour that was
+> not there; see the same note under `SB-MLA-050`.
+
+**Verified by.** SB-MLA-T13 — closed by `a_well_with_no_input_data_is_refused_by_name_not_returned_as_a_clean_curve`
+and `fewer_complete_samples_than_clusters_is_refused_naming_the_count_and_k` (`facies.rs`, both
+engines, the second pinned from both sides at the 4-vs-5 sample boundary), plus
+`a_well_with_nothing_to_predict_names_which_emptiness_it_is` and the `#[ignore]`d end-to-end
+`an_empty_well_beside_a_good_one_is_refused_and_writes_nothing` (`ml.rs`), which asserts the refused
+well leaves no row in `computed_curves`. SB-MLA-T23 remains open against `SB-MLA-023`.
 
 #### SB-MLA-014 — A reduced cluster count is reported, never substituted silently          [P1] [status: PARTIAL]
 
@@ -3546,7 +3566,7 @@ chapter cannot be mistaken for a restatement of its dossier**, and because `03_E
 | `SB-MLA-007` | `db.rs:2740` — `delete_ml_model` is unconditional |
 | `SB-MLA-010` | `report.rs` and `export.rs` contain no ML reference at all — the chapter's spine |
 | `SB-MLA-011` | `ml.rs:580`–`:587`, `:720`–`:732` — empty-training wells are filtered out of `trained_on` |
-| `SB-MLA-013` | `facies.rs:137`–`:139`, `:192`–`:198` — an all-NaN return is reported as success |
+| ~~`SB-MLA-013`~~ | ~~`facies.rs:137`–`:139`, `:192`–`:198` — an all-NaN return is reported as success~~ **CLOSED 2026-08-07** — both native engines return `Result`; the python path refuses before writing. The row understated it: `ml.rs` had the same defect and the as-built had certified that path as correct |
 | `SB-MLA-014` | `hfu.rs:273` — `eff_k` silently reduces; `facies.rs:77` silently clamps |
 | `SB-MLA-015` | `facies.rs:215` — `VAR_FLOOR` fires without a report |
 | `SB-MLA-016` | `facies.rs:289` — iteration exhaustion is indistinguishable from convergence |

@@ -4976,6 +4976,29 @@ textarea {
 .ml-tie-note {
   margin-top: 6px;
 }
+/* Per-well outcome tally. The warn variant fires when any well was refused (SB-MLA-013) - the
+ * count is the headline, because a run that wrote 37 of 40 wells is a different result from one
+ * that wrote all 40, and the metrics above it look identical either way. */
+.ml-tally {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  margin: 8px 0 4px;
+}
+.ml-tally-warn {
+  color: var(--warn, #b4472e);
+  font-weight: 600;
+}
+/* A refused well is tinted, not hidden: it stays in the same table as the wells that worked, so
+ * the run reads as one result rather than a success list with an errata note somewhere else. */
+.ml-well-table tr.ml-well-refused td {
+  background: color-mix(in srgb, var(--warn, #b4472e) 8%, transparent);
+}
+.ml-well-table tr.ml-well-refused td:first-child {
+  box-shadow: inset 2px 0 0 var(--warn, #b4472e);
+}
+.ml-well-table tr.ml-well-refused td:last-child {
+  color: var(--warn, #b4472e);
+}
 /* Selected/diagonal row emphasis: confusion-matrix diagonal cells AND selected rows in any
  * plain mc-table result grid (HFU clustering, Thomeer Pc fit) that toggle `ml-diag` on click. */
 .ml-confusion .ml-diag,

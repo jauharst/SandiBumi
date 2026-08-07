@@ -153,6 +153,9 @@ export async function buildMlContent(
     listCurveCatalog().catch(() => []),
   ]);
   const curveNames = catalog.map((c) => c.name);
+  // Results come back keyed by well id; every table the user reads shows the well's NAME.
+  const wellNames = new Map(wells.map((w) => [w.well_id, w.well_name]));
+  const nameOf = (id: string) => wellNames.get(id) ?? id;
   const selected = appState.selectedWell.get();
   // Apply wells (the run scope) come from the shared scope selector; Train wells stay a
   // checklist below — a distinct labelled-data pick, not the run coverage.
@@ -584,7 +587,7 @@ export async function buildMlContent(
               bumpDataVersion();
             }
           }
-          renderResults(results, res);
+          renderResults(results, res, nameOf);
         } catch (e) {
           statusLine.textContent = `Failed: ${e}`;
         } finally {
@@ -684,7 +687,7 @@ export async function buildMlContent(
         }
         bumpDataVersion(); // ML wrote curves — refresh open plots/log views/catalog
       }
-      renderResults(results, res);
+      renderResults(results, res, nameOf);
     } catch (e) {
       statusLine.textContent = `Failed: ${e}`;
     } finally {
@@ -709,7 +712,19 @@ function fmtMetric(v: unknown): string {
   return String(v);
 }
 
-function renderResults(host: HTMLElement, res: MlResult): void {
+/**
+ * Per-well outcome of a run.
+ *
+ * A refused well is a RESULT, not a footnote. Since SB-MLA-013 a well that could not be labelled
+ * or predicted fails by name instead of quietly receiving an all-missing curve, so this table is
+ * now the only place the user learns that 3 of their 40 wells produced nothing — and why. It
+ * therefore leads with the count, puts the refused wells FIRST, and names them the way the Wells
+ * pane does. A UUID in this column is a well nobody can go and look at.
+ *
+ * Exported for the same reason as `renderLeaderboard` below — driving it with synthetic wells over
+ * the vite dev server is this repo's only way to see that a refused well actually reads as refused.
+ */
+export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: string) => string): void {
   host.innerHTML = "";
   if (res.error) return;
 
@@ -737,22 +752,39 @@ function renderResults(host: HTMLElement, res: MlResult): void {
     host.appendChild(table);
   }
 
+  const refused = res.wells.filter((w) => w.error);
+  if (res.wells.length) {
+    const tally = document.createElement("div");
+    tally.className = refused.length ? "ml-tally ml-tally-warn" : "ml-tally";
+    const written = res.wells.length - refused.length;
+    const rows = res.wells.reduce((a, w) => a + w.rows_predicted, 0);
+    tally.textContent = refused.length
+      ? `${written} of ${res.wells.length} wells written (${rows.toLocaleString()} samples) — ${refused.length} refused, listed first below`
+      : `${written} well(s) written — ${rows.toLocaleString()} samples`;
+    host.appendChild(tally);
+  }
+
   const wellsTable = document.createElement("table");
-  wellsTable.className = "mc-table";
+  wellsTable.className = "mc-table ml-well-table";
   const head = document.createElement("tr");
-  for (const h of ["Well", "Predicted samples", "Error"]) {
+  for (const h of ["Well", "Samples", "Outcome"]) {
     const th = document.createElement("th");
     th.textContent = h;
     head.appendChild(th);
   }
   wellsTable.appendChild(head);
-  for (const w of res.wells) {
+  // Refused wells first: they are the rows that need a decision, and on a field-scale run they
+  // would otherwise be a handful of lines somewhere inside two hundred.
+  for (const w of [...refused, ...res.wells.filter((w) => !w.error)]) {
     const tr = document.createElement("tr");
-    for (const c of [w.well_id, String(w.rows_predicted), w.error ?? "—"]) {
+    if (w.error) tr.classList.add("ml-well-refused");
+    const name = nameOf?.(w.well_id) ?? w.well_id;
+    for (const c of [name, w.rows_predicted ? w.rows_predicted.toLocaleString() : "—", w.error ?? "written"]) {
       const td = document.createElement("td");
       td.textContent = c;
       tr.appendChild(td);
     }
+    tr.title = w.well_id;
     wellsTable.appendChild(tr);
   }
   host.appendChild(wellsTable);

@@ -8671,3 +8671,28 @@ things, presented cleanly.
       Syncing copies would have fixed these three and left the mechanism that produced them. The
       test names every estimator and asserts each is in the shared fragment and in **neither**
       runner body, so a runner that embeds it and then shadows it still fails.
+
+## ML — an unclusterable well now fails instead of quietly writing an empty curve (2026-08-07)
+
+`SB-MLA-013`. A well that cannot be labelled — no input curve carries a reading, or fewer complete
+samples than clusters requested — used to return the pre-allocated all-NaN vector as a **success**.
+On a log view an all-missing track is indistinguishable from one that was never computed, so the
+failure was not merely silent; it was disguised as an absence of work. Both engines had it.
+
+- [ ] **Run electrofacies over a well with a washed-out interval where nothing overlaps** (or set K
+      higher than the number of complete samples). It now refuses that well by name, naming the
+      cause. Previously the run reported success and drew an empty FACIES track.
+- [ ] **The message says WHICH emptiness it is** — "no depth carries every input curve at once" vs
+      "the run mask excluded all N depths". They call for opposite fixes: go and find the missing
+      curve, or widen the mask. The old wording, "no complete samples in this well", said both.
+- [ ] **Run ML clustering over a whole field where some wells are good and some are empty.** The run
+      itself still succeeds; the empty wells are listed as refused. This is the only case that
+      matters in practice — a run where *no* well has data was already refused outright, which is
+      why this never showed up in testing.
+- [ ] **Nothing is written for a refused well**: no curve, and no log-set version allocated. A run
+      that reports failure must not also version an interpretation — the rule the rest of the app
+      already follows. Check the log set catalog after a run with refusals.
+- [ ] **The results table was rebuilt around this.** It leads with a tally ("37 of 40 wells written
+      — 3 refused, listed first below"), puts refused wells at the top, tints them, and identifies
+      every well by **name** rather than by the UUID it used to print. A refusal is a result, not a
+      footnote; on a 200-well run it would otherwise be three lines somewhere in the middle.

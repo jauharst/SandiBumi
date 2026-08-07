@@ -504,7 +504,27 @@ struct ApplyWell {
     depth: Vec<f32>,
     /// Row indices (into `depth`) of the complete samples sent to python, in order.
     idx: Vec<usize>,
+    /// Rows the run mask excluded. Kept so a well with nothing to predict can name WHICH
+    /// emptiness it is: masked out, or never measured. They call for opposite fixes -
+    /// widen the mask, or go and find the missing curve (SB-MLA-013).
+    masked: usize,
     error: Option<String>,
+}
+
+/// Why a well produced no rows to predict. Only called when `idx` is empty, so the well is
+/// being refused either way; this decides what the refusal says.
+fn no_rows_reason(aw: &ApplyWell) -> String {
+    if aw.masked == 0 {
+        "no depth in this well carries every input curve at once".to_string()
+    } else if aw.masked == aw.depth.len() {
+        format!("the run mask excluded all {} depths in this well", aw.depth.len())
+    } else {
+        format!(
+            "no depth carries every input curve at once, after the run mask excluded {} of {}",
+            aw.masked,
+            aw.depth.len()
+        )
+    }
 }
 
 pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::jobs::JobHandle>) -> MlResult {
@@ -575,16 +595,19 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                             well_id: well_id.clone(),
                             depth,
                             idx: vec![],
+                            masked: 0,
                             error: Some("missing input curve data".into()),
                         });
                         continue;
                     }
                     let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
                     let mut idx = Vec::new();
+                    let mut masked = 0usize;
                     for i in 0..depth.len() {
                         // Masked apply rows (mask == 1.0) are never sent to python, so scatter-back
                         // leaves them NaN — the OUTPUT-blanking half of the module MASK convention.
                         if mcol.map_or(false, |m| m[i] == 1.0) {
+                            masked += 1;
                             continue;
                         }
                         if fcols.iter().all(|c| c[i].is_finite()) {
@@ -594,12 +617,13 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                             idx.push(i);
                         }
                     }
-                    apply.push(ApplyWell { well_id: well_id.clone(), depth, idx, error: None });
+                    apply.push(ApplyWell { well_id: well_id.clone(), depth, idx, masked, error: None });
                 }
                 Err(e) => apply.push(ApplyWell {
                     well_id: well_id.clone(),
                     depth: vec![],
                     idx: vec![],
+                    masked: 0,
                     error: Some(e.to_string()),
                 }),
             }
@@ -697,6 +721,19 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     continue;
                 }
                 let m = aw.idx.len();
+                // A well with nothing to predict is REFUSED here, before a log set is allocated
+                // and before anything is written. Writing the all-NaN curve first and reporting
+                // the failure afterwards is the SB-MLA-013 defect: on the log view an all-missing
+                // track is indistinguishable from one that was never computed, so the failure is
+                // not merely silent, it is disguised as an absence of work.
+                if m == 0 {
+                    let msg = no_rows_reason(aw);
+                    if let Some(p) = progress {
+                        p.finish_item(&aw.well_id, crate::jobs::ItemState::Failed, Some(msg.clone()));
+                    }
+                    wells.push(MlWellResult { well_id: aw.well_id.clone(), rows_predicted: 0, error: Some(msg) });
+                    continue;
+                }
                 let mut curves: Vec<(String, Vec<f32>)> = Vec::with_capacity(outs.len());
                 for ((_, values), name) in outs.iter().zip(&out_names) {
                     let mut full = vec![f32::NAN; aw.depth.len()];
@@ -717,17 +754,12 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 match versioned {
                     Ok(()) => {
                         if let Some(p) = progress {
-                            let (st, msg) = if m == 0 {
-                                (crate::jobs::ItemState::Warned, Some("no complete samples in this well".to_string()))
-                            } else {
-                                (crate::jobs::ItemState::Ok, None)
-                            };
-                            p.finish_item(&aw.well_id, st, msg);
+                            p.finish_item(&aw.well_id, crate::jobs::ItemState::Ok, None);
                         }
                         wells.push(MlWellResult {
                             well_id: aw.well_id.clone(),
                             rows_predicted: m,
-                            error: (m == 0).then(|| "no complete samples in this well".to_string()),
+                            error: None,
                         });
                     }
                     Err(e) => {
@@ -858,14 +890,22 @@ pub fn apply_ml_model(
                         } else {
                             format!("missing input curve(s): {}", absent.join(", "))
                         };
-                        apply.push(ApplyWell { well_id: well_id.clone(), depth, idx: vec![], error: Some(msg) });
+                        apply.push(ApplyWell {
+                            well_id: well_id.clone(),
+                            depth,
+                            idx: vec![],
+                            masked: 0,
+                            error: Some(msg),
+                        });
                         continue;
                     }
                     let fcols: Vec<&Vec<f32>> = features.iter().filter_map(|f| cols.get(f)).collect();
                     let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
                     let mut idx = Vec::new();
+                    let mut masked = 0usize;
                     for i in 0..depth.len() {
                         if mcol.map_or(false, |m| m[i] == 1.0) {
+                            masked += 1;
                             continue;
                         }
                         if fcols.iter().all(|c| c[i].is_finite()) {
@@ -875,12 +915,13 @@ pub fn apply_ml_model(
                             idx.push(i);
                         }
                     }
-                    apply.push(ApplyWell { well_id: well_id.clone(), depth, idx, error: None });
+                    apply.push(ApplyWell { well_id: well_id.clone(), depth, idx, masked, error: None });
                 }
                 Err(e) => apply.push(ApplyWell {
                     well_id: well_id.clone(),
                     depth: vec![],
                     idx: vec![],
+                    masked: 0,
                     error: Some(e.to_string()),
                 }),
             }
@@ -969,6 +1010,15 @@ pub fn apply_ml_model(
             continue;
         }
         let m = aw.idx.len();
+        // Refused before anything is written — see the same guard on the fit path (SB-MLA-013).
+        if m == 0 {
+            let msg = no_rows_reason(aw);
+            if let Some(p) = progress {
+                p.finish_item(&aw.well_id, crate::jobs::ItemState::Failed, Some(msg.clone()));
+            }
+            wells.push(MlWellResult { well_id: aw.well_id.clone(), rows_predicted: 0, error: Some(msg) });
+            continue;
+        }
         let mut curves: Vec<(String, Vec<f32>)> = Vec::with_capacity(outs.len());
         for ((_, values), name) in outs.iter().zip(&out_names) {
             let mut full = vec![f32::NAN; aw.depth.len()];
@@ -996,18 +1046,9 @@ pub fn apply_ml_model(
         match versioned {
             Ok(()) => {
                 if let Some(p) = progress {
-                    let (st, msg) = if m == 0 {
-                        (crate::jobs::ItemState::Warned, Some("no complete samples in this well".to_string()))
-                    } else {
-                        (crate::jobs::ItemState::Ok, None)
-                    };
-                    p.finish_item(&aw.well_id, st, msg);
+                    p.finish_item(&aw.well_id, crate::jobs::ItemState::Ok, None);
                 }
-                wells.push(MlWellResult {
-                    well_id: aw.well_id.clone(),
-                    rows_predicted: m,
-                    error: (m == 0).then(|| "no complete samples in this well".to_string()),
-                });
+                wells.push(MlWellResult { well_id: aw.well_id.clone(), rows_predicted: m, error: None });
             }
             Err(e) => {
                 if let Some(p) = progress {
@@ -1785,6 +1826,104 @@ mod tests {
             "without a mask the well has complete samples, got {:?}",
             ctrl.error,
         );
+    }
+
+    /// SB-MLA-T13 on the python path. When SOME apply wells have data the run proceeds, so the
+    /// whole-run `n_apply == 0` refusal never fires and the empty wells fall through to the
+    /// write loop — the case that was writing an all-NaN curve and calling it a warning. The
+    /// refusal must name WHICH emptiness it is: masked out and never measured call for opposite
+    /// fixes (widen the mask, or go and find the curve), and "no complete samples" said both.
+    #[test]
+    fn a_well_with_nothing_to_predict_names_which_emptiness_it_is() {
+        let aw = |depth: usize, masked: usize| ApplyWell {
+            well_id: "W".into(),
+            depth: vec![0.0; depth],
+            idx: vec![],
+            masked,
+            error: None,
+        };
+
+        let never_measured = no_rows_reason(&aw(100, 0));
+        assert!(
+            never_measured.contains("input curve") && !never_measured.contains("mask"),
+            "nothing masked -> the cause is the data, not the mask: {never_measured:?}",
+        );
+
+        let all_masked = no_rows_reason(&aw(100, 100));
+        assert!(
+            all_masked.contains("mask") && all_masked.contains("100"),
+            "everything masked -> the cause is the mask, and it states how many: {all_masked:?}",
+        );
+
+        let both = no_rows_reason(&aw(100, 40));
+        assert!(
+            both.contains("mask") && both.contains("40") && both.contains("input curve"),
+            "a partial mask leaves both causes in play, so both are named: {both:?}",
+        );
+    }
+
+    /// SB-MLA-T13 end to end: a two-well clustering run where one well is clusterable and one
+    /// carries no reading. The good well is written; the empty well is REFUSED, and refused
+    /// before a log set is allocated — a run that reports failure must not also version an
+    /// interpretation. Needs sklearn.
+    #[test]
+    #[ignore]
+    fn an_empty_well_beside_a_good_one_is_refused_and_writes_nothing() {
+        use crate::db;
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 40usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = || vec![f32::NAN; n];
+
+        let good = Uuid::new_v4();
+        db::insert_well(&conn, good, "SANDI-GOOD", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, good, depths.clone(),
+            (0..n).map(|i| 20.0 + (i as f32 * 3.0) % 110.0).collect(),
+            nan(), nan(), nan(), nan(), nan(),
+        )
+        .unwrap();
+
+        let empty = Uuid::new_v4();
+        db::insert_well(&conn, empty, "SANDI-EMPTY", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(&conn, empty, depths.clone(), nan(), nan(), nan(), nan(), nan(), nan())
+            .unwrap();
+
+        let (gid, eid) = (good.to_string(), empty.to_string());
+        let dbm = Mutex::new(conn);
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy");
+            return;
+        }
+        let r = run_ml(&dbm, &mk_req("clustering", &["GR"], None, &[], &[gid.clone(), eid.clone()]), None);
+        assert!(r.error.is_none(), "the run itself succeeds - one well had data: {:?}", r.error);
+
+        let good_res = r.wells.iter().find(|w| w.well_id == gid).expect("good well reported");
+        assert!(good_res.error.is_none() && good_res.rows_predicted > 0, "good well: {good_res:?}");
+
+        let empty_res = r.wells.iter().find(|w| w.well_id == eid).expect("empty well reported");
+        let msg = empty_res.error.clone().unwrap_or_default();
+        assert!(
+            msg.contains("input curve") || msg.contains("curve data"),
+            "the empty well must be refused BY NAME, not reported clean: {empty_res:?}",
+        );
+        assert_eq!(empty_res.rows_predicted, 0);
+
+        // And it wrote nothing: no curve, and no log-set version allocated for it.
+        let conn = dbm.lock().unwrap();
+        let written: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM computed_curves WHERE well_id = ?",
+                duckdb::params![&eid],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        assert_eq!(written, 0, "a refused well must not leave an all-missing curve behind");
     }
 
     // --- Saved models ------------------------------------------------------
