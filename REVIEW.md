@@ -9122,3 +9122,59 @@ better for one and lower for the other. Where they disagree the panel says why.
 - [ ] **Look at the well colours on the crossplot.** This is the one worth your time: a blind R² of
       0.7 over three wells can be 0.9, 0.85 and 0.1, and the third well is the one that says whether
       the curve travels.
+
+## ML - one model where a curve exists, a smaller one where it does not (2026-08-07)
+
+Your cross-check: *"assume user have 4 curves, model should still run even 1 curves only half depth
+coverage, (model only predict using 3 curves on the other half depth coverage)"*. It did not. A row
+reached the fit only where EVERY input had a value, so one curve logged over half the interval
+deleted the other half of all four - in the training and in the prediction. On a field where each
+well is missing something different, the intersection can be nearly empty while every individual
+curve looks well logged.
+
+**Model section, "Partial coverage": Fit a model per available-input pattern.** Off by default,
+because with it on the curve is made by more than one model and you have to be told which.
+
+How it decides. It looks at which inputs are actually present at each depth, takes the patterns that
+really OCCUR (not every possible subset - four curves would be fifteen hypothetical models), and
+fits one model per pattern. **Each depth is then predicted by the largest model whose curves it
+carries**: where all four exist, the four-curve model; where one is short, a three-curve model
+fitted on every row carrying those three - including the four-curve rows, which carry them too.
+
+What it will not do, and why each refusal is there:
+
+- **A segment with fewer than 30 training rows is not fitted**, and the depths it would have covered
+  are left blank. Named in the result with its row count. A model fitted on eighteen plugs is not a
+  weaker answer, it is a different kind of object, and shipping one under the same curve name would
+  make the curve's quality vary down its length with nothing recording where.
+- **The scores are never averaged.** Each segment reports its own blind score on its own rows. An
+  R2 over both would describe neither, and the lower one is not the worse model - it is the one that
+  had fewer curves to work with.
+- **Each segment saves its own model**, suffixed `_3CURVE` / `_4CURVE`, so a saved artifact says
+  from its name which curves it needs.
+- **The curve is written ONCE**, at the end, with every segment recorded in its provenance - because
+  "which model produced this curve" genuinely has more than one answer along its length.
+
+Data QC changes with the switch. With it off, a short curve is a warning that names the three ways
+out - drop the curve, drop the wells, or turn this on. With it on, the same curve is green and says
+the run will fit a model with it and a model without. The row-count headline also changes, and there
+is one case worth knowing: if the thinnest curve is your TARGET (core permeability usually is), this
+does NOT lift the cap. Every model is fitted against the target, so no segment can see a depth the
+target does not reach. What you buy there is coverage of the PREDICTION, not more training data -
+and the panel says so rather than leaving you to work it out.
+
+- [ ] **Pick four curves where one is short, and run without the switch.** Data QC warns, and names
+      the switch as one of the three ways out.
+- [ ] **Turn it on and re-check Data QC.** The same finding goes green and says what will happen.
+- [ ] **Run it.** Results opens with one card per model: the inputs it uses, how many depths it
+      predicts, what share of the curve that is, how many rows fitted it, and its own blind score
+      with the protocol spelled out.
+- [ ] **Read the two cards against each other.** They are not a ranking. The four-curve card should
+      predict the interval where all four exist; the three-curve card the rest.
+- [ ] **Look at the written curve in a log view.** It should be continuous across the depth where
+      the short curve stops - that is the whole point - with no step at the boundary that is not
+      geology.
+- [ ] **Save the model and look at the Saved models list.** Two entries, `_4CURVE` and `_3CURVE`.
+- [ ] **Force a skip**: choose an input present in only a handful of rows. That segment should
+      appear as a warn-tinted card stating its row count and that its depths were left blank,
+      never silently vanish.

@@ -1048,6 +1048,19 @@ pub struct MlRequest {
     /// before — so an older payload behaves identically.
     #[serde(default)]
     pub output_set: Option<String>,
+    /// Fit a separate model per pattern of AVAILABLE inputs, instead of one model over the rows
+    /// where every input exists.
+    ///
+    /// A depth is normally used only where every selected curve has a value, so one curve logged
+    /// over half the well deletes the other half of every other curve too — in training and in
+    /// prediction. With this on, the half carrying four curves is predicted by a four-curve model
+    /// and the half carrying three by a three-curve model, each fitted and scored on its own terms.
+    ///
+    /// Off by default: it changes what a run means. One model over one feature set is a simpler
+    /// object to defend in a report, and a user who has not asked for two should not silently get
+    /// two.
+    #[serde(default)]
+    pub coverage_segments: bool,
 }
 
 /// Applying an already-fitted model. Deliberately NOT an `MlRequest`: there is no training
@@ -1494,6 +1507,609 @@ pub fn ml_runtime() -> serde_json::Value {
         .clone()
 }
 
+/// The curve name one runner output lands under, and the back-transform companion where a transform
+/// ran.
+///
+/// SB-MLA-035 lives here: under a transform the model's own output is `<base>_LOG10` and the
+/// back-transform is `<base>`, never the other way round and never in place. Shared by the ordinary
+/// path and the coverage-segmented one, because two spellings of this rule would let one path write
+/// a log-space curve under the name the other reserves for millidarcies.
+fn out_name_for(base: &str, suffix: &str, transform: &str) -> String {
+    match (transform.is_empty(), suffix) {
+        (false, "") => format!("{base}{LOG10_SUFFIX}"),
+        (false, BACK_SUFFIX) => base.to_string(),
+        _ => format!("{base}{suffix}"),
+    }
+}
+
+/// The unit an output carries, or `None` where there is nothing true to say.
+///
+/// A blank stays blank: "we do not know this curve's unit" must never be written as though it were
+/// "this curve is dimensionless". A class code and a probability have no unit at all, so they are
+/// left out of the declaration entirely rather than declared empty.
+fn unit_for_output(suffix: &str, transform: &str, target_unit: Option<&str>) -> Option<String> {
+    let tu = target_unit.unwrap_or_default();
+    let u = if suffix.is_empty() && !transform.is_empty() {
+        transformed_unit(transform, Some(tu))
+    } else if suffix.is_empty() || suffix == BACK_SUFFIX {
+        tu.to_string()
+    } else {
+        return None;
+    };
+    (!u.is_empty()).then_some(u)
+}
+
+/// Most feature subsets one run will fit models for.
+///
+/// A field where every well is missing a different curve can present a great many availability
+/// patterns, and one fit per pattern is one subprocess per pattern. The cap keeps a pathological
+/// delivery from turning a click into forty fits — and the depths it leaves unclaimed are REPORTED
+/// rather than dropped quietly, because the whole point of this mode is that no depth goes missing
+/// without saying so.
+const MAX_COVERAGE_SEGMENTS: usize = 6;
+
+/// Fewest training rows a segment will be fitted on. Below this the segment is skipped BY NAME —
+/// a model fitted on forty rows over three curves is not a weaker answer, it is a different kind of
+/// object, and quietly producing one under the same curve name as a well-fitted segment would make
+/// the curve's own quality vary along its length with nothing recording where.
+const MIN_SEGMENT_ROWS: usize = 30;
+
+/// Which model predicts which depth, decided from the patterns of available inputs alone.
+///
+/// `avail` is one bitmask per depth, per well: bit *k* set means feature *k* has a value there.
+/// Returns the candidate subsets largest-first, and per well per depth the index of the candidate
+/// that depth belongs to — `None` where no kept candidate is a subset of what the depth carries.
+///
+/// Three decisions live here and nowhere else:
+///
+/// **Candidates are the patterns that OCCUR, never all 2^n subsets.** A four-curve run whose curves
+/// are either all present or all absent is one model, not sixteen; enumerating subsets would fit
+/// fifteen models for rock that does not exist.
+///
+/// **The cap rations by how much rock a pattern covers, NOT by how many curves it has.** These are
+/// two different orderings and using one for both is the trap: the largest patterns are typically
+/// the rarest — all-curves-present, plus a handful of near-complete oddities — so keeping the six
+/// biggest would blank most of the well. It also makes the fallback below unreachable, because every
+/// surviving candidate would then be at least as large as every cut one, and a subset of equal size
+/// is the same set.
+///
+/// **A depth is claimed by the LARGEST candidate whose curves it carries.** Predicting a four-curve
+/// depth with the three-curve model would throw away a log sitting right there. The containment test
+/// (`c & a == c`) is what makes "carries" mean carries-at-least rather than carries-exactly — so a
+/// depth whose own pattern lost the cap is still predicted by the biggest kept subset it can feed,
+/// instead of going blank. Only a depth carrying no kept subset at all is left unclaimed.
+///
+/// Every tie is broken on the data (rows, then curve count, then the pattern itself), never on hash
+/// order, which is what makes the same run twice produce the same segments.
+fn coverage_plan(avail: &[&[u32]], max_segments: usize) -> (Vec<u32>, Vec<Vec<Option<usize>>>) {
+    let mut pattern_rows: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for w in avail {
+        for &a in w.iter() {
+            if a != 0 {
+                *pattern_rows.entry(a).or_insert(0) += 1;
+            }
+        }
+    }
+    // Which patterns survive the cap: the ones covering the most rock.
+    let mut candidates: Vec<u32> = pattern_rows.keys().copied().collect();
+    candidates.sort_by(|a, b| {
+        pattern_rows[b].cmp(&pattern_rows[a]).then_with(|| b.count_ones().cmp(&a.count_ones())).then(a.cmp(b))
+    });
+    candidates.truncate(max_segments);
+    // Which of the survivors claims a depth: the one using the most curves.
+    candidates.sort_by(|a, b| {
+        b.count_ones().cmp(&a.count_ones()).then_with(|| pattern_rows[b].cmp(&pattern_rows[a])).then(a.cmp(b))
+    });
+
+    let assigned: Vec<Vec<Option<usize>>> = avail
+        .iter()
+        .map(|w| {
+            w.iter()
+                .map(|&a| {
+                    // First match wins and `candidates` is ordered largest-first, so this IS
+                    // "the largest model whose inputs this depth carries".
+                    (a != 0).then(|| candidates.iter().position(|&c| c & a == c)).flatten()
+                })
+                .collect()
+        })
+        .collect();
+    (candidates, assigned)
+}
+
+/// A run segmented by which inputs are actually present at each depth.
+///
+/// The problem it solves, in Jauhar's words (2026-08-07): *"assume user have 4 curves, model should
+/// still run even 1 curves only half depth coverage, (model only predict using 3 curves on the
+/// other half depth coverage)"*. The ordinary path uses a depth only where EVERY input has a value,
+/// so a curve logged over half the well deletes the other half of every other curve as well — in the
+/// fit and in the prediction. On a field where each well is missing something different, the
+/// intersection can be nearly empty while every individual curve looks well covered.
+///
+/// **The rule is: each depth is predicted by the largest model whose inputs it carries.** Candidate
+/// subsets are the availability patterns that actually occur, largest first; a depth goes to the
+/// first candidate it can satisfy. Candidates are the OBSERVED patterns rather than every subset of
+/// the feature list, which would be 2^n and mostly hypothetical.
+///
+/// **A segment trains on every row carrying its subset, not only on rows matching its pattern
+/// exactly.** The three-curve model should learn from the four-curve half too — those rows carry all
+/// three of its inputs, and withholding them would fit it on less data than exists for no reason.
+///
+/// **Each segment keeps its own blind score and its own saved model.** They are different models on
+/// different feature sets, and a single number over both would describe neither. That is also why
+/// the segments are reported individually rather than summarised: the curve is one curve, and how
+/// well it is known genuinely varies along its length.
+fn run_ml_coverage(
+    db: &Mutex<Connection>,
+    req: &MlRequest,
+    progress: Option<&crate::jobs::JobHandle>,
+) -> MlResult {
+    let features: Vec<String> =
+        req.feature_curves.iter().map(|c| c.trim().to_uppercase()).filter(|c| !c.is_empty()).collect();
+    if features.len() < 2 {
+        return fail("coverage segmentation needs at least 2 input curves - with one curve there is no smaller model to fall back to");
+    }
+    if features.len() > 16 {
+        return fail("coverage segmentation is limited to 16 input curves");
+    }
+    let base = req.output_curve.trim().to_uppercase();
+    if base.is_empty() {
+        return fail("output curve name is empty");
+    }
+    let Some(target) = req.target_curve.as_deref().map(|t| t.trim().to_uppercase()).filter(|t| !t.is_empty())
+    else {
+        return fail("supervised learning needs a target curve");
+    };
+    if req.train_well_ids.is_empty() {
+        return fail("supervised learning needs at least one training well");
+    }
+    if req.apply_well_ids.is_empty() {
+        return fail("select at least one well to apply to");
+    }
+    let Some(python) = find_python() else {
+        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
+    };
+    let mask_curve =
+        req.mask_curve.as_deref().map(|m| m.trim().to_uppercase()).filter(|m| !m.is_empty());
+    let out_set = req
+        .output_set
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(DEFAULT_ML_SET)
+        .to_string();
+
+    // --- Which inputs each depth of each apply well actually carries -------------
+    struct CovWell {
+        well_id: String,
+        depth: Vec<f32>,
+        /// Bitmask of present features per depth; 0 where the row is masked or carries nothing.
+        avail: Vec<u32>,
+        /// Feature values per depth, in `features` order. NaN where absent.
+        cols: Vec<Vec<f32>>,
+        masked: usize,
+        error: Option<String>,
+    }
+    let mut wells_data: Vec<CovWell> = Vec::new();
+    {
+        let conn = db.lock().unwrap();
+        let mut fetch = features.clone();
+        if let Some(mk) = &mask_curve {
+            fetch.push(mk.clone());
+        }
+        for well_id in &req.apply_well_ids {
+            match fetch_curve_frame_from_set(&conn, well_id, &fetch, req.input_set.as_deref(), None) {
+                Ok((depth, cols)) => {
+                    // A curve absent from this well entirely is an all-NaN column, NOT a reason to
+                    // refuse the well — that is the whole point of this mode.
+                    let fcols: Vec<Vec<f32>> = features
+                        .iter()
+                        .map(|f| cols.get(f).cloned().unwrap_or_else(|| vec![f32::NAN; depth.len()]))
+                        .collect();
+                    let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
+                    let mut avail = vec![0u32; depth.len()];
+                    let mut masked = 0usize;
+                    for i in 0..depth.len() {
+                        if mcol.is_some_and(|m| m[i] == 1.0) {
+                            masked += 1;
+                            continue;
+                        }
+                        let mut bits = 0u32;
+                        for (k, c) in fcols.iter().enumerate() {
+                            if c[i].is_finite() {
+                                bits |= 1 << k;
+                            }
+                        }
+                        avail[i] = bits;
+                    }
+                    wells_data.push(CovWell {
+                        well_id: well_id.clone(),
+                        depth,
+                        avail,
+                        cols: fcols,
+                        masked,
+                        error: None,
+                    });
+                }
+                Err(e) => wells_data.push(CovWell {
+                    well_id: well_id.clone(),
+                    depth: vec![],
+                    avail: vec![],
+                    cols: vec![],
+                    masked: 0,
+                    error: Some(e.to_string()),
+                }),
+            }
+        }
+    }
+
+    let avail_per_well: Vec<&[u32]> = wells_data.iter().map(|w| w.avail.as_slice()).collect();
+    let (candidates, assigned) = coverage_plan(&avail_per_well, MAX_COVERAGE_SEGMENTS);
+    if candidates.is_empty() {
+        return fail("no apply row carries even one of the selected input curves");
+    }
+
+    let mut notes: Vec<String> = Vec::new();
+    let mut segments: Vec<CoverageSegment> = Vec::new();
+    // Per well, per output name, the accumulating curve. One curve, contributed to by several
+    // models — which is the point, and why the write happens once at the end rather than per
+    // segment (a per-segment write would DELETE the previous segment's rows for the same name).
+    let mut acc: Vec<std::collections::BTreeMap<String, Vec<f32>>> =
+        wells_data.iter().map(|_| Default::default()).collect();
+    let mut predicted_rows: Vec<usize> = vec![0; wells_data.len()];
+    let mut out_names_all: Vec<String> = Vec::new();
+    let mut units: Vec<(String, String)> = Vec::new();
+    let target_unit = {
+        let conn = db.lock().unwrap();
+        catalog_unit(&conn, &target)
+    };
+
+    for (ci, &cand) in candidates.iter().enumerate() {
+        let sub: Vec<String> =
+            features.iter().enumerate().filter(|(k, _)| cand & (1 << k) != 0).map(|(_, f)| f.clone()).collect();
+        let sd = sub.len();
+        let n_here: usize = assigned
+            .iter()
+            .map(|a| a.iter().filter(|v| **v == Some(ci)).count())
+            .sum();
+        if n_here == 0 {
+            continue; // a pattern entirely absorbed by a larger one — not a segment, just a subset
+        }
+        if let Some(p) = progress {
+            p.set_current(Some(format!("Fitting {} on {} curve(s)…", req.algorithm, sd)));
+        }
+
+        // Trains on every row carrying this subset, whatever else those rows carry.
+        let (mut x_train, mut y_train, mut groups, _empty, roster) = {
+            let conn = db.lock().unwrap();
+            assemble_training(&conn, &req.train_well_ids, &sub, &target, mask_curve.as_ref(), req.input_set.as_deref())
+        };
+        let transform = req
+            .target_transform
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_lowercase)
+            .filter(|t| !t.is_empty() && t != "none")
+            .unwrap_or_default();
+        if !transform.is_empty() {
+            if transform != "log10" {
+                return fail(&format!("unknown target transform '{transform}' - use log10, or none"));
+            }
+            apply_target_transform(&transform, sd, &mut x_train, &mut y_train, &mut groups);
+        }
+        let n_train = y_train.len();
+        if n_train < MIN_SEGMENT_ROWS {
+            segments.push(CoverageSegment {
+                features: sub,
+                n_predicted: 0,
+                n_train,
+                blind: serde_json::Value::Null,
+                model_name: None,
+                skipped: Some(format!(
+                    "only {n_train} training row(s) carry these curves - below {MIN_SEGMENT_ROWS} this segment is not fitted, and the {n_here} depth(s) it would have covered are left blank rather than predicted by a model nobody could defend"
+                )),
+            });
+            continue;
+        }
+
+        // This segment's own blind split, over its own rows.
+        let split_seed = req.split_seed.unwrap_or(crate::facies::SEED_DEFAULT as u64);
+        let mut row_counts: std::collections::BTreeMap<usize, usize> = Default::default();
+        for g in &groups {
+            *row_counts.entry(*g as usize).or_insert(0) += 1;
+        }
+        let contributing: Vec<usize> = row_counts.keys().copied().collect();
+        let counts: Vec<usize> = row_counts.values().copied().collect();
+        let by_sample =
+            req.split_mode.as_deref().map(str::trim).unwrap_or("well").eq_ignore_ascii_case("sample");
+        let mut blind_mask: Vec<f32> = Vec::new();
+        if let Some(f) = req.blind_fraction.filter(|f| *f > 0.0) {
+            if by_sample {
+                let strata = strata_for(&y_train, req.task == "classification");
+                blind_mask = split_blind_samples(&strata, f, split_seed);
+            } else {
+                let pos = split_blind_wells(&counts, f, split_seed);
+                let bg: Vec<usize> = pos.iter().map(|&i| contributing[i]).collect();
+                blind_mask =
+                    groups.iter().map(|g| if bg.contains(&(*g as usize)) { 1.0 } else { 0.0 }).collect();
+            }
+        }
+
+        // The apply matrix for the depths THIS segment owns.
+        let mut x_apply: Vec<f32> = Vec::new();
+        let mut idx_per_well: Vec<Vec<usize>> = Vec::with_capacity(wells_data.len());
+        for (wi, w) in wells_data.iter().enumerate() {
+            let mut idx = Vec::new();
+            for i in 0..w.depth.len() {
+                if assigned[wi][i] != Some(ci) {
+                    continue;
+                }
+                for (k, c) in w.cols.iter().enumerate() {
+                    if cand & (1 << k) != 0 {
+                        x_apply.push(c[i]);
+                    }
+                }
+                idx.push(i);
+            }
+            idx_per_well.push(idx);
+        }
+        let n_apply = x_apply.len() / sd.max(1);
+
+        let save_name = req
+            .save_model_as
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            // One model per segment, and the name says which — a saved artifact whose feature list
+            // the user cannot see from its name is one they will apply to the wrong thing.
+            .map(|s| format!("{s}_{sd}CURVE"));
+        let save_features = save_name.as_ref().map(|_| sub.as_slice());
+
+        let run = match exec_ml_full(
+            &python,
+            &req.task,
+            &req.algorithm,
+            &req.params,
+            sd,
+            &x_train,
+            Some(&y_train),
+            &x_apply,
+            n_apply,
+            save_features,
+            Some(&groups),
+            &blind_mask,
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                segments.push(CoverageSegment {
+                    features: sub,
+                    n_predicted: 0,
+                    n_train,
+                    blind: serde_json::Value::Null,
+                    model_name: None,
+                    skipped: Some(format!("this segment failed to fit: {e}")),
+                });
+                continue;
+            }
+        };
+        // This segment's own split report, so `blind_record` describes the rows THIS model was
+        // scored on rather than the run as a whole.
+        let blind_rows = blind_mask.iter().filter(|v| **v > 0.5).count();
+        let seg_split = req.blind_fraction.filter(|f| *f > 0.0 && blind_rows > 0).map(|f| SplitReport {
+            mode: if by_sample { "sample".into() } else { "well".into() },
+            requested_fraction: f,
+            achieved_fraction: blind_rows as f64 / n_train.max(1) as f64,
+            // Named per segment rather than listed: the well NAMES are the same list for every
+            // segment, and repeating them once per model would say the segments differ in which
+            // wells they used when they differ in which curves.
+            fit_wells: vec![],
+            blind_wells: vec![],
+            fit_rows: n_train - blind_rows,
+            blind_rows,
+            seed: split_seed,
+            wells_pooled: contributing.len(),
+        });
+        let blind = blind_record(&run.metrics, seg_split.as_ref(), &req.task);
+
+        // Save this segment's model, with the log set and mask record every other path writes.
+        let mut model_name = None;
+        if let Some(name) = &save_name {
+            let conn = db.lock().unwrap();
+            let trained_on: Vec<String> = roster.iter().filter(|r| r.rows > 0).map(|r| r.well.clone()).collect();
+            let training_json = serde_json::to_string(&TrainingRecord {
+                mask_curve: mask_curve.clone(),
+                wells: roster.iter().filter(|r| r.rows > 0).cloned().collect(),
+            })
+            .ok();
+            let runtime_json = (!run.runtime.is_null()).then(|| run.runtime.to_string());
+            let mut m = run.metrics.clone();
+            if let Some(o) = m.as_object_mut() {
+                o.insert("blind".into(), blind.clone());
+            }
+            match crate::db::insert_ml_model(
+                &conn,
+                &crate::db::NewMlModel {
+                    name,
+                    task: &req.task,
+                    algorithm: &req.algorithm,
+                    feature_curves: &sub,
+                    target_curve: Some(&target),
+                    params_json: &serde_json::to_string(&req.params).unwrap_or_default(),
+                    metrics_json: &serde_json::to_string(&m).unwrap_or_default(),
+                    trained_on: &trained_on,
+                    n_train,
+                    standardize: req.params.get("standardize").and_then(|v| v.as_bool()).unwrap_or(true),
+                    note: req.model_note.as_deref(),
+                    data: &run.model_blob,
+                    train_hash: Some(&training_fingerprint(&sub, sd, &x_train, &y_train, &groups)),
+                    training_json: training_json.as_deref(),
+                    runtime_json: runtime_json.as_deref(),
+                    sklearn_version: (!run.sklearn.is_empty()).then_some(run.sklearn.as_str()),
+                },
+            ) {
+                Ok((_, stored)) => model_name = Some(stored),
+                Err(e) => notes.push(format!("the {sd}-curve segment's model was NOT saved: {e} - its curves are still written")),
+            }
+        }
+
+        // SB-MLA-035, the same two curves the ordinary path writes: the model's own output in log
+        // space and its back-transform in the target's unit, separately named so neither can be
+        // read as the other.
+        let mut seg_outs = run.outs;
+        if !transform.is_empty() {
+            if let Some((_, native)) = seg_outs.iter().find(|(s, _)| s.is_empty()) {
+                let back: Vec<f32> =
+                    native.iter().map(|v| if v.is_finite() { 10f32.powf(*v) } else { f32::NAN }).collect();
+                seg_outs.push((BACK_SUFFIX.to_string(), back));
+            }
+        }
+
+        // Scatter into the accumulating curves.
+        let mut start = 0usize;
+        for (wi, idx) in idx_per_well.iter().enumerate() {
+            let m = idx.len();
+            for (suffix, values) in &seg_outs {
+                let name = out_name_for(&base, suffix, &transform);
+                if !out_names_all.contains(&name) {
+                    out_names_all.push(name.clone());
+                    // Only a regression predicts a quantity. A class code has no unit, and a blank
+                    // declared for one would be a claim rather than an absence.
+                    if req.task == "regression" {
+                        if let Some(u) = unit_for_output(suffix, &transform, target_unit.as_deref()) {
+                            units.push((name.clone(), u));
+                        }
+                    }
+                }
+                let slot = acc[wi].entry(name).or_insert_with(|| vec![f32::NAN; wells_data[wi].depth.len()]);
+                for (j, &i) in idx.iter().enumerate() {
+                    slot[i] = values[start + j];
+                }
+            }
+            predicted_rows[wi] += m;
+            start += m;
+        }
+        segments.push(CoverageSegment {
+            features: sub,
+            n_predicted: n_here,
+            n_train,
+            blind,
+            model_name,
+            skipped: None,
+        });
+    }
+
+    // --- Write once per well ------------------------------------------------------
+    let unclaimed: usize = assigned
+        .iter()
+        .zip(&wells_data)
+        .map(|(a, w)| a.iter().zip(&w.avail).filter(|(s, av)| s.is_none() && **av != 0).count())
+        .sum();
+    if unclaimed > 0 {
+        notes.push(format!(
+            "{unclaimed} depth(s) carry a combination of inputs no fitted segment covers and were left blank - the cap is {MAX_COVERAGE_SEGMENTS} segments per run"
+        ));
+    }
+    let fitted: Vec<&CoverageSegment> = segments.iter().filter(|s| s.skipped.is_none()).collect();
+    if fitted.is_empty() {
+        return fail("no coverage segment had enough training rows to fit - check the target's coverage in the training wells");
+    }
+    notes.push(format!(
+        "fitted {} model(s), one per pattern of available inputs: {}",
+        fitted.len(),
+        fitted
+            .iter()
+            .map(|s| format!("{} over {} depth(s)", s.features.join("+"), s.n_predicted))
+            .collect::<Vec<_>>()
+            .join("; ")
+    ));
+
+    let mut wells_out: Vec<MlWellResult> = Vec::new();
+    {
+        let conn = db.lock().unwrap();
+        for (wi, w) in wells_data.iter().enumerate() {
+            if let Some(p) = progress {
+                p.start_item(&w.well_id);
+            }
+            if let Some(e) = &w.error {
+                if let Some(p) = progress {
+                    p.finish_item(&w.well_id, crate::jobs::ItemState::Failed, Some(e.clone()));
+                }
+                wells_out.push(MlWellResult { well_id: w.well_id.clone(), rows_predicted: 0, error: Some(e.clone()) });
+                continue;
+            }
+            if predicted_rows[wi] == 0 {
+                // Same rule the ordinary path follows: refuse before a log set is allocated rather
+                // than write an all-NaN curve that looks like a track nobody computed.
+                let msg = if w.masked > 0 {
+                    format!("no depth carries a usable set of inputs ({} row(s) excluded by the mask)", w.masked)
+                } else {
+                    "no depth carries a usable set of inputs".to_string()
+                };
+                if let Some(p) = progress {
+                    p.finish_item(&w.well_id, crate::jobs::ItemState::Failed, Some(msg.clone()));
+                }
+                wells_out.push(MlWellResult { well_id: w.well_id.clone(), rows_predicted: 0, error: Some(msg) });
+                continue;
+            }
+            let curves: Vec<(&str, &[f32])> =
+                acc[wi].iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
+            let spec = crate::equations::LogSetSpec {
+                set_name: out_set.clone(),
+                module: format!("ml:{}:{}", req.task, req.algorithm),
+                // The provenance records EVERY segment, because the curve genuinely was made by
+                // several models and "which model produced this curve" has more than one answer
+                // along its length. A single model reference here would name one of them and be
+                // wrong about the rest.
+                params_json: serde_json::to_string(&serde_json::json!({
+                    "algorithm": req.algorithm,
+                    "params": req.params,
+                    "coverage_segments": segments,
+                }))
+                .unwrap_or_default(),
+                inputs_json: serde_json::to_string(&features).unwrap_or_default(),
+            };
+            let done = crate::equations::create_log_set(&conn, &w.well_id, &spec).and_then(|(set_id, _)| {
+                write_computed_curves_versioned(&conn, &w.well_id, &w.depth, &curves, &set_id)
+            });
+            match done {
+                Ok(()) => {
+                    if !units.is_empty() {
+                        let _ = crate::db::declare_curve_units(&conn, &w.well_id, &units);
+                    }
+                    if let Some(p) = progress {
+                        p.finish_item(&w.well_id, crate::jobs::ItemState::Ok, None);
+                    }
+                    wells_out.push(MlWellResult {
+                        well_id: w.well_id.clone(),
+                        rows_predicted: predicted_rows[wi],
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    if let Some(p) = progress {
+                        p.finish_item(&w.well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
+                    }
+                    wells_out.push(MlWellResult {
+                        well_id: w.well_id.clone(),
+                        rows_predicted: 0,
+                        error: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    MlResult {
+        outputs: out_names_all,
+        metrics: serde_json::json!({ "coverage_segments": segments }),
+        wells: wells_out,
+        notes,
+        model_id: None,
+        model_name: None,
+        split: None,
+        error: None,
+    }
+}
+
 /// The ONE log set a model's training rows all came from, or `None`.
 ///
 /// `None` covers three different situations on purpose, because all three mean the same thing to a
@@ -1756,8 +2372,34 @@ fn no_rows_reason(aw: &ApplyWell) -> String {
     }
 }
 
+/// One segment of a coverage-segmented run: a feature subset, and what it was worth.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CoverageSegment {
+    /// The inputs this segment's model was fitted on, in order.
+    pub features: Vec<String>,
+    /// Depths across the apply wells this segment predicted.
+    pub n_predicted: usize,
+    pub n_train: usize,
+    /// This segment's OWN blind record. Never averaged with another segment's: a three-curve model
+    /// and a four-curve model are different models, and one number over both would describe neither.
+    /// Carries `performed: false` where nothing was held back, never a training score in its place.
+    pub blind: serde_json::Value,
+    pub model_name: Option<String>,
+    /// Why this segment produced nothing, where it did not.
+    pub skipped: Option<String>,
+}
+
 pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::jobs::JobHandle>) -> MlResult {
     let supervised = matches!(req.task.as_str(), "regression" | "classification");
+    // Jauhar, 2026-08-07: *"model should still run even 1 curves only half depth coverage, (model
+    // only predict using 3 curves on the other half depth coverage)"*. A separate path rather than a
+    // branch through this one: every stage below is written for ONE feature set and one fitted
+    // model, and threading a second set through the transform, the split, the fingerprint, the model
+    // save and the provenance would leave five places where a segment could silently inherit
+    // another's record.
+    if req.coverage_segments && supervised {
+        return run_ml_coverage(db, req, progress);
+    }
     let features: Vec<String> =
         req.feature_curves.iter().map(|c| c.trim().to_uppercase()).filter(|c| !c.is_empty()).collect();
     if features.is_empty() {
@@ -2118,14 +2760,8 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     outs.push((BACK_SUFFIX.to_string(), back));
                 }
             }
-            let out_names: Vec<String> = outs
-                .iter()
-                .map(|(s, _)| match (transform.is_empty(), s.as_str()) {
-                    (false, "") => format!("{base}{LOG10_SUFFIX}"),
-                    (false, BACK_SUFFIX) => base.clone(),
-                    _ => format!("{base}{s}"),
-                })
-                .collect();
+            let out_names: Vec<String> =
+                outs.iter().map(|(s, _)| out_name_for(&base, s, &transform)).collect();
             let mut wells = Vec::new();
             let conn = db.lock().unwrap();
             // The unit of every curve about to be written, so a reader can tell log10(mD) from mD
@@ -2147,16 +2783,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     .iter()
                     .zip(&outs)
                     .filter_map(|(name, (s, _))| {
-                        let u = if s.is_empty() && !transform.is_empty() {
-                            transformed_unit(&transform, Some(&target_unit))
-                        } else if s.is_empty() || s == BACK_SUFFIX {
-                            target_unit.clone()
-                        } else {
-                            return None;
-                        };
-                        // An unknown unit writes no row. A row saying NULL and no row at all mean
-                        // the same thing here, and only one of them clutters the registry.
-                        (!u.is_empty()).then(|| (name.clone(), u))
+                        unit_for_output(s, &transform, Some(&target_unit)).map(|u| (name.clone(), u))
                     })
                     .collect()
             };
@@ -3638,6 +4265,7 @@ mod tests {
             save_model_as: None,
             model_note: None,
             target_transform: None,
+            coverage_segments: false,
         }
     }
 
@@ -3891,6 +4519,67 @@ mod tests {
         assert_eq!(transformed_unit("log10", Some("mD")), "log10(mD)");
         assert_eq!(transformed_unit("log10", Some("  ")), "log10");
         assert_eq!(transformed_unit("log10", None), "log10");
+    }
+
+    /// **A depth is predicted by the largest model whose curves it carries, and by nothing else.**
+    ///
+    /// Jauhar's cross-check (2026-08-07): four input curves, one of them logged over half the well.
+    /// The ordinary path uses a depth only where every input has a value, so that one short curve
+    /// deletes the other half of all four. The answer is one model per observed pattern — and the
+    /// two ways of getting it wrong are opposite, so this pins both.
+    ///
+    /// Predict a four-curve depth with the three-curve model and a log that is sitting right there
+    /// goes unused. Predict a three-curve depth with the four-curve model and the model is being fed
+    /// a curve that does not exist at that depth. Neither shows up as an error — both produce a full,
+    /// plausible curve — so the assignment is pinned from both sides here rather than trusted.
+    ///
+    /// The cap is pinned the same way. It rations by rock covered, not by curve count: keeping the
+    /// biggest patterns would keep the rarest ones, and a depth whose own pattern lost the cap must
+    /// fall back to the largest kept SUBSET rather than go blank. Only a depth that can feed no kept
+    /// model at all is left unclaimed — never quietly handed to one it cannot feed.
+    #[test]
+    fn a_depth_is_predicted_by_the_largest_model_whose_curves_it_carries() {
+        // Four features; bit k = feature k is present. GR=0, RHOB=1, NPHI=2, RT=3.
+        const ALL: u32 = 0b1111;
+        const NO_RT: u32 = 0b0111;
+        const GR_ONLY: u32 = 0b0001;
+        let a: Vec<u32> = vec![ALL, ALL, ALL, ALL, NO_RT, NO_RT, NO_RT];
+        let b: Vec<u32> = vec![ALL, ALL, GR_ONLY, 0];
+        let wells: Vec<&[u32]> = vec![&a, &b];
+
+        let (cands, asg) = coverage_plan(&wells, 6);
+        assert_eq!(
+            cands,
+            vec![ALL, NO_RT, GR_ONLY],
+            "candidates must be the patterns that OCCUR (3 of them), never all 15 non-empty subsets, \
+             and ordered largest-first for assignment"
+        );
+        assert_eq!(
+            asg[0],
+            vec![Some(0), Some(0), Some(0), Some(0), Some(1), Some(1), Some(1)],
+            "the four-curve depths must go to the four-curve model even though the three-curve one \
+             also fits them, and the three-curve depths must NOT go to the four-curve model"
+        );
+        assert_eq!(
+            asg[1],
+            vec![Some(0), Some(0), Some(2), None],
+            "a depth carrying one curve is predicted by the one-curve model; a depth carrying none \
+             is left unclaimed rather than handed to a model it cannot feed"
+        );
+
+        // The cap keeps what covers the most rock, and a cut pattern falls back to a kept subset.
+        // NO_RT covers 3 rows and ALL covers 2, so ranking by curve count would keep the wrong one.
+        let c: Vec<u32> = vec![NO_RT, NO_RT, NO_RT, ALL, ALL, GR_ONLY];
+        let one: Vec<&[u32]> = vec![&c];
+        let (cands1, asg1) = coverage_plan(&one, 1);
+        assert_eq!(cands1, vec![NO_RT], "the cap must keep the pattern covering the most rock");
+        assert_eq!(
+            asg1[0],
+            vec![Some(0), Some(0), Some(0), Some(0), Some(0), None],
+            "a depth whose own pattern lost the cap must fall back to the largest kept SUBSET it can \
+             feed - the four-curve depths here carry all three of NO_RT's curves - while a depth \
+             carrying no kept subset stays unclaimed"
+        );
     }
 
     /// **SB-MLA-035 — a transformed quantity is a distinct quantity, with its own name and its own

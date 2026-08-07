@@ -1148,6 +1148,31 @@ export interface MlRequest {
    *  log units) and `<output_curve>` (its back-transform, in the target's units). Every reported
    *  score is in the fitted space. Regression only. Omit or null to fit the target as measured. */
   target_transform?: string | null;
+  /** Fit one model per pattern of available inputs instead of one model over the depths where every
+   *  input exists.
+   *
+   *  Off, a curve logged over half the interval deletes the other half of every other input too,
+   *  because a row reaches the fit only where all of them have a value. On, each depth is predicted
+   *  by the largest model whose curves it carries — so the short curve is used where it exists and
+   *  the rest of the rock is predicted without it. Each segment keeps its OWN blind score and its own
+   *  saved model (suffixed `_<n>CURVE`), because they are different models on different feature sets
+   *  and one number over both would describe neither. Supervised only. */
+  coverage_segments?: boolean;
+}
+
+/** One feature subset a coverage-segmented run fitted a model for, or declined to. Reported per
+ *  segment and never averaged: the curve is one curve, and how well it is known varies down it. */
+export interface CoverageSegment {
+  features: string[];
+  /** Depths this segment predicted. 0 where it was skipped. */
+  n_predicted: number;
+  n_train: number;
+  /** This segment's own blind record, carrying `performed: false` where nothing was held back. */
+  blind: Record<string, unknown> | null;
+  /** The saved artifact's name, where the run was asked to save one. */
+  model_name: string | null;
+  /** Why no model was fitted, stated in full. Null on a segment that ran. */
+  skipped: string | null;
 }
 
 /** The split as it was actually performed, not as it was requested — the requested share is kept

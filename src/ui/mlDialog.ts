@@ -11,6 +11,7 @@ import {
   runMlEval,
   statsCurveSummary,
   curveSampling,
+  type CoverageSegment,
   type CurveSampling,
   type CurveStatsRow,
   type MlEvalResult,
@@ -716,6 +717,40 @@ export async function buildMlContent(
   commonWrap.append(stdLabel, seedLabel);
   sModel.appendChild(formRow("Common", commonWrap));
 
+  // --- Coverage segmentation ------------------------------------------------
+  // Jauhar, 2026-08-07: *"assume user have 4 curves, model should still run even 1 curves only half
+  // depth coverage, (model only predict using 3 curves on the other half depth coverage)"*. Off by
+  // default, because on it the curve is made by more than one model and a reader has to be told —
+  // which is exactly what the notes and the per-segment scores do, and what silently defaulting it
+  // on would skip.
+  const covCb = document.createElement("input");
+  covCb.type = "checkbox";
+  const covLabel = document.createElement("label");
+  covLabel.className = "mc-field";
+  covLabel.append(covCb, document.createTextNode(" Fit a model per available-input pattern"));
+  const covWhy = document.createElement("div");
+  covWhy.className = "ml-norm-why";
+  // A column, not the usual `.mc-settings` flex row: `.mc-field` stacks its checkbox ABOVE its text,
+  // which reads fine for a two-word caption sitting beside the Seed box and turns a sentence-length
+  // one into three wrapped lines in a narrow column. The explanation goes below both, full width.
+  const covWrap = document.createElement("div");
+  covWrap.className = "ml-cov";
+  covWrap.append(covLabel, covWhy);
+  const covRow = formRow("Partial coverage", covWrap);
+  sModel.appendChild(covRow);
+  function syncCoverage(): void {
+    // `style.display` rather than the `hidden` attribute, matching every other row here — a CSS
+    // `display` rule overrides `hidden`, and this repo has been bitten by that twice.
+    covRow.style.display = task.supervised ? "" : "none";
+    covWhy.textContent = covCb.checked
+      ? "Each depth is predicted by the largest model whose inputs it carries: where all your curves exist, a model on all of them; where one is short, a smaller model on the rest. Every segment gets its own blind score and its own saved model, because they are different models — one number over both would describe neither."
+      : "One model over the depths where EVERY input has a value. A curve logged over half the interval therefore removes the other half of all the others too. Turn this on to keep that rock.";
+  }
+  covCb.addEventListener("change", () => {
+    syncCoverage();
+    void refreshQc();
+  });
+
   // --- Input / output log set (`logSetPicker.ts`). A model fitted on today's PHIE and one fitted
   // after the next porosity re-run are fitted on different rock; naming the set is what lets a
   // saved model say which (Jauhar, 2026-08-05). Output defaults to ML, which is where every
@@ -821,6 +856,7 @@ export async function buildMlContent(
     echoTransform();
     renderParams();
     syncNorm();
+    syncCoverage();
     // Asked per selection rather than once: the answer depends on which algorithm is chosen, and
     // the backend caches the runtime probe, so every call after the first is free. A generation
     // counter drops a stale answer — the user can change the algorithm faster than the round trip.
@@ -993,6 +1029,7 @@ export async function buildMlContent(
       k: Number(paramInputs.find((p) => p.spec.key === "k")?.get() ?? 0) || null,
       standardize: stdCb.checked,
       masked: !!maskSel.value,
+      coverage: task.supervised && covCb.checked,
     });
   }
   qcBtn.addEventListener("click", () => void refreshQc());
@@ -1340,6 +1377,7 @@ export async function buildMlContent(
       split_seed: task.supervised && splitOn.checked ? Number(splitSeed.value) || 0 : null,
       split_mode: task.supervised && splitOn.checked ? splitMode : null,
       target_transform: task.id === "regression" && targetXf ? targetXf : null,
+      coverage_segments: task.supervised && covCb.checked,
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
@@ -1710,12 +1748,16 @@ export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: st
 
   if (res.split) renderSplit(host, res, nameOf);
 
+  const segs = (res.metrics as Record<string, unknown> | null)?.["coverage_segments"];
+  if (Array.isArray(segs)) renderCoverageSegments(host, segs as CoverageSegment[]);
+
   if (res.metrics && typeof res.metrics === "object") {
     renderEffectiveParams(host, res.metrics as Record<string, unknown>);
     const table = document.createElement("table");
     table.className = "mc-table";
     for (const [key, value] of Object.entries(res.metrics)) {
       if (key === "effective_params") continue; // shown as its own table above
+      if (key === "coverage_segments") continue; // its own table above; `fmtMetric` would print JSON
       const tr = document.createElement("tr");
       const th = document.createElement("th");
       th.textContent = key;
@@ -1763,6 +1805,111 @@ export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: st
     wellsTable.appendChild(tr);
   }
   host.appendChild(wellsTable);
+}
+
+/**
+ * The models a coverage-segmented run fitted, one CARD each, never summarised into one.
+ *
+ * The output is a single curve, and the temptation is to report it with a single score. There isn't
+ * one. A four-curve model and a three-curve model fitted on different rows are different models; an
+ * R² over both would be a number that describes neither, and it would describe the shallow half of
+ * the well and the deep half equally when the whole point of the run is that they are not equally
+ * known.
+ *
+ * Cards rather than a table, and not only because a six-column table does not fit a form column. A
+ * table invites reading DOWN a column and comparing rows, which is the one reading these numbers
+ * must not get — 0.81 beside 0.64 is not a ranking, it is two models answering over different rock,
+ * and the segment with the lower score is not the worse model, it is the one that had less to work
+ * with. Cards carry that separation in the layout instead of only in a caption.
+ *
+ * A segment that was NOT fitted keeps its card and states why in full. A skipped model that simply
+ * vanished would leave blank rock with no visible cause.
+ */
+function renderCoverageSegments(host: HTMLElement, segments: CoverageSegment[]): void {
+  if (!segments.length) return;
+  const fitted = segments.filter((s) => !s.skipped);
+  const totalDepths = fitted.reduce((a, s) => a + s.n_predicted, 0);
+
+  const box = document.createElement("div");
+  box.className = "ml-seg";
+  const cap = document.createElement("div");
+  cap.className = "ml-seg-cap";
+  cap.textContent =
+    fitted.length === 1
+      ? "One model covered every predicted depth — the selected inputs are present or absent together."
+      : `${fitted.length} models, one per pattern of available inputs. Each is scored on its own rows. They are not ranked against one another: the smaller model is not worse, it is the one that had fewer curves to work with.`;
+  box.appendChild(cap);
+
+  for (const s of segments) {
+    const card = document.createElement("div");
+    card.className = s.skipped ? "ml-seg-card ml-seg-card-skip" : "ml-seg-card";
+
+    const title = document.createElement("div");
+    title.className = "ml-seg-title";
+    const names = document.createElement("span");
+    names.className = "ml-seg-names";
+    names.textContent = s.features.join(" + ");
+    const count = document.createElement("span");
+    count.className = "ml-seg-count";
+    count.textContent = `${s.features.length} curve${s.features.length === 1 ? "" : "s"}`;
+    title.append(names, count);
+    card.appendChild(title);
+
+    if (s.skipped) {
+      const why = document.createElement("div");
+      why.className = "ml-seg-why";
+      why.textContent = s.skipped;
+      card.appendChild(why);
+    } else {
+      const blind = (s.blind ?? {}) as Record<string, unknown>;
+      // "Not requested" and "requested, and it scored 0.61" are different statements and a dash for
+      // both would merge them. The protocol rides along, because a random-row split does not answer
+      // the question a whole-well one does — the same rule the run-level split report follows.
+      const score =
+        blind["performed"] === true
+          ? `${String(blind["metric"] ?? "")} ${fmtMetric(blind["value"])}`
+          : "not requested";
+      const scoreNote =
+        blind["performed"] === true
+          ? blind["answers_new_well"] === true
+            ? "on wells held out whole"
+            : "on held-out rows — not a new-well score"
+          : "no blind test was asked for";
+      const stats = document.createElement("div");
+      stats.className = "ml-seg-stats";
+      const share = totalDepths > 0 ? Math.round((s.n_predicted / totalDepths) * 100) : null;
+      const cells: [string, string, string][] = [
+        ["Predicts", s.n_predicted.toLocaleString(), share == null ? "depths" : `depths — ${share}% of the curve`],
+        ["Fitted on", s.n_train.toLocaleString(), "training rows"],
+        ["Blind", score, scoreNote],
+      ];
+      for (const [k, v, note] of cells) {
+        const cell = document.createElement("div");
+        cell.className = "ml-seg-cell";
+        const kk = document.createElement("span");
+        kk.className = "ml-seg-k";
+        kk.textContent = k;
+        const vv = document.createElement("span");
+        vv.className = "ml-seg-v";
+        vv.textContent = v;
+        const nn = document.createElement("span");
+        nn.className = "ml-seg-n";
+        nn.textContent = note;
+        cell.append(kk, vv, nn);
+        stats.appendChild(cell);
+      }
+      card.appendChild(stats);
+
+      const foot = document.createElement("div");
+      foot.className = "ml-seg-foot";
+      foot.textContent = s.model_name
+        ? `Saved as ${s.model_name}`
+        : "Not saved — this segment's model exists only for this run";
+      card.appendChild(foot);
+    }
+    box.appendChild(card);
+  }
+  host.appendChild(box);
 }
 
 /**
@@ -2152,6 +2299,11 @@ export interface QcContext {
   k: number | null;
   standardize: boolean;
   masked: boolean;
+  /** True when the run will fit one model per pattern of available inputs instead of one model over
+   *  the intersection. It changes what a short curve COSTS, so several findings below read
+   *  differently with it on — and a checklist that ignored the setting would keep recommending a fix
+   *  the user has already applied. */
+  coverage: boolean;
 }
 
 interface QcFinding {
@@ -2296,13 +2448,37 @@ export function qcFindings(
               `About ${Math.round(perInput)} rows per input curve. At that ratio almost any algorithm here will fit ` +
               "the noise and score well doing it. Use fewer inputs, or more wells.",
           }
-        : {
-            level: "ok",
-            title: `At most ${thinnest.n.toLocaleString()} rows can reach the fit`,
-            detail:
-              `Capped by ${thinnest.curve}, the shortest of the selected curves — about ${Math.round(perInput)} rows ` +
-              "per input. The real count is lower wherever the curves' gaps do not line up, and the run reports it.",
-          };
+        : // Under coverage segmentation the cap belongs to the segment using every input — but only
+          // when the capping curve IS an input. The target is needed by every segment by definition,
+          // so a target-capped run is capped everywhere, and saying otherwise would promise rows that
+          // segmentation cannot produce. Core permeability is usually the thinnest curve in a run,
+          // which makes this the common case rather than the corner one.
+          !ctx.coverage
+          ? {
+              level: "ok",
+              title: `At most ${thinnest.n.toLocaleString()} rows can reach the fit`,
+              detail:
+                `Capped by ${thinnest.curve}, the shortest of the selected curves — about ${Math.round(perInput)} rows ` +
+                "per input. The real count is lower wherever the curves' gaps do not line up, and the run reports it.",
+            }
+          : thinnest.curve === ctx.target
+            ? {
+                level: "ok",
+                title: `At most ${thinnest.n.toLocaleString()} rows can reach ANY model`,
+                detail:
+                  `Capped by ${thinnest.curve} — about ${Math.round(perInput)} rows per input. Fitting a model per ` +
+                  "available-input pattern does not lift this one: the target is what every model is fitted against, so " +
+                  "no segment can see a depth it does not reach. What segmentation buys here is coverage of the " +
+                  "PREDICTION, not more training data.",
+              }
+            : {
+                level: "ok",
+                title: `At most ${thinnest.n.toLocaleString()} rows can reach the FULLEST model`,
+                detail:
+                  `Capped by ${thinnest.curve}, the shortest of the selected curves — about ${Math.round(perInput)} rows ` +
+                  "per input. The smaller models fitted alongside it are not bound by that curve at all; each one's own " +
+                  "row count is reported with its blind score in the result.",
+              };
 
   // --- 2. Coverage per curve ------------------------------------------------
   for (const c of ctx.curves) {
@@ -2328,15 +2504,31 @@ export function qcFindings(
       // value. The second framing is the one that changes a decision — usually to drop the curve.
       const best = Math.max(...counts.map((x) => x.n));
       const lost = Math.max(0, best - n);
-      out.push({
-        level: "warn",
-        title: `${c} covers ${Math.round((1 - share) * 100)}% of the interval, and costs the run ${lost.toLocaleString()} rows`,
-        detail:
-          `A depth is used only where EVERY input has a value, so the ${lost.toLocaleString()} depths ${c} does not ` +
-          "reach are dropped whole — taking the curves that were logged there with them. Dropping this curve " +
-          `from the inputs would give the model ${lost.toLocaleString()} more rows to learn from, and it is worth ` +
-          "comparing both ways on the leaderboard before deciding which is the better trade.",
-      });
+      out.push(
+        ctx.coverage
+          ? {
+              // With segmentation on, a short curve stops being a choice between keeping it and
+              // keeping the rock. It is still worth SAYING, because the interval now carries two
+              // models and how well the answer is known genuinely varies down the well.
+              level: "ok",
+              title: `${c} covers ${Math.round((1 - share) * 100)}% of the interval — the run will fit a model with it and a model without`,
+              detail:
+                `The ${lost.toLocaleString()} depths ${c} does not reach keep their other curves and are predicted by a ` +
+                "separate, smaller model, so no rock is dropped for want of one log. Read the two blind scores in the " +
+                "result separately: they are different models on different inputs, and the interval is better known " +
+                "where the fuller one answers.",
+            }
+          : {
+              level: "warn",
+              title: `${c} covers ${Math.round((1 - share) * 100)}% of the interval, and costs the run ${lost.toLocaleString()} rows`,
+              detail:
+                `A depth is used only where EVERY input has a value, so the ${lost.toLocaleString()} depths ${c} does not ` +
+                "reach are dropped whole — taking the curves that were logged there with them. Three ways out: drop " +
+                `the curve and gain ${lost.toLocaleString()} rows, drop the wells it is short in, or turn on "Fit a model per ` +
+                'available-input pattern" in Model, which fits one model where it exists and a smaller one where it ' +
+                "does not. The leaderboard is the honest way to choose between the first two.",
+            },
+      );
     }
   }
 

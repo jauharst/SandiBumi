@@ -5114,6 +5114,21 @@ textarea {
 .ml-norm-off {
   color: var(--qc-warn);
 }
+/* A checkbox whose caption is a sentence. `.mc-field` puts the box ABOVE its label, which suits a
+   two-word caption beside a Seed box and wraps a sentence into a ragged column - so this one turns
+   the label back into a row and stacks its explanation underneath at full width. */
+.ml-cov {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ml-cov > .mc-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-md);
+  color: var(--text);
+}
 .ml-qc-item {
   margin: 6px 0;
   padding: 6px 10px;
@@ -5347,6 +5362,86 @@ textarea {
 }
 .ml-well-table tr.ml-well-refused td:last-child {
   color: var(--warn, #b4472e);
+}
+
+/* Coverage segments: one CARD per fitted model, stacked. Not a table — a table would put the
+ * segments' scores in one column and invite reading them as a ranking, which is the single wrong
+ * reading (they answer over different rock). Cards also wrap their text, so the skip reason stays a
+ * whole sentence inside a 620px form column instead of being clipped into a cell. */
+.ml-seg {
+  margin: 10px 0 6px;
+}
+.ml-seg-cap {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  margin-bottom: 8px;
+  line-height: 1.45;
+}
+.ml-seg-card {
+  border: 1px solid var(--border, #e6ded0);
+  border-radius: var(--r-lg, 12px);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--bg-panel);
+}
+/* Same warn tint a refused well gets, for the same reason: it stays in the sequence rather than
+ * moving to an errata list, so the run reads as one result. */
+.ml-seg-card-skip {
+  border-color: color-mix(in srgb, var(--warn, #b4472e) 40%, var(--border, #e6ded0));
+  background: color-mix(in srgb, var(--warn, #b4472e) 5%, transparent);
+}
+.ml-seg-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: space-between;
+}
+.ml-seg-names {
+  font-weight: 600;
+  font-size: var(--fs-md);
+}
+.ml-seg-count {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  white-space: nowrap;
+}
+.ml-seg-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 8px;
+}
+.ml-seg-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 110px;
+}
+.ml-seg-k {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+.ml-seg-v {
+  font-size: var(--fs-lg, 15px);
+  font-weight: 600;
+}
+/* The qualifier sits with the number it qualifies. "R2 0.64" and "R2 0.64 on held-out rows - not a
+ * new-well score" are different claims, and separating them is how the second becomes the first. */
+.ml-seg-n {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+.ml-seg-foot {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border, #e6ded0);
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+.ml-seg-why {
+  margin-top: 6px;
+  font-size: var(--fs-sm);
+  color: var(--warn, #b4472e);
+  line-height: 1.45;
 }
 /* Selected/diagonal row emphasis: confusion-matrix diagonal cells AND selected rows in any
  * plain mc-table result grid (HFU clustering, Thomeer Pc fit) that toggle `ml-diag` on click. */
