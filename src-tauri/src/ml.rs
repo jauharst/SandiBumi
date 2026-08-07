@@ -140,6 +140,16 @@ pub(crate) const LOG10_SUFFIX: &str = "_LOG10";
 /// character keeps it from ever colliding with a real suffix (`""`, `_PROB`, `1`..`n`).
 const BACK_SUFFIX: &str = "\u{1}BACK";
 
+/// The suffix a SPECTRALLY TEXTURED prediction carries (round-3 item 5).
+///
+/// Jauhar, 2026-08-07, asked for two versions and got a name for each, which is the same argument
+/// `LOG10_SUFFIX` makes: the difference between these two curves cannot live in a dialog the reader
+/// never saw. `_SIM` rather than `_SPEC` because the property that matters to whoever picks the
+/// curve up is not that a spectrum was involved — it is that the detail was SIMULATED. The plain
+/// prediction keeps the base name, so the defensible curve is the one you get by default and the
+/// textured one has to be asked for by name.
+pub(crate) const SIM_SUFFIX: &str = "_SIM";
+
 /// The unit a quantity is in, from wherever the catalog happens to record it.
 ///
 /// Four stores can answer, consulted in order of how SPECIFIC the answer is: a unit DECLARED by
@@ -625,12 +635,16 @@ fn ml_shared_constants_py() -> String {
          # SB-MLA-021 - the class code for a sample an algorithm REJECTED, as opposed to one it was\n\
          # never given. Emitted rather than written here so the runner, the log-view block track and\n\
          # the print path cannot disagree about which code means 'not one of the clusters'.\n\
-         CLUSTER_REJECT = {}\n",
+         CLUSTER_REJECT = {}\n\
+         # Round-3 item 5 - the suffix the spectrally textured prediction is emitted under. Emitted\n\
+         # so the runner cannot spell it differently from the name resolver that has to place it.\n\
+         SIM_SUFFIX = \"{}\"\n",
         crate::facies::KMEANS_RESTARTS,
         crate::facies::KMEANS_MAX_ITERS,
         crate::facies::KMEANS_TOL,
         crate::facies::SEED_DEFAULT as i64,
         CLUSTER_REJECT,
+        SIM_SUFFIX,
     )
 }
 
@@ -846,6 +860,116 @@ def blind_score(model, kind):
     except Exception as e:
         metrics["blind_error"] = str(e)
 
+SPEC_GRID = np.linspace(0.0, 0.5, 257)
+
+def target_spectrum(measured, gf):
+    """The measured target's amplitude density, averaged over the fit wells.
+
+    PER WELL, not over the pooled matrix. The fit rows are many wells stacked end to end, and an
+    FFT across that stack reads every well boundary as a step - the spectrum would then be
+    dominated by the joins, which are an artifact of how the matrix was assembled and not a
+    property of any rock. Averaged on a common normalised-frequency grid because the wells have
+    different lengths, and normalised per sample so a long well does not outvote a short one.
+    """
+    dens = []
+    wells = np.unique(gf) if gf is not None else [None]
+    for w in wells:
+        yw = measured if w is None else measured[gf == w]
+        yw = yw[np.isfinite(yw)]
+        if len(yw) < 32:
+            continue
+        s = yw - np.mean(yw)
+        a = np.abs(np.fft.rfft(s)) / float(len(s))
+        dens.append(np.interp(SPEC_GRID, np.fft.rfftfreq(len(s)), a))
+    if not dens:
+        return None, 0
+    return np.mean(np.asarray(dens), axis=0), len(dens)
+
+SPEC_SMOOTH = 5
+
+def smooth_band(power, w):
+    """Boxcar-average a periodogram over neighbouring frequencies.
+
+    A raw periodogram FLUCTUATES about the true spectral density - it is an inconsistent estimator,
+    its variance does not fall with sample count. About half its bins therefore read low by chance,
+    and because the deficit below is rectified at zero, every one of those becomes energy that gets
+    ADDED. Left unsmoothed, a prediction that already had exactly its target's resolution came back
+    measurably rougher than the log it was matched to.
+
+    The window makes the two sides comparable rather than tuning a result: the target density is
+    already averaged over every fit well, while a single segment's periodogram has no averaging at
+    all, so one side was a density and the other was noise around one. Measured on synthetic logs at
+    widths 1/5/9/17/33 - 5 reproduced the target's roughness to within 0.2%, and wider windows were
+    worse in both directions because they flatten the peaks the deficit is measured against.
+    """
+    if w <= 1:
+        return power
+    pad = w // 2
+    return np.convolve(np.pad(power, pad, mode="edge"), np.ones(w) / float(w), mode="valid")[:len(power)]
+
+def spectral_texture(pred, measured, gf, seed):
+    """Round-3 item 5 - give the prediction the frequency content its target has and it lacks.
+
+    A regression predicts the CONDITIONAL MEAN, so it is smooth by construction: it can only carry
+    through detail its inputs contain, and a curve read over feet cannot produce detail measured
+    over inches. Writing that smooth curve under the target's name overstates what was resolved.
+
+    What this does is add a seeded random-phase realisation whose amplitude spectrum makes up the
+    DEFICIT between the measured target's density and the prediction's own. So the result has the
+    target's frequency content while keeping the prediction's low frequencies untouched - the
+    deficit is zero wherever the prediction already has as much energy as the target, and the DC
+    term is forced to zero so the mean never moves.
+
+    **The added detail is not a measurement.** It is one plausible realisation of infinitely many:
+    correct in its statistics, arbitrary in its placement. That is why this is off by default, why
+    it is written under its OWN curve name, and why the note says so in the words a reader needs -
+    no bed in the added detail should be correlated between wells.
+
+    Applied only across gap-free runs of 32+ samples. An FFT spanning a gap reads the gap as
+    periodicity and stamps that invented period across the whole segment.
+    """
+    dens, n_wells = target_spectrum(measured, gf)
+    if dens is None:
+        return None, "not applied: no fit well has 32+ measured target samples to take a spectrum from"
+    out = np.array(pred, dtype=np.float64)
+    ok = np.isfinite(out)
+    rng = np.random.RandomState(int(seed) & 0x7FFFFFFF)
+    applied = 0
+    runs = 0
+    i = 0
+    n = len(out)
+    while i < n:
+        if not ok[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and ok[j]:
+            j += 1
+        length = j - i
+        if length >= 32:
+            seg = out[i:j]
+            centred = seg - np.mean(seg)
+            have = smooth_band(np.abs(np.fft.rfft(centred)) ** 2, SPEC_SMOOTH) ** 0.5
+            want = np.interp(np.fft.rfftfreq(length), SPEC_GRID, dens) * float(length)
+            deficit = np.sqrt(np.maximum(0.0, want ** 2 - have ** 2))
+            deficit[0] = 0.0
+            phase = rng.uniform(0.0, 2.0 * np.pi, len(deficit))
+            resid = np.fft.irfft(deficit * (np.cos(phase) + 1j * np.sin(phase)), length)
+            out[i:j] = seg + resid
+            applied += length
+            runs += 1
+        i = j
+    if applied == 0:
+        return None, "not applied: no gap-free run of 32 or more samples to take a spectrum across"
+    return out.astype(np.float32), (
+        "%d sample(s) across %d gap-free run(s) carry ADDED detail, matched to the amplitude "
+        "spectrum of the measured target over %d fit well(s). The added detail is consistent with "
+        "the target's frequency content and is NOT a measurement: it is one realisation of many, "
+        "correct in its statistics and arbitrary in its placement. Do not correlate a bed seen only "
+        "in this curve between wells, and quote the plain prediction for anything that has to be "
+        "defended sample by sample." % (applied, runs, n_wells)
+    )
+
 outs = []
 if task == "regression":
     model, build_note = build_model(task, algo, p, seed)
@@ -866,7 +990,16 @@ if task == "regression":
     metrics["rmse_train"] = float(np.sqrt(np.mean((yf - pred) ** 2)))
     metrics["n_train"] = n_train
     blind_score(model, "r2")
-    outs.append(("", model.predict(As).astype(np.float32)))
+    base_pred = model.predict(As).astype(np.float32)
+    outs.append(("", base_pred))
+    # Round-3 item 5, second half. OFF by default: the plain prediction is the defensible curve,
+    # and a textured one that arrived without being asked for would be quoted as a measurement.
+    if bool(P(p, "spectral_texture", False)):
+        gf_spec = groups[fit_rows] if (groups is not None and fit_rows is not None) else groups
+        sim, spec_note = spectral_texture(base_pred, yf, gf_spec, seed)
+        if sim is not None:
+            outs.append((SIM_SUFFIX, sim))
+        metrics["spectral_texture"] = spec_note
 
 elif task == "classification":
     yi = y.astype(int)
@@ -1707,6 +1840,10 @@ fn out_name_for(base: &str, suffix: &str, transform: &str) -> String {
     match (transform.is_empty(), suffix) {
         (false, "") => format!("{base}{LOG10_SUFFIX}"),
         (false, BACK_SUFFIX) => base.to_string(),
+        // The textured curve is a texturing OF the model's own output, so under a transform it is
+        // named after the log-space curve it was made from — `PERM_LOG10_SIM`, never `PERM_SIM`,
+        // which would read as millidarcies and be out by orders of magnitude on a plot.
+        (false, SIM_SUFFIX) => format!("{base}{LOG10_SUFFIX}{SIM_SUFFIX}"),
         _ => format!("{base}{suffix}"),
     }
 }
@@ -1718,9 +1855,13 @@ fn out_name_for(base: &str, suffix: &str, transform: &str) -> String {
 /// left out of the declaration entirely rather than declared empty.
 fn unit_for_output(suffix: &str, transform: &str, target_unit: Option<&str>) -> Option<String> {
     let tu = target_unit.unwrap_or_default();
-    let u = if suffix.is_empty() && !transform.is_empty() {
+    // The textured curve is the model's own output with detail added, so it is in whatever space
+    // that output is in — the same unit as the base curve, transformed or not. Leaving it undeclared
+    // would export a curve in log space with no unit beside one that has millidarcies.
+    let base_space = suffix.is_empty() || suffix == SIM_SUFFIX;
+    let u = if base_space && !transform.is_empty() {
         transformed_unit(transform, Some(tu))
-    } else if suffix.is_empty() || suffix == BACK_SUFFIX {
+    } else if base_space || suffix == BACK_SUFFIX {
         tu.to_string()
     } else {
         return None;
@@ -6835,6 +6976,71 @@ mod tests {
         }
         // Any negative, not only this code: an unrecognised class must not be painted as rock.
         assert_eq!(crate::composite::facies_color_for_test(-7), reject);
+    }
+
+    /// **Round-3 item 5 — the textured prediction is a SECOND curve, named for what it is, and it is
+    /// never what you get by default.**
+    ///
+    /// Jauhar asked for two versions. The reason two names matter rather than two dialog settings is
+    /// that the dialog is seen once and the curve is read for years: a smooth prediction and one
+    /// carrying simulated detail plot identically to a reader who was not told which is which, and
+    /// the simulated one looks BETTER — more detailed, more like a real log — which is exactly
+    /// backwards from how much it can be trusted.
+    ///
+    /// Under a transform the texturing is of the model's own log-space output, so it must be named
+    /// after that curve. `PERM_SIM` beside a `PERM` in millidarcies would be read as millidarcies and
+    /// plot orders of magnitude out.
+    #[test]
+    fn a_spectrally_textured_prediction_is_a_second_named_curve_and_never_the_default() {
+        // Named for the simulation, not the method: what matters to whoever picks the curve up is
+        // that the detail was invented, not that a Fourier transform was involved.
+        assert_eq!(out_name_for("PERM", SIM_SUFFIX, ""), "PERM_SIM");
+        assert_eq!(out_name_for("PERM", "", ""), "PERM", "the plain prediction keeps the base name");
+        assert_eq!(
+            out_name_for("PERM", SIM_SUFFIX, "log10"),
+            "PERM_LOG10_SIM",
+            "under a transform the texturing is OF the log-space curve and must say so"
+        );
+
+        // Same space as the curve it was made from, so an export cannot put an undeclared log-space
+        // curve beside one in millidarcies.
+        assert_eq!(unit_for_output(SIM_SUFFIX, "", Some("mD")).as_deref(), Some("mD"));
+        assert_eq!(
+            unit_for_output(SIM_SUFFIX, "log10", Some("mD")),
+            unit_for_output("", "log10", Some("mD")),
+            "the textured curve carries whatever unit the model's own output carries"
+        );
+
+        // One spelling, emitted, for the same reason the reject code is.
+        assert!(ml_shared_constants_py().contains(&format!("SIM_SUFFIX = \"{SIM_SUFFIX}\"")));
+        assert!(
+            ML_RUNNER_BODY.contains("outs.append((SIM_SUFFIX, sim))"),
+            "the runner must emit under the shared name, not a literal it could misspell"
+        );
+
+        // OFF unless asked for. The plain prediction is the defensible curve; a textured one that
+        // arrived unrequested would be quoted as a measurement by somebody who never chose it.
+        assert!(
+            ML_RUNNER_BODY.contains("P(p, \"spectral_texture\", False)"),
+            "spectral texture must default to off, and go through P so the record says it was off"
+        );
+        // The added detail must never move the answer the plain curve already gives.
+        assert!(
+            ML_RUNNER_BODY.contains("deficit[0] = 0.0"),
+            "the DC term must be forced to zero or the textured curve shifts the mean"
+        );
+        assert!(
+            ML_RUNNER_BODY.contains("np.maximum(0.0, want ** 2 - have ** 2)"),
+            "only the DEFICIT is added, so a prediction already as rough as its target is left alone"
+        );
+        // ...and the deficit is measured against a SMOOTHED periodogram. Without this the estimator
+        // is inconsistent, half its bins read low by chance, and rectifying at zero turns every one
+        // of those into energy added to a curve that did not need it — measured: a prediction
+        // already at its target's resolution came back rougher than the log it was matched to.
+        assert!(
+            ML_RUNNER_BODY.contains("smooth_band(np.abs(np.fft.rfft(centred)) ** 2, SPEC_SMOOTH)"),
+            "the segment's spectrum must be smoothed, or the deficit is measured against noise"
+        );
     }
 
     #[test]
