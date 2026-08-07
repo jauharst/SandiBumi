@@ -8945,3 +8945,36 @@ clusterings the data supports is the one you got. A record you cannot re-run fro
       saved model's record. That is the half that makes a re-run reconstructable.
 - [ ] Native electrofacies/GMM are NOT covered yet — they report through the module framework,
       which has no parameter record. Their `SEED` fallback is still silent. Separate increment.
+
+## The report says which curves a model predicted (2026-08-07)
+
+`SB-MLA-010`. A predicted permeability looks exactly like a measured one on a track: smooth,
+plausible, in the right units. By the time it has been through a cutoff and into a hydrocarbon pore
+volume, nothing on the page says a model made it. Until now the lineage stopped at the database —
+the run was recorded, and the deliverable did not mention it.
+
+Both documents now carry a **Machine-learning provenance** section, immediately after the
+methodology table: the PDF (**Plot ▸ Deliverables ▸ Report…**) and its editable Word twin
+(**Save Word…**). Six columns — the curve and what it is a prediction of, the model and algorithm,
+the inputs in the order they were fitted in, what it was trained on, how well it travels, and the
+log set, run date and training fingerprint.
+
+Above the table, printed and not assumed: these curves were **predicted, not measured and not
+computed by a petrophysical equation**, and every number derived from them inherits the blind
+performance stated beside them.
+
+- [ ] **Run a model on a well, then generate that well's report.** The section is there, and it
+      names the model you used.
+- [ ] **Re-run the same model, or a different one, over the same curve name, and re-generate.** The
+      table still has one row, describing the run that made the curve now in the report — not both.
+      This is the half worth checking: a table naming a superseded run credits a model that did not
+      make the number on the page, which is worse than no table at all.
+- [ ] **Look at the blind column.** A model fitted with wells held back reads its blind score and
+      how many wells; one fitted without reads "not blind-tested" and shows no number.
+- [ ] **Save the Word version and compare it against the PDF.** Same rows, same wording, same
+      caveat. They are built from one definition, so they cannot drift — and the editable document
+      is the one a client actually opens, so the caveat has to be in it.
+- [ ] **Generate a report for a well with no ML curves.** No section at all — not an empty table
+      under a heading implying there is a model somewhere.
+- [ ] LAS export does not carry this yet. The honest place for it there is a `~Other` block, and
+      that is a separate increment.

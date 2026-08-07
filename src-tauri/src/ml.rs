@@ -332,6 +332,204 @@ fn blind_record(metrics: &serde_json::Value, split: Option<&SplitReport>, task: 
     }
 }
 
+// ---------------------------------------------------------------------------
+// SB-MLA-010 — the deliverable carries the ML provenance block
+// ---------------------------------------------------------------------------
+
+/// One ML-produced log set live on a well, described the way a deliverable has to describe it.
+///
+/// Every field is a string because this is a ROW in a report table, not a computation — and because
+/// the alternative, letting each renderer format its own numbers, is how the PDF and the Word twin
+/// come to disagree about the same study.
+#[derive(Debug, Clone)]
+pub struct MlProvenanceRow {
+    pub curves: String,
+    pub model: String,
+    pub algorithm: String,
+    /// ORDERED. The order is part of the apply contract, so a provenance block that reordered it
+    /// would document a model nobody could rebuild.
+    pub features: String,
+    pub target: String,
+    pub training: String,
+    /// The SB-MLA-009 statement, in words — including "not blind-tested", which is the case this
+    /// block exists for.
+    pub blind: String,
+    pub log_set: String,
+    pub run_date: String,
+    pub train_hash: String,
+}
+
+/// Renders the blind record as the sentence a deliverable prints.
+///
+/// The Rust counterpart of `mlDialog.ts::readBlind`'s tooltip wording — the two are deliberately
+/// separate because a screen tooltip and a printed report are different registers, but they must
+/// agree on the FACTS, and above all on the same refusal: where nothing was held back, both say so
+/// and neither shows a training score in its place.
+fn blind_sentence(blind: Option<&serde_json::Value>) -> String {
+    let Some(b) = blind else {
+        return "not recorded (this curve predates the blind-performance record)".into();
+    };
+    if b.get("performed").and_then(|v| v.as_bool()) != Some(true) {
+        return "not blind-tested - nothing was held back, so there is no measurement of how this model performs on data it has not seen".into();
+    }
+    let metric = b.get("metric").and_then(|v| v.as_str()).unwrap_or("score");
+    let value = b.get("value").and_then(|v| v.as_f64()).map(|v| format!("{v:.3}")).unwrap_or_else(|| "-".into());
+    let wells = b.get("n_blind_wells").and_then(|v| v.as_u64()).unwrap_or(0);
+    let rows = b.get("n_blind_rows").and_then(|v| v.as_u64()).unwrap_or(0);
+    if b.get("answers_new_well").and_then(|v| v.as_bool()) == Some(true) {
+        format!("{metric} {value} on {wells} well(s) held back whole ({rows} samples the model never saw)")
+    } else {
+        // Said in full every time. A reader who takes this for a whole-well number reads it as an
+        // answer to "will this work on the next well", which it is not.
+        format!("{metric} {value} on {rows} random rows drawn from the same wells the model trained on - not a measure of transfer to a new well")
+    }
+}
+
+/// Every ML-produced log set whose curves are CURRENTLY live on this well.
+///
+/// Driven from `computed_curves.set_id`, so it reports what the report will actually print rather
+/// than every ML run the well has ever seen — a superseded version is not in the deliverable and
+/// listing it would be a provenance block describing somebody else's numbers.
+///
+/// This is the point of the whole provenance group: a parameter that carries the paper it came from,
+/// through the computation, into the deliverable. Until now the lineage stopped at the database.
+pub fn ml_provenance(conn: &Connection, well_id: &str) -> Vec<MlProvenanceRow> {
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT ls.set_id, ls.set_name, ls.module, ls.params_json, ls.inputs_json,
+                strftime(ls.created_at, '%Y-%m-%d %H:%M')
+         FROM log_sets ls
+         WHERE ls.module LIKE 'ml:%' AND ls.well_id = ?1
+           AND EXISTS (SELECT 1 FROM computed_curves cc WHERE cc.set_id = ls.set_id)
+         ORDER BY ls.created_at",
+    ) else {
+        return Vec::new();
+    };
+    let rows = stmt.query_map(duckdb::params![well_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, Option<String>>(3)?,
+            r.get::<_, Option<String>>(4)?,
+            r.get::<_, String>(5)?,
+        ))
+    });
+    let Ok(rows) = rows else { return Vec::new() };
+
+    let mut out = Vec::new();
+    for row in rows.flatten() {
+        let (set_id, set_name, module, params_json, inputs_json, created_at) = row;
+        let p: serde_json::Value =
+            params_json.as_deref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or(serde_json::Value::Null);
+        let curves: Vec<String> = conn
+            .prepare("SELECT DISTINCT curve_name FROM computed_curves WHERE set_id = ?1 ORDER BY curve_name")
+            .and_then(|mut s| {
+                s.query_map(duckdb::params![set_id], |r| r.get::<_, String>(0))
+                    .map(|it| it.flatten().collect())
+            })
+            .unwrap_or_default();
+        if curves.is_empty() {
+            continue;
+        }
+        let features: Vec<String> =
+            inputs_json.as_deref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
+
+        // The model record answers "how much rock trained this", which the curve's own row cannot.
+        // A model that has since been deleted leaves the name still on the curve, and that is the
+        // truth: the curve was made by it, and it is gone.
+        let model_id = p.get("model_id").and_then(|v| v.as_str());
+        let info = model_id.and_then(|id| crate::db::get_ml_model(conn, id).ok().map(|(i, _)| i));
+        let model = p
+            .get("model_name")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| "not kept (this fit was not saved as a model)".into());
+        let target = info
+            .as_ref()
+            .and_then(|i| i.target_curve.clone())
+            .or_else(|| p.get("target").and_then(|v| v.as_str()).map(str::to_string))
+            .unwrap_or_else(|| "-".into());
+        let training = match &info {
+            Some(i) => format!("{} samples from {} well(s)", i.n_train, i.trained_on.len()),
+            None => p
+                .get("trained_on")
+                .and_then(|v| v.as_array())
+                .map(|a| format!("{} well(s)", a.len()))
+                .unwrap_or_else(|| "not recorded".into()),
+        };
+        out.push(MlProvenanceRow {
+            curves: curves.join(", "),
+            model,
+            algorithm: module.strip_prefix("ml:").unwrap_or(&module).to_string(),
+            features: if features.is_empty() { "-".into() } else { features.join(", ") },
+            target,
+            training,
+            blind: blind_sentence(p.get("blind")),
+            log_set: set_name,
+            run_date: created_at,
+            train_hash: p
+                .get("train_hash")
+                .and_then(|v| v.as_str())
+                .or(info.as_ref().and_then(|i| i.train_hash.as_deref()))
+                .unwrap_or("not recorded")
+                .to_string(),
+        });
+    }
+    out
+}
+
+/// The provenance block's column headings, HERE rather than in each renderer.
+///
+/// Same argument as `office.rs`'s shared `Sheet`s: the PDF and the Word twin are two renderings of
+/// ONE decision, not two implementations that can drift. A reader comparing the two documents for a
+/// study is comparing them because something disagreed, and a column that says "Trained on" in one
+/// and "Training data" in the other is a disagreement about wording pretending to be one about facts.
+pub const ML_PROV_HEADERS: [&str; 6] = [
+    "Curve(s)",
+    "Model / algorithm",
+    "Inputs, in order",
+    "Trained on",
+    "Blind performance",
+    "Log set / date / rows",
+];
+
+/// The requirement's binding sentence, printed rather than assumed.
+///
+/// SB-MLA-010: a report MUST NOT present a model-derived curve as though it were measured or
+/// deterministically computed. A reader cannot tell from a track — a predicted PERM is a smooth,
+/// plausible curve — and by the time the number has been through a net-pay cutoff and a volumetric,
+/// nobody downstream can either. ASCII on purpose: the PDF writer is Helvetica/WinAnsi and replaces
+/// every non-ASCII character with a hyphen, so an em dash here would print as one anyway while the
+/// Word twin kept the dash — the same sentence, set differently, in two documents of one study.
+pub const ML_PROV_CAVEAT: &str = "The curves listed below were PREDICTED by a fitted model, not \
+     measured and not computed by a deterministic petrophysical equation. Every number derived from \
+     them - net pay, porosity-thickness, hydrocarbon pore volume - inherits the blind performance \
+     stated here.";
+
+impl MlProvenanceRow {
+    /// The six printed cells, in `ML_PROV_HEADERS` order.
+    ///
+    /// Multi-line cells: a renderer wraps on `\n`, so the composition lives here and not in the two
+    /// (soon three) places that draw it.
+    pub fn cells(&self) -> [String; 6] {
+        [
+            // The target is named beside the curve, because "PERM_EST" alone does not say what
+            // quantity it stands in for — and what it stands in for is the measured thing the
+            // reader will otherwise assume it is.
+            if self.target == "-" {
+                self.curves.clone()
+            } else {
+                format!("{}\n(a prediction of {})", self.curves, self.target)
+            },
+            format!("{}\n{}", self.model, self.algorithm),
+            self.features.clone(),
+            self.training.clone(),
+            self.blind.clone(),
+            format!("{}\n{}\n{}", self.log_set, self.run_date, self.train_hash),
+        ]
+    }
+}
+
 /// SB-MLA-023 / SB-MLA-024 — the product's k-means and seed definitions, EMITTED into the Python
 /// runners from the Rust constants that the native engine runs on.
 ///
@@ -3395,6 +3593,94 @@ mod tests {
         let rc = blind_record(&cm, Some(&by_sample), "classification");
         assert_eq!(rc["metric"], serde_json::json!("accuracy"));
         assert_eq!(rc["value"], serde_json::json!(0.62));
+    }
+
+    /// **SB-MLA-010 — the deliverable names every model-derived curve it prints, and no other.**
+    ///
+    /// Pinned from both sides, because either half alone would pass with the wrong implementation.
+    ///
+    /// The obvious half is that an ML curve appears, with the model, the ORDERED inputs and the blind
+    /// sentence. The half that decides whether the block is worth printing is the SECOND: a reader
+    /// checks a provenance table to answer "is the PERM in this report measured?", so a table listing
+    /// a run whose curves were superseded hours ago is worse than no table — it names a model that
+    /// did not make the number on the page. Driving it from `computed_curves.set_id` is what makes
+    /// the two agree; a query over `log_sets` alone reads identically and is wrong.
+    ///
+    /// Third, a deterministic module's log set must NOT be swept in. VSH from a Larionov equation is
+    /// not a prediction, and putting it under a heading that says "PREDICTED by a fitted model" would
+    /// be the requirement's own defect committed in the opposite direction.
+    #[test]
+    fn a_deliverable_names_every_model_derived_curve_it_prints_and_no_superseded_one() {
+        use crate::equations::{create_log_set, write_computed_curves_versioned, LogSetSpec};
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, well, "SANDI-1", None, None, Some(0.0)).unwrap();
+        let id = well.to_string();
+        let depth: Vec<f32> = (0..5).map(|i| 1000.0 + i as f32).collect();
+        let vals = vec![1.0f32; 5];
+
+        let ml_params = |score: f64| {
+            serde_json::json!({
+                "algorithm": "rf",
+                "model_name": "PERM_FROM_CORE",
+                "target": "PERM_CORE",
+                "train_hash": "0123456789abcdef",
+                "blind": { "performed": true, "metric": "R2", "value": score,
+                           "protocol": "whole wells", "answers_new_well": true,
+                           "n_blind_wells": 2, "n_blind_rows": 300 },
+            })
+            .to_string()
+        };
+        // The order is the apply contract, so it is the order the block must print.
+        let inputs = serde_json::to_string(&["GR", "RHOB", "NPHI"]).unwrap();
+
+        // Run 1, then run 2 over the SAME curve name: the second write deletes the first's rows.
+        let mk = |score: f64| {
+            let spec = LogSetSpec {
+                set_name: "ML".into(),
+                module: "ml:regression:rf".into(),
+                params_json: ml_params(score),
+                inputs_json: inputs.clone(),
+            };
+            let (set_id, _) = create_log_set(&conn, &id, &spec).unwrap();
+            write_computed_curves_versioned(&conn, &id, &depth, &[("PERM_ML", &vals[..])], &set_id).unwrap();
+        };
+        mk(0.11);
+        mk(0.62);
+
+        // A deterministic module, live on the same well.
+        let eq = LogSetSpec {
+            set_name: "VSH".into(),
+            module: "equation:vsh_linear".into(),
+            params_json: "{}".into(),
+            inputs_json: "[\"GR\"]".into(),
+        };
+        let (eq_set, _) = create_log_set(&conn, &id, &eq).unwrap();
+        write_computed_curves_versioned(&conn, &id, &depth, &[("VSH", &vals[..])], &eq_set).unwrap();
+
+        let rows = ml_provenance(&conn, &id);
+        assert_eq!(rows.len(), 1, "one live ML curve, one row - not one per run ever made: {rows:?}");
+        let r = &rows[0];
+        assert_eq!(r.curves, "PERM_ML");
+        assert_eq!(r.model, "PERM_FROM_CORE");
+        assert_eq!(r.features, "GR, RHOB, NPHI", "printed in the order the model was fitted in");
+        assert!(r.blind.contains("0.620"), "the SURVIVING run's blind score: {}", r.blind);
+        assert!(!r.blind.contains("0.110"), "the superseded run's score must not be on the page");
+        assert!(r.train_hash.starts_with("0123"), "the rows that made it are quotable: {}", r.train_hash);
+
+        // The printed cells, which is what both renderers consume.
+        let cells = r.cells();
+        assert_eq!(cells.len(), ML_PROV_HEADERS.len(), "a cell per column, or one renderer drops a fact");
+        assert!(cells[0].contains("a prediction of PERM_CORE"), "the target is named beside the curve: {}", cells[0]);
+        assert!(ML_PROV_CAVEAT.contains("PREDICTED"), "the caveat is the requirement's own sentence");
+        assert!(ML_PROV_CAVEAT.is_ascii(), "the PDF writer replaces non-ASCII, so the two documents would differ");
+
+        // The other side: a well with no ML curve gets no block at all, rather than an empty table
+        // under a heading that implies there is a model somewhere.
+        let clean = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, clean, "SANDI-2", None, None, Some(0.0)).unwrap();
+        assert!(ml_provenance(&conn, &clean.to_string()).is_empty());
     }
 
     /// **SB-MLA-060 — no vendor model or weight file is read, converted or imported.**

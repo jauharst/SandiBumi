@@ -1161,7 +1161,7 @@ puts a flattering `r2_train: 0.99` in the same object as `r2_blind: 0.31` and pi
 takes the blind one; and pins the no-split, unscored-split and classification cases from the other
 side.
 
-#### SB-MLA-010 — The deliverable carries the ML provenance block          [P1] [status: ABSENT]
+#### SB-MLA-010 — The deliverable carries the ML provenance block          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where a report or export includes a curve produced by an ML model, the output
 MUST include a provenance block naming the model, its algorithm, its feature list in order, its
@@ -1173,13 +1173,48 @@ becomes a sellable property rather than an internal discipline: "a parameter tha
 paper it came from, through the computation, into the deliverable, is a claim no incumbent can
 make." Today the lineage stops at the database boundary.
 
-**As-built.** `ABSENT` — `report.rs` (1,442 lines, cover → methodology table → per-zone parameters
-→ pay summary → composite log pages) contains no reference to `ml`, `facies`, `cluster` or a model.
-`export.rs` (270 lines) contains no reference to a module, log set, provenance or parameter record.
-The methodology table — a parameter/method/remarks structure — is the natural host and does not
-know ML exists.
+**As-built.** `PRESENT-OK` — `ml::ml_provenance` builds the block and both document renderers print
+it: a **Machine-learning provenance** section in `report.rs::report_pages`, immediately after the
+methodology table, and its twin in `office.rs::build_report_blocks` for the editable Word document.
+Six columns — curve(s) and the quantity predicted, model and algorithm, inputs *in order*, what it
+was trained on, the SB-MLA-009 blind sentence, and the log set / run date / SB-MLA-003 training
+hash. The requirement's second sentence is printed, not assumed: both documents carry the caveat
+that these curves were **predicted, not measured and not deterministically computed**, and that
+every number derived from them inherits the stated blind performance.
 
-**Verified by.** SB-MLA-T10
+Three decisions are load-bearing.
+
+*It is driven from `computed_curves.set_id`, not from `log_sets`.* The question a reader brings to a
+provenance table is "is the PERM on this page measured?", so the table must describe the run whose
+curves are **live**, not every ML run the well has ever seen. A superseded version named beside the
+number on the page is worse than no table: it credits a model that did not make it. The query
+therefore requires `EXISTS (SELECT 1 FROM computed_curves cc WHERE cc.set_id = ls.set_id)`, and
+because `write_computed_curves_versioned` deletes a curve name's rows before appending, a
+superseded set drops out by construction rather than by a rule somebody has to maintain.
+
+*Its own section, not rows in the methodology table.* The methodology table describes the METHOD;
+this describes a specific fitted artifact. Same algorithm, two different models, two different sets
+of rock — and a methodology row cannot say which one made this well's curve. It sits immediately
+after, so a reader who has just read "Permeability — por-perm transform" meets "and this well's
+PERM was predicted, here is how well it travels" before any number built on it.
+
+*One definition, both renderers.* `ML_PROV_HEADERS`, `ML_PROV_CAVEAT` and `MlProvenanceRow::cells()`
+live in `ml.rs` and are consumed by both — the same discipline `office.rs` applies to the pay
+summary. The caveat is ASCII deliberately: `composite.rs::pdf_escape` replaces every non-ASCII
+character (Helvetica/WinAnsi), so an em dash would degrade in the PDF and survive in the `.docx`,
+leaving one study's two documents setting the same legally-weighted sentence differently.
+
+Not yet extended to LAS export (`export.rs`), where the honest realisation is a `~Other` block and
+the seam note at §2 assigns that to `DIO`; and not to the workbook or deck, which are statistical
+roll-ups rather than the interpretation record.
+
+**Verified by.** SB-MLA-T10 —
+`ml::tests::a_deliverable_names_every_model_derived_curve_it_prints_and_no_superseded_one`, which
+writes two runs over the same curve name plus a deterministic equation's log set on the same well,
+and pins that exactly one row appears, carrying the surviving run's blind score and not the
+superseded one's; that the inputs print in fitted order; that the target is named beside the curve;
+and, from the other side, that a well with no ML curve produces no block at all rather than an
+empty table under a heading implying a model exists.
 
 #### SB-MLA-011 — Training and apply membership are recorded per well          [P1] [status: PARTIAL]
 
@@ -2676,10 +2711,15 @@ correlation 0.99 training against 0.31–0.70 blind (PKB, T4).
 #### SB-MLA-T10 — the report carries the ML provenance block
 **Input.** A project whose reported curve set includes one model-derived curve.
 **Operation.** Generate the report.
-**Expected.** The methodology section names the model, its algorithm, its ordered feature list, its
+**Expected.** The report names the model, its algorithm, its ordered feature list, its
 training well count, its training log set, its blind metric and the run date. A report generated
 with the ML curve removed does not contain the block.
 **Source.** `SB-MLA-010`; `report.rs` currently contains no ML reference.
+**Divergence, deliberate.** This test was written expecting the block *inside* the methodology
+section. As built it is its own section immediately after it, because the methodology table
+describes the METHOD and this describes a specific fitted artifact — the same algorithm over two
+sets of rock is two models, and a methodology row cannot say which one made this well's curve. The
+substance of the check is unchanged.
 
 #### SB-MLA-T11 — well roles are recorded, including the empty contributor
 **Input.** Four training wells, one of which lacks the target curve; two apply-only wells.
@@ -3779,7 +3819,7 @@ chapter cannot be mistaken for a restatement of its dossier**, and because `03_E
 | `SB-MLA-004` | `ml.rs:733`–`:748` — no mask curve is persisted with the model |
 | `SB-MLA-005` | `ml.rs:745` — the sklearn version is recorded; nothing else about the runtime is |
 | `SB-MLA-007` | `db.rs:2740` — `delete_ml_model` is unconditional |
-| `SB-MLA-010` | `report.rs` and `export.rs` contain no ML reference at all — the chapter's spine |
+| ~~`SB-MLA-010`~~ | ~~`report.rs` and `export.rs` contain no ML reference at all — the chapter's spine~~ **CLOSED 2026-08-07** — the PDF and the Word twin both print the provenance block, driven from `computed_curves.set_id` so it describes the live curves rather than every run. LAS export still carries nothing; that realisation is `DIO`'s per §2 |
 | `SB-MLA-011` | `ml.rs:580`–`:587`, `:720`–`:732` — empty-training wells are filtered out of `trained_on` |
 | ~~`SB-MLA-013`~~ | ~~`facies.rs:137`–`:139`, `:192`–`:198` — an all-NaN return is reported as success~~ **CLOSED 2026-08-07** — both native engines return `Result`; the python path refuses before writing. The row understated it: `ml.rs` had the same defect and the as-built had certified that path as correct |
 | `SB-MLA-014` | `hfu.rs:273` — `eff_k` silently reduces; `facies.rs:77` silently clamps |

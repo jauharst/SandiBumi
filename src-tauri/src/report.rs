@@ -360,17 +360,20 @@ fn report_pages(
     db: &Mutex<Connection>,
     spec: &ReportSpec,
 ) -> Result<(Vec<Vec<DrawOp>>, f64, f64, String), String> {
-    let (composite_pages, pw, ph, well_name, header, zones, zparams, logged) = {
+    let (composite_pages, pw, ph, well_name, header, zones, zparams, logged, ml_prov) = {
         let conn = db.lock().unwrap();
         let header = composite::fetch_header(&conn, &spec.composite.well_id)?;
         let zones = db::list_zones(&conn, &spec.composite.well_id).map_err(|e| e.to_string())?;
         let zparams = db::list_zone_params(&conn, &spec.composite.well_id).map_err(|e| e.to_string())?;
+        // SB-MLA-010. Read from the CURRENT store, so it describes the curves this report will
+        // actually print rather than every ML run the well has ever seen.
+        let ml_prov = crate::ml::ml_provenance(&conn, &spec.composite.well_id);
         // The cover's interval, taken from the LOG rather than from the composite pagination —
         // see `db::logged_interval`. The lock is released at the end of this block —
         // run_pay_summary takes it itself.
         let logged = db::logged_interval(&conn, &spec.composite.well_id);
         let (cpages, pw, ph, name) = composite::render_pages(&conn, &spec.composite)?;
-        (cpages, pw, ph, name, header, zones, zparams, logged)
+        (cpages, pw, ph, name, header, zones, zparams, logged, ml_prov)
     };
 
     {
@@ -410,6 +413,39 @@ fn report_pages(
             ("Remarks", usable * 0.38, Anchor::Start),
         ];
         pages.extend(table_pages("Methodology", &well_name, None, &m_cols, &m_rows, pw, ph, 2.7));
+
+        // 2b — ML provenance (SB-MLA-010), only where a model-derived curve is actually live on
+        // this well. This is the point of the whole provenance group: a parameter that carries the
+        // paper it came from, through the computation, into the deliverable — until now the
+        // lineage stopped at the database boundary.
+        //
+        // Its own section rather than rows in the methodology table, because the methodology table
+        // describes the METHOD and this describes a specific fitted artifact: same algorithm, two
+        // different models, two different sets of rock. It sits immediately after, so a reader who
+        // has just read "Permeability — por-perm transform" meets "and this well's PERM was
+        // predicted by a model, here is how well it travels" before any number built on it.
+        if !ml_prov.is_empty() {
+            let p_rows: Vec<Vec<String>> = ml_prov.iter().map(|r| r.cells().to_vec()).collect();
+            let h = crate::ml::ML_PROV_HEADERS;
+            let p_cols: [(&str, f64, Anchor); 6] = [
+                (h[0], usable * 0.13, Anchor::Start),
+                (h[1], usable * 0.17, Anchor::Start),
+                (h[2], usable * 0.18, Anchor::Start),
+                (h[3], usable * 0.13, Anchor::Start),
+                (h[4], usable * 0.25, Anchor::Start),
+                (h[5], usable * 0.14, Anchor::Start),
+            ];
+            pages.extend(table_pages(
+                "Machine-learning provenance",
+                &well_name,
+                Some(crate::ml::ML_PROV_CAVEAT),
+                &p_cols,
+                &p_rows,
+                pw,
+                ph,
+                2.5,
+            ));
+        }
 
         // 3 — per-zone parameter table (zones without params still listed)
         let mut z_rows: Vec<Vec<String>> = Vec::new();
