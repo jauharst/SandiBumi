@@ -833,6 +833,34 @@ except ImportError:
     fail("scikit-learn is not installed for this Python - run: pip install scikit-learn")
 from sklearn.preprocessing import StandardScaler
 
+# A model whose optimiser GAVE UP is not a model that merely scored badly, and the two are
+# indistinguishable from the score alone - an MLP that hit `max_iter` without converging returned
+# an R2 of -50 on real data and sat in the table looking like a candidate that had simply lost.
+# scikit-learn says so, loudly, through `ConvergenceWarning`; the runner used to discard it because
+# warnings go to stderr and only the LAST stderr line is read, as the error.
+#
+# Recorded rather than raised: the fit did produce a model and the user may still want to look at
+# it. What must not happen is the number being quoted without the qualification.
+import warnings as _warnings
+try:
+    from sklearn.exceptions import ConvergenceWarning
+except ImportError:
+    ConvergenceWarning = None
+
+CONVERGED = {"ok": True, "detail": ""}
+
+def fit_model(model, Xf, yf):
+    """`model.fit`, remembering whether the optimiser finished or ran out of iterations."""
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        model.fit(Xf, yf)
+    for w in caught:
+        if ConvergenceWarning is not None and issubclass(w.category, ConvergenceWarning):
+            CONVERGED["ok"] = False
+            # One line, bounded: it is a note in a result panel, not a traceback.
+            CONVERGED["detail"] = " ".join(str(w.message).split())[:400]
+    return model
+
 seed = int(P(p, "seed", SEED_DEFAULT))
 supervised = task in ("regression", "classification")
 metrics = {}
@@ -1006,22 +1034,11 @@ def blind_score(model, kind):
             "centimetres from fitted ones, so this reads higher than a whole-well score would"
             % int(np.sum(blind))
         )
-    # How alike the two sides are, per feature and on the target. This is the evidence for
-    # "similar statistics", and it is reported rather than asserted: a stratified draw is
-    # SUPPOSED to make these match, so a pair that does not match is the signal that the strata
-    # were wrong - a class with three samples in it cannot be split representatively.
-    try:
-        cmp = []
-        for j, nm in enumerate(feature_names or [("x%d" % j) for j in range(d)]):
-            cf, cb = X[fit_rows, j], X[blind, j]
-            cmp.append({"name": nm, "fit_mean": float(np.mean(cf)), "blind_mean": float(np.mean(cb)),
-                        "fit_sd": float(np.std(cf)), "blind_sd": float(np.std(cb))})
-        yf_, yb_ = y[fit_rows], y[blind]
-        cmp.append({"name": "(target)", "fit_mean": float(np.mean(yf_)), "blind_mean": float(np.mean(yb_)),
-                    "fit_sd": float(np.std(yf_)), "blind_sd": float(np.std(yb_))})
-        metrics["split_balance"] = cmp
-    except Exception:
-        pass
+    # `split_balance` used to be built here, from mean and standard deviation only, and under
+    # positional names because the runner is only told the feature names when it is saving a model.
+    # It is built in Rust now (`balance_table`), on `distribution.rs` - the shared statistics core -
+    # so the percentiles agree with every other percentile in the product by construction instead of
+    # by a third implementation being kept in step by hand.
     try:
         if kind == "r2":
             pb = model.predict(Xb)
@@ -1182,7 +1199,7 @@ if task == "regression":
     # prediction there can be laid against core and looked at - which is the whole reason a
     # petrophysicist holds a well back. Refitting would make that curve in-sample and leave the
     # reported score describing a model that no longer exists.
-    model.fit(Xf, yf)
+    fit_model(model, Xf, yf)
     pred = model.predict(Xf)
     ss_res = float(np.sum((yf - pred) ** 2)); ss_tot = max(float(np.sum((yf - np.mean(yf)) ** 2)), 1e-12)
     metrics["r2_train"] = 1.0 - ss_res / ss_tot
@@ -1219,7 +1236,7 @@ elif task == "classification":
         metrics["algorithm_used"] = SUBSTITUTION["used"]
     cv_score(model, "accuracy", "accuracy_cv")
     Xf, yf = fit_xy(yi)
-    model.fit(Xf, yf)
+    fit_model(model, Xf, yf)
     metrics["accuracy_train"] = float(np.mean(model.predict(Xf) == yf))
     name_protocol("accuracy_train", "the rows the model was FITTED ON - in-sample, so it measures how "
                                     "much the model could memorise and not how it will behave on rock "
@@ -1460,6 +1477,12 @@ if save_model and supervised:
         # Never lose the RUN because the artifact could not be saved - the curves are already
         # computed. Report it and let the caller say so.
         metrics["model_save_error"] = str(e)
+
+# The optimiser gave up rather than finished. Carried as DATA rather than folded into a prose note,
+# so a renderer cannot print the score without being able to find the qualification - the same rule
+# `cv_degraded` follows, and for the same reason: this one reads as a plausible bad score.
+if not CONVERGED["ok"]:
+    metrics["not_converged"] = CONVERGED["detail"] or "the optimiser stopped at its iteration limit"
 
 # SB-MLA-005. Reported on EVERY run, not only when a model is saved: the curve is as much a product
 # of this library set as the artifact is, and a run that saved nothing still has to be reproducible.
@@ -2911,6 +2934,7 @@ fn run_ml_coverage(
                     Some(&y_train),
                     &x_apply,
                     n_apply,
+                    &sub,
                     save_features,
                     Some(&groups),
                     &blind_mask,
@@ -3869,12 +3893,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             let missing: Vec<&str> =
                 roster.iter().filter(|r| r.set_id.is_none()).map(|r| r.well.as_str()).collect();
             if !missing.is_empty() {
-                notes.push(format!(
-                    "{} of {} training well(s) have no log set named '{set}', so their rows were read from the CURRENT store instead: {}",
-                    missing.len(),
-                    roster.len(),
-                    missing.join(", ")
-                ));
+                notes.push(ml_set_note(set, &missing, roster.len()));
             }
         }
     }
@@ -3991,6 +4010,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         y_opt,
         &x_apply,
         n_apply,
+        &features,
         save_features,
         if supervised { Some(groups.as_slice()) } else { None },
         &blind_mask,
@@ -4081,6 +4101,17 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             }
             if !req.interval.is_open() {
                 metrics["interval"] = serde_json::json!({ "top": req.interval.top, "base": req.interval.base });
+            }
+            // The optimiser stopped at its iteration limit rather than finishing. Said FIRST-CLASS,
+            // as a note, because every score below it describes a model that is not the one the
+            // settings asked for — and the giveaway looks exactly like an ordinary bad result.
+            if let Some(detail) = metrics.get("not_converged").and_then(|v| v.as_str()) {
+                notes.push(format!(
+                    "this fit did not converge - the optimiser stopped at its iteration limit rather than \
+                     finishing, so every score here describes a half-trained model and not the one the \
+                     settings describe. Raise max_iter, or standardise the inputs if that is off. \
+                     scikit-learn said: {detail}"
+                ));
             }
             // Measured on the model's OWN output (the untransformed one), against the target rows it
             // was fitted on. Reported, never corrected: see `resolution_note`.
@@ -4830,8 +4861,8 @@ pub(crate) fn exec_ml(
     n_apply: usize,
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>), String> {
     exec_ml_full(
-        python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None, None, &[],
-        &NormBasis::Data,
+        python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, &[], None, None,
+        &[], &NormBasis::Data,
     )
     .map(|r| (r.metrics, r.outs))
 }
@@ -4849,6 +4880,157 @@ pub(crate) struct MlRun {
     pub runtime: serde_json::Value,
 }
 
+/// The note for training wells that do not carry the requested input set.
+///
+/// "Set" names two different stores in this product, and choosing the wrong one is SILENT: import
+/// sets resolve by mnemonic, so the run reads exactly the rows the user wanted and then reports a
+/// note they have no reason to connect to the box they filled in. A **log set** is a version of an
+/// interpretation (RAW / EDIT / FINAL, written by a module run); an **import set** is a delivery of
+/// measured curves, named in the LAS wizard (FPROOH, WIRE).
+///
+/// The explanation is added only when NO well matched, because that is the shape a wrong-store
+/// guess makes. A genuinely missing interpretation version is patchy across a field — some wells
+/// were re-run and some were not — and telling that user they picked the wrong KIND of set would be
+/// a confident wrong answer.
+fn ml_set_note(set: &str, missing: &[&str], total: usize) -> String {
+    let mut s = format!(
+        "{} of {total} training well(s) have no LOG set named '{set}', so their rows were read from \
+         the CURRENT store instead: {}.",
+        missing.len(),
+        missing.join(", "),
+    );
+    if missing.len() == total {
+        s.push_str(&format!(
+            " No well has it, which usually means '{set}' is an IMPORT set (a delivery named in the \
+             LAS wizard) rather than a LOG set (a version of an interpretation - RAW, EDIT, FINAL - \
+             written by a module run). Import sets are resolved automatically by mnemonic and do not \
+             need choosing here, so the rows above are the ones you wanted either way."
+        ));
+    }
+    s
+}
+
+/// How many bins the mode is read off.
+///
+/// A mode on continuous data has no meaning without a binning, and the two sides of a split must
+/// share ONE binning or their modes are not comparable — so both are histogrammed over their
+/// COMBINED range at this resolution. 64 is a display resolution rather than a fitted number: fine
+/// enough to separate a sand mode from a shale mode in a GR distribution, coarse enough that a few
+/// hundred samples still fill a bin.
+const BALANCE_MODE_BINS: usize = 64;
+
+/// One side of the split, described as a whole distribution rather than a centre and a width.
+///
+/// `lo`/`hi` are the COMBINED range of both sides, passed in so the mode is read off the same
+/// binning on each — a mode from two different binnings is not a comparison.
+fn balance_shape(values: &[f32], lo: f32, hi: f32) -> serde_json::Value {
+    let n = values.len();
+    if n == 0 {
+        return serde_json::json!({ "n": 0 });
+    }
+    let mean = values.iter().map(|&v| v as f64).sum::<f64>() / n as f64;
+    let m2 = values.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / n as f64;
+    let m3 = values.iter().map(|&v| (v as f64 - mean).powi(3)).sum::<f64>() / n as f64;
+    let sd = m2.sqrt();
+    // Fisher-Pearson g1, the population form - the same one `scipy.stats.skew` returns by default,
+    // so a user checking this against scipy gets the same number. Zero rather than NaN on a
+    // constant curve: a curve with no spread has no asymmetry, which is a fact, not a gap.
+    let skew = if m2 > 0.0 { m3 / m2.powf(1.5) } else { 0.0 };
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mode = if hi > lo {
+        let counts = crate::distribution::histogram(values, lo, hi, BALANCE_MODE_BINS);
+        let top = counts.iter().enumerate().max_by_key(|(_, &c)| c).map(|(i, _)| i).unwrap_or(0);
+        lo as f64 + (top as f64 + 0.5) * (hi - lo) as f64 / BALANCE_MODE_BINS as f64
+    } else {
+        lo as f64
+    };
+    serde_json::json!({
+        "n": n,
+        "mean": mean,
+        "sd": sd,
+        "p10": crate::distribution::percentile(&sorted, 10.0) as f64,
+        "p50": crate::distribution::percentile(&sorted, 50.0) as f64,
+        "p90": crate::distribution::percentile(&sorted, 90.0) as f64,
+        "mode": mode,
+        "skew": skew,
+    })
+}
+
+/// The evidence for "the blind wells look like the wells that were fitted", as a whole SHAPE.
+///
+/// Mean and standard deviation cannot answer it between them. Two sets can share both and still be
+/// a unimodal clean sand on one side and a bimodal sand-shale pair on the other, or differ entirely
+/// in which tail is long. A draw that matches in the centre and diverges at P10, at its mode or in
+/// its skew produces a blind score that is a statement about a different rock population — and
+/// nothing downstream can tell, because the score is one number.
+///
+/// This is why it is worth the columns: a whole-well hold-out on a handful of wells is a lottery
+/// (measured on a real five-well set, the ten possible 2-well draws spanned 0.64 R²), and the
+/// balance table is the only place the user can see which ticket they drew.
+///
+/// **Reported, never judged.** There is no threshold here on purpose — the `facies_tie` rule. What
+/// counts as too different depends on how much the field actually varies, which is the
+/// interpreter's knowledge and not SandiBumi's. What ships is both sides' shape and the centre
+/// shift expressed in FIT standard deviations, which is the one form comparable across curves that
+/// are in different units.
+///
+/// Computed HERE rather than in the runner, on `distribution.rs`, because that module is already
+/// the shared statistics core and a third implementation in Python is exactly the drift this repo
+/// keeps warning about. Doing it in Rust is also what lets the feature curves be NAMED: the runner
+/// only receives names when a model is being saved, so the old table read `x0`, `x1`, `x2`.
+fn balance_table(
+    names: &[String],
+    d: usize,
+    x_train: &[f32],
+    y_train: Option<&[f32]>,
+    blind_mask: &[f32],
+) -> Vec<serde_json::Value> {
+    let n = blind_mask.len();
+    if n == 0 || d == 0 || x_train.len() < n * d {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(d + 1);
+    let mut push = |label: String, pick: &dyn Fn(usize) -> f32| {
+        let mut fit: Vec<f32> = Vec::new();
+        let mut blind: Vec<f32> = Vec::new();
+        for i in 0..n {
+            let v = pick(i);
+            if !v.is_finite() {
+                continue;
+            }
+            if blind_mask[i] > 0.5 { blind.push(v) } else { fit.push(v) }
+        }
+        if fit.is_empty() || blind.is_empty() {
+            return;
+        }
+        let lo = fit.iter().chain(blind.iter()).copied().fold(f32::INFINITY, f32::min);
+        let hi = fit.iter().chain(blind.iter()).copied().fold(f32::NEG_INFINITY, f32::max);
+        let f = balance_shape(&fit, lo, hi);
+        let b = balance_shape(&blind, lo, hi);
+        let (fm, bm) = (f["mean"].as_f64().unwrap_or(0.0), b["mean"].as_f64().unwrap_or(0.0));
+        let fsd = f["sd"].as_f64().unwrap_or(0.0);
+        out.push(serde_json::json!({
+            "name": label,
+            // The four keys the table has always carried, kept flat and unchanged so an older
+            // reader of this metric still finds what it looks for.
+            "fit_mean": fm, "blind_mean": bm,
+            "fit_sd": fsd, "blind_sd": b["sd"],
+            "fit": f, "blind": b,
+            // The centre shift in FIT standard deviations. Unitless on purpose: it is the only
+            // form in which a shift in GR and a shift in TVDSS can be read off one column.
+            "mean_shift_sd": if fsd > 0.0 { (bm - fm) / fsd } else { 0.0 },
+        }));
+    };
+    for (j, name) in (0..d).map(|j| (j, names.get(j).cloned().unwrap_or_else(|| format!("x{j}")))) {
+        push(name, &|i| x_train[i * d + j]);
+    }
+    if let Some(y) = y_train.filter(|y| y.len() >= n) {
+        push("(target)".to_string(), &|i| y[i]);
+    }
+    out
+}
+
 /// As `exec_ml`, but when `save_features` is `Some(names)` the fitted scaler + estimator come
 /// back as a joblib blob (with the scikit-learn version that wrote it, so a later load failure
 /// can name the mismatch instead of being a mystery).
@@ -4863,6 +5045,10 @@ pub(crate) fn exec_ml_full(
     y_train: Option<&[f32]>,
     x_apply: &[f32],
     n_apply: usize,
+    // The feature curves in resolved order. Distinct from `save_features`, which is `Some` only
+    // when a model is being kept — the runner is told the names only in that case, which is why
+    // the balance table used to read `x0`, `x1`, `x2`. This one is always known.
+    feature_names: &[String],
     save_features: Option<&[String]>,
     // `groups` is one well index per training row. Without it the runner has no way to hold out a
     // WELL, and every validation number it reports is a random-sample fold — see `cv_score`.
@@ -4957,8 +5143,18 @@ pub(crate) fn exec_ml_full(
         bytemuck::cast_slice_mut::<f32, u8>(&mut vals).copy_from_slice(&body[i * n_apply * 4..(i + 1) * n_apply * 4]);
         outs.push((s.clone(), vals));
     }
+    // The balance table is built HERE rather than in the runner, so it reaches every caller of this
+    // function — the ordinary path and the per-segment coverage path — from one place, and so it
+    // can name the curves the runner is not told about unless a model is being saved.
+    let mut metrics = hdr.metrics;
+    let balance = balance_table(feature_names, d, x_train, y_train, blind_mask);
+    if !balance.is_empty() {
+        if let Some(obj) = metrics.as_object_mut() {
+            obj.insert("split_balance".into(), serde_json::Value::Array(balance));
+        }
+    }
     Ok(MlRun {
-        metrics: hdr.metrics,
+        metrics,
         outs,
         model_blob: body[expect..].to_vec(),
         sklearn: hdr.sklearn,
@@ -5004,6 +5200,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GroupKFold, KFold
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import r2_score, accuracy_score, f1_score, confusion_matrix
+# A candidate whose optimiser GAVE UP is not a candidate that merely lost, and the leaderboard
+# cannot tell them apart from the score. Counted per row and per fold, because "it failed in one
+# well of five" and "it never converged anywhere" are different findings about the same model.
+import warnings as _warnings
+try:
+    from sklearn.exceptions import ConvergenceWarning
+except ImportError:
+    ConvergenceWarning = None
 
 # Nothing is standardized here. A transform fitted before the split has seen the held-out well,
 # so every score reported as blind is optimistic by construction (SB-MLA-028). The scalers are
@@ -5071,6 +5275,8 @@ for combo in combos:
     oof = np.full(n, np.nan)
     fold_scores = []
     fold_imps = []
+    n_unconverged = 0
+    conv_detail = ""
     err = None
     try:
         for k in range(len(SP)):
@@ -5078,7 +5284,14 @@ for combo in combos:
             if m is None:
                 err = "unknown algorithm '" + str(algo) + "'"; break
             tr, te, Xtr, Xte = fold_xy(k, fidx)
-            m.fit(Xtr, yt[tr])
+            with _warnings.catch_warnings(record=True) as caught:
+                _warnings.simplefilter("always")
+                m.fit(Xtr, yt[tr])
+            for w in caught:
+                if ConvergenceWarning is not None and issubclass(w.category, ConvergenceWarning):
+                    n_unconverged += 1
+                    conv_detail = " ".join(str(w.message).split())[:400]
+                    break
             pred = m.predict(Xte)
             oof[te] = pred
             fold_scores.append(accuracy_score(yt[te], pred.astype(int)) if clf else r2_score(y[te], pred))
@@ -5097,15 +5310,31 @@ for combo in combos:
     if err is not None:
         rows.append({"algorithm": algo, "feat_idx": fidx, "error": err})
         continue
+    # TWO scores, because they are two different questions, and this row used to print one's
+    # centre with the other's spread.
+    #
+    # `score` is the MEAN of the per-fold scores, each computed against its own held-out well -
+    # the same estimator `run_ml` reports as `r2_cv`, so a model does not change value between
+    # the table it was picked FROM and the run it was picked FOR. It is what `score_std` is the
+    # spread of, so the "+/-" now qualifies the number in front of it.
+    #
+    # `<metric>_pooled_oof` is one score over every out-of-fold prediction at once, against the
+    # GLOBAL mean. For R2 that is systematically HIGHER whenever the wells differ in level,
+    # because between-well contrast sits in its denominator as variance the model is credited
+    # with explaining - measured at +0.11 R2 on a five-well set whose per-well mean was 0.22.
+    # Neither is wrong: pooled answers "how good is the field-wide curve", the mean of folds
+    # answers "what will the NEXT well score". Both ship, each under its own name.
     metrics = {}
     if clf:
         oofi = oof.astype(int)
-        score = float(accuracy_score(yt, oofi))
+        score = float(np.mean(fold_scores)) if fold_scores else float("nan")
+        pooled = float(accuracy_score(yt, oofi))
         metrics["macro_f1"] = float(f1_score(yt, oofi, average="macro", zero_division=0))
         conf = confusion_matrix(yt, oofi, labels=labels).tolist()
         labs = labels
     else:
-        score = float(r2_score(y, oof))
+        score = float(np.mean(fold_scores)) if fold_scores else float("nan")
+        pooled = float(r2_score(y, oof))
         metrics["rmse"] = float(np.sqrt(np.mean((y - oof) ** 2)))
         conf = None; labs = None
     imp = [float("nan")] * len(fidx)
@@ -5118,7 +5347,10 @@ for combo in combos:
         # from 0.30 +/- 0.02, and only the second one names a predictor.
         imp_std = [float(v) for v in M.std(axis=0)] if M.shape[0] > 1 else [0.0] * len(fidx)
     rows.append({"algorithm": algo, "feat_idx": fidx, "score": score,
-                 "score_std": float(np.std(fold_scores)), "metrics": metrics,
+                 "score_std": float(np.std(fold_scores)), "score_pooled": pooled,
+                 "n_score_folds": int(len(fold_scores)),
+                 "n_unconverged": int(n_unconverged), "converge_note": conv_detail,
+                 "metrics": metrics,
                  "importances": imp, "importances_std": imp_std,
                  "n_imp_folds": int(len(fold_imps)), "confusion": conf, "labels": labs,
                  "blind_pred": _finite(oof[XP])})
@@ -5185,8 +5417,41 @@ pub struct MlEvalRequest {
 pub struct MlEvalRow {
     pub algorithm: String,
     pub features: Vec<String>,
+    /// The MEAN of the per-fold scores — each fold scored against its own held-out well.
+    ///
+    /// This is the same estimator [`run_ml`] reports as `r2_cv`, deliberately: a model must not
+    /// change value between the table it was chosen FROM and the run it was chosen FOR. It is also
+    /// the number [`Self::score_std`] is the spread of, which was the defect — the row used to
+    /// print the POOLED score's centre with this one's spread, so "0.327 ± 0.094" described a
+    /// typical well that actually scored 0.216.
     pub score: Option<f64>,
+    /// Spread of the per-fold scores. Qualifies [`Self::score`] and nothing else.
     pub score_std: Option<f64>,
+    /// One score over every out-of-fold prediction at once, against the GLOBAL mean.
+    ///
+    /// Kept because it answers a real question — "how good is the field-wide curve?" — but it is
+    /// not the one a leaderboard is read for. For R² it runs systematically HIGHER than the mean of
+    /// folds whenever the wells differ in level, because between-well contrast sits in its
+    /// denominator as variance the model gets credit for explaining. Measured at +0.11 R² on a
+    /// five-well set. Ranking is by [`Self::score`], so the order answers "what will the next well
+    /// score" rather than flattering models that merely spread the field's own contrast.
+    #[serde(default)]
+    pub score_pooled: Option<f64>,
+    /// How many folds [`Self::score`] and [`Self::score_std`] are computed over. Below the run's
+    /// `n_splits`, some fold produced no score, and the mean is over fewer wells than it appears.
+    #[serde(default)]
+    pub n_score_folds: usize,
+    /// Folds in which the optimiser hit its iteration limit instead of converging.
+    ///
+    /// A candidate that GAVE UP is not a candidate that merely lost, and the score cannot tell them
+    /// apart — an MLP that never converged returned −50 R² on real data and sat in the table looking
+    /// like a model that had simply done badly. Counted per fold rather than as a flag, because
+    /// "it failed in one well of five" and "it never converged anywhere" are different findings.
+    #[serde(default)]
+    pub n_unconverged: usize,
+    /// scikit-learn's own words for the last such warning, so the fix it suggests is not lost.
+    #[serde(default)]
+    pub converge_note: String,
     pub metrics: serde_json::Value,
     /// Permutation importance, measured on each fold's HELD-OUT rows by the model that fold fitted,
     /// then averaged. It answers the same question `score` does — what carried to a well the model
@@ -5218,6 +5483,11 @@ pub struct MlEvalResult {
     pub n_groups: usize,
     pub cv: String,
     pub n_splits: usize,
+    /// What [`MlEvalRow::score`] and [`MlEvalRow::score_pooled`] each are, in one sentence, carried
+    /// ONCE because it is the same for every row. Shipped from here rather than written into the
+    /// renderer so the table cannot describe the numbers differently from the code that made them.
+    #[serde(default)]
+    pub score_protocol: String,
     pub note: Option<String>,
     /// Echo of the request's `params_for`: which row was scored with the user's own settings. The
     /// requirement is that the leaderboard says so rather than presenting a mixed table cleanly —
@@ -5248,6 +5518,7 @@ fn eval_fail(msg: &str) -> MlEvalResult {
         n_groups: 0,
         cv: String::new(),
         n_splits: 0,
+        score_protocol: String::new(),
         note: None,
         params_for: None,
         blind_actual: vec![],
@@ -5261,6 +5532,16 @@ fn eval_fail(msg: &str) -> MlEvalResult {
 /// Cap on total (algorithm x subset) combos evaluated in one leaderboard run — a full-subset
 /// sweep over many curves would otherwise fit thousands of models. Excess is dropped with a note.
 const MAX_COMBOS: usize = 80;
+
+/// The one place the two leaderboard scores are described, shipped to the renderer so the table
+/// cannot word them differently from the code that computes them.
+pub(crate) const SCORE_PROTOCOL: &str =
+    "Score is the MEAN of the per-well fold scores, and \u{00b1} is their spread - together they \
+     answer 'what will the NEXT well score', and ranking is by that. Pooled is one score over \
+     every out-of-fold row at once: it answers 'how good is the field-wide curve' and reads \
+     HIGHER whenever the wells differ in level, because the contrast between wells counts as \
+     variance the model is credited with explaining. Quoting one with the other's spread is how \
+     a model gets cited as half again as good as it is.";
 
 pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult {
     if !matches!(req.task.as_str(), "regression" | "classification") {
@@ -5439,6 +5720,10 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                     features: r.feat_idx.iter().filter_map(|&i| features.get(i).cloned()).collect(),
                     score: r.score,
                     score_std: r.score_std,
+                    score_pooled: r.score_pooled,
+                    n_score_folds: r.n_score_folds,
+                    n_unconverged: r.n_unconverged,
+                    converge_note: r.converge_note,
                     metrics: r.metrics,
                     importances: r.importances,
                     importances_std: r.importances_std,
@@ -5469,6 +5754,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                 n_groups: py.n_groups,
                 cv: py.cv,
                 n_splits: py.n_splits,
+                score_protocol: SCORE_PROTOCOL.to_string(),
                 note,
                 params_for: req.params_for.clone(),
                 blind_actual: py.blind_actual,
@@ -5489,6 +5775,14 @@ struct PyEvalRow {
     score: Option<f64>,
     #[serde(default)]
     score_std: Option<f64>,
+    #[serde(default)]
+    score_pooled: Option<f64>,
+    #[serde(default)]
+    n_score_folds: usize,
+    #[serde(default)]
+    n_unconverged: usize,
+    #[serde(default)]
+    converge_note: String,
     #[serde(default)]
     metrics: serde_json::Value,
     #[serde(default)]
@@ -8881,6 +9175,242 @@ mod tests {
         let ev = metrics["explained_variance_pct"].as_array().unwrap();
         let total: f64 = ev.iter().map(|v| v.as_f64().unwrap()).sum();
         assert!(total > 99.0, "explained variance = {total}%");
+    }
+
+    /// "Set" names two different stores, and choosing the wrong one is silent: the run reads the
+    /// right rows anyway (import sets resolve by mnemonic) and reports a note the user has no reason
+    /// to connect to the box they filled in. Seen on real data — every well reported as lacking a
+    /// log set that was in fact the name of the LAS delivery.
+    ///
+    /// Pinned from both sides: unanimous absence earns the explanation, and a PATCHY one must not,
+    /// because a genuinely missing interpretation version is patchy across a field and telling that
+    /// user they picked the wrong kind of set would be wrong.
+    #[test]
+    fn a_log_set_no_well_has_is_explained_as_the_other_kind_of_set_and_a_patchy_one_is_not() {
+        let all_missing = ml_set_note("FPROOH", &["W1", "W2", "W3"], 3);
+        assert!(
+            all_missing.contains("IMPORT set") && all_missing.contains("LAS wizard"),
+            "a set no well has should name the other store: {all_missing}",
+        );
+        let patchy = ml_set_note("FINAL", &["W2"], 3);
+        assert!(
+            !patchy.contains("IMPORT set"),
+            "a version genuinely missing from ONE well of three is not a wrong-store guess: {patchy}",
+        );
+        assert!(
+            patchy.contains("FINAL") && patchy.contains("W2"),
+            "it still has to say which set and which well: {patchy}",
+        );
+    }
+
+    /// An optimiser that gave up looks exactly like a model that merely did badly — on real data an
+    /// MLP that hit `max_iter` returned −50 R² and sat in the leaderboard as an ordinary losing
+    /// candidate. scikit-learn says so through `ConvergenceWarning`, and the runner used to discard
+    /// it: warnings go to stderr, and only the LAST stderr line is read, as the error.
+    ///
+    /// Pinned from both sides. A run capped at one iteration must SAY it did not converge; the same
+    /// algorithm given room to finish must stay silent — without that half, a runner that reported
+    /// "did not converge" unconditionally would pass, and the flag would mean nothing.
+    #[test]
+    fn a_fit_that_ran_out_of_iterations_says_so_instead_of_reporting_a_bad_score() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // Deliberately the EASIEST target an MLP has: linear, and small enough in range that the
+        // loss reaches the solver's own tolerance rather than merely trending toward it. A harder
+        // fixture makes the second half of this test measure the fixture instead of the flag.
+        let n = 240usize;
+        let x: Vec<f32> = (0..n).map(|i| i as f32 * 0.05).collect();
+        let y: Vec<f32> = x.iter().map(|v| 0.05 * v).collect();
+
+        let run = |iters: i64| {
+            let (metrics, _outs) = exec_ml(
+                &py,
+                "regression",
+                "ann",
+                &params(&[("max_iter", serde_json::json!(iters)), ("hidden", serde_json::json!("32,16"))]),
+                1,
+                &x,
+                Some(&y),
+                &x,
+                n,
+            )
+            .expect("ann run failed");
+            metrics
+        };
+
+        let starved = run(1);
+        let note = starved.get("not_converged").and_then(|v| v.as_str());
+        assert!(
+            note.is_some_and(|s| !s.trim().is_empty()),
+            "a fit stopped at one iteration must report that it did not converge, not only a poor \
+             score: {starved}",
+        );
+
+        let finished = run(20000);
+        assert!(
+            finished.get("not_converged").is_none(),
+            "a fit given room to finish must stay silent, or the flag says nothing: {finished}",
+        );
+    }
+
+    /// Two sides of a split can agree exactly on mean and standard deviation and still be different
+    /// rock. The balance table reported only those two, so a draw like this one passed as
+    /// representative while its tails, its mode and its asymmetry all disagreed — and the blind
+    /// score computed on it is then a statement about a population the model was never fitted to.
+    ///
+    /// The fixture is built so the old table CANNOT flag it: the blind side is standardised onto the
+    /// fit side's own mean and standard deviation, so `mean_shift_sd` is ~0 by construction and the
+    /// only evidence left is the shape.
+    ///
+    /// Pinned from both sides. The divergent half alone would pass on an implementation that
+    /// returned noise for every shape field, so the second half feeds the two sides the SAME
+    /// distribution and requires the shape fields to agree.
+    #[test]
+    fn a_balance_table_names_a_draw_that_matches_in_the_centre_and_diverges_in_the_tail() {
+        let half = 200usize;
+        // Fit: a symmetric triangular distribution (the sum of two uniforms), so it has a genuine
+        // central mode and zero skew.
+        let fit: Vec<f32> = (0..half)
+            .map(|i| ((i % 20) as f32 / 19.0 - 0.5) + ((i / 20) as f32 / 9.0 - 0.5))
+            .collect();
+        let fmean = fit.iter().sum::<f32>() / half as f32;
+        let fsd = (fit.iter().map(|v| (v - fmean).powi(2)).sum::<f32>() / half as f32).sqrt();
+        // Blind: strongly right-skewed, then standardised ONTO the fit side's mean and sd.
+        let raw: Vec<f32> = (0..half).map(|j| (j as f32 / (half - 1) as f32).powi(5)).collect();
+        let rmean = raw.iter().sum::<f32>() / half as f32;
+        let rsd = (raw.iter().map(|v| (v - rmean).powi(2)).sum::<f32>() / half as f32).sqrt();
+        let blind: Vec<f32> = raw.iter().map(|v| (v - rmean) / rsd * fsd + fmean).collect();
+
+        let build = |a: &[f32], b: &[f32]| {
+            let vals: Vec<f32> = a.iter().chain(b.iter()).copied().collect();
+            let mask: Vec<f32> = (0..vals.len()).map(|i| if i < a.len() { 0.0 } else { 1.0 }).collect();
+            let table =
+                balance_table(&["GR".to_string()], 1, &vals, Some(&vals), &mask);
+            assert_eq!(table.len(), 2, "one row per feature plus the target");
+            table
+        };
+
+        let table = build(&fit, &blind);
+        let row = &table[0];
+        assert_eq!(row["name"], "GR", "the curve is NAMED, not called x0");
+        assert_eq!(table[1]["name"], "(target)", "the target is compared, not only the inputs");
+
+        // The two statistics the table used to carry agree — this draw looks clean.
+        let (fm, bm) = (row["fit_mean"].as_f64().unwrap(), row["blind_mean"].as_f64().unwrap());
+        let (fs, bs) = (row["fit_sd"].as_f64().unwrap(), row["blind_sd"].as_f64().unwrap());
+        assert!((fm - bm).abs() < 1e-4, "fixture: means must match ({fm} vs {bm})");
+        assert!((fs - bs).abs() < 1e-4, "fixture: sds must match ({fs} vs {bs})");
+        assert!(
+            row["mean_shift_sd"].as_f64().unwrap().abs() < 1e-3,
+            "the old table would have called this representative",
+        );
+
+        // ...and the shape says otherwise, in three independent ways.
+        let g = |side: &str, k: &str| row[side][k].as_f64().unwrap();
+        assert!(
+            g("blind", "skew") - g("fit", "skew") > 1.0,
+            "skew must separate them: fit {:.3}, blind {:.3}",
+            g("fit", "skew"),
+            g("blind", "skew"),
+        );
+        assert!(
+            (g("fit", "p90") - g("blind", "p90")).abs() > 0.3 * fs,
+            "P90 must separate them: fit {:.4}, blind {:.4}",
+            g("fit", "p90"),
+            g("blind", "p90"),
+        );
+        assert!(
+            g("blind", "mode") < g("fit", "mode"),
+            "a right-skewed side has its mode BELOW a symmetric one of the same mean: fit {:.4}, blind {:.4}",
+            g("fit", "mode"),
+            g("blind", "mode"),
+        );
+        for side in ["fit", "blind"] {
+            assert_eq!(row[side]["n"].as_u64(), Some(half as u64));
+            for k in ["mean", "sd", "p10", "p50", "p90", "mode", "skew"] {
+                assert!(row[side][k].as_f64().is_some_and(f64::is_finite), "{side}.{k} is not a number");
+            }
+        }
+
+        // The other side of the pin: the same distribution on both sides must AGREE on every shape
+        // field. Without this, an implementation returning noise would satisfy everything above.
+        let same = build(&fit, &fit);
+        let s = &same[0];
+        for k in ["mean", "sd", "p10", "p50", "p90", "mode", "skew"] {
+            let (a, b) = (s["fit"][k].as_f64().unwrap(), s["blind"][k].as_f64().unwrap());
+            assert!((a - b).abs() < 1e-6, "identical sides must agree on {k}: {a} vs {b}");
+        }
+    }
+
+    /// The leaderboard used to print the POOLED out-of-fold score with the PER-FOLD spread beside
+    /// it, so "0.327 ± 0.094" described a typical well that actually scored 0.216 — found on a real
+    /// five-well delivery and reproduced exactly in sklearn.
+    ///
+    /// Pinned on a fixture built to make the two diverge on purpose: three wells whose x (and so
+    /// whose y) are offset far apart, with a within-well wiggle that x cannot predict. Globally the
+    /// offsets are most of the variance and the model captures them, so pooled R² is near 1. Within
+    /// any one held-out well the offset is a constant and only the wiggle is left, so the fold score
+    /// is poor. That is the same geometry as a real field — wells differ in level — which is why the
+    /// gap is not an artefact of the fixture.
+    ///
+    /// Pinned from BOTH sides: the low assertion alone would pass on a score that had become NaN,
+    /// zero or None, and the high assertion alone would pass on the old conflated number.
+    #[test]
+    fn a_leaderboard_ranks_on_the_per_well_mean_and_keeps_the_pooled_score_under_its_own_name() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        let mut g = Vec::new();
+        for well in 0..3 {
+            for i in 0..40 {
+                // Wells sit 10 apart; x moves only 0..1 inside a well.
+                let xv = 10.0 * well as f32 + i as f32 * 0.025;
+                // Amplitude 1 against a within-well x range of 1: inside a well the wiggle
+                // dominates and is uncorrelated with x, so there is nothing for a fold to score.
+                let wiggle = if i % 2 == 0 { 1.0 } else { -1.0 };
+                x.push(xv);
+                y.push(xv + wiggle);
+                g.push(well as f32);
+            }
+        }
+        let combos = vec![("linear".to_string(), vec![0usize])];
+        let out = exec_ml_eval(
+            &py, "regression", 1, y.len(), &x, &y, &g, &combos, false, 42, 3, &Default::default(), None,
+        )
+        .expect("eval run failed");
+        let row = out.rows.first().expect("one row");
+        assert!(row.error.is_none(), "row errored: {:?}", row.error);
+
+        let mean_of_folds = row.score.expect("a per-fold mean");
+        let pooled = row.score_pooled.expect("a pooled score under its own name");
+        assert_eq!(row.n_score_folds, 3, "the mean is over one score per well");
+
+        // The headline is the per-well mean, and on this fixture that is POOR — which is the
+        // honest answer to "what will the next well score".
+        assert!(
+            mean_of_folds < 0.5,
+            "score must be the mean of the per-well folds, which is poor here; got {mean_of_folds}"
+        );
+        // ...and it is a real number, not a hole. Without this the assertion above passes on NaN.
+        assert!(
+            mean_of_folds.is_finite() && mean_of_folds > -5.0,
+            "score is not a number: {mean_of_folds}"
+        );
+        // The pooled figure still ships, still flatters, and is now named as itself.
+        assert!(pooled > 0.9, "pooled out-of-fold R2 should be high here; got {pooled}");
+        assert!(
+            pooled - mean_of_folds > 0.4,
+            "the two estimators must stay distinct - pooled {pooled}, mean of folds {mean_of_folds}"
+        );
+        // The spread describes the number in front of it. It is the spread of the fold scores, so
+        // it cannot be larger than the gap it used to be printed across.
+        let sd = row.score_std.expect("a spread");
+        assert!(sd.is_finite(), "spread is not a number: {sd}");
     }
 
     #[test]

@@ -9592,3 +9592,143 @@ and that is now what the **K** field does.
 What is deliberately NOT here: no vendor algorithm, table or wording. A shipped default is one
 documented fact about a product, cited to the page documenting it. If an entry needed a lookup table
 to make sense, it would be the wrong entry.
+
+## The leaderboard's score and its plus-or-minus are now the same number (2026-08-07)
+
+Found by running the ML pane against a real five-well delivery — predicting bulk density from GR,
+TVDSS and deep resistivity — and then reproducing the result in scikit-learn outside SandiBumi to
+see whether the numbers held up. They did not, in a specific and correctable way.
+
+The leaderboard was computing its headline score as **one R² over every out-of-fold row at once**,
+and its `±` as **the spread of the per-well fold scores**. Two different statistics, printed as one
+figure. So a row reading `0.327 ± 0.094` was telling you that a typical well scores about 0.33 when
+a typical well actually scored **0.216**. The pooled number is higher because the wells sit at
+different density levels, and the contrast *between* wells lands in its denominator as variance the
+model gets credit for explaining — even though no well's own detail was predicted any better. On
+five wells the flattery was 0.11 R². It grows with how different your wells are, which is to say it
+grows exactly where a field study needs the number most.
+
+Two things it broke that were not obvious. The **tie rule** — which greys out a winner the fold
+spread cannot separate — was comparing a pooled centre against fold spreads, so it was measuring a
+gap in one currency against a ruler in another. And the leaderboard disagreed with the **training
+run**: the run reports `r2_cv` as the mean of its folds, so a model you picked at 0.33 would report
+about 0.22 the moment you actually ran it, and nothing said why.
+
+Both scores still ship. Neither is wrong — they answer different questions — so the table now has
+two labelled columns and says which is which.
+
+- [ ] **Run a Compare (leaderboard) over 3+ wells.** The score column is now headed **R² (per well)**
+      with a separate **R² (pooled)** column beside it. Read the sentence under the table: it should
+      say the first answers *what will the next well score* and the second *how good is the
+      field-wide curve*.
+- [ ] **Check the pooled column is the higher of the two** on wells that differ in character. If
+      they are nearly equal your wells are alike, which is itself worth knowing.
+- [ ] **Note that ranking follows the per-well column**, not pooled. A model that merely spreads the
+      field's own contrast should no longer float to the top.
+- [ ] **Now the cross-check that matters.** Pick the top model, run it for real with a blind split,
+      and compare the run's `r2_cv` against the leaderboard's per-well score. **They should be close.**
+      Before this they differed by about 0.11 with no explanation offered.
+- [ ] **Look at the score chart's whiskers.** They are drawn as score ± spread, so they were
+      previously centred on a number the spread did not describe. They should now sit around the
+      per-well score.
+- [ ] **If two rows are greyed as tied**, that judgement is now made in one currency. Worth a second
+      look at any run where the tie call previously seemed off.
+
+Verified by breaking it: with the old conflated line restored, the new test reports **0.985** where
+the honest per-well answer on the same fixture is poor.
+
+## The blind draw is judged on its whole shape, not on its mean (2026-08-07)
+
+Jauhar, on reading the blind-vs-train gap: *"the lottery blind not only cover same single
+statistic, but should cover all, such p10 and p90, std, mean, modus, and skewness"*. He is right,
+and the old table could not have caught it.
+
+"How alike the two sides are" compared **mean and standard deviation only**. Two sets can agree
+exactly on both and still be completely different rock — a unimodal clean sand against a bimodal
+sand-shale pair, or two sets differing entirely in which tail is long. When that happens the blind
+score is a statement about a population the model was never fitted to, and nothing downstream can
+tell, because the score is one number.
+
+It matters most where it is easiest to miss. A whole-well hold-out on a handful of wells is a
+lottery: on a real five-well set, the ten possible two-well draws spanned **0.64 R²**, from +0.32 to
+−0.32, with the same model and the same data. This table is the only place you can see which ticket
+you drew.
+
+So it now reports **n, mean, sd, P10, P50, P90, mode and skew** for both sides, two rows per curve —
+fitted above, blind below — and flags a curve on **any** of them, not on the mean alone.
+
+Three things worth knowing about how it is computed. The percentiles come from `distribution.rs`,
+the same shared statistics core every other percentile in SandiBumi uses, so they agree with the
+histogram panel and the Field Dashboard by construction rather than by a third implementation being
+kept in step by hand. The **mode** has no meaning on continuous data without a binning, so both
+sides are histogrammed over their **combined** range at one resolution — a mode read off two
+different binnings would not be a comparison. **Skew** is Fisher-Pearson g1, the same number
+`scipy.stats.skew` returns, so it can be checked.
+
+It also fixes something small that had been there all along: the curves are **named** now. The
+runner is only told the feature names when it is saving a model, so the table used to read
+`x0`, `x1`, `x2`.
+
+- [ ] **Run a model with a blind split** and open the split box. The balance table should have eight
+      statistics and two rows per curve, and the curves should be named — GR, RHOB, TVDSS — not x0.
+- [ ] **Check a curve you know is skewed** (deep resistivity is the usual one). Its fitted and blind
+      skew are unlikely to match, and that is the finding.
+- [ ] **Read the sentence under the table.** It should name the worst disagreement and say **which
+      statistic on which curve** produced it — not just "the two sides differ".
+- [ ] **The important case:** a curve flagged in red whose *means* look almost identical. That is
+      exactly what the old table passed as representative, and the reason for the change.
+- [ ] **Re-run with a different split seed** and watch the table change. If it changes a lot, your
+      blind score is a lottery ticket and should be quoted with that in mind — prefer the
+      leaderboard's leave-one-well-out, which uses every well as the test set once.
+- [ ] **Narrow the pane.** The balance table scrolls sideways in its own box below about 620px; the
+      pane must not stretch and the window must never scroll sideways.
+
+Known and NOT fixed here: the three-score table above it (train / CV / blind) still overflows a pane
+narrower than about 440px. Pre-existing, unrelated to this change, and worth a separate look.
+
+## A model that gave up no longer looks like a model that lost (2026-08-07)
+
+Three things found by running the ML pane against real wells, now fixed.
+
+### The optimiser giving up was invisible
+
+On the real five-well run the neural net returned **R² of −50.9** and sat in the leaderboard looking
+like a candidate that had simply done badly. It had not done badly — it had never finished
+training. `MLPRegressor` stops at `max_iter` whether or not it has converged, and scikit-learn says
+so loudly through a `ConvergenceWarning`. SandiBumi was throwing that away: warnings go to stderr,
+and the runner reads only the last stderr line, as the error.
+
+A half-trained model and a poor model are indistinguishable from the score, and they call for
+opposite responses — one needs more iterations, the other needs different inputs.
+
+- [ ] **Run ML Models with the neural net (ANN) and a low max_iter** — 50 will do it. The run should
+      now tell you it did not converge, quote scikit-learn's own wording, and suggest raising
+      max_iter or standardising the inputs.
+- [ ] **Raise max_iter until the message stops.** That is the point at which the score starts
+      describing the model your settings actually asked for.
+- [ ] **Run a Compare with ANN among the candidates.** Its row should be greyed with an inline
+      **⚠ did not converge**, and hovering it should say in how many folds. It keeps its place in
+      the table — the fit did produce something — but it must not read as an ordinary poor result.
+- [ ] **Check the other rows are untouched.** Only a model that actually hit its limit is marked.
+
+### "Set" means two different things, and picking the wrong one was silent
+
+Choosing **FPROOH** as the input set produced *"5 of 5 training wells have no log set named
+'FPROOH'"* — correct, and useless: import sets and log sets are different stores. A **log set** is a
+version of an interpretation (RAW / EDIT / FINAL, written by a module run). An **import set** is a
+delivery of measured curves, named in the LAS wizard. The run read exactly the right rows anyway,
+because import sets resolve by mnemonic — so the note looked like a problem and was not one.
+
+The message now explains that, **but only when no well matched at all**. A version genuinely missing
+from some wells is patchy across a field — some were re-run, some were not — and telling that user
+they picked the wrong *kind* of set would be a confident wrong answer.
+
+- [ ] **Pick an input set that is the name of a LAS delivery** rather than an interpretation version.
+      The note should explain the difference and say the rows you got are the ones you wanted.
+- [ ] **Now run a module on some wells but not others, then use that log set.** The note must
+      name the wells and must NOT claim you chose the wrong kind of set.
+
+### The curves in the balance table are named
+
+Covered in the section above; it was the same root cause — the runner is only told the feature
+names when it is saving a model.

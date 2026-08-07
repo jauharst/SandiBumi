@@ -1267,12 +1267,36 @@ export interface SplitReport {
 /** How alike the fit and blind sides are, per feature and on the target — the evidence for a
  *  stratified draw's "similar statistics" claim. Reported rather than asserted: a pair that does
  *  NOT match is the signal that the strata were too thin to divide representatively. */
+/** One side of a split, as a whole distribution rather than a centre and a width. */
+export interface BalanceShape {
+  n: number;
+  mean: number;
+  sd: number;
+  p10: number;
+  p50: number;
+  p90: number;
+  /** Midpoint of the tallest bin of a 64-bin histogram over BOTH sides' combined range — the two
+   *  sides share one binning, because modes read off different binnings are not a comparison. */
+  mode: number;
+  /** Fisher-Pearson g1, the population form — the same number `scipy.stats.skew` returns. */
+  skew: number;
+}
+
 export interface SplitBalance {
   name: string;
   fit_mean: number;
   blind_mean: number;
   fit_sd: number;
   blind_sd: number;
+  /** The whole shape of each side. Two sets can agree exactly on mean and sd and still be a
+   *  unimodal clean sand against a bimodal sand-shale pair, so the four flat fields above cannot
+   *  answer whether a draw was representative. Optional so a metrics blob written before this
+   *  existed still renders. */
+  fit?: BalanceShape;
+  blind?: BalanceShape;
+  /** Centre shift in FIT standard deviations — the one form comparable across curves in different
+   *  units. Signed: which way the blind side sits matters. */
+  mean_shift_sd?: number;
 }
 
 export interface MlWellResult {
@@ -1479,9 +1503,30 @@ export interface MlEvalRequest {
 export interface MlEvalRow {
   algorithm: string;
   features: string[];
-  /** Blind-well CV score: R² (regression) or accuracy (classification); null if it errored. */
+  /** The MEAN of the per-fold scores — R² (regression) or accuracy (classification), each fold
+   *  scored against its own held-out well. Null if the row errored.
+   *
+   *  This is the same estimator a training run reports as `r2_cv`, so a model does not change value
+   *  between the table it was chosen FROM and the run it was chosen FOR — and it is the number
+   *  `score_std` is the spread of. The table used to show `score_pooled` here with this one's
+   *  spread beside it, so a model reading "0.327 ± 0.094" scored 0.216 on a typical well. */
   score: number | null;
+  /** Spread of the per-fold scores. Qualifies `score` and nothing else. */
   score_std: number | null;
+  /** One score over every out-of-fold row at once, against the GLOBAL mean.
+   *
+   *  Answers "how good is the field-wide curve", which is a real question but not the one a
+   *  leaderboard is read for. Runs HIGHER than `score` whenever the wells differ in level, because
+   *  between-well contrast counts as variance the model is credited with explaining. */
+  score_pooled: number | null;
+  /** Folds `score` and `score_std` are computed over. Below `n_splits`, some fold produced no
+   *  score and the mean is over fewer wells than it looks. */
+  n_score_folds: number;
+  /** Folds where the optimiser hit its iteration limit instead of converging. A candidate that
+   *  gave up is not one that merely lost, and the score cannot tell them apart. */
+  n_unconverged: number;
+  /** scikit-learn's own words for the last such warning, so the fix it suggests is not lost. */
+  converge_note: string;
   metrics: Record<string, unknown>;
   /**
    * Permutation importance measured on each fold's HELD-OUT rows, then averaged — the same
@@ -1512,6 +1557,10 @@ export interface MlEvalResult {
   n_groups: number;
   cv: string;
   n_splits: number;
+  /** What the two score columns each are, in one sentence, carried once because it is the same for
+   *  every row. Shipped from `ml.rs` so the table cannot word them differently from the code that
+   *  computed them. */
+  score_protocol: string;
   note: string | null;
   /** Which row was scored with the settings on screen; every other row is at library defaults. */
   params_for: string | null;
