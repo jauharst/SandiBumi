@@ -9318,3 +9318,33 @@ waiting for you.
       and by roughly how much. Read a thin bed off it and see whether you agree.
 - [ ] **Export a chart.** Copy, Image, SVG and Print under the score chart and the crossplot. Open
       the SVG somewhere else — the colours must survive leaving the app.
+
+**Section order — Distribution now follows Results.** Propagating a model you have not looked at is
+the one move this pane should not make easy, so the section that spends that judgement comes after
+the one that supplies it. A successful run now jumps you to Results; a failed one deliberately does
+NOT, because the failure message lives on the Model tab.
+
+**Three from the ML PRD backlog.** A cancelled run's log sets now say they came from a cancelled run
+(a partial set is not corrupt and not empty — it looks exactly like a finished run over fewer wells).
+A sample DBSCAN rejects is now its own class rather than a gap, so a hole in a facies curve means one
+thing only: never evaluated. And a model a delivered curve still cites cannot be deleted without a
+word.
+
+- [ ] **Run a model, watch where you land.** A successful run should drop you on Results. Make one
+      fail (uncheck every input curve, or pick a target no well carries) — you should STAY on Model,
+      with the reason under the button.
+- [ ] **Model Distribution is now the last tab**, after Results.
+- [ ] **Start a run over many wells and press Cancel partway.** The wells that were cut say
+      "cancelled". Then open the log set on a well that DID get written — it should say it came from
+      a cancelled run and how many wells of how many were covered. Without that mark it would be
+      indistinguishable from a clean run over the wells you kept.
+- [ ] **Run DBSCAN clustering** with a tight eps so it rejects a good fraction. On the log view the
+      rejected samples should be a NEUTRAL GREY block, not one of the facies colours, and the
+      crossplot legend should say **Rejected** rather than F-1. Gaps in that curve should now mean
+      only "no input data here".
+- [ ] **Print that same DBSCAN curve to a composite/PDF.** The grey must survive to paper — this is
+      the one that would have quietly printed an outlier as real rock.
+- [ ] **Delete a saved model that produced a curve you still have.** It must refuse and NAME the
+      wells and curves. Say yes to the second question, then look at that curve's provenance — it
+      should say the model was DELETED, not just print its name. Delete a model nothing used: that
+      one should just go, with no second question.
