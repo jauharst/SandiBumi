@@ -7148,3 +7148,74 @@ input[type="number"].num-editing:focus {
   background: color-mix(in srgb, var(--warn) 16%, transparent);
   color: var(--warn);
 }
+
+/* --- ML blind-test split (SB-MLA-028 family) ------------------------------
+ * The split control and its report. The percentage a user types here decides whether the score
+ * the run prints means anything, so the control echoes what it will actually do to THIS many
+ * wells before the run, and the report names the wells afterwards. */
+.ml-split-ctl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ml-split-fields {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ml-split-fields input[type="number"] {
+  width: 68px;
+}
+.ml-split-echo {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+/* Too few wells on one side for the score to mean much. Not an error - the run is legitimate,
+ * and saying so is more use than refusing it. */
+.ml-split-thin {
+  color: var(--warn, #d96a52);
+}
+.ml-split-report {
+  border: 1px solid var(--border, #d9cbb0);
+  border-radius: var(--r-lg, 12px);
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.ml-split-head {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.ml-split-row {
+  display: flex;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  padding: 2px 0;
+}
+.ml-split-key {
+  min-width: 82px;
+  color: var(--text-dim, #6f6857);
+}
+.ml-split-blind .ml-split-key {
+  color: var(--accent-dim, #a3572a);
+  font-weight: 600;
+}
+.ml-score-table {
+  margin-top: 8px;
+}
+.ml-score-note {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  font-weight: 400;
+}
+/* The gap between the in-sample and blind score IS the overfitting. It gets its own line rather
+ * than leaving the reader to subtract two numbers in a table. */
+.ml-split-gap {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+.ml-split-gap-warn {
+  color: var(--warn, #d96a52);
+  font-weight: 600;
+}

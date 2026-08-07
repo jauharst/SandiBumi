@@ -257,6 +257,88 @@ export async function buildMlContent(
   const train = wellBox(false);
   const trainRow = formRow("Train wells", train.el, "Wells whose labelled samples fit the model.");
   content.appendChild(trainRow);
+
+  // --- Blind test split ----------------------------------------------------
+  // The split is over WELLS, and the control says so, because the number a user types here is the
+  // one thing that decides whether the reported score means anything. A percentage of samples
+  // would put consecutive depths from one well on both sides of the line, and the model would be
+  // scored on rock it saw a metre away.
+  const splitWrap = document.createElement("div");
+  splitWrap.className = "ml-split-ctl";
+  const splitOn = document.createElement("input");
+  splitOn.type = "checkbox";
+  const splitOnLabel = document.createElement("label");
+  splitOnLabel.append(splitOn, document.createTextNode(" Hold wells back as a blind test"));
+  const splitPct = document.createElement("input");
+  splitPct.type = "number";
+  splitPct.min = "5";
+  splitPct.max = "80";
+  splitPct.step = "5";
+  splitPct.value = "30";
+  splitPct.disabled = true;
+  const splitSeed = document.createElement("input");
+  splitSeed.type = "number";
+  splitSeed.min = "0";
+  splitSeed.step = "1";
+  splitSeed.value = "42";
+  splitSeed.disabled = true;
+  splitSeed.title = "Which wells are chosen. Same seed, same wells — so a blind score can be quoted and re-run.";
+  const splitEcho = document.createElement("div");
+  splitEcho.className = "ml-split-echo";
+  const splitFields = document.createElement("div");
+  splitFields.className = "ml-split-fields";
+  const pctLab = document.createElement("label");
+  pctLab.append(splitPct, document.createTextNode(" % of wells held blind"));
+  const seedLab = document.createElement("label");
+  seedLab.append(document.createTextNode("seed "), splitSeed);
+  splitFields.append(pctLab, seedLab);
+  splitWrap.append(splitOnLabel, splitFields, splitEcho);
+
+  /** Say what the percentage will actually do to THIS many wells, before the run. */
+  function echoSplit(): void {
+    const n = [...train.checks.values()].filter((c) => c.checked).length;
+    if (!splitOn.checked) {
+      splitEcho.textContent = n
+        ? `All ${n} training well(s) are fitted on. The only validation is cross-validation over folds of those wells.`
+        : "";
+      splitEcho.classList.remove("ml-split-thin");
+      return;
+    }
+    if (n < 2) {
+      splitEcho.textContent = "A split needs at least 2 training wells — a single well cannot be divided by well.";
+      splitEcho.classList.add("ml-split-thin");
+      return;
+    }
+    const f = Math.max(0, Math.min(100, Number(splitPct.value) || 0)) / 100;
+    // Mirrors split_blind_wells in ml.rs: round, then keep one well on each side. The two
+    // rounding rules differ on negative halves (Rust rounds away from zero, JS toward +∞) and
+    // agree everywhere here because n * f cannot be negative — if this ever takes a signed
+    // quantity, the mirror breaks silently and the echo starts promising a split that is not
+    // the one performed.
+    const blind = Math.min(Math.max(Math.round(n * f), 1), n - 1);
+    const thin = blind < 2 || n - blind < 2;
+    splitEcho.textContent =
+      `${n - blind} well(s) fitted, ${blind} held blind` +
+      (Math.abs(n * f - blind) > 0.01 ? ` — ${(n * f).toFixed(1)} wells rounded to ${blind}` : "") +
+      (blind === 1 ? ". A blind set of one well is one opinion, not a spread." : "") +
+      (n - blind < 2 ? ". Fitting on one well is a model of that well." : "");
+    splitEcho.classList.toggle("ml-split-thin", thin);
+  }
+  splitOn.addEventListener("change", () => {
+    splitPct.disabled = splitSeed.disabled = !splitOn.checked;
+    echoSplit();
+  });
+  splitPct.addEventListener("input", echoSplit);
+  for (const cb of train.checks.values()) cb.addEventListener("change", echoSplit);
+
+  const splitRow = formRow(
+    "Blind test",
+    splitWrap,
+    "Wells kept out of the fit and used to score it. They still get their predicted curve, so you can lay it against core.",
+  );
+  content.appendChild(splitRow);
+  echoSplit();
+
   // Apply wells = the run scope. Unsupervised models also FIT on these (pooled — field-wide).
   content.appendChild(scope.el);
 
@@ -358,6 +440,9 @@ export async function buildMlContent(
     algoDesc.textContent = algo.desc;
     targetRow.style.display = task.supervised ? "" : "none";
     trainRow.style.display = task.supervised ? "" : "none";
+    // Clustering and reduction are fitted on the very wells they are applied to, so there is no
+    // "held out" to be had — offering the control there would promise a validation that cannot exist.
+    splitRow.style.display = task.supervised ? "" : "none";
     compareRow.style.display = task.supervised ? "" : "none";
     // Only a supervised fit is a reusable artifact. Clustering and reduction are fitted on the
     // very wells they are applied to, so "apply it later" would mean something different.
@@ -651,6 +736,8 @@ export async function buildMlContent(
       apply_well_ids: applyIds,
       output_curve: outInput.value,
       save_model_as: task.supervised && saveInput.value.trim() ? saveInput.value.trim() : null,
+      blind_fraction: task.supervised && splitOn.checked ? Number(splitPct.value) / 100 : null,
+      split_seed: task.supervised && splitOn.checked ? Number(splitSeed.value) || 0 : null,
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
@@ -713,6 +800,100 @@ function fmtMetric(v: unknown): string {
 }
 
 /**
+ * The blind split, and the three scores side by side.
+ *
+ * An experienced eye does not read `r2_train` — it reads the GAP between train and blind. A model
+ * at 0.98 on the wells it was fitted on and 0.41 on the wells it was not has memorised those
+ * wells, and either number quoted alone hides that. So the three are shown together, labelled by
+ * what they are a score OF, with the gap called out when it is large.
+ *
+ * The wells are named, not counted. "70% held out" is not an answer to "which wells?", and a
+ * blind score is a claim about specific rock.
+ */
+function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => string): void {
+  const sp = res.split;
+  if (!sp) return;
+  const m = (res.metrics ?? {}) as Record<string, unknown>;
+  const num = (k: string): number | null => {
+    const v = m[k];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  };
+  const name = (id: string) => nameOf?.(id) ?? id;
+
+  const box = document.createElement("div");
+  box.className = "ml-split-report";
+
+  const head = document.createElement("div");
+  head.className = "ml-split-head";
+  head.textContent =
+    `Blind test — ${sp.fit_wells.length} well(s) fitted, ${sp.blind_wells.length} held back ` +
+    `(asked for ${Math.round(sp.requested_fraction * 100)}%, seed ${sp.seed})`;
+  box.appendChild(head);
+
+  for (const [label, ids, cls] of [
+    ["Fitted on", sp.fit_wells, "ml-split-fit"],
+    ["Held blind", sp.blind_wells, "ml-split-blind"],
+  ] as const) {
+    const row = document.createElement("div");
+    row.className = `ml-split-row ${cls}`;
+    const k = document.createElement("span");
+    k.className = "ml-split-key";
+    k.textContent = label;
+    const v = document.createElement("span");
+    v.textContent = ids.length ? ids.map(name).join(", ") : "—";
+    row.append(k, v);
+    box.appendChild(row);
+  }
+
+  // Regression and classification report different things; show whichever pair exists.
+  const isClf = num("accuracy_train") != null;
+  const trainV = isClf ? num("accuracy_train") : num("r2_train");
+  const cvV = isClf ? num("accuracy_cv") : num("r2_cv");
+  const blindV = isClf ? num("accuracy_blind") : num("r2_blind");
+  const unit = isClf ? "accuracy" : "R²";
+
+  const scores = document.createElement("table");
+  scores.className = "mc-table ml-score-table";
+  const rows: [string, number | null, string][] = [
+    [`${unit} on the wells it was fitted on`, trainV, "in-sample — always the flattering one"],
+    [`${unit} in cross-validation`, cvV, String(m[isClf ? "accuracy_cv_folds" : "r2_cv_folds"] ?? "folds of the fitted wells")],
+    [`${unit} on the blind wells`, blindV, `${num("n_blind") ?? 0} samples in ${num("n_blind_wells") ?? 0} well(s) the model never saw`],
+  ];
+  for (const [label, v, note] of rows) {
+    if (v == null) continue;
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.textContent = label;
+    const td = document.createElement("td");
+    td.textContent = v.toFixed(4);
+    const nd = document.createElement("td");
+    nd.className = "ml-score-note";
+    nd.textContent = note;
+    tr.append(th, td, nd);
+    scores.appendChild(tr);
+  }
+  box.appendChild(scores);
+
+  if (trainV != null && blindV != null) {
+    const gap = trainV - blindV;
+    const warn = gap > 0.15;
+    const g = document.createElement("div");
+    g.className = warn ? "ml-split-gap ml-split-gap-warn" : "ml-split-gap";
+    g.textContent = warn
+      ? `The model scores ${gap.toFixed(3)} better on the wells it was fitted on than on the wells it was not. That gap is the part of the fit that does not travel.`
+      : `Train and blind agree to within ${Math.abs(gap).toFixed(3)} — the fit travels to wells it has not seen.`;
+    box.appendChild(g);
+  }
+  if (sp.blind_wells.length === 1) {
+    const thin = document.createElement("div");
+    thin.className = "ml-split-gap ml-split-gap-warn";
+    thin.textContent = "One blind well is one opinion. It says the model is not broken; it does not say the score is stable.";
+    box.appendChild(thin);
+  }
+  host.appendChild(box);
+}
+
+/**
  * Per-well outcome of a run.
  *
  * A refused well is a RESULT, not a footnote. Since SB-MLA-013 a well that could not be labelled
@@ -736,6 +917,8 @@ export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: st
     warn.textContent = `⚠ ${note}`;
     host.appendChild(warn);
   }
+
+  if (res.split) renderSplit(host, res, nameOf);
 
   if (res.metrics && typeof res.metrics === "object") {
     const table = document.createElement("table");

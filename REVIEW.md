@@ -8696,3 +8696,35 @@ failure was not merely silent; it was disguised as an absence of work. Both engi
       — 3 refused, listed first below"), puts refused wells at the top, tints them, and identifies
       every well by **name** rather than by the UUID it used to print. A refusal is a result, not a
       footnote; on a 200-well run it would otherwise be three lines somewhere in the middle.
+
+## ML — automatic train/blind split by percentage of WELLS (2026-08-07)
+
+Jauhar asked for it directly: give five wells and a percentage, and have SandiBumi choose the split.
+It did not exist — "Train wells" was a manual checklist, and the only validation number on offer
+(`r2_cv5`) was a random 5-fold over **pooled samples**, which puts consecutive depths from one well
+on both sides of the fold. The model was being scored on rock it had already seen a metre away.
+
+- [ ] **Tick "Hold wells back as a blind test", set a percentage.** The line under it says what that
+      percentage will actually do to the wells you have ticked — "3 well(s) fitted, 2 held blind" —
+      **before** you run. On 5 wells at 30% it also says "1.5 wells rounded to 2", because which way
+      it rounded is what the blind score is a score of.
+- [ ] **It splits WELLS, never samples.** A 70/30 split of pooled samples would leak the same way
+      the old CV did. With fewer than 2 training wells the control says so rather than pretending.
+- [ ] **It warns when a side is too thin** — "A blind set of one well is one opinion, not a spread",
+      "Fitting on one well is a model of that well". Both are legitimate runs, so neither is refused.
+- [ ] **The seed is yours and it is stated.** Same seed, same wells — a blind score you cannot
+      re-run is a blind score you cannot quote.
+- [ ] **The results name the wells, not just the count.** "Which wells?" is always the next question
+      after a blind score, and a percentage does not answer it.
+- [ ] **Three scores side by side, labelled by what they are a score OF**: on the fitted wells, in
+      cross-validation, on the blind wells. **Check the gap line underneath** — that gap is the part
+      of the fit that does not travel, and it is the number an experienced eye actually reads.
+- [ ] **The blind wells still get their predicted curve.** The model is deliberately NOT refitted on
+      them afterwards, so you can put that curve beside core in a well the model never saw. Refitting
+      would make the curve in-sample and leave the reported score describing a model that no longer
+      exists.
+- [ ] **Cross-validation is now grouped by well too** (`GroupKFold`), with the scaler refitted inside
+      each fold. Where there is only one well it says "random folds within ONE well — not a blind
+      score" instead of printing a number that looks like validation.
+- [ ] Clustering and reduction do not offer the control: they are fitted on the very wells they are
+      applied to, so "held out" could not mean anything there.

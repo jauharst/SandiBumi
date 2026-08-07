@@ -1128,6 +1128,23 @@ export interface MlRequest {
    *  tasks only — clustering and reduction are fitted on the wells they are applied to. */
   save_model_as?: string | null;
   model_note?: string | null;
+  /** Hold this fraction of the TRAINING wells back from the fit and score the model on them.
+   *  A fraction of the WELLS, not of the samples: splitting pooled samples puts consecutive
+   *  depths from one well on both sides, and the blind score comes back optimistic. Omit for
+   *  no split (every training well is fitted on, exactly as before). */
+  blind_fraction?: number | null;
+  /** Seed for the well shuffle, so the same request re-runs to the same split. */
+  split_seed?: number | null;
+}
+
+/** The split as it was actually performed, not as it was requested — the requested percentage is
+ *  kept beside the two well lists because on five wells "30%" is 1.5, and which way it rounded is
+ *  what the blind score is a score of. */
+export interface SplitReport {
+  fit_wells: string[];
+  blind_wells: string[];
+  requested_fraction: number;
+  seed: number;
 }
 
 export interface MlWellResult {
@@ -1149,6 +1166,8 @@ export interface MlResult {
   /** The name it was actually stored under — an existing name is auto-suffixed, never
    *  overwritten, so this can differ from what was asked for. */
   model_name: string | null;
+  /** Which wells were fitted on and which were held blind; null when no split was asked for. */
+  split: SplitReport | null;
   error: string | null;
 }
 

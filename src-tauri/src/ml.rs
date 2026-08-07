@@ -124,7 +124,9 @@ task = header["task"]; algo = header["algorithm"]; p = header["params"] or {}
 d = header["d"]; n_train = header["n_train"]; has_y = header["has_target"]; n_apply = header["n_apply"]
 save_model = bool(header.get("save_model", False))
 feature_names = header.get("features") or []
-total = n_train * d + (n_train if has_y else 0) + n_apply * d
+has_groups = bool(header.get("has_groups", False))
+blind_groups = header.get("blind_groups") or []
+total = n_train * d + (n_train if has_y else 0) + n_apply * d + (n_train if has_groups else 0)
 raw = sys.stdin.buffer.read(4 * total)
 if len(raw) != 4 * total:
     fail("truncated input stream")
@@ -137,6 +139,13 @@ def take(count):
 X = take(n_train * d).reshape(n_train, d).astype(np.float64)
 y = take(n_train).astype(np.float64) if has_y else None
 A = take(n_apply * d).reshape(n_apply, d).astype(np.float64)
+# One well index per training row. Two things need it and both are wrong without it: the
+# validation score must hold out whole WELLS (a random fold puts the same well on both sides,
+# and the model has then seen the interval it is being scored on), and the blind split is a
+# split of wells, never of samples, for exactly the same reason.
+groups = take(n_train).astype(np.int64) if has_groups else None
+blind = np.isin(groups, np.asarray(blind_groups, dtype=np.int64)) if (has_groups and blind_groups) else None
+fit_rows = ~blind if blind is not None else None
 
 try:
     import sklearn  # noqa: F401
@@ -148,20 +157,73 @@ seed = int(p.get("seed", 42))
 supervised = task in ("regression", "classification")
 metrics = {}
 if bool(p.get("standardize", True)):
-    scaler = StandardScaler().fit(X if supervised else A)
+    # Fitted on the FIT rows only when a blind split is in force. A scaler that has seen the
+    # blind wells' mean and scale makes the blind score optimistic by construction - the same
+    # leak SB-MLA-028 closed in the leaderboard, and it would arrive here through the back door.
+    basis = X[fit_rows] if (supervised and fit_rows is not None) else (X if supervised else A)
+    scaler = StandardScaler().fit(basis)
     Xs = scaler.transform(X) if n_train else X
     As = scaler.transform(A) if n_apply else A
 else:
     scaler = None
     Xs, As = X, A
 
+def fit_xy(yv):
+    """The rows the model is allowed to learn from. Everything else is being kept honest."""
+    return (Xs[fit_rows], yv[fit_rows]) if fit_rows is not None else (Xs, yv)
+
 def cv_score(model, scoring, key):
-    if n_train >= 30:
-        try:
-            from sklearn.model_selection import cross_val_score
-            metrics[key] = float(np.mean(cross_val_score(model, Xs, y if scoring == "r2" else y.astype(int), cv=5, scoring=scoring)))
-        except Exception as e:
-            metrics["cv_error"] = str(e)
+    """Validation score over the FIT wells.
+
+    Folds are whole wells (GroupKFold) whenever the caller supplied groups. A plain `cv=5`
+    splits pooled samples, so consecutive depths from one well land on both sides of the fold
+    and the model is scored on rock it has already seen a metre away - the number that comes
+    back is a smoothness measure, not a validation. The scaler is refitted inside each fold
+    for the same reason.
+    """
+    Xf, yf = fit_xy(y if scoring == "r2" else y.astype(int))
+    if len(yf) < 30:
+        return
+    try:
+        from sklearn.model_selection import cross_val_score, GroupKFold, KFold
+        from sklearn.pipeline import make_pipeline
+        gf = groups[fit_rows] if (groups is not None and fit_rows is not None) else groups
+        ng = int(len(np.unique(gf))) if gf is not None else 0
+        est = make_pipeline(StandardScaler(), model) if scaler is not None else model
+        if ng >= 2:
+            nsp = min(5, ng)
+            sc = cross_val_score(est, X[fit_rows] if fit_rows is not None else X, yf,
+                                 cv=GroupKFold(n_splits=nsp), groups=gf, scoring=scoring)
+            metrics[key] = float(np.mean(sc))
+            metrics[key + "_folds"] = "%d wells held out one at a time" % nsp if nsp == ng else "%d well groups" % nsp
+        else:
+            # One well: there is no blind fold to be had, and saying so is the point.
+            sc = cross_val_score(est, X if fit_rows is None else X[fit_rows], yf, cv=KFold(n_splits=5, shuffle=True, random_state=seed), scoring=scoring)
+            metrics[key] = float(np.mean(sc))
+            metrics[key + "_folds"] = "random folds within ONE well - not a blind score"
+    except Exception as e:
+        metrics["cv_error"] = str(e)
+
+def blind_score(model, kind):
+    """Score on wells the model was never fitted on. The only number here that is honest by
+    construction rather than by argument."""
+    if blind is None or not int(np.sum(blind)):
+        return
+    Xb, yb = Xs[blind], y[blind]
+    metrics["n_blind"] = int(np.sum(blind))
+    metrics["n_blind_wells"] = int(len(np.unique(groups[blind])))
+    metrics["n_fit"] = int(np.sum(fit_rows))
+    metrics["n_fit_wells"] = int(len(np.unique(groups[fit_rows])))
+    try:
+        if kind == "r2":
+            pb = model.predict(Xb)
+            ss_res = float(np.sum((yb - pb) ** 2)); ss_tot = max(float(np.sum((yb - np.mean(yb)) ** 2)), 1e-12)
+            metrics["r2_blind"] = 1.0 - ss_res / ss_tot
+            metrics["rmse_blind"] = float(np.sqrt(np.mean((yb - pb) ** 2)))
+        else:
+            metrics["accuracy_blind"] = float(np.mean(model.predict(Xb) == yb.astype(int)))
+    except Exception as e:
+        metrics["blind_error"] = str(e)
 
 outs = []
 if task == "regression":
@@ -170,13 +232,19 @@ if task == "regression":
         fail("unknown regression algorithm '" + algo + "'")
     if build_note:
         metrics["note"] = build_note
-    cv_score(model, "r2", "r2_cv5")
-    model.fit(Xs, y)
-    pred = model.predict(Xs)
-    ss_res = float(np.sum((y - pred) ** 2)); ss_tot = max(float(np.sum((y - np.mean(y)) ** 2)), 1e-12)
+    cv_score(model, "r2", "r2_cv")
+    Xf, yf = fit_xy(y)
+    # NOT refitted on the blind wells afterwards. The blind wells still get their curve, so the
+    # prediction there can be laid against core and looked at - which is the whole reason a
+    # petrophysicist holds a well back. Refitting would make that curve in-sample and leave the
+    # reported score describing a model that no longer exists.
+    model.fit(Xf, yf)
+    pred = model.predict(Xf)
+    ss_res = float(np.sum((yf - pred) ** 2)); ss_tot = max(float(np.sum((yf - np.mean(yf)) ** 2)), 1e-12)
     metrics["r2_train"] = 1.0 - ss_res / ss_tot
-    metrics["rmse_train"] = float(np.sqrt(np.mean((y - pred) ** 2)))
+    metrics["rmse_train"] = float(np.sqrt(np.mean((yf - pred) ** 2)))
     metrics["n_train"] = n_train
+    blind_score(model, "r2")
     outs.append(("", model.predict(As).astype(np.float32)))
 
 elif task == "classification":
@@ -186,11 +254,13 @@ elif task == "classification":
         fail("unknown classification algorithm '" + algo + "'")
     if build_note:
         metrics["note"] = build_note
-    cv_score(model, "accuracy", "accuracy_cv5")
-    model.fit(Xs, yi)
-    metrics["accuracy_train"] = float(np.mean(model.predict(Xs) == yi))
-    metrics["class_counts"] = {str(c): int(np.sum(yi == c)) for c in np.unique(yi)}
+    cv_score(model, "accuracy", "accuracy_cv")
+    Xf, yf = fit_xy(yi)
+    model.fit(Xf, yf)
+    metrics["accuracy_train"] = float(np.mean(model.predict(Xf) == yf))
+    metrics["class_counts"] = {str(c): int(np.sum(yf == c)) for c in np.unique(yf)}
     metrics["n_train"] = n_train
+    blind_score(model, "accuracy")
     outs.append(("", model.predict(As).astype(np.float32)))
     outs.append(("_PROB", np.max(model.predict_proba(As), axis=1).astype(np.float32)))
 
@@ -375,6 +445,18 @@ pub struct MlRequest {
     pub save_model_as: Option<String>,
     #[serde(default)]
     pub model_note: Option<String>,
+    /// Hold this fraction of the TRAINING wells back from the fit and score the model on them.
+    ///
+    /// A fraction of the wells, not of the samples — see `split_blind_wells`. Supervised tasks
+    /// only: clustering and reduction are fitted on the very wells they are applied to, so
+    /// "held out" would not mean anything there. `None` keeps the old behaviour exactly, which
+    /// is what lets every saved workflow and older IPC payload run unchanged.
+    #[serde(default)]
+    pub blind_fraction: Option<f64>,
+    /// Seed for the well shuffle. Fixed by default so the same request re-runs to the same
+    /// split — a blind score that moves when nothing changed cannot be cited (`SB-MLA-008`).
+    #[serde(default)]
+    pub split_seed: Option<u64>,
     /// Read every feature, target and mask curve from THIS log set's stored values (latest
     /// version per well) instead of whatever the current values happen to be. Curves the set
     /// never wrote fall back to normal resolution.
@@ -431,7 +513,23 @@ pub struct MlResult {
     /// The name it was actually stored under — an existing name is auto-suffixed rather than
     /// overwritten, so this can differ from what was asked for.
     pub model_name: Option<String>,
+    /// Which wells were fitted on and which were held blind. `None` when no split was asked for.
+    pub split: Option<SplitReport>,
     pub error: Option<String>,
+}
+
+/// The split as it was actually performed, not as it was requested.
+///
+/// The requested percentage is kept alongside the two counts on purpose: a request for 30% of
+/// five wells is 1.5 wells, and reporting only "30%" would leave which way it rounded — and
+/// therefore what the blind score is a score of — unstated. Well NAMES, because a blind score
+/// is a claim about specific rock and the next question is always "which ones?".
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SplitReport {
+    pub fit_wells: Vec<String>,
+    pub blind_wells: Vec<String>,
+    pub requested_fraction: f64,
+    pub seed: u64,
 }
 
 fn fail(msg: &str) -> MlResult {
@@ -440,6 +538,7 @@ fn fail(msg: &str) -> MlResult {
         metrics: serde_json::Value::Null,
         wells: vec![],
         notes: vec![],
+        split: None,
         model_id: None,
         model_name: None,
         error: Some(msg.to_string()),
@@ -451,6 +550,44 @@ fn fail(msg: &str) -> MlResult {
 /// returns an all-NaN column for a curve the well lacks, so a wrong target mnemonic lands here
 /// rather than as an error), or fully masked. That list is the honesty signal the caller
 /// surfaces, so a 20-well selection cannot silently be fit on 3.
+/// Choose which of `n` wells are held blind, deterministically from `seed`.
+///
+/// The unit is the WELL, never the sample. Splitting pooled samples 70/30 puts consecutive
+/// depths from one well on both sides of the line, so the model is scored on rock it already
+/// saw a metre away and the blind score is optimistic by construction — the same failure
+/// `SB-MLA-028` closed in the leaderboard.
+///
+/// The count is rounded, and the caller reports both numbers rather than the percentage: on
+/// five wells "30%" is 1.5 wells, and which way that rounded is the whole meaning of the split.
+/// At least one well stays on each side whenever there are two to divide, because a request for
+/// a blind test that silently produces no blind well is the kind of clean-looking nothing
+/// `SB-CORE-002` exists to forbid.
+fn split_blind_wells(n: usize, fraction: f64, seed: u64) -> Vec<usize> {
+    if n < 2 || !(fraction > 0.0) {
+        return Vec::new();
+    }
+    let want = ((n as f64) * fraction.min(1.0)).round() as usize;
+    let want = want.clamp(1, n - 1);
+    // SplitMix64, the generator facies.rs already uses — one definition of "seeded shuffle" in
+    // this repo, and reproducible across platforms in a way a hash-map iteration order is not.
+    let mut s = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut next = || {
+        s = s.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = s;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    let mut order: Vec<usize> = (0..n).collect();
+    for i in (1..n).rev() {
+        let j = (next() % (i as u64 + 1)) as usize;
+        order.swap(i, j);
+    }
+    let mut blind: Vec<usize> = order.into_iter().take(want).collect();
+    blind.sort_unstable();
+    blind
+}
+
 fn assemble_training(
     conn: &Connection,
     train_well_ids: &[String],
@@ -458,7 +595,7 @@ fn assemble_training(
     tgt: &str,
     mask_curve: Option<&String>,
     input_set: Option<&str>,
-) -> (Vec<f32>, Vec<f32>, Vec<String>) {
+) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<String>) {
     let mut fetch_names = features.to_vec();
     fetch_names.push(tgt.to_string());
     if let Some(mk) = mask_curve {
@@ -466,8 +603,10 @@ fn assemble_training(
     }
     let mut x_train: Vec<f32> = Vec::new();
     let mut y_train: Vec<f32> = Vec::new();
+    // One well index per row, so the runner can hold out whole wells rather than samples.
+    let mut groups: Vec<f32> = Vec::new();
     let mut empty_train: Vec<String> = Vec::new();
-    for well_id in train_well_ids {
+    for (g, well_id) in train_well_ids.iter().enumerate() {
         let before = y_train.len();
         if let Ok((depth, cols)) = fetch_curve_frame_from_set(conn, well_id, &fetch_names, input_set, None) {
             if let (Some(tv), Some(fcols)) = (
@@ -486,6 +625,7 @@ fn assemble_training(
                             x_train.push(c[i]);
                         }
                         y_train.push(tv[i]);
+                        groups.push(g as f32);
                     }
                 }
             }
@@ -496,7 +636,7 @@ fn assemble_training(
             empty_train.push(well_id.clone());
         }
     }
-    (x_train, y_train, empty_train)
+    (x_train, y_train, groups, empty_train)
 }
 
 struct ApplyWell {
@@ -569,6 +709,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         .to_string();
     let mut x_train: Vec<f32> = Vec::new();
     let mut y_train: Vec<f32> = Vec::new();
+    let mut groups: Vec<f32> = Vec::new();
     let mut empty_train: Vec<String> = Vec::new();
     let mut apply: Vec<ApplyWell> = Vec::new();
     let mut x_apply: Vec<f32> = Vec::new();
@@ -576,10 +717,11 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         let conn = db.lock().unwrap();
         if supervised {
             let tgt = target.clone().unwrap();
-            let (xt, yt, empty) =
+            let (xt, yt, gt, empty) =
                 assemble_training(&conn, &req.train_well_ids, &features, &tgt, mask_curve.as_ref(), req.input_set.as_deref());
             x_train = xt;
             y_train = yt;
+            groups = gt;
             empty_train = empty;
         }
         let mut apply_fetch = features.clone();
@@ -674,6 +816,35 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         .filter(|s| !s.is_empty() && supervised)
         .map(str::to_string);
     let save_features = save_name.as_ref().map(|_| features.as_slice());
+
+    // The blind split is decided HERE, not in the runner: the assignment has to be reported and
+    // re-runnable whatever the subprocess does with it. Only wells that actually contributed
+    // rows can be held out — holding back a well that turned out to be empty would reserve a
+    // blind set of nothing and score the model on it.
+    let split_seed = req.split_seed.unwrap_or(42);
+    let contributing: Vec<usize> = {
+        let mut seen: Vec<usize> = groups.iter().map(|g| *g as usize).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        seen
+    };
+    let blind_pos = req
+        .blind_fraction
+        .filter(|f| supervised && *f > 0.0)
+        .map(|f| split_blind_wells(contributing.len(), f, split_seed))
+        .unwrap_or_default();
+    let blind_groups: Vec<usize> = blind_pos.iter().map(|&i| contributing[i]).collect();
+    let split = req.blind_fraction.filter(|f| supervised && *f > 0.0).map(|f| SplitReport {
+        fit_wells: contributing
+            .iter()
+            .filter(|g| !blind_groups.contains(g))
+            .filter_map(|&g| req.train_well_ids.get(g).cloned())
+            .collect(),
+        blind_wells: blind_groups.iter().filter_map(|&g| req.train_well_ids.get(g).cloned()).collect(),
+        requested_fraction: f,
+        seed: split_seed,
+    });
+
     match exec_ml_full(
         &python,
         &req.task,
@@ -685,6 +856,8 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         &x_apply,
         n_apply,
         save_features,
+        if supervised { Some(groups.as_slice()) } else { None },
+        &blind_groups,
     ) {
         Err(e) => fail(&e),
         Ok((metrics, outs, model_blob, sklearn)) => {
@@ -830,7 +1003,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     }
                 }
             }
-            MlResult { outputs: out_names, metrics, wells, notes, model_id, model_name, error: None }
+            MlResult { outputs: out_names, metrics, wells, notes, model_id, model_name, split, error: None }
         }
     }
 }
@@ -1073,6 +1246,9 @@ pub fn apply_ml_model(
         notes,
         model_id: Some(info.model_id),
         model_name: Some(info.name),
+        // Applying a saved model fits nothing, so there is no split to report. The split that
+        // produced the model is part of the MODEL's record, not of this run.
+        split: None,
         error: None,
     }
 }
@@ -1090,7 +1266,7 @@ pub(crate) fn exec_ml(
     x_apply: &[f32],
     n_apply: usize,
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>), String> {
-    exec_ml_full(python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None)
+    exec_ml_full(python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None, None, &[])
         .map(|(m, o, _, _)| (m, o))
 }
 
@@ -1109,13 +1285,21 @@ pub(crate) fn exec_ml_full(
     x_apply: &[f32],
     n_apply: usize,
     save_features: Option<&[String]>,
+    // `groups` is one well index per training row. Without it the runner has no way to hold out a
+    // WELL, and every validation number it reports is a random-sample fold — see `cv_score`.
+    // `blind_groups` names which of those indices are held blind; empty = no split was asked for.
+    groups: Option<&[f32]>,
+    blind_groups: &[usize],
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>, Vec<u8>, String), String> {
     let n_train = if d == 0 { 0 } else { x_train.len() / d };
+    let groups = groups.filter(|g| g.len() == n_train);
     let header = serde_json::json!({
         "task": task, "algorithm": algorithm, "params": params,
         "d": d, "n_train": n_train, "has_target": y_train.is_some(), "n_apply": n_apply,
         "save_model": save_features.is_some(),
         "features": save_features.unwrap_or(&[]),
+        "has_groups": groups.is_some(),
+        "blind_groups": blind_groups,
     });
 
     let mut cmd = Command::new(python);
@@ -1131,6 +1315,9 @@ pub(crate) fn exec_ml_full(
             stdin.write_all(bytemuck::cast_slice(y)).map_err(|e| e.to_string())?;
         }
         stdin.write_all(bytemuck::cast_slice(x_apply)).map_err(|e| e.to_string())?;
+        if let Some(g) = groups {
+            stdin.write_all(bytemuck::cast_slice(g)).map_err(|e| e.to_string())?;
+        }
     } // drop closes stdin
 
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
@@ -1694,6 +1881,8 @@ mod tests {
         MlRequest {
             input_set: None,
             output_set: None,
+            blind_fraction: None,
+            split_seed: None,
             task: task.into(),
             algorithm: if task == "clustering" { "kmeans".into() } else { "linear".into() },
             params: serde_json::Map::new(),
@@ -1828,6 +2017,49 @@ mod tests {
         );
     }
 
+    /// The unit of a train/test split is the WELL. Five wells at 30% is 1.5 wells, which does not
+    /// exist, so the count rounds — and the caller reports the two counts rather than the
+    /// percentage, because which way it rounded is what the blind score is a score of.
+    ///
+    /// Pinned from both sides: a fraction too small to round up to a whole well still yields ONE
+    /// blind well rather than none, and a fraction of 1.0 still leaves one well to fit on. A
+    /// request for a blind test that silently produces no blind well is the clean-looking nothing
+    /// SB-CORE-002 forbids; a "split" that keeps nothing to train on is the same failure mirrored.
+    #[test]
+    fn a_percentage_split_rounds_and_always_leaves_a_well_on_each_side() {
+        assert_eq!(split_blind_wells(5, 0.3, 42).len(), 2, "1.5 wells rounds to 2");
+        assert_eq!(split_blind_wells(5, 0.2, 42).len(), 1, "1.0 well needs no rounding");
+        assert_eq!(split_blind_wells(10, 0.3, 42).len(), 3);
+        assert_eq!(split_blind_wells(5, 0.05, 42).len(), 1, "0.25 wells rounds to 0 - floored to 1");
+        assert_eq!(split_blind_wells(5, 1.0, 42).len(), 4, "all-blind still leaves one to fit on");
+        assert!(split_blind_wells(1, 0.5, 42).is_empty(), "one well cannot be split");
+        assert!(split_blind_wells(5, 0.0, 42).is_empty(), "no split asked for");
+
+        // Every index is a real well, and no well is on both sides of the line.
+        let b = split_blind_wells(7, 0.4, 1);
+        assert!(b.iter().all(|&i| i < 7));
+        let mut u = b.clone();
+        u.dedup();
+        assert_eq!(u, b, "a well is held out once or not at all");
+    }
+
+    /// A blind score that moves when nothing changed cannot be cited, so the shuffle is seeded and
+    /// the seed travels in the request (SB-MLA-008). The second half matters as much: if the seed
+    /// were ignored the split would be a fixed prefix, and "random" would be a claim rather than a
+    /// behaviour — every study in the field would hold out the same wells.
+    #[test]
+    fn the_same_seed_splits_the_same_wells_and_a_different_seed_does_not() {
+        assert_eq!(split_blind_wells(12, 0.25, 7), split_blind_wells(12, 0.25, 7));
+        let mut differs = false;
+        for s in 1..40u64 {
+            if split_blind_wells(12, 0.25, s) != split_blind_wells(12, 0.25, 7) {
+                differs = true;
+                break;
+            }
+        }
+        assert!(differs, "the seed must actually choose the wells, not decorate a fixed order");
+    }
+
     /// SB-MLA-T13 on the python path. When SOME apply wells have data the run proceeds, so the
     /// whole-run `n_apply == 0` refusal never fires and the empty wells fall through to the
     /// write loop — the case that was writing an all-NaN curve and calling it a warning. The
@@ -1860,6 +2092,75 @@ mod tests {
             both.contains("mask") && both.contains("40") && both.contains("input curve"),
             "a partial mask leaves both causes in play, so both are named: {both:?}",
         );
+    }
+
+    /// The blind wells are wells the model never saw. Four wells at 50% leaves two on each side,
+    /// and the run must report by NAME which two were fitted and which two were scored — a blind
+    /// score is a claim about specific rock, and "70%" does not say whose. Needs sklearn.
+    #[test]
+    #[ignore]
+    fn a_blind_split_scores_the_model_on_wells_it_was_never_fitted_on() {
+        use crate::db;
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 60usize;
+        let mut ids = Vec::new();
+        for w in 0..4 {
+            let id = Uuid::new_v4();
+            db::insert_well(&conn, id, &format!("SANDI-{w}"), None, None, Some(0.0)).unwrap();
+            let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+            // Each well spans its own GR window, so a model fitted on two of them is genuinely
+            // extrapolating into the other two - a split by SAMPLE would hide that completely.
+            let gr: Vec<f32> = (0..n).map(|i| 20.0 + (w * 60) as f32 + i as f32).collect();
+            let rhob: Vec<f32> = (0..n).map(|i| 2.0 + (i % 7) as f32 * 0.05).collect();
+            db::insert_standard_curves(
+                &conn, id, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
+                rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
+            )
+            .unwrap();
+            let t: Vec<f32> = (0..n).map(|i| 0.4 - 0.002 * gr[i] + 0.05 * rhob[i]).collect();
+            crate::equations::write_computed_curve(&conn, &id.to_string(), &depths, "PHIT_CORE", &t).unwrap();
+            ids.push(id.to_string());
+        }
+        let dbm = Mutex::new(conn);
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy");
+            return;
+        }
+
+        let mut req = mk_req("regression", &["GR", "RHOB"], Some("PHIT_CORE"), &ids, &ids);
+        req.blind_fraction = Some(0.5);
+        req.split_seed = Some(11);
+        let r = run_ml(&dbm, &req, None);
+        assert!(r.error.is_none(), "run failed: {:?}", r.error);
+
+        let sp = r.split.expect("a run with a blind fraction reports the split it performed");
+        assert_eq!(sp.blind_wells.len(), 2, "4 wells at 50% is 2 blind");
+        assert_eq!(sp.fit_wells.len(), 2);
+        for b in &sp.blind_wells {
+            assert!(!sp.fit_wells.contains(b), "a well is fitted on or held blind, never both");
+        }
+
+        let m = &r.metrics;
+        assert!(m.get("r2_blind").and_then(|v| v.as_f64()).is_some(), "a blind score is reported: {m}");
+        // The counts are the split, restated from the runner's own view of the rows it received.
+        // If they disagreed with the well lists above, one of the two would be describing a run
+        // that did not happen.
+        assert_eq!(m["n_blind_wells"].as_u64(), Some(2));
+        assert_eq!(m["n_fit_wells"].as_u64(), Some(2));
+        assert_eq!(
+            m["n_fit"].as_u64().unwrap() + m["n_blind"].as_u64().unwrap(),
+            m["n_train"].as_u64().unwrap(),
+            "every labelled row is on exactly one side of the split",
+        );
+        // The relation is exactly linear, so a correct blind fit still recovers it. This is what
+        // stops the test passing on a run that held out the wells and then quietly fitted on them.
+        let r2b = m["r2_blind"].as_f64().unwrap();
+        assert!(r2b > 0.99, "the underlying relation is linear, so the blind r2 should be high: {r2b}");
     }
 
     /// SB-MLA-T13 end to end: a two-well clustering run where one well is clusterable and one
@@ -2174,7 +2475,8 @@ mod tests {
 
         let features = vec!["GR".to_string()];
         let ids = vec![good.to_string(), bad.to_string()];
-        let (_x, y, empty) = assemble_training(&conn, &ids, &features, "RHOB", None, None);
+        let (_x, y, groups, empty) = assemble_training(&conn, &ids, &features, "RHOB", None, None);
+        assert_eq!(groups.len(), y.len(), "every training row carries the well it came from");
 
         assert_eq!(y.len(), n, "the well with the target contributes all its rows");
         assert_eq!(
