@@ -771,6 +771,24 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- LITH curve off a LAS is handled sensibly, but a guess may only pick the DEFAULT method:
         -- a caliper that happens to read whole inches must stay averageable when the user says so.
         -- A declaration is the producer's statement about what the numbers MEAN, so it overrides.
+        -- SB-MLA-035. The unit a COMPUTED curve is in, declared by whatever wrote it.
+        --
+        -- `list_curve_catalog` could only ever get a unit for a computed curve by joining
+        -- `equations.output_units`, so a curve written by a module or by an ML run had no unit
+        -- anywhere in the product. That absence is what makes the log-transform trap possible: a
+        -- permeability predicted in log10 space and a permeability in mD are different quantities,
+        -- and with no unit to disagree with, a mean of -0.4 reads as a permeability rather than as
+        -- 0.398 mD in log units.
+        --
+        -- Per WELL like `curve_class`, and for the same reason: the same mnemonic can be produced
+        -- by different runs on different wells, and a project-wide row would have to pick one.
+        CREATE TABLE IF NOT EXISTS curve_unit (
+            well_id     UUID NOT NULL,
+            curve_name  VARCHAR NOT NULL,
+            unit        VARCHAR,
+            PRIMARY KEY (well_id, curve_name)
+        );
+
         CREATE TABLE IF NOT EXISTS curve_class (
             well_id     UUID NOT NULL,
             curve_name  VARCHAR NOT NULL,
@@ -1271,6 +1289,39 @@ pub fn class_curves_for_well(conn: &Connection, well_id: &str) -> DbResult<std::
         .query_map([well_id], |r| r.get::<_, String>(0))?
         .collect::<duckdb::Result<Vec<_>>>()?;
     Ok(rows.into_iter().collect())
+}
+
+/// Records the UNIT a computed curve is in (`curve_unit`, SB-MLA-035).
+///
+/// Declared by whatever produced the curve, for the same reason as [`declare_class_curves`]: the
+/// writer is the only place the answer is known rather than guessed. A prediction of permeability
+/// made in log10 space and a permeability in mD are DIFFERENT QUANTITIES, and until this existed
+/// there was nowhere for them to disagree — a computed curve's unit could only ever come from an
+/// `equations.output_units` row, so anything written by a module or an ML run had none at all.
+///
+/// An empty or blank unit stores NULL rather than `""`. "This quantity is dimensionless" and "we do
+/// not know" are different statements, and only the second should let a reader fall back to a guess.
+pub fn declare_curve_units(conn: &Connection, well_id: &str, units: &[(String, String)]) -> DbResult<()> {
+    for (name, unit) in units {
+        let u = unit.trim();
+        conn.execute(
+            "INSERT INTO curve_unit (well_id, curve_name, unit) VALUES (?, ?, ?)
+             ON CONFLICT (well_id, curve_name) DO UPDATE SET unit = excluded.unit",
+            duckdb::params![well_id, name.to_uppercase(), (!u.is_empty()).then_some(u)],
+        )?;
+    }
+    Ok(())
+}
+
+/// The declared unit of one computed curve, if it has one.
+pub fn curve_unit_for(conn: &Connection, well_id: &str, curve_name: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT unit FROM curve_unit WHERE well_id = ? AND upper(curve_name) = upper(?)",
+        duckdb::params![well_id, curve_name],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .ok()
+    .flatten()
 }
 
 /// Deletes one array curve from a well (the Data Sets dialog's remove action).

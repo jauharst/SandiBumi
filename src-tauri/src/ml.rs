@@ -125,6 +125,105 @@ def build_model(task, algo, p, seed):
     return None, None
 "#;
 
+// ---------------------------------------------------------------------------
+// SB-MLA-035 — a transformed quantity is a distinct quantity
+// ---------------------------------------------------------------------------
+
+/// The suffix a log-space prediction carries. It is part of the MNEMONIC, not a flag on the curve:
+/// a flag can be lost, ignored or not looked at, and a name travels with the curve into the log
+/// view, the LAS export, the workbook and the deck.
+pub(crate) const LOG10_SUFFIX: &str = "_LOG10";
+
+/// Marks the back-transform inside the runner's suffix slot. It is NOT a mnemonic suffix and never
+/// reaches a curve name: `out_names` maps it to the base name itself, because the back-transform is
+/// the quantity the user asked for and the log-space prediction is the derived one. A control
+/// character keeps it from ever colliding with a real suffix (`""`, `_PROB`, `1`..`n`).
+const BACK_SUFFIX: &str = "\u{1}BACK";
+
+/// The unit a quantity is in, from wherever the catalog happens to record it.
+///
+/// Four stores can answer, consulted in order of how SPECIFIC the answer is: a unit DECLARED by
+/// whatever wrote the curve (`curve_unit`), then the unit an import recorded for the mnemonic
+/// (`curve_meta`), then the unit an equation declared for its output, then the canonical unit of
+/// the family the mnemonic belongs to — which is the unit SandiBumi stores that family in, so it is
+/// a fact about the store rather than a guess about the data.
+///
+/// Field-wide rather than per-well on purpose: the transform is applied to ONE pooled training set,
+/// so "what unit is this quantity in" is a question about the quantity, not about a well.
+fn catalog_unit(conn: &Connection, curve: &str) -> Option<String> {
+    let c = curve.trim().to_uppercase();
+    if c.is_empty() {
+        return None;
+    }
+    let one = |sql: &str| -> Option<String> {
+        conn.query_row(sql, duckdb::params![c], |r| r.get::<_, Option<String>>(0))
+            .ok()
+            .flatten()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    one("SELECT unit FROM curve_unit WHERE upper(curve_name) = ? AND unit IS NOT NULL LIMIT 1")
+        .or_else(|| one("SELECT unit FROM curve_meta WHERE upper(mnemonic) = ? AND unit IS NOT NULL LIMIT 1"))
+        .or_else(|| {
+            one("SELECT output_units FROM equations WHERE upper(output_curve) = ? AND output_units IS NOT NULL LIMIT 1")
+        })
+        .or_else(|| crate::curves::family_for(&c).map(|f| f.canonical_unit.to_string()))
+}
+
+/// Applies the target transform to the assembled training rows, dropping any sample the transform
+/// has no answer for and reporting how many.
+///
+/// Rows are dropped from `x`, `y` and `groups` TOGETHER. They are three parallel views of the same
+/// samples — drop a row from `y` alone and every feature after it belongs to a different depth, and
+/// the model fits confidently on scrambled pairs.
+///
+/// A permeability of exactly 0 is a real reading (a seal) and has no logarithm. It is dropped and
+/// COUNTED rather than floored to some small number: a floor is an invented parameter, it would
+/// anchor the low end of the fit, and the count is the honest thing to show the user.
+fn apply_target_transform(kind: &str, d: usize, x: &mut Vec<f32>, y: &mut Vec<f32>, groups: &mut Vec<f32>) -> usize {
+    if kind != "log10" {
+        return 0;
+    }
+    let keep: Vec<bool> = y.iter().map(|v| v.is_finite() && *v > 0.0).collect();
+    let dropped = keep.iter().filter(|k| !**k).count();
+    if dropped > 0 {
+        let mut nx: Vec<f32> = Vec::with_capacity((keep.len() - dropped) * d);
+        for (i, k) in keep.iter().enumerate() {
+            if *k {
+                nx.extend_from_slice(&x[i * d..(i + 1) * d]);
+            }
+        }
+        *x = nx;
+        let mut i = 0;
+        groups.retain(|_| {
+            i += 1;
+            keep[i - 1]
+        });
+        let mut j = 0;
+        y.retain(|_| {
+            j += 1;
+            keep[j - 1]
+        });
+    }
+    for v in y.iter_mut() {
+        *v = v.log10();
+    }
+    dropped
+}
+
+/// The unit a transformed prediction is in, and the unit its back-transform is in.
+///
+/// `log10(mD)` rather than `mD`, and `log10` alone where the target's own unit is unknown — an
+/// unknown unit must not be allowed to erase the one thing that IS known about the quantity.
+fn transformed_unit(kind: &str, target_unit: Option<&str>) -> String {
+    match (kind, target_unit.map(str::trim).filter(|u| !u.is_empty())) {
+        ("log10", Some(u)) => format!("log10({u})"),
+        ("log10", None) => "log10".to_string(),
+        (_, Some(u)) => u.to_string(),
+        _ => String::new(),
+    }
+}
+
 /// SB-MLA-023 / SB-MLA-024 — the product's k-means and seed definitions, EMITTED into the Python
 /// runners from the Rust constants that the native engine runs on.
 ///
@@ -557,6 +656,24 @@ pub struct MlRequest {
     /// Defaults to `"well"`, which is what every older payload sends by omission.
     #[serde(default)]
     pub split_mode: Option<String>,
+    /// Fit on a TRANSFORM of the target instead of the target itself — currently `"log10"`, or
+    /// `None`/`"none"` for the raw quantity (SB-MLA-035).
+    ///
+    /// Permeability is the reason this exists: it spans orders of magnitude, so a least-squares fit
+    /// in linear space is dominated by the few highest-permeability samples and an R² of 0.9 can
+    /// coexist with an order-of-magnitude error through the whole reservoir-quality range. Fitting
+    /// log10(k) is the standard practice, not an option to be clever with.
+    ///
+    /// What the requirement is actually about is what happens NEXT. A permeability predicted in
+    /// log10 space is a DIFFERENT QUANTITY from a permeability in mD, and if it is written under the
+    /// same mnemonic with the same unit then a reported mean of −0.4 reads as a permeability
+    /// instead of as 0.398 mD in log units. It renders, it prints, it reaches a client deck, and the
+    /// only reader who can catch it is one who already knows the transform was set. So the
+    /// log-space prediction gets its own name and its own unit, the scores say which space they were
+    /// computed in, and the back-transform is a separate declared curve rather than an invisible
+    /// step.
+    #[serde(default)]
+    pub target_transform: Option<String>,
     /// Read every feature, target and mask curve from THIS log set's stored values (latest
     /// version per well) instead of whatever the current values happen to be. Curves the set
     /// never wrote fall back to normal resolution.
@@ -1079,6 +1196,34 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         }
     }
 
+    // SB-MLA-035. The transform is applied HERE, on the assembled rows, so everything downstream —
+    // the blind split, the strata, the folds, the scores — is in one space and there is no point at
+    // which half the pipeline is in mD and half in log10.
+    let transform = req
+        .target_transform
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_lowercase)
+        .filter(|t| !t.is_empty() && t != "none")
+        .unwrap_or_default();
+    let mut transform_notes: Vec<String> = Vec::new();
+    if !transform.is_empty() {
+        if !supervised || req.task != "regression" {
+            return fail(&format!(
+                "a {transform} target transform only applies to regression - a class label has no logarithm"
+            ));
+        }
+        if transform != "log10" {
+            return fail(&format!("unknown target transform '{transform}' - use log10, or none"));
+        }
+        let dropped = apply_target_transform(&transform, d, &mut x_train, &mut y_train, &mut groups);
+        if dropped > 0 {
+            transform_notes.push(format!(
+                "{dropped} training sample(s) had a target of zero or less and have no logarithm, so they were dropped rather than floored - a floor would be an invented number anchoring the low end of the fit"
+            ));
+        }
+    }
+
     let n_train = y_train.len();
     if supervised && n_train < 10 {
         return fail(&format!(
@@ -1088,7 +1233,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     // Surface training wells that contributed nothing (wrong target mnemonic, missing input, or
     // fully masked). Without this, a 20-well selection fit on 3 wells looks like a clean 20-well
     // run — the exact silent-degradation the app's cardinal rule forbids.
-    let mut notes: Vec<String> = Vec::new();
+    let mut notes: Vec<String> = transform_notes;
     if supervised && !empty_train.is_empty() {
         let requested = req.train_well_ids.len();
         notes.push(format!(
@@ -1243,9 +1388,73 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 .cloned()
                 .unwrap_or_else(|| serde_json::Value::Object(req.params.clone()));
             let params_json = serde_json::to_string(&params_record).unwrap_or_default();
-            let out_names: Vec<String> = outs.iter().map(|(s, _)| format!("{base}{s}")).collect();
+
+            // SB-MLA-035. Under a transform the model's own output is in log space and is NAMED so:
+            // `<base>_LOG10`, never `<base>`. The back-transform is written too, because a
+            // permeability is what the user asked for — but as a SECOND, separately named and
+            // separately united curve, so the two can never be mistaken for one another. That is the
+            // "explicit, logged step" the requirement asks for; an in-place back-transform would be
+            // the invisible one.
+            let mut outs = outs;
+            if !transform.is_empty() {
+                if let Some((_, native)) = outs.iter().find(|(s, _)| s.is_empty()) {
+                    let back: Vec<f32> =
+                        native.iter().map(|v| if v.is_finite() { 10f32.powf(*v) } else { f32::NAN }).collect();
+                    outs.push((BACK_SUFFIX.to_string(), back));
+                }
+            }
+            let out_names: Vec<String> = outs
+                .iter()
+                .map(|(s, _)| match (transform.is_empty(), s.as_str()) {
+                    (false, "") => format!("{base}{LOG10_SUFFIX}"),
+                    (false, BACK_SUFFIX) => base.clone(),
+                    _ => format!("{base}{s}"),
+                })
+                .collect();
             let mut wells = Vec::new();
             let conn = db.lock().unwrap();
+            // The unit of every curve about to be written, so a reader can tell log10(mD) from mD
+            // (SB-MLA-035). A blank target unit stays blank: "we do not know" must not be dressed
+            // up as "dimensionless".
+            let target_unit = target
+                .as_deref()
+                .and_then(|t| catalog_unit(&conn, t))
+                .unwrap_or_default();
+            // Declared for a REGRESSION run whether or not a transform ran. Untransformed, the
+            // prediction is in the target's own unit and saying so costs nothing; transformed, the
+            // two curves carry different units and saying so is the whole requirement. A classifier
+            // predicts a class code, which has no unit — and a blank here would be a claim, not an
+            // absence, so those curves are left out of the declaration entirely.
+            let units: Vec<(String, String)> = if req.task != "regression" {
+                Vec::new()
+            } else {
+                out_names
+                    .iter()
+                    .zip(&outs)
+                    .filter_map(|(name, (s, _))| {
+                        let u = if s.is_empty() && !transform.is_empty() {
+                            transformed_unit(&transform, Some(&target_unit))
+                        } else if s.is_empty() || s == BACK_SUFFIX {
+                            target_unit.clone()
+                        } else {
+                            return None;
+                        };
+                        // An unknown unit writes no row. A row saying NULL and no row at all mean
+                        // the same thing here, and only one of them clutters the registry.
+                        (!u.is_empty()).then(|| (name.clone(), u))
+                    })
+                    .collect()
+            };
+            if !transform.is_empty() {
+                let log_name = format!("{base}{LOG10_SUFFIX}");
+                let shown = transformed_unit(&transform, Some(&target_unit));
+                notes.push(format!(
+                    "fitted on {transform}(target): {log_name} is the model's own output in {shown}, and {base} is its back-transform. Every score below is in {shown} - an R2 in log space is not the same claim as an R2 in {}",
+                    if target_unit.is_empty() { "the target's own unit".into() } else { target_unit.clone() },
+                ));
+                metrics["target_transform"] = serde_json::json!(transform);
+                metrics["metric_space"] = serde_json::json!(shown);
+            }
             // Keep the fit as an artifact, BEFORE the curves are written (SB-MLA-006).
             //
             // This used to run after the well loop, so a storage problem here could not cost the
@@ -1386,6 +1595,14 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id));
                 match versioned {
                     Ok(()) => {
+                        // SB-MLA-035. The unit is declared with the curve, not left to be inferred
+                        // from the mnemonic later. Like the model save above, a failure here is a
+                        // note rather than a return — the prediction is written either way.
+                        if !units.is_empty() {
+                            if let Err(e) = crate::db::declare_curve_units(&conn, &aw.well_id, &units) {
+                                notes.push(format!("the unit of the new curves was not recorded: {e}"));
+                            }
+                        }
                         if let Some(p) = progress {
                             p.finish_item(&aw.well_id, crate::jobs::ItemState::Ok, None);
                         }
@@ -1954,6 +2171,13 @@ pub struct MlEvalRequest {
     /// the leaderboard scores the same (unmasked) population the real ML run trains on.
     #[serde(default)]
     pub mask_curve: Option<String>,
+    /// Score the candidates in a TRANSFORMED target space — the same [`MlRequest::target_transform`]
+    /// the run will be given. A leaderboard is only worth reading if it ranks the model the run will
+    /// fit, and a model fitted on log10(k) is a different model from one fitted on k: in linear
+    /// space an R2 over four decades of permeability is dominated by the few highest values, so the
+    /// winner there is routinely not the winner in log space.
+    #[serde(default)]
+    pub target_transform: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2071,6 +2295,38 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
             }
         }
     }
+    // SB-MLA-035 / SB-MLA-026. The leaderboard must rank the model THE RUN WILL FIT, and a run
+    // fitted on log10(target) is a different model from one fitted on the target. Rank them in the
+    // untransformed space and the table is a ranking of models nobody is about to fit: on a
+    // permeability spanning four decades, R2 in linear space is dominated by the handful of highest
+    // values, so the winner there is routinely not the winner in log space.
+    let transform = req
+        .target_transform
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_lowercase)
+        .filter(|t| !t.is_empty() && t != "none")
+        .unwrap_or_default();
+    let mut eval_note = None;
+    if !transform.is_empty() {
+        if req.task != "regression" {
+            return eval_fail(&format!(
+                "a {transform} target transform only applies to regression - a class label has no logarithm"
+            ));
+        }
+        if transform != "log10" {
+            return eval_fail(&format!("unknown target transform '{transform}' - use log10, or none"));
+        }
+        let dropped = apply_target_transform(&transform, d, &mut x_train, &mut y_train, &mut groups);
+        if dropped > 0 {
+            eval_note = Some(format!(
+                "scored in {transform} space; {dropped} sample(s) of zero or less have no logarithm and were dropped"
+            ));
+        } else {
+            eval_note = Some(format!("scored in {transform} space - these scores are not comparable with untransformed ones"));
+        }
+    }
+
     let n_train = y_train.len();
     if n_train < 20 {
         return eval_fail(&format!(
@@ -2103,14 +2359,17 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
             combos.push((a.clone(), s.clone()));
         }
     }
-    let mut note = None;
+    // Both notes matter and neither may silently replace the other: a truncated leaderboard reads
+    // as "all of them", and a log-space score reads as a linear-space one.
+    let mut notes: Vec<String> = eval_note.into_iter().collect();
     if combos.len() > MAX_COMBOS {
-        note = Some(format!(
+        notes.push(format!(
             "evaluated the first {MAX_COMBOS} of {} algorithm×subset combos (cap) — narrow the algorithms or subsets",
             combos.len()
         ));
         combos.truncate(MAX_COMBOS);
     }
+    let mut note = (!notes.is_empty()).then(|| notes.join(" • "));
 
     let seed = req.seed.unwrap_or(crate::facies::SEED_DEFAULT as i64);
     let folds = req.folds.unwrap_or(5).clamp(2, 10);
@@ -2460,6 +2719,7 @@ mod tests {
             output_curve: "PRED".into(),
             save_model_as: None,
             model_note: None,
+            target_transform: None,
         }
     }
 
@@ -2668,6 +2928,188 @@ mod tests {
         assert!(r2.error.is_none(), "a run that keeps no model must still write its curves: {:?}", r2.error);
         assert!(r2.model_id.is_none(), "nothing was asked to be saved");
         assert_eq!(cited(&db, "ML_UNSAVED"), None, "a curve must never cite a model that was not kept");
+    }
+
+    /// **SB-MLA-035, the half that needs no Python.** Three columns describe the same samples —
+    /// features, target, well index — and the transform drops rows from the target's column. Drop
+    /// them from `y` alone and every feature row after the first drop belongs to a different depth,
+    /// and the model fits, scores and reports confidently on scrambled pairs. Nothing downstream
+    /// can catch that; the row count still agrees with itself.
+    ///
+    /// Pinned from both sides. A zero permeability is a real reading and has no logarithm, so it is
+    /// dropped and COUNTED rather than floored to some small number — a floor is an invented
+    /// parameter that anchors the low end of the fit. And with no transform asked for, nothing is
+    /// dropped and nothing is rewritten: the transform must be something the user chose, never
+    /// something the pipeline decided a permeability-shaped curve deserved.
+    #[test]
+    fn a_log_transform_drops_a_row_from_every_column_or_from_none() {
+        let d = 2;
+        // Row i carries feature pair (i, i+100) and well index i, so a mis-drop is visible as a
+        // pairing that no longer matches rather than merely as a wrong length.
+        let mk = || {
+            let y = vec![10.0f32, 0.0, 100.0, -3.0, 1000.0];
+            let x: Vec<f32> = (0..y.len()).flat_map(|i| [i as f32, i as f32 + 100.0]).collect();
+            let g: Vec<f32> = (0..y.len()).map(|i| i as f32).collect();
+            (x, y, g)
+        };
+
+        let (mut x, mut y, mut g) = mk();
+        let dropped = apply_target_transform("log10", d, &mut x, &mut y, &mut g);
+        assert_eq!(dropped, 2, "a zero and a negative target both have no logarithm");
+        assert_eq!(y.len(), 3);
+        assert_eq!(g, vec![0.0, 2.0, 4.0], "the surviving rows must keep their own well index");
+        assert_eq!(x, vec![0.0, 100.0, 2.0, 102.0, 4.0, 104.0], "features must ride with their target");
+        for (got, want) in y.iter().zip([1.0f32, 2.0, 3.0]) {
+            assert!((got - want).abs() < 1e-6, "target must be in log10 space, got {got}");
+        }
+
+        // The other side: no transform, no drop, no rewrite.
+        let (mut x2, mut y2, mut g2) = mk();
+        let (x0, y0, g0) = mk();
+        assert_eq!(apply_target_transform("none", d, &mut x2, &mut y2, &mut g2), 0);
+        assert_eq!((x2, y2, g2), (x0, y0, g0), "an unasked-for transform must change nothing");
+
+        // The unit names the space, and an unknown target unit must not erase what IS known.
+        assert_eq!(transformed_unit("log10", Some("mD")), "log10(mD)");
+        assert_eq!(transformed_unit("log10", Some("  ")), "log10");
+        assert_eq!(transformed_unit("log10", None), "log10");
+    }
+
+    /// **SB-MLA-035 — a transformed quantity is a distinct quantity, with its own name and its own
+    /// unit.** Permeability is fitted in log10 space because that is where the relation is linear;
+    /// what the model then predicts is log10(mD), and until now it was written under the name the
+    /// user typed, in a registry that had nowhere to record a unit at all. The failure is quiet and
+    /// expensive: a mean of −0.4 under a header reading mD is not a wrong-looking number, it is
+    /// 0.398 mD reported as a negative permeability, and every average, cutoff and net-pay sum
+    /// built on it inherits the error.
+    ///
+    /// So the two quantities become two curves. The model's own output keeps the log unit under a
+    /// name that says so; the back-transform is written as a SEPARATE, separately-united curve and
+    /// announced in the notes, which is the "explicit step" the requirement asks for — an in-place
+    /// back-transform would be the invisible one.
+    ///
+    /// Skips where scikit-learn is absent, so the green gate never depends on it; the row-lockstep
+    /// half above is the one that fails the build.
+    #[test]
+    fn a_log_fitted_prediction_and_its_back_transform_are_two_curves_with_two_units() {
+        use crate::db;
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let Some(_) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 60usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-LOG10", None, None, Some(0.0)).unwrap();
+        let gr: Vec<f32> = (0..n).map(|i| 20.0 + i as f32).collect();
+        db::insert_standard_curves(
+            &conn, well, depths.clone(), gr.clone(),
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        // A permeability spanning four decades — the shape that makes the log fit the right one —
+        // carried in the generic store WITH ITS UNIT, which is where an imported core measurement
+        // actually arrives.
+        let wid = well.to_string();
+        let perm: Vec<f32> = gr.iter().map(|g| 10f32.powf(g / 15.0)).collect();
+        let cid = db::upsert_curve_meta(&conn, &wid, "RAW", "PERM", Some("mD"), None, Some("test"), None).unwrap();
+        db::insert_curve_samples(&conn, &cid, &depths, &perm).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let mut req = mk_req("regression", &["GR"], Some("PERM"), &[wid.clone()], &[wid.clone()]);
+        req.output_curve = "PERM_EST".into();
+        req.output_set = Some("ML_LOG10".into());
+        req.target_transform = Some("log10".into());
+        let r = run_ml(&dbm, &req, None);
+        assert!(r.error.is_none(), "the log-fitted run failed: {:?}", r.error);
+
+        // Two curves, two names, and the plain name is NOT the log-space one.
+        assert!(
+            r.outputs.contains(&"PERM_EST_LOG10".to_string()) && r.outputs.contains(&"PERM_EST".to_string()),
+            "a transformed run must write both quantities, got {:?}",
+            r.outputs,
+        );
+
+        let conn = dbm.lock().unwrap();
+        assert_eq!(
+            db::curve_unit_for(&conn, &wid, "PERM_EST_LOG10").as_deref(),
+            Some("log10(mD)"),
+            "the model's own output carries the unit of the space it was fitted in",
+        );
+        assert_eq!(
+            db::curve_unit_for(&conn, &wid, "PERM_EST").as_deref(),
+            Some("mD"),
+            "the back-transform carries the target's own unit",
+        );
+
+        let read = |name: &str| -> Vec<f32> {
+            let mut st = conn
+                .prepare("SELECT value FROM computed_curves WHERE well_id = ?1 AND curve_name = ?2 ORDER BY depth")
+                .unwrap();
+            st.query_map(duckdb::params![&wid, name], |r| r.get::<_, f32>(0))
+                .unwrap()
+                .filter_map(Result::ok)
+                .collect()
+        };
+        let logs = read("PERM_EST_LOG10");
+        let lin = read("PERM_EST");
+        assert_eq!(logs.len(), n);
+        assert_eq!(lin.len(), n);
+        for (l, v) in logs.iter().zip(&lin) {
+            assert!(
+                (10f32.powf(*l) - v).abs() <= v.abs() * 1e-3 + 1e-6,
+                "the back-transform must be 10^(log-space prediction): 10^{l} vs {v}",
+            );
+        }
+        // The trap the requirement names: the curve wearing the mD header must not carry log-space
+        // numbers. Across four decades of permeability a mean below 1 would be exactly that.
+        let mean_lin = lin.iter().sum::<f32>() / lin.len() as f32;
+        assert!(mean_lin > 1.0, "the mD curve reads {mean_lin} - that is a log-space number under an mD header");
+        let (max_log, max_lin) = (
+            logs.iter().cloned().fold(f32::MIN, f32::max),
+            lin.iter().cloned().fold(f32::MIN, f32::max),
+        );
+        assert!(
+            max_log < max_lin / 10.0,
+            "the two curves must be in genuinely different spaces, got {max_log} and {max_lin} - \
+             a copy of one curve under two names would pass every other check here",
+        );
+
+        // And the report says which space its scores are in, so an R2 cannot be quoted as a claim
+        // about the other one.
+        assert_eq!(r.metrics.get("target_transform").and_then(|v| v.as_str()), Some("log10"));
+        assert_eq!(r.metrics.get("metric_space").and_then(|v| v.as_str()), Some("log10(mD)"));
+        assert!(
+            r.notes.iter().any(|nt| nt.contains("PERM_EST_LOG10") && nt.contains("log10(mD)")),
+            "the transform must be announced by name, got {:?}",
+            r.notes,
+        );
+
+        // The requirement is about the DELIVERABLE, so it is checked there: the LAS a client
+        // receives must not carry a log-space column under a permeability header. That is the
+        // failure in its most expensive form — the number leaves the building attached to the
+        // wrong unit, and the reader has no way to tell.
+        let dir = std::env::temp_dir().join(format!("sandibumi-mla035-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let las = dir.join("out.las");
+        crate::export::export_las(&conn, &wid, las.to_str().unwrap()).unwrap();
+        let text = std::fs::read_to_string(&las).unwrap();
+        let unit_of = |mnemonic: &str| -> String {
+            text.lines()
+                .find(|l| l.trim_start().starts_with(&format!("{mnemonic} ")) || l.trim_start().starts_with(&format!("{mnemonic}.")))
+                .and_then(|l| l.split_once('.'))
+                .map(|(_, rest)| rest.split_whitespace().next().unwrap_or("").to_string())
+                .unwrap_or_default()
+        };
+        assert_eq!(unit_of("PERM_EST_LOG10"), "log10(mD)", "the LAS header must name the log space:\n{text}");
+        assert_eq!(unit_of("PERM_EST"), "mD", "the back-transform must be exported in the target's unit:\n{text}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// SB-MLA-001. Every parameter the runner reads must go through `P`, which records what was
@@ -3461,6 +3903,7 @@ mod tests {
             seed: Some(42),
             folds: Some(5),
             mask_curve: Some("MASK".into()),
+            target_transform: None,
         };
         let r = run_ml_eval(&db, &req);
         assert!(r.error.is_none(), "eval should run: {:?}", r.error);

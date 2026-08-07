@@ -8822,6 +8822,44 @@ application's own advice fell through to the arithmetic mean.
 - [ ] **Block, Smooth and Despike an ordinary curve and nothing has changed.** The rule fires on the
       declaration, never on how the values look.
 
+## Fitting permeability in log space, without the number changing meaning (2026-08-07)
+
+`SB-MLA-035`. Permeability spans decades, so it is fitted as `log10(k)` — that is where the
+relation to porosity is a straight line. **ML Models ▸ Predict a continuous log** now offers that
+choice directly: a new **Fit target as** control with *As measured* and *log10*.
+
+The reason it is a control rather than something you do by hand is what happens next. Whatever the
+model is fitted on is what the model *predicts* — so a log-fitted run predicts `log10(mD)`, not mD.
+Written under the name you typed, in a table headed mD, that is a number no reader can catch: a
+permeability mean of **−0.4** is not an error state, it is 0.398 mD in log units, and the rows
+around it read −0.4, 1.2, 2.8 and look like a plausible spread. It renders, it prints, and it
+reaches a client deck.
+
+So a log-fitted run writes **two curves**, and says so before you press Run:
+
+- `<name>_LOG10` — what the model actually predicted, in log units.
+- `<name>` — its back-transform, in the target's own units.
+
+- [ ] **Fit a permeability against your usual inputs with *log10* selected.** Two curves appear in
+      the output list. Put both on a log view: the `_LOG10` one spans roughly 0–4, the plain one
+      spans the decades.
+- [ ] **Export that well to LAS and open the header.** `<name>_LOG10` carries `log10(mD)` and
+      `<name>` carries `mD` — provided the target curve had a unit when it was imported. This is the
+      one place the units leave the building, so it is the one worth checking.
+- [ ] **Read the score panel.** It now says *"Scored in log10(mD) — the space the model was fitted
+      in"* above the R² rows. An R² in log space is usually **lower** than the same model's R² in mD,
+      and that is not the model getting worse — the linear-space number is flattered by the few
+      largest permeabilities, which is exactly why the log fit is the right one.
+- [ ] **Press Compare with *log10* selected.** The leaderboard ranks in log space too, and its note
+      says so. Compare the ranking against the same leaderboard with *As measured*: on real
+      permeability the winner often changes. The log-space one is the ranking that matches what
+      Run will fit.
+- [ ] **If any of your plugs read zero permeability**, the run reports how many were dropped. Zero
+      has no logarithm, and the alternative — flooring it to some small number — is a value nobody
+      chose that would drag the low end of the fit.
+- [ ] **Switch to a classification or clustering task.** The control disappears; a class label has
+      no logarithm.
+
 ## One k-means, and one seed default — RESULTS CHANGE (2026-08-07)
 
 `SB-MLA-023` / `SB-MLA-024`. SandiBumi has two k-means engines: the built-in one behind

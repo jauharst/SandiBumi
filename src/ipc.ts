@@ -1142,6 +1142,12 @@ export interface MlRequest {
    *  target — exact in its percentage, balanced in its statistics, and optimistic on log data
    *  because consecutive depths are near-duplicates. */
   split_mode?: string | null;
+  /** Fit the target in a transformed space. `"log10"` is the one transform on offer, for
+   *  permeability and anything else spanning decades. A transformed quantity is a DIFFERENT
+   *  quantity, so the run writes two curves: `<output_curve>_LOG10` (the model's own prediction, in
+   *  log units) and `<output_curve>` (its back-transform, in the target's units). Every reported
+   *  score is in the fitted space. Regression only. Omit or null to fit the target as measured. */
+  target_transform?: string | null;
 }
 
 /** The split as it was actually performed, not as it was requested — the requested share is kept
@@ -1282,6 +1288,11 @@ export interface MlEvalRequest {
   /** Optional flag curve: masked (= 1) samples are excluded from the CV pool so the leaderboard
    *  scores the same population the real run trains on. Omit / null for no masking. */
   mask_curve?: string | null;
+  /** Score the candidates in a transformed target space — the same value the run will be given.
+   *  A model fitted on log10(k) is a different model from one fitted on k, and in linear space an
+   *  R² over four decades of permeability is dominated by the few highest values, so the winner
+   *  there is routinely not the winner in log space. Regression only. */
+  target_transform?: string | null;
 }
 
 export interface MlEvalRow {

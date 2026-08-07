@@ -1672,7 +1672,7 @@ and because adding it without the announcement would import the defect.
 
 **Verified by.** SB-MLA-T35
 
-#### SB-MLA-035 — A transformed quantity is a distinct quantity with its own name and unit          [P0] [status: ABSENT]
+#### SB-MLA-035 — A transformed quantity is a distinct quantity with its own name and unit          [P0] [status: PRESENT-OK]
 
 **Requirement.** A log-transformed or otherwise re-scaled quantity MUST be a separate entry in the
 curve registry, with its own mnemonic and its own unit. It MUST NOT be represented as the original
@@ -1690,12 +1690,60 @@ read `−0.4`, `1.2`, `2.8` and the eye takes them for a plausible spread. This 
 it is a wrong number in a deliverable with no visible symptom, which is the failure class this
 whole document exists to prevent.
 
-**As-built.** `ABSENT` — no transform flag exists, so the defect is not present; the registry
-discipline that would prevent it is also not present. `hfu.rs` and `lorenz.rs` already work in
-`log10` space internally (`lorenz.rs:17`–`:20`, the `log10(k/φ)` profile) and correctly do not
-report log-space statistics under linear names, which is the behaviour to generalise.
+**As-built.** `PRESENT-OK` (2026-08-07). The capability now exists — ML regression takes
+`target_transform: "log10"` — and it was built to this requirement rather than retrofitted to it,
+which is the only reason it is not the vendor's defect with a different logo.
 
-**Verified by.** SB-MLA-T36
+*Two curves, never one with a flag.* A transformed run writes `<base>_LOG10` (the model's own
+prediction, in log units) **and** `<base>` (its back-transform, in the target's units). The suffix
+is part of the mnemonic rather than a column on the row, because a flag can be dropped by any
+reader that does not know to look for it, while a name travels into the log view, the LAS export,
+the workbook and the deck. `ml.rs::LOG10_SUFFIX`, and the naming in `run_ml` immediately before the
+write loop. The back-transform is the "explicit, logged step" the requirement asks for — an
+in-place back-transform would satisfy "the user gets mD" while destroying the record of what the
+model actually predicted, and the reported R²/RMSE would still be log-space numbers describing a
+curve that no longer exists.
+
+*The registry gained somewhere to disagree.* `computed_curves` had no unit column at all, so a
+computed curve's unit could only ever come from an `equations.output_units` row of the same name —
+which is precisely what made this trap possible. `db::curve_unit` (PRIMARY KEY `(well_id,
+curve_name)`) is declared by whatever WROTE the curve, on the [`declare_class_curves`] argument:
+the writer is the only place the answer is known rather than guessed. A blank unit stores NULL, not
+`""` — "dimensionless" and "we do not know" are different statements and only the second should
+let a reader fall back to a guess. `equations::list_curve_catalog` and `export_las` both prefer the
+declared unit over the inferred one; the LAS header is where the failure is most expensive, because
+that number leaves the building attached to a unit and the reader has no way to check it.
+
+*Scores are labelled with the space they were computed in.* `metrics.metric_space` carries
+`log10(mD)` and the run panel prints it above the score table. An R² in log space is not the same
+claim as an R² in mD — it is usually the lower of the two, because the log fit is not rewarded for
+getting the few largest values roughly right.
+
+*The leaderboard was transformed too, or SB-MLA-026 would have been broken by this change.* That
+requirement says the leaderboard must rank the model the run will fit; a model fitted on log10(k)
+is a different model from one fitted on k, and in linear space an R² over four decades is dominated
+by the handful of highest values, so the winner there is routinely not the winner in log space. The
+leaderboard note says which space it ranked in, and the note is JOINED with the combo-cap note
+rather than replacing it.
+
+*A zero is dropped and counted, never floored.* A permeability of exactly 0 is a real reading and
+has no logarithm. Flooring it to some small number would be an invented parameter anchoring the low
+end of the fit; the count is the honest thing to show. The rows are dropped from the feature matrix,
+the target and the well-index vector TOGETHER — drop from the target alone and every feature row
+after the first drop belongs to a different depth, the model fits confidently on scrambled pairs,
+and nothing downstream can catch it because the row count still agrees with itself.
+
+`hfu.rs` and `lorenz.rs` already worked in `log10` space internally (`lorenz.rs:17`–`:20`) and
+correctly did not report log-space statistics under linear names; this generalises that behaviour
+and gives it a registry to record it in.
+
+**Verified by.** SB-MLA-T36 —
+`ml::tests::a_log_transform_drops_a_row_from_every_column_or_from_none` (needs no Python, so a
+regression fails the build) and
+`ml::tests::a_log_fitted_prediction_and_its_back_transform_are_two_curves_with_two_units` (needs
+scikit-learn, self-skips), which asserts the two mnemonics, the two units, the `10^log = linear`
+relation, the metric-space label, and — in the requirement's own terms — that the exported LAS
+header over the mD column does not carry log-space numbers.
 
 #### SB-MLA-036 — Enumerated methods are addressed by id, never by display string          [P1] [status: ABSENT]
 

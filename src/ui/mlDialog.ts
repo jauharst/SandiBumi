@@ -216,6 +216,49 @@ export async function buildMlContent(
   );
   content.appendChild(targetRow);
 
+  // --- Target transform (SB-MLA-035) --------------------------------------
+  // Permeability spans decades and is fitted in log10 space because that is where the relation is
+  // linear. What the model then predicts is log10(mD), NOT mD — so the choice is made here, in the
+  // open, rather than by the user log-transforming a curve by hand and then forgetting which one
+  // they did it to. Two curves come back: the model's own output under `<name>_LOG10` in log units,
+  // and its back-transform under `<name>` in the target's own units.
+  const xfSeg = document.createElement("div");
+  xfSeg.className = "seg ml-target-xf";
+  let targetXf: "" | "log10" = "";
+  const xfBtns = new Map<string, HTMLButtonElement>();
+  for (const [id, label, title] of [
+    ["", "As measured", "Fit the target in the units it is stored in. Correct for anything roughly linear in the inputs — porosity, saturation, a sonic slowness."],
+    ["log10", "log10", "Fit log10(target). The right choice for permeability and anything else spanning decades. Samples of zero or less have no logarithm and are dropped, and the count is reported."],
+  ] as const) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "seg-opt";
+    b.setAttribute("aria-pressed", String(id === ""));
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener("click", () => {
+      targetXf = id;
+      for (const [k, el] of xfBtns) el.setAttribute("aria-pressed", String(k === id));
+      echoTransform();
+    });
+    xfBtns.set(id, b);
+    xfSeg.appendChild(b);
+  }
+  const xfEcho = document.createElement("div");
+  xfEcho.className = "mc-chain-note";
+  /** Name the two curves BEFORE the run, because after it the names are the only warning left. */
+  function echoTransform(): void {
+    const base = (outInput.value || "PRED").trim().toUpperCase();
+    xfEcho.textContent = targetXf
+      ? `Writes ${base}_LOG10 (the model's own output, in log units) and ${base} (its back-transform, in the target's units). Scores are reported in log space.`
+      : "";
+  }
+  const xfRow = formRow(
+    "Fit target as", xfSeg,
+    "A transformed quantity is a different quantity. Whichever space the model is fitted in is the space its scores describe.",
+  );
+  content.append(xfRow, xfEcho);
+
   // Optional MASK curve — kept visible for ALL tasks (it also governs the unsupervised fit pool),
   // default "(none)" so data is never silently dropped.
   const maskSel = document.createElement("select");
@@ -398,7 +441,11 @@ export async function buildMlContent(
   outInput.type = "text";
   outInput.value = task.defaultOut;
   let outEdited = false;
-  outInput.addEventListener("input", () => (outEdited = true));
+  outInput.addEventListener("input", () => {
+    outEdited = true;
+    // The transform echo names the two curves it will write, so it has to follow the name.
+    echoTransform();
+  });
   content.appendChild(
     formRow("Output curve", outInput, "Extra outputs get suffixes: _PROB (confidence), or PC1/PC2… for reduction."),
   );
@@ -493,7 +540,17 @@ export async function buildMlContent(
     // Only a supervised fit is a reusable artifact. Clustering and reduction are fitted on the
     // very wells they are applied to, so "apply it later" would mean something different.
     saveRow.style.display = task.supervised ? "" : "none";
+    // Only a continuous target has a logarithm. Offered on a classifier the control would be an
+    // invitation to a refusal, and offered on clustering it would name a target that does not exist.
+    const canTransform = task.id === "regression";
+    xfRow.style.display = canTransform ? "" : "none";
+    xfEcho.style.display = canTransform ? "" : "none";
+    if (!canTransform && targetXf) {
+      targetXf = "";
+      for (const [k, el] of xfBtns) el.setAttribute("aria-pressed", String(k === ""));
+    }
     if (!outEdited) outInput.value = algo.out ?? task.defaultOut;
+    echoTransform();
     renderParams();
   }
 
@@ -606,6 +663,9 @@ export async function buildMlContent(
         standardize: stdCb.checked,
         seed: Math.round(parseFloat(seedInput.value) || 42),
         folds: 5,
+        // The leaderboard has to rank the model the run will fit. Ranked in linear space while the
+        // run fits log10, the table would recommend a different winner than the one that wins.
+        target_transform: task.id === "regression" && targetXf ? targetXf : null,
       });
       const ms = Math.round(performance.now() - t0);
       if (res.error) {
@@ -785,6 +845,7 @@ export async function buildMlContent(
       blind_fraction: task.supervised && splitOn.checked ? Number(splitPct.value) / 100 : null,
       split_seed: task.supervised && splitOn.checked ? Number(splitSeed.value) || 0 : null,
       split_mode: task.supervised && splitOn.checked ? splitMode : null,
+      target_transform: task.id === "regression" && targetXf ? targetXf : null,
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
@@ -1002,6 +1063,18 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
   const cvV = isClf ? num("accuracy_cv") : num("r2_cv");
   const blindV = isClf ? num("accuracy_blind") : num("r2_blind");
   const unit = isClf ? "accuracy" : "R²";
+
+  // SB-MLA-035. Every score below was computed in the space the model was fitted in, and an R² in
+  // log space is not the same claim as an R² in mD — it is usually the lower of the two, because
+  // the log fit is not being rewarded for getting the few largest values roughly right. So the
+  // space is stated once, above the numbers, rather than left for the reader to remember.
+  const space = typeof m.metric_space === "string" ? m.metric_space : null;
+  if (space) {
+    const sl = document.createElement("div");
+    sl.className = "ml-split-gap";
+    sl.textContent = `Scored in ${space} — the space the model was fitted in. Not comparable with a score on the untransformed target.`;
+    box.appendChild(sl);
+  }
 
   const scores = document.createElement("table");
   scores.className = "mc-table ml-score-table";

@@ -48,6 +48,12 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<u
             .map_err(|e| e.to_string())?;
         for r in rows {
             let (name, unit) = r.map_err(|e| e.to_string())?;
+            // A unit DECLARED by whatever wrote the curve beats one inferred from an equation of
+            // the same name (SB-MLA-035). The case this exists for is a prediction fitted in log
+            // space: exported with a blank unit — or worse, with the units of the quantity it is a
+            // logarithm OF — a log10(mD) column reads as a permeability, and every negative value
+            // in it reads as a physically impossible one rather than as a number below 1 mD.
+            let unit = crate::db::curve_unit_for(conn, well_id, &name).unwrap_or(unit);
             curve_names.push(name);
             units.push(unit);
         }

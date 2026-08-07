@@ -269,10 +269,18 @@ pub fn list_curve_catalog(conn: &Connection) -> duckdb::Result<Vec<CurveCatalogE
         CurveCatalogEntry { name: "SP".into(), units: Some("MV".into()), source: "Standard".into() },
     ];
 
+    // SB-MLA-035. A DECLARED unit (`curve_unit`, written by whatever produced the curve) wins over
+    // the equations join, which can only ever answer for a user equation — a curve written by a
+    // module or an ML run had no unit anywhere before this. `MAX` because the catalog is
+    // project-wide while a declaration is per well: where two wells disagree the catalog picks one
+    // rather than listing the curve twice, and the per-well truth stays available through
+    // `db::curve_unit_for`.
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT cc.curve_name, e.output_units
+        "SELECT DISTINCT cc.curve_name, COALESCE(u.unit, e.output_units)
          FROM computed_curves cc
          LEFT JOIN equations e ON e.output_curve = cc.curve_name
+         LEFT JOIN (SELECT upper(curve_name) AS cn, MAX(unit) AS unit FROM curve_unit GROUP BY 1) u
+                ON u.cn = upper(cc.curve_name)
          ORDER BY cc.curve_name",
     )?;
     let rows = stmt.query_map([], |row| {
