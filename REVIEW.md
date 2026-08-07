@@ -9027,3 +9027,37 @@ curves are written.
       cannot, and nothing else on the row would tell you.
 - [ ] **Look at a model saved before today.** No warnings at all. A record that did not exist is not
       a mismatch, and a tag that fires on every old model is a tag you would stop reading.
+
+## The same run twice gives the same curves — proven, not promised (2026-08-07)
+
+`SB-MLA-008`, the last of the P0 group.
+
+The competitive finding behind this one is blunt: on a pooled five-well set at K = 15, an unseeded
+clustering gives different cluster numbers every time it runs, so a facies track in a delivered
+report cannot be reproduced. Nobody else offers a guarantee here. We now do, and it is **measured
+rather than asserted** — every algorithm across all four tasks runs twice through real scikit-learn
+and the two results are compared **bit for bit**, not to a tolerance. Fifteen configurations, all
+identical. A tolerance would hide exactly the drift the check exists to catch, and comparing values
+rather than bits would let a sample that turned into a gap on the second pass pass as "both missing,
+both fine".
+
+Every run has a seed on the record even when you never touched the seed box, because the runner
+records the default it used along with the fact that it was a default. So the failure above cannot
+happen here by omission.
+
+**Where we do not promise, we say so before you press Run.** One case qualifies today, and it is
+our own code rather than a claim about somebody's library: `Gradient boosting` fits XGBoost where
+XGBoost is installed and substitutes scikit-learn's version where it is not — recorded as the same
+algorithm name either way. Same request, same seed, same wells, a different estimator depending on
+the machine. Choose it on a machine without XGBoost and a line under the algorithm says exactly
+that. This machine does not have XGBoost, so you should see it.
+
+Changed libraries, changed rows and a superseded input set are the other three ways a re-run stops
+matching — those are not properties of an algorithm and are reported separately, on the model row.
+
+- [ ] **Pick Regression ▸ Gradient boosting.** A line appears under the algorithm saying XGBoost is
+      not installed and this will fit the scikit-learn substitute. Switch to another algorithm and
+      it disappears — it is not a permanent banner.
+- [ ] **Run the same clustering twice on the same wells with the same seed.** The facies numbers are
+      identical, not merely similar. Change the seed and they are not.
+- [ ] **Run the same regression twice.** Same curve, and the same reported R², to every digit.

@@ -1839,6 +1839,18 @@ async fn list_ml_models(db: tauri::State<'_, DbState>) -> Result<Vec<db::MlModel
 /// Computed in Rust rather than compared in the picker so there is ONE implementation of each check
 /// and one wording. A model list is short and the runtime probe is cached, so this is one query and
 /// no subprocess after the first call.
+/// SB-MLA-008 — what about THIS configuration would not reproduce elsewhere, before it is run.
+///
+/// Scoped to what the product can observe in its own code rather than to second-hand claims about
+/// library determinism: today that is the `gbdt` estimator substitution. `None` is the ordinary
+/// answer and means the run is reproducible from its own record under the same runtime.
+#[tauri::command]
+async fn ml_determinism_note(task: String, algorithm: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || ml::determinism_note(&task, &algorithm))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn ml_model_warnings(db: tauri::State<'_, DbState>) -> Result<Vec<ml::ModelWarnings>, String> {
     let conn = db.0.clone();
@@ -3292,6 +3304,7 @@ pub fn run() {
             apply_ml_model,
             list_ml_models,
             ml_model_warnings,
+            ml_determinism_note,
             rename_ml_model,
             delete_ml_model,
             run_ml_eval,

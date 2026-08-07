@@ -4,6 +4,7 @@ import {
   listCurveCatalog,
   listMlModels,
   listWells,
+  mlDeterminismNote,
   mlModelWarnings,
   renameMlModel,
   runMl,
@@ -310,6 +311,15 @@ export async function buildMlContent(
   algoDesc.className = "mc-chain-note";
   content.appendChild(formRow("Algorithm", algoSel));
   content.appendChild(algoDesc);
+
+  // SB-MLA-008. What about the chosen configuration would not reproduce on another machine, said
+  // BEFORE the run rather than discovered when somebody cannot repeat the result. Hidden unless
+  // there is something to say — today that is only the gbdt estimator substitution, and a line that
+  // is present but empty most of the time teaches the eye to skip the place it appears.
+  const detNote = document.createElement("div");
+  detNote.className = "ml-determinism-note";
+  detNote.hidden = true;
+  content.appendChild(detNote);
 
   // --- Input curves + target ----------------------------------------------
   const featBox = document.createElement("div");
@@ -689,7 +699,22 @@ export async function buildMlContent(
     if (!outEdited) outInput.value = algo.out ?? task.defaultOut;
     echoTransform();
     renderParams();
+    // Asked per selection rather than once: the answer depends on which algorithm is chosen, and
+    // the backend caches the runtime probe, so every call after the first is free. A generation
+    // counter drops a stale answer — the user can change the algorithm faster than the round trip.
+    const gen = ++detGen;
+    detNote.hidden = true;
+    void mlDeterminismNote(task.id, algo.id)
+      .then((note) => {
+        if (gen !== detGen) return;
+        detNote.textContent = note ?? "";
+        detNote.hidden = !note;
+      })
+      .catch(() => {
+        /* a probe that could not run is not a claim that the run is non-deterministic */
+      });
   }
+  let detGen = 0;
 
   taskSel.addEventListener("change", () => {
     task = TASKS.find((t) => t.id === taskSel.value) ?? TASKS[0];

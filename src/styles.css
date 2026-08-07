@@ -4574,6 +4574,19 @@ textarea {
   border-color: color-mix(in srgb, var(--qc-alert) 45%, var(--border));
   background: color-mix(in srgb, var(--qc-alert) 10%, transparent);
 }
+/* SB-MLA-008. Shown only when the chosen configuration has something about it that would not
+   reproduce elsewhere. A left rule rather than a pill: this is a sentence to read, not a status to
+   glance at, and it sits under the algorithm it describes. */
+.ml-determinism-note {
+  margin: 4px 0 8px;
+  padding: 6px 10px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text);
+  border-left: 3px solid var(--qc-warn);
+  background: color-mix(in srgb, var(--qc-warn) 8%, transparent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
 /* SB-MLA-002 + SB-MLA-005. Present ONLY when something has moved under a model — the log set it
    learned from, or the libraries it was fitted with. Unlike the blind tag, which grades every model,
    this one's absence is the normal state and its presence is the whole message. --qc-warn rather

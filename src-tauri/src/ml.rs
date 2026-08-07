@@ -1494,6 +1494,44 @@ pub fn ml_runtime() -> serde_json::Value {
         .clone()
 }
 
+/// SB-MLA-008 — what would stop THIS configuration reproducing, said before the run.
+///
+/// The requirement's escape clause asks the product to name the source of any non-determinism rather
+/// than offer a guarantee that silently does not hold. The honest scope of that is what the product
+/// can OBSERVE — it is not a place to restate second-hand claims about which library is deterministic
+/// on which machine, because a claim nobody here can check is worth less than no claim.
+///
+/// One case qualifies, and it is SandiBumi's own code rather than anybody else's: `gbdt` fits
+/// `XGBRegressor` where `xgboost` is installed and substitutes scikit-learn's
+/// `HistGradientBoosting` where it is not (`ML_BUILD_MODEL`). Same request, same seed, same rows,
+/// two different estimators depending on the machine — and the request is recorded as `gbdt` either
+/// way, which is why SB-MLA-012 stays open. Here the point is narrower: the user is about to press
+/// Run, and this is the one thing about to happen that a re-run elsewhere would not repeat.
+///
+/// Everything else the product can see is a CROSS-RUN fact rather than a property of the algorithm —
+/// the runtime has moved, the rows have changed, the input set has been superseded — and each is
+/// already named where it belongs, on the model row (`model_warnings`) and in the run result.
+pub fn determinism_note(task: &str, algorithm: &str) -> Option<String> {
+    if task != "regression" || algorithm != "gbdt" {
+        return None;
+    }
+    let rt = ml_runtime();
+    // Absent because no Python was found at all, or absent because the probe asked and did not find
+    // it. Only the second is evidence; the first means the run is not going to start anyway.
+    let asked = rt.get("xgboost");
+    match asked {
+        Some(serde_json::Value::Null) => Some(
+            "xgboost is not installed, so this run will fit scikit-learn's HistGradientBoosting \
+             instead. It is recorded as 'gbdt' either way, so the same request on a machine that \
+             HAS xgboost fits a different estimator and will not reproduce these curves. \
+             Installing xgboost, or choosing an algorithm that does not substitute, removes the \
+             ambiguity."
+                .to_string(),
+        ),
+        _ => None,
+    }
+}
+
 /// SB-MLA-002 + SB-MLA-005 — everything a saved model's row should warn about, per model.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ModelWarnings {
@@ -5041,6 +5079,129 @@ mod tests {
         assert!(!out.status.success(), "a reordered matrix must be refused, not predicted");
         let err = String::from_utf8_lossy(&out.stderr);
         assert!(err.contains("fitted on"), "the refusal names the fitted order: {err}");
+    }
+
+    /// **SB-MLA-008 — the same run twice is the same curves, byte for byte, for every algorithm.**
+    ///
+    /// The dossier's finding is that no incumbent offers this: an unseeded k-means at K = 15 over a
+    /// pooled five-well set returns different cluster ids every time, so a facies track in a
+    /// delivered report cannot be reproduced. Every algorithm here goes through `P(p, "seed", …)`,
+    /// which means a seed is always on the record even when nobody typed one — but that is the
+    /// mechanism, not the evidence. This is the evidence, and it is measured rather than asserted.
+    ///
+    /// **Compared on the BITS, not the values.** A tolerance would hide exactly the drift this
+    /// exists to catch, and `f32::NAN != f32::NAN` under `==` — a run that turned a cluster into
+    /// noise on the second pass would slip through a value comparison as "both NaN, both fine".
+    /// `to_bits` makes a missing sample compare equal to a missing sample and unequal to anything
+    /// else, which is the byte-identity the requirement asks for.
+    ///
+    /// The metrics are compared too, because the requirement says "every reported metric" — a
+    /// silhouette or an explained-variance vector that moved is the same instability arriving by a
+    /// different door, and it is the number that ends up in a report's methodology table.
+    ///
+    /// `autoencoder` is excluded because it refuses (PyTorch is not wired up), and `dbscan` because
+    /// its parameters are data-scaled — the fixture's spread would return a single cluster and prove
+    /// nothing about determinism.
+    ///
+    /// **What this test proves depends on what is installed, and that is the point rather than a
+    /// weakness.** `gbdt` fits `XGBRegressor` where `xgboost` is present and scikit-learn's
+    /// `HistGradientBoosting` where it is not, so the case that passes here is whichever estimator
+    /// this machine actually runs — on the reference machine, with no `xgboost`, that is the
+    /// substitute. A test asserting determinism for an estimator that was never executed would be
+    /// the kind of guarantee SB-MLA-008's escape clause exists to prevent. `determinism_note` says
+    /// the same thing to the user before the run. Needs sklearn.
+    #[test]
+    #[ignore]
+    fn the_same_run_twice_produces_byte_identical_curves_for_every_algorithm() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // Four separable blobs in two dimensions, with a target that is a genuine function of both:
+        // enough structure for clustering to find groups and for a regressor to have something to
+        // learn, and small enough that sixteen fits run in seconds.
+        let n = 200usize;
+        let d = 2usize;
+        let mut x: Vec<f32> = Vec::with_capacity(n * d);
+        let mut y_reg: Vec<f32> = Vec::with_capacity(n);
+        let mut y_cls: Vec<f32> = Vec::with_capacity(n);
+        for i in 0..n {
+            let blob = i % 4;
+            let t = (i / 4) as f32;
+            let a = blob as f32 * 30.0 + (t * 0.37).sin() * 4.0;
+            let b = blob as f32 * 0.4 + (t * 0.71).cos() * 0.05;
+            x.push(a);
+            x.push(b);
+            y_reg.push(0.4 - 0.002 * a + 0.05 * b);
+            y_cls.push(blob as f32);
+        }
+
+        let cases: &[(&str, &str, Option<&[f32]>)] = &[
+            ("regression", "linear", Some(&[])),
+            ("regression", "rf", Some(&[])),
+            ("regression", "gbdt", Some(&[])),
+            ("regression", "svr", Some(&[])),
+            ("regression", "ann", Some(&[])),
+            ("classification", "rf", Some(&[])),
+            ("classification", "knn", Some(&[])),
+            ("classification", "svm", Some(&[])),
+            ("classification", "gnb", Some(&[])),
+            ("classification", "logreg", Some(&[])),
+            ("clustering", "kmeans", None),
+            ("clustering", "gmm", None),
+            ("clustering", "hier", None),
+            ("reduction", "pca", None),
+            ("reduction", "tsne", None),
+        ];
+
+        for (task, algo, supervised) in cases {
+            let target: Option<&[f32]> = supervised.map(|_| {
+                if *task == "classification" { &y_cls[..] } else { &y_reg[..] }
+            });
+            let params = serde_json::Map::new();
+            let once = exec_ml(&py, task, algo, &params, d, &x, target, &x, n)
+                .unwrap_or_else(|e| panic!("{task}/{algo} failed: {e}"));
+            let twice = exec_ml(&py, task, algo, &params, d, &x, target, &x, n)
+                .unwrap_or_else(|e| panic!("{task}/{algo} failed on the second run: {e}"));
+
+            assert_eq!(
+                once.1.len(),
+                twice.1.len(),
+                "{task}/{algo}: the two runs produced different numbers of curves",
+            );
+            for ((s1, v1), (s2, v2)) in once.1.iter().zip(twice.1.iter()) {
+                assert_eq!(s1, s2, "{task}/{algo}: the curve suffixes came back in a different order");
+                assert_eq!(v1.len(), v2.len(), "{task}/{algo}{s1}: different sample counts");
+                let differing = v1
+                    .iter()
+                    .zip(v2.iter())
+                    .enumerate()
+                    .find(|(_, (a, b))| a.to_bits() != b.to_bits());
+                assert!(
+                    differing.is_none(),
+                    "{task}/{algo}{s1}: sample {} is {:?} then {:?} - not byte-identical",
+                    differing.unwrap().0,
+                    differing.unwrap().1 .0,
+                    differing.unwrap().1 .1,
+                );
+            }
+
+            // "every reported metric", minus the two that describe the RUN rather than the answer:
+            // the effective-parameter record and the runtime both legitimately restate themselves,
+            // and neither is a number anybody would notice moving.
+            let strip = |m: &serde_json::Value| {
+                let mut m = m.clone();
+                if let Some(o) = m.as_object_mut() {
+                    o.remove("runtime");
+                }
+                m
+            };
+            assert_eq!(
+                strip(&once.0),
+                strip(&twice.0),
+                "{task}/{algo}: the metrics moved between two identical runs",
+            );
+        }
     }
 
     /// MASK excludes flagged rows from the FIT: a training well whose one flagged row carries a wild

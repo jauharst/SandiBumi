@@ -1282,6 +1282,16 @@ export function mlModelWarnings(): Promise<ModelWarnings[]> {
   return invoke<ModelWarnings[]>("ml_model_warnings");
 }
 
+/** SB-MLA-008 — what about a chosen task/algorithm would not reproduce on another machine, asked
+ *  BEFORE the run. `null` is the ordinary answer and means the run reproduces from its own record
+ *  under the same runtime.
+ *
+ *  Deliberately scoped to what the product can observe in its own code — today the `gbdt` estimator
+ *  substitution — rather than to second-hand claims about which library is deterministic where. */
+export function mlDeterminismNote(task: string, algorithm: string): Promise<string | null> {
+  return invoke<string | null>("ml_determinism_note", { task, algorithm });
+}
+
 /** Applies a saved model to wells it has never seen. Nothing is refitted — a refit on different
  *  data is a different model. The model's own curve list drives the inputs, so the caller cannot
  *  reorder them. */

@@ -1212,7 +1212,7 @@ deletion is the same hazard by a different route.
 
 **Verified by.** SB-MLA-T07
 
-#### SB-MLA-008 — A recorded ML run re-runs to byte-identical curves          [P0] [status: PARTIAL]
+#### SB-MLA-008 — A recorded ML run re-runs to byte-identical curves          [P0] [status: PRESENT-OK]
 
 **Requirement.** Re-executing a stored ML run record on unchanged inputs MUST produce
 byte-identical output curves, including cluster identifiers, probability curves and every reported
@@ -1226,13 +1226,53 @@ cluster ids on every re-run, so the facies track in a client report cannot be re
 escape clause in the second sentence is deliberate: some algorithms are genuinely
 platform-sensitive, and saying so is worth more than a guarantee that silently does not hold.
 
-**As-built.** `PARTIAL` — seeding is thorough: `ml.rs:64`, `KMeans(random_state=seed)`
-(`ml.rs:163`), `GaussianMixture(random_state=seed)` (`ml.rs:166`), the silhouette subsample via
-`RandomState(seed)` (`ml.rs:194`), `PCA(random_state=seed)` (`ml.rs:206`), and `facies.rs:145`
-derives a per-restart stream from the module seed. What is missing is not the seed but the record
-of everything else the answer depends on — `SB-MLA-001` through `SB-MLA-005`.
+**As-built.** ~~`PARTIAL`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: seeding was thorough, but
+what was missing was not the seed — it was the record of everything else the answer depends on. That
+record is now complete (`SB-MLA-001` the effective parameters, `SB-MLA-002` the input log set,
+`SB-MLA-003` the training rows, `SB-MLA-004` the mask, `SB-MLA-005` the runtime), and this
+requirement is what turns those five into a claim.
 
-**Verified by.** SB-MLA-T08, SB-MLA-T01
+*The guarantee is MEASURED, not asserted.*
+`the_same_run_twice_produces_byte_identical_curves_for_every_algorithm` runs fifteen configurations —
+every algorithm across all four tasks — twice each through the real subprocess and compares the
+results. **On the bits, not the values**: a tolerance would hide exactly the drift the test exists to
+catch, and `f32::NAN != f32::NAN`, so a run that turned a cluster into noise on the second pass would
+slip past a value comparison as "both NaN, both fine". `to_bits` makes a missing sample equal to a
+missing sample and unequal to everything else. Metrics are compared too, since the requirement says
+"every reported metric" and a moved silhouette is the same instability arriving by another door —
+into a report's methodology table.
+
+*Every algorithm has a seed on the record even when nobody typed one*, because the runner reads it
+through `P(p, "seed", SEED_DEFAULT)`, which records the value AND that it was defaulted
+(`SB-MLA-001`). So the dossier's failure case — an unseeded k-means at `K = 15` returning different
+cluster ids every run, and a facies track in a delivered report that cannot be reproduced — cannot
+arise here by omission.
+
+*The escape clause, scoped to what the product can observe.* The requirement asks that where
+byte-identity cannot be guaranteed, the product says so **before** the run and names the source. The
+honest scope of that is SandiBumi's own code, not second-hand claims about which library is
+deterministic on which machine — a claim nobody here can check is worth less than no claim. Exactly
+one case qualifies today, and it is ours: `gbdt` fits `XGBRegressor` where `xgboost` is installed and
+substitutes `HistGradientBoosting` where it is not, recorded as `gbdt` either way. Same request, same
+seed, same rows, two estimators depending on the machine. `determinism_note` says so under the
+algorithm picker, before Run.
+
+*Which estimator the test proves is itself machine-dependent, and that is the point.* On the
+reference machine `xgboost` is absent, so the `gbdt` case that passed is the substitute's
+determinism, not XGBoost's. A test asserting determinism for an estimator it never executed would be
+precisely the silent guarantee this requirement's second sentence exists to prevent.
+
+*What is deliberately NOT claimed.* Byte-identity is a guarantee **within one runtime**. A re-run
+under stepped libraries is not covered, and rather than assert anything about that the product
+detects and names it — `runtime_drift` on the model row and in the run result (`SB-MLA-005`). The
+same applies to changed rows (`SB-MLA-003`'s fingerprint) and a superseded input set
+(`SB-MLA-002`'s `training_set_drift`). Those are cross-run facts, not properties of an algorithm,
+and each is named where it belongs.
+
+**Verified by.** SB-MLA-T08 —
+`ml::tests::the_same_run_twice_produces_byte_identical_curves_for_every_algorithm` (`#[ignore]`d,
+needs real scikit-learn; run 2026-08-07, **15 configurations, all byte-identical**, 96 s). SB-MLA-T01
+closed separately with SB-MLA-001.
 
 #### SB-MLA-009 — Blind-well performance travels with the curve          [P1] [status: PRESENT-OK]
 
@@ -2827,6 +2867,13 @@ delete records the event and marks the citing curves as having an unresolvable m
 signs and every reported metric. **Byte equality, not a tolerance** — a tolerance here would hide
 exactly the drift the test exists to catch.
 **Source.** Dossier §5.3 `T-ML-SEED-1`; the differentiator argued in §3.7.
+
+**Two divergences, both deliberate (2026-08-07).** The fixture is a *pooled matrix*, not a multi-well
+DB fixture: the test drives `exec_ml` directly, because what is being pinned is the runner's
+determinism and a DB round trip between the two runs would add a second thing that could differ.
+`autoencoder` and `dbscan` are excluded and the reasons are recorded in the test — the first refuses
+outright (PyTorch is not wired up), and the second's parameters are data-scaled, so on this fixture
+it returns one cluster and would pass while proving nothing. Fifteen configurations remain.
 
 #### SB-MLA-T09 — blind and training metrics are reported as a pair
 **Input.** A three-well supervised fixture constructed so training and blind performance diverge.
