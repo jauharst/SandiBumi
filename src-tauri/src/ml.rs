@@ -5097,15 +5097,31 @@ for combo in combos:
     if err is not None:
         rows.append({"algorithm": algo, "feat_idx": fidx, "error": err})
         continue
+    # TWO scores, because they are two different questions, and this row used to print one's
+    # centre with the other's spread.
+    #
+    # `score` is the MEAN of the per-fold scores, each computed against its own held-out well -
+    # the same estimator `run_ml` reports as `r2_cv`, so a model does not change value between
+    # the table it was picked FROM and the run it was picked FOR. It is what `score_std` is the
+    # spread of, so the "+/-" now qualifies the number in front of it.
+    #
+    # `<metric>_pooled_oof` is one score over every out-of-fold prediction at once, against the
+    # GLOBAL mean. For R2 that is systematically HIGHER whenever the wells differ in level,
+    # because between-well contrast sits in its denominator as variance the model is credited
+    # with explaining - measured at +0.11 R2 on a five-well set whose per-well mean was 0.22.
+    # Neither is wrong: pooled answers "how good is the field-wide curve", the mean of folds
+    # answers "what will the NEXT well score". Both ship, each under its own name.
     metrics = {}
     if clf:
         oofi = oof.astype(int)
-        score = float(accuracy_score(yt, oofi))
+        score = float(np.mean(fold_scores)) if fold_scores else float("nan")
+        pooled = float(accuracy_score(yt, oofi))
         metrics["macro_f1"] = float(f1_score(yt, oofi, average="macro", zero_division=0))
         conf = confusion_matrix(yt, oofi, labels=labels).tolist()
         labs = labels
     else:
-        score = float(r2_score(y, oof))
+        score = float(np.mean(fold_scores)) if fold_scores else float("nan")
+        pooled = float(r2_score(y, oof))
         metrics["rmse"] = float(np.sqrt(np.mean((y - oof) ** 2)))
         conf = None; labs = None
     imp = [float("nan")] * len(fidx)
@@ -5118,7 +5134,8 @@ for combo in combos:
         # from 0.30 +/- 0.02, and only the second one names a predictor.
         imp_std = [float(v) for v in M.std(axis=0)] if M.shape[0] > 1 else [0.0] * len(fidx)
     rows.append({"algorithm": algo, "feat_idx": fidx, "score": score,
-                 "score_std": float(np.std(fold_scores)), "metrics": metrics,
+                 "score_std": float(np.std(fold_scores)), "score_pooled": pooled,
+                 "n_score_folds": int(len(fold_scores)), "metrics": metrics,
                  "importances": imp, "importances_std": imp_std,
                  "n_imp_folds": int(len(fold_imps)), "confusion": conf, "labels": labs,
                  "blind_pred": _finite(oof[XP])})
@@ -5185,8 +5202,30 @@ pub struct MlEvalRequest {
 pub struct MlEvalRow {
     pub algorithm: String,
     pub features: Vec<String>,
+    /// The MEAN of the per-fold scores — each fold scored against its own held-out well.
+    ///
+    /// This is the same estimator [`run_ml`] reports as `r2_cv`, deliberately: a model must not
+    /// change value between the table it was chosen FROM and the run it was chosen FOR. It is also
+    /// the number [`Self::score_std`] is the spread of, which was the defect — the row used to
+    /// print the POOLED score's centre with this one's spread, so "0.327 ± 0.094" described a
+    /// typical well that actually scored 0.216.
     pub score: Option<f64>,
+    /// Spread of the per-fold scores. Qualifies [`Self::score`] and nothing else.
     pub score_std: Option<f64>,
+    /// One score over every out-of-fold prediction at once, against the GLOBAL mean.
+    ///
+    /// Kept because it answers a real question — "how good is the field-wide curve?" — but it is
+    /// not the one a leaderboard is read for. For R² it runs systematically HIGHER than the mean of
+    /// folds whenever the wells differ in level, because between-well contrast sits in its
+    /// denominator as variance the model gets credit for explaining. Measured at +0.11 R² on a
+    /// five-well set. Ranking is by [`Self::score`], so the order answers "what will the next well
+    /// score" rather than flattering models that merely spread the field's own contrast.
+    #[serde(default)]
+    pub score_pooled: Option<f64>,
+    /// How many folds [`Self::score`] and [`Self::score_std`] are computed over. Below the run's
+    /// `n_splits`, some fold produced no score, and the mean is over fewer wells than it appears.
+    #[serde(default)]
+    pub n_score_folds: usize,
     pub metrics: serde_json::Value,
     /// Permutation importance, measured on each fold's HELD-OUT rows by the model that fold fitted,
     /// then averaged. It answers the same question `score` does — what carried to a well the model
@@ -5218,6 +5257,11 @@ pub struct MlEvalResult {
     pub n_groups: usize,
     pub cv: String,
     pub n_splits: usize,
+    /// What [`MlEvalRow::score`] and [`MlEvalRow::score_pooled`] each are, in one sentence, carried
+    /// ONCE because it is the same for every row. Shipped from here rather than written into the
+    /// renderer so the table cannot describe the numbers differently from the code that made them.
+    #[serde(default)]
+    pub score_protocol: String,
     pub note: Option<String>,
     /// Echo of the request's `params_for`: which row was scored with the user's own settings. The
     /// requirement is that the leaderboard says so rather than presenting a mixed table cleanly —
@@ -5248,6 +5292,7 @@ fn eval_fail(msg: &str) -> MlEvalResult {
         n_groups: 0,
         cv: String::new(),
         n_splits: 0,
+        score_protocol: String::new(),
         note: None,
         params_for: None,
         blind_actual: vec![],
@@ -5261,6 +5306,16 @@ fn eval_fail(msg: &str) -> MlEvalResult {
 /// Cap on total (algorithm x subset) combos evaluated in one leaderboard run — a full-subset
 /// sweep over many curves would otherwise fit thousands of models. Excess is dropped with a note.
 const MAX_COMBOS: usize = 80;
+
+/// The one place the two leaderboard scores are described, shipped to the renderer so the table
+/// cannot word them differently from the code that computes them.
+pub(crate) const SCORE_PROTOCOL: &str =
+    "Score is the MEAN of the per-well fold scores, and \u{00b1} is their spread - together they \
+     answer 'what will the NEXT well score', and ranking is by that. Pooled is one score over \
+     every out-of-fold row at once: it answers 'how good is the field-wide curve' and reads \
+     HIGHER whenever the wells differ in level, because the contrast between wells counts as \
+     variance the model is credited with explaining. Quoting one with the other's spread is how \
+     a model gets cited as half again as good as it is.";
 
 pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult {
     if !matches!(req.task.as_str(), "regression" | "classification") {
@@ -5439,6 +5494,8 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                     features: r.feat_idx.iter().filter_map(|&i| features.get(i).cloned()).collect(),
                     score: r.score,
                     score_std: r.score_std,
+                    score_pooled: r.score_pooled,
+                    n_score_folds: r.n_score_folds,
                     metrics: r.metrics,
                     importances: r.importances,
                     importances_std: r.importances_std,
@@ -5469,6 +5526,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                 n_groups: py.n_groups,
                 cv: py.cv,
                 n_splits: py.n_splits,
+                score_protocol: SCORE_PROTOCOL.to_string(),
                 note,
                 params_for: req.params_for.clone(),
                 blind_actual: py.blind_actual,
@@ -5489,6 +5547,10 @@ struct PyEvalRow {
     score: Option<f64>,
     #[serde(default)]
     score_std: Option<f64>,
+    #[serde(default)]
+    score_pooled: Option<f64>,
+    #[serde(default)]
+    n_score_folds: usize,
     #[serde(default)]
     metrics: serde_json::Value,
     #[serde(default)]
@@ -8881,6 +8943,75 @@ mod tests {
         let ev = metrics["explained_variance_pct"].as_array().unwrap();
         let total: f64 = ev.iter().map(|v| v.as_f64().unwrap()).sum();
         assert!(total > 99.0, "explained variance = {total}%");
+    }
+
+    /// The leaderboard used to print the POOLED out-of-fold score with the PER-FOLD spread beside
+    /// it, so "0.327 ± 0.094" described a typical well that actually scored 0.216 — found on a real
+    /// five-well delivery and reproduced exactly in sklearn.
+    ///
+    /// Pinned on a fixture built to make the two diverge on purpose: three wells whose x (and so
+    /// whose y) are offset far apart, with a within-well wiggle that x cannot predict. Globally the
+    /// offsets are most of the variance and the model captures them, so pooled R² is near 1. Within
+    /// any one held-out well the offset is a constant and only the wiggle is left, so the fold score
+    /// is poor. That is the same geometry as a real field — wells differ in level — which is why the
+    /// gap is not an artefact of the fixture.
+    ///
+    /// Pinned from BOTH sides: the low assertion alone would pass on a score that had become NaN,
+    /// zero or None, and the high assertion alone would pass on the old conflated number.
+    #[test]
+    fn a_leaderboard_ranks_on_the_per_well_mean_and_keeps_the_pooled_score_under_its_own_name() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        let mut g = Vec::new();
+        for well in 0..3 {
+            for i in 0..40 {
+                // Wells sit 10 apart; x moves only 0..1 inside a well.
+                let xv = 10.0 * well as f32 + i as f32 * 0.025;
+                // Amplitude 1 against a within-well x range of 1: inside a well the wiggle
+                // dominates and is uncorrelated with x, so there is nothing for a fold to score.
+                let wiggle = if i % 2 == 0 { 1.0 } else { -1.0 };
+                x.push(xv);
+                y.push(xv + wiggle);
+                g.push(well as f32);
+            }
+        }
+        let combos = vec![("linear".to_string(), vec![0usize])];
+        let out = exec_ml_eval(
+            &py, "regression", 1, y.len(), &x, &y, &g, &combos, false, 42, 3, &Default::default(), None,
+        )
+        .expect("eval run failed");
+        let row = out.rows.first().expect("one row");
+        assert!(row.error.is_none(), "row errored: {:?}", row.error);
+
+        let mean_of_folds = row.score.expect("a per-fold mean");
+        let pooled = row.score_pooled.expect("a pooled score under its own name");
+        assert_eq!(row.n_score_folds, 3, "the mean is over one score per well");
+
+        // The headline is the per-well mean, and on this fixture that is POOR — which is the
+        // honest answer to "what will the next well score".
+        assert!(
+            mean_of_folds < 0.5,
+            "score must be the mean of the per-well folds, which is poor here; got {mean_of_folds}"
+        );
+        // ...and it is a real number, not a hole. Without this the assertion above passes on NaN.
+        assert!(
+            mean_of_folds.is_finite() && mean_of_folds > -5.0,
+            "score is not a number: {mean_of_folds}"
+        );
+        // The pooled figure still ships, still flatters, and is now named as itself.
+        assert!(pooled > 0.9, "pooled out-of-fold R2 should be high here; got {pooled}");
+        assert!(
+            pooled - mean_of_folds > 0.4,
+            "the two estimators must stay distinct - pooled {pooled}, mean of folds {mean_of_folds}"
+        );
+        // The spread describes the number in front of it. It is the spread of the fold scores, so
+        // it cannot be larger than the gap it used to be printed across.
+        let sd = row.score_std.expect("a spread");
+        assert!(sd.is_finite(), "spread is not a number: {sd}");
     }
 
     #[test]

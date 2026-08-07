@@ -9592,3 +9592,47 @@ and that is now what the **K** field does.
 What is deliberately NOT here: no vendor algorithm, table or wording. A shipped default is one
 documented fact about a product, cited to the page documenting it. If an entry needed a lookup table
 to make sense, it would be the wrong entry.
+
+## The leaderboard's score and its plus-or-minus are now the same number (2026-08-07)
+
+Found by running the ML pane against a real five-well delivery — predicting bulk density from GR,
+TVDSS and deep resistivity — and then reproducing the result in scikit-learn outside SandiBumi to
+see whether the numbers held up. They did not, in a specific and correctable way.
+
+The leaderboard was computing its headline score as **one R² over every out-of-fold row at once**,
+and its `±` as **the spread of the per-well fold scores**. Two different statistics, printed as one
+figure. So a row reading `0.327 ± 0.094` was telling you that a typical well scores about 0.33 when
+a typical well actually scored **0.216**. The pooled number is higher because the wells sit at
+different density levels, and the contrast *between* wells lands in its denominator as variance the
+model gets credit for explaining — even though no well's own detail was predicted any better. On
+five wells the flattery was 0.11 R². It grows with how different your wells are, which is to say it
+grows exactly where a field study needs the number most.
+
+Two things it broke that were not obvious. The **tie rule** — which greys out a winner the fold
+spread cannot separate — was comparing a pooled centre against fold spreads, so it was measuring a
+gap in one currency against a ruler in another. And the leaderboard disagreed with the **training
+run**: the run reports `r2_cv` as the mean of its folds, so a model you picked at 0.33 would report
+about 0.22 the moment you actually ran it, and nothing said why.
+
+Both scores still ship. Neither is wrong — they answer different questions — so the table now has
+two labelled columns and says which is which.
+
+- [ ] **Run a Compare (leaderboard) over 3+ wells.** The score column is now headed **R² (per well)**
+      with a separate **R² (pooled)** column beside it. Read the sentence under the table: it should
+      say the first answers *what will the next well score* and the second *how good is the
+      field-wide curve*.
+- [ ] **Check the pooled column is the higher of the two** on wells that differ in character. If
+      they are nearly equal your wells are alike, which is itself worth knowing.
+- [ ] **Note that ranking follows the per-well column**, not pooled. A model that merely spreads the
+      field's own contrast should no longer float to the top.
+- [ ] **Now the cross-check that matters.** Pick the top model, run it for real with a blind split,
+      and compare the run's `r2_cv` against the leaderboard's per-well score. **They should be close.**
+      Before this they differed by about 0.11 with no explanation offered.
+- [ ] **Look at the score chart's whiskers.** They are drawn as score ± spread, so they were
+      previously centred on a number the spread did not describe. They should now sit around the
+      per-well score.
+- [ ] **If two rows are greyed as tied**, that judgement is now made in one currency. Worth a second
+      look at any run where the tie call previously seemed off.
+
+Verified by breaking it: with the old conflated line restored, the new test reports **0.985** where
+the honest per-well answer on the same fixture is poor.

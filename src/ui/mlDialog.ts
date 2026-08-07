@@ -2928,13 +2928,18 @@ function tiedAtTheTop(rows: MlEvalRow[]): number {
 export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean): void {
   host.innerHTML = "";
   if (res.error || !res.rows.length) return;
-  const scoreLabel = isClf ? "Accuracy" : "R²";
+  // Two columns because they are two estimators, and this table used to show one's centre under
+  // the other's spread. "per well" is the mean of the fold scores and is what the ± describes and
+  // what the ranking uses; "pooled" is one score over every out-of-fold row at once. Naming both
+  // in the header is the whole fix — an unlabelled "R²" is what let them be read as one number.
+  const scoreLabel = isClf ? "Accuracy (per well)" : "R² (per well)";
+  const pooledLabel = isClf ? "Accuracy (pooled)" : "R² (pooled)";
   const secLabel = isClf ? "macro-F1" : "RMSE";
 
   const table = document.createElement("table");
   table.className = "mc-table ml-leaderboard";
   const head = document.createElement("tr");
-  for (const h of ["#", "Algorithm", "Settings", "Curves", scoreLabel, "±", secLabel]) {
+  for (const h of ["#", "Algorithm", "Settings", "Curves", scoreLabel, "±", pooledLabel, secLabel]) {
     const th = document.createElement("th");
     th.textContent = h;
     head.appendChild(th);
@@ -2953,7 +2958,7 @@ export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: b
     // are at library defaults, which is what the run would fit for them — but only if it is said.
     const settings = res.params_for && row.algorithm === res.params_for ? "yours" : "defaults";
     const cells = row.error
-      ? [String(i + 1), row.algorithm, settings, row.features.join(", "), "error", "—", row.error]
+      ? [String(i + 1), row.algorithm, settings, row.features.join(", "), "error", "—", "—", row.error]
       : [
           String(i + 1),
           row.algorithm,
@@ -2961,6 +2966,7 @@ export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: b
           row.features.join(", "),
           row.score != null ? row.score.toFixed(4) : "—",
           row.score_std != null ? `±${row.score_std.toFixed(3)}` : "",
+          row.score_pooled != null ? row.score_pooled.toFixed(4) : "—",
           typeof sec === "number" ? sec.toFixed(4) : "—",
         ];
     for (const c of cells) {
@@ -2983,7 +2989,22 @@ export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: b
     table.appendChild(tr);
   });
 
-  host.appendChild(table);
+  // The table gained a column when the pooled score was split out of the per-well one, and a pane
+  // can be narrow in a window that is not. It scrolls inside its OWN container rather than being
+  // allowed to push the pane wide or, worse, be clipped by it — a leaderboard silently missing its
+  // RMSE column reads as a leaderboard that has no RMSE.
+  const scroller = document.createElement("div");
+  scroller.className = "ml-lb-scroll";
+  scroller.appendChild(table);
+  host.appendChild(scroller);
+  // What the two score columns are, in the backend's own words — shipped from `ml.rs` rather than
+  // written here, so the table cannot describe the numbers differently from the code that made them.
+  if (res.score_protocol) {
+    const proto = document.createElement("div");
+    proto.className = "mc-chain-note ml-score-protocol";
+    proto.textContent = res.score_protocol;
+    host.appendChild(proto);
+  }
   if (tied > 1) {
     const note = document.createElement("div");
     note.className = "mc-chain-note ml-tie-note";

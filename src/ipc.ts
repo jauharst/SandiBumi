@@ -1479,9 +1479,25 @@ export interface MlEvalRequest {
 export interface MlEvalRow {
   algorithm: string;
   features: string[];
-  /** Blind-well CV score: R² (regression) or accuracy (classification); null if it errored. */
+  /** The MEAN of the per-fold scores — R² (regression) or accuracy (classification), each fold
+   *  scored against its own held-out well. Null if the row errored.
+   *
+   *  This is the same estimator a training run reports as `r2_cv`, so a model does not change value
+   *  between the table it was chosen FROM and the run it was chosen FOR — and it is the number
+   *  `score_std` is the spread of. The table used to show `score_pooled` here with this one's
+   *  spread beside it, so a model reading "0.327 ± 0.094" scored 0.216 on a typical well. */
   score: number | null;
+  /** Spread of the per-fold scores. Qualifies `score` and nothing else. */
   score_std: number | null;
+  /** One score over every out-of-fold row at once, against the GLOBAL mean.
+   *
+   *  Answers "how good is the field-wide curve", which is a real question but not the one a
+   *  leaderboard is read for. Runs HIGHER than `score` whenever the wells differ in level, because
+   *  between-well contrast counts as variance the model is credited with explaining. */
+  score_pooled: number | null;
+  /** Folds `score` and `score_std` are computed over. Below `n_splits`, some fold produced no
+   *  score and the mean is over fewer wells than it looks. */
+  n_score_folds: number;
   metrics: Record<string, unknown>;
   /**
    * Permutation importance measured on each fold's HELD-OUT rows, then averaged — the same
@@ -1512,6 +1528,10 @@ export interface MlEvalResult {
   n_groups: number;
   cv: string;
   n_splits: number;
+  /** What the two score columns each are, in one sentence, carried once because it is the same for
+   *  every row. Shipped from `ml.rs` so the table cannot word them differently from the code that
+   *  computed them. */
+  score_protocol: string;
   note: string | null;
   /** Which row was scored with the settings on screen; every other row is at library defaults. */
   params_for: string | null;

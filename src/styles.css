@@ -4983,6 +4983,12 @@ textarea {
   gap: 8px;
   flex-wrap: wrap;
 }
+/* The leaderboard carries two score columns (per-well and pooled) and must not be clipped by a
+   narrow pane. Scrolls in its own box so the pane's own width is never pushed out. */
+.ml-lb-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
 .ml-leaderboard .ml-lb-row {
   cursor: pointer;
 }
