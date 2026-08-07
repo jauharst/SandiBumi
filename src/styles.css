@@ -4574,11 +4574,12 @@ textarea {
   border-color: color-mix(in srgb, var(--qc-alert) 45%, var(--border));
   background: color-mix(in srgb, var(--qc-alert) 10%, transparent);
 }
-/* SB-MLA-005. Present ONLY when the runtime a model was fitted under has moved — so unlike the blind
-   tag, which grades every model, this one's absence is the normal state and its presence is the whole
-   message. --qc-warn rather than --qc-alert: a changed library is a reason to look, not proof the
-   prediction is wrong, and the tooltip is where the components are named. */
-.ml-runtime-tag {
+/* SB-MLA-002 + SB-MLA-005. Present ONLY when something has moved under a model — the log set it
+   learned from, or the libraries it was fitted with. Unlike the blind tag, which grades every model,
+   this one's absence is the normal state and its presence is the whole message. --qc-warn rather
+   than --qc-alert: a reason to look, not proof the prediction is wrong, and the tooltip is where the
+   components are named. */
+.ml-drift-tag {
   flex: 0 0 auto;
   font-size: var(--fs-sm);
   padding: 1px 8px;

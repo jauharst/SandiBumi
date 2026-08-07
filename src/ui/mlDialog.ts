@@ -921,7 +921,7 @@ export async function buildMlContent(
       let driftTag: HTMLSpanElement | null = null;
       if (notes.length > 0) {
         driftTag = document.createElement("span");
-        driftTag.className = "ml-runtime-tag";
+        driftTag.className = "ml-drift-tag";
         driftTag.textContent = notes.length > 1 ? `${notes.length} warnings` : "has drifted";
         driftTag.title = notes.join("\n\n");
       }
