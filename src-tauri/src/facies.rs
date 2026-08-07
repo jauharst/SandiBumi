@@ -429,9 +429,15 @@ pub fn gmm_facies_spec() -> ModuleSpec {
             log_out("FACIES_GMM", "GMM facies index (0..K-1)", ""),
             log_out("FPROB", "Posterior probability of the winning facies", "v/v"),
             log_out(
-                "FACIES_SIL",
+                "FACIES_GMM_SIL",
                 "Silhouette per sample: how far apart the clusters actually are here, which is a \
                  different question from how sure the mixture is (FPROB)",
+                "",
+            ),
+            log_out(
+                "FACIES_GMM_CRI",
+                "Cluster randomness index of the facies at this depth: 1.0 is indistinguishable from \
+                 a random arrangement, 3.0 means its beds are three times thicker than chance",
                 "",
             ),
         ],
@@ -562,16 +568,24 @@ pub fn gmm_facies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     // questions and both are worth having: FPROB says how sure the mixture is that this sample
     // belongs to the component it won, which a confidently-fitted but badly-separated mixture can
     // report high; the silhouette says whether the clusters are geometrically apart at all.
+    // SB-MLA-029. The diagnostics are named for the ENGINE, exactly as the class curve is. Two
+    // modules writing `FACIES_SIL` into one well would not collide loudly — the second run would
+    // overwrite the first's quality curve with numbers computed for a different clustering, leaving
+    // a k-means facies log beside a GMM silhouette that appears to qualify it.
     let sil = silhouette_per_sample(&pts, &labels, k, seed);
+    let cri = cluster_randomness_index(&labels, &idx, k);
     let mut sil_out = vec![f32::NAN; n];
+    let mut cri_out = vec![f32::NAN; n];
     for (s, &i) in idx.iter().enumerate() {
         sil_out[i] = sil[s];
+        cri_out[i] = cri[labels[s]] as f32;
     }
 
     Ok(HashMap::from([
         ("FACIES_GMM".to_string(), out),
         ("FPROB".to_string(), prob),
-        ("FACIES_SIL".to_string(), sil_out),
+        ("FACIES_GMM_SIL".to_string(), sil_out),
+        ("FACIES_GMM_CRI".to_string(), cri_out),
     ]))
 }
 
@@ -881,6 +895,42 @@ mod tests {
         let w = cluster_randomness_index(&lab, &contiguous, 2);
         let g = cluster_randomness_index(&lab, &split, 2);
         assert!(g[0] < w[0], "a gap must split the run rather than being spanned: {g:?} vs {w:?}");
+    }
+
+    /// **SB-MLA-029 — two clustering engines may not write the same curve name into one well.**
+    ///
+    /// This collision does not fail loudly. Both engines run, both succeed, and the second silently
+    /// overwrites the first's diagnostics with numbers computed for a different clustering — leaving
+    /// a k-means facies log sitting beside a GMM silhouette that appears to qualify it. Nothing on
+    /// either track says otherwise, and the quality curve is the one a reviewer trusts to tell them
+    /// when not to trust the other.
+    ///
+    /// Asserted over the FULL output sets rather than the three names that exist today, so a fourth
+    /// output added to one engine and copied to the other is caught by this test rather than by
+    /// somebody reading a log view six months from now.
+    #[test]
+    fn two_facies_engines_never_write_the_same_curve_name() {
+        let logs = HashMap::from([(
+            "CURVE1".to_string(),
+            (0..60).map(|i| if i < 30 { 10.0 + i as f32 } else { 200.0 + i as f32 }).collect::<Vec<f32>>(),
+        )]);
+        let km = electrofacies(&ctx(logs.clone(), 3.0, 60)).expect("k-means should succeed");
+        let gm = gmm_facies(&ctx(logs, 3.0, 60)).expect("gmm should succeed");
+
+        let shared: Vec<&String> = km.keys().filter(|k| gm.contains_key(*k)).collect();
+        assert!(
+            shared.is_empty(),
+            "the two engines share {shared:?} - run both on one well and the second overwrites the \
+             first's curve with values computed for a different clustering, and nothing says so"
+        );
+        // And each engine's own outputs name it, or the separation above is an accident rather than
+        // a rule the next output will follow.
+        for name in gm.keys() {
+            assert!(
+                name.contains("GMM") || name == "FPROB",
+                "every GMM output should name its engine so the rule survives the next addition: {name}"
+            );
+        }
     }
 
     /// SB-MLA-063 / SB-MLA-036 — the two silent behaviours in this module, pinned from both sides.

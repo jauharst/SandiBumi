@@ -1844,7 +1844,7 @@ cross-validation that did not exist.
 `a_shifted_well_is_standardized_by_the_wells_that_trained_on_it` (behavioural, skips without
 scikit-learn).
 
-#### SB-MLA-029 — A facies mnemonic names the engine that produced it          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-029 — A facies mnemonic names the engine that produced it          [P1] [status: PARTIAL]
 
 **Requirement.** Every class-label curve MUST carry a mnemonic that identifies the method that
 produced it, and two different methods MUST NOT be able to write the same mnemonic in one well.
@@ -1855,10 +1855,9 @@ discipline is owed to `FACIES`. Two facies tracks in one well from two engines, 
 after neither, is not a naming preference — it makes the confusion matrix in `facies_tie.rs`
 ambiguous about what it just compared.
 
-**As-built.** `PRESENT-DIVERGENT` — `facies.rs:160` writes `FACIES`, `facies.rs:186` writes
-`FACIES_GMM`, and the Python clustering path writes the frontend default `FACIES_ML`
-(`src/ui/mlDialog.ts:113`). Two of the three name their engine; the k-means native module, which is
-the most likely to be run, does not.
+**As-built.** `PARTIAL` (2026-08-07) — the requirement's **second clause is now enforced and tested**: `two_facies_engines_never_write_the_same_curve_name` asserts the two native engines' FULL output sets are disjoint, so a fourth output added to one and copied to the other is caught here rather than by somebody reading a log view six months later. The diagnostics added for SB-MLA-043/-044 are named per engine (`FACIES_SIL` / `FACIES_CRI` against `FACIES_GMM_SIL` / `FACIES_GMM_CRI`) for exactly that reason — the collision would not have failed loudly, it would have left a k-means facies log beside a GMM silhouette that appeared to qualify it.
+
+**The first clause is deliberately not closed.** The k-means engine still writes `FACIES`, which does not name its method. Renaming it to `FACIES_KM` would be correct and is a BREAKING change: it is the curve the built-in Facies layout references, the name in every saved layout and session a user already has, and the input to any chain step downstream of it. That is a migration, not an edit, and it is Jauhar's call rather than one to make inside a sweep.
 
 **Verified by.** SB-MLA-T30
 
