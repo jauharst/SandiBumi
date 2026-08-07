@@ -1267,12 +1267,36 @@ export interface SplitReport {
 /** How alike the fit and blind sides are, per feature and on the target — the evidence for a
  *  stratified draw's "similar statistics" claim. Reported rather than asserted: a pair that does
  *  NOT match is the signal that the strata were too thin to divide representatively. */
+/** One side of a split, as a whole distribution rather than a centre and a width. */
+export interface BalanceShape {
+  n: number;
+  mean: number;
+  sd: number;
+  p10: number;
+  p50: number;
+  p90: number;
+  /** Midpoint of the tallest bin of a 64-bin histogram over BOTH sides' combined range — the two
+   *  sides share one binning, because modes read off different binnings are not a comparison. */
+  mode: number;
+  /** Fisher-Pearson g1, the population form — the same number `scipy.stats.skew` returns. */
+  skew: number;
+}
+
 export interface SplitBalance {
   name: string;
   fit_mean: number;
   blind_mean: number;
   fit_sd: number;
   blind_sd: number;
+  /** The whole shape of each side. Two sets can agree exactly on mean and sd and still be a
+   *  unimodal clean sand against a bimodal sand-shale pair, so the four flat fields above cannot
+   *  answer whether a draw was representative. Optional so a metrics blob written before this
+   *  existed still renders. */
+  fit?: BalanceShape;
+  blind?: BalanceShape;
+  /** Centre shift in FIT standard deviations — the one form comparable across curves in different
+   *  units. Signed: which way the blind side sits matters. */
+  mean_shift_sd?: number;
 }
 
 export interface MlWellResult {

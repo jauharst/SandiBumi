@@ -2394,8 +2394,12 @@ function renderEffectiveParams(host: HTMLElement, metrics: Record<string, unknow
  *
  * The wells are named, not counted. "70% held out" is not an answer to "which wells?", and a
  * blind score is a claim about specific rock.
+ *
+ * Exported for the same reason `renderLeaderboard` is: driving it with synthetic metrics over the
+ * vite dev server is this repo's only route to exercising frontend logic, and the balance table's
+ * paired-row layout is wrong in ways a screenshot shows and a type check does not.
  */
-function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => string): void {
+export function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => string): void {
   const sp = res.split;
   if (!sp) return;
   const m = (res.metrics ?? {}) as Record<string, unknown>;
@@ -2545,6 +2549,13 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
   // "Similar statistics" is a claim, so it is evidenced rather than asserted. A stratified draw is
   // SUPPOSED to make these match — so a row that does not match is the useful one: it means that
   // stratum was too thin to divide representatively, and the blind score leans on it.
+  //
+  // The whole DISTRIBUTION, not the centre and the width. Two sides can agree exactly on mean and
+  // standard deviation and still be a unimodal clean sand against a bimodal sand-shale pair, or
+  // differ entirely in which tail is long — and the blind score computed on that is a statement
+  // about a population the model was never fitted to, with nothing downstream able to tell. This
+  // matters most where it is easiest to miss: a whole-well hold-out on a handful of wells is a
+  // lottery, and this table is the only place the user sees which ticket they drew.
   const bal = Array.isArray(m.split_balance) ? (m.split_balance as SplitBalance[]) : null;
   if (bal && bal.length) {
     const cap = document.createElement("div");
@@ -2552,48 +2563,92 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
     cap.textContent = "How alike the two sides are";
     box.appendChild(cap);
 
+    // Two rows per curve — fitted above, blind below — so the eye compares down a column. The
+    // alternative (one row per curve with paired cells) puts two numbers in every cell and makes
+    // the eight statistics unreadable at the width a pane actually gets.
+    const scroller = document.createElement("div");
+    scroller.className = "ml-balance-scroll";
     const t = document.createElement("table");
     t.className = "mc-table ml-balance-table";
     const hr = document.createElement("tr");
-    for (const h of ["", "fitted mean", "blind mean", "difference"]) {
+    for (const h of ["", "n", "mean", "sd", "P10", "P50", "P90", "mode", "skew"]) {
       const th = document.createElement("th");
       th.textContent = h;
       hr.appendChild(th);
     }
     t.appendChild(hr);
-    for (const b of bal) {
-      // Scaled by the fitted side's own spread, because a 0.02 gap is nothing on GR and everything
-      // on porosity — an absolute difference cannot be compared across curves.
-      const sd = Math.max(Math.abs(b.fit_sd), 1e-9);
-      const z = Math.abs(b.fit_mean - b.blind_mean) / sd;
-      const tr = document.createElement("tr");
-      if (z > 0.25) tr.className = "ml-balance-off";
-      const cells = [
-        b.name,
-        b.fit_mean.toPrecision(4),
-        b.blind_mean.toPrecision(4),
-        `${z < 0.005 ? "<0.01" : z.toFixed(2)} sd`,
-      ];
-      cells.forEach((c, i) => {
-        const el = document.createElement(i === 0 ? "th" : "td");
-        el.textContent = c;
-        tr.appendChild(el);
-      });
-      t.appendChild(tr);
-    }
-    box.appendChild(t);
 
-    const worst = Math.max(
-      ...bal.map((b) => Math.abs(b.fit_mean - b.blind_mean) / Math.max(Math.abs(b.fit_sd), 1e-9)),
-    );
+    // How far apart the two sides are on ONE statistic, in fitted standard deviations. Scaled that
+    // way because a 0.02 gap is nothing on GR and everything on porosity, so an absolute difference
+    // cannot be compared across curves. Skew is already dimensionless and is compared raw.
+    const shift = (b: SplitBalance, k: "mean" | "p10" | "p50" | "p90" | "mode"): number => {
+      if (!b.fit || !b.blind) return k === "mean" ? Math.abs(b.fit_mean - b.blind_mean) / Math.max(Math.abs(b.fit_sd), 1e-9) : 0;
+      return Math.abs(b.fit[k] - b.blind[k]) / Math.max(Math.abs(b.fit.sd), 1e-9);
+    };
+    const LOC = ["mean", "p10", "p50", "p90", "mode"] as const;
+    // The worst discrepancy anywhere in the table, and WHICH statistic on WHICH curve produced it.
+    // Reporting only the worst mean shift is what let a draw that matched in the centre and
+    // diverged in the tail be called representative.
+    let worst = 0;
+    let worstAt = "";
+    for (const b of bal) {
+      for (const k of LOC) {
+        const z = shift(b, k);
+        if (z > worst) { worst = z; worstAt = `${b.name} at ${k === "mean" ? "the mean" : k.toUpperCase()}`; }
+      }
+    }
+    let worstSkew = 0;
+    let worstSkewAt = "";
+    for (const b of bal) {
+      if (!b.fit || !b.blind) continue;
+      const ds = Math.abs(b.fit.skew - b.blind.skew);
+      if (ds > worstSkew) { worstSkew = ds; worstSkewAt = b.name; }
+    }
+
+    const num = (v: number | undefined, digits = 4) =>
+      v == null || !Number.isFinite(v) ? "—" : Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toExponential(2) : v.toPrecision(digits);
+    for (const b of bal) {
+      const off = LOC.some((k) => shift(b, k) > 0.25) ||
+        (b.fit && b.blind ? Math.abs(b.fit.skew - b.blind.skew) > 0.5 : false);
+      for (const side of ["fit", "blind"] as const) {
+        const s = b[side];
+        const tr = document.createElement("tr");
+        tr.className = side === "blind" ? "ml-balance-blind" : "ml-balance-fit";
+        if (off) tr.classList.add("ml-balance-off");
+        const cells = s
+          ? [`${b.name} — ${side === "fit" ? "fitted" : "blind"}`, String(s.n), num(s.mean), num(s.sd),
+             num(s.p10), num(s.p50), num(s.p90), num(s.mode), s.skew.toFixed(2)]
+          : [`${b.name} — ${side === "fit" ? "fitted" : "blind"}`, "—",
+             num(side === "fit" ? b.fit_mean : b.blind_mean), num(side === "fit" ? b.fit_sd : b.blind_sd),
+             "—", "—", "—", "—", "—"];
+        cells.forEach((c, i) => {
+          const el = document.createElement(i === 0 ? "th" : "td");
+          el.textContent = c;
+          tr.appendChild(el);
+        });
+        t.appendChild(tr);
+      }
+    }
+    scroller.appendChild(t);
+    box.appendChild(scroller);
+
     const note = document.createElement("div");
-    note.className = worst > 0.25 ? "ml-score-note ml-split-gap-warn" : "ml-score-note";
-    note.textContent =
-      worst > 0.25
-        ? `The two sides differ by up to ${worst.toFixed(2)} standard deviations on one input — the blind set is not a ` +
-          `representative sample of the whole, so its score is partly a statement about which rows happened to be drawn.`
-        : "Every input and the target agree between the two sides to well within a quarter of a standard deviation — " +
-          "the blind set is a representative sample of the whole.";
+    const bad = worst > 0.25 || worstSkew > 0.5;
+    note.className = bad ? "ml-score-note ml-split-gap-warn" : "ml-score-note";
+    if (bad) {
+      const parts: string[] = [];
+      if (worst > 0.25) parts.push(`by ${worst.toFixed(2)} standard deviations on ${worstAt}`);
+      if (worstSkew > 0.5) parts.push(`by ${worstSkew.toFixed(2)} in skew on ${worstSkewAt}`);
+      note.textContent =
+        `The two sides differ ${parts.join(", and ")} — so the blind set is not the same population as ` +
+        `the fitted one, and its score is partly a statement about which rows happened to be drawn. ` +
+        `A draw can match in the centre and still diverge in the tails, which is why every statistic is here.`;
+    } else {
+      note.textContent =
+        `Both sides agree on every statistic — centre, spread, P10, P50, P90, mode and skew — to within a ` +
+        `quarter of a standard deviation (worst: ${worst.toFixed(2)} sd on ${worstAt || "all curves"}). ` +
+        `That is a representative draw on the evidence available; it is not a guarantee the next well resembles either side.`;
+    }
     box.appendChild(note);
   }
   host.appendChild(box);

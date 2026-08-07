@@ -9636,3 +9636,52 @@ two labelled columns and says which is which.
 
 Verified by breaking it: with the old conflated line restored, the new test reports **0.985** where
 the honest per-well answer on the same fixture is poor.
+
+## The blind draw is judged on its whole shape, not on its mean (2026-08-07)
+
+Jauhar, on reading the blind-vs-train gap: *"the lottery blind not only cover same single
+statistic, but should cover all, such p10 and p90, std, mean, modus, and skewness"*. He is right,
+and the old table could not have caught it.
+
+"How alike the two sides are" compared **mean and standard deviation only**. Two sets can agree
+exactly on both and still be completely different rock — a unimodal clean sand against a bimodal
+sand-shale pair, or two sets differing entirely in which tail is long. When that happens the blind
+score is a statement about a population the model was never fitted to, and nothing downstream can
+tell, because the score is one number.
+
+It matters most where it is easiest to miss. A whole-well hold-out on a handful of wells is a
+lottery: on a real five-well set, the ten possible two-well draws spanned **0.64 R²**, from +0.32 to
+−0.32, with the same model and the same data. This table is the only place you can see which ticket
+you drew.
+
+So it now reports **n, mean, sd, P10, P50, P90, mode and skew** for both sides, two rows per curve —
+fitted above, blind below — and flags a curve on **any** of them, not on the mean alone.
+
+Three things worth knowing about how it is computed. The percentiles come from `distribution.rs`,
+the same shared statistics core every other percentile in SandiBumi uses, so they agree with the
+histogram panel and the Field Dashboard by construction rather than by a third implementation being
+kept in step by hand. The **mode** has no meaning on continuous data without a binning, so both
+sides are histogrammed over their **combined** range at one resolution — a mode read off two
+different binnings would not be a comparison. **Skew** is Fisher-Pearson g1, the same number
+`scipy.stats.skew` returns, so it can be checked.
+
+It also fixes something small that had been there all along: the curves are **named** now. The
+runner is only told the feature names when it is saving a model, so the table used to read
+`x0`, `x1`, `x2`.
+
+- [ ] **Run a model with a blind split** and open the split box. The balance table should have eight
+      statistics and two rows per curve, and the curves should be named — GR, RHOB, TVDSS — not x0.
+- [ ] **Check a curve you know is skewed** (deep resistivity is the usual one). Its fitted and blind
+      skew are unlikely to match, and that is the finding.
+- [ ] **Read the sentence under the table.** It should name the worst disagreement and say **which
+      statistic on which curve** produced it — not just "the two sides differ".
+- [ ] **The important case:** a curve flagged in red whose *means* look almost identical. That is
+      exactly what the old table passed as representative, and the reason for the change.
+- [ ] **Re-run with a different split seed** and watch the table change. If it changes a lot, your
+      blind score is a lottery ticket and should be quoted with that in mind — prefer the
+      leaderboard's leave-one-well-out, which uses every well as the test set once.
+- [ ] **Narrow the pane.** The balance table scrolls sideways in its own box below about 620px; the
+      pane must not stretch and the window must never scroll sideways.
+
+Known and NOT fixed here: the three-score table above it (train / CV / blind) still overflows a pane
+narrower than about 440px. Pre-existing, unrelated to this change, and worth a separate look.

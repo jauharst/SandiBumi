@@ -7978,9 +7978,28 @@ input[type="number"].num-editing:focus {
   text-align: left;
   font-weight: 500;
 }
-/* A row that did NOT balance is the useful one — it means that stratum was too thin to divide.
- * Marked with the warn colour, never hidden. */
-.ml-balance-table tr.ml-balance-off td:last-child {
+/* Eight statistics per side is wider than a narrow pane, so the table scrolls in its own box
+ * rather than pushing the pane out or being clipped by it. */
+.ml-balance-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  margin-top: 4px;
+}
+/* Fitted above, blind below, as a visually bound PAIR: the blind row carries the tint and the
+ * fitted row above it loses its bottom rule, so the eye reads two rows as one curve rather than as
+ * eight unrelated rows. */
+.ml-balance-table tr.ml-balance-blind td,
+.ml-balance-table tr.ml-balance-blind th {
+  background: var(--bg-panel-alt);
+}
+.ml-balance-table tr.ml-balance-fit td,
+.ml-balance-table tr.ml-balance-fit th {
+  border-bottom: none;
+}
+/* A curve that did NOT balance is the useful one — the draw is unrepresentative on that curve and
+ * the blind score leans on it. Marked on the row label, never hidden, and now triggered by ANY of
+ * the location statistics or by skew rather than by the mean alone. */
+.ml-balance-table tr.ml-balance-off th:first-child {
   color: var(--warn, #d96a52);
   font-weight: 600;
 }

@@ -1006,22 +1006,11 @@ def blind_score(model, kind):
             "centimetres from fitted ones, so this reads higher than a whole-well score would"
             % int(np.sum(blind))
         )
-    # How alike the two sides are, per feature and on the target. This is the evidence for
-    # "similar statistics", and it is reported rather than asserted: a stratified draw is
-    # SUPPOSED to make these match, so a pair that does not match is the signal that the strata
-    # were wrong - a class with three samples in it cannot be split representatively.
-    try:
-        cmp = []
-        for j, nm in enumerate(feature_names or [("x%d" % j) for j in range(d)]):
-            cf, cb = X[fit_rows, j], X[blind, j]
-            cmp.append({"name": nm, "fit_mean": float(np.mean(cf)), "blind_mean": float(np.mean(cb)),
-                        "fit_sd": float(np.std(cf)), "blind_sd": float(np.std(cb))})
-        yf_, yb_ = y[fit_rows], y[blind]
-        cmp.append({"name": "(target)", "fit_mean": float(np.mean(yf_)), "blind_mean": float(np.mean(yb_)),
-                    "fit_sd": float(np.std(yf_)), "blind_sd": float(np.std(yb_))})
-        metrics["split_balance"] = cmp
-    except Exception:
-        pass
+    # `split_balance` used to be built here, from mean and standard deviation only, and under
+    # positional names because the runner is only told the feature names when it is saving a model.
+    # It is built in Rust now (`balance_table`), on `distribution.rs` - the shared statistics core -
+    # so the percentiles agree with every other percentile in the product by construction instead of
+    # by a third implementation being kept in step by hand.
     try:
         if kind == "r2":
             pb = model.predict(Xb)
@@ -2911,6 +2900,7 @@ fn run_ml_coverage(
                     Some(&y_train),
                     &x_apply,
                     n_apply,
+                    &sub,
                     save_features,
                     Some(&groups),
                     &blind_mask,
@@ -3991,6 +3981,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         y_opt,
         &x_apply,
         n_apply,
+        &features,
         save_features,
         if supervised { Some(groups.as_slice()) } else { None },
         &blind_mask,
@@ -4830,8 +4821,8 @@ pub(crate) fn exec_ml(
     n_apply: usize,
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>), String> {
     exec_ml_full(
-        python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None, None, &[],
-        &NormBasis::Data,
+        python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, &[], None, None,
+        &[], &NormBasis::Data,
     )
     .map(|r| (r.metrics, r.outs))
 }
@@ -4849,6 +4840,127 @@ pub(crate) struct MlRun {
     pub runtime: serde_json::Value,
 }
 
+/// How many bins the mode is read off.
+///
+/// A mode on continuous data has no meaning without a binning, and the two sides of a split must
+/// share ONE binning or their modes are not comparable — so both are histogrammed over their
+/// COMBINED range at this resolution. 64 is a display resolution rather than a fitted number: fine
+/// enough to separate a sand mode from a shale mode in a GR distribution, coarse enough that a few
+/// hundred samples still fill a bin.
+const BALANCE_MODE_BINS: usize = 64;
+
+/// One side of the split, described as a whole distribution rather than a centre and a width.
+///
+/// `lo`/`hi` are the COMBINED range of both sides, passed in so the mode is read off the same
+/// binning on each — a mode from two different binnings is not a comparison.
+fn balance_shape(values: &[f32], lo: f32, hi: f32) -> serde_json::Value {
+    let n = values.len();
+    if n == 0 {
+        return serde_json::json!({ "n": 0 });
+    }
+    let mean = values.iter().map(|&v| v as f64).sum::<f64>() / n as f64;
+    let m2 = values.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / n as f64;
+    let m3 = values.iter().map(|&v| (v as f64 - mean).powi(3)).sum::<f64>() / n as f64;
+    let sd = m2.sqrt();
+    // Fisher-Pearson g1, the population form - the same one `scipy.stats.skew` returns by default,
+    // so a user checking this against scipy gets the same number. Zero rather than NaN on a
+    // constant curve: a curve with no spread has no asymmetry, which is a fact, not a gap.
+    let skew = if m2 > 0.0 { m3 / m2.powf(1.5) } else { 0.0 };
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mode = if hi > lo {
+        let counts = crate::distribution::histogram(values, lo, hi, BALANCE_MODE_BINS);
+        let top = counts.iter().enumerate().max_by_key(|(_, &c)| c).map(|(i, _)| i).unwrap_or(0);
+        lo as f64 + (top as f64 + 0.5) * (hi - lo) as f64 / BALANCE_MODE_BINS as f64
+    } else {
+        lo as f64
+    };
+    serde_json::json!({
+        "n": n,
+        "mean": mean,
+        "sd": sd,
+        "p10": crate::distribution::percentile(&sorted, 10.0) as f64,
+        "p50": crate::distribution::percentile(&sorted, 50.0) as f64,
+        "p90": crate::distribution::percentile(&sorted, 90.0) as f64,
+        "mode": mode,
+        "skew": skew,
+    })
+}
+
+/// The evidence for "the blind wells look like the wells that were fitted", as a whole SHAPE.
+///
+/// Mean and standard deviation cannot answer it between them. Two sets can share both and still be
+/// a unimodal clean sand on one side and a bimodal sand-shale pair on the other, or differ entirely
+/// in which tail is long. A draw that matches in the centre and diverges at P10, at its mode or in
+/// its skew produces a blind score that is a statement about a different rock population — and
+/// nothing downstream can tell, because the score is one number.
+///
+/// This is why it is worth the columns: a whole-well hold-out on a handful of wells is a lottery
+/// (measured on a real five-well set, the ten possible 2-well draws spanned 0.64 R²), and the
+/// balance table is the only place the user can see which ticket they drew.
+///
+/// **Reported, never judged.** There is no threshold here on purpose — the `facies_tie` rule. What
+/// counts as too different depends on how much the field actually varies, which is the
+/// interpreter's knowledge and not SandiBumi's. What ships is both sides' shape and the centre
+/// shift expressed in FIT standard deviations, which is the one form comparable across curves that
+/// are in different units.
+///
+/// Computed HERE rather than in the runner, on `distribution.rs`, because that module is already
+/// the shared statistics core and a third implementation in Python is exactly the drift this repo
+/// keeps warning about. Doing it in Rust is also what lets the feature curves be NAMED: the runner
+/// only receives names when a model is being saved, so the old table read `x0`, `x1`, `x2`.
+fn balance_table(
+    names: &[String],
+    d: usize,
+    x_train: &[f32],
+    y_train: Option<&[f32]>,
+    blind_mask: &[f32],
+) -> Vec<serde_json::Value> {
+    let n = blind_mask.len();
+    if n == 0 || d == 0 || x_train.len() < n * d {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(d + 1);
+    let mut push = |label: String, pick: &dyn Fn(usize) -> f32| {
+        let mut fit: Vec<f32> = Vec::new();
+        let mut blind: Vec<f32> = Vec::new();
+        for i in 0..n {
+            let v = pick(i);
+            if !v.is_finite() {
+                continue;
+            }
+            if blind_mask[i] > 0.5 { blind.push(v) } else { fit.push(v) }
+        }
+        if fit.is_empty() || blind.is_empty() {
+            return;
+        }
+        let lo = fit.iter().chain(blind.iter()).copied().fold(f32::INFINITY, f32::min);
+        let hi = fit.iter().chain(blind.iter()).copied().fold(f32::NEG_INFINITY, f32::max);
+        let f = balance_shape(&fit, lo, hi);
+        let b = balance_shape(&blind, lo, hi);
+        let (fm, bm) = (f["mean"].as_f64().unwrap_or(0.0), b["mean"].as_f64().unwrap_or(0.0));
+        let fsd = f["sd"].as_f64().unwrap_or(0.0);
+        out.push(serde_json::json!({
+            "name": label,
+            // The four keys the table has always carried, kept flat and unchanged so an older
+            // reader of this metric still finds what it looks for.
+            "fit_mean": fm, "blind_mean": bm,
+            "fit_sd": fsd, "blind_sd": b["sd"],
+            "fit": f, "blind": b,
+            // The centre shift in FIT standard deviations. Unitless on purpose: it is the only
+            // form in which a shift in GR and a shift in TVDSS can be read off one column.
+            "mean_shift_sd": if fsd > 0.0 { (bm - fm) / fsd } else { 0.0 },
+        }));
+    };
+    for (j, name) in (0..d).map(|j| (j, names.get(j).cloned().unwrap_or_else(|| format!("x{j}")))) {
+        push(name, &|i| x_train[i * d + j]);
+    }
+    if let Some(y) = y_train.filter(|y| y.len() >= n) {
+        push("(target)".to_string(), &|i| y[i]);
+    }
+    out
+}
+
 /// As `exec_ml`, but when `save_features` is `Some(names)` the fitted scaler + estimator come
 /// back as a joblib blob (with the scikit-learn version that wrote it, so a later load failure
 /// can name the mismatch instead of being a mystery).
@@ -4863,6 +4975,10 @@ pub(crate) fn exec_ml_full(
     y_train: Option<&[f32]>,
     x_apply: &[f32],
     n_apply: usize,
+    // The feature curves in resolved order. Distinct from `save_features`, which is `Some` only
+    // when a model is being kept — the runner is told the names only in that case, which is why
+    // the balance table used to read `x0`, `x1`, `x2`. This one is always known.
+    feature_names: &[String],
     save_features: Option<&[String]>,
     // `groups` is one well index per training row. Without it the runner has no way to hold out a
     // WELL, and every validation number it reports is a random-sample fold — see `cv_score`.
@@ -4957,8 +5073,18 @@ pub(crate) fn exec_ml_full(
         bytemuck::cast_slice_mut::<f32, u8>(&mut vals).copy_from_slice(&body[i * n_apply * 4..(i + 1) * n_apply * 4]);
         outs.push((s.clone(), vals));
     }
+    // The balance table is built HERE rather than in the runner, so it reaches every caller of this
+    // function — the ordinary path and the per-segment coverage path — from one place, and so it
+    // can name the curves the runner is not told about unless a model is being saved.
+    let mut metrics = hdr.metrics;
+    let balance = balance_table(feature_names, d, x_train, y_train, blind_mask);
+    if !balance.is_empty() {
+        if let Some(obj) = metrics.as_object_mut() {
+            obj.insert("split_balance".into(), serde_json::Value::Array(balance));
+        }
+    }
     Ok(MlRun {
-        metrics: hdr.metrics,
+        metrics,
         outs,
         model_blob: body[expect..].to_vec(),
         sklearn: hdr.sklearn,
@@ -8943,6 +9069,95 @@ mod tests {
         let ev = metrics["explained_variance_pct"].as_array().unwrap();
         let total: f64 = ev.iter().map(|v| v.as_f64().unwrap()).sum();
         assert!(total > 99.0, "explained variance = {total}%");
+    }
+
+    /// Two sides of a split can agree exactly on mean and standard deviation and still be different
+    /// rock. The balance table reported only those two, so a draw like this one passed as
+    /// representative while its tails, its mode and its asymmetry all disagreed — and the blind
+    /// score computed on it is then a statement about a population the model was never fitted to.
+    ///
+    /// The fixture is built so the old table CANNOT flag it: the blind side is standardised onto the
+    /// fit side's own mean and standard deviation, so `mean_shift_sd` is ~0 by construction and the
+    /// only evidence left is the shape.
+    ///
+    /// Pinned from both sides. The divergent half alone would pass on an implementation that
+    /// returned noise for every shape field, so the second half feeds the two sides the SAME
+    /// distribution and requires the shape fields to agree.
+    #[test]
+    fn a_balance_table_names_a_draw_that_matches_in_the_centre_and_diverges_in_the_tail() {
+        let half = 200usize;
+        // Fit: a symmetric triangular distribution (the sum of two uniforms), so it has a genuine
+        // central mode and zero skew.
+        let fit: Vec<f32> = (0..half)
+            .map(|i| ((i % 20) as f32 / 19.0 - 0.5) + ((i / 20) as f32 / 9.0 - 0.5))
+            .collect();
+        let fmean = fit.iter().sum::<f32>() / half as f32;
+        let fsd = (fit.iter().map(|v| (v - fmean).powi(2)).sum::<f32>() / half as f32).sqrt();
+        // Blind: strongly right-skewed, then standardised ONTO the fit side's mean and sd.
+        let raw: Vec<f32> = (0..half).map(|j| (j as f32 / (half - 1) as f32).powi(5)).collect();
+        let rmean = raw.iter().sum::<f32>() / half as f32;
+        let rsd = (raw.iter().map(|v| (v - rmean).powi(2)).sum::<f32>() / half as f32).sqrt();
+        let blind: Vec<f32> = raw.iter().map(|v| (v - rmean) / rsd * fsd + fmean).collect();
+
+        let build = |a: &[f32], b: &[f32]| {
+            let vals: Vec<f32> = a.iter().chain(b.iter()).copied().collect();
+            let mask: Vec<f32> = (0..vals.len()).map(|i| if i < a.len() { 0.0 } else { 1.0 }).collect();
+            let table =
+                balance_table(&["GR".to_string()], 1, &vals, Some(&vals), &mask);
+            assert_eq!(table.len(), 2, "one row per feature plus the target");
+            table
+        };
+
+        let table = build(&fit, &blind);
+        let row = &table[0];
+        assert_eq!(row["name"], "GR", "the curve is NAMED, not called x0");
+        assert_eq!(table[1]["name"], "(target)", "the target is compared, not only the inputs");
+
+        // The two statistics the table used to carry agree — this draw looks clean.
+        let (fm, bm) = (row["fit_mean"].as_f64().unwrap(), row["blind_mean"].as_f64().unwrap());
+        let (fs, bs) = (row["fit_sd"].as_f64().unwrap(), row["blind_sd"].as_f64().unwrap());
+        assert!((fm - bm).abs() < 1e-4, "fixture: means must match ({fm} vs {bm})");
+        assert!((fs - bs).abs() < 1e-4, "fixture: sds must match ({fs} vs {bs})");
+        assert!(
+            row["mean_shift_sd"].as_f64().unwrap().abs() < 1e-3,
+            "the old table would have called this representative",
+        );
+
+        // ...and the shape says otherwise, in three independent ways.
+        let g = |side: &str, k: &str| row[side][k].as_f64().unwrap();
+        assert!(
+            g("blind", "skew") - g("fit", "skew") > 1.0,
+            "skew must separate them: fit {:.3}, blind {:.3}",
+            g("fit", "skew"),
+            g("blind", "skew"),
+        );
+        assert!(
+            (g("fit", "p90") - g("blind", "p90")).abs() > 0.3 * fs,
+            "P90 must separate them: fit {:.4}, blind {:.4}",
+            g("fit", "p90"),
+            g("blind", "p90"),
+        );
+        assert!(
+            g("blind", "mode") < g("fit", "mode"),
+            "a right-skewed side has its mode BELOW a symmetric one of the same mean: fit {:.4}, blind {:.4}",
+            g("fit", "mode"),
+            g("blind", "mode"),
+        );
+        for side in ["fit", "blind"] {
+            assert_eq!(row[side]["n"].as_u64(), Some(half as u64));
+            for k in ["mean", "sd", "p10", "p50", "p90", "mode", "skew"] {
+                assert!(row[side][k].as_f64().is_some_and(f64::is_finite), "{side}.{k} is not a number");
+            }
+        }
+
+        // The other side of the pin: the same distribution on both sides must AGREE on every shape
+        // field. Without this, an implementation returning noise would satisfy everything above.
+        let same = build(&fit, &fit);
+        let s = &same[0];
+        for k in ["mean", "sd", "p10", "p50", "p90", "mode", "skew"] {
+            let (a, b) = (s["fit"][k].as_f64().unwrap(), s["blind"][k].as_f64().unwrap());
+            assert!((a - b).abs() < 1e-6, "identical sides must agree on {k}: {a} vs {b}");
+        }
     }
 
     /// The leaderboard used to print the POOLED out-of-fold score with the PER-FOLD spread beside
