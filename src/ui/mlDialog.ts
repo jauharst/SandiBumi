@@ -330,7 +330,7 @@ export async function buildMlContent(
   const content = document.createElement("div");
   content.className = "mc-dialog ml-pane";
 
-  // --- The four sections ----------------------------------------------------
+  // --- The five sections ----------------------------------------------------
   //
   // Jauhar, 2026-08-07: *"better to split into subpanes inside ML, for input, data qc, model,
   // result visualization"*. One scrolling column had grown to a dozen form rows in no particular
@@ -338,16 +338,22 @@ export async function buildMlContent(
   // below that — so setting up a run meant scrolling past everything twice.
   //
   // The order is the order the work is done in, and each section answers one question: what am I
-  // learning from, is that data fit to learn from, what shall I fit, and what came out. A segmented
-  // strip rather than a new tab component — `.seg`/`.seg-opt` is already this app's segmented
-  // control (Organic increment 2), and a second mechanism for "pick one of these" would be a second
-  // thing to keep in agreement.
+  // learning from, is that data fit to learn from, what shall I fit, what came out, and — once I
+  // believe it — where else does it go. A segmented strip rather than a new tab component —
+  // `.seg`/`.seg-opt` is already this app's segmented control (Organic increment 2), and a second
+  // mechanism for "pick one of these" would be a second thing to keep in agreement.
+  //
+  // Distribution sits AFTER Results (Jauhar, 2026-08-07: *"swap model dist and result position"*),
+  // and the reason is more than tidiness: propagating a model you have not looked at is the one
+  // move this pane should not make easy. The blind-well scores and the predicted-vs-measured
+  // crossplot are what decide whether a model is fit to leave the wells it was trained on, so the
+  // section that spends that judgement comes after the section that supplies it.
   const SECTIONS = [
     ["input", "Input", "Which curves, which wells, over which interval, and which stored values to read them from."],
     ["qc", "Data QC", "Whether the data you just chose can support the model you are about to fit."],
     ["model", "Model", "What to fit, how it is validated, and what the outputs are called. Run Model lives here."],
-    ["dist", "Model Distribution", "Propagate a kept model to the rest of the field — its own wells, interval and names."],
     ["results", "Results", "What the run produced, how the models compare, and the models you have kept."],
+    ["dist", "Model Distribution", "Propagate a kept model to the rest of the field — its own wells, interval and names."],
   ] as const;
   type SectionId = (typeof SECTIONS)[number][0];
 
@@ -1907,6 +1913,7 @@ export async function buildMlContent(
         }
         if (okRuns.length > 0) bumpDataVersion();
         renderMultiResults(results, runs, nameOf);
+        if (okRuns.length > 0) showSection("results");
         return;
       }
       if (res.error) {
@@ -1939,6 +1946,11 @@ export async function buildMlContent(
         bumpDataVersion(); // ML wrote curves — refresh open plots/log views/catalog
       }
       renderResults(results, res, nameOf);
+      // Show what came out, since Run Model is on the Model tab and the answer is rendered two
+      // sections away. Only on SUCCESS: `statusLine` sits in this section, so a failed run must
+      // leave the user where its message is, rather than switching them to an empty Results panel
+      // and reporting the failure on a tab they can no longer see.
+      if (!res.error) showSection("results");
     } catch (e) {
       statusLine.textContent = `Failed: ${e}`;
     } finally {
