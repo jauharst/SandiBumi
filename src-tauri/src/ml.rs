@@ -1246,6 +1246,66 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             let out_names: Vec<String> = outs.iter().map(|(s, _)| format!("{base}{s}")).collect();
             let mut wells = Vec::new();
             let conn = db.lock().unwrap();
+            // Keep the fit as an artifact, BEFORE the curves are written (SB-MLA-006).
+            //
+            // This used to run after the well loop, so a storage problem here could not cost the
+            // predictions. It still cannot: every failure below is a NOTE, never a return, and the
+            // curves are written either way. What the old ordering did cost was the provenance -
+            // the model id did not exist yet when each log set was created, so a curve could not
+            // name the model that made it. The asymmetry was backwards: the apply path, the cheap
+            // case where the model is already named, recorded it, while the fit path - whose
+            // configuration is by far the harder one to reconstruct - did not.
+            let (mut model_id, mut model_name) = (None, None);
+            if let Some(name) = &save_name {
+                if model_blob.is_empty() {
+                    let why = metrics
+                        .get("model_save_error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("the Python side returned no model (is joblib installed?)");
+                    notes.push(format!("the model was NOT saved: {why}"));
+                } else {
+                    let trained_on: Vec<String> = req
+                        .train_well_ids
+                        .iter()
+                        .filter(|id| !empty_train.contains(id))
+                        .map(|id| {
+                            conn.query_row(
+                                "SELECT well_name FROM wells WHERE well_id = ?1",
+                                duckdb::params![id],
+                                |r| r.get::<_, String>(0),
+                            )
+                            .unwrap_or_else(|_| id.clone())
+                        })
+                        .collect();
+                    match crate::db::insert_ml_model(
+                        &conn,
+                        name,
+                        &req.task,
+                        &req.algorithm,
+                        &features,
+                        target.as_deref(),
+                        &params_json,
+                        &serde_json::to_string(&metrics).unwrap_or_default(),
+                        &trained_on,
+                        n_train,
+                        req.params.get("standardize").and_then(|v| v.as_bool()).unwrap_or(true),
+                        (!sklearn.is_empty()).then_some(sklearn.as_str()),
+                        req.model_note.as_deref(),
+                        &model_blob,
+                    ) {
+                        Ok((id, stored)) => {
+                            if &stored != name {
+                                notes.push(format!(
+                                    "a model named '{name}' already exists, so this one was saved as '{stored}' - retraining makes a NEW model rather than replacing the one an existing curve was made with"
+                                ));
+                            }
+                            model_id = Some(id);
+                            model_name = Some(stored);
+                        }
+                        Err(e) => notes.push(format!("the model was NOT saved: {e} - the curves are still written, and name the algorithm rather than a model")),
+                    }
+                }
+            }
             let mut start = 0usize;
             if let Some(p) = progress {
                 p.set_current(Some("Writing predictions…".into()));
@@ -1298,10 +1358,28 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     curves.push((name.clone(), full));
                 }
                 let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
+                // SB-MLA-006. The model reference rides in `params_json` beside the effective
+                // parameters, in the SAME shape the apply path writes, so one reader answers
+                // "which model made this curve?" for both paths. `module` keeps its existing
+                // `ml:<task>:<algorithm>` spelling — a curve made by a fit and a curve made by an
+                // apply are different events and the catalog should keep saying which.
+                //
+                // Where no model was kept the reference is absent rather than empty. That IS the
+                // answer for such a curve: it was made by a fit nobody preserved, and a null
+                // model_id says so without inviting a lookup that must fail.
                 let spec = crate::equations::LogSetSpec {
                     set_name: out_set.clone(),
                     module: format!("ml:{}:{}", req.task, req.algorithm),
-                    params_json: params_json.clone(),
+                    params_json: match (&model_id, &model_name) {
+                        (Some(id), Some(nm)) => serde_json::to_string(&serde_json::json!({
+                            "model_id": id,
+                            "model_name": nm,
+                            "algorithm": req.algorithm,
+                            "params": params_record,
+                        }))
+                        .unwrap_or_else(|_| params_json.clone()),
+                        _ => params_json.clone(),
+                    },
                     inputs_json: serde_json::to_string(&req.feature_curves).unwrap_or_default(),
                 };
                 let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec)
@@ -1331,60 +1409,6 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 start += m;
             }
 
-            // Keep the fit as an artifact. This happens AFTER the curves are written and never
-            // fails the run: the predictions are already correct and on disk, so a storage
-            // problem here costs the reusable model, not the work.
-            let (mut model_id, mut model_name) = (None, None);
-            if let Some(name) = &save_name {
-                if model_blob.is_empty() {
-                    let why = metrics
-                        .get("model_save_error")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("the Python side returned no model (is joblib installed?)");
-                    notes.push(format!("the model was NOT saved: {why}"));
-                } else {
-                    let trained_on: Vec<String> = req
-                        .train_well_ids
-                        .iter()
-                        .filter(|id| !empty_train.contains(id))
-                        .map(|id| {
-                            conn.query_row(
-                                "SELECT well_name FROM wells WHERE well_id = ?1",
-                                duckdb::params![id],
-                                |r| r.get::<_, String>(0),
-                            )
-                            .unwrap_or_else(|_| id.clone())
-                        })
-                        .collect();
-                    match crate::db::insert_ml_model(
-                        &conn,
-                        name,
-                        &req.task,
-                        &req.algorithm,
-                        &features,
-                        target.as_deref(),
-                        &params_json,
-                        &serde_json::to_string(&metrics).unwrap_or_default(),
-                        &trained_on,
-                        n_train,
-                        req.params.get("standardize").and_then(|v| v.as_bool()).unwrap_or(true),
-                        (!sklearn.is_empty()).then_some(sklearn.as_str()),
-                        req.model_note.as_deref(),
-                        &model_blob,
-                    ) {
-                        Ok((id, stored)) => {
-                            if &stored != name {
-                                notes.push(format!(
-                                    "a model named '{name}' already exists, so this one was saved as '{stored}' - retraining makes a NEW model rather than replacing the one an existing curve was made with"
-                                ));
-                            }
-                            model_id = Some(id);
-                            model_name = Some(stored);
-                        }
-                        Err(e) => notes.push(format!("the curves were written but the model was NOT saved: {e}")),
-                    }
-                }
-            }
             MlResult { outputs: out_names, metrics, wells, notes, model_id, model_name, split, error: None }
         }
     }
@@ -2557,6 +2581,93 @@ mod tests {
             "without a mask the well has complete samples, got {:?}",
             ctrl.error,
         );
+    }
+
+    /// **SB-MLA-006 — a curve made by a fitted model names that model.**
+    ///
+    /// The asymmetry was backwards. The APPLY path — the cheap case, where the model already exists
+    /// and is named — recorded it on every curve; the FIT path, whose configuration is by far the
+    /// harder one to reconstruct, recorded only the algorithm. And it could not have done otherwise:
+    /// the model was persisted AFTER the well loop, so its id did not exist yet when each log set
+    /// was created.
+    ///
+    /// The fix moves the save ahead of the loop, which sounds like it trades away the "a storage
+    /// problem must not cost the predictions" rule. It does not: every failure in that block is a
+    /// note rather than a return, and the curves are written either way — the second half of this
+    /// test is what holds that line, because a run that saved nothing must still write its curves,
+    /// citing no model at all rather than one that does not exist.
+    #[test]
+    fn a_curve_from_a_fitting_run_names_the_model_and_a_run_that_kept_none_names_none() {
+        use crate::db;
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let Some(_) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 40usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-PROV", None, None, Some(0.0)).unwrap();
+        let gr: Vec<f32> = (0..n).map(|i| 20.0 + i as f32 * 2.0).collect();
+        // A target that is a clean function of GR, so the fit is never the thing under test here.
+        let rhob: Vec<f32> = gr.iter().map(|g| 2.65 - g * 0.001).collect();
+        // (gr, res_deep, nphi, rhob, dt, sp) — RHOB is the fourth curve column.
+        db::insert_standard_curves(
+            &conn, well, depths.clone(), gr,
+            vec![f32::NAN; n], vec![f32::NAN; n], rhob, vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+
+        let ids = well.to_string();
+        let db = Mutex::new(conn);
+        let cited = |db: &Mutex<Connection>, set: &str| -> Option<String> {
+            let c = db.lock().unwrap();
+            let js: String = c
+                .query_row(
+                    "SELECT params_json FROM log_sets WHERE well_id = ?1 AND set_name = ?2 \
+                     ORDER BY version DESC LIMIT 1",
+                    duckdb::params![&ids, set],
+                    |r| r.get(0),
+                )
+                .expect("the run created a log set");
+            serde_json::from_str::<serde_json::Value>(&js)
+                .ok()?
+                .get("model_id")?
+                .as_str()
+                .map(str::to_string)
+        };
+
+        let mut saved = mk_req("regression", &["GR"], Some("RHOB"), &[ids.clone()], &[ids.clone()]);
+        saved.save_model_as = Some("PROV_TEST".into());
+        saved.output_set = Some("ML_SAVED".into());
+        let r = run_ml(&db, &saved, None);
+        assert!(r.error.is_none(), "the fitting run failed: {:?}", r.error);
+        let model_id = r.model_id.clone().expect("the model was kept");
+        assert_eq!(
+            cited(&db, "ML_SAVED").as_deref(),
+            Some(model_id.as_str()),
+            "the curve must cite the model that produced it, not merely the algorithm",
+        );
+        // And the citation must resolve — a provenance string pointing at nothing asserts an audit
+        // trail it cannot honour.
+        {
+            let c = db.lock().unwrap();
+            assert!(db::get_ml_model(&c, &model_id).is_ok(), "the cited model must exist");
+        }
+
+        // The other side. No model asked for, so the curves are still written and cite NO model —
+        // absent, not an empty string, because a null id invites no lookup that has to fail.
+        let mut unsaved = mk_req("regression", &["GR"], Some("RHOB"), &[ids.clone()], &[ids.clone()]);
+        unsaved.output_set = Some("ML_UNSAVED".into());
+        let r2 = run_ml(&db, &unsaved, None);
+        assert!(r2.error.is_none(), "a run that keeps no model must still write its curves: {:?}", r2.error);
+        assert!(r2.model_id.is_none(), "nothing was asked to be saved");
+        assert_eq!(cited(&db, "ML_UNSAVED"), None, "a curve must never cite a model that was not kept");
     }
 
     /// SB-MLA-001. Every parameter the runner reads must go through `P`, which records what was

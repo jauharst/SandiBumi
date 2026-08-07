@@ -1008,7 +1008,7 @@ free-text `metrics["note"]` to say so.
 
 **Verified by.** SB-MLA-T05, SB-MLA-T12
 
-#### SB-MLA-006 — A curve produced by a fitted model names that model          [P0] [status: PARTIAL]
+#### SB-MLA-006 — A curve produced by a fitted model names that model          [P0] [status: PRESENT-OK]
 
 **Requirement.** Every curve written by an ML run MUST carry the identifier of the model that
 produced it, whether the model was fitted by that run or applied from storage. A run that fits and
@@ -1021,10 +1021,26 @@ number. The current asymmetry is backwards: the *apply* path — the cheap case,
 already exists and is named — records the model, while the *training* path — the expensive case,
 whose configuration is hardest to reconstruct — does not.
 
-**As-built.** `PARTIAL` — `ml.rs:949` writes `format!("ml:apply:{}", info.name)` on the apply path.
-The fit path builds its `LogSetSpec` at `ml.rs:670`–`:675` with
-`module = format!("ml:{}:{}", req.task, req.algorithm)` and no model reference, and the model is
-not persisted until `ml.rs:711` onward — after the curves are written.
+**As-built.** ~~`PARTIAL`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: the apply path wrote
+`ml:apply:<name>` with the model id in `params_json`, while the fit path wrote
+`module = ml:<task>:<algorithm>` and no model reference at all — and it could not have done
+otherwise, because the model was not persisted until after the well loop, so its id did not exist
+when each log set was created.
+
+`persist_fitted_model`'s block now runs BEFORE the write loop, and each fit-path `LogSetSpec`
+carries `{model_id, model_name, algorithm, params}` in `params_json` — the same shape the apply
+path already wrote, so one reader answers "which model made this curve?" for both. `module` keeps
+its `ml:<task>:<algorithm>` spelling: a curve made by a fit and a curve made by an apply are
+different events and the catalog should keep saying which.
+
+**The ordering rule survives the move.** "A storage problem costs the artifact, not the work" still
+holds — every failure in that block is a `note`, never a return, and the curves are written either
+way. Where nothing was kept, the reference is ABSENT rather than empty: that is the truth about such
+a curve, and a null id invites no lookup that has to fail.
+
+**Verified by.** `a_curve_from_a_fitting_run_names_the_model_and_a_run_that_kept_none_names_none`,
+which pins both halves — the citation resolves to a real `ml_models` row, and a run that saved
+nothing still writes its curves and cites nothing.
 
 **Verified by.** SB-MLA-T06
 
@@ -1440,7 +1456,7 @@ questions correctly separated; the third is a third implementation of the criter
 
 **Verified by.** SB-MLA-T25
 
-#### SB-MLA-026 — The leaderboard evaluates the model the run will fit          [P0] [status: PRESENT-DIVERGENT]
+#### SB-MLA-026 — The leaderboard evaluates the model the run will fit          [P0] [status: PRESENT-OK]
 
 **Requirement.** The algorithm-comparison leaderboard MUST construct each candidate estimator from
 the same specification the training run will use, including every user-supplied hyperparameter.
@@ -1502,7 +1518,7 @@ additionally mischaracterises the run-path CV as "plain random 5-fold" when it i
 
 **Verified by.** SB-MLA-T28
 
-#### SB-MLA-028 — Every fitted transform is fitted inside the fold          [P0] [status: PRESENT-DIVERGENT]
+#### SB-MLA-028 — Every fitted transform is fitted inside the fold          [P0] [status: PRESENT-OK]
 
 **Requirement.** In any cross-validated evaluation, every transform fitted from data —
 standardisation, imputation, dimensionality reduction, target encoding — MUST be fitted on the
@@ -2044,7 +2060,7 @@ is not reported in the result.
 
 **Verified by.** SB-MLA-T54
 
-#### SB-MLA-055 — A class label is never interpolated          [P0] [status: ABSENT]
+#### SB-MLA-055 — A class label is never interpolated          [P0] [status: PRESENT-OK]
 
 **Requirement.** A curve whose values are class identifiers MUST NOT be linearly interpolated,
 averaged, or resampled by any method that can produce a value not in the original label set. Class
@@ -2060,11 +2076,47 @@ favours, silently reassigning the bed boundary. This is P0 because the product a
 class curves (`FACIES`, `FACIES_GMM`, `FACIES_ML`) and there is nothing in the type system stopping
 any resampling path from doing this.
 
-**As-built.** `ABSENT` — the three class curves are written as `f32` through
-`write_computed_curves_versioned` (`ml.rs:677`) with no categorical marking, and nothing
-distinguishes them from a continuous curve at any downstream consumer.
+**As-built.** ~~`ABSENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: the three class curves were
+written as `f32` through `write_computed_curves_versioned` with no categorical marking, and nothing
+distinguished them from a continuous curve at any downstream consumer.
 
-**Verified by.** SB-MLA-T53
+**The registry.** New `curve_class` table (`db.rs`, picked up by `create_schema` — no migration
+needed), holding `(well_id, curve_name, source)`. Its own table rather than a `curve_meta` column,
+because `curve_meta` describes the IMPORT store and these curves live in `computed_curves`, which
+has no metadata row at all — that absence, not the resampling heuristic, was the real gap.
+`workflow.rs` declares a run's class outputs after the write succeeds, resolved through the same
+rename and `OUT_PREFIX` the write used, so a renamed output is still protected.
+
+Declaration is **per declared output key**, not per module (`modules::class_outputs`). `gmm_facies`
+is the case that makes it load-bearing: it writes `FACIES_GMM` beside `FPROB`, and `FPROB` is an
+ordinary continuous probability that must stay averageable. A per-module flag or a name prefix would
+wrongly protect it.
+
+**The enforcement, in four places.** `reframe::class_safe_method` coerces Interpolate → Nearest and
+every averaging method → Mode, reporting the coercion per curve by name — a re-frame reports its
+resolved method, so a substitution there is visible. The three modules that would otherwise average
+codes cannot report, so they REFUSE: `frame::block` refuses MEAN / GEOMETRIC / HARMONIC / MEDIAN
+(MEDIAN included deliberately — it routes through the R-type-7 percentile, so an even-count bed of
+{1, 2} returns 1.5) and steers to MODE, while `condition::smooth` and `condition::despike` refuse
+outright, having no safe form: smoothing produces values *between* those measured, and on a class
+log a lone code between two others is a thin bed rather than a spike.
+
+**Latent bug found and fixed here.** `block` had no MODE arm at all — while `coreimage.rs` has been
+printing *"use Frame > Block with OPT_STAT = MODE, the one upscale that carries a class code whole"*
+since it shipped. Following the application's own printed advice fell through the match to the
+arithmetic mean.
+
+**The rule that keeps it from becoming a heuristic:** a DECLARATION overrides an explicit choice; a
+GUESS (`reframe::looks_discrete`) may only pick the default. `reframe`'s own contract promises that
+a caliper logged in whole inches stays averageable when the user says so.
+
+**Verified by.** SB-MLA-T53 — implemented as
+`a_class_output_is_declared_under_the_name_the_run_wrote_and_a_probability_output_is_not`,
+`a_declared_class_curve_is_never_averaged_and_an_undeclared_one_keeps_the_method_asked_for`,
+`a_class_curve_is_carried_by_its_commonest_value_rather_than_averaged`,
+`a_class_curve_is_blocked_by_its_commonest_code_and_refuses_every_average` and
+`a_class_curve_is_refused_by_smooth_and_despike_and_an_undeclared_one_is_not`. All pin from both
+sides — an undeclared curve with class-looking values is untouched.
 
 #### SB-MLA-056 — Null discipline holds through the ML path with no opt-out          [P1] [status: PRESENT-OK]
 
