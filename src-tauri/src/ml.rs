@@ -783,9 +783,33 @@ if bool(P(p, "standardize", True)):
     scaler = StandardScaler().fit(basis)
     Xs = scaler.transform(X) if n_train else X
     As = scaler.transform(A) if n_apply else A
+    # SB-MLA-034 / SB-MLA-032. The pre-transform is ANNOUNCED, and so is the basis it was fitted on.
+    # Standardisation is not cosmetic: it is what makes a DBSCAN eps meaningful, what stops a
+    # resistivity in ohm-m dominating a porosity in v/v on any distance-based method, and it is
+    # fitted on a particular set of rows - so the same model applied to a different well set is
+    # standing on a different mean and scale. A user reading "eps = 0.5" needs to know that 0.5 is in
+    # standard deviations of THIS basis.
+    metrics["pre_transform"] = (
+        "inputs standardised to zero mean and unit variance, fitted on %s (%d row(s)). Any parameter "
+        "in distance units - DBSCAN eps above all - is in standard deviations of that basis, not in "
+        "the curves' own units." % (
+            "the FIT rows only, so the blind wells' mean and scale never reach the model"
+            if (supervised and fit_rows is not None) else
+            ("the training rows" if supervised else "the wells being clustered"),
+            int(len(basis)),
+        )
+    )
+    metrics["standardize_basis_mean"] = [round(float(v), 6) for v in np.atleast_1d(scaler.mean_)]
+    metrics["standardize_basis_scale"] = [round(float(v), 6) for v in np.atleast_1d(scaler.scale_)]
 else:
     scaler = None
     Xs, As = X, A
+    # Stated as a choice rather than left as an absence: on any distance-based method this is the
+    # difference between clustering rock and clustering whichever curve has the largest numbers.
+    metrics["pre_transform"] = (
+        "inputs used in their own units, NOT standardised - on a distance-based method (k-means, "
+        "GMM, DBSCAN, k-NN, SVM) the curve with the largest numeric range will dominate the result"
+    )
 
 def fit_xy(yv):
     """The rows the model is allowed to learn from. Everything else is being kept honest."""
@@ -859,6 +883,25 @@ def blind_score(model, kind):
             metrics["accuracy_blind"] = float(np.mean(model.predict(Xb) == yb.astype(int)))
     except Exception as e:
         metrics["blind_error"] = str(e)
+
+SILHOUETTE_CAP = 5000
+
+def note_convergence(n_iter, cap, converged):
+    """SB-MLA-016 - did the fit STOP, or did it merely run out of iterations?
+
+    Two runs that both return labels, plot identically, and mean completely different things. An
+    exhausted fit is a partial answer presented as a final one, and scikit-learn's own signal for it
+    is a warning nobody sees from a subprocess.
+    """
+    metrics["converged"] = bool(converged)
+    metrics["n_iter"] = int(n_iter)
+    metrics["max_iter"] = int(cap)
+    if not converged:
+        metrics["convergence_note"] = (
+            "the fit did NOT converge: it stopped after hitting the %d-iteration cap, so this is "
+            "where the optimiser had got to and not where it was going. Raise max_iter, or take the "
+            "result as provisional." % int(cap)
+        )
 
 SPEC_GRID = np.linspace(0.0, 0.5, 257)
 
@@ -1021,21 +1064,52 @@ elif task == "classification":
 elif task == "clustering":
     k = int(P(p, "k", 5))
     prob = None
+    # SB-MLA-014. k cannot exceed the number of samples there are to cluster, and scikit-learn
+    # would raise rather than explain. Reported as a CLAMP, not silently substituted: "you asked
+    # for 12 and got 4" is a fact about the data the user needs, and a run that quietly returned
+    # 4 clusters under a request for 12 would be read as 12 clusters that happened to merge.
+    if n_apply and k > n_apply:
+        k = max(1, int(n_apply))
+        P_used("k", k)
+        metrics["k_clamped"] = "k was reduced to %d: there are only %d samples to cluster" % (k, n_apply)
     if algo == "kmeans":
         from sklearn.cluster import KMeans
         # SB-MLA-023: n_init / max_iter / tol come from facies.rs, not from scikit-learn's defaults
         # and not from a number typed here. Restart count and iteration cap decide WHICH local
         # optimum k-means lands in, so two engines configured differently are two methods.
-        labels = KMeans(n_clusters=k, n_init=KMEANS_N_INIT, max_iter=KMEANS_MAX_ITER,
-                        tol=KMEANS_TOL, random_state=seed).fit_predict(As)
+        km = KMeans(n_clusters=k, n_init=KMEANS_N_INIT, max_iter=KMEANS_MAX_ITER,
+                    tol=KMEANS_TOL, random_state=seed)
+        labels = km.fit_predict(As)
+        # SB-MLA-016. A run that stopped because it converged and one that stopped because it hit
+        # the iteration cap are different results, and both return labels that plot identically.
+        # The second is a partial answer presented as a final one.
+        note_convergence(int(km.n_iter_), int(KMEANS_MAX_ITER), int(km.n_iter_) < int(KMEANS_MAX_ITER))
     elif algo == "gmm":
         from sklearn.mixture import GaussianMixture
-        gm = GaussianMixture(n_components=k, random_state=seed).fit(As)
+        gm_max = int(P(p, "max_iter", 100))
+        gm = GaussianMixture(n_components=k, random_state=seed, max_iter=gm_max).fit(As)
+        note_convergence(int(gm.n_iter_), gm_max, bool(gm.converged_))
         resp = gm.predict_proba(As)
         labels = np.argmax(resp, axis=1); prob = np.max(resp, axis=1)
+        # SB-MLA-015. A component the fit drove to (almost) no weight is not a cluster the rock has;
+        # it is the mixture telling you k was too high. Silently leaving it in the count makes a
+        # 6-component answer out of a 5-component one.
+        tiny = [int(i) for i, w in enumerate(gm.weights_) if float(w) < 0.01]
+        if tiny:
+            metrics["degenerate_components"] = (
+                "%d of %d mixture component(s) hold under 1%% of the weight - the fit is telling you "
+                "k is higher than the data supports" % (len(tiny), k)
+            )
     elif algo == "hier":
         from sklearn.cluster import AgglomerativeClustering
-        labels = AgglomerativeClustering(n_clusters=k, linkage=str(P(p, "linkage", "ward"))).fit_predict(As)
+        # SB-MLA-046. The linkage names are scikit-learn's own enumeration, and 'ward' is its
+        # default; it is the only one that minimises within-cluster variance, which is the same
+        # criterion facies.rs's k-means and hfu.rs's Ward partition use - so it is the choice that
+        # keeps the three consistent rather than an arbitrary pick.
+        link = str(P(p, "linkage", "ward"))
+        if link not in ("ward", "complete", "average", "single"):
+            fail("unknown linkage '" + link + "' - one of: ward, complete, average, single")
+        labels = AgglomerativeClustering(n_clusters=k, linkage=link).fit_predict(As)
     elif algo == "dbscan":
         from sklearn.cluster import DBSCAN
         labels = DBSCAN(eps=float(P(p, "eps", 0.5)), min_samples=int(P(p, "min_samples", 10))).fit_predict(As)
@@ -1069,15 +1143,31 @@ elif task == "clustering":
         metrics["noise_pct"] = round(float(np.mean(labels < 0) * 100), 2)
         metrics["n_rejected"] = n_reject
         metrics["reject_code"] = CLUSTER_REJECT
+    # SB-MLA-014, the other half. Fewer clusters came back than were asked for. For k-means that is
+    # an empty cluster; for DBSCAN it is the density parameters. Either way the answer is not the
+    # one requested and the count is what a reader will quote.
+    if algo != "dbscan" and len(ids) < k:
+        metrics["k_short"] = (
+            "%d cluster(s) came back out of the %d asked for - the rest were empty, which means the "
+            "data does not separate that far" % (len(ids), k)
+        )
     if len(ids) > 1:
         try:
             from sklearn.metrics import silhouette_score
             keep = np.where(labels >= 0)[0]
-            if len(keep) > 5000:
-                keep = np.random.RandomState(seed).choice(keep, 5000, replace=False)
+            n_scored = len(keep)
+            # SB-MLA-020. Subsampled because the score is O(n^2); the CAP is stated with the number
+            # so it is never read as a whole-field figure beside metrics that are.
+            if len(keep) > SILHOUETTE_CAP:
+                keep = np.random.RandomState(seed).choice(keep, SILHOUETTE_CAP, replace=False)
             metrics["silhouette"] = round(float(silhouette_score(As[keep], labels[keep])), 4)
-        except Exception:
-            pass
+            metrics["silhouette_basis"] = (
+                "all %d clustered sample(s)" % n_scored if n_scored <= SILHOUETTE_CAP else
+                "a seeded random %d of %d clustered sample(s) - this score is a sample, unlike the "
+                "counts beside it" % (SILHOUETTE_CAP, n_scored)
+            )
+        except Exception as e:
+            metrics["silhouette_error"] = str(e)
     outs.append(("", out))
     if prob is not None:
         outs.append(("_PROB", prob.astype(np.float32)))
@@ -1089,7 +1179,36 @@ elif task == "reduction":
         P_used("n_components", c)
         pca = PCA(n_components=c, random_state=seed)
         Z = pca.fit_transform(As)
+        # SB-MLA-048. A principal component is only defined up to its SIGN - the eigenvector solver
+        # may return either, and which one it returns can change with the sample set, the LAPACK
+        # build or the scikit-learn version. Left alone, the same wells re-run next month give a PC1
+        # that is the mirror of the one in last month's report: every crossplot reversed, every
+        # "high PC1 is the clean sand" statement inverted, and nothing to show anything changed.
+        #
+        # The convention: each component is oriented so its loading on the FIRST feature curve is
+        # non-negative. Anchored to the user's own first input rather than to the largest loading,
+        # because the largest loading can itself change between runs and a rule that moves is not a
+        # convention. Same reasoning as the cluster ordering - put the curve you want to read the
+        # component against first.
+        flip = np.where(pca.components_[:, 0] < 0.0, -1.0, 1.0)
+        Z = Z * flip[np.newaxis, :]
+        loadings = pca.components_ * flip[:, np.newaxis]
         metrics["explained_variance_pct"] = [round(float(v) * 100, 2) for v in pca.explained_variance_ratio_]
+        # SB-MLA-047. The variance ratios say how much each component carries; the LOADINGS say what
+        # it is made of, which is the half a petrophysicist reads. Reported per component as
+        # {curve: weight}, so "PC1 is mostly density against neutron" is answerable without
+        # re-deriving it.
+        # The header's feature list is the authority; the positional fallback keeps a loadings table
+        # readable rather than absent if it ever arrives short.
+        fname = lambda j: str(feature_names[j]) if j < len(feature_names) else ("x%d" % j)
+        metrics["loadings"] = {
+            str(i + 1): {fname(j): round(float(loadings[i, j]), 4) for j in range(loadings.shape[1])}
+            for i in range(loadings.shape[0])
+        }
+        metrics["sign_convention"] = (
+            "each component is oriented so its loading on %s is non-negative, so a re-run cannot "
+            "silently mirror a crossplot" % fname(0)
+        )
     elif algo == "tsne":
         if n_apply > 20000:
             fail("t-SNE is limited to 20000 samples (got " + str(n_apply) + ") - select fewer wells")
@@ -2969,6 +3088,44 @@ fn refuse_simulated_inputs(features: &[String], target: Option<&str>) -> Option<
     ))
 }
 
+/// The runner source, written to a temp file for the life of one run and deleted after.
+///
+/// **This exists because `python -c <source>` has a hard ceiling and we hit it.** Windows caps a
+/// command line at about 32 KB, and the runner had grown past it — every ML feature failed at once
+/// with `The filename or extension is too long. (os error 206)`, a message naming neither Python nor
+/// machine learning, triggered by nothing more than added comments. Nothing guarded it, so the
+/// ceiling was invisible right up to the moment it was a total outage.
+///
+/// Passing a path removes the ceiling rather than raising it, so the runner can be commented and
+/// extended like ordinary code. `-c` is kept only for the one-line probes (`import numpy`), which
+/// cannot approach any limit.
+///
+/// Deleted on `Drop`, so an early return or a panic cannot leave the file behind. It holds only the
+/// runner's own source: no well data, no curve values, nothing client-identifying.
+struct ScriptFile(std::path::PathBuf);
+
+impl ScriptFile {
+    fn new(tag: &str, source: &str) -> std::io::Result<Self> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        // Process id AND a counter: two runs in one session must not collide, and neither must two
+        // copies of the app open at once.
+        let name = format!("sandibumi-{tag}-{}-{}.py", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed));
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, source)?;
+        Ok(Self(path))
+    }
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for ScriptFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::jobs::JobHandle>) -> MlResult {
     let supervised = matches!(req.task.as_str(), "regression" | "classification");
     // Jauhar, 2026-08-07: *"model should still run even 1 curves only half depth coverage, (model
@@ -3886,8 +4043,12 @@ pub fn apply_ml_model(
     let header = serde_json::json!({
         "d": d, "n_apply": n_apply, "model_len": blob.len(), "features": features,
     });
+    let script = match ScriptFile::new("apply", &ml_apply_runner()) {
+        Ok(s) => s,
+        Err(e) => return fail(&format!("could not write the runner to a temporary file: {e}")),
+    };
     let mut cmd = Command::new(&python);
-    cmd.args(["-c", &ml_apply_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.arg(script.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -4127,8 +4288,10 @@ pub(crate) fn exec_ml_full(
         "has_blind": !blind_mask.is_empty(),
     });
 
+    let script = ScriptFile::new("fit", &ml_runner())
+        .map_err(|e| format!("could not write the runner to a temporary file: {e}"))?;
     let mut cmd = Command::new(python);
-    cmd.args(["-c", &ml_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.arg(script.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
     {
@@ -4778,8 +4941,10 @@ pub(crate) fn exec_ml_eval(
         "params": params, "params_for": params_for,
     });
 
+    let script = ScriptFile::new("eval", &ml_eval_runner())
+        .map_err(|e| format!("could not write the runner to a temporary file: {e}"))?;
     let mut cmd = Command::new(python);
-    cmd.args(["-c", &ml_eval_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.arg(script.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
     {
@@ -7117,6 +7282,51 @@ mod tests {
         assert!(sim(&[], None).is_none());
     }
 
+    /// **The runner is launched from a FILE, so its length is not a cliff — and a temp file cannot
+    /// outlive the run.**
+    ///
+    /// This is a scar, not a precaution. `python -c <source>` was the launch mechanism, Windows caps
+    /// a command line near 32 KB, and the runner crossed it — every ML feature failed at once with
+    /// `The filename or extension is too long. (os error 206)`, a message naming neither Python nor
+    /// machine learning. The trigger was added comments. Nothing guarded it, so the ceiling was
+    /// invisible until it was a total outage, and the natural "fix" under it — delete some comments —
+    /// would have restored service while leaving the cliff exactly where it was.
+    ///
+    /// So the assertion is not "the runner is short enough". It is that **no runner is launched with
+    /// `-c` at all**, which is the property that has no ceiling. The runners are deliberately checked
+    /// against the old limit too, purely to record that they are past it: this is not a hypothetical.
+    #[test]
+    fn a_runner_is_launched_from_a_file_so_its_length_is_not_a_cliff() {
+        const CMDLINE_CEILING: usize = 32_767;
+
+        // The evidence. If these ever fall back under the ceiling the test still passes — it is the
+        // launch mechanism that matters — but the numbers are here so nobody re-litigates this.
+        let sizes = [("fit", ml_runner().len()), ("apply", ml_apply_runner().len()), ("eval", ml_eval_runner().len())];
+        assert!(
+            sizes.iter().any(|(_, n)| *n > CMDLINE_CEILING),
+            "a runner used to exceed {CMDLINE_CEILING} chars and that is why this exists: {sizes:?}"
+        );
+
+        // The property that actually holds: no runner rides on the command line.
+        let src = include_str!("ml.rs");
+        for bad in ["-c\", &ml_runner()", "-c\", &ml_apply_runner()", "-c\", &ml_eval_runner()"] {
+            assert!(
+                !src.contains(bad),
+                "a runner is being passed with -c again, which reinstates a ~{CMDLINE_CEILING}-char \
+                 cliff that fails with an error naming neither Python nor ML: {bad}"
+            );
+        }
+
+        // And the file does not outlive the run — a fit per well across a field would otherwise
+        // leave one temp file per run behind for the session.
+        let path = {
+            let s = ScriptFile::new("selftest", "print('hi')\n").expect("temp script");
+            assert!(s.path().exists(), "the script must exist while the run holds it");
+            s.path().to_path_buf()
+        };
+        assert!(!path.exists(), "the temp script must be removed when the run drops it");
+    }
+
     #[test]
     fn listing_models_never_carries_their_bytes() {
         use crate::db;
@@ -7409,8 +7619,9 @@ mod tests {
         let header = serde_json::json!({
             "d": 2, "n_apply": 2, "model_len": blob.len(), "features": ["RHOB", "GR"],
         });
+        let script = ScriptFile::new("apply-test", &ml_apply_runner()).unwrap();
         let mut cmd = Command::new(&python);
-        cmd.args(["-c", &ml_apply_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.arg(script.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         hide_console(&mut cmd);
         let mut child = cmd.spawn().unwrap();
         {

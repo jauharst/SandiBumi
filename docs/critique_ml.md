@@ -81,6 +81,30 @@ than a dependency. Embedding is a defensible answer to that. **But the runner co
 becomes lintable, testable and diffable. That this was never done is the single largest piece of
 avoidable structural debt in the module.
 
+### 2.1 It already caused a total outage, on the day this was written
+
+The runner was launched with `python -c <source>`. Windows caps a command line at about 32 KB. On
+2026-08-07 the runner crossed that line — **because comments were added to it** — and every ML
+feature failed simultaneously with:
+
+```
+failed to start python: The filename or extension is too long. (os error 206)
+```
+
+That message names neither Python nor machine learning nor length-of-what. Nothing guarded the limit,
+so it was invisible until it was total, and the obvious field fix — delete some comments — would have
+restored service while leaving the cliff exactly where it was, one edit away, for whoever came next.
+
+It is fixed: runners now launch from a temp file (`ScriptFile`, deleted on `Drop`), which removes the
+ceiling rather than raising it, and `a_runner_is_launched_from_a_file_so_its_length_is_not_a_cliff`
+fails the gate if any runner goes back on the command line.
+
+The reason it belongs in a critique rather than a changelog is what it demonstrates. A module whose
+most consequential code is an unlintable string had a hard operational limit that no tool could see,
+no test covered, and no error message explained — and the thing that broke it was documentation. That
+is the cost of §2 stated in one incident, and the `include_str!` recommendation above is unchanged by
+the fix.
+
 ## 3. Blind testing is off by default, and the default is the flattering one
 
 `splitOn.checked` is never set true (`mlDialog.ts`). Open the pane, pick an algorithm, press Run, and
