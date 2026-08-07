@@ -538,29 +538,166 @@ export async function buildMlContent(
   // not one instant. What makes them COMPARABLE is that they share the run's seed, split fraction
   // and split mode, so every model is fitted and scored on exactly the same rows.
   const alsoWrap = document.createElement("div");
-  alsoWrap.className = "mc-settings ml-also";
+  alsoWrap.className = "ml-also";
   const alsoChecks = new Map<string, HTMLInputElement>();
   const alsoNote = document.createElement("div");
   alsoNote.className = "ml-norm-why";
-  const alsoRow = formRow("Also run", alsoWrap);
-  alsoRow.appendChild(alsoNote);
+  // Where the ONE open parameter panel renders. One at a time rather than all of them inline: the
+  // whole complaint about this control was its height, and four expanded parameter grids would be
+  // the same problem with more in it.
+  const alsoParamsHost = document.createElement("div");
+  alsoParamsHost.className = "ml-also-params";
+  alsoParamsHost.hidden = true;
+  // ONE block child, not three siblings. `.form-row` is a flex ROW, so appending the note and the
+  // parameter panel beside the chips made all three compete for the same horizontal space — the
+  // chips shrank to their widest item and every one of them wrapped onto its own line, rebuilding
+  // the stacked column this was meant to replace. Same shape as the Output-resolution row above.
+  const alsoStack = document.createElement("div");
+  alsoStack.className = "ml-also-stack";
+  alsoStack.append(alsoWrap, alsoNote, alsoParamsHost);
+  const alsoRow = formRow("Also run", alsoStack);
   sModel.appendChild(alsoRow);
 
+  /**
+   * Per-algorithm parameter OVERRIDES for the also-run models, keyed by algorithm id.
+   *
+   * Jauhar, 2026-08-07: *"where is customized parameter for each alg?"* — it did not exist. Every
+   * co-run model took its manifest defaults, and the note said so, which is honest and is not the
+   * same as being able to do the thing: comparing a tuned Random Forest against a default XGBoost
+   * is not a comparison of the two methods.
+   *
+   * **Only CHANGED values are stored, and only changed values are sent.** Sending a parameter at its
+   * own default would make `P()` record it as user-supplied, and SB-MLA-001's whole point is that
+   * the run record distinguishes a value somebody chose from one nobody touched. Kept by algorithm
+   * id so switching the primary algorithm back and forth does not discard tuning.
+   */
+  const alsoParams = new Map<string, Map<string, number | string>>();
+  let alsoOpen: string | null = null;
+  /** Per-chip appearance refresh, so a parameter edit can update its own chip without a rebuild —
+   *  rebuilding the chip row from inside an input handler would destroy the field being typed in. */
+  const alsoChipSync = new Map<string, () => void>();
+
+  /** The params to SEND for one co-run algorithm: the shared run settings plus its own overrides. */
+  const alsoParamsFor = (a: AlgoSpec): Record<string, number | string | boolean> => {
+    const out: Record<string, number | string | boolean> = {
+      standardize: stdCb.checked,
+      seed: Math.round(parseFloat(seedInput.value) || 42),
+      spectral_texture: task.id === "regression" && specCb.checked,
+    };
+    for (const [k, v] of alsoParams.get(a.id) ?? []) out[k] = v;
+    return out;
+  };
+
+  function renderAlsoParams(): void {
+    alsoParamsHost.innerHTML = "";
+    const a = alsoOpen ? task.algos.find((x) => x.id === alsoOpen) : null;
+    alsoParamsHost.hidden = !a;
+    if (!a) return;
+    const head = document.createElement("div");
+    head.className = "ml-also-params-head";
+    head.textContent = a.params.length
+      ? `${a.label} — anything left untouched runs at its default, and the run records it as one.`
+      : `${a.label} has nothing to tune — it is fitted from the data alone.`;
+    alsoParamsHost.appendChild(head);
+    const grid = document.createElement("div");
+    grid.className = "mc-settings";
+    const store = alsoParams.get(a.id) ?? new Map<string, number | string>();
+    alsoParams.set(a.id, store);
+    for (const spec of a.params) {
+      const label = document.createElement("label");
+      label.className = "mc-field";
+      const t = document.createElement("span");
+      t.textContent = spec.label;
+      let input: HTMLInputElement | HTMLSelectElement;
+      if (spec.kind === "select") {
+        input = document.createElement("select");
+        for (const opt of spec.options ?? []) {
+          const o = document.createElement("option");
+          o.value = opt;
+          o.textContent = opt;
+          input.appendChild(o);
+        }
+      } else {
+        input = document.createElement("input");
+        input.type = spec.kind === "num" ? "number" : "text";
+        if (spec.kind === "num") input.step = "any";
+      }
+      input.className = "form-control";
+      input.value = String(store.get(spec.key) ?? spec.def);
+      input.title = `${spec.label} — default ${spec.def}`;
+      const mark = () => label.classList.toggle("mc-field-changed", String(input.value) !== String(spec.def));
+      input.addEventListener("input", () => {
+        // Back to the default means REMOVE the override, not store the default — otherwise the run
+        // record would report a value the user had merely typed back.
+        if (String(input.value) === String(spec.def) || input.value === "") store.delete(spec.key);
+        else store.set(spec.key, spec.kind === "num" ? Number(input.value) : input.value);
+        mark();
+        alsoChipSync.get(a.id)?.();
+        syncAlso();
+      });
+      input.addEventListener("change", () => input.dispatchEvent(new Event("input")));
+      mark();
+      label.append(t, input);
+      grid.appendChild(label);
+    }
+    alsoParamsHost.appendChild(grid);
+  }
+
   function renderAlso(): void {
+    // Snapshot BEFORE clearing: this now re-runs when a gear is opened, not only when the algorithm
+    // changes, and rebuilding from an already-cleared map would silently untick every model the user
+    // had chosen — a click that appears to open a panel and quietly cancels four runs.
+    const wasChecked = new Set(
+      [...alsoChecks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id),
+    );
     alsoWrap.innerHTML = "";
     alsoChecks.clear();
+    alsoChipSync.clear();
     const others = task.algos.filter((a) => a.id !== algo.id);
     alsoRow.style.display = others.length ? "" : "none";
     for (const a of others) {
+      // One compact chip per algorithm instead of a stacked checkbox row per algorithm. Same
+      // controls, a quarter of the height, and it wraps at whatever width the pane happens to be.
+      const chip = document.createElement("label");
+      chip.className = "ml-also-chip";
+      chip.title = a.desc;
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      const l = document.createElement("label");
-      l.className = "mc-field ml-also-item";
-      l.append(cb, document.createTextNode(` ${a.label}`));
-      l.title = a.desc;
-      cb.addEventListener("change", syncAlso);
+      cb.checked = wasChecked.has(a.id);
+      const name = document.createElement("span");
+      name.textContent = a.label;
+      // The gear appears only once the model is actually going to run, because parameters for a
+      // model nobody ticked are a control with no effect.
+      const gear = document.createElement("button");
+      gear.type = "button";
+      gear.className = "ml-also-gear";
+      gear.textContent = "⚙";
+      gear.title = `Parameters for ${a.label}`;
+      gear.hidden = true;
+      gear.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        alsoOpen = alsoOpen === a.id ? null : a.id;
+        renderAlso();
+        renderAlsoParams();
+      });
+      const sync = () => {
+        gear.hidden = !cb.checked;
+        chip.classList.toggle("ml-also-on", cb.checked);
+        chip.classList.toggle("ml-also-tuned", (alsoParams.get(a.id)?.size ?? 0) > 0);
+        gear.classList.toggle("ml-also-gear-open", alsoOpen === a.id);
+      };
+      cb.addEventListener("change", () => {
+        if (!cb.checked && alsoOpen === a.id) alsoOpen = null;
+        sync();
+        renderAlsoParams();
+        syncAlso();
+      });
+      sync();
+      alsoChipSync.set(a.id, sync);
+      chip.append(cb, name, gear);
       alsoChecks.set(a.id, cb);
-      alsoWrap.appendChild(l);
+      alsoWrap.appendChild(chip);
     }
     syncAlso();
   }
@@ -571,12 +708,30 @@ export async function buildMlContent(
   ];
   function syncAlso(): void {
     const picked = alsoSelected();
+    // Jauhar, 2026-08-07: *"assume there are 7 alg than can be used for continuous, i only see also
+    // run for other 4"*. The picker groups by the KIND OF LOG that comes out, so "Continuous"
+    // holds the regressions and PCA/t-SNE together; Also run offers only the same TASK, because a
+    // reduction has no target and writes component curves, so there is no shared curve to compare
+    // against and no score that means the same thing. Correct, and it was invisible — a user counts
+    // the dropdown, counts the checkboxes, and is left to guess which of the two is wrong.
+    // The picker's grouping, not TaskSpec.group: "Continuous only" spans regression AND reduction,
+    // which is exactly why the counts differ.
+    const writesDiscreteTask = (t: TaskSpec) => t.id === "classification" || t.id === "clustering";
+    const otherTasks = TASKS.filter(
+      (t) => t.id !== task.id && writesDiscreteTask(t) === writesDiscreteTask(task) && !t.supervised,
+    ).flatMap((t) => t.algos.map((a) => a.label));
+    const cannot = otherTasks.length
+      ? ` ${otherTasks.join(" and ")} are in the same group in the list above but cannot be co-run here: they have no target curve, so there is nothing to compare a prediction of ${targetSel.value || "the target"} against.`
+      : "";
+    const tuned = picked.slice(1).filter((a) => (alsoParams.get(a.id)?.size ?? 0) > 0).map((a) => a.label);
     alsoNote.textContent =
       picked.length === 1
-        ? "One model, writing one curve. Tick others to fit them on the same rows, with the same split and the same seed, and compare the curves you would actually deliver."
-        : `${picked.length} models on the same rows, the same split and the same seed - so the scores are comparable. Each writes its own curve suffixed with its name (${picked
+        ? `One model, writing one curve. Tick others to fit them on the same rows, with the same split and the same seed, and compare the curves you would actually deliver.${cannot}`
+        : `${picked.length} models on the same rows, the same split and the same seed — so the scores are comparable. Each writes its own curve suffixed with its name (${picked
             .map((a) => `${outInput.value || "PRED"}_${a.id.toUpperCase()}`)
-            .join(", ")}) and saves its own model, because ${picked.length} models cannot share one curve name. Only ${algo.label}'s parameters are editable above; the rest run at their defaults, which the run records as defaults.`;
+            .join(", ")}) and saves its own model, because ${picked.length} models cannot share one curve name. Use ⚙ to tune any of them; ${
+            tuned.length ? `${tuned.join(", ")} ${tuned.length === 1 ? "carries" : "carry"} your own settings, and the rest run` : "untouched ones run"
+          } at their defaults, which the run records as defaults.${cannot}`;
   }
 
   // SB-MLA-008. What about the chosen configuration would not reproduce on another machine, said
@@ -1926,10 +2081,11 @@ export async function buildMlContent(
         const one: MlRequest = {
           ...req,
           algorithm: a.id,
-          // Only the picked algorithm's parameter fields are on screen. The others take their
-          // manifest defaults, which `effective_params` records AS defaults, so the record stays
-          // true even though the form never showed them.
-          params: a.id === algo.id ? params : { standardize: stdCb.checked, seed: params.seed },
+          // The picked algorithm takes the form's fields; every other takes its own ⚙ overrides
+          // merged over the shared run settings. Only values the user actually CHANGED are sent —
+          // passing a parameter at its own default would make the runner record it as
+          // user-supplied, and SB-MLA-001 exists to keep those two apart.
+          params: a.id === algo.id ? params : alsoParamsFor(a),
           output_curve: multi ? `${base}_${a.id.toUpperCase()}` : base,
           save_model_as: task.supervised && saveBase ? (multi ? `${saveBase}_${a.id.toUpperCase()}` : saveBase) : null,
         };
