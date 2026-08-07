@@ -600,8 +600,8 @@ the same method is implemented on both sides of it without anything asserting th
 
 ### 3.1b Disposition of the 15 still open (2026-08-07)
 
-Counted from the headings, not estimated: **50 `PRESENT-OK`, 1 `PRESENT-DIVERGENT`, 2 `PARTIAL`,
-12 `ABSENT`** of 65. This subsection says what the remaining fifteen actually are, because "ABSENT"
+Counted from the headings, not estimated: **51 `PRESENT-OK`, 1 `PRESENT-DIVERGENT`, 2 `PARTIAL`,
+11 `ABSENT`** of 65. This subsection says what the remaining fourteen actually are, because "ABSENT"
 covers three very different situations and treating them as one backlog would put seven items on a
 list that can never be worked.
 
@@ -625,14 +625,15 @@ meaningless in a composite. The honest options are a scalar channel through the 
 (~40 call sites) or implementing it only on the ML path, which has `MlResult.notes`. Neither is a
 knowledge gap; both are scope.
 
-**Three are real work, ranked.** SB-MLA-033 (a fixed normalisation basis stored with the model, so
-adding a well does not silently rescale the feature space and move every existing cluster boundary)
-is the highest-value item left in this chapter and the one place the dossier says a vendor has an
-answer the others lack — it is the recommended next increment. SB-MLA-050 (leave-one-out feature
-scoring must exclude the held-out frame) is a contained correctness fix. SB-MLA-031 (shipped vendor
+**Two are real work, ranked.** SB-MLA-050 (leave-one-out feature scoring must exclude the held-out
+frame) is a contained correctness fix and the recommended next increment. SB-MLA-031 (shipped vendor
 defaults surfaced at the point of choice) needs care rather than effort: SandiBumi cannot publish a
 competitor's defaults, so what it can surface is *that a default came from somewhere* and what that
 somewhere was, which is a narrower requirement than the one written.
+
+*(SB-MLA-033 was the third here and closed on 2026-08-07. Its residue is scope rather than
+knowledge: the fixed basis covers the ML path, and the native `facies.rs` engines still standardise
+from the samples in hand.)*
 
 **Four are judgement calls awaiting Jauhar.** SB-MLA-025 (`PRESENT-DIVERGENT`) wants one
 within-cluster-sum-of-squares partition declared across three applications; the code has two
@@ -1955,7 +1956,7 @@ any other tool, or with itself after a data change.
 
 **Verified by.** SB-MLA-T33
 
-#### SB-MLA-033 — A fixed normalisation basis is available, so adding a well does not move existing boundaries          [P1] [status: ABSENT]
+#### SB-MLA-033 — A fixed normalisation basis is available, so adding a well does not move existing boundaries          [P1] [status: PRESENT-OK]
 
 **Requirement.** SandiBumi MUST offer a normalisation basis that is independent of the current
 model-build set — fixed limits per curve, stored with the model — in addition to a
@@ -1969,8 +1970,46 @@ data, which is not. **IP has no equivalent choice at all**, so adding one well t
 set silently rescales the entire feature space and moves every cluster boundary in the wells that
 were already there. The dossier calls this "the add-a-well trap" and ships `T-ML-NORM-1` for it.
 
-**As-built.** `ABSENT` — both engines compute their statistics from the samples in hand
-(`facies.rs:100`–`:129`, `ml.rs:68`). There is no fixed-limits option.
+**As-built.** ~~`ABSENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: both engines computed their
+statistics from the samples in hand, with no fixed-limits option anywhere.
+
+`MlRequest::norm_basis` now declares what the feature space is normalised against. `None`/`"data"`
+is the data-derived basis every run used before, so every pre-existing payload is byte-identical;
+`"limits"` normalises each curve onto 0..1 against `MlRequest::norm_limits`, which belong to the
+analyst rather than to the current selection. **The limits ship empty and are never filled in** — a
+GR normalised 0–150 and the same GR normalised 0–200 give different clusters and both look right, so
+`resolve_norm_basis` REFUSES a run whose features are not all covered, and refuses an inverted or
+zero-width pair rather than swapping or nudging it. The refusal is raised twice on purpose: an empty
+box converts to `0`, not `NaN`, so a blank low limit would otherwise reach the backend as a
+perfectly valid zero.
+
+Three implementation points carry the contract. The fixed basis is carried in a `StandardScaler`
+(mean = low, scale = width) rather than applied inline, **because the scaler is what travels in the
+joblib dump** — doing the arithmetic in the runner and dumping no scaler would leave the artifact
+silently un-normalised on apply, which is the quietly-wrong-rather-than-obviously-broken failure
+§3.2 credits the artifact design with preventing. Limits are matched by name and re-ordered into the
+resolved feature order, since they reach the runner as bare positions and a pair out of step would
+normalise GR by RHOB's range — which computes, plots and ships. And out-of-range values are **not
+clipped**: clipping would collapse everything past a limit onto one value, which a distance-based
+method reads as a population of identical rock.
+
+The reporting half rides on the retrain, which is exactly "the model-build set changed":
+`db::resolve_model_name` already detects it, because the new model is stored under a suffix
+precisely when the old one still exists. `basis_shift_note` compares the two bases there and quotes
+the movement in **standard deviations of the OLD basis** — the unit every carried-over threshold is
+already expressed in. It is silent when nothing moved, and refuses to line up two bases over
+different feature lists, which would compare GR's mean against RHOB's.
+
+Pinned by three tests, each from both sides: `a_fixed_basis_is_refused_rather_than_completed_when_a_curve_has_no_limits`
+(a complete basis resolves, an uncovered/inverted/zero-width one is refused BY NAME, and the default
+stays data-derived so older payloads do not start refusing),
+`fixed_limits_follow_the_feature_order_not_the_order_they_were_supplied_in`, and
+`a_retrain_that_moves_the_feature_space_says_so_and_one_that_does_not_stays_quiet`.
+
+**Scope, stated rather than implied:** this covers the ML path. The native `facies.rs` engines still
+standardise from the samples in hand — they are fitted per well on the wells they are applied to, so
+"the build set changed" has a different meaning there, but the trap is not absent and closing it for
+them is separate work.
 
 **Verified by.** SB-MLA-T34
 

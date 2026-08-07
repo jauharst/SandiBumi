@@ -9494,3 +9494,48 @@ the **Data QC** section already shows per curve, so the note and the panel canno
       different problem, different fix.
 - [ ] **Run an ordinary fit where everything shares the frame.** No framing note at all. If it fires
       on every run it stops being read.
+
+## A normalization basis that holds still when you add a well (2026-08-07)
+
+This one is worth reading before you use it, because the problem it fixes leaves no trace.
+
+**What was happening.** When inputs are standardized, the mean and spread come from the wells in
+the run. Add one well to a model-build set and every mean and every spread is recomputed — so every
+boundary expressed in them moves, **including in the wells you did not touch**. A DBSCAN `eps` of
+0.5 is 0.5 standard deviations of whatever happened to be selected that day. Your earlier
+interpretation does not come back, nothing tells you anything changed, and both answers look
+equally sensible on screen. Geolog offers a fixed basis for exactly this; IP has no equivalent.
+
+**What you get now.** In **Data QC → Normalization**, under the standardize tick, a choice:
+
+- **From the data** — what every run did before, unchanged. The note now says plainly that the
+  basis moves when the well set does.
+- **Fixed limits** — each curve normalized onto 0–1 against a low and a high *you* set. Those do
+  not move when the well set does, so a boundary found today still means the same thing next month.
+
+**The limits are yours and stay empty.** GR normalized 0–150 and the same GR normalized 0–200 give
+different clusters and both look right, so SandiBumi will not pick them. A run whose inputs are not
+all covered is refused, naming the ones that are not.
+
+**And a retrain now tells you if the space moved.** Refit a model under a name you have used before
+and the run says how far the basis shifted — in standard deviations of the *old* basis, because
+that is the unit any threshold you carried over is already in.
+
+- [ ] **Open Data QC.** Under the standardize tick: a **From the data / Fixed limits** control, with
+      a line explaining each.
+- [ ] **Untick standardize.** The basis control should disappear — it means nothing when nothing is
+      being normalized.
+- [ ] **Pick Fixed limits.** A row per ticked input curve, each with an empty low and high.
+- [ ] **Tick another input curve on the Input tab, come back.** The table should have gained that
+      curve, and anything you already typed should still be there.
+- [ ] **Press Run with a box still empty.** It must refuse and name the curve — not run with a zero.
+- [ ] **Fill them in and run a clustering.** Read the notes: they should say the basis is your fixed
+      limits and that `eps` is in fractions of each declared range.
+- [ ] **Now the real test.** Fit a model on a set of wells with **From the data** and save it. Add
+      one more well — ideally a shalier or cleaner one — and refit under the *same* name. The run
+      should tell you the feature space was rescaled, name the curve that moved most, and say by how
+      much. **Then judge whether your earlier boundaries still mean what you thought.**
+- [ ] **Do the same with Fixed limits.** No rescale message, because nothing moved. That is the
+      whole point of the feature.
+- [ ] **Apply a saved fixed-limits model to a new well.** It must use the same limits it was fitted
+      with, not recompute anything.
