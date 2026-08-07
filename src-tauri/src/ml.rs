@@ -497,11 +497,28 @@ pub fn ml_provenance(conn: &Connection, well_id: &str) -> Vec<MlProvenanceRow> {
         // truth: the curve was made by it, and it is gone.
         let model_id = p.get("model_id").and_then(|v| v.as_str());
         let info = model_id.and_then(|id| crate::db::get_ml_model(conn, id).ok().map(|(i, _)| i));
-        let model = p
-            .get("model_name")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| "not kept (this fit was not saved as a model)".into());
+        // SB-MLA-007's second half: a curve whose model has been force-deleted must SAY the
+        // reference is unresolvable. Printing the name alone reads as a live reference, and a
+        // deliverable that names a model nobody can produce asserts an audit trail it cannot
+        // honour - which is the whole hazard the deletion guard exists for.
+        //
+        // Derived HERE, at read time, rather than stamped onto the citing rows when the deletion
+        // happens. Two reasons. A stamp can be missed - a project restored from a backup taken
+        // before the deletion carries the curve and not the mark - whereas resolving the id every
+        // time cannot go stale. And params_json is the RUN RECORD, a statement of what was
+        // configured when the run happened; editing it afterwards to describe a later event is the
+        // same category of error as the one being guarded against.
+        let unresolved = model_id.is_some() && info.is_none();
+        let model = match p.get("model_name").and_then(|v| v.as_str()) {
+            Some(name) if unresolved => format!(
+                "{name} - DELETED from this project, so this curve cannot be re-applied or re-examined"
+            ),
+            Some(name) => name.to_string(),
+            None if unresolved => {
+                "a model that has since been DELETED from this project (its name was not recorded)".into()
+            }
+            None => "not kept (this fit was not saved as a model)".into(),
+        };
         let target = info
             .as_ref()
             .and_then(|i| i.target_curve.clone())
@@ -604,13 +621,33 @@ fn ml_shared_constants_py() -> String {
          KMEANS_N_INIT = {}\n\
          KMEANS_MAX_ITER = {}\n\
          KMEANS_TOL = {:e}\n\
-         SEED_DEFAULT = {}\n",
+         SEED_DEFAULT = {}\n\
+         # SB-MLA-021 - the class code for a sample an algorithm REJECTED, as opposed to one it was\n\
+         # never given. Emitted rather than written here so the runner, the log-view block track and\n\
+         # the print path cannot disagree about which code means 'not one of the clusters'.\n\
+         CLUSTER_REJECT = {}\n",
         crate::facies::KMEANS_RESTARTS,
         crate::facies::KMEANS_MAX_ITERS,
         crate::facies::KMEANS_TOL,
         crate::facies::SEED_DEFAULT as i64,
+        CLUSTER_REJECT,
     )
 }
+
+/// SB-MLA-021 — the class code meaning "this sample was evaluated and belongs to no cluster".
+///
+/// Distinct from `NaN`, which in a class curve now means one thing only: never evaluated. A sample
+/// DBSCAN rejects was measured, standardized and tested, and found not to belong to anything — that
+/// is a finding about the rock, and storing it as missing throws the finding away.
+///
+/// Negative on purpose. Cluster ids run `0..K-1` ordered by ascending first-feature mean, so a reject
+/// class appended after them would sit at the shaly end of an ordering it is not part of, and anyone
+/// averaging a curve by facies code would read it as the shaliest rock in the well. A negative sorts
+/// below every cluster and belongs to no part of the ramp.
+///
+/// Both renderers treat ANY negative class as rejected rather than testing this exact value, so the
+/// display cannot silently mis-colour a code it does not recognise.
+pub const CLUSTER_REJECT: i64 = -1;
 
 /// SB-MLA-005 — the runtime probe, shared by the fitting runner and the apply runner.
 ///
@@ -871,7 +908,18 @@ elif task == "clustering":
         labels = DBSCAN(eps=float(P(p, "eps", 0.5)), min_samples=int(P(p, "min_samples", 10))).fit_predict(As)
     else:
         fail("unknown clustering algorithm '" + algo + "'")
-    # DBSCAN noise (-1) stays NaN; real clusters get ids ordered by first-feature mean.
+    # SB-MLA-021. Real clusters get ids ordered by first-feature mean; a sample the algorithm
+    # REJECTED (DBSCAN noise) is written as CLUSTER_REJECT (-1), not as NaN.
+    #
+    # "this sample is an outlier the model refuses to classify" and "this sample had no RHOB" are
+    # different statements about the rock, and leaving both missing conflates them - the rejected
+    # sample was measured, evaluated, and found not to belong to anything, which is a finding. NaN
+    # in this curve now means one thing only: never evaluated.
+    #
+    # -1 rather than an id after the clusters, because cluster ids are ordered by ascending
+    # first-feature mean and appending the reject class would put it at the shaly end of an ordering
+    # it is not part of - anyone averaging a curve by facies code would read it as the shaliest rock
+    # in the well. A negative sorts below every cluster and belongs to no part of the ramp.
     ids = [int(c) for c in np.unique(labels) if c >= 0]
     if not ids:
         fail("clustering found no clusters (DBSCAN: widen eps / lower min_samples)")
@@ -880,9 +928,14 @@ elif task == "clustering":
     out = np.full(n_apply, np.nan, dtype=np.float32)
     for c, i in remap.items():
         out[labels == c] = i
+    n_reject = int(np.sum(labels < 0))
+    if n_reject:
+        out[labels < 0] = CLUSTER_REJECT
     metrics["cluster_sizes"] = {str(remap[c]): int(np.sum(labels == c)) for c in order}
     if algo == "dbscan":
         metrics["noise_pct"] = round(float(np.mean(labels < 0) * 100), 2)
+        metrics["n_rejected"] = n_reject
+        metrics["reject_code"] = CLUSTER_REJECT
     if len(ids) > 1:
         try:
             from sklearn.metrics import silhouette_score
@@ -3284,6 +3337,9 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 }
             }
             let mut start = 0usize;
+            // SB-MLA-017. The set ids this run actually wrote, and whether a cancel cut it short.
+            let mut written_sets: Vec<String> = Vec::new();
+            let mut cancelled_wells = 0usize;
             if let Some(p) = progress {
                 p.set_current(Some("Writing predictions…".into()));
             }
@@ -3295,6 +3351,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     if let Some(p) = progress {
                         p.finish_item(&aw.well_id, crate::jobs::ItemState::Warned, Some("cancelled".into()));
                     }
+                    cancelled_wells += 1;
                     wells.push(MlWellResult {
                         well_id: aw.well_id.clone(),
                         rows_predicted: 0,
@@ -3374,10 +3431,15 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     },
                     inputs_json: serde_json::to_string(&req.feature_curves).unwrap_or_default(),
                 };
-                let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec)
-                    .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id));
+                let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec).and_then(|(set_id, _)| {
+                    write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id).map(|()| set_id)
+                });
                 match versioned {
-                    Ok(()) => {
+                    Ok(set_id) => {
+                        // SB-MLA-017. Kept so a cancel arriving later can stamp the sets this run
+                        // already wrote. A set that failed to write is deliberately not in here:
+                        // there is nothing to qualify.
+                        written_sets.push(set_id);
                         // SB-MLA-035. The unit is declared with the curve, not left to be inferred
                         // from the mnemonic later. Like the model save above, a failure here is a
                         // note rather than a return — the prediction is written either way.
@@ -3409,6 +3471,23 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 start += m;
             }
 
+            // SB-MLA-017. A partially written set is the worst artifact this pane can leave: on the
+            // Wells pane it is indistinguishable from a completed run over a smaller well selection,
+            // because the set name and the module string are the ones a complete run writes. So the
+            // sets that DID get written say what they are.
+            if cancelled_wells > 0 && !written_sets.is_empty() {
+                let n = mark_cancelled_sets(&conn, &written_sets, written_sets.len(), apply.len());
+                notes.push(format!(
+                    "this run was CANCELLED after {} of {} well(s) - the {n} log set(s) already written are marked as coming from a cancelled run, so they are not mistaken for a complete run over fewer wells. The wells that were cut are listed above with 'cancelled'",
+                    written_sets.len(),
+                    apply.len()
+                ));
+                metrics["cancelled"] = serde_json::json!({
+                    "wells_written": written_sets.len(),
+                    "wells_in_scope": apply.len(),
+                });
+            }
+
             if let Some(step) = out_step {
                 // Stated whether or not it changed anything, and the "no blocks" case is stated too:
                 // a resolution setting that silently did nothing is the one a reader would go on
@@ -3430,6 +3509,52 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             MlResult { outputs: out_names, metrics, wells, notes, model_id, model_name, split, error: None }
         }
     }
+}
+
+/// SB-MLA-017 — stamps the log sets a cancelled run DID write with the fact that it was cancelled.
+///
+/// Returns how many sets were successfully marked, which is not always `set_ids.len()`: this runs
+/// after the curves are already stored, so a failure here must cost the mark, never the work.
+///
+/// **Written after the fact, and that is not the objection it looks like.** Marking a curve's run
+/// record months later to describe a separate event — a model deleted in a different session — would
+/// be rewriting history, which is why `ml_provenance` derives that case at read time instead. A
+/// cancellation is not a separate event: it is how THIS run ended, and the run record is not complete
+/// until the run is. Stamping it here finishes the record rather than revising it.
+fn mark_cancelled_sets(conn: &Connection, set_ids: &[String], written: usize, in_scope: usize) -> usize {
+    let mut done = 0usize;
+    for set_id in set_ids {
+        let current: Option<String> = conn
+            .query_row("SELECT params_json FROM log_sets WHERE set_id = ?1", duckdb::params![set_id], |r| r.get(0))
+            .ok()
+            .flatten();
+        let mut rec: serde_json::Value = current
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        if !rec.is_object() {
+            // A params record that is not an object cannot carry the mark, and replacing it would
+            // throw away whatever it was. Leave it and let the count say fewer were marked.
+            continue;
+        }
+        rec["cancelled"] = serde_json::json!({
+            "wells_written": written,
+            "wells_in_scope": in_scope,
+            // In words, because this object is read by a person deciding whether to deliver the
+            // curve, not only by code deciding whether to show a badge.
+            "note": format!(
+                "this run was cancelled after {written} of {in_scope} well(s); the field is covered in part, and the wells missing this set were cut, not excluded"
+            ),
+        });
+        let Ok(text) = serde_json::to_string(&rec) else { continue };
+        if conn
+            .execute("UPDATE log_sets SET params_json = ?1 WHERE set_id = ?2", duckdb::params![text, set_id])
+            .is_ok()
+        {
+            done += 1;
+        }
+    }
+    done
 }
 
 /// Applies a saved model to wells it has never seen. Never fits anything.
@@ -6535,6 +6660,181 @@ mod tests {
             model_citations(&conn, &lonely_id).is_empty(),
             "a set carrying no curves is not in a deliverable and must not protect its model"
         );
+    }
+
+    /// **SB-MLA-007, second half — a curve whose model was force-deleted says the reference is
+    /// unresolvable, and one whose model is still there does not.**
+    ///
+    /// The refusal can be overridden, so the deleted case is reachable by design. Once it happens the
+    /// provenance block is the last line of defence: printing the model NAME alone reads as a live
+    /// reference, and a report naming a model nobody can produce asserts an audit trail it cannot
+    /// honour — which is the hazard the guard exists for, arriving by the one route the guard allows.
+    ///
+    /// The second assertion is the load-bearing one. A block that marked every row would tell a
+    /// reader nothing, so the live case must come back with the bare name.
+    #[test]
+    fn a_curve_whose_model_was_deleted_says_so_and_one_whose_model_remains_does_not() {
+        use crate::db;
+        use crate::equations::{create_log_set, write_computed_curves_versioned, LogSetSpec};
+        use uuid::Uuid;
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-GONE", None, None, Some(0.0)).unwrap();
+        let well_id = well.to_string();
+
+        let feats: Vec<String> = vec!["GR".into()];
+        let on: Vec<String> = vec!["SANDI-GONE".into()];
+        let blob = vec![9u8; 8];
+        let (doomed, _) = db::insert_ml_model(&conn, &model_fixture("DOOMED", &feats, &on, &blob, None)).unwrap();
+        let (kept, _) = db::insert_ml_model(&conn, &model_fixture("KEPT", &feats, &on, &blob, None)).unwrap();
+
+        let depths: Vec<f32> = (0..10).map(|i| 900.0 + i as f32).collect();
+        let vals: Vec<f32> = (0..10).map(|i| 0.2 + i as f32 * 0.001).collect();
+        for (name, id, curve) in [("ML_A", &doomed, "PERM_A"), ("ML_B", &kept, "PERM_B")] {
+            let spec = LogSetSpec {
+                set_name: name.into(),
+                module: "ml:regression:rf".into(),
+                params_json: serde_json::json!({ "model_id": id, "model_name": name }).to_string(),
+                inputs_json: "[\"GR\"]".into(),
+            };
+            let (set_id, _) = create_log_set(&conn, &well_id, &spec).unwrap();
+            write_computed_curves_versioned(&conn, &well_id, &depths, &[(curve, vals.as_slice())], &set_id).unwrap();
+        }
+
+        // Both models are live: neither row may claim otherwise.
+        let before = ml_provenance(&conn, &well_id);
+        assert_eq!(before.len(), 2, "both ML log sets carry curves: {before:?}");
+        assert!(
+            before.iter().all(|r| !r.model.contains("DELETED")),
+            "a live model must print as a bare name, or the mark tells a reader nothing: {before:?}"
+        );
+
+        db::delete_ml_model(&conn, &doomed).unwrap();
+
+        let after = ml_provenance(&conn, &well_id);
+        let gone = after.iter().find(|r| r.curves.contains("PERM_A")).expect("the curve outlives its model");
+        let still = after.iter().find(|r| r.curves.contains("PERM_B")).expect("the untouched set is unchanged");
+        assert!(
+            gone.model.contains("DELETED"),
+            "the deliverable must say the reference is unresolvable, not just name it: {}",
+            gone.model
+        );
+        assert!(gone.model.contains("ML_A"), "and must still say WHICH model, or the record is useless");
+        assert_eq!(still.model, "ML_B", "the surviving model's row is untouched");
+    }
+
+    /// **SB-MLA-017 — a log set written before a cancel says it came from a cancelled run, and one
+    /// from a run that finished says nothing.**
+    ///
+    /// A partially written set is the worst artifact this pane can leave. It is not corrupt and it is
+    /// not empty: on the Wells pane it carries the same set name and the same module string a
+    /// complete run writes, so it reads as a finished interpretation over a smaller well selection —
+    /// and the wells that were cut look like wells somebody chose to exclude.
+    ///
+    /// The third assertion is the one that would actually bite. The mark shares `params_json` with
+    /// the model reference (SB-MLA-006) and the blind record (SB-MLA-009), so a stamp that rebuilt
+    /// the object instead of adding to it would erase the provenance it was written to qualify.
+    #[test]
+    fn a_log_set_written_before_a_cancel_says_so_and_a_completed_one_stays_silent() {
+        use crate::db;
+        use crate::equations::{create_log_set, LogSetSpec};
+        use uuid::Uuid;
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-CUT", None, None, Some(0.0)).unwrap();
+        let well_id = well.to_string();
+
+        let spec = |set: &str| LogSetSpec {
+            set_name: set.into(),
+            module: "ml:regression:rf".into(),
+            params_json: serde_json::json!({
+                "algorithm": "rf",
+                "model_id": "m-123",
+                "model_name": "PERM_RF",
+                "blind": { "performed": true, "metric": "r2", "value": 0.81 },
+            })
+            .to_string(),
+            inputs_json: "[\"GR\"]".into(),
+        };
+        let (cut, _) = create_log_set(&conn, &well_id, &spec("ML_CUT")).unwrap();
+        let (whole, _) = create_log_set(&conn, &well_id, &spec("ML_WHOLE")).unwrap();
+
+        // Two of five wells were written before the user pressed Cancel.
+        let marked = mark_cancelled_sets(&conn, std::slice::from_ref(&cut), 2, 5);
+        assert_eq!(marked, 1, "the set that was written must be marked");
+
+        let read = |set_id: &str| -> serde_json::Value {
+            let s: Option<String> = conn
+                .query_row("SELECT params_json FROM log_sets WHERE set_id = ?1", duckdb::params![set_id], |r| r.get(0))
+                .unwrap();
+            serde_json::from_str(&s.unwrap()).unwrap()
+        };
+
+        let c = read(&cut);
+        assert_eq!(c["cancelled"]["wells_written"], 2);
+        assert_eq!(c["cancelled"]["wells_in_scope"], 5);
+        assert!(
+            c["cancelled"]["note"].as_str().unwrap_or("").contains("cut, not excluded"),
+            "the mark is read by a person deciding whether to deliver the curve, so it says so in words: {}",
+            c["cancelled"]
+        );
+
+        // The mark QUALIFIES the provenance; it must not replace it.
+        assert_eq!(c["model_id"], "m-123", "the model reference must survive the stamp");
+        assert_eq!(c["blind"]["value"], 0.81, "and so must the blind record");
+        assert_eq!(c["algorithm"], "rf");
+
+        // The other side: a run that finished leaves nothing to explain, and a mark on every set
+        // would tell a reader nothing.
+        let w = read(&whole);
+        assert!(w.get("cancelled").is_none(), "a completed run's set must stay silent: {w}");
+    }
+
+    /// **SB-MLA-021 — a rejected sample is a class, and it is never drawn as one of the clusters.**
+    ///
+    /// "This sample is an outlier the model refuses to classify" and "this sample had no RHOB" are
+    /// different statements about the rock. Writing both as missing left the class curve unable to
+    /// say which, and the aggregate `noise_pct` could only say how much, never where.
+    ///
+    /// The colour half is the part that would have shipped wrong. Both palette lookups fold an index
+    /// back into range with `((i % n) + n) % n`, so `-1` would have painted as a real cluster's
+    /// colour — an outlier drawn as a legitimate facies on the log view and in the printed
+    /// deliverable, which is worse than the gap it replaced.
+    #[test]
+    fn a_rejected_sample_is_a_class_of_its_own_and_is_never_coloured_as_a_cluster() {
+        // One definition, emitted into the runner rather than written there — the same rule the
+        // k-means constants follow, for the same reason: a literal would run and look right.
+        let preamble = ml_shared_constants_py();
+        assert!(
+            preamble.contains(&format!("CLUSTER_REJECT = {CLUSTER_REJECT}")),
+            "the runner preamble must carry the reject code:\n{preamble}"
+        );
+        assert!(CLUSTER_REJECT < 0, "the reject code must sort below every cluster id");
+        assert!(
+            ML_RUNNER_BODY.contains("out[labels < 0] = CLUSTER_REJECT"),
+            "the runner must WRITE the reject code, not leave the sample missing"
+        );
+        assert!(
+            !ML_RUNNER_BODY.contains("# DBSCAN noise (-1) stays NaN"),
+            "the old conflating behaviour must be gone, not merely supplemented"
+        );
+
+        // The colour separation. A reject must not collide with ANY cluster colour, including the
+        // one the modulo wrap would have handed it.
+        let reject = crate::composite::facies_color_for_test(CLUSTER_REJECT);
+        for c in 0..24i64 {
+            assert_ne!(
+                crate::composite::facies_color_for_test(c),
+                reject,
+                "cluster {c} shares the reject colour, so an outlier prints as real rock"
+            );
+        }
+        // Any negative, not only this code: an unrecognised class must not be painted as rock.
+        assert_eq!(crate::composite::facies_color_for_test(-7), reject);
     }
 
     #[test]

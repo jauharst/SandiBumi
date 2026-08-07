@@ -1195,7 +1195,7 @@ nothing still writes its curves and cites nothing.
 
 **Verified by.** SB-MLA-T06
 
-#### SB-MLA-007 — A model cited by a stored curve cannot be deleted silently          [P1] [status: ABSENT]
+#### SB-MLA-007 — A model cited by a stored curve cannot be deleted silently          [P1] [status: PRESENT-OK]
 
 **Requirement.** Deleting a persisted model whose identifier appears in the provenance of any
 stored curve MUST be refused, naming the wells and curves that cite it. An explicit
@@ -1208,9 +1208,30 @@ this principle in the adjacent case — `db.rs:2602` auto-suffixes rather than o
 silently replacing the one a delivered curve was made with would destroy its provenance" — and
 deletion is the same hazard by a different route.
 
-**As-built.** `ABSENT` — `db.rs:2740` (`delete_ml_model`) removes the row unconditionally.
+**As-built.** `PRESENT-OK` (2026-08-07) — `lib.rs::delete_ml_model` refuses by default, calling
+`ml.rs::model_citations` and naming the wells, sets and curves that would be orphaned; `force` is the
+caller's explicit second decision, taken after reading that list. `mlDialog.ts` catches the refusal
+and re-asks quoting it, then writes the forced deletion into the project history with the refusal
+text, so the record names the curves rather than saying a deletion merely happened.
 
-**Verified by.** SB-MLA-T07
+`model_citations` counts only sets that still carry curves, driven off `computed_curves.set_id` the
+way `ml_provenance` is, so a superseded version does not protect its model — a guard that fired on
+every model would be the one people learn to force past. The id is matched with a `LIKE` on the
+recorded JSON because the reference sits at two depths: the ordinary path writes `model_id` at the
+top level, the coverage path records one per segment.
+
+**One deliberate divergence in mechanism, not in obligation.** The requirement says a forced delete
+must *mark* the citing curves; `ml_provenance` instead *derives* the unresolvable reference at read
+time, printing the model name followed by "DELETED from this project". Two reasons. A stamp can be
+missed — a project restored from a backup taken before the deletion carries the curve and not the
+mark — whereas resolving the id on every read cannot go stale. And `params_json` is the run record,
+a statement of what was configured when the run happened; editing it afterwards to describe a later
+event is the same category of error this requirement guards against.
+
+**Verified by.** SB-MLA-T07 — `ml.rs::a_model_a_delivered_curve_cites_is_not_deletable_without_a_word`
+(refusal names the wells and curves; a model nothing cites, and one whose set carries no curves,
+both delete clean) and `ml.rs::a_curve_whose_model_was_deleted_says_so_and_one_whose_model_remains_does_not`
+(the deliverable marks the unresolvable reference, and does not mark a live one).
 
 #### SB-MLA-008 — A recorded ML run re-runs to byte-identical curves          [P0] [status: PRESENT-OK]
 
@@ -1516,7 +1537,7 @@ inherits scikit-learn's `ConvergenceWarning`, which is written to `stderr` and i
 
 **Verified by.** SB-MLA-T16
 
-#### SB-MLA-017 — A cancelled run leaves no partially populated log set          [P1] [status: PARTIAL]
+#### SB-MLA-017 — A cancelled run leaves no partially populated log set          [P1] [status: PRESENT-OK]
 
 **Requirement.** Cancelling an ML run MUST leave the project in a state where no output log set
 contains predictions for some wells and not others without that fact being recorded on the log
@@ -1525,12 +1546,30 @@ set itself. The cancellation MUST be reported per well.
 **Rationale.** `SB-CORE-002` and `SB-CORE-036` (honest cancellation). A partially written facies
 set is the worst possible artifact: it looks like a completed run over a smaller well selection.
 
-**As-built.** `PARTIAL` — `ml.rs:639`–`:649` checks cancellation before each well's write-back and
-marks the remaining wells `Warned` with `"cancelled"`, which is well done. What is missing is the
-mark on the **log set**: the wells written before the cancel carry a set whose name and module
-string are identical to a complete run's.
+**As-built.** `PRESENT-OK` (2026-08-07) — the per-well half was already right: the write-back loop
+checks cancellation before each well and marks the remaining wells `Warned` with `"cancelled"`. The
+missing half, the mark on the **log set**, is now `ml.rs::mark_cancelled_sets`. The run keeps the set
+ids it actually wrote; if any well was cut, each of those sets gains a `cancelled` object in its
+`params_json` recording wells written, wells in scope, and the fact in words — *"the wells missing
+this set were cut, not excluded"* — because the object is read by a person deciding whether to
+deliver the curve, not only by code deciding whether to draw a badge. The run result carries the same
+counts in `metrics.cancelled` and a note.
 
-**Verified by.** SB-MLA-T17
+The stamp **adds to** `params_json`, never rebuilds it: the mark shares that object with the model
+reference (`SB-MLA-006`) and the blind record (`SB-MLA-009`), so a stamp that replaced it would erase
+the provenance it was written to qualify. A set whose write failed is not stamped — there is nothing
+to qualify — and a stamp that fails costs the mark, not the curves, since it runs after they are
+stored.
+
+**Written after the fact, deliberately, and the line is worth stating** because `SB-MLA-007` resolves
+the opposite way. Editing a run record months later to describe a *separate* event — a model deleted
+in another session — would be rewriting history, which is why that case is derived at read time
+instead. A cancellation is not a separate event: it is how this run ended, and the run record is not
+complete until the run is. Stamping it finishes the record rather than revising it.
+
+**Verified by.** SB-MLA-T17 — `ml.rs::a_log_set_written_before_a_cancel_says_so_and_a_completed_one_stays_silent`
+(the mark and its counts; the model reference and blind record survive it; a completed run's set stays
+silent).
 
 #### SB-MLA-018 — The non-interruptible phase is declared, not hidden          [P2] [status: PRESENT-OK]
 
@@ -1586,7 +1625,7 @@ reproducible — which makes this a labelling defect rather than a determinism o
 
 **Verified by.** SB-MLA-T20
 
-#### SB-MLA-021 — Density-based noise is a reported class, not a missing value          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-021 — Density-based noise is a reported class, not a missing value          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where an algorithm assigns samples to a noise or reject class, those samples MUST
 be distinguishable in the output from samples that were not evaluated because an input was missing.
@@ -1597,11 +1636,34 @@ output curve conflates them. Geolog's STM reject concept — accept below one co
 above another, ambiguous between — is the corpus's model for this and is the best extrapolation
 guard the dossier finds in any of the three tools.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:177`–`:188` keeps DBSCAN noise (`label = -1`) as NaN in
-the output curve and reports an aggregate `noise_pct`, so the proportion is visible but the
-per-sample distinction is lost.
+**As-built.** `PRESENT-OK` (2026-08-07) — the clustering runner writes a rejected sample as
+`CLUSTER_REJECT` instead of leaving it missing, so NaN in a class curve now means one thing only:
+never evaluated. `noise_pct` is kept and joined by `n_rejected` and `reject_code`.
 
-**Verified by.** SB-MLA-T21
+**The code is negative, and that is the decision.** Cluster ids run `0..K-1` ordered by ascending
+first-feature mean, so a reject class appended after them would sit at the shaly end of an ordering
+it is not part of — anyone averaging a curve by facies code would read it as the shaliest rock in the
+well. A negative sorts below every cluster and belongs to no part of the ramp. The value is emitted
+into the runner from one Rust constant by `ml_shared_constants_py`, the same mechanism and the same
+argument as the k-means constants (`SB-MLA-023`): a literal written in Python would run and look
+right.
+
+**The display half is where this would have shipped wrong.** Both palette lookups fold an index back
+into range with `((i % n) + n) % n`, so `-1` would have painted as a real cluster's colour — an
+outlier drawn as a legitimate facies on the log view and in the printed deliverable, which is worse
+than the gap it replaced. `plotCanvas.ts::faciesColor` and `composite.rs::facies_color` now return a
+neutral grey outside the qualitative palette for **any** negative, not only this code, so an
+unrecognised class is never painted as rock it is not. `faciesLabel` names it *"Rejected"* rather
+than `F-1`, which reads as a facies with a strange id. `looksDiscrete` admits −1 (and only −1), or a
+curve carrying a single rejected sample would silently drop back to a continuous colour ramp — the
+one presentation that makes class codes meaningless.
+
+Still open, and deliberately: this covers **reject**, not Geolog's three-way accept / ambiguous /
+reject band, which needs a confidence threshold this product does not yet ask for.
+
+**Verified by.** SB-MLA-T21 — `ml.rs::a_rejected_sample_is_a_class_of_its_own_and_is_never_coloured_as_a_cluster`
+(the code is emitted and written, the old conflating behaviour is gone, and no cluster index 0..23
+shares the reject colour).
 
 #### SB-MLA-022 — The ordered-feature refusal is verified on the default test gate          [P1] [status: PRESENT-UNVERIFIED]
 

@@ -799,11 +799,30 @@ export const FACIES_PALETTE: string[] = [
   "#edc948", "#ff9da7", "#9c755f", "#8cd17d", "#86bcb6", "#d37295",
 ];
 
-/** Color for a single facies/cluster index (rounded, wraps, never negative). */
+/** Neutral grey for a REJECTED sample (SB-MLA-021), deliberately outside the qualitative palette
+ *  so it cannot be read as one of the clusters.
+ *  Keep in sync with FACIES_REJECT_COLOR in src-tauri/src/composite.rs. */
+export const REJECT_COLOR = "#9aa0a6";
+
+/** Color for a single facies/cluster index (rounded, wraps). A NEGATIVE class is one the algorithm
+ *  REJECTED — DBSCAN noise — not one of the clusters, and the wrap below would otherwise fold it
+ *  back onto a real cluster's colour and draw an outlier as a legitimate facies. Any negative, not
+ *  just CLUSTER_REJECT: a code this renderer does not recognise must not be painted as rock it
+ *  is not. */
 export function faciesColor(index: number): string {
   const i = Math.round(index);
+  if (i < 0) return REJECT_COLOR;
   const n = FACIES_PALETTE.length;
   return FACIES_PALETTE[((i % n) + n) % n];
+}
+
+/** Legend label for a facies/cluster class. A negative is the reject code (SB-MLA-021) and is
+ *  named rather than numbered: "F-1" reads as a facies with a strange id, which is exactly the
+ *  reading this class exists to prevent. Beside `faciesColor` so a legend cannot draw the grey
+ *  swatch and label it as rock. */
+export function faciesLabel(index: number): string {
+  const i = Math.round(index);
+  return i < 0 ? "Rejected" : `F${i}`;
 }
 
 /** Per-point categorical colors for a discrete curve (NaN → faint gray). */
@@ -817,8 +836,14 @@ export function categoricalColors(values: ArrayLike<number>): string[] {
   return out;
 }
 
-/** Heuristic: does this curve look like discrete class labels (small non-negative
- *  integers, 2–16 distinct)? Used to auto-switch crossplot coloring to categorical. */
+/** Heuristic: does this curve look like discrete class labels (small integers, 2–16 distinct)?
+ *  Used to auto-switch crossplot coloring to categorical.
+ *
+ *  −1 is admitted because it is the reject code (SB-MLA-021): a DBSCAN facies curve carrying even
+ *  one rejected sample is still a class curve, and excluding it here would silently drop the whole
+ *  curve back to a continuous colour ramp — the one presentation that makes class codes meaningless.
+ *  Only −1, not any negative: the floor is what keeps this a heuristic about class labels rather
+ *  than one that accepts a signed measurement. */
 export function looksDiscrete(values: ArrayLike<number>): boolean {
   const seen = new Set<number>();
   let any = false;
@@ -826,7 +851,7 @@ export function looksDiscrete(values: ArrayLike<number>): boolean {
     const v = values[i];
     if (Number.isNaN(v)) continue;
     any = true;
-    if (!Number.isInteger(v) || v < 0 || v > 50) return false;
+    if (!Number.isInteger(v) || v < -1 || v > 50) return false;
     seen.add(v);
     if (seen.size > 16) return false;
   }

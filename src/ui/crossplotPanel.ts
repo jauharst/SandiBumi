@@ -11,6 +11,7 @@ import {
   distinctValues,
   drawColorbar,
   faciesColor,
+  faciesLabel,
   fitCanvasBackingStore,
   fmtValue,
   looksDiscrete,
@@ -813,7 +814,7 @@ export function drawCrossplot(
       ctx.lineWidth = 0.5;
       ctx.strokeRect(boxX, boxY, 11, 11);
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(`F${c}`, boxX + 16, boxY + 9);
+      ctx.fillText(faciesLabel(c), boxX + 16, boxY + 9);
       boxY += rowH;
     }
     ctx.restore();

@@ -1800,6 +1800,7 @@ export async function buildMlContent(
         // block in a report naming something nobody can produce, and it surfaces months later.
         try {
           await deleteMlModel(m.model_id);
+          recordProcess("ML", `Deleted saved model '${m.name}' (no delivered curve cited it)`);
         } catch (e) {
           const msg = String(e);
           // Only a citation refusal deserves a second question; anything else is a real failure.
@@ -1817,6 +1818,12 @@ export async function buildMlContent(
             savedNote.textContent = `Delete failed: ${e2}`;
             return;
           }
+          // SB-MLA-007. A forced deletion is the one that changed what the project can defend, so
+          // it goes in the permanent record with the reason it was refused — the curves are still
+          // there and still cite it, and six months on the only question worth answering is whether
+          // somebody knew that at the time. The refusal text carries the wells and curves, so the
+          // record names them too rather than saying a deletion merely happened.
+          recordProcess("ML", `Force-deleted saved model '${m.name}' while curves still cited it — ${msg}`);
         }
         await refreshSaved();
       });
