@@ -9560,3 +9560,35 @@ drifting slightly off.
 - [ ] **If you use Synthetic Log with MAX_RAW on a washed-out RHOB**, sanity-check the result against
       a good-hole interval: the synthetic should differ from the raw curve everywhere, not track it.
       If it ever looks identical to the input, that is the failure above and worth telling me about.
+
+## Where the vendors disagree, the disagreement is on screen (2026-08-07)
+
+Three packages ship three different values for the number of clusters, and none of them tells you the
+other two exist. None of them can, either — no vendor has standing to publish a competitor's
+defaults. SandiBumi sells no competing default, so it is the one tool that can put them side by side,
+and that is now what the **K** field does.
+
+- [ ] **Open Electrofacies (Facies ribbon) and look under the K field.** There should be a collapsed
+      line reading *Shipped values elsewhere (5) — this number is not settled*. Expand it.
+- [ ] **Read the four positions.** IP advises 15–20 as a first-stage count and 4–5 consolidated;
+      Techlog ships a hard 5 in two separate modules; Geolog states none at all. Each names its
+      product and the document it was read from.
+- [ ] **Check that Geolog's row is there at all.** "None stated" is an entry, not a blank to be
+      dropped — it is the row that says the number is not settled. Two vendors alone would read as
+      agreement.
+- [ ] **Check where SandiBumi's own 5 sits.** It must be in the list and it must be **last**, marked
+      as ours, and it must say plainly that it is a starting point rather than a fitted number.
+- [ ] **Open GMM Facies and the ML pane.** Same panel, same four values. They read one registry, so
+      the three places can never disagree about one number.
+- [ ] **Run a clustering with K left at 5, then again at 17.** The run notes should say which cited
+      values your choice agrees with — 17 agrees with IP's first-stage range, 5 agrees with Techlog
+      and with IP's consolidated range. A range counts as agreement: if you typed 17 you did take
+      IP's advice, and a record that only matched exact numbers would say you invented it.
+- [ ] **Type something nobody ships — 9, say.** It must say it agrees with none of them, and still
+      run. This is a record, not a gate.
+- [ ] **Confirm Geolog is never quoted as endorsing anything**, whatever you type. A vendor that
+      ships no default cannot be cited as approving your choice.
+
+What is deliberately NOT here: no vendor algorithm, table or wording. A shipped default is one
+documented fact about a product, cited to the page documenting it. If an entry needed a lookup table
+to make sense, it would be the wrong entry.

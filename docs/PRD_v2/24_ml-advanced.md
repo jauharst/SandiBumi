@@ -598,10 +598,10 @@ the same method is implemented on both sides of it without anything asserting th
 | ML provenance into the deliverable | `ABSENT` | `report.rs` holds no ML reference at all |
 | ML provenance into export | `ABSENT` | `export.rs` holds no module/provenance reference |
 
-### 3.1b Disposition of the 15 still open (2026-08-07)
+### 3.1b Disposition of the 12 still open (2026-08-07)
 
-Counted from the headings, not estimated: **52 `PRESENT-OK`, 1 `PRESENT-DIVERGENT`, 2 `PARTIAL`,
-10 `ABSENT`** of 65. This subsection says what the remaining thirteen actually are, because "ABSENT"
+Counted from the headings, not estimated: **53 `PRESENT-OK`, 1 `PRESENT-DIVERGENT`, 2 `PARTIAL`,
+9 `ABSENT`** of 65. This subsection says what the remaining twelve actually are, because "ABSENT"
 covers three very different situations and treating them as one backlog would put seven items on a
 list that can never be worked.
 
@@ -632,15 +632,16 @@ meaningless in a composite. The honest options are a scalar channel through the 
 (~40 call sites) or implementing it only on the ML path, which has `MlResult.notes`. Neither is a
 knowledge gap; both are scope.
 
-**One is real work.** SB-MLA-031 (shipped vendor defaults surfaced at the point of choice) needs care
-rather than effort: SandiBumi cannot publish a competitor's defaults, so what it can surface is
-*that a default came from somewhere* and what that somewhere was, which is a narrower requirement
-than the one written. It is the recommended next increment in this chapter.
-
-*(SB-MLA-033 and SB-MLA-050 were the other two here, both closed 2026-08-07. -033 was new code and
-its residue is scope: the fixed basis covers the ML path, and the native `facies.rs` engines still
-standardise from the samples in hand. -050 was mostly a re-reading — the exclusion was already
-correct in both places and what was missing was the hard-fail fixture proving it stays that way.)*
+*(SB-MLA-031, -033 and -050 were the three "real work" items here, all closed 2026-08-07. -031 was
+built to the requirement as written, not to the narrower one this section had proposed: the reading
+that SandiBumi "cannot publish a competitor's defaults" was wrong, and inverted. `03_EVIDENCE_BASE.md`
+§14.2 says the *incumbents* cannot — a vendor has no standing to publish its rivals' numbers — which
+is precisely why SandiBumi, selling no competing default, can and should. The narrowing would have
+shipped "this number came from somewhere" in place of the four positions the corpus actually holds.
+-033 was new code and its residue is scope: the fixed basis covers the ML path, and the native
+`facies.rs` engines still standardise from the samples in hand. -050 was mostly a re-reading — the
+exclusion was already correct in both places and what was missing was the hard-fail fixture proving
+it stays that way.)*
 
 **Four are judgement calls awaiting Jauhar.** SB-MLA-025 (`PRESENT-DIVERGENT`) wants one
 within-cluster-sum-of-squares partition declared across three applications; the code has two
@@ -1928,7 +1929,7 @@ mixture posterior.
 
 ### Group D — The disagreement is the product
 
-#### SB-MLA-031 — Shipped vendor defaults are surfaced at the point of choice          [P2] [status: ABSENT]
+#### SB-MLA-031 — Shipped vendor defaults are surfaced at the point of choice          [P2] [status: PRESENT-OK]
 
 **Requirement.** Where the corpus holds more than one vendor's shipped default for a parameter
 SandiBumi exposes, the product MUST present the competing values with their sources at the point
@@ -1942,10 +1943,28 @@ example: for the number of clusters alone, IP advises **15 to 20** as a first-st
 None of the three tells the interpreter the other two exist, and none of them can — they cannot
 credibly publish a competitor's defaults.
 
-**As-built.** `ABSENT` — `facies.rs:40` declares `K` default 5.0 with range 2…12 and
-`src/ui/mlDialog.ts` offers a plain numeric field; no source or alternative is shown anywhere.
+**As-built.** `PRESENT-OK` (2026-08-07) — `param_sources.rs` is the registry: an `ArgSpec` carries a
+`sources_topic` rather than an embedded list, so the values belong to the PARAMETER and Electrofacies,
+GMM Facies and the ML pane cannot show three different answers for one number. `CLUSTER_COUNT` holds
+all four corpus positions — IP's 15–20 first-stage and 4–5 consolidated, Techlog's 5, and Geolog's
+explicit absence — beside SandiBumi's own 5, and the run records which of them the chosen value agrees
+with (`decision_note`). `src/ui/paramSources.ts` renders them collapsed at the point of choice.
 
-**Verified by.** SB-MLA-T32
+Four decisions the panel had to get right, each pinned rather than assumed. **An absence is an entry**
+— Geolog stating nothing is the entry saying the number is not settled, and dropping it would leave
+two vendors looking like a consensus. **SandiBumi's own default is listed and never first**, because a
+panel that showed three competitors and hid our own provenance would make exactly the omission it
+exists to correct. **A range counts as agreement** — an interpreter who typed 17 did take IP's advice
+— but "none stated" endorses nothing, whatever was typed. **No tier letters**: this chapter's (T2)/(T3)
+are corpus identifiers while `03_EVIDENCE_BASE.md` uses T1–T4 for artefact kind, so each entry names
+its product and document instead of printing one letter under the other's meaning.
+
+The `SB-CORE-013` boundary is kept: values with sources, never vendor algorithms, tables or text. A
+shipped default is one documented fact about a product; an entry needing a lookup table to be
+understood would be the wrong entry.
+
+**Verified by.** SB-MLA-T32 — pinned by `every_competing_value_names_its_product_and_the_absence_of_one_is_itself_shown`
+and `the_recorded_choice_says_which_cited_values_it_agrees_with_and_when_it_agrees_with_none`.
 
 #### SB-MLA-032 — The normalisation basis is a recorded choice, not an implicit one          [P1] [status: PRESENT-OK]
 
