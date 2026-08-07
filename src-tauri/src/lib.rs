@@ -41,6 +41,7 @@ mod multimin2;
 mod netflag;
 mod neutron_charts;
 mod office;
+mod param_sources;
 mod parsers;
 #[cfg(test)]
 mod pipeline_field_test;
@@ -1845,6 +1846,16 @@ async fn list_ml_models(db: tauri::State<'_, DbState>) -> Result<Vec<db::MlModel
 /// absent or delivered on a grid that coincides with the frame at no depth, and those call for
 /// opposite responses. Measured per well because sampling is a property of the delivery, and a field
 /// where one well came from a different vendor is exactly where this bites.
+/// The competing shipped values the corpus records for one parameter (`SB-CORE-013`).
+///
+/// Synchronous and connection-free on purpose: it is a static table, it is read while a dialog is
+/// being built, and a round-trip through `spawn_blocking` for four struct literals would be the only
+/// slow thing about opening a parameter editor.
+#[tauri::command]
+fn param_sources(topic: String) -> Vec<param_sources::ParamSource> {
+    param_sources::sources_for(&topic).to_vec()
+}
+
 #[tauri::command]
 async fn curve_sampling(
     db: tauri::State<'_, DbState>,
@@ -3376,6 +3387,7 @@ pub fn run() {
             ml_model_warnings,
             ml_determinism_note,
             curve_sampling,
+            param_sources,
             rename_ml_model,
             delete_ml_model,
             ml_model_citations,

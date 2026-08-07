@@ -3819,6 +3819,17 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     // SB-MLA-054, before the sample-count notes: a curve that never reached the frame is the
     // reason those counts look the way they do, so it has to be read first.
     notes.extend(frame_report);
+    // SB-CORE-013 / SB-MLA-031, the recording half. The cluster count is already stored with the
+    // run; what this adds is that it was chosen against a KNOWN disagreement and where it sits in
+    // it. "k = 5" read back in a year says nothing about whether anybody knew 15 was on the table.
+    // The default is the runner's own (5), so an untouched field is recorded as the choice it is.
+    if req.task == "clustering" {
+        let k = req.params.get("k").and_then(serde_json::Value::as_f64).unwrap_or(5.0);
+        if let Some(n) = crate::param_sources::decision_note(crate::param_sources::CLUSTER_COUNT, k)
+        {
+            notes.push(n);
+        }
+    }
     if supervised && !empty_train.is_empty() {
         let requested = req.train_well_ids.len();
         notes.push(format!(

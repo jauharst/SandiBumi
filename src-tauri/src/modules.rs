@@ -53,6 +53,14 @@ pub struct ArgSpec {
     /// decides net pay. The curve looks entirely normal and nothing downstream can catch it.
     #[serde(default)]
     pub choice_labels: Vec<String>,
+    /// `SB-CORE-013` topic key: the parameter this arg sets is one the corpus records COMPETING
+    /// shipped values for, so the editor shows them with their sources at the point of choice
+    /// (`param_sources::sources_for`). Empty for the overwhelming majority of args, which is why it
+    /// is a key rather than an embedded list — the values belong to the topic, not to the module, and
+    /// electrofacies, GMM facies and the ML dialog must not be able to show three different answers
+    /// for the same number.
+    #[serde(default)]
+    pub sources_topic: String,
     /// Validation range for Param args.
     pub min: Option<f64>,
     pub max: Option<f64>,
@@ -110,6 +118,7 @@ pub(crate) fn param(name: &str, desc: &str, unit: &str, default: f64, min: f64, 
         required: true,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
 }
 
@@ -127,6 +136,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         required: true,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
 }
 
@@ -187,6 +197,7 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         required: false,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
 }
 
@@ -204,7 +215,26 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         required,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
+}
+
+/// A [`param`] the corpus records COMPETING shipped values for (`SB-CORE-013`).
+///
+/// The editor shows those values with their sources beside the field, and the run records which of
+/// them the interpreter's choice agrees with. Reach for this only where
+/// [`crate::param_sources::sources_for`] actually has entries — a topic key with nothing behind it
+/// renders an empty panel, which reads as "nobody disagrees" and is the opposite of the point.
+pub(crate) fn param_sourced(
+    name: &str,
+    desc: &str,
+    unit: &str,
+    default: f64,
+    min: f64,
+    max: f64,
+    topic: &str,
+) -> ArgSpec {
+    ArgSpec { sources_topic: topic.into(), ..param(name, desc, unit, default, min, max) }
 }
 
 /// A [`param`] that cannot be overridden per zone (see [`ArgSpec::well_scope`]).
@@ -244,6 +274,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         required: true,
         computed_only: false,
         well_scope: false,
+        sources_topic: String::new(),
     }
 }
 

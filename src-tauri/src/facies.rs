@@ -13,7 +13,9 @@
 //! deliberate deferred follow-up; this per-well version is the smallest useful increment and
 //! reuses the whole existing dialog/chain/mask pipeline for free.
 
-use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{
+    log_in, log_out, opt, param, param_sourced, ModuleContext, ModuleOutputs, ModuleSpec,
+};
 use std::collections::HashMap;
 
 /// Input curve slots, in priority order. The first slot that carries data defines the
@@ -76,7 +78,18 @@ pub fn electrofacies_spec() -> ModuleSpec {
               deterministic for a given seed. Output: FACIES (integer 0..K-1)."
             .into(),
         args: vec![
-            param("K", "Number of facies (clusters)", "", 5.0, 2.0, 12.0),
+            // SB-CORE-013: the corpus's densest disagreement. IP advises 15-20 then consolidates to
+            // 4-5, Techlog ships a hard 5, Geolog states none at all — and no vendor tells the
+            // interpreter the other two exist. The editor shows all of them beside this field.
+            param_sourced(
+                "K",
+                "Number of facies (clusters)",
+                "",
+                5.0,
+                2.0,
+                12.0,
+                crate::param_sources::CLUSTER_COUNT,
+            ),
             param("SEED", "Random seed (reproducibility)", "", SEED_DEFAULT, 0.0, 1e9),
             opt("OPT_STANDARDIZE", "Feature scaling", "ZSCORE", &["ZSCORE", "NONE"]),
             log_in("CURVE1", "Curve 1 (also orders the facies)", "", "GR", true),
@@ -418,7 +431,15 @@ pub fn gmm_facies_spec() -> ModuleSpec {
               FACIES_GMM (integer 0..K-1), FPROB (max posterior, 0-1)."
             .into(),
         args: vec![
-            param("K", "Number of facies (mixture components)", "", 5.0, 2.0, 12.0),
+            param_sourced(
+                "K",
+                "Number of facies (mixture components)",
+                "",
+                5.0,
+                2.0,
+                12.0,
+                crate::param_sources::CLUSTER_COUNT,
+            ),
             param("SEED", "Random seed (reproducibility)", "", SEED_DEFAULT, 0.0, 1e9),
             opt("OPT_STANDARDIZE", "Feature scaling", "ZSCORE", &["ZSCORE", "NONE"]),
             log_in("CURVE1", "Curve 1 (also orders the facies)", "", "GR", true),

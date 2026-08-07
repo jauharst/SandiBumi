@@ -711,9 +711,37 @@ export interface ArgSpec {
    *  picking the wrong Larionov returns a shale volume more than half again too high right where
    *  the VSH cutoff decides net pay (`docs/review_triage.md` finding 21). */
   choice_labels?: string[];
+  /** `SB-CORE-013`: this parameter is one the corpus records COMPETING shipped values for, so the
+   *  editor shows them with their sources at the point of choice. A topic key rather than an
+   *  embedded list, because the values belong to the topic — electrofacies, GMM facies and the ML
+   *  dialog must not be able to show three different answers for the same number. Empty for almost
+   *  every arg; fetch with `paramSources`. */
+  sources_topic?: string;
   min: number | null;
   max: number | null;
   required: boolean;
+}
+
+/** One product's shipped or advised value for a parameter (`SB-CORE-013`). */
+export interface ParamSource {
+  /** The product that ships or advises it — including SandiBumi, which is never listed first. */
+  product: string;
+  /** The value as its source states it. A STRING because "15-20" and "none stated" are both real
+   *  answers and neither is a number. */
+  value: string;
+  /** What the value is FOR, where the source distinguishes stages or modules. */
+  note: string;
+  /** Where the claim was read. Empty for SandiBumi's own, which is this repository. */
+  source: string;
+}
+
+/** The competing shipped values recorded for a parameter topic, or empty where there are none.
+ *
+ *  Three packages routinely ship three different values for one constant and none of them tells the
+ *  interpreter the others exist — none of them can, because no vendor can credibly publish a
+ *  competitor's defaults. Showing the disagreement is the point. */
+export function paramSources(topic: string): Promise<ParamSource[]> {
+  return invoke<ParamSource[]>("param_sources", { topic });
 }
 
 export interface ModuleSpec {

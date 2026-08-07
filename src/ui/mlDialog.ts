@@ -28,6 +28,7 @@ import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup, setS
 import { buildLogSetPicker } from "./logSetPicker";
 import { FACIES_PALETTE } from "./plotCanvas";
 import { formRow } from "./modal";
+import { buildParamSources } from "./paramSources";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { buildImageExportButtons } from "./plotExport";
@@ -1267,6 +1268,13 @@ export async function buildMlContent(
       });
     }
     paramsGrid.appendChild(paramsReset);
+    // SB-CORE-013. Appended BELOW the grid rather than into a cell: the grid is a compact
+    // two-column form and a four-row citation panel inside one of its cells would wreck it. The
+    // panel is per PARAMETER, so it is attached where that parameter is set — here, the cluster
+    // count, which is the corpus's densest disagreement and the same number `facies.rs` sets.
+    if (algo.params.some((p) => p.key === "k")) {
+      paramsGrid.appendChild(buildParamSources("cluster_count"));
+    }
   }
   paramsReset.addEventListener("click", () => {
     for (const p of paramInputs) p.reset();

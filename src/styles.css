@@ -5154,6 +5154,91 @@ textarea {
   flex: 0 0 84px;
   max-width: 84px;
 }
+
+/* SB-CORE-013 — the competing shipped values for a parameter, at the point of choice.
+   Collapsed by default: this is context for a decision, not something to read on every run. The
+   header carries the count so a user knows there is something here without opening it. */
+.param-with-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.param-sources {
+  margin-top: 2px;
+}
+.param-sources-head {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--accent-dim);
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.param-sources-head:hover {
+  color: var(--accent);
+}
+.param-sources-body {
+  margin-top: 5px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-panel-alt);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.param-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+.param-source-value {
+  /* The number is what the eye is here for, so it leads and it is fixed-width — four values in a
+     ragged column cannot be compared at a glance, which is the only reason to show them together. */
+  flex: 0 0 76px;
+  font-weight: 700;
+  color: var(--text);
+}
+.param-source-product {
+  font-weight: 600;
+  color: var(--text);
+}
+.param-source-note,
+.param-source-cite {
+  color: var(--text-dim);
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.param-source-cite {
+  font-size: var(--fs-xs);
+  flex-basis: 100%;
+  /* Indented under its claim: a citation floating level with the value reads as another value. */
+  padding-left: 84px;
+}
+/* Our own entry is MARKED, never hidden and never promoted — a panel that showed three competitors
+   and quietly omitted SandiBumi's own provenance would make exactly the omission it exists to
+   correct. A left rule rather than a highlight: this is identification, not emphasis. */
+.param-source-own {
+  border-left: 2px solid var(--brand);
+  padding-left: 7px;
+  margin-left: -9px;
+}
+.param-sources-foot {
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  line-height: 1.45;
+}
 /* "Also run": one compact chip per algorithm, wrapping to the pane's width. Was a stacked column of
    checkbox-above-label rows, which cost four rows of height to offer four tick boxes and pushed the
    rest of the Model form off screen (Jauhar, 2026-08-07). Chips are the app's own density rule -
