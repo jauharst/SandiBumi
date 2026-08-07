@@ -9379,3 +9379,37 @@ the command line, Windows caps that near 32 KB, and adding comments broke every 
       It should say this well did not train the model, so its curve is an extrapolation.
 - [ ] **Sanity check that ML still runs at all.** This is the outage check: any fit, any algorithm. If
       you see "The filename or extension is too long", something reverted.
+
+## ML — Also run, in a row that fits, with each algorithm's own settings (2026-08-07)
+
+Your three points from the screenshot.
+
+**The space.** Also run was a column of full-width checkboxes — about 168px for seven algorithms, in
+a pane whose whole job is the panel beside it. It is now a row of chips that wrap: 50px, two rows at
+the usual pane width. Same algorithms, same ticks.
+
+**The missing settings.** Each chip carries a **⚙**. Open it and you get that algorithm's own
+parameters, the same fields the main picker shows. Only what you actually CHANGE is stored and sent —
+an untouched field stays a default and is recorded as one. That distinction is not cosmetic: a
+co-run that silently posted the full default set would make every comparison read as hand-tuned, and
+the run record could no longer tell your choice from the runner's. A **dot** on a chip marks the
+algorithms carrying settings of their own, and the note under the row names them.
+
+**7 versus 4.** You counted seven algorithms available for a continuous task and only four offered
+as co-runs. The three missing ones are Analysis (PCA), t-SNE and the clustering family: they have no
+target curve, so there is nothing to score a prediction against, and putting them on a leaderboard
+beside a regression would be comparing two different questions. The row now says that itself rather
+than leaving you to count.
+
+- [ ] **Open ML Models → Model.** Also run should be a wrapping row of chips, not a column. Count the
+      rows it costs you.
+- [ ] **Tick two or three.** Then open one chip's ⚙ — the other ticks must survive. (They used to be
+      cleared by the re-render.)
+- [ ] **Change a parameter in the ⚙ panel.** The dot should appear on THAT chip immediately, and the
+      note under the row should name it.
+- [ ] **Change it back to the default value.** The dot should go — nothing is stored, so nothing is
+      claimed.
+- [ ] **Run with two tuned co-runs.** Open the run record for each: the parameter you changed should
+      read as yours, everything else as a default.
+- [ ] **Read the note about the algorithms that cannot be co-run.** Does the reason match what you
+      expected when you counted seven?
