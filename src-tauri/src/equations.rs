@@ -269,10 +269,18 @@ pub fn list_curve_catalog(conn: &Connection) -> duckdb::Result<Vec<CurveCatalogE
         CurveCatalogEntry { name: "SP".into(), units: Some("MV".into()), source: "Standard".into() },
     ];
 
+    // SB-MLA-035. A DECLARED unit (`curve_unit`, written by whatever produced the curve) wins over
+    // the equations join, which can only ever answer for a user equation — a curve written by a
+    // module or an ML run had no unit anywhere before this. `MAX` because the catalog is
+    // project-wide while a declaration is per well: where two wells disagree the catalog picks one
+    // rather than listing the curve twice, and the per-well truth stays available through
+    // `db::curve_unit_for`.
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT cc.curve_name, e.output_units
+        "SELECT DISTINCT cc.curve_name, COALESCE(u.unit, e.output_units)
          FROM computed_curves cc
          LEFT JOIN equations e ON e.output_curve = cc.curve_name
+         LEFT JOIN (SELECT upper(curve_name) AS cn, MAX(unit) AS unit FROM curve_unit GROUP BY 1) u
+                ON u.cn = upper(cc.curve_name)
          ORDER BY cc.curve_name",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -280,6 +288,37 @@ pub fn list_curve_catalog(conn: &Connection) -> duckdb::Result<Vec<CurveCatalogE
     })?;
     for r in rows {
         entries.push(r?);
+    }
+
+    // The IMPORTED logs — the generic store. Rule 11 has always let a module or an equation consume
+    // any imported mnemonic, because `fetch_curve_frame` falls through to
+    // `fetch_generic_curve_aligned`; the CATALOG never listed them, so anything that offers the user
+    // a list of curves to choose from offered the six standard columns and the computed ones only.
+    // A well delivered with PEF, CALI, DRHO, SGR and three resistivities showed none of them, and
+    // the picker looked like the product could not read them — the backend could, all along.
+    //
+    // DISTINCT on the mnemonic because the catalog is PROJECT-WIDE and the store is per
+    // (well, set, run): one PEF entry, not one per well per delivery. `MIN(unit)` picks a
+    // representative for the same reason the computed join uses MAX — the per-well truth stays
+    // available through the frame read, which resolves per well anyway.
+    let mut stmt = conn.prepare(
+        "SELECT upper(mnemonic), MIN(unit)
+         FROM curve_meta
+         WHERE upper(mnemonic) <> 'DEPTH'
+         GROUP BY upper(mnemonic)
+         ORDER BY 1",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(CurveCatalogEntry { name: row.get(0)?, units: row.get(1)?, source: "Imported".into() })
+    })?;
+    for r in rows {
+        let e = r?;
+        // A name already carried by a standard column or a computed curve keeps THAT entry: those
+        // are what `fetch_curve_frame` resolves first, so listing the imported one beside it would
+        // offer a choice the reader does not actually have.
+        if !entries.iter().any(|x| x.name.eq_ignore_ascii_case(&e.name)) {
+            entries.push(e);
+        }
     }
     Ok(entries)
 }
@@ -447,6 +486,116 @@ fn fetch_computed_curve_aligned(
         by_depth.insert(d.to_bits(), v);
     }
     Ok(depth_grid.iter().map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN)).collect())
+}
+
+/// What one curve's OWN sampling looks like, and how much of it survives the join onto a frame.
+///
+/// Every read in this module aligns by EXACT depth match. That is correct and cheap when the curves
+/// share a grid, which they do whenever they came from one delivery — and it silently returns
+/// nothing when they do not. A resistivity delivered on a 0.5 m grid, joined onto a 0.1524 m frame,
+/// coincides at no depth at all: the curve is fully logged, fully stored, and reads as absent.
+///
+/// The diagnosis matters more than the count. "Missing" and "present on a different grid" call for
+/// opposite responses — go and find the curve, versus reconcile the sampling — and until now the
+/// second reported itself as the first, which sends an interpreter looking for a log they already
+/// have.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CurveSampling {
+    pub curve: String,
+    /// Samples the curve actually holds, on its own depths.
+    pub n_own: usize,
+    /// Median spacing between its own consecutive depths. `None` below two samples, where a
+    /// spacing is undefined rather than zero.
+    pub step: Option<f64>,
+    pub top: Option<f64>,
+    pub base: Option<f64>,
+    /// How many of the frame's depths this curve answers for. Zero beside a large `n_own` is the
+    /// whole finding.
+    pub n_on_frame: usize,
+    /// True where the curve was found in the generic store rather than as a standard column or a
+    /// computed curve — the only place a foreign grid can come from today.
+    pub imported: bool,
+}
+
+/// Measures each named curve's own sampling against a frame, for one well.
+///
+/// Deliberately separate from `fetch_curve_frame`: that answers "give me these curves on this grid",
+/// which is what a module wants, and this answers "why did that come back empty", which is what a
+/// person wants. Folding the second into the first would put a per-curve extra query on the hot path
+/// of every module run in the application.
+pub fn curve_sampling(
+    conn: &Connection,
+    well_id: &str,
+    curve_names: &[String],
+    frame: &[f32],
+) -> duckdb::Result<Vec<CurveSampling>> {
+    let frame_bits: std::collections::HashSet<u32> = frame.iter().map(|d| d.to_bits()).collect();
+    let mut out = Vec::new();
+    for name in curve_names {
+        let upper = name.trim().to_uppercase();
+        // Own depths, wherever the curve lives. The generic store is asked first because it is the
+        // only source that can carry a grid of its own; a computed curve was written against a
+        // frame and a standard column IS the frame.
+        let curve_id: Option<String> = conn
+            .query_row(
+                "SELECT curve_id FROM curve_meta
+                 WHERE well_id = ?1 AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
+                 ORDER BY (set_name = 'RAW') DESC, (upper(mnemonic) = ?2) DESC,
+                          set_name, run_no NULLS FIRST, curve_id
+                 LIMIT 1",
+                params![well_id, upper],
+                |row| row.get(0),
+            )
+            .ok();
+        let depths: Vec<f32> = match &curve_id {
+            Some(id) => {
+                let mut stmt = conn.prepare(
+                    "SELECT depth FROM curve_samples WHERE curve_id = ?1 AND value IS NOT NULL ORDER BY depth",
+                )?;
+                stmt.query_map(params![id], |r| r.get::<_, f32>(0))?.collect::<duckdb::Result<_>>()?
+            }
+            None => {
+                let mut stmt = conn.prepare(
+                    "SELECT depth FROM computed_curves WHERE well_id = ?1 AND upper(curve_name) = ?2 ORDER BY depth",
+                )?;
+                stmt.query_map(params![well_id, upper], |r| r.get::<_, f32>(0))?
+                    .collect::<duckdb::Result<_>>()?
+            }
+        };
+        let n_own = depths.len();
+        let n_on_frame = depths.iter().filter(|d| frame_bits.contains(&d.to_bits())).count();
+        // MEDIAN spacing, not mean: one gap across a casing shoe would drag a mean far off the
+        // sampling the tool actually ran at, and the sampling is the question.
+        let step = if n_own >= 2 {
+            let mut gaps: Vec<f64> =
+                depths.windows(2).map(|w| (w[1] - w[0]) as f64).filter(|g| *g > 0.0).collect();
+            if gaps.is_empty() {
+                None
+            } else {
+                gaps.sort_by(|a, b| a.partial_cmp(b).expect("finite by construction"));
+                Some(gaps[gaps.len() / 2])
+            }
+        } else {
+            None
+        };
+        out.push(CurveSampling {
+            curve: upper,
+            n_own,
+            step,
+            top: depths.first().map(|d| *d as f64),
+            base: depths.last().map(|d| *d as f64),
+            n_on_frame,
+            imported: curve_id.is_some(),
+        });
+    }
+    Ok(out)
+}
+
+/// The well's own frame — the depths every read in this module aligns onto.
+pub fn well_frame(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<f32>> {
+    let mut stmt =
+        conn.prepare("SELECT depth FROM standard_curves WHERE well_id = ?1 ORDER BY depth")?;
+    stmt.query_map(params![well_id], |r| r.get::<_, f32>(0))?.collect()
 }
 
 /// Looks up a curve in the generic store (`curve_meta`/`curve_samples`) by
@@ -1240,6 +1389,59 @@ pub(crate) fn write_equation_output(
 
 #[cfg(test)]
 mod tests {
+    /// **An imported log is offered wherever the product asks the user to pick a curve.**
+    ///
+    /// `fetch_curve_frame` has resolved the generic store since rule 11, so a module or an equation
+    /// could always consume PEF, CALI, DRHO or a second resistivity run. `list_curve_catalog` did
+    /// not list them — so every picker built from it (the ML dialog's input checkboxes above all)
+    /// showed the six standard columns and the computed curves, and a well delivered with fifteen
+    /// logs offered five. The engine could read them the whole time; the list could not say so, and
+    /// an input a user cannot see is an input the product does not have.
+    ///
+    /// Pinned from both sides: the imported name appears, AND a name already carried by a standard
+    /// column or a computed curve appears exactly ONCE — `fetch_curve_frame` resolves those first,
+    /// so listing the imported twin beside it would offer a choice that does not exist.
+    #[test]
+    fn an_imported_log_is_offered_as_an_input_not_only_the_standard_six() {
+        use crate::db;
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-1", None, None, Some(0.0)).unwrap();
+        let id = well.to_string();
+        for (mn, unit, fam) in
+            [("PEF", "B/E", "PEF"), ("CALI", "IN", "CALI"), ("DRHO", "G/C3", "DRHO")]
+        {
+            db::upsert_curve_meta(&conn, &id, "RAW", mn, Some(unit), Some(fam), Some("LAS import"), None)
+                .unwrap();
+        }
+        // The same mnemonic delivered again in a second set, and once as a standard column.
+        db::upsert_curve_meta(&conn, &id, "FPROOH", "PEF", Some("B/E"), Some("PEF"), Some("LAS import"), None)
+            .unwrap();
+        db::upsert_curve_meta(&conn, &id, "RAW", "GR", Some("GAPI"), Some("GR"), Some("LAS import"), None)
+            .unwrap();
+
+        let catalog = super::list_curve_catalog(&conn).unwrap();
+        let names: Vec<&str> = catalog.iter().map(|c| c.name.as_str()).collect();
+        for want in ["PEF", "CALI", "DRHO"] {
+            assert!(names.contains(&want), "an imported log must be pickable: {names:?}");
+        }
+        assert_eq!(
+            names.iter().filter(|n| **n == "PEF").count(),
+            1,
+            "one entry per mnemonic, not one per well per delivery: {names:?}"
+        );
+        assert_eq!(
+            names.iter().filter(|n| **n == "GR").count(),
+            1,
+            "the standard column is what a frame read resolves, so it is the entry that stands"
+        );
+        let pef = catalog.iter().find(|c| c.name == "PEF").unwrap();
+        assert_eq!(pef.units.as_deref(), Some("B/E"), "the unit travels, so a picker can show it");
+        assert_eq!(pef.source, "Imported", "the reader can tell a delivered log from a computed one");
+        assert!(!names.contains(&"DEPTH"), "the index is not an input curve");
+    }
+
     /// **Every tool that reads or writes a curve offers a log set** (Jauhar, 2026-08-05:
     /// *"each tools or modules should give user freedom to define input and output log set ...
     /// and their own curves"*).

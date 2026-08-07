@@ -232,7 +232,11 @@ pub fn block_spec() -> ModuleSpec {
               rock.\n\
               • HARMONIC — permeability across layers in SERIES (flow perpendicular to \
               lamination); the lowest of the three and the one a vertical barrier deserves.\n\
-              • MEDIAN / MIN / MAX — order statistics, for a flag or a worst-case screen.\n\n\
+              • MEDIAN / MIN / MAX — order statistics, for a flag or a worst-case screen.\n\
+              • MODE — the bed's commonest value, and the ONLY upscale for a class curve (FACIES, \
+              a lithology code). A class code is a name written as a number: the mean of facies 1 \
+              and facies 4 is 2.5, which is not a facies, and nothing downstream can tell. A curve \
+              declared as a class refuses every averaging statistic here for that reason.\n\n\
               An arithmetic upscale of a laminated sand-shale gives a permeability the rock does \
               not have, and it is always the HIGHEST of the three, so the error never looks like \
               a problem: 1000 mD sand with 0.01 mD shale in equal parts is 500 mD arithmetically, \
@@ -265,6 +269,7 @@ pub fn block_spec() -> ModuleSpec {
                     ("MEDIAN", "MEDIAN — the middle sample of the bed"),
                     ("MIN", "MIN — the lowest sample of the bed"),
                     ("MAX", "MAX — the highest sample of the bed"),
+                    ("MODE", "MODE — the bed's commonest value; the only upscale for a class curve"),
                 ],
             ),
             log_in("CURVE", "Curve to upscale", "", "PHIE", true),
@@ -285,6 +290,18 @@ pub fn block(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let vals = ctx.log("CURVE");
     let depth = ctx.log("DEPTH");
     let stat = ctx.o("OPT_STAT").to_string();
+    // SB-MLA-055. A class code is a name written as a number; the mean of facies 1 and facies 4 is
+    // 2.5, and MEDIAN here goes through the R-type-7 percentile, so an even bed of {1, 2} gives
+    // 1.5. Refused by NAME with the fix stated, rather than quietly substituting MODE: a module
+    // returns a vector and has no channel to report that it did something else.
+    if ctx.input_is_class_curve("CURVE") && !matches!(stat.as_str(), "MODE" | "MIN" | "MAX") {
+        return Err(format!(
+            "{} holds class codes, and {stat} would average them into a value that is not any class \
+             (the mean of facies 1 and facies 4 is 2.5). Set OPT_STAT to MODE - the bed's commonest \
+             code, and the one upscale that carries a class whole.",
+            ctx.in_curve("CURVE")
+        ));
+    }
     let beds = assign_beds(ctx, &vals, &depth)?;
 
     // Gather each bed's live samples. A bed key is an ordinal, so a BTreeMap keeps them in depth
@@ -305,6 +322,19 @@ pub fn block(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
             }
             "MIN" => v.iter().copied().fold(f32::INFINITY, f32::min),
             "MAX" => v.iter().copied().fold(f32::NEG_INFINITY, f32::max),
+            // The only upscale a CLASS curve has (SB-MLA-055). The bed's commonest code wins it,
+            // which is the same rule `reframe`'s MODE follows — one definition of "upscale a class
+            // curve", not two. Ties go to the value seen first in depth order, deterministically.
+            "MODE" => {
+                let mut best = (v[0], 0usize);
+                for x in v.iter() {
+                    let c = v.iter().filter(|y| (**y - *x).abs() < 1e-6).count();
+                    if c > best.1 {
+                        best = (*x, c);
+                    }
+                }
+                best.0
+            }
             // Both flow means are undefined at or below zero — a log of a non-positive number,
             // and a division by it. A permeability of exactly 0 is a real reading (a seal), so it
             // is EXCLUDED from the mean and the bed is reported from what is left rather than the
@@ -420,6 +450,80 @@ mod tests {
             os.insert(k.to_string(), v.to_string());
         }
         ModuleContext { n, logs, params: ps, opts: os, depth_unit: DepthUnit::Metres }
+    }
+
+    /// SB-MLA-055 in `block`, pinned from both sides — and the MODE half is not a nicety. The
+    /// coreimage pane already tells the user in so many words to *"use Frame > Block with OPT_STAT
+    /// = MODE, the one upscale that carries a class code whole"*, and `block` had no MODE arm, so
+    /// following the application's own advice fell through to the `_` case and took the MEAN of the
+    /// codes. It computed, it plotted, and nothing said otherwise.
+    ///
+    /// So: MODE exists and returns a real code, and the averaging statistics are refused BY NAME on
+    /// a declared class curve. Either half alone would pass a broken implementation — a refusal
+    /// with no MODE to switch to is a dead end, and a MODE nobody is steered to leaves MEAN as the
+    /// default on a facies curve.
+    #[test]
+    fn a_class_curve_is_blocked_by_its_commonest_code_and_refuses_every_average() {
+        let depth = regular(9, 0.5, 1000.0);
+        // One INTERVAL block, wide enough to hold the lot: facies 3 is the commonest code in it,
+        // with 1 and 4 also present, and the arithmetic mean of the nine is 2.78 — a code that does
+        // not exist.
+        let facies = vec![3.0f32, 3.0, 1.0, 3.0, 4.0, 3.0, 1.0, 3.0, 4.0];
+        let one_bed: &[(&str, f64)] = &[("INTERVAL", 100.0)];
+        // `__IN_CURVE` is how a run states which mnemonic the CURVE arg resolved to, and
+        // `__CLASS_CURVES` is the run's declared class list. Both are needed: the rule fires on the
+        // INTERSECTION, which is what lets a project hold a FACIES curve and a PHIE curve at once.
+        let with = |stat: &'static str| -> Vec<(&'static str, &'static str)> {
+            vec![
+                ("__IN_CURVE", "FACIES"),
+                ("__CLASS_CURVES", "FACIES"),
+                ("OPT_BEDS", "INTERVAL"),
+                ("OPT_STAT", stat),
+            ]
+        };
+
+        let out = block(&ctx_for(&depth, &facies, one_bed, &with("MODE")))
+            .expect("MODE is a valid upscale for a class curve");
+        let v = &out["OUT_CURVE"];
+        assert!(
+            v.iter().filter(|x| x.is_finite()).all(|x| (*x - 3.0).abs() < 1e-6),
+            "the bed's commonest code wins it, got {v:?}",
+        );
+
+        // Every statistic that can invent a value is refused, and the message names the curve and
+        // the fix. MEDIAN is in the list because it goes through the R-type-7 percentile, so an
+        // even-count bed of {1, 2} returns 1.5.
+        for stat in ["MEAN", "GEOMETRIC", "HARMONIC", "MEDIAN"] {
+            let e = block(&ctx_for(&depth, &facies, one_bed, &with(stat)))
+                .expect_err("an averaging statistic over class codes must be refused");
+            assert!(e.contains("FACIES"), "{stat}: names the curve refused: {e}");
+            assert!(e.contains("MODE"), "{stat}: names the statistic to use instead: {e}");
+        }
+        // MIN and MAX land on a real sample, so they are allowed — a class curve has an order even
+        // where it has no arithmetic.
+        for stat in ["MIN", "MAX"] {
+            assert!(
+                block(&ctx_for(&depth, &facies, one_bed, &with(stat))).is_ok(),
+                "{stat} returns a real sample and is not a refusal",
+            );
+        }
+
+        // The other side, and the half that stops this becoming a heuristic: an UNDECLARED curve is
+        // untouched however class-like its values look. A caliper logged in whole inches still
+        // averages, because nothing declared it a class.
+        let plain: &[(&str, &str)] = &[("OPT_BEDS", "INTERVAL"), ("OPT_STAT", "MEAN")];
+        let out = block(&ctx_for(&depth, &facies, one_bed, plain))
+            .expect("nothing declared this a class curve, so MEAN is the user's to choose");
+        let v = out["OUT_CURVE"].iter().copied().find(|x| x.is_finite()).unwrap();
+        assert!((v - 2.777_8).abs() < 0.01, "an undeclared curve still averages: {v}");
+
+        // And a DECLARED name that is not the one being blocked leaves this run alone.
+        let other: &[(&str, &str)] =
+            &[("OPT_BEDS", "INTERVAL"), ("OPT_STAT", "MEAN"), ("__IN_CURVE", "PHIE"), ("__CLASS_CURVES", "FACIES")];
+        assert!(
+            block(&ctx_for(&depth, &facies, one_bed, other)).is_ok(),
+            "the rule fires on the curve declared, not on the presence of a declaration",
+        );
     }
 
     fn regular(n: usize, step: f32, start: f32) -> Vec<f32> {

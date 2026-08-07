@@ -1828,6 +1828,69 @@ async fn list_ml_models(db: tauri::State<'_, DbState>) -> Result<Vec<db::MlModel
     .map_err(|e| e.to_string())?
 }
 
+/// SB-MLA-002 + SB-MLA-005 — what each saved model would be warned about IF it were applied now,
+/// answered before it is.
+///
+/// Both requirements ask for a warning "before the model is applied", and an apply run cannot give
+/// either one early: it learns the runtime from a reply header that arrives after the prediction,
+/// and by then the curves are written. So the same two checks the apply path runs are asked here,
+/// at the moment somebody is looking at a list of models deciding which to push across a field.
+///
+/// Computed in Rust rather than compared in the picker so there is ONE implementation of each check
+/// and one wording. A model list is short and the runtime probe is cached, so this is one query and
+/// no subprocess after the first call.
+/// How each curve is SAMPLED, against the frame every read aligns onto.
+///
+/// Answers the question the coverage numbers cannot: a curve reported as blank everywhere is either
+/// absent or delivered on a grid that coincides with the frame at no depth, and those call for
+/// opposite responses. Measured per well because sampling is a property of the delivery, and a field
+/// where one well came from a different vendor is exactly where this bites.
+#[tauri::command]
+async fn curve_sampling(
+    db: tauri::State<'_, DbState>,
+    well_ids: Vec<String>,
+    curves: Vec<String>,
+) -> Result<Vec<(String, Vec<equations::CurveSampling>)>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = conn.lock().unwrap();
+        let mut out = Vec::new();
+        for id in &well_ids {
+            let frame = equations::well_frame(&c, id).unwrap_or_default();
+            match equations::curve_sampling(&c, id, &curves, &frame) {
+                Ok(rows) => out.push((id.clone(), rows)),
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// SB-MLA-008 — what about THIS configuration would not reproduce elsewhere, before it is run.
+///
+/// Scoped to what the product can observe in its own code rather than to second-hand claims about
+/// library determinism: today that is the `gbdt` estimator substitution. `None` is the ordinary
+/// answer and means the run is reproducible from its own record under the same runtime.
+#[tauri::command]
+async fn ml_determinism_note(task: String, algorithm: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || ml::determinism_note(&task, &algorithm))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ml_model_warnings(db: tauri::State<'_, DbState>) -> Result<Vec<ml::ModelWarnings>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = conn.lock().unwrap();
+        Ok(ml::model_warnings(&c))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn rename_ml_model(db: tauri::State<'_, DbState>, model_id: String, new_name: String) -> Result<String, String> {
     let conn = db.0.lock().unwrap();
@@ -3269,6 +3332,9 @@ pub fn run() {
             run_ml,
             apply_ml_model,
             list_ml_models,
+            ml_model_warnings,
+            ml_determinism_note,
+            curve_sampling,
             rename_ml_model,
             delete_ml_model,
             run_ml_eval,

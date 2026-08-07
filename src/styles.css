@@ -4540,6 +4540,70 @@ textarea {
 .mc-saved-row button {
   flex: 0 0 auto;
 }
+/* SB-MLA-009 — how well a saved model travels, on the row you pick it from. This is the moment
+   somebody decides to apply a model to fifty wells they have no core in, so the number belongs
+   here rather than one dialog away. A pill because it is a status, not a control: it takes the
+   shape language of a tag (--r-pill) and none of a button's affordance. */
+.ml-blind-tag {
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  background: var(--bg-app);
+  white-space: nowrap;
+}
+/* Graded on the QC status tokens, NOT the brand ones — same reasoning as the Results-QC scorecard:
+   a client skin recolours the application, and it must never be able to re-roll the meaning of
+   "this model does not travel". Graded rather than pass/fail because a blind R2 of 0.55 is neither
+   good news nor bad news on its own; the tint says "read this", the tooltip says what was measured,
+   and the analyst decides. "not blind-tested" stays deliberately neutral — an absence of evidence
+   must not look like evidence of a problem, nor like an endorsement. */
+.ml-blind-tag[data-grade="good"] {
+  color: var(--qc-ok);
+  border-color: color-mix(in srgb, var(--qc-ok) 45%, var(--border));
+  background: color-mix(in srgb, var(--qc-ok) 10%, transparent);
+}
+.ml-blind-tag[data-grade="fair"] {
+  color: var(--qc-warn);
+  border-color: color-mix(in srgb, var(--qc-warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--qc-warn) 10%, transparent);
+}
+.ml-blind-tag[data-grade="weak"] {
+  color: var(--qc-alert);
+  border-color: color-mix(in srgb, var(--qc-alert) 45%, var(--border));
+  background: color-mix(in srgb, var(--qc-alert) 10%, transparent);
+}
+/* SB-MLA-008. Shown only when the chosen configuration has something about it that would not
+   reproduce elsewhere. A left rule rather than a pill: this is a sentence to read, not a status to
+   glance at, and it sits under the algorithm it describes. */
+.ml-determinism-note {
+  margin: 4px 0 8px;
+  padding: 6px 10px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text);
+  border-left: 3px solid var(--qc-warn);
+  background: color-mix(in srgb, var(--qc-warn) 8%, transparent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+/* SB-MLA-002 + SB-MLA-005. Present ONLY when something has moved under a model — the log set it
+   learned from, or the libraries it was fitted with. Unlike the blind tag, which grades every model,
+   this one's absence is the normal state and its presence is the whole message. --qc-warn rather
+   than --qc-alert: a reason to look, not proof the prediction is wrong, and the tooltip is where the
+   components are named. */
+.ml-drift-tag {
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  color: var(--qc-warn);
+  border: 1px solid color-mix(in srgb, var(--qc-warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--qc-warn) 10%, transparent);
+}
 .mc-param-row {
   display: flex;
   align-items: center;
@@ -4639,6 +4703,32 @@ textarea {
 .mc-field select:focus {
   outline: none;
   border-color: var(--accent);
+}
+/* A parameter that no longer holds its default. SB-MLA-001 records which values were the user's and
+   which the library's, because that is what decides whether a run can be reproduced - and a grid of
+   numbers looks identical either way until something says so. Accent on the LABEL, not a filled
+   field: this marks a fact about the value, not a problem with it. */
+.mc-field-changed > span {
+  color: var(--accent-dim, #8a4f28);
+  font-weight: 600;
+}
+.mc-field-changed input,
+.mc-field-changed select {
+  border-color: var(--accent);
+}
+.ml-param-reset {
+  align-self: flex-end;
+  background: none;
+  border: none;
+  padding: 0 0 3px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.ml-param-reset:hover {
+  color: var(--accent);
 }
 .mc-rm {
   margin-left: auto;
@@ -4820,6 +4910,12 @@ textarea {
   margin-bottom: 8px;
   font-size: var(--fs-md);
 }
+/* The unit and origin beside a curve name in a picker. Dim and secondary: it answers "which RHOB
+   is this" without competing with the mnemonic, which is what the eye scans for. */
+.mc-curve-src {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
 .mc-settings {
   display: flex;
   flex-wrap: wrap;
@@ -4922,15 +5018,451 @@ textarea {
   background: var(--bg-panel-alt, #e9dfc8);
   border-radius: var(--r-sm);
   overflow: hidden;
+  position: relative;
 }
 .ml-imp-bar {
   height: 100%;
   background: var(--accent, #9c6b3f);
 }
+/* Spread of the importance across folds, drawn over the bar it qualifies. A whisker reaching back
+ * to the left edge is the reading that matters: the feature carried in some wells and not others. */
+.ml-imp-whisker {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-left: 1px solid var(--text-dim, #6f6857);
+  border-right: 1px solid var(--text-dim, #6f6857);
+  background: linear-gradient(
+    to bottom,
+    transparent calc(50% - 1px),
+    var(--text-dim, #6f6857) calc(50% - 1px),
+    var(--text-dim, #6f6857) calc(50% + 1px),
+    transparent calc(50% + 1px)
+  );
+  opacity: 0.65;
+  pointer-events: none;
+}
 .ml-imp-val {
-  flex: 0 0 56px;
+  flex: 0 0 96px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+/* A mean inside its own across-well spread. Dimmed rather than hidden: the measurement happened
+ * and its value is still readable, but it is not evidence that the feature carries anything. */
+.ml-imp-unclear {
+  opacity: 0.55;
+}
+.ml-imp-unclear .ml-imp-bar {
+  background: var(--text-dim, #6f6857);
+}
+.ml-imp-prov {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  margin-bottom: 4px;
+}
+/* Rows the fold spread cannot separate. Marked as a GROUP, without the bold that mc-best uses to
+ * name a single winner - the table has a top, but this run has no winner to point at. */
+.ml-leaderboard tr.ml-lb-tied td {
+  box-shadow: inset 0 1px 0 var(--border, #d9cbb0), inset 0 -1px 0 var(--border, #d9cbb0);
+}
+.ml-leaderboard tr.ml-lb-tied td:first-child {
+  box-shadow:
+    inset 0 1px 0 var(--border, #d9cbb0),
+    inset 0 -1px 0 var(--border, #d9cbb0),
+    inset 2px 0 0 var(--text-dim, #6f6857);
+}
+.ml-tie-note {
+  margin-top: 6px;
+}
+/* --- The four-section ML pane -------------------------------------------------
+   Input / Data QC / Model / Results as a segmented strip. The strip is sticky so the section names
+   stay reachable while a long Results panel scrolls under them - switching section by scrolling back
+   to the top is the thing that makes tabs feel worse than one long column. */
+/* A full-width sticky BAR holding the tab pills, not the pill group itself. `.seg` sizes to its
+   content, so making it the sticky element pinned a background only as wide as the tabs and let the
+   form scroll through beside them - the segmented controls and the tabs drawn over each other. The
+   bar spans the pane, so there is no gap for content to show through. */
+.ml-sections {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 10px;
+  padding: 6px 0 8px;
+  background: var(--bg-panel);
+  display: flex;
+}
+.ml-section[hidden] {
+  display: none;
+}
+/* The footer carries Run, which belongs to the whole pane rather than to any one section. A top rule
+   rather than a filled bar: it is the end of the form, not a toolbar. */
+.ml-footer {
+  position: sticky;
+  bottom: 0;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+/* --- Data QC findings ---------------------------------------------------------
+   Graded on the --qc-* status tokens, never the brand ramp: a client skin recolours the application
+   and must not be able to re-roll the meaning of "this will not fit". A left rule rather than a
+   filled card, so a panel of six findings does not read as six alarms - the rule carries the grade
+   and the text carries the finding. */
+/* One setting, two views - Model owns the checkbox, Data QC shows it beside the measurement that
+   decides it. Never a second piece of state: two checkboxes for one thing is how they drift. */
+.ml-norm-why {
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+/* Off, on an estimator that needs it. Not an alarm - the run is legitimate and the QC panel below
+   states the size of the effect - but it is the one combination worth catching the eye. */
+.ml-norm-off {
+  color: var(--qc-warn);
+}
+/* A checkbox whose caption is a sentence. `.mc-field` puts the box ABOVE its label, which suits a
+   two-word caption beside a Seed box and wraps a sentence into a ragged column - so this one turns
+   the label back into a row and stacks its explanation underneath at full width. */
+.ml-cov {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ml-cov > .mc-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+/* The block thickness sits beside the segmented control, not under it: it is that control's
+   argument, and a value on its own line reads as a separate setting. */
+.ml-cov > .mc-settings {
+  align-items: center;
+}
+.ml-res-step {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.ml-res-step input {
+  width: 88px;
+}
+.ml-qc-item {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--bg-panel-alt, #f0e7d5);
+}
+.ml-qc-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+}
+.ml-qc-detail {
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.ml-qc-alert {
+  border-left-color: var(--qc-alert);
+  background: color-mix(in srgb, var(--qc-alert) 7%, transparent);
+}
+.ml-qc-warn {
+  border-left-color: var(--qc-warn);
+  background: color-mix(in srgb, var(--qc-warn) 7%, transparent);
+}
+/* An OK finding is still a finding - it states what was measured and why it is fine, which is what
+   makes the panel worth opening when nothing is wrong. Tinted, not shouted. */
+.ml-qc-ok {
+  border-left-color: var(--qc-ok);
+  background: color-mix(in srgb, var(--qc-ok) 6%, transparent);
+}
+/* The two comparison panels under the leaderboard. A card on the plot surface rather than loose in
+   the pane: they are a picture of the table above, and the ground says "this is a plot" the same way
+   every other plot surface in the app does. Data density stays professional - no extra air. */
+.ml-chart {
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  background: var(--plot-bg, #f2ead9);
+  border: 1px solid var(--border, #d9cbb0);
+  border-radius: var(--r-lg, 12px);
+}
+.ml-chart > .mc-chain-note {
+  margin-bottom: 6px;
+}
+.ml-score-chart {
+  display: block;
+  overflow: visible;
+}
+.ml-score-chart text {
+  font-family: var(--font-body);
+  font-size: 11px;
+  fill: var(--text-dim, #6f6857);
+}
+.ml-score-chart .ml-sc-label {
+  fill: var(--text, #2f2a22);
+}
+.ml-score-chart .ml-sc-value {
+  font-variant-numeric: tabular-nums;
+}
+.ml-score-chart .ml-sc-axis {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+.ml-score-chart .ml-sc-whisker,
+.ml-score-chart .ml-sc-cap {
+  stroke: var(--text-dim, #6f6857);
+  stroke-width: 1.25;
+  opacity: 0.75;
+}
+.ml-score-chart .ml-sc-dot {
+  fill: var(--text-dim, #6f6857);
+}
+/* A single separable leader gets the accent; a tie gets the QC warn tint on EVERY dot in it. The
+   distinction is the same one the table makes - mc-best names a winner, ml-lb-tied says there is
+   none - and it must survive a client skin, so the tie is on the --qc-* tokens rather than the
+   brand ramp. */
+.ml-score-chart .ml-sc-best {
+  fill: var(--accent, #9c6b3f);
+}
+.ml-score-chart .ml-sc-tied {
+  fill: var(--qc-warn);
+}
+.ml-sc-tieband {
+  fill: var(--qc-warn);
+  opacity: 0.1;
+}
+/* --- R2 / RMSE comparison ------------------------------------------------------
+   Two panels, never one axis: R2 is dimensionless and higher is better, RMSE is in the target's own
+   units and lower is better, so a shared axis would put the best model at opposite ends of one
+   picture. Side by side on a wide pane, stacked when there is no room. */
+.ml-bars-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.ml-bars-title {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.ml-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+.ml-bar-name {
+  flex: 0 0 78px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-bar-track {
+  flex: 1 1 auto;
+  height: 11px;
+  background: var(--bg-panel-alt, #e9dfc8);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.ml-bar {
+  height: 100%;
+  background: var(--text-dim);
+}
+/* Best on THIS metric, which need not be the top row - that divergence is the reason both charts
+   are drawn. */
+.ml-bar-best {
+  background: var(--accent);
+}
+/* A negative R2 means worse than predicting the mean. Drawn rather than clamped away, and marked,
+   because it is one of the few readings that condemns a model outright. */
+.ml-bar-neg {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--qc-alert) 0 4px,
+    color-mix(in srgb, var(--qc-alert) 60%, transparent) 4px 8px
+  );
+}
+.ml-bar-val {
+  flex: 0 0 62px;
+  text-align: right;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+/* --- Predicted vs measured, on held-out rows ----------------------------------- */
+.ml-xplot-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ml-xplot-pick {
+  flex: 0 0 auto;
+  max-width: 300px;
+  margin-left: auto;
+}
+.ml-xplot-svg {
+  display: block;
+  max-width: 380px;
+  margin: 0 auto;
+}
+.ml-xp-frame {
+  fill: none;
+  stroke: var(--border);
+}
+/* The subject of the plot, not decoration: a score says how close the cloud is to this line, the
+   picture says HOW it misses. Dashed so points on top of it stay readable. */
+.ml-xp-unity {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.8;
+}
+.ml-xp-pt {
+  opacity: 0.62;
+}
+.ml-xp-axis {
+  font-family: var(--font-body);
+  font-size: 10px;
+  fill: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ml-xplot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: center;
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.ml-xplot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ml-xplot-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+/* Cross-model consensus reuses the importance row geometry on purpose: it answers the same shape of
+   question one level up, and a second visual language for "which curve carries" would read as a
+   second kind of measurement. */
+.ml-consensus .ml-imp-name {
+  font-variant-numeric: tabular-nums;
+}
+/* Per-well outcome tally. The warn variant fires when any well was refused (SB-MLA-013) - the
+ * count is the headline, because a run that wrote 37 of 40 wells is a different result from one
+ * that wrote all 40, and the metrics above it look identical either way. */
+.ml-tally {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  margin: 8px 0 4px;
+}
+.ml-tally-warn {
+  color: var(--warn, #b4472e);
+  font-weight: 600;
+}
+/* A refused well is tinted, not hidden: it stays in the same table as the wells that worked, so
+ * the run reads as one result rather than a success list with an errata note somewhere else. */
+.ml-well-table tr.ml-well-refused td {
+  background: color-mix(in srgb, var(--warn, #b4472e) 8%, transparent);
+}
+.ml-well-table tr.ml-well-refused td:first-child {
+  box-shadow: inset 2px 0 0 var(--warn, #b4472e);
+}
+.ml-well-table tr.ml-well-refused td:last-child {
+  color: var(--warn, #b4472e);
+}
+
+/* Coverage segments: one CARD per fitted model, stacked. Not a table — a table would put the
+ * segments' scores in one column and invite reading them as a ranking, which is the single wrong
+ * reading (they answer over different rock). Cards also wrap their text, so the skip reason stays a
+ * whole sentence inside a 620px form column instead of being clipped into a cell. */
+.ml-seg {
+  margin: 10px 0 6px;
+}
+.ml-seg-cap {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  margin-bottom: 8px;
+  line-height: 1.45;
+}
+.ml-seg-card {
+  border: 1px solid var(--border, #e6ded0);
+  border-radius: var(--r-lg, 12px);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--bg-panel);
+}
+/* Same warn tint a refused well gets, for the same reason: it stays in the sequence rather than
+ * moving to an errata list, so the run reads as one result. */
+.ml-seg-card-skip {
+  border-color: color-mix(in srgb, var(--warn, #b4472e) 40%, var(--border, #e6ded0));
+  background: color-mix(in srgb, var(--warn, #b4472e) 5%, transparent);
+}
+.ml-seg-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: space-between;
+}
+.ml-seg-names {
+  font-weight: 600;
+  font-size: var(--fs-md);
+}
+.ml-seg-count {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  white-space: nowrap;
+}
+.ml-seg-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 8px;
+}
+.ml-seg-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 110px;
+}
+.ml-seg-k {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+.ml-seg-v {
+  font-size: var(--fs-lg, 15px);
+  font-weight: 600;
+}
+/* The qualifier sits with the number it qualifies. "R2 0.64" and "R2 0.64 on held-out rows - not a
+ * new-well score" are different claims, and separating them is how the second becomes the first. */
+.ml-seg-n {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+.ml-seg-foot {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border, #e6ded0);
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+.ml-seg-why {
+  margin-top: 6px;
+  font-size: var(--fs-sm);
+  color: var(--warn, #b4472e);
+  line-height: 1.45;
 }
 /* Selected/diagonal row emphasis: confusion-matrix diagonal cells AND selected rows in any
  * plain mc-table result grid (HFU clustering, Thomeer Pc fit) that toggle `ml-diag` on click. */
@@ -7085,4 +7617,144 @@ input[type="number"].num-editing:focus {
 .intake-grid tr.intake-dupe td {
   background: color-mix(in srgb, var(--warn) 16%, transparent);
   color: var(--warn);
+}
+
+/* --- ML blind-test split (SB-MLA-028 family) ------------------------------
+ * The split control and its report. The percentage a user types here decides whether the score
+ * the run prints means anything, so the control echoes what it will actually do to THIS many
+ * wells before the run, and the report names the wells afterwards. */
+.ml-split-ctl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ml-split-fields {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ml-split-fields input[type="number"] {
+  width: 68px;
+}
+.ml-split-echo {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+/* The two split modes are a choice, not a default with an override, so they get the app's
+ * segmented control rather than a checkbox. Inline-sized: this one sits in a row of fields, unlike
+ * the Field Dashboard's, which spans its own line. */
+.ml-split-mode {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.ml-split-mode .seg-opt {
+  padding: 3px 10px;
+  font-size: var(--fs-sm);
+}
+.ml-split-fields label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The balance table proves the "similar statistics" claim, so it reads as evidence attached to the
+ * split rather than as a second result — smaller, and set in beside it. */
+.ml-balance-head {
+  margin-top: 10px;
+}
+.ml-balance-table {
+  font-size: var(--fs-sm);
+  margin-top: 4px;
+}
+.ml-balance-table td,
+.ml-balance-table th {
+  text-align: right;
+  padding: 2px 8px;
+}
+.ml-balance-table th:first-child {
+  text-align: left;
+  font-weight: 500;
+}
+/* A row that did NOT balance is the useful one — it means that stratum was too thin to divide.
+ * Marked with the warn colour, never hidden. */
+.ml-balance-table tr.ml-balance-off td:last-child {
+  color: var(--warn, #d96a52);
+  font-weight: 600;
+}
+/* Too few wells on one side for the score to mean much. Not an error - the run is legitimate,
+ * and saying so is more use than refusing it. */
+.ml-split-thin {
+  color: var(--warn, #d96a52);
+}
+.ml-split-report {
+  border: 1px solid var(--border, #d9cbb0);
+  border-radius: var(--r-lg, 12px);
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.ml-split-head {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.ml-split-row {
+  display: flex;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  padding: 2px 0;
+}
+.ml-split-key {
+  min-width: 82px;
+  color: var(--text-dim, #6f6857);
+}
+.ml-split-blind .ml-split-key {
+  color: var(--accent-dim, #a3572a);
+  font-weight: 600;
+}
+.ml-score-table {
+  margin-top: 8px;
+}
+.ml-score-note {
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  font-weight: 400;
+}
+/* The gap between the in-sample and blind score IS the overfitting. It gets its own line rather
+ * than leaving the reader to subtract two numbers in a table. */
+.ml-split-gap {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+}
+.ml-split-gap-warn {
+  color: var(--warn, #d96a52);
+  font-weight: 600;
+}
+
+/* --- Effective parameter record (SB-MLA-001) -------------------------------
+ * Collapsed by default: on a clean run it is bookkeeping, and the summary line already says how
+ * many values were defaulted. Open, it is the answer to "what did this actually run with", which
+ * is the question a result six months old cannot otherwise answer. */
+.ml-eff {
+  margin: 8px 0;
+  font-size: var(--fs-sm);
+}
+.ml-eff > summary {
+  cursor: pointer;
+  color: var(--text-dim, #6f6857);
+  padding: 2px 0;
+}
+.ml-eff > summary:hover {
+  color: var(--text, #2a2620);
+}
+.ml-eff-src {
+  color: var(--text-dim, #6f6857);
+}
+/* A value nobody typed. Marked, never hidden - the difference between choosing 200 trees and
+ * having 200 trees chosen for you is invisible in a report six months later. */
+.ml-eff-table tr.ml-eff-defaulted td:first-child {
+  font-style: italic;
+}
+.ml-eff-table tr.ml-eff-defaulted td {
+  background: color-mix(in srgb, var(--accent, #c67139) 6%, transparent);
 }

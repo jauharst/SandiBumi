@@ -260,10 +260,46 @@ pub fn looks_discrete(vals: &[f32]) -> bool {
     seen > 0 && (max <= OBVIOUS_CLASS_CODE || distinct.len() as f32 >= (max + 1.0) * 0.5)
 }
 
+/// The method a curve of CLASS IDENTIFIERS must actually be resampled by, whatever was asked for.
+///
+/// `SB-MLA-055`. A class code is a name that happens to be written as a number. Averaging facies 1
+/// and facies 4 gives 2.5; interpolating between them gives every value in between; the geometric
+/// mean gives 2. None of those is a facies. The result still computes, still plots as a block
+/// track, still exports to LAS and still reads back into the next module — which is why this is
+/// enforced rather than left to a warning.
+///
+/// MEDIAN is in the unsafe list and that is not an oversight: `combine` takes it through
+/// `distribution::percentile`, which is R type 7 and interpolates between the two middle samples,
+/// so an even-count interval of {1, 2} returns 1.5. A median that lands on a real sample is safe;
+/// this one does not always.
+///
+/// The two safe destinations are the two the doc on `Method` already names. A box average becomes
+/// MODE — the bed that dominates the output sample wins it, which is the honest upscale of a class
+/// curve. An interpolation becomes NEAREST. AUTO is already safe: it resolves to MODE for anything
+/// `looks_discrete` accepts, and a declared class curve it did not accept still lands on MODE here.
+///
+/// **Only a DECLARATION may reach this function, never `looks_discrete`.** The heuristic reads the
+/// values, and values lie: a caliper logged in whole inches looks exactly like a code scheme, and
+/// the doc above promises that user can set it to MEAN. So a guess picks the default and a
+/// declaration overrides the choice — those are different powers and conflating them would make
+/// the caliper case unfixable.
+pub fn class_safe_method(m: Method) -> Method {
+    match m {
+        Method::Interpolate => Method::Nearest,
+        Method::Mean | Method::Geometric | Method::Harmonic | Method::Median | Method::Auto => Method::Mode,
+        safe @ (Method::Nearest | Method::Mode) => safe,
+    }
+}
+
 /// Resamples `vals`, sampled at ascending `src_depth`, onto `out_depth`.
 ///
 /// The ONE resampler: the tool and the read path both call it, so what a user sees after
 /// re-framing a set and what a module reads when it runs against that set cannot disagree.
+///
+/// Deliberately a pure numeric kernel — it takes the method it is given and does not consult the
+/// class registry. Policy lives with the layer that can REPORT it (`class_safe_method` at the run
+/// path, which writes the resolved method into `ReframeCurve.method`); a kernel that silently
+/// substituted a method would be a coercion nobody could see.
 ///
 /// Each output sample owns the half-open interval reaching HALFWAY to its neighbours, and takes
 /// every input sample inside it. That is a box average, not an interpolation between the two
@@ -871,7 +907,12 @@ fn one_well(
     // Upsampling a curve by box average would leave most output samples empty, so the method has
     // to change with the direction — and saying so beats returning a curve full of holes.
     let upsampling = res.target_step < res.source_step * 0.999;
+    // One query for the whole well, outside the loop — see `db::class_curves_for_well`. A failure
+    // to read the registry leaves the set empty, which is the pre-registry behaviour: it must not
+    // fail a re-frame, and `looks_discrete` still guards the AUTO path underneath.
+    let class_curves = crate::db::class_curves_for_well(conn, well_id).unwrap_or_default();
     let mut written: Vec<(String, Vec<f32>)> = Vec::new();
+    let mut coerced: Vec<String> = Vec::new();
     for (name, vals) in cols {
         let asked = req.methods.get(&name).copied();
         let method = match asked.unwrap_or(req.default_method) {
@@ -884,6 +925,19 @@ fn one_well(
             }
             m => m,
         };
+        // SB-MLA-055. A DECLARED class curve overrides the choice, including one the user made
+        // explicitly — the mean of two facies codes is not a facies, and unlike a bad porosity
+        // average nothing downstream can tell that it is wrong. `looks_discrete` above is
+        // deliberately not consulted here: it may pick a default, never overrule a decision.
+        let method = if class_curves.contains(&name.to_uppercase()) {
+            let safe = class_safe_method(method);
+            if safe != method {
+                coerced.push(format!("{name} ({method:?} → {safe:?})").to_uppercase());
+            }
+            safe
+        } else {
+            method
+        };
         let out = resample_onto(&src_depth, &vals, &out_depth, method);
         res.curves.push(ReframeCurve {
             name: name.clone(),
@@ -892,6 +946,16 @@ fn one_well(
             samples_out: out.iter().filter(|v| v.is_finite()).count(),
         });
         written.push((name, out));
+    }
+    if !coerced.is_empty() {
+        // Named, not merely done. The user asked for a method and got another one; a substitution
+        // they cannot see is the thing this rule exists to prevent, one level up.
+        res.notes.push(format!(
+            "Class curves cannot be averaged or interpolated — their values are codes, and the \
+             mean of facies 1 and facies 4 is not a facies. Resampled by the nearest safe method \
+             instead: {}.",
+            coerced.join(", ")
+        ));
     }
 
     if upsampling {

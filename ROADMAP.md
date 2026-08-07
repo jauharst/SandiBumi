@@ -2428,3 +2428,41 @@ _(field-review tier, was "P3"; longer-horizon items not already absorbed by a Wa
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
+
+## A-ML. ML pane — Jauhar's click-through, round 3 (2026-08-07, OPEN)
+
+Six points from a click-through of the rebuilt ML pane, in his words. Items 3 and 6 are
+frontend-only; 1, 2 and 5 change what the pane IS; 4 is an export pass.
+
+1. **Run Model belongs on the Model tab only** — *"run model should only shown on model tab, and
+   only applied to defined input wells and data that shown in qc. Reminder it should be tops
+   bounded as well by user"*. Today it is a pane FOOTER visible from every section, which reads as
+   "this button belongs to whatever I am looking at". It must also be bounded by TOPS: an interval
+   restriction on both the training rows and the prediction, which the pane has no control for at
+   all right now.
+2. **Propagation gets its own subpane, "Model Distribution"** — *"for propagation, add new subpanes
+   there, use phrase Model Distribution, so final well selection, interval selection, set/cons name,
+   and log name behave like other modules"*. So the pane becomes five sections: Input, Data QC,
+   Model, Model Distribution, Results. Fitting and propagating are two decisions and currently share
+   one well list, which is why "apply to the rest of the field later" reads as re-entering the run.
+3. **Three algorithm groups, not four** — *"i want only 3 option: Universal for continous &
+   discrete, continous only, and discrete only"*. The picker currently groups by task (Continuous
+   log / Discrete log / Electrofacies / Reduction). He wants the grouping to say what a curve TYPE
+   an algorithm can predict, with the both-capable ones (Random Forest, SVM/SVR, KNN, MLP) named
+   once under Universal rather than appearing in two groups.
+4. **Result visuals need the export set** — *"add option to print to cliboard, svg, etc such other
+   visualization"*. `plotExport.ts` already gives every canvas plot copy / save-PNG / print;
+   the ML charts (score chart, R2/RMSE bars, blind crossplot, consensus panel) do not have it.
+   SVG is asked for by name, which the canvas plots do not do today.
+5. **Sampling is not resolution** — *"not only data sampling, rhob and dres with same sampling at
+   0.5 f can have different resolution or curve/wave frequency, if we wanna predict rhob, predicted
+   rhob log frequency should follow original rhob as well"*. The shipped Output resolution control
+   blocks to a THICKNESS, which fixes sample spacing only. Two curves on the same 0.5 ft frame can
+   carry very different vertical resolution — a density pad reads a few inches, a deep resistivity
+   several feet — so a predicted RHOB should carry RHOB's own frequency content, not merely its
+   sample spacing. This is a spectral match, not a block average, and it needs a method decision
+   before it needs code.
+6. ~~Bad UI when scrolled~~ — FIXED 2026-08-07 (`be9cc34`): the sticky element was the tab PILL
+   GROUP, which sizes to its content, so the pinned background was only as wide as the four tabs and
+   the form scrolled through beside them. The sticky element is now a full-width bar holding
+   the pills.

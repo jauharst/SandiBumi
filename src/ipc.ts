@@ -1128,6 +1128,97 @@ export interface MlRequest {
    *  tasks only — clustering and reduction are fitted on the wells they are applied to. */
   save_model_as?: string | null;
   model_note?: string | null;
+  /** Hold roughly this fraction of the pooled training SAMPLES back from the fit and score the
+   *  model on them. A share of the data, held back as WHOLE WELLS: splitting pooled samples would
+   *  put consecutive depths from one well on both sides and the blind score would come back
+   *  optimistic, so the fraction is a target the well subset is chosen to approach rather than a
+   *  quantity it can hit exactly. Omit for no split (every training well is fitted on, exactly as
+   *  before). */
+  blind_fraction?: number | null;
+  /** Seed for the draw, so the same request re-runs to the same split. */
+  split_seed?: number | null;
+  /** `"well"` (default) holds back whole wells — the only split that cannot leak, and the one that
+   *  answers "will this work on the next well?". `"sample"` draws individual rows stratified on the
+   *  target — exact in its percentage, balanced in its statistics, and optimistic on log data
+   *  because consecutive depths are near-duplicates. */
+  split_mode?: string | null;
+  /** Fit the target in a transformed space. `"log10"` is the one transform on offer, for
+   *  permeability and anything else spanning decades. A transformed quantity is a DIFFERENT
+   *  quantity, so the run writes two curves: `<output_curve>_LOG10` (the model's own prediction, in
+   *  log units) and `<output_curve>` (its back-transform, in the target's units). Every reported
+   *  score is in the fitted space. Regression only. Omit or null to fit the target as measured. */
+  target_transform?: string | null;
+  /** Fit one model per pattern of available inputs instead of one model over the depths where every
+   *  input exists.
+   *
+   *  Off, a curve logged over half the interval deletes the other half of every other input too,
+   *  because a row reaches the fit only where all of them have a value. On, each depth is predicted
+   *  by the largest model whose curves it carries — so the short curve is used where it exists and
+   *  the rest of the rock is predicted without it. Each segment keeps its OWN blind score and its own
+   *  saved model (suffixed `_<n>CURVE`), because they are different models on different feature sets
+   *  and one number over both would describe neither. Supervised only. */
+  coverage_segments?: boolean;
+  /** Write the prediction at this vertical resolution: one value per `output_step`-thick interval,
+   *  held across the interval, on the well's own depths.
+   *
+   *  A model fitted against a target sampled every 0.5 m predicts at every INPUT depth, so it emits
+   *  a value every 0.1524 m — a curve claiming three times the resolution anything it learned from
+   *  ever had. The depth FRAME is unchanged (computed curves are read back by exact depth match, so
+   *  writing at a coarser sampling would make the curve read back all-missing); only the values are
+   *  held in blocks, which is why such a curve wants `draw_style: "step"` in the layout.
+   *
+   *  Omit or null to write at the input frame, which is what every run did before this existed. A
+   *  saved model records it, and applying that model inherits it. */
+  output_step?: number | null;
+}
+
+/** One feature subset a coverage-segmented run fitted a model for, or declined to. Reported per
+ *  segment and never averaged: the curve is one curve, and how well it is known varies down it. */
+export interface CoverageSegment {
+  features: string[];
+  /** Depths this segment predicted. 0 where it was skipped. */
+  n_predicted: number;
+  n_train: number;
+  /** This segment's own blind record, carrying `performed: false` where nothing was held back. */
+  blind: Record<string, unknown> | null;
+  /** The saved artifact's name, where the run was asked to save one. */
+  model_name: string | null;
+  /** Why no model was fitted, stated in full. Null on a segment that ran. */
+  skipped: string | null;
+}
+
+/** The split as it was actually performed, not as it was requested — the requested share is kept
+ *  beside the achieved one because whole wells rarely divide the samples exactly, and the gap is
+ *  what the blind score is really a score of. */
+export interface SplitReport {
+  /** Empty in `sample` mode — every well is on both sides, so naming them would say nothing. */
+  fit_wells: string[];
+  blind_wells: string[];
+  /** Usable training samples on each side — what the fraction is really a fraction of. */
+  fit_rows: number;
+  blind_rows: number;
+  requested_fraction: number;
+  /** `blind_rows / (fit_rows + blind_rows)`. Whole wells rarely divide the data exactly, so
+   *  this is what was actually reached — never a restatement of the request. */
+  achieved_fraction: number;
+  seed: number;
+  /** `"well"` or `"sample"` — the two are different claims, and a score quoted without it cannot
+   *  be read. */
+  mode: string;
+  /** How many wells contributed rows. The answer to "how much rock is this?" in `sample` mode,
+   *  where the well lists are empty. */
+  wells_pooled: number;
+}
+
+/** How alike the fit and blind sides are, per feature and on the target — the evidence for a
+ *  stratified draw's "similar statistics" claim. Reported rather than asserted: a pair that does
+ *  NOT match is the signal that the strata were too thin to divide representatively. */
+export interface SplitBalance {
+  name: string;
+  fit_mean: number;
+  blind_mean: number;
+  fit_sd: number;
+  blind_sd: number;
 }
 
 export interface MlWellResult {
@@ -1149,6 +1240,8 @@ export interface MlResult {
   /** The name it was actually stored under — an existing name is auto-suffixed, never
    *  overwritten, so this can differ from what was asked for. */
   model_name: string | null;
+  /** Which wells were fitted on and which were held blind; null when no split was asked for. */
+  split: SplitReport | null;
   error: string | null;
 }
 
@@ -1178,6 +1271,19 @@ export interface MlModelInfo {
   note: string | null;
   created_at: string;
   bytes: number;
+  /** Fingerprint of the exact training matrix — feature names in order, feature and target values,
+   *  row order. The well list and the sample count cannot tell "the same wells at a later log-set
+   *  version" from "the same rows"; this can. Null on a model saved before it was recorded, which
+   *  is the honest answer for such a model rather than a hash that means nothing. */
+  train_hash: string | null;
+  /** SB-MLA-002 + SB-MLA-004 — JSON array of `TrainWellRecord`: per contributing well, the rows it
+   *  gave, the rows the mask removed, the rows that were incomplete, and the log set (name, id,
+   *  version) its frame was read from. `trained_on` says which wells; this says which rock. */
+  training_json: string | null;
+  /** SB-MLA-005 — JSON object of the interpreter and library versions that fitted and serialised
+   *  this artifact. The blob is a pickle, so it is loadable only under a compatible set, and
+   *  `joblib` — the serialiser itself — is in here for that reason. */
+  runtime_json: string | null;
 }
 
 export interface MlApplyRequest {
@@ -1193,6 +1299,57 @@ export interface MlApplyRequest {
 
 export function listMlModels(): Promise<MlModelInfo[]> {
   return invoke<MlModelInfo[]>("list_ml_models");
+}
+
+/** SB-MLA-002 + SB-MLA-005 — what each saved model would be warned about IF applied now.
+ *
+ *  Both requirements say the warning must come BEFORE the model is applied, and an apply run cannot
+ *  give either early: it learns the runtime from a reply header that arrives after the prediction,
+ *  and by then the curves are written. So the picker asks first.
+ *
+ *  The comparison itself lives in Rust (`ml::model_warnings`) rather than here, so the list and the
+ *  run result cannot word the same problem two different ways. Only models with something to say are
+ *  returned. */
+export interface ModelWarnings {
+  model_id: string;
+  notes: string[];
+}
+
+export function mlModelWarnings(): Promise<ModelWarnings[]> {
+  return invoke<ModelWarnings[]>("ml_model_warnings");
+}
+
+/** SB-MLA-008 — what about a chosen task/algorithm would not reproduce on another machine, asked
+ *  BEFORE the run. `null` is the ordinary answer and means the run reproduces from its own record
+ *  under the same runtime.
+ *
+ *  Deliberately scoped to what the product can observe in its own code — today the `gbdt` estimator
+ *  substitution — rather than to second-hand claims about which library is deterministic where. */
+export function mlDeterminismNote(task: string, algorithm: string): Promise<string | null> {
+  return invoke<string | null>("ml_determinism_note", { task, algorithm });
+}
+
+/** What one curve's OWN sampling looks like, and how much of it survives the join onto the well's
+ *  frame. `n_own` large beside `n_on_frame` zero is the finding: the curve is fully logged and
+ *  coincides with the frame at no depth, so every read of it returns blank. */
+export interface CurveSampling {
+  curve: string;
+  n_own: number;
+  /** Median spacing between the curve's own depths — median, not mean, so one gap across a casing
+   *  shoe cannot drag it away from the sampling the tool actually ran at. */
+  step: number | null;
+  top: number | null;
+  base: number | null;
+  n_on_frame: number;
+  imported: boolean;
+}
+
+/** Per well, how each named curve is sampled against that well's frame. */
+export function curveSampling(
+  wellIds: string[],
+  curves: string[],
+): Promise<[string, CurveSampling[]][]> {
+  return invoke<[string, CurveSampling[]][]>("curve_sampling", { wellIds, curves });
 }
 
 /** Applies a saved model to wells it has never seen. Nothing is refitted — a refit on different
@@ -1219,6 +1376,11 @@ export interface MlEvalRequest {
   target_curve: string;
   train_well_ids: string[];
   algorithms: string[];
+  /** The same hyperparameters the run will be given, so a row describes the model you will fit. */
+  params?: Record<string, number | string | boolean>;
+  /** Which algorithm `params` belongs to. Every other row is scored at its defaults, which is what
+   *  the run would fit for them — an `C` set for SVR must not silently re-rank logistic regression. */
+  params_for?: string | null;
   /** Feature subsets to try (each a subset of feature_curves); empty → full set only. */
   subsets: string[][];
   standardize: boolean;
@@ -1227,6 +1389,11 @@ export interface MlEvalRequest {
   /** Optional flag curve: masked (= 1) samples are excluded from the CV pool so the leaderboard
    *  scores the same population the real run trains on. Omit / null for no masking. */
   mask_curve?: string | null;
+  /** Score the candidates in a transformed target space — the same value the run will be given.
+   *  A model fitted on log10(k) is a different model from one fitted on k, and in linear space an
+   *  R² over four decades of permeability is dominated by the few highest values, so the winner
+   *  there is routinely not the winner in log space. Regression only. */
+  target_transform?: string | null;
 }
 
 export interface MlEvalRow {
@@ -1236,9 +1403,26 @@ export interface MlEvalRow {
   score: number | null;
   score_std: number | null;
   metrics: Record<string, unknown>;
+  /**
+   * Permutation importance measured on each fold's HELD-OUT rows, then averaged — the same
+   * population `score` is measured on, so the two can be read in one row.
+   */
   importances: number[];
+  /**
+   * Spread of `importances` across folds. A feature that carried in one well and nowhere else has
+   * a large one, and is not a predictor however high its mean.
+   */
+  importances_std: number[];
+  /** Folds that contributed an importance. Below `n_splits`, some fold could not be permuted. */
+  n_imp_folds: number;
   confusion: number[][] | null;
   labels: number[] | null;
+  /** This model's OUT-OF-FOLD prediction per sampled row, aligned with `MlEvalResult.blind_actual`.
+   *
+   *  Out-of-fold, so every point was predicted by a model that had not seen that row — the crossplot
+   *  answers the same question the score does. A scatter of fitted values would look better and mean
+   *  nothing. `null` where no fold could predict that row; never 0, which is a value. */
+  blind_pred: (number | null)[];
   error: string | null;
 }
 
@@ -1249,6 +1433,18 @@ export interface MlEvalResult {
   cv: string;
   n_splits: number;
   note: string | null;
+  /** Which row was scored with the settings on screen; every other row is at library defaults. */
+  params_for: string | null;
+  /** The measured value at each sampled row — the x-axis every model's crossplot shares. Carried
+   *  once rather than per row: it is the same column for all of them. */
+  blind_actual: (number | null)[];
+  /** Which well each sampled row came from, by name. A crossplot coloured by well shows a model
+   *  carried by two wells and failing on the third, which the aggregate R² above it cannot. */
+  blind_well: string[];
+  /** Points drawn, and points there were. The sample is capped, and a scatter that silently showed
+   *  2,000 of 60,000 would read as all of them — density is the first thing anybody judges. */
+  blind_sampled: number;
+  blind_total: number;
   error: string | null;
 }
 

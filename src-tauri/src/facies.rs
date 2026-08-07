@@ -20,8 +20,47 @@ use std::collections::HashMap;
 /// cluster-ordering axis. CURVE1 is required; the rest are optional (an absent curve simply
 /// drops that feature dimension).
 const SLOTS: [&str; 5] = ["CURVE1", "CURVE2", "CURVE3", "CURVE4", "CURVE5"];
-const RESTARTS: usize = 8;
-const MAX_ITERS: usize = 100;
+
+// ---------------------------------------------------------------------------
+// SB-MLA-023 — ONE k-means definition, whichever engine runs it
+// ---------------------------------------------------------------------------
+//
+// SandiBumi has two k-means engines for platform reasons: this dependency-free native one, which is
+// what Electrofacies and GMM Facies run per well, and scikit-learn's, which the ML suite runs when
+// the user picks k-means there. They were configured differently — 8 restarts and a 100-iteration
+// cap here against scikit-learn's 10 and 300 — and restart count and iteration cap are precisely
+// the two knobs that decide WHICH local optimum a k-means lands in. So the same curves, the same K
+// and the same seed gave two different facies schemes depending on which door the user came in, and
+// nothing on either screen said so.
+//
+// These four constants are that definition, and `ml.rs` builds its Python runner FROM them rather
+// than restating them (`ml::ml_shared_constants_py`), so there is no second copy to drift. Pinned by
+// `the_two_kmeans_engines_are_configured_from_one_definition`.
+//
+// The values are scikit-learn's own documented defaults, adopted rather than invented. Both moves
+// are in the safe direction: restarts are kept best-of-N by inertia, so 10 can only find an optimum
+// at least as good as 8 ever did, and Lloyd's algorithm decreases inertia monotonically, so raising
+// the cap only changes runs that had NOT converged at 100 — where the old cap was silently
+// truncating rather than converging.
+
+/// How many k-means++ restarts, keeping the lowest-inertia labelling. scikit-learn's `n_init`.
+pub(crate) const KMEANS_RESTARTS: usize = 10;
+/// Lloyd-iteration cap per restart. scikit-learn's `max_iter`.
+pub(crate) const KMEANS_MAX_ITERS: usize = 300;
+/// Convergence tolerance on the centre shift, scaled by the mean feature variance — scikit-learn's
+/// `tol` and its scaling rule. Without this the native engine ran to exact label stability, which is
+/// a different stopping rule from the Python one and the third divergence the two engines had.
+pub(crate) const KMEANS_TOL: f64 = 1e-4;
+
+/// SB-MLA-024 — the one seed default. This module used to fall back to **7** while the ML suite
+/// used **42**; neither is wrong, and two values for one concept is the defect. No vendor in the
+/// corpus ships a seed control at all, so there is no external value to defer to — 42 wins because
+/// it is already the number in `ml.rs`, in the ML dialog and in the leaderboard header.
+///
+/// This CHANGES the default clustering Electrofacies and GMM Facies produce. A run made before
+/// this recorded its seed, so it is still reproducible by typing 7 back in; what moves is the
+/// result of pressing Run without touching the field.
+pub(crate) const SEED_DEFAULT: f64 = 42.0;
 
 pub fn electrofacies_spec() -> ModuleSpec {
     ModuleSpec {
@@ -38,7 +77,7 @@ pub fn electrofacies_spec() -> ModuleSpec {
             .into(),
         args: vec![
             param("K", "Number of facies (clusters)", "", 5.0, 2.0, 12.0),
-            param("SEED", "Random seed (reproducibility)", "", 7.0, 0.0, 1e9),
+            param("SEED", "Random seed (reproducibility)", "", SEED_DEFAULT, 0.0, 1e9),
             opt("OPT_STANDARDIZE", "Feature scaling", "ZSCORE", &["ZSCORE", "NONE"]),
             log_in("CURVE1", "Curve 1 (also orders the facies)", "", "GR", true),
             log_in("CURVE2", "Curve 2 (optional)", "", "RHOB", false),
@@ -61,7 +100,15 @@ struct Prep {
     seed: u64,
 }
 
-fn prep_samples(ctx: &ModuleContext) -> Option<Prep> {
+/// SB-MLA-013. Refuses by name rather than returning `None`.
+///
+/// An all-NaN facies track is visually indistinguishable from one that was never computed, so
+/// writing it as a success does not merely fail silently - it disguises the failure as an absence
+/// of work. The message separates the two causes because they need different fixes: no input curve
+/// carries data at all (load or map a curve), or the curves are there and too few samples survive
+/// complete-case selection to support the requested cluster count (lower K, or find what is
+/// NaN-ing the rows out).
+fn prep_samples(ctx: &ModuleContext) -> Result<Prep, String> {
     let n = ctx.n;
     // Keep only slots that carry data, preserving priority order.
     let present: Vec<Vec<f32>> = SLOTS
@@ -70,14 +117,17 @@ fn prep_samples(ctx: &ModuleContext) -> Option<Prep> {
         .filter(|v| v.iter().any(|x| !x.is_nan()))
         .collect();
     if present.is_empty() {
-        return None;
+        return Err(format!(
+            "no input curve carries any data in this well - clustering looked for {}",
+            SLOTS.join(", ")
+        ));
     }
     let dims = present.len();
 
     let k = (ctx.p("K", 0).round().max(2.0) as usize).min(12);
     let seed = {
         let s = ctx.p("SEED", 0);
-        if s.is_finite() { s.max(0.0) as u64 } else { 7 }
+        if s.is_finite() { s.max(0.0) as u64 } else { SEED_DEFAULT as u64 }
     };
     let zscore = ctx.o("OPT_STANDARDIZE") != "NONE";
 
@@ -93,7 +143,11 @@ fn prep_samples(ctx: &ModuleContext) -> Option<Prep> {
         pts.push(x);
     }
     if pts.len() < k {
-        return None;
+        return Err(format!(
+            "{} sample(s) carry all {} input curve(s), fewer than the {k} clusters requested - lower K, or find what is masked or missing over this interval",
+            pts.len(),
+            dims
+        ));
     }
 
     // Standardize each dimension (z-score) so no single curve's raw magnitude dominates.
@@ -128,20 +182,18 @@ fn prep_samples(ctx: &ModuleContext) -> Option<Prep> {
         }
     }
 
-    Some(Prep { present, idx, pts, dims, k, seed })
+    Ok(Prep { present, idx, pts, dims, k, seed })
 }
 
-pub fn electrofacies(ctx: &ModuleContext) -> ModuleOutputs {
+pub fn electrofacies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let n = ctx.n;
     let mut out = vec![f32::NAN; n];
-    let Some(Prep { present, idx, pts, dims, k, seed }) = prep_samples(ctx) else {
-        return HashMap::from([("FACIES".to_string(), out)]);
-    };
+    let Prep { present, idx, pts, dims, k, seed } = prep_samples(ctx)?;
 
     // Best-of-N k-means++ restarts, keeping the lowest-inertia labelling.
     let mut best_labels: Vec<usize> = Vec::new();
     let mut best_inertia = f64::INFINITY;
-    for r in 0..RESTARTS {
+    for r in 0..KMEANS_RESTARTS {
         let mut rng = Rng::new(seed ^ (r as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1));
         let (labels, inertia) = kmeans_once(&pts, k, dims, &mut rng);
         if inertia < best_inertia {
@@ -157,7 +209,7 @@ pub fn electrofacies(ctx: &ModuleContext) -> ModuleOutputs {
         out[i] = order[best_labels[s]] as f32;
     }
 
-    HashMap::from([("FACIES".to_string(), out)])
+    Ok(HashMap::from([("FACIES".to_string(), out)]))
 }
 
 pub fn gmm_facies_spec() -> ModuleSpec {
@@ -176,7 +228,7 @@ pub fn gmm_facies_spec() -> ModuleSpec {
             .into(),
         args: vec![
             param("K", "Number of facies (mixture components)", "", 5.0, 2.0, 12.0),
-            param("SEED", "Random seed (reproducibility)", "", 7.0, 0.0, 1e9),
+            param("SEED", "Random seed (reproducibility)", "", SEED_DEFAULT, 0.0, 1e9),
             opt("OPT_STANDARDIZE", "Feature scaling", "ZSCORE", &["ZSCORE", "NONE"]),
             log_in("CURVE1", "Curve 1 (also orders the facies)", "", "GR", true),
             log_in("CURVE2", "Curve 2 (optional)", "", "RHOB", false),
@@ -189,20 +241,18 @@ pub fn gmm_facies_spec() -> ModuleSpec {
     }
 }
 
-pub fn gmm_facies(ctx: &ModuleContext) -> ModuleOutputs {
+pub fn gmm_facies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let n = ctx.n;
     let mut out = vec![f32::NAN; n];
     let mut prob = vec![f32::NAN; n];
-    let Some(Prep { present, idx, pts, dims, k, seed }) = prep_samples(ctx) else {
-        return HashMap::from([("FACIES_GMM".to_string(), out), ("FPROB".to_string(), prob)]);
-    };
+    let Prep { present, idx, pts, dims, k, seed } = prep_samples(ctx)?;
     let m = pts.len();
 
     // Initialize from the best k-means run (same restarts as electrofacies, so the two
     // modules agree on well-separated data and only diverge where GMM's soft view matters).
     let mut init_labels: Vec<usize> = Vec::new();
     let mut best_inertia = f64::INFINITY;
-    for r in 0..RESTARTS {
+    for r in 0..KMEANS_RESTARTS {
         let mut rng = Rng::new(seed ^ (r as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1));
         let (labels, inertia) = kmeans_once(&pts, k, dims, &mut rng);
         if inertia < best_inertia {
@@ -250,7 +300,7 @@ pub fn gmm_facies(ctx: &ModuleContext) -> ModuleOutputs {
     let ln2pi = (2.0 * std::f64::consts::PI).ln();
     let mut resp = vec![vec![0.0f64; k]; m];
     let mut prev_ll = f64::NEG_INFINITY;
-    for _ in 0..MAX_ITERS {
+    for _ in 0..KMEANS_MAX_ITERS {
         // E-step (log-space with log-sum-exp for stability).
         let mut ll = 0.0;
         for (i, p) in pts.iter().enumerate() {
@@ -311,12 +361,27 @@ pub fn gmm_facies(ctx: &ModuleContext) -> ModuleOutputs {
         prob[i] = resp[s][labels[s]] as f32;
     }
 
-    HashMap::from([("FACIES_GMM".to_string(), out), ("FPROB".to_string(), prob)])
+    Ok(HashMap::from([("FACIES_GMM".to_string(), out), ("FPROB".to_string(), prob)]))
 }
 
 /// One k-means run: k-means++ seeding + Lloyd iterations. Returns (labels, inertia).
+///
+/// Stops on [`KMEANS_TOL`], scaled by the mean feature variance — scikit-learn's rule, so the two
+/// engines stop at the same place and not merely after the same number of iterations. The
+/// no-label-changed break stays as a fast path; it can only fire where the centres did not move at
+/// all, which is a strict subset of what the tolerance already catches.
 fn kmeans_once(pts: &[Vec<f64>], k: usize, dims: usize, rng: &mut Rng) -> (Vec<usize>, f64) {
     let m = pts.len();
+    // The tolerance is relative because it is compared against a distance in FEATURE space, and an
+    // absolute 1e-4 would mean "converged" on z-scored curves and "keep going" on raw resistivity.
+    let tol = {
+        let mut mean_var = 0.0;
+        for d in 0..dims {
+            let mu = pts.iter().map(|p| p[d]).sum::<f64>() / m as f64;
+            mean_var += pts.iter().map(|p| (p[d] - mu).powi(2)).sum::<f64>() / m as f64;
+        }
+        KMEANS_TOL * (mean_var / dims.max(1) as f64)
+    };
     // --- k-means++ seeding ---
     let mut centers: Vec<Vec<f64>> = Vec::with_capacity(k);
     centers.push(pts[(rng.unit() * m as f64) as usize % m].clone());
@@ -348,7 +413,7 @@ fn kmeans_once(pts: &[Vec<f64>], k: usize, dims: usize, rng: &mut Rng) -> (Vec<u
 
     // --- Lloyd iterations ---
     let mut labels = vec![0usize; m];
-    for _ in 0..MAX_ITERS {
+    for _ in 0..KMEANS_MAX_ITERS {
         let mut changed = false;
         for (i, p) in pts.iter().enumerate() {
             let mut best = 0;
@@ -375,10 +440,13 @@ fn kmeans_once(pts: &[Vec<f64>], k: usize, dims: usize, rng: &mut Rng) -> (Vec<u
                 sums[c][d] += p[d];
             }
         }
+        let mut shift = 0.0f64;
         for c in 0..k {
             if counts[c] > 0 {
                 for d in 0..dims {
-                    centers[c][d] = sums[c][d] / counts[c] as f64;
+                    let moved = sums[c][d] / counts[c] as f64;
+                    shift += (moved - centers[c][d]).powi(2);
+                    centers[c][d] = moved;
                 }
             } else {
                 // Empty cluster: grab the globally worst-fit point.
@@ -394,9 +462,13 @@ fn kmeans_once(pts: &[Vec<f64>], k: usize, dims: usize, rng: &mut Rng) -> (Vec<u
                 centers[c] = pts[worst].clone();
                 labels[worst] = c;
                 changed = true;
+                // A reseeded centre is a jump, not a step. Folding it into the shift would let one
+                // empty cluster's relocation read as "not converged" for another iteration, or —
+                // worse on a tiny distance scale — mask a real move. Force another pass instead.
+                shift = f64::INFINITY;
             }
         }
-        if !changed {
+        if !changed || shift <= tol {
             break;
         }
     }
@@ -479,7 +551,7 @@ mod tests {
             ("CURVE1".to_string(), gr),
             ("CURVE2".to_string(), rhob),
         ]);
-        let out = electrofacies(&ctx(logs, 2.0, 100))["FACIES"].clone();
+        let out = electrofacies(&ctx(logs, 2.0, 100)).expect("clustering should succeed")["FACIES"].clone();
         // First 50 (low GR) should all be facies 0, next 50 facies 1 (ordering by GR mean).
         assert!(out[..50].iter().all(|&v| v == 0.0), "clean sand -> facies 0");
         assert!(out[50..].iter().all(|&v| v == 1.0), "shale -> facies 1");
@@ -489,17 +561,71 @@ mod tests {
     fn missing_inputs_yield_missing_facies() {
         let gr = vec![20.0, f32::NAN, 30.0, 120.0, 110.0, 25.0];
         let logs = HashMap::from([("CURVE1".to_string(), gr)]);
-        let out = electrofacies(&ctx(logs, 2.0, 6))["FACIES"].clone();
+        let out = electrofacies(&ctx(logs, 2.0, 6)).expect("clustering should succeed")["FACIES"].clone();
         assert!(out[1].is_nan(), "sample with missing input stays MISSING");
         assert!(out.iter().filter(|v| !v.is_nan()).count() == 5);
+    }
+
+    /// SB-MLA-T13 case (a). A well where no input curve carries a single reading cannot be
+    /// clustered, and both engines must say so BY NAME. The failure mode this pins is not a
+    /// crash but a courtesy: returning the pre-allocated all-NaN vector as `Ok`. On a log view
+    /// an all-missing FACIES track looks exactly like one that was never computed, so the run
+    /// reports success while the user sees an empty track and has no way to tell which it is.
+    #[test]
+    fn a_well_with_no_input_data_is_refused_by_name_not_returned_as_a_clean_curve() {
+        let logs = HashMap::from([("CURVE1".to_string(), vec![f32::NAN; 20])]);
+        for (engine, out) in [
+            ("electrofacies", electrofacies(&ctx(logs.clone(), 3.0, 20))),
+            ("gmm_facies", gmm_facies(&ctx(logs.clone(), 3.0, 20))),
+        ] {
+            let msg = out.expect_err(&format!("{engine} must refuse a well with no input data"));
+            assert!(
+                msg.contains("no input curve carries any data"),
+                "{engine} must name the cause, got {msg:?}",
+            );
+        }
+    }
+
+    /// SB-MLA-T13 case (b), pinned from BOTH sides: 4 complete samples with `K = 5` is refused
+    /// and the message states both numbers, while 5 complete samples with `K = 5` succeeds. The
+    /// second half is what stops the refusal being satisfied by an engine that has simply become
+    /// timid — refusing every sparse well would pass the first assertion on its own.
+    #[test]
+    fn fewer_complete_samples_than_clusters_is_refused_naming_the_count_and_k() {
+        let short = vec![10.0, 40.0, 70.0, 100.0];
+        let logs = HashMap::from([("CURVE1".to_string(), short)]);
+        for (engine, out) in [
+            ("electrofacies", electrofacies(&ctx(logs.clone(), 5.0, 4))),
+            ("gmm_facies", gmm_facies(&ctx(logs.clone(), 5.0, 4))),
+        ] {
+            let msg = out.expect_err(&format!("{engine} must refuse 4 samples with K=5"));
+            assert!(
+                msg.contains('4') && msg.contains('5'),
+                "{engine} must state the sample count and the requested cluster count, got {msg:?}",
+            );
+        }
+
+        // The other side: one more sample and the same request is answerable, so it is answered.
+        let enough = vec![10.0, 40.0, 70.0, 100.0, 130.0];
+        let logs = HashMap::from([("CURVE1".to_string(), enough)]);
+        for (engine, key, out) in [
+            ("electrofacies", "FACIES", electrofacies(&ctx(logs.clone(), 5.0, 5))),
+            ("gmm_facies", "FACIES_GMM", gmm_facies(&ctx(logs.clone(), 5.0, 5))),
+        ] {
+            let outs = out.unwrap_or_else(|e| panic!("{engine} must cluster 5 samples into 5: {e}"));
+            assert!(
+                outs[key].iter().any(|v| !v.is_nan()),
+                "{engine} returned a labelling, so it must not be all-missing",
+            );
+        }
     }
 
     #[test]
     fn deterministic_for_fixed_seed() {
         let gr: Vec<f32> = (0..200).map(|i| (i as f32 * 1.7) % 140.0).collect();
         let logs = HashMap::from([("CURVE1".to_string(), gr)]);
-        let a = electrofacies(&ctx(logs.clone(), 4.0, 200))["FACIES"].clone();
-        let b = electrofacies(&ctx(logs, 4.0, 200))["FACIES"].clone();
+        let a = electrofacies(&ctx(logs.clone(), 4.0, 200)).expect("clustering should succeed")["FACIES"].clone();
+        let b = electrofacies(&ctx(logs, 4.0, 200)).expect("clustering should succeed")["FACIES"].clone();
         assert_eq!(a, b, "same seed -> identical labels");
     }
 
@@ -516,7 +642,7 @@ mod tests {
             rhob.push(2.45);
         }
         let logs = HashMap::from([("CURVE1".to_string(), gr), ("CURVE2".to_string(), rhob)]);
-        let res = gmm_facies(&ctx(logs, 2.0, 100));
+        let res = gmm_facies(&ctx(logs, 2.0, 100)).expect("clustering should succeed");
         let fac = &res["FACIES_GMM"];
         let prob = &res["FPROB"];
         assert!(fac[..50].iter().all(|&v| v == 0.0), "clean sand -> facies 0");
@@ -533,7 +659,7 @@ mod tests {
         let gr: Vec<f32> = (0..=200).map(|i| i as f32 * 0.5).collect(); // 0..100
         let n = gr.len();
         let logs = HashMap::from([("CURVE1".to_string(), gr)]);
-        let res = gmm_facies(&ctx(logs, 2.0, n));
+        let res = gmm_facies(&ctx(logs, 2.0, n)).expect("clustering should succeed");
         let prob = &res["FPROB"];
         let min_prob = prob.iter().cloned().fold(1.0f32, f32::min);
         assert!(min_prob < 0.75, "boundary of a ramp is ambiguous, got min {}", min_prob);
@@ -552,8 +678,8 @@ mod tests {
         let gr: Vec<f32> =
             (0..200).map(|i| if i == 13 { f32::NAN } else { (i as f32 * 1.7) % 140.0 }).collect();
         let logs = HashMap::from([("CURVE1".to_string(), gr)]);
-        let a = gmm_facies(&ctx(logs.clone(), 3.0, 200));
-        let b = gmm_facies(&ctx(logs, 3.0, 200));
+        let a = gmm_facies(&ctx(logs.clone(), 3.0, 200)).expect("clustering should succeed");
+        let b = gmm_facies(&ctx(logs, 3.0, 200)).expect("clustering should succeed");
         // NaN != NaN, so compare element-wise treating NaN==NaN as equal.
         let same = a["FACIES_GMM"]
             .iter()
@@ -573,7 +699,7 @@ mod tests {
             }
         }
         let logs = HashMap::from([("CURVE1".to_string(), gr)]);
-        let out = electrofacies(&ctx(logs, 3.0, 120))["FACIES"].clone();
+        let out = electrofacies(&ctx(logs, 3.0, 120)).expect("clustering should succeed")["FACIES"].clone();
         assert!(out[..40].iter().all(|&v| v == 0.0));
         assert!(out[40..80].iter().all(|&v| v == 1.0));
         assert!(out[80..].iter().all(|&v| v == 2.0));

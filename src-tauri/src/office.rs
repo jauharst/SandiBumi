@@ -1045,6 +1045,29 @@ pub fn build_report_blocks(
     }
     blocks.push(table(m));
 
+    // 1b — ML provenance (SB-MLA-010), the twin of the PDF's section and built from the SAME rows,
+    // headers and caveat (`crate::ml::ML_PROV_*`). The editable document is the one a client
+    // actually edits, so a caveat that appeared only in the PDF would be the one sentence in the
+    // study that a reader can drop by opening the other file — and this is the sentence that stops
+    // a predicted curve being read as a measured one.
+    let ml_prov = crate::ml::ml_provenance(&conn, &well_id);
+    if !ml_prov.is_empty() {
+        let mut mp = Sheet::new(
+            "ML provenance",
+            "Machine-learning provenance",
+            crate::ml::ML_PROV_HEADERS
+                .iter()
+                .zip([16.0, 18.0, 20.0, 14.0, 26.0, 16.0])
+                .map(|(h, w)| Column::new(h, w, CellFormat::Text))
+                .collect(),
+        );
+        mp.notes.push(crate::ml::ML_PROV_CAVEAT.to_string());
+        for r in &ml_prov {
+            mp.rows.push(r.cells().iter().map(|c| text(c)).collect());
+        }
+        blocks.push(table(mp));
+    }
+
     // 2 — zone parameters
     let z = report_zone_sheet(&conn, &well_id, &unit)?;
     if !z.rows.is_empty() {

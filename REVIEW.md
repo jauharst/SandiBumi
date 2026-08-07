@@ -8617,6 +8617,620 @@ why `block` upscales by replacing values at the well's own depths.
 - [ ] `match_well` and `match_set` ignore the Align tick, because they are already aligned by
       construction — the frame is borrowed whole from one place.
 
+### ML: the blind-well score was not blind
+
+The leaderboard's headline number — the blind-well score, the one honest figure this product offers
+where three vendors offer none — was optimistic by construction. Two separate leaks, both fixed.
+
+- [ ] **The scaler had seen the held-out well.** `StandardScaler` was fitted over the whole pooled
+      matrix and the folds were cut afterwards, so on a three-well run the well being held out
+      contributed roughly a third of the centring it was supposed to be blind to. There is now one
+      scaler per fold, fitted on that fold's training rows and nothing else. Re-run a leaderboard
+      you have run before: **the scores will move, and downward is the correct direction.**
+- [ ] **Feature importance was measured on the training data.** A second model was fitted over
+      everything and permuted against everything — no split at all — and its result was printed in
+      the same table row as the blind score. Importance is now measured on each fold's held-out
+      rows by that fold's own model.
+- [ ] **Importance bars carry a whisker now**, the spread between wells. This is the one to look at
+      on real data: a feature can have the second-highest mean and a whisker reaching back to zero,
+      which means it carried in one well and nowhere else. That is not a predictor, and the old bare
+      bar said it was. Features whose mean sits inside their own spread are dimmed.
+- [ ] **The leaderboard no longer crowns a winner it cannot separate.** Where the top rows are
+      within their combined fold-to-fold spread, they are marked as a group and a line says the run
+      does not separate them, instead of bolding whichever sorted first. Check this against a run
+      where two algorithms are genuinely close — it should refuse to pick.
+- [ ] The tie test is a plain "gap wider than the summed spreads", not a t-test. Folds are wells and
+      there are rarely more than a handful, so a test needing assumptions the data cannot support
+      would be a second false precision on top of the first. Tell me if you want it stricter.
+- [ ] `docs/PRD_v2/24_ml-advanced.md` had recorded that this importance "is correctly cross-validated
+      at the group level". It never was. The document is corrected in place and says what it used to
+      claim, so the correction is auditable rather than quietly overwritten.
+
+### ML: the leaderboard ranked models nobody was going to fit
+
+`SB-MLA-026`. The hyperparameters were written out twice — once in the training runner, once in the
+leaderboard — and the two had drifted. The leaderboard's whole purpose is to be trusted for a
+choice, so a ranking of different models is not a degraded ranking; it is a ranking of the wrong
+things, presented cleanly.
+
+- [ ] **Set `degree` to 3 on Linear and press Compare.** It used to be ranked as a straight line,
+      because the leaderboard's copy had no polynomial branch at all. Now the row scores the cubic
+      you would actually fit. This is the divergence with the largest consequence — it changed which
+      row won.
+- [ ] Two more that were quieter: the gradient-boosting fallback ran at 100 iterations in the
+      leaderboard against the run's 300, and `SVC` was built without `probability=True`, which makes
+      scikit-learn fit internal Platt scaling — a different estimator, not a different output.
+- [ ] **The leaderboard now takes your settings at all.** It previously accepted no parameter map,
+      so every candidate was ranked at library defaults however you had configured the run.
+- [ ] **New "Settings" column: `yours` on one row, `defaults` on the rest.** Your settings belong to
+      the algorithm the dialog is showing, so that row uses them and the others are scored at the
+      defaults the run would fit for them. Applying one algorithm's `C` to every row would re-rank
+      estimators against a number nobody chose for them — but a mixed table that does not say so is
+      the thing this rule exists to prevent. Check the column names the algorithm you had selected.
+- [ ] The fix is one shared definition both runners are composed from, not two copies kept in step.
+      Syncing copies would have fixed these three and left the mechanism that produced them. The
+      test names every estimator and asserts each is in the shared fragment and in **neither**
+      runner body, so a runner that embeds it and then shadows it still fails.
+
+## ML — an unclusterable well now fails instead of quietly writing an empty curve (2026-08-07)
+
+`SB-MLA-013`. A well that cannot be labelled — no input curve carries a reading, or fewer complete
+samples than clusters requested — used to return the pre-allocated all-NaN vector as a **success**.
+On a log view an all-missing track is indistinguishable from one that was never computed, so the
+failure was not merely silent; it was disguised as an absence of work. Both engines had it.
+
+- [ ] **Run electrofacies over a well with a washed-out interval where nothing overlaps** (or set K
+      higher than the number of complete samples). It now refuses that well by name, naming the
+      cause. Previously the run reported success and drew an empty FACIES track.
+- [ ] **The message says WHICH emptiness it is** — "no depth carries every input curve at once" vs
+      "the run mask excluded all N depths". They call for opposite fixes: go and find the missing
+      curve, or widen the mask. The old wording, "no complete samples in this well", said both.
+- [ ] **Run ML clustering over a whole field where some wells are good and some are empty.** The run
+      itself still succeeds; the empty wells are listed as refused. This is the only case that
+      matters in practice — a run where *no* well has data was already refused outright, which is
+      why this never showed up in testing.
+- [ ] **Nothing is written for a refused well**: no curve, and no log-set version allocated. A run
+      that reports failure must not also version an interpretation — the rule the rest of the app
+      already follows. Check the log set catalog after a run with refusals.
+- [ ] **The results table was rebuilt around this.** It leads with a tally ("37 of 40 wells written
+      — 3 refused, listed first below"), puts refused wells at the top, tints them, and identifies
+      every well by **name** rather than by the UUID it used to print. A refusal is a result, not a
+      footnote; on a 200-well run it would otherwise be three lines somewhere in the middle.
+
+## ML — automatic train/blind split by percentage of the DATA (2026-08-07)
+
+Jauhar asked for it directly: give five wells and a percentage, and have SandiBumi choose the split.
+It did not exist — "Train wells" was a manual checklist, and the only validation number on offer
+(`r2_cv5`) was a random 5-fold over **pooled samples**, which puts consecutive depths from one well
+on both sides of the fold. The model was being scored on rock it had already seen a metre away.
+
+Built first as a percentage of the WELL COUNT, which Jauhar corrected the same day: *"not 30% of
+wells, but from 30% of total data those 5 wells gave"*. He is right, and it is not cosmetic — on
+five wells of 3000/1000/500/300/200 samples, "two of the five wells" is anywhere from 12% to 68% of
+the actual rock depending on which two the shuffle draws. The percentage now targets **samples**,
+and the well subset is chosen to reach it.
+
+- [ ] **Tick "Hold wells back as a blind test", set a percentage — of SAMPLES.** SandiBumi picks
+      whole wells until about that share of the pooled samples is held back. Try it on wells of very
+      different length: the number of wells held out will change to suit, which is the whole point.
+- [ ] **The result reports the share it REACHED, not the one you asked for**, with the sample count
+      beside each side's well names. Whole wells are lumpy and the target is often unreachable; when
+      the miss is 5 points or more it says so in a line of its own, and explains that holding wells
+      back whole is what makes the share coarse. Two wells can be a third of the field or a
+      twentieth of it — the names alone never said which.
+- [ ] **It still holds back WHOLE WELLS, never loose samples.** A 70/30 split of pooled samples
+      would leak the same way the old CV did — at 0.1524 m sampling the row above and the row below
+      are all but the same rock. With fewer than 2 training wells the control says so rather than
+      pretending.
+- [ ] **The pre-run line no longer predicts a well count**, deliberately: how many samples each well
+      contributes is not known until the curves are read and the mask applied, and a number the
+      dialog guessed and the run then contradicted would be worse than no number. It says what is
+      being aimed at, and warns that few wells make the steps coarse.
+
+## ML — the second split mode: random rows, stratified (2026-08-07)
+
+Jauhar again, third time and explicit: *"real 30% of data, from existing assume 10000 of data,
+random sample 3000 data from there with similar statistic taken to be tested as blind"*. So the
+conventional ML hold-out now exists beside the by-well one. **They answer different questions and
+neither is a better version of the other**, which is why it is a segmented choice rather than a
+default with an override.
+
+- [ ] **Tick the blind test, then switch "held back as" to Random rows.** The percentage becomes
+      exact — 3000 of 10 000, not "about 3000". Hover each option: whole wells answers *will this
+      work on the next well I drill*, random rows answers *has this learned the relationship in
+      these wells*.
+- [ ] **The draw is STRATIFIED, not flat.** Each stratum (the class for a classifier, a decile of
+      the target for a regressor) contributes its own 30%, so the blind set carries the same
+      distribution as the whole. A flat draw can put a thin coal wholly on one side.
+- [ ] **"How alike the two sides are" is the evidence, and it can fail.** Every input and the target
+      are compared, scaled by the fitted side's own spread — an absolute difference cannot be
+      compared across GR and porosity. A row past a quarter of a standard deviation is marked in the
+      warn colour and the note below says the blind set is not representative. **Try a classifier
+      with a very rare facies** — that is the case that should light up.
+- [ ] **Every label on the panel changes with the mode, because the same word would be a lie.** In
+      sample mode it reads "R² on the blind rows … drawn from wells the model also trained on", and
+      the agreement line says the model learned the relationship *in these wells* rather than "the
+      fit travels to wells it has not seen". Check both modes and confirm neither claims the other's
+      guarantee.
+- [ ] **Cross-validation stays grouped by well in BOTH modes.** That is the point: a sample-mode run
+      carries one score that can leak and one that cannot, side by side. If they disagree badly, the
+      model is memorising depth neighbours.
+- [ ] **The mode is in the run record** ("Settings this run actually used"), beside the seed — the
+      same number means a different thing under each, so a record without it cannot be re-run.
+
+- [ ] **It warns when a side is too thin** — "A blind set of one well is one opinion, not a spread",
+      "Fitting on one well is a model of that well". Both are legitimate runs, so neither is refused.
+- [ ] **The seed is yours and it is stated.** Same seed, same wells — a blind score you cannot
+      re-run is a blind score you cannot quote.
+- [ ] **The results name the wells, not just the count.** "Which wells?" is always the next question
+      after a blind score, and a percentage does not answer it.
+- [ ] **Three scores side by side, labelled by what they are a score OF**: on the fitted wells, in
+      cross-validation, on the blind wells. **Check the gap line underneath** — that gap is the part
+      of the fit that does not travel, and it is the number an experienced eye actually reads.
+- [ ] **The blind wells still get their predicted curve.** The model is deliberately NOT refitted on
+      them afterwards, so you can put that curve beside core in a well the model never saw. Refitting
+      would make the curve in-sample and leave the reported score describing a model that no longer
+      exists.
+- [ ] **Cross-validation is now grouped by well too** (`GroupKFold`), with the scaler refitted inside
+      each fold. Where there is only one well it says "random folds within ONE well — not a blind
+      score" instead of printing a number that looks like validation.
+- [ ] Clustering and reduction do not offer the control: they are fitted on the very wells they are
+      applied to, so "held out" could not mean anything there.
+
+## Class curves are never averaged or interpolated (2026-08-07)
+
+`SB-MLA-055`. A facies code is a name that happens to be written as a number. The mean of facies 1
+and facies 4 is 2.5, which is not a facies — and it plots as a block track, exports to LAS and reads
+back into the next module without complaint. Nothing downstream can tell it is wrong.
+
+Re-framing already guessed well: `looks_discrete` picked MODE for anything that looked like a code
+scheme. But it only ever ran on the **Auto** method, so choosing Interpolate or Mean explicitly went
+straight through, and there was no record anywhere saying a curve *is* a class curve.
+
+- [ ] **Run Electrofacies (or GMM Facies), then re-frame that well with the method set to MEAN or
+      INTERPOLATE.** The FACIES curve comes back resampled by MODE/NEAREST anyway, and the run notes
+      say so by name: which curve, what was asked, what was used. A substitution you cannot see is
+      the thing this exists to prevent.
+- [ ] **The probability curve is NOT protected.** `gmm_facies` writes FACIES_GMM beside FPROB; FPROB
+      is an ordinary continuous probability and must stay averageable. Check it still resamples by
+      MEAN.
+- [ ] **Rename the output, or set an output prefix, and re-run.** The declaration follows the name
+      the run actually wrote (TEST_LITHO, not FACIES), so a renamed class curve is still protected.
+- [ ] **An ordinary curve is untouched.** A caliper that happens to read whole inches still looks
+      discrete to the guesser — set it to MEAN and it stays MEAN. A guess may pick the default;
+      only a declaration overrides a decision you made.
+
+### The three modules that would have averaged it anyway (2026-08-07)
+
+Re-framing was only one of the doors. **Frame ▸ Block** could upscale a FACIES curve by MEAN, and
+**Condition ▸ Smooth** and **Condition ▸ Despike** would run on it without comment. Worse: the Core
+Photos pane already tells you in so many words to *"use Frame ▸ Block with OPT_STAT = MODE, the one
+upscale that carries a class code whole"* — and Block **had no MODE option**, so following the
+application's own advice fell through to the arithmetic mean.
+
+- [ ] **Block a FACIES curve — MODE is now in the "How a bed's value is taken" list**, and it gives
+      the bed's commonest code. That is the fix the Core Photos pane has been pointing at.
+- [ ] **Choose MEAN, GEOMETRIC, HARMONIC or MEDIAN on that same curve and it is refused by name**,
+      with the reason and the fix in the message. MEDIAN is refused with the rest deliberately: it
+      interpolates, so an even-count bed of {1, 2} returns 1.5.
+- [ ] **MIN and MAX are allowed.** They land on a sample that really occurs, and a class scheme
+      ordered by shaliness has an order even where it has no arithmetic.
+- [ ] **Smooth and Despike refuse a class curve outright** and point at Block ▸ MODE. There is no
+      safe version of either: smoothing means producing values *between* the ones measured, and on a
+      class log a lone code between two others is a thin bed, not a spike — nothing in the numbers
+      tells them apart, so a "cleaned" facies log is one with its thinnest beds quietly deleted.
+- [ ] **Block, Smooth and Despike an ordinary curve and nothing has changed.** The rule fires on the
+      declaration, never on how the values look.
+
+## A model now says how well it travels, and which rows made it (2026-08-07)
+
+`SB-MLA-003` / `SB-MLA-009`. Two things a predicted curve could not tell you before.
+
+**How well the model travels.** A net-pay number computed from a predicted permeability whose
+blind-well R² was 0.31 is a different claim from one computed from a measured permeability — and
+nothing downstream could tell which it had received. The saved-models list now carries a **blind
+score pill** on every row: `blind R2 0.61` in green, amber or red, with the wells, the rows and the
+protocol in the tooltip.
+
+The important half is the other one. A model fitted without holding anything back reads **"not
+blind-tested"**, in neutral colour, and shows *no number*. Its training score is not a measurement
+of how it travels, and putting one there would be the failure this exists to prevent: a delivered
+project once showed a training correlation of 0.99 on a curve whose blind-well range was 0.31–0.70.
+
+- [ ] **Open ML Models ▸ Saved models.** Every model carries a pill. Models you fitted before today
+      say "not blind-tested" — correctly, because they were not.
+- [ ] **Fit one with *Hold wells back as a blind test* ticked, save it, and look at the row.** The
+      pill shows the blind score. Hover it: it names how many wells were held back and whether the
+      split answers "will this work on the next well" (whole wells) or only "is the relationship
+      learnable here" (random rows).
+- [ ] **Apply that model to new wells.** The curve records the *same* blind score — it is copied
+      from the model, not recomputed, so a curve made by applying a model says what a curve made by
+      the fit says.
+- [ ] **Check a curve's record** in the Database Inspector ▸ log sets: `params_json` now carries the
+      blind block and the training fingerprint beside the model name.
+
+**Which rows made it.** "Trained on 12 wells, 4,300 samples" does not pin a re-run: the same wells
+at a later log-set version are *different rows* with the same names and often the same count. Each
+saved model now carries a fingerprint of its exact training matrix, in the row tooltip.
+
+- [ ] **Fit the same configuration twice without changing any data.** The fingerprint matches.
+- [ ] **Edit one input curve sample and re-fit.** It differs — even though the well list, the
+      sample count and the curve list are all unchanged. That is the case the well list cannot see.
+
+## Fitting permeability in log space, without the number changing meaning (2026-08-07)
+
+`SB-MLA-035`. Permeability spans decades, so it is fitted as `log10(k)` — that is where the
+relation to porosity is a straight line. **ML Models ▸ Predict a continuous log** now offers that
+choice directly: a new **Fit target as** control with *As measured* and *log10*.
+
+The reason it is a control rather than something you do by hand is what happens next. Whatever the
+model is fitted on is what the model *predicts* — so a log-fitted run predicts `log10(mD)`, not mD.
+Written under the name you typed, in a table headed mD, that is a number no reader can catch: a
+permeability mean of **−0.4** is not an error state, it is 0.398 mD in log units, and the rows
+around it read −0.4, 1.2, 2.8 and look like a plausible spread. It renders, it prints, and it
+reaches a client deck.
+
+So a log-fitted run writes **two curves**, and says so before you press Run:
+
+- `<name>_LOG10` — what the model actually predicted, in log units.
+- `<name>` — its back-transform, in the target's own units.
+
+- [ ] **Fit a permeability against your usual inputs with *log10* selected.** Two curves appear in
+      the output list. Put both on a log view: the `_LOG10` one spans roughly 0–4, the plain one
+      spans the decades.
+- [ ] **Export that well to LAS and open the header.** `<name>_LOG10` carries `log10(mD)` and
+      `<name>` carries `mD` — provided the target curve had a unit when it was imported. This is the
+      one place the units leave the building, so it is the one worth checking.
+- [ ] **Read the score panel.** It now says *"Scored in log10(mD) — the space the model was fitted
+      in"* above the R² rows. An R² in log space is usually **lower** than the same model's R² in mD,
+      and that is not the model getting worse — the linear-space number is flattered by the few
+      largest permeabilities, which is exactly why the log fit is the right one.
+- [ ] **Press Compare with *log10* selected.** The leaderboard ranks in log space too, and its note
+      says so. Compare the ranking against the same leaderboard with *As measured*: on real
+      permeability the winner often changes. The log-space one is the ranking that matches what
+      Run will fit.
+- [ ] **If any of your plugs read zero permeability**, the run reports how many were dropped. Zero
+      has no logarithm, and the alternative — flooring it to some small number — is a value nobody
+      chose that would drag the low end of the fit.
+- [ ] **Switch to a classification or clustering task.** The control disappears; a class label has
+      no logarithm.
+
+## One k-means, and one seed default — RESULTS CHANGE (2026-08-07)
+
+`SB-MLA-023` / `SB-MLA-024`. SandiBumi has two k-means engines: the built-in one behind
+**Facies ▸ Electrofacies** and **GMM Facies**, and scikit-learn's behind **ML Models ▸ clustering**.
+They were set up differently — 8 restarts and a 100-iteration cap in the built-in one against
+scikit-learn's 10 and 300, and no convergence tolerance at all on the built-in side. Restart count
+and iteration cap are exactly the two settings that decide *which* of the several clusterings the
+data supports is the one you get, so **the same curves, the same K and the same seed gave two
+different facies schemes depending on which door you came in**, with nothing on either screen
+saying so.
+
+Both now run one definition: 10 restarts, a 300-iteration cap, and scikit-learn's convergence
+tolerance implemented natively. The values are scikit-learn's own documented defaults rather than
+anything invented here, and both moves are in the safe direction — restarts keep the best result by
+inertia, so 10 can only find a fit at least as good as 8 did, and the higher cap only affects runs
+that had not finished converging at 100.
+
+- [ ] **Re-run Electrofacies on a well you have clustered before, at the same K and seed.** The
+      answer may differ slightly from the old one. Where it does, the new one is the better fit —
+      it is the lowest-inertia result of more restarts run further.
+- [ ] **The seed default is now 42 in every module.** Electrofacies and GMM Facies used to default
+      to **7**; the ML suite has always used 42. **This changes what you get from pressing Run
+      without touching the seed field.** An old run recorded its seed, so it is still reproducible —
+      type 7 back in. Check a saved log set's parameters if you need to reproduce one.
+- [ ] **Cluster the same curves both ways** — Facies ▸ Electrofacies, then ML Models ▸ clustering ▸
+      k-means over the same well, same K, same seed. On rock where the grouping is clear-cut they
+      should now agree. They are still two engines drawing random numbers differently, so on genuinely
+      ambiguous data they can land on different local answers; what is fixed is that they no longer
+      differ *by configuration*.
+
+## ML — the run records what it actually used, defaults included (2026-08-07)
+
+`SB-MLA-001`. The record kept against every run was the settings you *typed*, which is the one set
+of numbers that needs no reporting — you have them. The values that decide a result and appear
+nowhere on screen are the ones nobody supplied: `seed` above all, which chooses which of the several
+clusterings the data supports is the one you got. A record you cannot re-run from is not a record.
+
+- [ ] **Run any model and open "Settings this run actually used"** under the results. Every
+      parameter the run read is there, defaulted rows marked and sorted first — they are the only
+      rows you have not already seen.
+- [ ] **A defaulted value names where the default came from**, so "who chose 200 trees" has an
+      answer. The difference between deciding 200 and having 200 decided for you is invisible in a
+      report six months later.
+- [ ] **A clamped value states both numbers** — t-SNE perplexity narrowed against a small sample
+      count reads "12.3 (asked for 30)". A request the code quietly narrowed would otherwise be
+      recorded as the number you typed.
+- [ ] **This is what gets persisted**, not the supplied set: check the log set's parameters and a
+      saved model's record. That is the half that makes a re-run reconstructable.
+- [ ] Native electrofacies/GMM are NOT covered yet — they report through the module framework,
+      which has no parameter record. Their `SEED` fallback is still silent. Separate increment.
+
+## The report says which curves a model predicted (2026-08-07)
+
+`SB-MLA-010`. A predicted permeability looks exactly like a measured one on a track: smooth,
+plausible, in the right units. By the time it has been through a cutoff and into a hydrocarbon pore
+volume, nothing on the page says a model made it. Until now the lineage stopped at the database —
+the run was recorded, and the deliverable did not mention it.
+
+Both documents now carry a **Machine-learning provenance** section, immediately after the
+methodology table: the PDF (**Plot ▸ Deliverables ▸ Report…**) and its editable Word twin
+(**Save Word…**). Six columns — the curve and what it is a prediction of, the model and algorithm,
+the inputs in the order they were fitted in, what it was trained on, how well it travels, and the
+log set, run date and training fingerprint.
+
+Above the table, printed and not assumed: these curves were **predicted, not measured and not
+computed by a petrophysical equation**, and every number derived from them inherits the blind
+performance stated beside them.
+
+- [ ] **Run a model on a well, then generate that well's report.** The section is there, and it
+      names the model you used.
+- [ ] **Re-run the same model, or a different one, over the same curve name, and re-generate.** The
+      table still has one row, describing the run that made the curve now in the report — not both.
+      This is the half worth checking: a table naming a superseded run credits a model that did not
+      make the number on the page, which is worse than no table at all.
+- [ ] **Look at the blind column.** A model fitted with wells held back reads its blind score and
+      how many wells; one fitted without reads "not blind-tested" and shows no number.
+- [ ] **Save the Word version and compare it against the PDF.** Same rows, same wording, same
+      caveat. They are built from one definition, so they cannot drift — and the editable document
+      is the one a client actually opens, so the caveat has to be in it.
+- [ ] **Generate a report for a well with no ML curves.** No section at all — not an empty table
+      under a heading implying there is a model somewhere.
+- [ ] LAS export does not carry this yet. The honest place for it there is a `~Other` block, and
+      that is a separate increment.
+
+## A saved model says what rock it learned from — and every log is offered as an input (2026-08-07)
+
+`SB-MLA-002`, `SB-MLA-004`, `SB-MLA-005`, plus a bug you found.
+
+**The bug first, because it was costing you inputs.** The ML dialog has always had a checkbox per
+curve, but the list it was built from only ever contained the six standard columns and whatever
+modules had computed. It never looked at the imported curve store — so a well delivered with fifteen
+logs offered you five, and the extra runs, PEF, CALI, spectral GR and everything else looked as
+though the app could not use them. It always could: the fetch path reads them by mnemonic and has
+done since the generic store shipped. Only the picker was blind. Every imported mnemonic is now in
+the list, tagged with its unit and where it came from, and you tick as many as you want.
+
+**What a saved model now records about its own training rock.** Three facts that were missing, all
+of them things a re-run has to match and none of them derivable from the well list:
+
+- **Which log set each well's rows were read from**, per well — because the input set resolves per
+  well. Ask for `FINAL` across a field where three wells do not have one, and those three quietly
+  read live values while the rest read stored ones. The record says so, and the run tells you at the
+  time, by name.
+- **The mask, by name, and what it took out per well.** Masked samples and samples dropped for a
+  missing curve are counted separately: they call for opposite fixes, and a single "rows not used"
+  number reads as the mask's doing when often it is a curve nobody logged. The run reports the total
+  with the worst well named.
+- **The interpreter and every library that took part** — Python, numpy, scipy, scikit-learn, joblib
+  and xgboost. The model file is a pickle, so joblib is the one that actually reads it back, and it
+  is the component nobody thinks of.
+
+**And a "has drifted" tag on the model row, before you apply anything.** If the log set a model
+learned from has been superseded or deleted, or the libraries on this machine have moved since it
+was fitted, the row says so and the tooltip names what changed. This had to be at pick time rather
+than at run time: a run can only report its own runtime after it has predicted, and by then the
+curves are written.
+
+- [ ] **Open ML Models on a well with imported logs.** Every mnemonic in the well is in the input
+      list, not just GR/RHOB/NPHI/DT/RT/CALI. Each shows its unit and whether it was imported or
+      computed. Tick several and train — the ones you ticked are the ones it uses.
+- [ ] **Train a supervised model with a log set selected, save it, then hover its row in Saved
+      models.** The tooltip names the set and version it read from.
+- [ ] **Train one with a mask curve.** The run message says how much it excluded, as a percentage,
+      and names the well that lost the most. The tooltip names the mask curve.
+- [ ] **Train one with no mask.** It says "no mask was applied" — not blank, and not confusable
+      with a mask that ran and flagged nothing (which says exactly that instead).
+- [ ] **Re-run the module that made a training input, so its log set version moves. Reopen ML
+      Models.** The old model's row carries a warning naming the well and the version step. This is
+      the one worth checking: it is the difference between a model you can reproduce and one you
+      cannot, and nothing else on the row would tell you.
+- [ ] **Look at a model saved before today.** No warnings at all. A record that did not exist is not
+      a mismatch, and a tag that fires on every old model is a tag you would stop reading.
+
+## The same run twice gives the same curves — proven, not promised (2026-08-07)
+
+`SB-MLA-008`, the last of the P0 group.
+
+The competitive finding behind this one is blunt: on a pooled five-well set at K = 15, an unseeded
+clustering gives different cluster numbers every time it runs, so a facies track in a delivered
+report cannot be reproduced. Nobody else offers a guarantee here. We now do, and it is **measured
+rather than asserted** — every algorithm across all four tasks runs twice through real scikit-learn
+and the two results are compared **bit for bit**, not to a tolerance. Fifteen configurations, all
+identical. A tolerance would hide exactly the drift the check exists to catch, and comparing values
+rather than bits would let a sample that turned into a gap on the second pass pass as "both missing,
+both fine".
+
+Every run has a seed on the record even when you never touched the seed box, because the runner
+records the default it used along with the fact that it was a default. So the failure above cannot
+happen here by omission.
+
+**Where we do not promise, we say so before you press Run.** One case qualifies today, and it is
+our own code rather than a claim about somebody's library: `Gradient boosting` fits XGBoost where
+XGBoost is installed and substitutes scikit-learn's version where it is not — recorded as the same
+algorithm name either way. Same request, same seed, same wells, a different estimator depending on
+the machine. Choose it on a machine without XGBoost and a line under the algorithm says exactly
+that. This machine does not have XGBoost, so you should see it.
+
+Changed libraries, changed rows and a superseded input set are the other three ways a re-run stops
+matching — those are not properties of an algorithm and are reported separately, on the model row.
+
+- [ ] **Pick Regression ▸ Gradient boosting.** A line appears under the algorithm saying XGBoost is
+      not installed and this will fit the scikit-learn substitute. Switch to another algorithm and
+      it disappears — it is not a permanent banner.
+- [ ] **Run the same clustering twice on the same wells with the same seed.** The facies numbers are
+      identical, not merely similar. Change the seed and they are not.
+- [ ] **Run the same regression twice.** Same curve, and the same reported R², to every digit.
+
+## The ML pane, rebuilt as four sections (2026-08-07)
+
+Your seven points from the click-through, in order.
+
+**1 — The style.** Every control you struck through (Task, Algorithm, Target curve, Mask, Output
+curve) was a bare dropdown inheriting the browser's own look, while the controls beside them looked
+right because they are segmented pills that carry their own styling. `.form-control` is the design
+system's input style and exactly one control in the pane was using it. They all do now.
+
+**2 — Four sections.** **Input · Data QC · Model · Results**, in the order the work is done. One
+scrolling column had grown to a dozen rows in no useful order — the algorithm at the top, its
+parameters two thirds down, the output curve below that — so setting up a run meant scrolling past
+everything twice. The section strip stays put while a long Results panel scrolls under it, and
+**Run Model** is a footer outside the sections, reachable from all four.
+
+**3 — One algorithm list.** The Task dropdown is gone. The algorithm picker now groups by what you
+are predicting: **Continuous log**, **Discrete log**, **Electrofacies**, **Reduction**. Random
+Forest appears under both supervised groups, which is honest — it is two estimators with one idea.
+Picking the algorithm sets the task, so changing your mind no longer resets your choice.
+
+**4 — Data QC that knows what it is checking for.** Every finding is about the data **and the
+model**, never the data alone, because "is this data good" has no answer: four orders of magnitude
+between two curves is fatal to k-means and irrelevant to a random forest. Same wells, same curves —
+SVR gets a red *"RES_DEEP would swamp every other input, turn on Standardize"*; Random Forest gets a
+green *"scale does not matter to this estimator"*. It also reports how many rows can actually reach
+the fit, which curve caps that, which wells are missing which curve, whether your target looks like
+a class code or a continuous log, and whether K is more classes than the data can carry.
+
+**5 — Parameters.** They were always editable. What you could not see was which ones you had
+changed — a grid of numbers looks the same whether they are your settings or the library's. A
+changed field now marks itself and offers **Reset to defaults**, and each field's tooltip names its
+default. The run has always recorded the difference; the form now shows it.
+
+**6 — Predicted vs measured, per model.** In Results, under the comparison charts. Every point is a
+prediction made by a model that had not seen that row, so the picture answers the same question the
+score does. Pick which model you are looking at from the dropdown on the panel. **Coloured by
+well** — that is the reading the score cannot give you.
+
+**7 — R² and RMSE across models.** Two bar panels side by side, never one axis, because higher is
+better for one and lower for the other. Where they disagree the panel says why.
+
+- [ ] **Open ML Models.** Four sections across the top, and every dropdown and field looks like the
+      rest of the application.
+- [ ] **Open the Algorithm list.** Four groups by what you are predicting; Random Forest under both
+      supervised ones. Pick a clustering algorithm — the target curve and train wells disappear,
+      because there is no target.
+- [ ] **Pick your curves and wells on Input, then open Data QC.** It measures that selection.
+      Read the row-count line first: it is what everything else is read against.
+- [ ] **Switch between Support Vector Regression and Random Forest and re-check.** The scale finding
+      changes from red to green on the same data. That is the point of the section.
+- [ ] **Change a parameter.** Its label goes accent-coloured and a Reset appears.
+- [ ] **Run Compare algorithms on a real target.** The Results section gets the leaderboard, the
+      dot-and-whisker score chart, the R²/RMSE panels, the predicted-vs-measured crossplot and the
+      cross-model "which curve carries" panel.
+- [ ] **On the crossplot, step through the models.** A good one sits on the dashed 1:1 line. Look
+      for one whose cloud is tight but rotated off it (mis-scaled, correctable) or flat at the mean
+      (learned nothing). Both can score the same R².
+- [ ] **Look at the well colours on the crossplot.** This is the one worth your time: a blind R² of
+      0.7 over three wells can be 0.9, 0.85 and 0.1, and the third well is the one that says whether
+      the curve travels.
+
+## ML - one model where a curve exists, a smaller one where it does not (2026-08-07)
+
+Your cross-check: *"assume user have 4 curves, model should still run even 1 curves only half depth
+coverage, (model only predict using 3 curves on the other half depth coverage)"*. It did not. A row
+reached the fit only where EVERY input had a value, so one curve logged over half the interval
+deleted the other half of all four - in the training and in the prediction. On a field where each
+well is missing something different, the intersection can be nearly empty while every individual
+curve looks well logged.
+
+**Model section, "Partial coverage": Fit a model per available-input pattern.** Off by default,
+because with it on the curve is made by more than one model and you have to be told which.
+
+How it decides. It looks at which inputs are actually present at each depth, takes the patterns that
+really OCCUR (not every possible subset - four curves would be fifteen hypothetical models), and
+fits one model per pattern. **Each depth is then predicted by the largest model whose curves it
+carries**: where all four exist, the four-curve model; where one is short, a three-curve model
+fitted on every row carrying those three - including the four-curve rows, which carry them too.
+
+What it will not do, and why each refusal is there:
+
+- **A segment with fewer than 30 training rows is not fitted**, and the depths it would have covered
+  are left blank. Named in the result with its row count. A model fitted on eighteen plugs is not a
+  weaker answer, it is a different kind of object, and shipping one under the same curve name would
+  make the curve's quality vary down its length with nothing recording where.
+- **The scores are never averaged.** Each segment reports its own blind score on its own rows. An
+  R2 over both would describe neither, and the lower one is not the worse model - it is the one that
+  had fewer curves to work with.
+- **Each segment saves its own model**, suffixed `_3CURVE` / `_4CURVE`, so a saved artifact says
+  from its name which curves it needs.
+- **The curve is written ONCE**, at the end, with every segment recorded in its provenance - because
+  "which model produced this curve" genuinely has more than one answer along its length.
+
+Data QC changes with the switch. With it off, a short curve is a warning that names the three ways
+out - drop the curve, drop the wells, or turn this on. With it on, the same curve is green and says
+the run will fit a model with it and a model without. The row-count headline also changes, and there
+is one case worth knowing: if the thinnest curve is your TARGET (core permeability usually is), this
+does NOT lift the cap. Every model is fitted against the target, so no segment can see a depth the
+target does not reach. What you buy there is coverage of the PREDICTION, not more training data -
+and the panel says so rather than leaving you to work it out.
+
+- [ ] **Pick four curves where one is short, and run without the switch.** Data QC warns, and names
+      the switch as one of the three ways out.
+- [ ] **Turn it on and re-check Data QC.** The same finding goes green and says what will happen.
+- [ ] **Run it.** Results opens with one card per model: the inputs it uses, how many depths it
+      predicts, what share of the curve that is, how many rows fitted it, and its own blind score
+      with the protocol spelled out.
+- [ ] **Read the two cards against each other.** They are not a ranking. The four-curve card should
+      predict the interval where all four exist; the three-curve card the rest.
+- [ ] **Look at the written curve in a log view.** It should be continuous across the depth where
+      the short curve stops - that is the whole point - with no step at the boundary that is not
+      geology.
+- [ ] **Save the model and look at the Saved models list.** Two entries, `_4CURVE` and `_3CURVE`.
+- [ ] **Force a skip**: choose an input present in only a handful of rows. That segment should
+      appear as a warn-tinted card stating its row count and that its depths were left blank,
+      never silently vanish.
+
+## ML - writing the output at the target sampling (2026-08-07)
+
+Your item 4: *"each log has different resolution, sometimes it looks low frequency such resistivity,
+sometimes high such rxo, gr, or nphi. Result should adjust their frequency to log target"*, then
+*"writing output at target sampling"*.
+
+A model fitted against a target read every 0.5 m predicts at every INPUT depth, so it wrote a value
+every 0.1524 m. That curve claims three times the vertical resolution anything it learned from ever
+had, and on a log view it is indistinguishable from a log a tool actually ran at that rate.
+
+**Model section, "Output resolution": As predicted | Target sampling.** Open Data QC once and the
+target's own measured sampling is filled into the block-thickness box - the median across your
+training wells, not the mean, because one well logged at a different rate would otherwise offer you
+a spacing no tool ever ran at. It stays editable; nothing is decided for you.
+
+What it does: one value per interval, held across the interval. **The depth frame does not change.**
+Computed curves are read back by exact depth match, so a curve written at its own coarser sampling
+would land on depths the well does not have and read back all-missing - which is why re-framing is
+Reframe's job and this is the same discipline Block (Upscale) already follows. The consequence for
+you: **set the curve's draw style to Step in the curve editor**, or the log view draws a gradient
+between two block values that nothing measured. The run says so in its notes.
+
+Three rules inside it:
+
+- **Blocks are anchored on an absolute depth grid**, not on each well's first sample. Anchored per
+  well, two wells would get the same block thickness at different block boundaries, so a bed sitting
+  mid-block in one well straddles a boundary in the next. The numbers stay plausible and stop being
+  comparable.
+- **A class curve takes the block's commonest CODE, never a mean.** The mean of facies 1 and facies 4
+  is 2.5, which is not a facies. A `_PROB` curve beside it is a real number and averages normally.
+- **A depth the model did not answer stays missing.** It never inherits a value from its block.
+
+Under a log10 target transform the block mean runs in log space, which makes it the **geometric mean
+of the millidarcies** - the standard permeability upscale - by construction rather than by a special
+case.
+
+A saved model records the resolution it was made to write at, and **applying it later inherits that**
+along with its log set. A fit reviewed as a 0.5 m answer, propagated at the input sampling, would be
+a curve at a different resolution from the one you signed off, under the same model's name.
+
+- [ ] **Open Data QC with a coarse target selected** (core permeability, or a blocked log). Then open
+      Model: the block thickness box is already filled with its measured spacing.
+- [ ] **Run once As predicted and once at Target sampling**, into two output curve names, and put
+      both in a log view. The second should be visibly blocky and the first should not.
+- [ ] **Set the blocked curve's draw style to Step** (right-click the curve in the log view). Before
+      you do, it draws sloping lines between block values - that is the display lying, not the data.
+- [ ] **Check the depth frame did not change**: the blocked curve should have a sample at every depth
+      the unblocked one does, just repeated within each block.
+- [ ] **Save the model, then Apply it to other wells.** The result notes should say it was written at
+      the same resolution, without you setting anything.
+- [ ] **Try it on a classification run.** The class curve should hold whole codes - never a 2.5
+      between facies 2 and 3 - while its `_PROB` companion averages.
 ### Three surfaces that were painting with a token this app does not have
 
 `--panel` is not a token in this design system; the surface tokens are `--bg-app`, `--bg-panel`,
@@ -8643,3 +9257,6 @@ dark does a see-through panel become obvious.
       role, still translucent so they read as a tint *of* the header rather than a colour of
       their own. They now have something opaque underneath to tint, which is what was missing.
       If any tint now looks heavier or flatter than you remember, say so.
+- [ ] **A fourth, found independently the same day and fixed on the ML branch**: the coverage-segment
+      cards in the ML pane's Results. Same token, same white-on-dark result. Mentioned here so the
+      count in this section's title is not read as the whole tally.

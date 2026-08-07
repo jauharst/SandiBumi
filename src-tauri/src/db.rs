@@ -688,8 +688,27 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             note            VARCHAR,
             created_at      TIMESTAMP NOT NULL DEFAULT now(),
             data            BLOB NOT NULL,
+            -- SB-MLA-003. A fingerprint of the exact training matrix: feature names in order, the
+            -- feature and target values, and the row order. `trained_on` + `n_train` narrows a
+            -- re-run but does not pin it — the same wells at a later log-set version are different
+            -- rows with the same names and possibly the same count. NULL on a model saved before
+            -- this existed, which is an honest "not recorded" rather than a hash that means nothing.
+            train_hash      VARCHAR,
+            -- SB-MLA-002 + SB-MLA-004. The per-well training roster: for each well, what it
+            -- contributed, the log set its rows were READ FROM (name, id, version), and how many of
+            -- its samples the run mask removed. `trained_on` answers "which wells"; this answers
+            -- "which rock", which is the question a re-run has to match. JSON array.
+            training_json   VARCHAR,
+            -- SB-MLA-005. The interpreter and every library that participated in fitting or
+            -- serialising the artifact — the blob is a pickle, so it is loadable only under a
+            -- compatible set, and joblib is the serialiser, not a bystander. JSON object.
+            runtime_json    VARCHAR,
             PRIMARY KEY (model_id)
         );
+        -- Added via ALTER so projects written before 2026-08-07 converge on the same shape.
+        ALTER TABLE ml_models ADD COLUMN IF NOT EXISTS train_hash VARCHAR;
+        ALTER TABLE ml_models ADD COLUMN IF NOT EXISTS training_json VARCHAR;
+        ALTER TABLE ml_models ADD COLUMN IF NOT EXISTS runtime_json VARCHAR;
 
         -- Special core analysis: capillary-pressure measurements. Several Pc/Sw points
         -- per plug, so no primary key — re-import replaces per well (like core_data).
@@ -756,6 +775,45 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         );
         -- `pinned` added via ALTER so existing project databases converge on the same shape.
         ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS pinned INTEGER DEFAULT 0;
+
+        -- SB-MLA-055. A row here DECLARES that a curve's values are class identifiers — a facies
+        -- code, a litho code, a predicted class — and not a quantity. Averaging or interpolating
+        -- one produces a number that is not any class: the mean of facies 1 and facies 4 is 2.5,
+        -- which plots, exports and reads back as a facies that was never in the scheme.
+        --
+        -- Its own table rather than a column on `curve_meta`, because `curve_meta` covers only the
+        -- generic IMPORT store and the curves that need this most are module outputs, which live in
+        -- `computed_curves` and have no metadata row anywhere. Keyed by NAME for the same reason —
+        -- that is the only identifier `computed_curves` carries.
+        --
+        -- DECLARED, not detected. `reframe::looks_discrete` still guesses from the values so a
+        -- LITH curve off a LAS is handled sensibly, but a guess may only pick the DEFAULT method:
+        -- a caliper that happens to read whole inches must stay averageable when the user says so.
+        -- A declaration is the producer's statement about what the numbers MEAN, so it overrides.
+        -- SB-MLA-035. The unit a COMPUTED curve is in, declared by whatever wrote it.
+        --
+        -- `list_curve_catalog` could only ever get a unit for a computed curve by joining
+        -- `equations.output_units`, so a curve written by a module or by an ML run had no unit
+        -- anywhere in the product. That absence is what makes the log-transform trap possible: a
+        -- permeability predicted in log10 space and a permeability in mD are different quantities,
+        -- and with no unit to disagree with, a mean of -0.4 reads as a permeability rather than as
+        -- 0.398 mD in log units.
+        --
+        -- Per WELL like `curve_class`, and for the same reason: the same mnemonic can be produced
+        -- by different runs on different wells, and a project-wide row would have to pick one.
+        CREATE TABLE IF NOT EXISTS curve_unit (
+            well_id     UUID NOT NULL,
+            curve_name  VARCHAR NOT NULL,
+            unit        VARCHAR,
+            PRIMARY KEY (well_id, curve_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS curve_class (
+            well_id     UUID NOT NULL,
+            curve_name  VARCHAR NOT NULL,
+            source      VARCHAR,   -- what declared it, e.g. 'electrofacies', 'ml:classification'
+            PRIMARY KEY (well_id, curve_name)
+        );
 
         CREATE TABLE IF NOT EXISTS curve_samples (
             curve_id    UUID NOT NULL,
@@ -1217,6 +1275,72 @@ pub fn list_array_curves(conn: &Connection, well_id: &str) -> DbResult<Vec<Array
         })?
         .collect::<duckdb::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+/// Records that these curves hold class identifiers, not quantities (`curve_class`, SB-MLA-055).
+///
+/// Called by whatever PRODUCED the curve, because that is the only place the answer is known
+/// rather than guessed. A classifier writes both a class curve and its probability curves in one
+/// run, and the probabilities are ordinary continuous quantities — so this takes the output names
+/// it is given and never infers a family from a prefix.
+///
+/// Idempotent: a re-run of the same module re-declares the same curves, and a declaration that
+/// disappeared on the second run would leave the curve protected only until it was recomputed.
+pub fn declare_class_curves(conn: &Connection, well_id: &str, names: &[String], source: &str) -> DbResult<()> {
+    for name in names {
+        conn.execute(
+            "INSERT INTO curve_class (well_id, curve_name, source) VALUES (?, ?, ?)
+             ON CONFLICT (well_id, curve_name) DO UPDATE SET source = excluded.source",
+            duckdb::params![well_id, name.to_uppercase(), source],
+        )?;
+    }
+    Ok(())
+}
+
+/// Every curve declared as a class curve on this well, upper-cased.
+///
+/// Returned as a set for the whole well in one query rather than a per-curve lookup: the callers
+/// are transform paths that loop over curves, and a query per curve inside that loop would put a
+/// round trip between every column and the next.
+pub fn class_curves_for_well(conn: &Connection, well_id: &str) -> DbResult<std::collections::HashSet<String>> {
+    let mut stmt = conn.prepare("SELECT upper(curve_name) FROM curve_class WHERE well_id = ?")?;
+    let rows = stmt
+        .query_map([well_id], |r| r.get::<_, String>(0))?
+        .collect::<duckdb::Result<Vec<_>>>()?;
+    Ok(rows.into_iter().collect())
+}
+
+/// Records the UNIT a computed curve is in (`curve_unit`, SB-MLA-035).
+///
+/// Declared by whatever produced the curve, for the same reason as [`declare_class_curves`]: the
+/// writer is the only place the answer is known rather than guessed. A prediction of permeability
+/// made in log10 space and a permeability in mD are DIFFERENT QUANTITIES, and until this existed
+/// there was nowhere for them to disagree — a computed curve's unit could only ever come from an
+/// `equations.output_units` row, so anything written by a module or an ML run had none at all.
+///
+/// An empty or blank unit stores NULL rather than `""`. "This quantity is dimensionless" and "we do
+/// not know" are different statements, and only the second should let a reader fall back to a guess.
+pub fn declare_curve_units(conn: &Connection, well_id: &str, units: &[(String, String)]) -> DbResult<()> {
+    for (name, unit) in units {
+        let u = unit.trim();
+        conn.execute(
+            "INSERT INTO curve_unit (well_id, curve_name, unit) VALUES (?, ?, ?)
+             ON CONFLICT (well_id, curve_name) DO UPDATE SET unit = excluded.unit",
+            duckdb::params![well_id, name.to_uppercase(), (!u.is_empty()).then_some(u)],
+        )?;
+    }
+    Ok(())
+}
+
+/// The declared unit of one computed curve, if it has one.
+pub fn curve_unit_for(conn: &Connection, well_id: &str, curve_name: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT unit FROM curve_unit WHERE well_id = ? AND upper(curve_name) = upper(?)",
+        duckdb::params![well_id, curve_name],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .ok()
+    .flatten()
 }
 
 /// Deletes one array curve from a well (the Data Sets dialog's remove action).
@@ -2590,6 +2714,17 @@ pub struct MlModelInfo {
     pub note: Option<String>,
     pub created_at: String,
     pub bytes: i64,
+    /// SB-MLA-003 — fingerprint of the exact training rows. `None` on a model saved before the
+    /// column existed: "not recorded" is the truth about such a model, and it must not be
+    /// confusable with a hash.
+    pub train_hash: Option<String>,
+    /// SB-MLA-002 + SB-MLA-004 — the per-well training roster (JSON array of
+    /// [`crate::ml::TrainWellRecord`]). `None` on a model saved before it existed.
+    pub training_json: Option<String>,
+    /// SB-MLA-005 — the runtime that fitted and serialised the artifact (JSON object). `None` on a
+    /// model saved before it existed, which is why the apply-side check says "not recorded" rather
+    /// than reporting a mismatch it cannot actually see.
+    pub runtime_json: Option<String>,
 }
 
 fn json_names(s: &str) -> Vec<String> {
@@ -2620,44 +2755,75 @@ pub fn resolve_model_name(conn: &Connection, desired: &str) -> DbResult<String> 
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn insert_ml_model(
-    conn: &Connection,
-    name: &str,
-    task: &str,
-    algorithm: &str,
-    feature_curves: &[String],
-    target_curve: Option<&str>,
-    params_json: &str,
-    metrics_json: &str,
-    trained_on: &[String],
-    n_train: usize,
-    standardize: bool,
-    sklearn_version: Option<&str>,
-    note: Option<&str>,
-    data: &[u8],
-) -> DbResult<(String, String)> {
-    let name = resolve_model_name(conn, name)?;
+/// Everything a saved model records, as one named value.
+///
+/// A struct rather than the positional argument list this used to be. Fifteen parameters had grown
+/// to include two ADJACENT `&str` JSON blobs — `params_json` and `metrics_json` — so transposing
+/// them compiled, ran, and produced a model whose recorded settings were its scores. That is the
+/// silent-wrongness class exactly: nothing downstream can catch it, and the whole point of these
+/// fields is that somebody will one day read them to answer a question about a delivered curve.
+/// Named fields make the transposition impossible rather than unlikely, and let SB-MLA-002/004/005
+/// be added without lengthening a list nobody can check by eye.
+pub struct NewMlModel<'a> {
+    pub name: &'a str,
+    pub task: &'a str,
+    pub algorithm: &'a str,
+    /// ORDERED — the order is part of the apply contract.
+    pub feature_curves: &'a [String],
+    pub target_curve: Option<&'a str>,
+    pub params_json: &'a str,
+    pub metrics_json: &'a str,
+    pub trained_on: &'a [String],
+    pub n_train: usize,
+    pub standardize: bool,
+    pub note: Option<&'a str>,
+    pub data: &'a [u8],
+    /// SB-MLA-003 — fingerprint of the exact training matrix. `None` only where the caller genuinely
+    /// cannot compute one; a blank string is never stored, because "not recorded" and "hashed to
+    /// nothing" must stay distinguishable.
+    pub train_hash: Option<&'a str>,
+    /// SB-MLA-002 + SB-MLA-004 — the per-well training roster: what each well contributed, which log
+    /// set it was read from, and how many of its samples the mask removed. JSON array.
+    pub training_json: Option<&'a str>,
+    /// SB-MLA-005 — the interpreter and every library that participated in fitting or serialising
+    /// the artifact. JSON object.
+    pub runtime_json: Option<&'a str>,
+    /// Kept as its own column because it predates `runtime_json` and readers select it by name; it
+    /// is the one runtime component the artifact cannot be loaded without.
+    pub sklearn_version: Option<&'a str>,
+}
+
+pub fn insert_ml_model(conn: &Connection, m: &NewMlModel<'_>) -> DbResult<(String, String)> {
+    let name = resolve_model_name(conn, m.name)?;
     let id = Uuid::new_v4().to_string();
+    // A fn, not a closure: a closure would infer one lifetime for every call and the three
+    // arguments borrow from different places.
+    fn blank_to_none(s: Option<&str>) -> Option<&str> {
+        s.map(str::trim).filter(|v| !v.is_empty())
+    }
     conn.execute(
         "INSERT INTO ml_models (model_id, name, task, algorithm, feature_curves, target_curve,
                                 params_json, metrics_json, trained_on, n_train, standardize,
-                                sklearn_version, note, data)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                                sklearn_version, note, data, train_hash, training_json, runtime_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             id,
             name,
-            task,
-            algorithm,
-            serde_json::to_string(feature_curves).unwrap_or_else(|_| "[]".into()),
-            target_curve,
-            params_json,
-            metrics_json,
-            serde_json::to_string(trained_on).unwrap_or_else(|_| "[]".into()),
-            n_train as i64,
-            i32::from(standardize),
-            sklearn_version,
-            note,
-            data,
+            m.task,
+            m.algorithm,
+            serde_json::to_string(m.feature_curves).unwrap_or_else(|_| "[]".into()),
+            m.target_curve,
+            m.params_json,
+            m.metrics_json,
+            serde_json::to_string(m.trained_on).unwrap_or_else(|_| "[]".into()),
+            m.n_train as i64,
+            i32::from(m.standardize),
+            m.sklearn_version,
+            m.note,
+            m.data,
+            blank_to_none(m.train_hash),
+            blank_to_none(m.training_json),
+            blank_to_none(m.runtime_json),
         ],
     )?;
     Ok((id, name))
@@ -2668,7 +2834,8 @@ pub fn list_ml_models(conn: &Connection) -> DbResult<Vec<MlModelInfo>> {
     let mut stmt = conn.prepare(
         "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
                 metrics_json, trained_on, n_train, standardize, sklearn_version, note,
-                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data)
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), train_hash,
+                training_json, runtime_json
          FROM ml_models ORDER BY created_at DESC, name",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -2688,6 +2855,9 @@ pub fn list_ml_models(conn: &Connection) -> DbResult<Vec<MlModelInfo>> {
             note: r.get(12)?,
             created_at: r.get(13)?,
             bytes: r.get(14)?,
+            train_hash: r.get(15)?,
+            training_json: r.get(16)?,
+            runtime_json: r.get(17)?,
         })
     })?;
     let mut out = Vec::new();
@@ -2702,7 +2872,8 @@ pub fn get_ml_model(conn: &Connection, model_id: &str) -> DbResult<(MlModelInfo,
     let info = conn.query_row(
         "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
                 metrics_json, trained_on, n_train, standardize, sklearn_version, note,
-                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), data
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), train_hash,
+                training_json, runtime_json, data
          FROM ml_models WHERE model_id = ?1",
         params![model_id],
         |r| {
@@ -2723,8 +2894,11 @@ pub fn get_ml_model(conn: &Connection, model_id: &str) -> DbResult<(MlModelInfo,
                     note: r.get(12)?,
                     created_at: r.get(13)?,
                     bytes: r.get(14)?,
+                    train_hash: r.get(15)?,
+                    training_json: r.get(16)?,
+                    runtime_json: r.get(17)?,
                 },
-                r.get::<_, Vec<u8>>(15)?,
+                r.get::<_, Vec<u8>>(18)?,
             ))
         },
     )?;
