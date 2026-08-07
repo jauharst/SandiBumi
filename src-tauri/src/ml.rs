@@ -542,6 +542,14 @@ pub fn ml_provenance(conn: &Connection, well_id: &str) -> Vec<MlProvenanceRow> {
                 .map(|a| format!("{} well(s)", a.len()))
                 .unwrap_or_else(|| "not recorded".into()),
         };
+        // SB-MLA-011. Appended rather than given its own column, so the fact reaches the PDF, the
+        // Word twin and the workbook without changing a table shape four renderers agree on. It
+        // belongs beside the training description because it qualifies it: "300 samples from 8
+        // wells" reads very differently once you know THIS well was not one of them.
+        let training = match p.get("well_role").and_then(|v| v.as_str()) {
+            Some(role) => format!("{training}; this well: {role}"),
+            None => training,
+        };
         out.push(MlProvenanceRow {
             curves: curves.join(", "),
             model,
@@ -3809,6 +3817,25 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                             "algorithm": req.algorithm,
                             "params": params_record,
                         });
+                        // SB-MLA-011. Whether THIS well trained the model or only received its
+                        // predictions is the difference between an interpolation and an
+                        // extrapolation, and it is the first thing a reviewer asks. It was visible
+                        // only as a run-time warning, which is to say it was visible for as long as
+                        // the pane stayed open; on the curve it was invisible. A well selected for
+                        // training that contributed nothing is recorded as its own case rather than
+                        // folded into "applied only" — the user believed it was training rock, and
+                        // the record should say the fit disagreed.
+                        rec["well_role"] = serde_json::json!(if !req.train_well_ids.contains(&aw.well_id) {
+                            "applied only - this well did not train the model, so its curve is an extrapolation from other wells"
+                        } else if empty_train.contains(&aw.well_id) {
+                            "selected for training but contributed no usable rows - it did NOT train the model, so its curve is an extrapolation"
+                        } else {
+                            "trained and applied - this well's own rock is part of what the model learned from"
+                        });
+                        rec["n_trained_wells"] = serde_json::json!(
+                            req.train_well_ids.iter().filter(|id| !empty_train.contains(*id)).count()
+                        );
+                        rec["n_applied_wells"] = serde_json::json!(apply.len());
                         if let (Some(id), Some(nm)) = (&model_id, &model_name) {
                             rec["model_id"] = serde_json::json!(id);
                             rec["model_name"] = serde_json::json!(nm);

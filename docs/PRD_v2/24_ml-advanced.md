@@ -1400,7 +1400,7 @@ superseded one's; that the inputs print in fitted order; that the target is name
 and, from the other side, that a well with no ML curve produces no block at all rather than an
 empty table under a heading implying a model exists.
 
-#### SB-MLA-011 — Training and apply membership are recorded per well          [P1] [status: PARTIAL]
+#### SB-MLA-011 — Training and apply membership are recorded per well          [P1] [status: PRESENT-OK]
 
 **Requirement.** An ML run MUST record, per well, whether that well contributed training samples,
 received predictions, or both; and MUST record the sample count in each role. A well that was
@@ -1412,9 +1412,7 @@ applied to is the difference between an interpolation and an extrapolation, and 
 downstream. It is also the fact a reviewer asks for first. The run-time warning already exists and
 is well-judged; the defect is that it is transient.
 
-**As-built.** `PARTIAL` — `ml.rs:580`–`:587` warns that *n* of *m* training wells contributed
-nothing, and `trained_on` (`ml.rs:720`–`:732`) correctly excludes them, so the model row is
-accurate. The **curve** carries none of it, and the apply-well roster is nowhere.
+**As-built.** `PRESENT-OK` (2026-08-07) — every ML curve's `params_json` now carries `well_role` for the well it was written to, plus `n_trained_wells` and `n_applied_wells`. Three cases, not two: trained-and-applied, applied-only, and **selected for training but contributed no usable rows** — the last kept distinct because the user believed that well was training rock and the record should say the fit disagreed, rather than folding it in with wells nobody chose. `ml_provenance` appends it to the training description so it reaches the PDF, the Word twin and the workbook without changing a table shape four renderers agree on; it belongs there because it qualifies that description — "300 samples from 8 wells" reads very differently once you know this well was not one of them. The distinction is interpolation versus extrapolation, and it was previously visible only as a run-time warning, which is to say for as long as the pane stayed open.
 
 **Verified by.** SB-MLA-T11
 
