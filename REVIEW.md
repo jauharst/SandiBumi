@@ -9732,3 +9732,48 @@ they picked the wrong *kind* of set would be a confident wrong answer.
 
 Covered in the section above; it was the same root cause — the runner is only told the feature
 names when it is saving a model.
+
+## An input curve can be logged before the fit, and the model remembers (2026-08-08)
+
+Deep resistivity spans decades. A fit on the raw column is carried by its largest few values, and
+standardising does **not** fix that — a z-score recentres a skewed variable, it does not unskew it.
+Both incumbents let you log an input before a fit; SandiBumi could not. Now it can, per input curve,
+in the Model section under **Input transform**: as measured / log₁₀ / ln / √.
+
+**The important part is not the log. It is that the model remembers it.** A model fitted on
+log₁₀(RT) and later applied to raw RT returns numbers that are in range, confident and wrong — the
+scaler absorbs none of it, and there is nothing downstream that could catch it. So the transform
+rides inside the saved model file alongside the scaler, exactly as the curve ORDER already does. On
+apply it is read from the model and applied by the model; a caller that states a different one is
+refused by name rather than quietly overridden.
+
+Three decisions worth knowing:
+
+**A value the transform cannot represent becomes missing.** A zero or negative resistivity under a
+log is dropped, never nudged by a small number nobody chose and never clamped to a floor. Those are
+already invalid measurements, and inventing a value for them would put a fabricated number into the
+fit. The count is reported per curve, because losing rows silently is how a training set shrinks
+without anyone noticing.
+
+**Nothing is ever suggested.** Every curve defaults to *as measured*. Whether a resistivity should
+be logged is your call about your own data, and a default log would change every existing run's
+answer without saying so.
+
+**The list is deliberately short.** Each of the four is a transform a petrophysicist already applies
+by hand to these curves. A free-text expression box here would be a second equation engine sitting
+where the real one already lives — and a curve transformed by an arbitrary expression could not be
+re-applied from a saved model with any confidence.
+
+- [ ] **Set log₁₀ on a deep resistivity and run a regression.** Compare the blind score against the
+      same run with everything *as measured*. On the wells I tested log₁₀ actually scored **worse**,
+      which is a real answer about that data — the point is that you can now find out.
+- [ ] **Check the run notes** for how many samples the transform dropped, if any. Zero or negative
+      resistivities are the usual cause.
+- [ ] **Save a model fitted with a transform**, then apply it to other wells. It must use the same
+      transform without being told — you should not have to set anything on the apply.
+- [ ] **The one that matters:** confirm the applied curve is sensible on a well that was not in
+      training. A model that had silently dropped its log would still produce a smooth, plausible
+      curve — which is exactly why this is enforced inside the model file rather than around it.
+- [ ] **Try a transform on a curve, then untick that curve from the inputs and run.** It should
+      refuse and name the curve rather than quietly ignoring the setting.
+- [ ] **Leave everything as measured and run.** The result must be identical to before this existed.

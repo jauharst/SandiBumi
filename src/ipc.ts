@@ -1217,6 +1217,20 @@ export interface MlRequest {
    *  can reorder the features. Never filled in for you: a run whose inputs are not all covered is
    *  refused, because the same curve over two ranges gives two answers and both look right. */
   norm_limits?: CurveLimit[];
+  /** Per-input transforms applied before the fit and **stored inside the saved model**, so applying
+   *  it later cannot use a different one. Matched to features by name and re-ordered into the
+   *  resolved feature order by the backend. Send only the curves actually changed — an omitted
+   *  curve means "as measured", which keeps every payload written before this existed identical. */
+  feature_transforms?: CurveTransform[];
+}
+
+/** One input's transform. `transform` is `none` | `log10` | `ln` | `sqrt`.
+ *
+ *  A short list on purpose: each is one a petrophysicist already applies by hand to these curves,
+ *  and an arbitrary expression could not be re-applied from a saved artifact with any confidence. */
+export interface CurveTransform {
+  curve: string;
+  transform: string;
 }
 
 /** One curve's fixed normalization range. */

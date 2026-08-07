@@ -767,7 +767,10 @@ export async function buildMlContent(
   // The fixed-limits table is per input curve, so it follows the ticks. Delegated on the box rather
   // than bound per checkbox: the list carries every imported log on a real delivery, and one
   // listener that outlives the rows is cheaper than several hundred that do not.
-  featBox.addEventListener("change", () => renderBasisLimits());
+  featBox.addEventListener("change", () => {
+    renderBasisLimits();
+    renderTransforms();
+  });
   sIn.appendChild(
     formRow(
       "Input curves",
@@ -1442,6 +1445,54 @@ export async function buildMlContent(
     }
   }
 
+  // Per-input transforms. Separate from the basis on purpose: a transform changes WHAT is being
+  // modelled (log10 of resistivity is a different variable), while the basis only changes the units
+  // it is measured in. Standardising a lognormal column recentres its skew, it does not remove it.
+  //
+  // Default is none for every curve, and nothing is ever suggested. Whether a resistivity should be
+  // logged is the analyst's call about their own data, and a log applied by default would change
+  // every existing run's answer silently.
+  const featTransforms = new Map<string, string>();
+  const transformTable = document.createElement("div");
+  transformTable.className = "ml-basis-limits ml-transform-table";
+
+  function renderTransforms(): void {
+    const feats = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    transformTable.innerHTML = "";
+    if (feats.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ml-norm-why";
+      empty.textContent = "Tick some input curves first — a transform is per curve.";
+      transformTable.appendChild(empty);
+      return;
+    }
+    for (const name of feats) {
+      const row = document.createElement("div");
+      row.className = "ml-basis-row";
+      const label = document.createElement("span");
+      label.className = "ml-basis-curve";
+      label.textContent = name;
+      row.appendChild(label);
+      const sel = document.createElement("select");
+      sel.className = "form-control ml-transform-pick";
+      for (const [value, text] of [
+        ["none", "as measured"],
+        ["log10", "log₁₀"],
+        ["ln", "ln"],
+        ["sqrt", "√"],
+      ]) {
+        const o = document.createElement("option");
+        o.value = value;
+        o.textContent = text;
+        sel.appendChild(o);
+      }
+      sel.value = featTransforms.get(name) ?? "none";
+      sel.addEventListener("change", () => featTransforms.set(name, sel.value));
+      row.appendChild(sel);
+      transformTable.appendChild(row);
+    }
+  }
+
   for (const [id, label] of [
     ["data", "From the data"],
     ["limits", "Fixed limits"],
@@ -1463,7 +1514,20 @@ export async function buildMlContent(
   }
   const basisWhy = document.createElement("div");
   basisWhy.className = "ml-norm-why";
-  normWrap.append(normLab, normWhy, basisSeg, basisWhy, basisTable);
+  // Sits below the basis and OUTSIDE its show/hide, because a transform applies whether or not the
+  // inputs are standardised — it is a statement about the variable, not about its units.
+  const tfLab = document.createElement("div");
+  tfLab.className = "field-label";
+  tfLab.textContent = "Input transform";
+  const tfWhy = document.createElement("div");
+  tfWhy.className = "ml-norm-why";
+  tfWhy.textContent =
+    "Applied before the fit and stored inside the saved model, so applying it later cannot use a " +
+    "different one. Resistivity and permeability span decades — a fit on the raw column is carried " +
+    "by its largest few values, and standardising does not change that. A value the transform " +
+    "cannot represent (a zero under a log) becomes missing rather than being nudged to fit.";
+  normWrap.append(normLab, normWhy, basisSeg, basisWhy, basisTable, tfLab, tfWhy, transformTable);
+  renderTransforms();
 
   /** Says what standardizing would do FOR THE CHOSEN ALGORITHM, which is the only form of the
    *  question with an answer. Mirrors the Model section's state in both directions. */
@@ -2197,6 +2261,12 @@ export async function buildMlContent(
               return { curve, low: Number(l.lo), high: Number(l.hi) };
             })
           : [],
+      // Only the curves the user actually changed. An untouched curve sends nothing, so a payload
+      // written before this existed and one where everything is "as measured" are the same request —
+      // and the backend's default stays the single place "no transform" is defined.
+      feature_transforms: features
+        .filter((curve) => (featTransforms.get(curve) ?? "none") !== "none")
+        .map((curve) => ({ curve, transform: featTransforms.get(curve) as string })),
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";

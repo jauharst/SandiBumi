@@ -4983,6 +4983,11 @@ textarea {
   gap: 8px;
   flex-wrap: wrap;
 }
+/* The transform picker reuses the fixed-limits row so the two per-curve controls line up, but it
+   carries one select where the other carries two number boxes. */
+.ml-transform-pick {
+  min-width: 140px;
+}
 /* A candidate whose optimiser gave up. It keeps its row — the fit produced something, and the score
    is real — but it must not read as an ordinary poor result, which is exactly what it looks like. */
 .ml-leaderboard tr.ml-lb-unconverged td,

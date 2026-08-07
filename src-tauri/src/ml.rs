@@ -827,6 +827,43 @@ groups = take(n_train).astype(np.int64) if has_groups else None
 blind = take(n_train) > 0.5 if has_blind else None
 fit_rows = ~blind if blind is not None else None
 
+# Per-feature transforms, applied BEFORE anything else touches the matrix - before the
+# standardisation basis, before the split, before the fit. A model fitted on log10(RT) is a
+# different model from one fitted on RT, and every number downstream has to describe the same one.
+#
+# A value the transform cannot represent (a zero or negative resistivity under a log) becomes
+# MISSING, never nudged by an epsilon nobody chose and never clamped. Those are already invalid
+# measurements, and inventing a floor for them would put a fabricated value into the fit. The count
+# is reported, because silently losing rows is how a training set shrinks without anyone noticing.
+TRANSFORMS = list(header.get("feature_transforms") or [])
+
+def apply_transform(M, kind, j):
+    if kind in ("", "none"):
+        return 0
+    col = M[:, j]
+    finite_before = int(np.sum(np.isfinite(col)))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        if kind == "log10":
+            col = np.where(col > 0, np.log10(np.where(col > 0, col, 1.0)), np.nan)
+        elif kind == "ln":
+            col = np.where(col > 0, np.log(np.where(col > 0, col, 1.0)), np.nan)
+        elif kind == "sqrt":
+            col = np.where(col >= 0, np.sqrt(np.where(col >= 0, col, 0.0)), np.nan)
+        else:
+            fail("unknown feature transform '" + str(kind) + "'")
+    M[:, j] = col
+    return finite_before - int(np.sum(np.isfinite(col)))
+
+transform_losses = {}
+if TRANSFORMS:
+    if len(TRANSFORMS) != d:
+        fail("got " + str(len(TRANSFORMS)) + " feature transform(s) for " + str(d) + " input curve(s)")
+    for j, kind in enumerate(TRANSFORMS):
+        lost = apply_transform(X, kind, j) + apply_transform(A, kind, j)
+        if lost:
+            nm = str(feature_names[j]) if j < len(feature_names) else ("x%d" % j)
+            transform_losses[nm] = {"transform": kind, "dropped": int(lost)}
+
 try:
     import sklearn  # noqa: F401
 except ImportError:
@@ -1469,14 +1506,27 @@ if save_model and supervised:
     try:
         import io as _io, joblib, sklearn as _sk
         buf = _io.BytesIO()
+        # `transforms` rides in the SAME dump as the scaler and for the same reason. A model fitted
+        # on log10(RT) fed raw RT predicts confident nonsense that nothing downstream can catch -
+        # the scaler would absorb none of it, and the numbers stay in range and look plausible.
+        # Storing it outside the artifact would let the two drift; storing it inside makes the
+        # artifact self-describing, which is what the ordered-feature contract already relies on.
         joblib.dump({"scaler": scaler, "model": model, "features": feature_names,
-                     "task": task, "algorithm": algo}, buf, compress=3)
+                     "transforms": list(TRANSFORMS), "task": task, "algorithm": algo},
+                    buf, compress=3)
         model_blob = buf.getvalue()
         sklearn_version = _sk.__version__
     except Exception as e:
         # Never lose the RUN because the artifact could not be saved - the curves are already
         # computed. Report it and let the caller say so.
         metrics["model_save_error"] = str(e)
+
+if TRANSFORMS and any(t not in ("", "none") for t in TRANSFORMS):
+    metrics["feature_transforms"] = list(TRANSFORMS)
+if transform_losses:
+    # Rows a transform could not represent. Reported per curve, because "40 zero resistivities"
+    # and "half the porosity column" are different problems with the same total.
+    metrics["transform_dropped"] = transform_losses
 
 # The optimiser gave up rather than finished. Carried as DATA rather than folded into a prose note,
 # so a renderer cannot print the score without being able to find the qualification - the same rule
@@ -1544,6 +1594,34 @@ if have and len(have) != d:
 scaler = bundle.get("scaler")
 model = bundle["model"]
 task = bundle.get("task", "regression")
+
+# The transform contract, checked and applied INSIDE the artifact - the same discipline as the
+# feature order above, for the same reason. A model fitted on log10(RT) fed raw RT returns
+# plausible, in-range, confidently wrong numbers: the scaler absorbs none of it and nothing
+# downstream can catch it. So the transform comes from the MODEL, never from the caller, and a
+# caller that states a different one is refused rather than quietly overridden.
+tf = list(bundle.get("transforms") or [])
+want_tf = list(header.get("feature_transforms") or [])
+if want_tf and tf and want_tf != tf:
+    fail("this model was fitted on " + ", ".join(t or "none" for t in tf)
+         + " - refusing to apply it under " + ", ".join(t or "none" for t in want_tf))
+if tf:
+    if len(tf) != d:
+        fail("this model carries " + str(len(tf)) + " transform(s) for " + str(d) + " input curve(s)")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        for j, kind in enumerate(tf):
+            if kind in ("", "none"):
+                continue
+            col = A[:, j]
+            if kind == "log10":
+                A[:, j] = np.where(col > 0, np.log10(np.where(col > 0, col, 1.0)), np.nan)
+            elif kind == "ln":
+                A[:, j] = np.where(col > 0, np.log(np.where(col > 0, col, 1.0)), np.nan)
+            elif kind == "sqrt":
+                A[:, j] = np.where(col >= 0, np.sqrt(np.where(col >= 0, col, 0.0)), np.nan)
+            else:
+                fail("this model carries an unknown feature transform '" + str(kind) + "'")
+
 As = scaler.transform(A) if scaler is not None else A
 
 outs = [("", model.predict(As).astype(np.float32))]
@@ -1700,6 +1778,10 @@ pub struct MlRequest {
     /// and both look right. A `"limits"` run whose features are not all covered is REFUSED.
     #[serde(default)]
     pub norm_limits: Vec<CurveLimit>,
+    /// Per-input transforms applied before the fit, and baked into the saved model so an apply
+    /// cannot use a different one. `#[serde(default)]`, so every older payload still runs.
+    #[serde(default)]
+    pub feature_transforms: Vec<CurveTransform>,
 }
 
 /// One curve's fixed normalisation range (`SB-MLA-033`).
@@ -1708,6 +1790,64 @@ pub struct CurveLimit {
     pub curve: String,
     pub low: f64,
     pub high: f64,
+}
+
+/// A per-input transform, applied before the model ever sees the column.
+///
+/// Resistivity and permeability span decades; a fit on the raw column is dominated by the few
+/// largest values, and standardising a lognormal variable does not fix its skew — it only recentres
+/// it. Both incumbents let an input be logged before a fit, and SandiBumi could not.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CurveTransform {
+    pub curve: String,
+    /// `none` | `log10` | `ln` | `sqrt`.
+    pub transform: String,
+}
+
+/// The transforms this product knows, in the order a picker should offer them.
+///
+/// A deliberately short list. Each one is a transform a petrophysicist already applies by hand to
+/// these curves; a general expression box here would be a second equation engine sitting where the
+/// first one (`python_engine.rs`) already belongs, and a curve transformed by an arbitrary
+/// expression could not be re-applied from the artifact with any confidence.
+pub const FEATURE_TRANSFORMS: [&str; 4] = ["none", "log10", "ln", "sqrt"];
+
+/// Resolves declared transforms against the resolved feature ORDER, or refuses.
+///
+/// Refuses rather than substitutes, for the reason the whole feature exists: a transform silently
+/// dropped back to `none` produces a model fitted on a different column from the one the user
+/// asked for, and every number it goes on to produce is in range and plausible.
+pub(crate) fn resolve_feature_transforms(
+    declared: &[CurveTransform],
+    features: &[String],
+) -> Result<Vec<String>, String> {
+    let mut out = vec!["none".to_string(); features.len()];
+    for d in declared {
+        let kind = d.transform.trim().to_lowercase();
+        let kind = if kind.is_empty() { "none".to_string() } else { kind };
+        if !FEATURE_TRANSFORMS.contains(&kind.as_str()) {
+            return Err(format!(
+                "'{}' is not a transform this product knows for {}. Pick one of: {}",
+                d.transform,
+                d.curve,
+                FEATURE_TRANSFORMS.join(", ")
+            ));
+        }
+        // Named, then resolved to position — the `resolve_norm_basis` discipline. A caller that
+        // supplies a curve this run is not using has made a mistake worth naming, not one to skip:
+        // it usually means the feature list changed and the transform list did not.
+        match features.iter().position(|f| f.eq_ignore_ascii_case(d.curve.trim())) {
+            Some(i) => out[i] = kind,
+            None => {
+                return Err(format!(
+                    "a transform was set for {}, which is not one of this run's input curves ({})",
+                    d.curve,
+                    features.join(", ")
+                ))
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// The declared normalisation bases. A string on the wire, an enum here, so an unrecognised value
@@ -2922,8 +3062,21 @@ fn run_ml_coverage(
         // segment is a separate model over a different subset, so it takes the limits for the
         // curves it actually uses — a basis carrying a column the model never sees would put the
         // pairs out of step with the matrix.
+        // Transforms are resolved against THIS segment's features too, and for the same reason the
+        // basis is: a segment is a separate model over a different subset of curves.
         let run = match resolve_norm_basis(req.norm_basis.as_deref(), &req.norm_limits, &sub)
             .and_then(|norm| {
+                // Filtered to this segment's own curves BEFORE resolving. A segment exists
+                // precisely because some curves are absent from it, so a transform declared for one
+                // it does not carry is not the caller's mistake here — unlike on the ordinary path,
+                // where it means the feature list changed and the transform list did not.
+                let sub_tf: Vec<CurveTransform> = req
+                    .feature_transforms
+                    .iter()
+                    .filter(|t| sub.iter().any(|f| f.eq_ignore_ascii_case(t.curve.trim())))
+                    .cloned()
+                    .collect();
+                let tf = resolve_feature_transforms(&sub_tf, &sub)?;
                 exec_ml_full(
                     &python,
                     &req.task,
@@ -2935,6 +3088,7 @@ fn run_ml_coverage(
                     &x_apply,
                     n_apply,
                     &sub,
+                    &tf,
                     save_features,
                     Some(&groups),
                     &blind_mask,
@@ -4000,6 +4154,12 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         Ok(n) => n,
         Err(e) => return fail(&e),
     };
+    // Same point in the run and the same reasoning: a transform naming a curve this run does not
+    // use costs a message rather than a model fitted on a column nobody asked for.
+    let transforms = match resolve_feature_transforms(&req.feature_transforms, &features) {
+        Ok(t) => t,
+        Err(e) => return fail(&e),
+    };
     match exec_ml_full(
         &python,
         &req.task,
@@ -4011,6 +4171,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         &x_apply,
         n_apply,
         &features,
+        &transforms,
         save_features,
         if supervised { Some(groups.as_slice()) } else { None },
         &blind_mask,
@@ -4861,8 +5022,8 @@ pub(crate) fn exec_ml(
     n_apply: usize,
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>), String> {
     exec_ml_full(
-        python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, &[], None, None,
-        &[], &NormBasis::Data,
+        python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, &[], &[], None,
+        None, &[], &NormBasis::Data,
     )
     .map(|r| (r.metrics, r.outs))
 }
@@ -5049,6 +5210,10 @@ pub(crate) fn exec_ml_full(
     // when a model is being kept — the runner is told the names only in that case, which is why
     // the balance table used to read `x0`, `x1`, `x2`. This one is always known.
     feature_names: &[String],
+    // One entry per feature, already resolved to feature order by `resolve_feature_transforms`, so
+    // the runner receives positions and never has to match a curve name — the same discipline the
+    // ordered-feature contract and the fixed-basis limits follow, for the same reason.
+    feature_transforms: &[String],
     save_features: Option<&[String]>,
     // `groups` is one well index per training row. Without it the runner has no way to hold out a
     // WELL, and every validation number it reports is a random-sample fold — see `cv_score`.
@@ -5082,6 +5247,7 @@ pub(crate) fn exec_ml_full(
         "has_blind": !blind_mask.is_empty(),
         "norm_basis": norm_basis,
         "norm_limits": norm_limits,
+        "feature_transforms": feature_transforms,
     });
 
     let script = ScriptFile::new("fit", &ml_runner())
@@ -6149,6 +6315,7 @@ mod tests {
             interval: DepthWindow::default(),
             norm_basis: None,
             norm_limits: vec![],
+            feature_transforms: vec![],
         }
     }
 
@@ -9175,6 +9342,73 @@ mod tests {
         let ev = metrics["explained_variance_pct"].as_array().unwrap();
         let total: f64 = ev.iter().map(|v| v.as_f64().unwrap()).sum();
         assert!(total > 99.0, "explained variance = {total}%");
+    }
+
+    /// A transform is declared by NAME and resolved to the feature ORDER, and both ways of getting
+    /// it wrong are refused rather than completed.
+    ///
+    /// Silently dropping an unrecognised transform to `none` would fit the model on a different
+    /// column from the one asked for, and every number it produced would be in range and plausible.
+    /// Silently skipping a transform whose curve is not in the run is the same failure arriving by
+    /// the other route — it usually means the feature list was edited and the transform list was
+    /// not, so the model quietly loses the log the user set.
+    #[test]
+    fn a_feature_transform_is_placed_by_name_and_refused_rather_than_dropped() {
+        let feats = vec!["GR".to_string(), "RT".to_string(), "NPHI".to_string()];
+        let tf = |c: &str, t: &str| CurveTransform { curve: c.into(), transform: t.into() };
+
+        // Supplied out of order, and resolved to the FEATURE order rather than the supplied one.
+        let ok = resolve_feature_transforms(&[tf("NPHI", "sqrt"), tf("RT", "LOG10")], &feats).unwrap();
+        assert_eq!(ok, vec!["none", "log10", "sqrt"], "placed by name, and case-folded");
+
+        // Nothing declared is every column untouched — not an error, and not a guess.
+        assert_eq!(resolve_feature_transforms(&[], &feats).unwrap(), vec!["none", "none", "none"]);
+
+        let unknown = resolve_feature_transforms(&[tf("RT", "logistic")], &feats).unwrap_err();
+        assert!(
+            unknown.contains("logistic") && unknown.contains("log10"),
+            "an unknown transform is named, with the ones that exist: {unknown}",
+        );
+
+        let absent = resolve_feature_transforms(&[tf("PEF", "log10")], &feats).unwrap_err();
+        assert!(
+            absent.contains("PEF"),
+            "a transform for a curve this run does not use is named, not skipped: {absent}",
+        );
+    }
+
+    /// The transform has to travel INSIDE the artifact, exactly as the feature order does.
+    ///
+    /// A model fitted on log10(RT) and fed raw RT returns numbers that are in range, confident and
+    /// wrong — the scaler absorbs none of it, and nothing downstream can catch it. So the apply
+    /// runner takes the transform from the MODEL, and refuses a caller that states a different one.
+    ///
+    /// Pinned on the runner source rather than on a fitted artifact, because the alternative needs
+    /// scikit-learn and would make the guard's own test skippable on a machine without it — the one
+    /// contract that must never be optional.
+    #[test]
+    fn the_apply_runner_takes_the_transform_from_the_model_and_refuses_a_different_one() {
+        let src = ML_APPLY_RUNNER;
+        assert!(
+            src.contains(r#"tf = list(bundle.get("transforms") or [])"#),
+            "the transform is read from the artifact",
+        );
+        let refusal = src.find("refusing to apply it under").expect("a refusal by name");
+        let read = src.find(r#"bundle.get("transforms")"#).expect("the read");
+        assert!(read < refusal, "it is read from the model BEFORE the caller is checked against it");
+        // ...and it is APPLIED, not merely compared. A guard that checked and then predicted on the
+        // untransformed matrix would pass every assertion above and be the bug itself.
+        let applied = src.find("for j, kind in enumerate(tf):").expect("the transform is applied");
+        let scaled = src.find("As = scaler.transform(A)").expect("the scaler");
+        assert!(
+            refusal < applied && applied < scaled,
+            "order must be: refuse a mismatch, apply the model's own transform, then standardise",
+        );
+        // The training runner must bake it in, or there is nothing for the above to read.
+        assert!(
+            ml_runner().contains(r#""transforms": list(TRANSFORMS)"#),
+            "the fitted artifact carries the transform it was fitted under",
+        );
     }
 
     /// "Set" names two different stores, and choosing the wrong one is silent: the run reads the
