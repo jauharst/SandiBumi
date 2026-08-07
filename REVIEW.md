@@ -9413,3 +9413,84 @@ than leaving you to count.
       read as yours, everything else as a default.
 - [ ] **Read the note about the algorithms that cannot be co-run.** Does the reason match what you
       expected when you counted seven?
+
+## Panes that fill the space they are given (2026-08-07)
+
+Your point about resizing. These panes were pinned to a 620px column — the right width for a
+one-shot fit form, and wrong for a pane carrying tables, a confusion matrix and a leaderboard. In a
+wide window the card simply ended and the dock showed past it. **ML, Facies tie-in, Monte Carlo,
+Lorenz and HFU now fill their pane.** Thomeer and saturation-height deliberately do not: they really
+are a column of fields, and widening them would only stretch the fields.
+
+**Filling is not stretching**, which is the part worth checking. Lifting the cap on its own gave a
+1210px-wide Output curve box — worse than the gap it filled. So single-line controls keep the width
+they always had, and where the pane is wide enough the **ML form gains a second column** instead.
+That is measured against the pane, not the window, so a narrow ML pane in a wide window stays one
+column, which is the normal case in a docked workspace.
+
+- [ ] **Open ML Models and drag its splitter wider.** The card should grow with the pane, not stop
+      at a fixed column with grey to the right of it.
+- [ ] **Keep widening.** Around the point where two readable columns fit, the form should go to two
+      columns and get shorter — you should see more of it without scrolling.
+- [ ] **Check nothing looks stretched.** The Algorithm picker and the Output curve box should stay a
+      sensible width; the notes, the co-run chips, the tables and the charts are the things that
+      should be using the extra room.
+- [ ] **Narrow it back down.** It should return to one column cleanly, with no clipped controls.
+- [ ] **Maximise the window with ML docked beside the Wells pane.** The ML pane can be narrow in a
+      wide window — it should stay one column there, not split because the *window* is wide.
+- [ ] **Same widening check on Facies tie-in, Monte Carlo, Lorenz and HFU.** Tables and plots should
+      use the width.
+
+## Facies tie-in: two percentages, and a threshold that is yours (2026-08-07)
+
+**A purity and a recognition rate are different numbers.** The tie-in reported one percentage per
+reference class — of the samples core calls RT2, how many the model found — and called it purity.
+Geolog reports the *other* axis for the same table and calls it a recognition rate. They disagree
+whenever the classes are imbalanced: a small rock type can be perfectly found (100% by row) while
+the label the model gives it is mostly something else (18% by column). Both are true of the same
+cell, and a bare "72%" in a report says nothing about which was meant.
+
+You now get both, as two tables titled by the question each answers, and the confusion matrix has a
+**Counts / % of reference / % of predicted** control with the denominator stated under it.
+
+**The acceptance threshold ships empty and stays empty.** The method note says to accept the mapping
+when dominant-class purity is above a threshold and names no value; nothing SandiBumi holds names
+one either. So there is no default. Leave it blank and you get the purity with no verdict and a line
+saying the bar is yours to set for this field. Fill it in and the verdict is recorded together with
+the number it was judged against.
+
+**Core plugs that landed nowhere are counted.** Plugs are matched to the nearest log sample within a
+metre and dropped when there is none. That rule, and how many plugs it dropped, now print with the
+result — a k variance reduction over nine of ninety plugs used to look identical to one over ninety.
+
+- [ ] **Run a tie-in on a well where one rock type is much rarer than the others.** Do the two
+      tables disagree for that class? They should — that disagreement is the point.
+- [ ] **Switch the matrix between Counts, % of reference and % of predicted.** Does the caption under
+      it always tell you what the numbers are divided by?
+- [ ] **Run with the threshold empty.** No verdict, and a line saying why.
+- [ ] **Set it to something you would actually accept and re-run.** Verdict appears; check the
+      Processing history records the threshold as well as the purity.
+- [ ] **Type 90 instead of 0.9 — or rather, check the field is in percent.** It should refuse
+      anything that is not a purity, rather than reading it as "never accept".
+- [ ] **Run on a well whose core extends below the logged interval.** Does it say how many plugs
+      found no sample in range?
+
+## ML: a curve on the wrong depth grid now says so (2026-08-07)
+
+The one that would have cost you a day. Inputs are joined to the run frame by **exact depth
+equality** — nothing is interpolated, snapped or gap-filled. So a curve delivered on 0.1524 m, used
+in a run whose frame is 0.5 m, coincides at no depth at all: it is fully logged, fully stored, and
+reads as absent. Every count the run reported treated it exactly like a curve the well never had,
+and the message said "missing input curve" — which sends you hunting for a log that is sitting
+right there.
+
+The run notes now tell the two apart, and name Reframe as the fix. This reads the same measurement
+the **Data QC** section already shows per curve, so the note and the panel cannot disagree.
+
+- [ ] **Fit a model using a curve that came in on a different sampling from the well's frame** (an
+      old run, a re-framed set, a vendor delivery at 0.1524). The notes should name that curve, say
+      it exists but landed nowhere, quote both spacings and point at Reframe.
+- [ ] **Now try one the well genuinely does not have.** That must still read as a *missing* curve —
+      different problem, different fix.
+- [ ] **Run an ordinary fit where everything shares the frame.** No framing note at all. If it fires
+      on every run it stops being read.

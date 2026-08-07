@@ -598,6 +598,51 @@ the same method is implemented on both sides of it without anything asserting th
 | ML provenance into the deliverable | `ABSENT` | `report.rs` holds no ML reference at all |
 | ML provenance into export | `ABSENT` | `export.rs` holds no module/provenance reference |
 
+### 3.1b Disposition of the 15 still open (2026-08-07)
+
+Counted from the headings, not estimated: **50 `PRESENT-OK`, 1 `PRESENT-DIVERGENT`, 2 `PARTIAL`,
+12 `ABSENT`** of 65. This subsection says what the remaining fifteen actually are, because "ABSENT"
+covers three very different situations and treating them as one backlog would put seven items on a
+list that can never be worked.
+
+**Seven cannot be built, and that is the final answer, not a deferral.** SB-MLA-037, -038, -039 and
+-040 (fuzzy combination, equal-population binning, the uncertainty band's edge behaviour, the
+bin-count weighting) rest on evidence items **E-3** and **E-4**; SB-MLA-041 and -042 (SOM decay
+parameterisation, map distortion) on **E-1**, the Kohonen decay constant; SB-MLA-049 (the MRGC
+weight function) on **E-2**. In every case the corpus states that a method has a parameter and does
+not state the parameter, so implementing the requirement would mean SandiBumi **inventing a method
+definition and shipping it under a published method's name** — which is the exact failure
+`SB-CORE-004` exists to prevent, and worse here than elsewhere because a fuzzy curve or a SOM map
+computed from an invented constant looks entirely plausible. They stay `ABSENT` until the evidence
+arrives. If it never arrives, `ABSENT` is correct forever.
+
+**One is blocked by a channel, not by knowledge.** SB-MLA-045 (restart spread as a convergence
+diagnostic) is already computed — `facies.rs` runs `KMEANS_RESTARTS` and keeps only the best inertia,
+discarding seven perfectly good numbers. It cannot be *reported* because a module returns
+`ModuleOutputs = HashMap<String, Vec<f32>>` and nothing else: there is no scalar or notes channel, and
+a single run-level number emitted as a constant curve would be unreadable in a log view and
+meaningless in a composite. The honest options are a scalar channel through the module framework
+(~40 call sites) or implementing it only on the ML path, which has `MlResult.notes`. Neither is a
+knowledge gap; both are scope.
+
+**Three are real work, ranked.** SB-MLA-033 (a fixed normalisation basis stored with the model, so
+adding a well does not silently rescale the feature space and move every existing cluster boundary)
+is the highest-value item left in this chapter and the one place the dossier says a vendor has an
+answer the others lack — it is the recommended next increment. SB-MLA-050 (leave-one-out feature
+scoring must exclude the held-out frame) is a contained correctness fix. SB-MLA-031 (shipped vendor
+defaults surfaced at the point of choice) needs care rather than effort: SandiBumi cannot publish a
+competitor's defaults, so what it can surface is *that a default came from somewhere* and what that
+somewhere was, which is a narrower requirement than the one written.
+
+**Four are judgement calls awaiting Jauhar.** SB-MLA-025 (`PRESENT-DIVERGENT`) wants one
+within-cluster-sum-of-squares partition declared across three applications; the code has two
+implementations that agree numerically, so closing it is a naming decision. SB-MLA-029 (`PARTIAL`)
+needs a facies mnemonic that names its engine, which is a **breaking rename** of curves already
+sitting in delivered projects. SB-MLA-065 (`PARTIAL`) is bounded and cancellable already; what is
+missing is the honest reporting half at portfolio scale. SB-MLA-059 (`ABSENT`) asks whether a
+Tier-C need is better served by an independently derived feature, which is a product question and
+not an implementation one.
+
 ### 3.2 What is genuinely strong, and worth protecting
 
 Four things in this tree are better than what the dossier finds in any incumbent, and the
@@ -2303,7 +2348,7 @@ population it is measured over changed.
 
 **Verified by.** SB-MLA-T49
 
-#### SB-MLA-051 — A contingency table carries both normalisations, each labelled with its axis          [P1] [status: PARTIAL]
+#### SB-MLA-051 — A contingency table carries both normalisations, each labelled with its axis          [P1] [status: PRESENT-OK]
 
 **Requirement.** A contingency or confusion tabulation MUST emit raw counts, row-normalised
 percentages and column-normalised percentages, each cell labelled with the axis it was normalised
@@ -2317,14 +2362,23 @@ holding 10 % of samples mapped onto a model class holding 60 % reads as a high r
 one axis and a low one on the other. This looks like a display requirement and is not — the
 ambiguity is in the number.
 
-**As-built.** `PARTIAL` — `facies_tie.rs:100`–`:141` builds the raw count matrix correctly with
-sorted label axes, and reports per-reference-class dominant purity (`facies_tie.rs:121`–`:126`),
-which is a **row-wise** fraction. The column-wise recognition rate is absent and the axis is not
-named in the payload.
+**As-built.** ~~`PARTIAL`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: the raw count matrix was
+built correctly with sorted label axes and reported per-reference-class dominant purity — a
+**row-wise** fraction — with the column-wise recognition rate absent and no axis named anywhere in
+the payload. Now `build_confusion` emits `row_pct` and `col_pct` alongside `matrix`, plus `per_pred`
+(the column-wise twin of `per_ref`), and the two axis sentences ride in the result as `row_axis` /
+`col_axis` rather than living in a comment. The dialog shows the two summaries as separate tables
+titled by the question each answers — "does the model FIND this rock?" against "can this LABEL be
+trusted?" — and the matrix carries a Counts / % of reference / % of predicted control whose caption
+always states the denominator in view. Pinned by
+`a_confusion_cell_carries_both_normalisations_and_names_which_axis_each_divides_by`, which builds the
+imbalanced case deliberately (a small reference class perfectly found, whose predicted label is only
+18 % that class): an implementation emitting one matrix under two names fails the divergence
+assertion, and one that swapped them fails the row-and-column sum checks.
 
 **Verified by.** SB-MLA-T50
 
-#### SB-MLA-052 — The tie-in acceptance threshold ships absent and visible          [P2] [status: PARTIAL]
+#### SB-MLA-052 — The tie-in acceptance threshold ships absent and visible          [P2] [status: PRESENT-OK]
 
 **Requirement.** The dominant-class purity above which a facies mapping is accepted MUST ship with
 no default, MUST be presented as a required user decision, and the chosen value MUST be recorded
@@ -2336,9 +2390,20 @@ source in the corpus states one either. Shipping absent is correct — but an ab
 implicit is indistinguishable from an oversight, and the user needs to see that the choice is
 theirs.
 
-**As-built.** `PARTIAL` — `facies_tie.rs` computes `overall_purity` (`facies_tie.rs:128`) and
-returns it with no threshold, which is the right behaviour; there is no parameter, no prompt and no
-record of a decision.
+**As-built.** ~~`PARTIAL`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: `overall_purity` was
+computed and returned with no threshold — the right behaviour — but with no parameter, no prompt and
+no record of a decision, so the absence was implicit and indistinguishable from an oversight.
+`FaciesConfusionRequest::accept_threshold` is now `Option<f64>`, `#[serde(default)]`, **with no
+default value anywhere in the stack**: the dialog's "Accept above (%)" field ships empty with the
+placeholder `not set` and the caption "Your call, not the app's: no published source states a purity
+threshold for this method." An empty box is not sent, so "the user did not choose" reaches the
+backend as absence rather than as a zero that accepts everything. When stated, the value is echoed
+back in `accept_threshold`, the verdict in `accepted`, and both go into the process record so a
+stored judgement can be read back against the bar it was measured on; when not, `accept_note` says
+the bar is the user's to set and names why. Pinned by
+`a_mapping_is_never_judged_against_a_threshold_sandibumi_chose`, from both sides — no threshold
+yields no verdict, a stated one is honoured and recorded, and a purity typed as `90` rather than
+`0.9` is refused instead of read as "never accept".
 
 **Verified by.** SB-MLA-T51
 
@@ -2359,7 +2424,7 @@ reading, not adjudicated. The requirement is therefore a naming rule rather than
 
 **Verified by.** SB-MLA-T52
 
-#### SB-MLA-054 — The depth-resampling decision is logged for every ML input          [P1] [status: ABSENT]
+#### SB-MLA-054 — The depth-resampling decision is logged for every ML input          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where an ML input is resampled, interpolated or depth-snapped to reach a common
 frame, the decision MUST be recorded per curve — the source sampling, the target frame, the method
@@ -2370,11 +2435,35 @@ aperiodic **point** data and the permeability curve must control sampling, while
 aperiodic **tops** data (T3). An ML training frame is by construction a join across curves of
 different sampling, so this is not an edge case in this domain — it is every run.
 
-**As-built.** `ABSENT` — the frame fetch (`fetch_curve_frame_from_set`, used at `ml.rs:1342` and
-`facies_tie.rs:184`) resolves curves onto a common frame and records nothing about how.
-`facies_tie.rs:144`–`:162` is the exception that shows the pattern: `CORE_MATCH_TOL_M = 1.0`
-matches a core plug to the nearest log sample within a stated tolerance, which is a good rule that
-is not reported in the result.
+**As-built.** ~~`ABSENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** The requirement's framing turned
+out to be generous to the code: **nothing is resampled at all.** Every read here aligns by EXACT
+depth equality — `equations::fetch_generic_curve_aligned` and `fetch_computed_curves_batch` both key
+a `HashMap` on `f32::to_bits` — so there is no interpolation, no snapping and no tolerance to record.
+The decision that needed recording was therefore the opposite one: a curve stored on a different
+grid contributes **nothing**, and in every count the run reports that is indistinguishable from a
+curve the well never had. The two call for opposite responses — go and log this well, versus the log
+is right there, reconcile the sampling — and the second reported itself as the first.
+
+Three parts now cover it. `equations::curve_sampling` measures each curve's own sampling (`n_own`,
+median `step`, `top`/`base`, `imported`) against a frame and returns `n_on_frame`; it is a Tauri
+command and the ML pane's **Data QC** section shows it per curve. `ml::frame_notes` puts the same
+answer in the **run's own notes**, reading that same helper so the note and the panel cannot
+disagree, stating the exact-depth rule once and then naming any curve that exists on a well but
+landed nowhere, with both spacings quoted and Reframe named as the fix. And `facies_tie` reports its
+own join — nearest log sample within `CORE_MATCH_TOL_M`, plugs outside it dropped — together with
+`n_core_unmatched`, so a variance reduction over nine of ninety plugs can no longer read as one over
+ninety.
+
+**The trigger is "contributed nothing", deliberately, and not a coverage fraction.** Zero is the one
+unambiguous case and the only one that masquerades as a missing curve; warning on partial overlap
+would need a threshold ("fewer than a fifth landed") that no source states, which would make
+SandiBumi's invention the thing deciding when a run looks wrong (`SB-CORE-004`). Partial coverage is
+already visible in the sample counts the run reports. Pinned by
+`a_curve_on_a_different_depth_grid_is_named_as_such_and_never_as_a_missing_curve`, from both sides —
+the off-grid curve is named with both spacings, while an absent curve and a curve that did land both
+stay silent, so the note means something when it fires. Its fixture is offset by an odd multiple of
+0.0625 so non-coincidence is provable in binary floating point rather than lucky: a "realistic"
+0.1524 rounds in `f32` such that one sample lands on the frame by accident.
 
 **Verified by.** SB-MLA-T54
 
