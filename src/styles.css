@@ -5150,6 +5150,17 @@ textarea {
 .ml-res-step input {
   width: 88px;
 }
+
+/* Export buttons under a chart rather than in a panel toolbar: these charts live inside a scrolling
+   Results section with several of them stacked, so a single toolbar at the top would be ambiguous
+   about which chart it acts on. Right-aligned and quiet, so they read as an afterthought to the
+   figure rather than as part of it. */
+.ml-chart-export {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
 .ml-qc-item {
   margin: 6px 0;
   padding: 6px 10px;

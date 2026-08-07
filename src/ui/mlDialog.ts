@@ -22,12 +22,13 @@ import {
   type SplitBalance,
   type WellSummary,
 } from "../ipc";
-import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup, setStatus } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
 import { FACIES_PALETTE } from "./plotCanvas";
 import { formRow } from "./modal";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
+import { buildImageExportButtons } from "./plotExport";
 
 /** Machine-learning dialog (Phase 10-4): one entry point for the whole catalog —
  *  supervised regression/classification (fit on labelled train wells, predict on apply
@@ -178,6 +179,13 @@ interface AlgoSpec {
   params: ParamSpec[];
   /** reduction only: overrides the task's default output base name. */
   out?: string;
+  /** Entries sharing a family across BOTH supervised tasks are ONE entry in the picker, under
+   *  Universal. Random Forest is `rf` in both; Support Vector is `svr` fitting a value and `svm`
+   *  fitting a class — different estimators, one idea, and listing them as two algorithms claimed a
+   *  choice the user does not actually have to make until they know what they are predicting. */
+  family?: string;
+  /** The name the family goes under when it is listed once. Set on the regression side. */
+  familyLabel?: string;
 }
 
 interface TaskSpec {
@@ -214,13 +222,13 @@ const TASKS: TaskSpec[] = [
     supervised: true,
     defaultOut: "ML_PRED",
     algos: [
-      { id: "rf", label: "Random Forest Regressor",
+      { id: "rf", label: "Random Forest Regressor", family: "rf", familyLabel: "Random Forest",
         desc: "Ensemble of averaged decision trees — non-linear and resistant to overfitting.",
         params: [num("n_estimators", "trees", 200), num("max_depth", "max depth (0 = none)", 0)] },
       { id: "gbdt", label: "Gradient Boosting (XGBoost)",
         desc: "Sequential trees minimizing error — highest accuracy in complex settings. Falls back to sklearn boosting if xgboost isn't installed.",
         params: [num("n_estimators", "trees", 300), num("learning_rate", "learning rate", 0.1), num("max_depth", "max depth", 4)] },
-      { id: "svr", label: "Support Vector Regression",
+      { id: "svr", label: "Support Vector Regression", family: "svec", familyLabel: "Support Vector",
         desc: "Margin-of-tolerance hyperplane — performs well on smaller, localized datasets.",
         params: [num("C", "C", 10), num("epsilon", "epsilon", 0.1)] },
       { id: "ann", label: "Neural Network (MLP)",
@@ -238,13 +246,13 @@ const TASKS: TaskSpec[] = [
     supervised: true,
     defaultOut: "ML_CLASS",
     algos: [
-      { id: "svm", label: "Support Vector Machine",
+      { id: "svm", label: "Support Vector Machine", family: "svec",
         desc: "Non-linear separator for distinct rock types via high-dimensional mapping.",
         params: [num("C", "C", 10)] },
       { id: "knn", label: "K-Nearest Neighbors",
         desc: "Labels each sample by the most common class among its nearest neighbours.",
         params: [num("n_neighbors", "neighbours", 7)] },
-      { id: "rf", label: "Random Forest Classifier",
+      { id: "rf", label: "Random Forest Classifier", family: "rf",
         desc: "Ensemble trees — robust against noisy or incomplete log data.",
         params: [num("n_estimators", "trees", 200)] },
       { id: "gnb", label: "Gaussian Naive Bayes",
@@ -314,6 +322,8 @@ export async function buildMlContent(
 
   let task = TASKS[0];
   let algo = task.algos[0];
+  /** What was being predicted before the last picker change — see the change handler. */
+  let prevTask = task;
 
   const content = document.createElement("div");
   content.className = "mc-dialog ml-pane";
@@ -386,29 +396,125 @@ export async function buildMlContent(
   const sModel = panels.get("model") as HTMLElement;
   const sRes = panels.get("results") as HTMLElement;
 
-  // --- Algorithm: ONE grouped picker ---------------------------------------
-  // Was two cascading selects. The task is now DERIVED from which group the chosen algorithm sits
-  // in, so `Random Forest` can appear under both continuous and discrete without either entry
-  // having to explain itself.
+  // --- Algorithm: THREE groups, by what kind of log comes out ---------------
+  //
+  // Jauhar, 2026-08-07: *"for model, i want only 3 option, Universal for continous & discrete,
+  // continous only, and discrete only"*. The picker had four groups, one per task, which asked the
+  // user to know the statistical name of what they wanted before they could find it.
+  //
+  // The three groups are derived, not hand-listed, so they cannot drift from what the runner
+  // actually supports:
+  //
+  // - **Universal** — the families the runner fits BOTH ways. Random Forest is `rf` in each;
+  //   Support Vector is `svr` for a value and `svm` for a class. Listed ONCE, with a
+  //   Continuous/Discrete choice appearing beside it, because until you know what you are predicting
+  //   there is no choice to make between them.
+  // - **Continuous only** / **Discrete only** — everything else, grouped by the kind of log it
+  //   writes. That puts electrofacies clustering under Discrete (it writes class codes) and PCA /
+  //   t-SNE under Continuous (they write component curves), which loses no capability and drops the
+  //   two groups whose headings named a method rather than an answer. An entry needing no target
+  //   says so in its own label, since it sits beside ones that do.
   const algoSel = document.createElement("select");
   algoSel.className = "form-control";
-  for (const t of TASKS) {
+  const reg = TASKS.find((t) => t.id === "regression") as TaskSpec;
+  const cls = TASKS.find((t) => t.id === "classification") as TaskSpec;
+  /** Families the runner fits both ways — the Universal group, and nothing else. */
+  const universal = reg.algos.filter((a) => a.family && cls.algos.some((b) => b.family === a.family));
+  const isUniversal = (a: AlgoSpec) => !!a.family && universal.some((u) => u.family === a.family);
+  const writesDiscrete = (t: TaskSpec) => t.id === "classification" || t.id === "clustering";
+  const GROUPS: [string, [TaskSpec, AlgoSpec][]][] = [
+    [
+      "Universal  —  continuous or discrete",
+      universal.map((a) => [reg, a] as [TaskSpec, AlgoSpec]),
+    ],
+    [
+      "Continuous only  —  predicts a value",
+      TASKS.filter((t) => !writesDiscrete(t)).flatMap((t) =>
+        t.algos.filter((a) => !isUniversal(a)).map((a) => [t, a] as [TaskSpec, AlgoSpec]),
+      ),
+    ],
+    [
+      "Discrete only  —  predicts a class",
+      TASKS.filter(writesDiscrete).flatMap((t) =>
+        t.algos.filter((a) => !isUniversal(a)).map((a) => [t, a] as [TaskSpec, AlgoSpec]),
+      ),
+    ],
+  ];
+  for (const [heading, entries] of GROUPS) {
+    if (!entries.length) continue;
     const g = document.createElement("optgroup");
-    g.label = t.group;
-    for (const a of t.algos) {
+    g.label = heading;
+    for (const [t, a] of entries) {
       const o = document.createElement("option");
-      // task:algo, because an algorithm id alone is ambiguous once `rf` is in two groups.
+      // task:algo, because an algorithm id alone is ambiguous once `rf` is in two tasks.
       o.value = `${t.id}:${a.id}`;
-      o.textContent = a.label;
+      // A universal family goes under its family name; the per-task labels ("… Regressor",
+      // "… Classifier") would each be half a truth in a group that covers both.
+      o.textContent = isUniversal(a)
+        ? (a.familyLabel ?? a.label)
+        : t.supervised
+          ? a.label
+          : `${a.label} — no target curve`;
       g.appendChild(o);
     }
     algoSel.appendChild(g);
   }
-  algoSel.value = `${task.id}:${algo.id}`;
+  /**
+   * The option that stands for a (task, algorithm) pair.
+   *
+   * A universal family is listed ONCE, under its regression-side value, so `classification:svm` is
+   * not an option that exists — assigning it silently blanked the picker while the run underneath
+   * was correctly configured. The select names the FAMILY; the Predicting control beside it carries
+   * the task. This is the one place that knows that, so the two cannot disagree.
+   */
+  const pickerValue = (t: TaskSpec, a: AlgoSpec): string => {
+    if (isUniversal(a)) {
+      const twin = reg.algos.find((x) => x.family === a.family);
+      if (twin) return `${reg.id}:${twin.id}`;
+    }
+    return `${t.id}:${a.id}`;
+  };
+  algoSel.value = pickerValue(task, algo);
   const algoDesc = document.createElement("div");
   algoDesc.className = "mc-chain-note";
   sModel.appendChild(formRow("Algorithm", algoSel));
   sModel.appendChild(algoDesc);
+
+  // The Continuous/Discrete choice a universal family needs, and only it. Shown beside the picker
+  // rather than as a separate concept: it is the second half of "which algorithm", not a new
+  // setting. Switching it swaps to the same family's estimator in the other task — Random Forest
+  // stays Random Forest, and the parameter grid follows because the two take different parameters.
+  const kindSeg = document.createElement("div");
+  kindSeg.className = "seg";
+  const kindBtns = new Map<MlRequest["task"], HTMLButtonElement>();
+  for (const [id, label] of [
+    ["regression", "Continuous"],
+    ["classification", "Discrete"],
+  ] as [MlRequest["task"], string][]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "seg-opt";
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      const t = TASKS.find((x) => x.id === id) as TaskSpec;
+      const twin = t.algos.find((x) => x.family === algo.family);
+      if (!twin) return;
+      task = t;
+      algo = twin;
+      prevTask = t;
+      algoSel.value = pickerValue(task, algo);
+      syncAlgo();
+    });
+    kindBtns.set(id, b);
+    kindSeg.appendChild(b);
+  }
+  const kindRow = formRow("Predicting", kindSeg);
+  sModel.appendChild(kindRow);
+  function syncKind(): void {
+    const uni = isUniversal(algo);
+    kindRow.style.display = uni ? "" : "none";
+    for (const [id, b] of kindBtns) b.setAttribute("aria-pressed", String(uni && task.id === id));
+  }
 
   // --- Also run (comparison) ------------------------------------------------
   // Jauhar, 2026-08-07: *"in model user should have option to run multiple model simultaneously, so
@@ -981,6 +1087,7 @@ export async function buildMlContent(
     }
     if (!outEdited) outInput.value = algo.out ?? task.defaultOut;
     echoTransform();
+    syncKind();
     renderParams();
     renderAlso();
     syncNorm();
@@ -1010,6 +1117,17 @@ export async function buildMlContent(
     const [taskId, algoId] = algoSel.value.split(":");
     task = TASKS.find((t) => t.id === taskId) ?? TASKS[0];
     algo = task.algos.find((a) => a.id === algoId) ?? task.algos[0];
+    // A universal family is listed on its regression side, so choosing it would always land on
+    // Continuous — silently discarding a Discrete choice the user had already made and left set.
+    // Picking Random Forest while predicting a facies log should keep predicting a facies log.
+    if (isUniversal(algo) && prevTask.id === "classification") {
+      const twin = cls.algos.find((a) => a.family === algo.family);
+      if (twin) {
+        task = cls;
+        algo = twin;
+      }
+    }
+    prevTask = task;
     syncAlgo();
   });
 
@@ -2497,7 +2615,12 @@ export function renderBlindCrossplot(host: HTMLElement, res: MlEvalResult, isClf
     cap.textContent =
       `Predicted vs measured on held-out rows · ${res.blind_sampled.toLocaleString()} of ` +
       `${res.blind_total.toLocaleString()} shown · both axes on one scale, so the dashed line is 1:1`;
-    plotHost.appendChild(blindScatterSvg(res, row, wells));
+    const scatter = blindScatterSvg(res, row, wells);
+    plotHost.appendChild(scatter);
+    // Re-attached on every redraw, because the export has to copy the model currently on screen. A
+    // toolbar built once beside a picker that swaps the chart under it would quietly go on
+    // exporting whichever model happened to be drawn first.
+    attachChartExport(plotHost, scatter, `ML predicted vs measured - ${row.algorithm}`);
     const legend = document.createElement("div");
     legend.className = "ml-xplot-legend";
     wells.forEach((w, wi) => {
@@ -3013,6 +3136,113 @@ function svgEl<K extends keyof SVGElementTagNameMap>(
   return el;
 }
 
+/** The presentation properties a standalone SVG has to carry itself. */
+const SVG_PAINT = [
+  "fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "stroke-opacity",
+  "stroke-linecap", "opacity", "font-family", "font-size", "font-weight", "text-anchor",
+  "dominant-baseline",
+] as const;
+
+/**
+ * A copy of an ML chart that survives leaving the application.
+ *
+ * These charts are drawn as live SVG and painted from the stylesheet — `var(--text)`, `--accent`,
+ * the class rules in `styles.css`. Serialize one as it stands and every one of those references
+ * dangles: the file opens as black-on-transparent line art, or as nothing. So each element's
+ * COMPUTED paint is written onto the element before serializing. The result is a file that looks
+ * the same in Illustrator, in a browser, and pasted into a report — which is the only reason to
+ * export a vector rather than a picture of one.
+ *
+ * The theme is baked in, deliberately. An export is a copy of what was on the screen, and a figure
+ * that silently re-themed itself in somebody else's document would not be that copy.
+ */
+function inlineSvgPaint(src: SVGSVGElement): string {
+  const clone = src.cloneNode(true) as SVGSVGElement;
+  const from = src.querySelectorAll<SVGElement>("*");
+  const to = clone.querySelectorAll<SVGElement>("*");
+  const apply = (a: Element, b: SVGElement) => {
+    const cs = getComputedStyle(a);
+    for (const p of SVG_PAINT) {
+      const v = cs.getPropertyValue(p);
+      if (v && v !== "none" && v !== "normal") b.style.setProperty(p, v);
+    }
+  };
+  apply(src, clone);
+  for (let i = 0; i < from.length && i < to.length; i++) apply(from[i], to[i]);
+  // An explicit ground: SVG defaults to transparent, which reads as black once the file lands in a
+  // document with a dark page or a slide with a photo behind it.
+  const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg-panel").trim();
+  if (bg) clone.style.setProperty("background", bg);
+  clone.setAttribute("xmlns", SVG_NS);
+  const box = src.getBoundingClientRect();
+  if (box.width > 0 && box.height > 0) {
+    clone.setAttribute("width", String(Math.round(box.width)));
+    clone.setAttribute("height", String(Math.round(box.height)));
+  }
+  return new XMLSerializer().serializeToString(clone);
+}
+
+/** The same chart rasterized, for the clipboard, a PNG and the printer — all three of which take a
+ *  canvas. Drawn from the self-contained SVG above, so the picture carries the chart's real colours
+ *  rather than the browser's defaults. */
+async function svgToCanvas(src: SVGSVGElement, scale = 2): Promise<HTMLCanvasElement> {
+  const box = src.getBoundingClientRect();
+  const w = Math.max(1, Math.round(box.width));
+  const h = Math.max(1, Math.round(box.height));
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(inlineSvgPaint(src))}`;
+  const img = new Image();
+  await new Promise<void>((res, rej) => {
+    img.onload = () => res();
+    img.onerror = () => rej(new Error("the chart could not be rasterized"));
+    img.src = url;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = w * scale;
+  canvas.height = h * scale;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    // Opaque, for the same reason the SVG gets a ground: a transparent PNG pasted into a dark slide
+    // becomes an unreadable figure, and nobody re-exports it because it looked fine in the preview.
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg-panel").trim();
+    if (bg) {
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  }
+  return canvas;
+}
+
+/**
+ * Copy / PNG / SVG / Print on an ML chart — the same four the canvas plots have carried since
+ * `plotExport.ts` (Jauhar, 2026-08-07: *"add option to print to cliboard, svg, etc such other
+ * visualization"*).
+ *
+ * The actions themselves are `plotExport`'s, not re-implemented: a second definition of "save this
+ * plot" is a second place for the file naming, the status wording and the Processing-history entry
+ * to drift. What is new here is only the bridge from an SVG chart to the canvas those actions take.
+ */
+function attachChartExport(host: HTMLElement, svg: SVGSVGElement, name: string): HTMLElement {
+  let lastRaster: HTMLCanvasElement | null = null;
+  const bar = buildImageExportButtons(
+    // Rasterization is async and `imageAction` wants a canvas now, so the most recent raster is
+    // kept and refreshed on hover — the first click after the chart appears is the only one that
+    // could miss, and the buttons are unreachable without passing over them.
+    () => lastRaster,
+    name,
+    setStatus,
+    () => inlineSvgPaint(svg),
+  );
+  const refresh = () => {
+    void svgToCanvas(svg).then((c) => (lastRaster = c)).catch(() => undefined);
+  };
+  refresh();
+  bar.addEventListener("pointerenter", refresh);
+  bar.classList.add("ml-chart-export");
+  host.appendChild(bar);
+  return bar;
+}
+
 /**
  * The leaderboard, drawn.
  *
@@ -3127,6 +3357,7 @@ export function renderScoreChart(
   }
 
   wrap.appendChild(svg);
+  attachChartExport(wrap, svg, "ML model scores");
   host.appendChild(wrap);
 }
 
