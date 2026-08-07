@@ -443,9 +443,25 @@ pub fn run_workflow_module_into(
 
     // The project's depth unit, read ONCE here rather than per well: it is a project-level
     // fact, and the wells below run under rayon where each lock acquisition would contend.
-    let depth_unit = {
+    // The declared CLASS curves (SB-MLA-055) are read in the same lock and for the same reason —
+    // per WELL, because a facies curve exists on the wells that were clustered and not on others.
+    let (depth_unit, class_by_well) = {
         let conn = db.lock().unwrap();
-        crate::units::project_depth_unit_or_default(&conn)
+        let unit = crate::units::project_depth_unit_or_default(&conn);
+        let map: HashMap<String, String> = req
+            .well_ids
+            .iter()
+            .filter_map(|w| {
+                let set = crate::db::class_curves_for_well(&conn, w).ok()?;
+                if set.is_empty() {
+                    return None;
+                }
+                let mut v: Vec<String> = set.into_iter().collect();
+                v.sort(); // deterministic, so the same run builds the same opts string
+                Some((w.clone(), v.join(",")))
+            })
+            .collect();
+        (unit, map)
     };
 
     // Input curves: dialog mnemonic over manifest default mnemonic.
@@ -618,7 +634,14 @@ pub fn run_workflow_module_into(
                     }
                 }
 
-                let ctx = ModuleContext { n: depth.len(), logs, params, opts: opts.clone(), depth_unit };
+                // Per-well opts: everything the run decided, plus THIS well's declared class
+                // curves. Set only where the well has any, so a project that has never run a
+                // clustering carries no extra key and behaves exactly as before.
+                let mut well_opts = opts.clone();
+                if let Some(cls) = class_by_well.get(well_id) {
+                    well_opts.insert(modules::CLASS_CURVES_OPT.to_string(), cls.clone());
+                }
+                let ctx = ModuleContext { n: depth.len(), logs, params, opts: well_opts, depth_unit };
                 let mut outputs = modules::run_module(&req.module, &ctx)?;
 
                 // Declared key → the name this run writes (`resolve_output_names`). A module

@@ -283,6 +283,19 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let vals = ctx.log("CURVE");
     let depth = ctx.log("DEPTH");
     let method = ctx.o("OPT_METHOD").to_string();
+    // SB-MLA-055, and the reasoning is a step beyond `smooth`'s. Every method here replaces the
+    // suspect sample with a local MEDIAN, which on an even-count window interpolates between the
+    // two middle codes. But the deeper problem is that a spike has no meaning in a class log: a
+    // single sample of facies 5 between two of facies 1 is a thin bed, not an outlier, and there is
+    // no reading of the values that can tell the two apart.
+    if ctx.input_is_class_curve("CURVE") {
+        return Err(format!(
+            "{} holds class codes and cannot be despiked - a lone code between two others is a thin \
+             bed, not an outlier, and nothing in the values distinguishes them. To remove beds below \
+             a thickness, upscale with Frame > Block at OPT_STAT = MODE.",
+            ctx.in_curve("CURVE")
+        ));
+    }
     let window = constant(ctx, "WINDOW");
     if !(window > 0.0) {
         return Err("WINDOW must be set — a despike window is a thickness, and there is no \
@@ -488,6 +501,18 @@ pub fn smooth(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let vals = ctx.log("CURVE");
     let depth = ctx.log("DEPTH");
     let method = ctx.o("OPT_METHOD").to_string();
+    // SB-MLA-055. Refused outright rather than coerced, because unlike blocking there is no safe
+    // version of this: smoothing means taking values BETWEEN the ones measured, and there is
+    // nothing between facies 2 and facies 3. A moving mode over a class log would be a different
+    // operation with a different name, not a smoother.
+    if ctx.input_is_class_curve("CURVE") {
+        return Err(format!(
+            "{} holds class codes and cannot be smoothed - smoothing produces values between the \
+             ones measured, and there is nothing between facies 2 and facies 3. To simplify a class \
+             log, upscale it with Frame > Block at OPT_STAT = MODE.",
+            ctx.in_curve("CURVE")
+        ));
+    }
     let window = constant(ctx, "WINDOW");
     if !(window > 0.0) {
         return Err("WINDOW must be set — a smoothing window is a thickness, and how much \
@@ -1070,6 +1095,50 @@ mod tests {
 
     fn regular(n: usize, step: f32, start: f32) -> Vec<f32> {
         (0..n).map(|i| start + i as f32 * step).collect()
+    }
+
+    /// **SB-MLA-055 here is a refusal with no safe alternative, which is why it is a refusal.**
+    ///
+    /// `frame::block` could offer MODE, so it refuses the averaging statistics and keeps the one
+    /// that works. Neither of these has that: smoothing MEANS producing values between the ones
+    /// measured, and there is nothing between facies 2 and facies 3. Despiking is worse than
+    /// useless — a lone code between two others is a thin bed, and nothing in the numbers
+    /// distinguishes a thin bed from an outlier — so a "cleaned" class log is one with its thinnest
+    /// beds silently deleted.
+    ///
+    /// Pinned from both sides. An UNDECLARED curve runs untouched, because the alternative is a
+    /// heuristic on the values, and a caliper logged in whole inches or a 0/1 flag would then be
+    /// refused a smoothing the user legitimately asked for.
+    #[test]
+    fn a_class_curve_is_refused_by_smooth_and_despike_and_an_undeclared_one_is_not() {
+        let n = 41;
+        let depth = regular(n, 0.1, 1000.0);
+        // A class log: two beds of facies 1 and 3, with one sample of facies 5 between them. That
+        // lone sample is exactly what a despiker would remove and a petrophysicist would log.
+        let mut facies = vec![1.0f32; n];
+        facies[20] = 5.0;
+        for v in facies.iter_mut().skip(21) {
+            *v = 3.0;
+        }
+        let declared: &[(&str, &str)] = &[("__IN_CURVE", "FACIES"), ("__CLASS_CURVES", "FACIES")];
+        let params: &[(&str, f64)] = &[("WINDOW", 0.5), ("K", 3.0)];
+
+        for (what, run) in [
+            ("smooth", smooth as fn(&ModuleContext) -> Result<ModuleOutputs, String>),
+            ("despike", despike),
+        ] {
+            let e = run(&ctx_for(&depth, &facies, params, declared))
+                .expect_err("{what} on a declared class curve must be refused");
+            assert!(e.contains("FACIES"), "{what}: names the curve refused: {e}");
+            assert!(e.contains("MODE"), "{what}: names where the user should go instead: {e}");
+
+            // The other side. `ctx_for` leaves __IN_CURVE as GR and declares nothing, so the same
+            // values — spike and all — are the user's to condition however they asked.
+            assert!(
+                run(&ctx_for(&depth, &facies, params, &[])).is_ok(),
+                "{what}: an undeclared curve is conditioned as asked, whatever its values look like",
+            );
+        }
     }
 
     /// **The window is a thickness, and that is the whole reason it is stated in depth.**

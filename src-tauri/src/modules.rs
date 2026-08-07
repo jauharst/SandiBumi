@@ -281,7 +281,50 @@ pub struct ModuleContext {
     pub depth_unit: crate::units::DepthUnit,
 }
 
+/// Reserved `opts` key: the run's DECLARED class curves, upper-cased and comma-separated
+/// (`SB-MLA-055`). Set by `workflow.rs`, which has the connection; read through
+/// [`ModuleContext::input_is_class_curve`].
+///
+/// Carried in `opts` rather than as a `ModuleContext` field, for the reason `MASK` and
+/// `OUT_PREFIX` are: it is one cross-cutting rule about a run, not a parameter any module declares,
+/// and a new typed field would have to be threaded through all forty-odd context constructions to
+/// say nothing in most of them.
+pub(crate) const CLASS_CURVES_OPT: &str = "__CLASS_CURVES";
+
 impl ModuleContext {
+    /// Whether the curve named by log argument `arg` was DECLARED a class curve.
+    ///
+    /// Used by the modules that would otherwise average codes — `frame::block`,
+    /// `condition::smooth`, `condition::despike`. They refuse rather than silently substituting a
+    /// safe statistic: unlike a re-frame, which reports the method it resolved per curve, a module
+    /// has no channel to say "I did something other than what you asked", and a coercion nobody can
+    /// see is the failure this rule exists to prevent.
+    ///
+    /// The resolved mnemonic lives under [`Self::in_curve`]'s `__IN_<ARG>` key, never under the bare
+    /// arg name — `opts` carries an entry named for the arg only for Option and Text args
+    /// (`workflow::build_opts`). Reading `o(arg)` here compiles, returns "" for every run, and
+    /// silently disables the whole rule.
+    pub(crate) fn input_is_class_curve(&self, arg: &str) -> bool {
+        let name = self.in_curve(arg);
+        if name.is_empty() {
+            return false;
+        }
+        self.opts
+            .get(CLASS_CURVES_OPT)
+            .map(|s| s.split(',').any(|c| c.trim() == name))
+            .unwrap_or(false)
+    }
+
+    /// The MNEMONIC resolved for log argument `arg`, upper-cased — the curve the run actually read,
+    /// as opposed to `log(arg)`, which is its samples under the arg's own name.
+    ///
+    /// One accessor rather than a `format!("__IN_{arg}")` at each call site: the key is a private
+    /// convention of `workflow::build_opts`, and a caller that spells it wrong gets an empty string
+    /// rather than a compile error.
+    pub(crate) fn in_curve(&self, arg: &str) -> String {
+        self.o(&format!("__IN_{arg}")).trim().to_uppercase()
+    }
+
     pub(crate) fn log(&self, name: &str) -> Vec<f32> {
         self.logs.get(name).cloned().unwrap_or_else(|| vec![f32::NAN; self.n])
     }

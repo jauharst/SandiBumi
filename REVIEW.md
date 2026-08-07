@@ -8758,6 +8758,25 @@ default with an override.
 - [ ] **The mode is in the run record** ("Settings this run actually used"), beside the seed — the
       same number means a different thing under each, so a record without it cannot be re-run.
 
+- [ ] **It warns when a side is too thin** — "A blind set of one well is one opinion, not a spread",
+      "Fitting on one well is a model of that well". Both are legitimate runs, so neither is refused.
+- [ ] **The seed is yours and it is stated.** Same seed, same wells — a blind score you cannot
+      re-run is a blind score you cannot quote.
+- [ ] **The results name the wells, not just the count.** "Which wells?" is always the next question
+      after a blind score, and a percentage does not answer it.
+- [ ] **Three scores side by side, labelled by what they are a score OF**: on the fitted wells, in
+      cross-validation, on the blind wells. **Check the gap line underneath** — that gap is the part
+      of the fit that does not travel, and it is the number an experienced eye actually reads.
+- [ ] **The blind wells still get their predicted curve.** The model is deliberately NOT refitted on
+      them afterwards, so you can put that curve beside core in a well the model never saw. Refitting
+      would make the curve in-sample and leave the reported score describing a model that no longer
+      exists.
+- [ ] **Cross-validation is now grouped by well too** (`GroupKFold`), with the scaler refitted inside
+      each fold. Where there is only one well it says "random folds within ONE well — not a blind
+      score" instead of printing a number that looks like validation.
+- [ ] Clustering and reduction do not offer the control: they are fitted on the very wells they are
+      applied to, so "held out" could not mean anything there.
+
 ## Class curves are never averaged or interpolated (2026-08-07)
 
 `SB-MLA-055`. A facies code is a name that happens to be written as a number. The mean of facies 1
@@ -8780,26 +8799,28 @@ straight through, and there was no record anywhere saying a curve *is* a class c
 - [ ] **An ordinary curve is untouched.** A caliper that happens to read whole inches still looks
       discrete to the guesser — set it to MEAN and it stays MEAN. A guess may pick the default;
       only a declaration overrides a decision you made.
-- [ ] Known gap, not yet closed: `frame::block` and `condition::smooth`/`despike` do not consult the
-      registry yet, so blocking a FACIES curve by MEAN still averages it. Next increment.
-- [ ] **It warns when a side is too thin** — "A blind set of one well is one opinion, not a spread",
-      "Fitting on one well is a model of that well". Both are legitimate runs, so neither is refused.
-- [ ] **The seed is yours and it is stated.** Same seed, same wells — a blind score you cannot
-      re-run is a blind score you cannot quote.
-- [ ] **The results name the wells, not just the count.** "Which wells?" is always the next question
-      after a blind score, and a percentage does not answer it.
-- [ ] **Three scores side by side, labelled by what they are a score OF**: on the fitted wells, in
-      cross-validation, on the blind wells. **Check the gap line underneath** — that gap is the part
-      of the fit that does not travel, and it is the number an experienced eye actually reads.
-- [ ] **The blind wells still get their predicted curve.** The model is deliberately NOT refitted on
-      them afterwards, so you can put that curve beside core in a well the model never saw. Refitting
-      would make the curve in-sample and leave the reported score describing a model that no longer
-      exists.
-- [ ] **Cross-validation is now grouped by well too** (`GroupKFold`), with the scaler refitted inside
-      each fold. Where there is only one well it says "random folds within ONE well — not a blind
-      score" instead of printing a number that looks like validation.
-- [ ] Clustering and reduction do not offer the control: they are fitted on the very wells they are
-      applied to, so "held out" could not mean anything there.
+
+### The three modules that would have averaged it anyway (2026-08-07)
+
+Re-framing was only one of the doors. **Frame ▸ Block** could upscale a FACIES curve by MEAN, and
+**Condition ▸ Smooth** and **Condition ▸ Despike** would run on it without comment. Worse: the Core
+Photos pane already tells you in so many words to *"use Frame ▸ Block with OPT_STAT = MODE, the one
+upscale that carries a class code whole"* — and Block **had no MODE option**, so following the
+application's own advice fell through to the arithmetic mean.
+
+- [ ] **Block a FACIES curve — MODE is now in the "How a bed's value is taken" list**, and it gives
+      the bed's commonest code. That is the fix the Core Photos pane has been pointing at.
+- [ ] **Choose MEAN, GEOMETRIC, HARMONIC or MEDIAN on that same curve and it is refused by name**,
+      with the reason and the fix in the message. MEDIAN is refused with the rest deliberately: it
+      interpolates, so an even-count bed of {1, 2} returns 1.5.
+- [ ] **MIN and MAX are allowed.** They land on a sample that really occurs, and a class scheme
+      ordered by shaliness has an order even where it has no arithmetic.
+- [ ] **Smooth and Despike refuse a class curve outright** and point at Block ▸ MODE. There is no
+      safe version of either: smoothing means producing values *between* the ones measured, and on a
+      class log a lone code between two others is a thin bed, not a spike — nothing in the numbers
+      tells them apart, so a "cleaned" facies log is one with its thinnest beds quietly deleted.
+- [ ] **Block, Smooth and Despike an ordinary curve and nothing has changed.** The rule fires on the
+      declaration, never on how the values look.
 
 ## ML — the run records what it actually used, defaults included (2026-08-07)
 
