@@ -8822,6 +8822,41 @@ application's own advice fell through to the arithmetic mean.
 - [ ] **Block, Smooth and Despike an ordinary curve and nothing has changed.** The rule fires on the
       declaration, never on how the values look.
 
+## A model now says how well it travels, and which rows made it (2026-08-07)
+
+`SB-MLA-003` / `SB-MLA-009`. Two things a predicted curve could not tell you before.
+
+**How well the model travels.** A net-pay number computed from a predicted permeability whose
+blind-well R² was 0.31 is a different claim from one computed from a measured permeability — and
+nothing downstream could tell which it had received. The saved-models list now carries a **blind
+score pill** on every row: `blind R2 0.61` in green, amber or red, with the wells, the rows and the
+protocol in the tooltip.
+
+The important half is the other one. A model fitted without holding anything back reads **"not
+blind-tested"**, in neutral colour, and shows *no number*. Its training score is not a measurement
+of how it travels, and putting one there would be the failure this exists to prevent: a delivered
+project once showed a training correlation of 0.99 on a curve whose blind-well range was 0.31–0.70.
+
+- [ ] **Open ML Models ▸ Saved models.** Every model carries a pill. Models you fitted before today
+      say "not blind-tested" — correctly, because they were not.
+- [ ] **Fit one with *Hold wells back as a blind test* ticked, save it, and look at the row.** The
+      pill shows the blind score. Hover it: it names how many wells were held back and whether the
+      split answers "will this work on the next well" (whole wells) or only "is the relationship
+      learnable here" (random rows).
+- [ ] **Apply that model to new wells.** The curve records the *same* blind score — it is copied
+      from the model, not recomputed, so a curve made by applying a model says what a curve made by
+      the fit says.
+- [ ] **Check a curve's record** in the Database Inspector ▸ log sets: `params_json` now carries the
+      blind block and the training fingerprint beside the model name.
+
+**Which rows made it.** "Trained on 12 wells, 4,300 samples" does not pin a re-run: the same wells
+at a later log-set version are *different rows* with the same names and often the same count. Each
+saved model now carries a fingerprint of its exact training matrix, in the row tooltip.
+
+- [ ] **Fit the same configuration twice without changing any data.** The fingerprint matches.
+- [ ] **Edit one input curve sample and re-fit.** It differs — even though the well list, the
+      sample count and the curve list are all unchanged. That is the case the well list cannot see.
+
 ## Fitting permeability in log space, without the number changing meaning (2026-08-07)
 
 `SB-MLA-035`. Permeability spans decades, so it is fitted as `log10(k)` — that is where the

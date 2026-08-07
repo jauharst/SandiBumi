@@ -224,6 +224,114 @@ fn transformed_unit(kind: &str, target_unit: Option<&str>) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SB-MLA-003 — a saved model identifies the exact training rows
+// ---------------------------------------------------------------------------
+
+/// A content fingerprint of the assembled training matrix: the feature names in order, the feature
+/// values, the target values, the well index of each row, and the row order.
+///
+/// `trained_on` plus `n_train` narrows a re-run but does not pin it. The same wells at a later log
+/// set version are DIFFERENT ROWS with the same names and very possibly the same count — an edited
+/// curve, a re-run of the module that produced the target, a changed mask. A hash is the only record
+/// that distinguishes "these are the rows" from "these are the wells", and it is what makes the
+/// provenance claim checkable rather than merely asserted.
+///
+/// FNV-1a/64, written out rather than taken as a dependency. The threat model is an ACCIDENT — two
+/// training sets that differ and are reported as the same — not an adversary constructing a
+/// collision, so a cryptographic digest would buy nothing a project this size can spend. `DefaultHasher`
+/// is explicitly not stable across Rust releases, which for a value written into a project file
+/// would mean the same rows hashing differently after a toolchain upgrade.
+///
+/// Two canonicalisations, both required for "numerically identical must hash identically": every
+/// NaN collapses to one bit pattern (an f32 NaN has millions), and −0.0 collapses to 0.0.
+fn training_fingerprint(features: &[String], d: usize, x: &[f32], y: &[f32], groups: &[f32]) -> String {
+    struct Fnv(u64);
+    impl Fnv {
+        fn eat(&mut self, bytes: &[u8]) {
+            for b in bytes {
+                self.0 ^= *b as u64;
+                self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        fn val(&mut self, v: f32) {
+            // NaN -> one canonical NaN; -0.0 -> 0.0. Without both, two numerically identical
+            // matrices can hash differently, and a re-fit that changed nothing reads as a
+            // different training set — which would make the whole record untrustworthy.
+            let c = if v.is_nan() { f32::NAN } else if v == 0.0 { 0.0 } else { v };
+            self.eat(&c.to_le_bytes());
+        }
+    }
+    let mut h = Fnv(0xcbf2_9ce4_8422_2325);
+    // The names ride along because the same numbers under different mnemonics are a different
+    // training set — and a feature list reordered is a different model (the ordering contract).
+    for f in features {
+        h.eat(f.as_bytes());
+        h.eat(b"\x1f");
+    }
+    h.eat(&(d as u64).to_le_bytes());
+    h.eat(&(y.len() as u64).to_le_bytes());
+    for v in x {
+        h.val(*v);
+    }
+    for v in y {
+        h.val(*v);
+    }
+    for g in groups {
+        h.val(*g);
+    }
+    format!("{:016x}", h.0)
+}
+
+// ---------------------------------------------------------------------------
+// SB-MLA-009 — blind-well performance travels with the curve
+// ---------------------------------------------------------------------------
+
+/// What a curve must be able to say about the model that made it: how well that model performed on
+/// data it was not fitted on, by what protocol, and over how many wells.
+///
+/// A net-pay number computed from a predicted permeability whose blind-well R² was 0.31 is a
+/// different claim from one computed from a measured permeability, and nothing downstream can tell
+/// which it received unless the curve says so. The cautionary case is a delivered project where a
+/// predicted NPHI reached a training correlation of 0.99 against a blind-well range of 0.31–0.70 —
+/// a factor of three between the number an analyst sees by default and the number that describes
+/// what the curve can actually predict.
+///
+/// So where no blind evaluation was performed this returns `performed: false` WITH NO NUMBER. The
+/// requirement is explicit that the absence must be carried rather than filled: a training metric
+/// standing in for a blind one is the 0.99 above, and it is worse than a blank because it reads as
+/// an answer.
+///
+/// Built once, in the fitting run, and stored in the model's metrics — so the apply path copies it
+/// verbatim instead of re-deriving it. Two derivations of one fact is two things to keep in step.
+fn blind_record(metrics: &serde_json::Value, split: Option<&SplitReport>, task: &str) -> serde_json::Value {
+    let clf = task == "classification";
+    let key = if clf { "accuracy_blind" } else { "r2_blind" };
+    let name = if clf { "accuracy" } else { "R2" };
+    let value = metrics.get(key).and_then(|v| v.as_f64());
+    match (split, value) {
+        (Some(sp), Some(v)) => serde_json::json!({
+            "performed": true,
+            "metric": name,
+            "value": v,
+            // The protocol is part of the claim, not a footnote. A random-row split scores the
+            // model on depths a few centimetres from ones it was fitted on, so its number does not
+            // answer "will this work on the next well" — and quoting it as if it did is the whole
+            // reason this field exists.
+            "protocol": if sp.mode == "sample" { "random rows, stratified" } else { "whole wells" },
+            "answers_new_well": sp.mode != "sample",
+            "n_blind_wells": sp.blind_wells.len(),
+            "n_blind_rows": sp.blind_rows,
+            "n_fit_rows": sp.fit_rows,
+            "seed": sp.seed,
+        }),
+        _ => serde_json::json!({
+            "performed": false,
+            "why": "no blind test was requested for this fit, so nothing here describes how the model travels to data it was not fitted on. The cross-validation score is over folds of the same wells.",
+        }),
+    }
+}
+
 /// SB-MLA-023 / SB-MLA-024 — the product's k-means and seed definitions, EMITTED into the Python
 /// runners from the Rust constants that the native engine runs on.
 ///
@@ -1230,6 +1338,14 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             "only {n_train} labelled training samples - need at least 10 (input curves + target must overlap in the training wells)"
         ));
     }
+    // SB-MLA-003. Fingerprint the rows HERE — after the transform, before the blind split. After
+    // the transform because a log-fitted model was fitted on different numbers, and a record that
+    // could not tell those apart would be the SB-MLA-035 defect wearing a hash. Before the split
+    // because the split is a deterministic function of these rows and the recorded seed and mode,
+    // so this one value plus those two pin the fit rows exactly — and hashing only the fit side
+    // would make an otherwise identical run look like a different training set the moment somebody
+    // changed the blind percentage.
+    let train_hash = supervised.then(|| training_fingerprint(&features, d, &x_train, &y_train, &groups));
     // Surface training wells that contributed nothing (wrong target mnemonic, missing input, or
     // fully masked). Without this, a 20-well selection fit on 3 wells looks like a clean 20-well
     // run — the exact silent-degradation the app's cardinal rule forbids.
@@ -1455,6 +1571,13 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 metrics["target_transform"] = serde_json::json!(transform);
                 metrics["metric_space"] = serde_json::json!(shown);
             }
+            // SB-MLA-009. Built here, stored in the metrics that go into the model record, and put
+            // on every curve this run writes — so the apply path can copy it rather than re-derive
+            // it, and one definition serves both.
+            let blind = supervised.then(|| blind_record(&metrics, split.as_ref(), &req.task));
+            if let Some(b) = &blind {
+                metrics["blind"] = b.clone();
+            }
             // Keep the fit as an artifact, BEFORE the curves are written (SB-MLA-006).
             //
             // This used to run after the well loop, so a storage problem here could not cost the
@@ -1501,6 +1624,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                         (!sklearn.is_empty()).then_some(sklearn.as_str()),
                         req.model_note.as_deref(),
                         &model_blob,
+                        train_hash.as_deref(),
                     ) {
                         Ok((id, stored)) => {
                             if &stored != name {
@@ -1579,15 +1703,26 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 let spec = crate::equations::LogSetSpec {
                     set_name: out_set.clone(),
                     module: format!("ml:{}:{}", req.task, req.algorithm),
-                    params_json: match (&model_id, &model_name) {
-                        (Some(id), Some(nm)) => serde_json::to_string(&serde_json::json!({
-                            "model_id": id,
-                            "model_name": nm,
+                    // SB-MLA-009 rides in the same object as SB-MLA-006's model reference, and it
+                    // rides on EVERY fit-path curve — including one whose model was not kept, since
+                    // "how well does this travel" is a question about the curve, not about whether
+                    // anybody saved the fit that made it.
+                    params_json: {
+                        let mut rec = serde_json::json!({
                             "algorithm": req.algorithm,
                             "params": params_record,
-                        }))
-                        .unwrap_or_else(|_| params_json.clone()),
-                        _ => params_json.clone(),
+                        });
+                        if let (Some(id), Some(nm)) = (&model_id, &model_name) {
+                            rec["model_id"] = serde_json::json!(id);
+                            rec["model_name"] = serde_json::json!(nm);
+                        }
+                        if let Some(b) = &blind {
+                            rec["blind"] = b.clone();
+                        }
+                        if let Some(h) = &train_hash {
+                            rec["train_hash"] = serde_json::json!(h);
+                        }
+                        serde_json::to_string(&rec).unwrap_or_else(|_| params_json.clone())
                     },
                     inputs_json: serde_json::to_string(&req.feature_curves).unwrap_or_default(),
                 };
@@ -1830,10 +1965,27 @@ pub fn apply_ml_model(
             set_name: req.output_set.as_deref().map(str::trim).filter(|s| !s.is_empty())
                 .unwrap_or(DEFAULT_ML_SET).to_string(),
             module: format!("ml:apply:{}", info.name),
-            params_json: serde_json::to_string(&serde_json::json!({
-                "model_id": info.model_id, "model_name": info.name,
-                "algorithm": info.algorithm, "trained_on": info.trained_on,
-            }))
+            // SB-MLA-009 / SB-MLA-003. The blind record is COPIED from the model rather than
+            // re-derived: it is a property of the fit, and this path has no fit. Copying is also
+            // what keeps a curve made by applying a model saying the same thing as a curve made by
+            // the run that fitted it. A model saved before either field existed carries neither,
+            // and the absence is what such a model honestly has to offer.
+            params_json: serde_json::to_string(&{
+                let mut rec = serde_json::json!({
+                    "model_id": info.model_id, "model_name": info.name,
+                    "algorithm": info.algorithm, "trained_on": info.trained_on,
+                });
+                if let Some(h) = &info.train_hash {
+                    rec["train_hash"] = serde_json::json!(h);
+                }
+                if let Some(b) = serde_json::from_str::<serde_json::Value>(&info.metrics_json)
+                    .ok()
+                    .and_then(|m| m.get("blind").cloned())
+                {
+                    rec["blind"] = b;
+                }
+                rec
+            })
             .unwrap_or_default(),
             inputs_json: serde_json::to_string(&features).unwrap_or_default(),
         };
@@ -3112,6 +3264,139 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **SB-MLA-003 — a saved model identifies the exact training ROWS, not merely the wells.**
+    ///
+    /// `trained_on` plus `n_train` narrows a re-run but does not pin it: the same wells at a later
+    /// log-set version are different rows with the same names and very possibly the same count. So
+    /// the pin is from both sides. Identical rows must give an identical hash — otherwise every
+    /// re-fit reads as a new training set and the record becomes noise nobody checks — and a single
+    /// changed VALUE must give a different one, even where the well list, the sample count and the
+    /// feature list are untouched, which is exactly the case `trained_on` cannot see.
+    ///
+    /// The two canonicalisations are pinned as well, because both are ways for "nothing changed" to
+    /// hash as "something changed": an f32 NaN has millions of bit patterns and −0.0 is not 0.0's
+    /// bit pattern, so hashing the raw bytes of numerically identical matrices would not be stable.
+    #[test]
+    fn a_training_fingerprint_is_stable_for_the_same_rows_and_changes_for_one_different_value() {
+        let feats = vec!["GR".to_string(), "RHOB".to_string()];
+        let x: Vec<f32> = (0..20).map(|i| i as f32 * 0.5).collect();
+        let y: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        let g: Vec<f32> = vec![0.0; 10];
+        let base = training_fingerprint(&feats, 2, &x, &y, &g);
+        assert_eq!(base, training_fingerprint(&feats, 2, &x, &y, &g), "the same rows must fingerprint the same");
+        assert_eq!(base.len(), 16, "a fixed-width hex digest, so it can be shown and compared by eye");
+
+        // One value, in the middle, changed by an amount no well list or count would notice.
+        let mut x2 = x.clone();
+        x2[7] += 0.001;
+        assert_ne!(base, training_fingerprint(&feats, 2, &x2, &y, &g), "one changed feature value is a different training set");
+        let mut y2 = y.clone();
+        y2[3] += 0.001;
+        assert_ne!(base, training_fingerprint(&feats, 2, &x, &y2, &g), "one changed target value is a different training set");
+
+        // Order is part of the matrix. The same rows shuffled fit the same model only for
+        // order-independent algorithms, and the record cannot know which was used.
+        let mut y3 = y.clone();
+        y3.swap(0, 9);
+        assert_ne!(base, training_fingerprint(&feats, 2, &x, &y3, &g), "row order is part of the record");
+
+        // The names ride along: identical numbers under different mnemonics are a different set,
+        // and a reordered feature list is a different model under this repo's ordering contract.
+        assert_ne!(
+            base,
+            training_fingerprint(&["GR".into(), "NPHI".into()], 2, &x, &y, &g),
+            "the feature names are part of the fingerprint",
+        );
+        assert_ne!(
+            base,
+            training_fingerprint(&["RHOB".into(), "GR".into()], 2, &x, &y, &g),
+            "feature ORDER is part of the fingerprint",
+        );
+
+        // And the canonicalisations, from both sides: numerically identical must hash identically.
+        let pos = vec![0.0f32; 10];
+        let neg = vec![-0.0f32; 10];
+        assert_eq!(
+            training_fingerprint(&feats, 1, &pos, &y, &g),
+            training_fingerprint(&feats, 1, &neg, &y, &g),
+            "-0.0 and 0.0 are the same number and must be the same row",
+        );
+        let nan_a = vec![f32::NAN; 4];
+        let nan_b = vec![f32::from_bits(0x7fc0_0001); 4];
+        assert!(nan_b[0].is_nan());
+        assert_eq!(
+            training_fingerprint(&feats, 1, &nan_a, &y, &g),
+            training_fingerprint(&feats, 1, &nan_b, &y, &g),
+            "two NaNs are the same missing value however they were produced",
+        );
+    }
+
+    /// **SB-MLA-009 — blind-well performance travels with the curve, and its ABSENCE travels too.**
+    ///
+    /// A net-pay number computed from a predicted permeability whose blind-well R² was 0.31 is a
+    /// different claim from one computed from a measured permeability, and nothing downstream can
+    /// tell which it received unless the curve says. The cautionary case is a delivered project
+    /// where a predicted curve reached a training correlation of 0.99 against a blind-well range of
+    /// 0.31–0.70 — a factor of three between the number an analyst sees by default and the number
+    /// that describes what the curve can actually predict.
+    ///
+    /// Which is why the second half matters more than the first: where no blind test was run the
+    /// record must say so and carry NO NUMBER. A training metric standing in for a blind one is
+    /// that 0.99, and it is worse than a blank because it reads as an answer.
+    ///
+    /// Pure — `blind_record` is the one place the decision is made, so it can be pinned without a
+    /// fit. The end-to-end half rides on the SB-MLA-006 provenance test's log-set reader.
+    #[test]
+    fn a_curve_carries_the_blind_score_or_says_there_was_none_and_never_a_training_one() {
+        let sp = SplitReport {
+            fit_wells: vec!["SANDI-1".into(), "SANDI-2".into()],
+            blind_wells: vec!["SANDI-3".into()],
+            fit_rows: 900,
+            blind_rows: 300,
+            requested_fraction: 0.3,
+            achieved_fraction: 0.25,
+            seed: 42,
+            mode: "well".into(),
+            wells_pooled: 3,
+        };
+        // A flattering training score sits right beside the blind one in the same object — which is
+        // the whole hazard, and why the record names the key it took.
+        let m = serde_json::json!({ "r2_train": 0.99, "r2_cv": 0.80, "r2_blind": 0.31 });
+
+        let rec = blind_record(&m, Some(&sp), "regression");
+        assert_eq!(rec["performed"], serde_json::json!(true));
+        assert_eq!(rec["value"], serde_json::json!(0.31), "the BLIND score, never the training one");
+        assert_eq!(rec["metric"], serde_json::json!("R2"));
+        assert_eq!(rec["protocol"], serde_json::json!("whole wells"));
+        assert_eq!(rec["answers_new_well"], serde_json::json!(true));
+        assert_eq!(rec["n_blind_wells"], serde_json::json!(1));
+
+        // Sample mode scores the model on depths centimetres from ones it was fitted on, so it
+        // does NOT answer "will this work on the next well" — and the record has to say which
+        // question was answered, or the number gets quoted as the other one.
+        let by_sample = SplitReport { mode: "sample".into(), blind_wells: vec![], ..sp };
+        let rec2 = blind_record(&m, Some(&by_sample), "regression");
+        assert_eq!(rec2["protocol"], serde_json::json!("random rows, stratified"));
+        assert_eq!(rec2["answers_new_well"], serde_json::json!(false));
+
+        // The other side, and the one that matters most. No split → no number at all.
+        let none = blind_record(&m, None, "regression");
+        assert_eq!(none["performed"], serde_json::json!(false));
+        assert!(none.get("value").is_none(), "a run with no blind test must carry no score: {none}");
+        assert!(none["why"].as_str().unwrap_or("").contains("no blind test"), "the absence is stated, not implied");
+
+        // A split whose score never arrived is the same absence, not a half-answer.
+        let no_score = blind_record(&serde_json::json!({ "r2_train": 0.99 }), Some(&by_sample), "regression");
+        assert_eq!(no_score["performed"], serde_json::json!(false));
+        assert!(no_score.get("value").is_none(), "an unscored split must not borrow the training number");
+
+        // A classifier reports accuracy, and must not be handed the regression key.
+        let cm = serde_json::json!({ "accuracy_train": 0.98, "accuracy_blind": 0.62, "r2_blind": 0.31 });
+        let rc = blind_record(&cm, Some(&by_sample), "classification");
+        assert_eq!(rc["metric"], serde_json::json!("accuracy"));
+        assert_eq!(rc["value"], serde_json::json!(0.62));
+    }
+
     /// **SB-MLA-060 — no vendor model or weight file is read, converted or imported.**
     ///
     /// This one is already true, so the test is not a fix: it is the LOCK. The boundary would be
@@ -3737,9 +4022,9 @@ mod tests {
         let feats = vec!["GR".to_string()];
         let blob = vec![1u8, 2, 3];
         let (_, first) = db::insert_ml_model(&conn, "PERM_RF", "regression", "rf", &feats, Some("PERM"),
-            "{}", "{}", &["A".into()], 100, true, Some("1.5.0"), None, &blob).unwrap();
+            "{}", "{}", &["A".into()], 100, true, Some("1.5.0"), None, &blob, Some("aaaa")).unwrap();
         let (_, second) = db::insert_ml_model(&conn, "PERM_RF", "regression", "rf", &feats, Some("PERM"),
-            "{}", "{}", &["A".into(), "B".into()], 200, true, Some("1.5.0"), None, &blob).unwrap();
+            "{}", "{}", &["A".into(), "B".into()], 200, true, Some("1.5.0"), None, &blob, Some("bbbb")).unwrap();
         assert_eq!(first, "PERM_RF");
         assert_eq!(second, "PERM_RF_1", "a second fit is a NEW model, not a replacement");
         assert_eq!(db::list_ml_models(&conn).unwrap().len(), 2);
@@ -3752,7 +4037,7 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let blob = vec![7u8; 4096];
         let (id, _) = db::insert_ml_model(&conn, "M", "regression", "rf", &["GR".into()], Some("PERM"),
-            "{}", "{}", &["A".into()], 10, true, None, None, &blob).unwrap();
+            "{}", "{}", &["A".into()], 10, true, None, None, &blob, None).unwrap();
         let listed = db::list_ml_models(&conn).unwrap();
         assert_eq!(listed[0].bytes, 4096, "the size is reported so the picker can show it");
         assert_eq!(listed[0].feature_curves, vec!["GR".to_string()]);

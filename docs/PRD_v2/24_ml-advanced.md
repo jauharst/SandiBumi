@@ -954,7 +954,7 @@ schema at `db.rs:675`–`:692`.
 
 **Verified by.** SB-MLA-T02
 
-#### SB-MLA-003 — A saved model identifies the exact training rows          [P1] [status: ABSENT]
+#### SB-MLA-003 — A saved model identifies the exact training rows          [P1] [status: PRESENT-OK]
 
 **Requirement.** A persisted model MUST carry a content hash of the training matrix it was fitted
 on, computed over the feature values, the target values and the row order. Re-fitting with the
@@ -966,10 +966,38 @@ a later log-set version are different rows with the same names and possibly the 
 is the only record that distinguishes "these are the rows" from "these are the wells". This is the
 requirement that makes `SB-CORE-011` checkable rather than merely asserted for an ML curve.
 
-**As-built.** `ABSENT` — `ml.rs:720`–`:743` records well names and a count; no hash is computed
-anywhere in `ml.rs`.
+**As-built.** `PRESENT-OK` (2026-08-07). `ml.rs::training_fingerprint` hashes the feature names in
+order, the feature values, the target values, the per-row well index and the row order; the digest
+lands in `ml_models.train_hash` (added via `ALTER … ADD COLUMN IF NOT EXISTS`, so existing projects
+converge) and rides on every curve's log-set record beside the model reference — on the apply path
+it is COPIED from the model rather than recomputed, since it is a property of the fit and the apply
+path has no fit.
 
-**Verified by.** SB-MLA-T03
+*Where it is taken matters as much as what it covers.* After the target transform, because a
+log-fitted model was fitted on different numbers and a record that could not tell those apart would
+be SB-MLA-035's defect wearing a hash. Before the blind split, because the split is a deterministic
+function of these rows plus the recorded seed and mode, so this one value and those two pin the fit
+rows exactly — where hashing only the fit side would make an otherwise identical run read as a
+different training set the moment somebody changed the blind percentage.
+
+*FNV-1a/64, written out rather than taken as a dependency.* The threat model is an ACCIDENT — two
+training sets that differ and are reported as the same — not an adversary constructing a collision,
+so a cryptographic digest buys nothing here. `DefaultHasher` is explicitly not stable across Rust
+releases, which for a value written into a project file would mean the same rows hashing differently
+after a toolchain upgrade.
+
+*Two canonicalisations, both load-bearing.* An f32 NaN has millions of bit patterns and −0.0 is not
+0.0's bit pattern, so hashing raw bytes would let numerically identical matrices hash differently —
+"nothing changed" reported as "something changed" is how a provenance record becomes noise nobody
+reads. Both are pinned.
+
+A NULL hash on a model saved before the column existed is the honest answer for such a model, and
+`insert_ml_model` stores NULL rather than `""` for the same reason `curve_unit` does.
+
+**Verified by.** SB-MLA-T03 —
+`ml::tests::a_training_fingerprint_is_stable_for_the_same_rows_and_changes_for_one_different_value`
+(pure; pins stability, one changed feature value, one changed target value, row order, feature
+names, feature ORDER, and both canonicalisations).
 
 #### SB-MLA-004 — A saved model records the exclusion mask and its effect          [P1] [status: ABSENT]
 
@@ -1083,7 +1111,7 @@ of everything else the answer depends on — `SB-MLA-001` through `SB-MLA-005`.
 
 **Verified by.** SB-MLA-T08, SB-MLA-T01
 
-#### SB-MLA-009 — Blind-well performance travels with the curve          [P1] [status: ABSENT]
+#### SB-MLA-009 — Blind-well performance travels with the curve          [P1] [status: PRESENT-OK]
 
 **Requirement.** A curve produced by a supervised model MUST carry the model's blind-well
 performance metric, the protocol that produced it, and the number of wells held out. Where no
@@ -1097,12 +1125,41 @@ where a predicted `NPHI` reached a training correlation of 0.99 against a blind-
 0.31–0.70 (PKB, T4) — a factor of three between the number an analyst sees by default and the
 number that describes the curve's actual predictive power.
 
-**As-built.** `ABSENT` — the run path computes `r2_train`, `rmse_train`, `n_train` and an
-unshuffled `r2_cv5` (`ml.rs:122`–`:128`); the leaderboard computes a genuine blind-well score but
-`run_ml_eval` "ranks approaches to pick from" and **writes no curves** (`ml.rs:1097`), so the blind
-score is never attached to anything.
+**As-built.** `PRESENT-OK` (2026-08-07), on a foundation that did not exist when this was written:
+SB-MLA-008's work gave `run_ml` a real blind split of its own, so the run path now produces a
+genuine blind score rather than only the leaderboard doing so. What was still missing was the
+attachment, and that is what this closes.
 
-**Verified by.** SB-MLA-T09
+`ml.rs::blind_record` builds the statement ONCE, in the fitting run. It goes into the model's
+metrics — so the apply path copies it verbatim instead of re-deriving it, and a curve made by
+applying a model says exactly what a curve made by the run that fitted it says — and onto every
+fit-path curve's log-set record, **including one whose model was not kept**: "how well does this
+travel" is a question about the curve, not about whether anybody saved the fit.
+
+*The protocol is part of the claim, not a footnote.* A random-row split scores the model on depths
+centimetres from ones it was fitted on, so its number does not answer "will this work on the next
+well". The record carries `protocol` and an explicit `answers_new_well`, because those two numbers
+get quoted as each other otherwise — and only one of them is the claim a reserves figure needs.
+
+*The second half is the one that matters.* Where no blind test was run, the record carries
+`performed: false` and **no value at all**, with the reason in words. A training metric standing in
+for a blind one IS the dossier's cautionary fixture — 0.99 training against 0.31–0.70 blind — and
+it is worse than a blank because it reads as an answer. The same absence is reported where a split
+ran but produced no score, so a half-answer cannot borrow the training number either.
+
+*Visible where the decision is made.* The saved-models list shows a `blind R2 0.31` pill on the row
+you pick a model from, graded on the `--qc-*` status tokens (never the brand accent — a client skin
+must not be able to re-roll the meaning of "this model does not travel"), with the wells, rows and
+protocol in the tooltip. A model that was never blind-tested reads "not blind-tested" in neutral
+colour: an absence of evidence must not look like evidence of a problem, nor like an endorsement.
+`readBlind` in `mlDialog.ts` is the single reader, so the wording cannot drift as more surfaces
+show it — SB-MLA-010's deliverable block is the next consumer.
+
+**Verified by.** SB-MLA-T09 —
+`ml::tests::a_curve_carries_the_blind_score_or_says_there_was_none_and_never_a_training_one`, which
+puts a flattering `r2_train: 0.99` in the same object as `r2_blind: 0.31` and pins that the record
+takes the blind one; and pins the no-split, unscored-split and classification cases from the other
+side.
 
 #### SB-MLA-010 — The deliverable carries the ML provenance block          [P1] [status: ABSENT]
 

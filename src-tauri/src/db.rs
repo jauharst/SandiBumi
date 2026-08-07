@@ -688,8 +688,16 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             note            VARCHAR,
             created_at      TIMESTAMP NOT NULL DEFAULT now(),
             data            BLOB NOT NULL,
+            -- SB-MLA-003. A fingerprint of the exact training matrix: feature names in order, the
+            -- feature and target values, and the row order. `trained_on` + `n_train` narrows a
+            -- re-run but does not pin it — the same wells at a later log-set version are different
+            -- rows with the same names and possibly the same count. NULL on a model saved before
+            -- this existed, which is an honest "not recorded" rather than a hash that means nothing.
+            train_hash      VARCHAR,
             PRIMARY KEY (model_id)
         );
+        -- Added via ALTER so projects written before 2026-08-07 converge on the same shape.
+        ALTER TABLE ml_models ADD COLUMN IF NOT EXISTS train_hash VARCHAR;
 
         -- Special core analysis: capillary-pressure measurements. Several Pc/Sw points
         -- per plug, so no primary key — re-import replaces per well (like core_data).
@@ -2695,6 +2703,10 @@ pub struct MlModelInfo {
     pub note: Option<String>,
     pub created_at: String,
     pub bytes: i64,
+    /// SB-MLA-003 — fingerprint of the exact training rows. `None` on a model saved before the
+    /// column existed: "not recorded" is the truth about such a model, and it must not be
+    /// confusable with a hash.
+    pub train_hash: Option<String>,
 }
 
 fn json_names(s: &str) -> Vec<String> {
@@ -2740,14 +2752,18 @@ pub fn insert_ml_model(
     sklearn_version: Option<&str>,
     note: Option<&str>,
     data: &[u8],
+    // SB-MLA-003 — fingerprint of the exact training matrix. `None` only where the caller genuinely
+    // cannot compute one; a blank string is never stored, because "not recorded" and "hashed to
+    // nothing" must stay distinguishable.
+    train_hash: Option<&str>,
 ) -> DbResult<(String, String)> {
     let name = resolve_model_name(conn, name)?;
     let id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO ml_models (model_id, name, task, algorithm, feature_curves, target_curve,
                                 params_json, metrics_json, trained_on, n_train, standardize,
-                                sklearn_version, note, data)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                                sklearn_version, note, data, train_hash)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             id,
             name,
@@ -2763,6 +2779,7 @@ pub fn insert_ml_model(
             sklearn_version,
             note,
             data,
+            train_hash.map(str::trim).filter(|h| !h.is_empty()),
         ],
     )?;
     Ok((id, name))
@@ -2773,7 +2790,7 @@ pub fn list_ml_models(conn: &Connection) -> DbResult<Vec<MlModelInfo>> {
     let mut stmt = conn.prepare(
         "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
                 metrics_json, trained_on, n_train, standardize, sklearn_version, note,
-                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data)
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), train_hash
          FROM ml_models ORDER BY created_at DESC, name",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -2793,6 +2810,7 @@ pub fn list_ml_models(conn: &Connection) -> DbResult<Vec<MlModelInfo>> {
             note: r.get(12)?,
             created_at: r.get(13)?,
             bytes: r.get(14)?,
+            train_hash: r.get(15)?,
         })
     })?;
     let mut out = Vec::new();
@@ -2807,7 +2825,7 @@ pub fn get_ml_model(conn: &Connection, model_id: &str) -> DbResult<(MlModelInfo,
     let info = conn.query_row(
         "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
                 metrics_json, trained_on, n_train, standardize, sklearn_version, note,
-                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), data
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), train_hash, data
          FROM ml_models WHERE model_id = ?1",
         params![model_id],
         |r| {
@@ -2828,8 +2846,9 @@ pub fn get_ml_model(conn: &Connection, model_id: &str) -> DbResult<(MlModelInfo,
                     note: r.get(12)?,
                     created_at: r.get(13)?,
                     bytes: r.get(14)?,
+                    train_hash: r.get(15)?,
                 },
-                r.get::<_, Vec<u8>>(15)?,
+                r.get::<_, Vec<u8>>(16)?,
             ))
         },
     )?;

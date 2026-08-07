@@ -1234,6 +1234,11 @@ export interface MlModelInfo {
   note: string | null;
   created_at: string;
   bytes: number;
+  /** Fingerprint of the exact training matrix — feature names in order, feature and target values,
+   *  row order. The well list and the sample count cannot tell "the same wells at a later log-set
+   *  version" from "the same rows"; this can. Null on a model saved before it was recorded, which
+   *  is the honest answer for such a model rather than a hash that means nothing. */
+  train_hash: string | null;
 }
 
 export interface MlApplyRequest {

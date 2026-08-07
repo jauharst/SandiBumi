@@ -4538,6 +4538,42 @@ textarea {
 .mc-saved-row button {
   flex: 0 0 auto;
 }
+/* SB-MLA-009 — how well a saved model travels, on the row you pick it from. This is the moment
+   somebody decides to apply a model to fifty wells they have no core in, so the number belongs
+   here rather than one dialog away. A pill because it is a status, not a control: it takes the
+   shape language of a tag (--r-pill) and none of a button's affordance. */
+.ml-blind-tag {
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  background: var(--bg-app);
+  white-space: nowrap;
+}
+/* Graded on the QC status tokens, NOT the brand ones — same reasoning as the Results-QC scorecard:
+   a client skin recolours the application, and it must never be able to re-roll the meaning of
+   "this model does not travel". Graded rather than pass/fail because a blind R2 of 0.55 is neither
+   good news nor bad news on its own; the tint says "read this", the tooltip says what was measured,
+   and the analyst decides. "not blind-tested" stays deliberately neutral — an absence of evidence
+   must not look like evidence of a problem, nor like an endorsement. */
+.ml-blind-tag[data-grade="good"] {
+  color: var(--qc-ok);
+  border-color: color-mix(in srgb, var(--qc-ok) 45%, var(--border));
+  background: color-mix(in srgb, var(--qc-ok) 10%, transparent);
+}
+.ml-blind-tag[data-grade="fair"] {
+  color: var(--qc-warn);
+  border-color: color-mix(in srgb, var(--qc-warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--qc-warn) 10%, transparent);
+}
+.ml-blind-tag[data-grade="weak"] {
+  color: var(--qc-alert);
+  border-color: color-mix(in srgb, var(--qc-alert) 45%, var(--border));
+  background: color-mix(in srgb, var(--qc-alert) 10%, transparent);
+}
 .mc-param-row {
   display: flex;
   align-items: center;

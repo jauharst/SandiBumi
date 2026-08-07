@@ -29,6 +29,42 @@ import { buildWellScope } from "./wellScope";
  *
  *  Algorithm ids must stay in sync with ML_RUNNER in src-tauri/src/ml.rs. */
 
+/** SB-MLA-009 — what a model or a curve says about how well it travels.
+ *
+ *  Written once by the fitting run (`ml.rs::blind_record`), stored in the model's metrics and on
+ *  every curve's log-set record, and read here. `performed: false` carries NO value, deliberately:
+ *  the whole point of the requirement is that a training score must never stand in for a blind one.
+ *  The cautionary case is a delivered project where a predicted curve reached a training
+ *  correlation of 0.99 against a blind-well range of 0.31–0.70. */
+export interface BlindRecord {
+  performed: boolean;
+  metric?: string;
+  value?: number;
+  protocol?: string;
+  /** True only where WHOLE WELLS were held back. A random-row split scores the model on depths
+   *  centimetres from ones it was fitted on, so its number does not answer "will this work on the
+   *  next well" — and the two must never be quoted as each other. */
+  answers_new_well?: boolean;
+  n_blind_wells?: number;
+  n_blind_rows?: number;
+  n_fit_rows?: number;
+  seed?: number;
+  why?: string;
+}
+
+/** One reader for every surface that shows a blind score, so the wording and the fallbacks cannot
+ *  drift between the model list, the run panel and the report. */
+export function readBlind(json: string | null | undefined): BlindRecord | null {
+  if (!json) return null;
+  try {
+    const v = JSON.parse(json) as Record<string, unknown>;
+    const b = (v.blind ?? null) as BlindRecord | null;
+    return b && typeof b === "object" ? b : null;
+  } catch {
+    return null;
+  }
+}
+
 interface ParamSpec {
   key: string;
   label: string;
@@ -734,7 +770,33 @@ export async function buildMlContent(
       desc.title =
         `Trained on: ${m.trained_on.join(", ") || "—"}\n` +
         `scikit-learn ${m.sklearn_version ?? "unknown"}\n` +
-        `Standardized: ${m.standardize ? "yes (the scaler is stored with the model)" : "no"}`;
+        `Standardized: ${m.standardize ? "yes (the scaler is stored with the model)" : "no"}\n` +
+        // SB-MLA-003. The wells and the count do not pin a re-run: the same wells at a later log-set
+        // version are different rows with the same names and often the same count.
+        `Training rows: ${m.train_hash ?? "not recorded (saved before this was kept)"}`;
+
+      // SB-MLA-009. How well the model travels, stated on the row you pick it from — because this
+      // is the moment somebody decides to apply it to fifty wells they have no core in. A model
+      // that was never blind-tested says so; it must never show a training score here instead.
+      const blindTag = document.createElement("span");
+      blindTag.className = "ml-blind-tag";
+      const b = readBlind(m.metrics_json);
+      if (b?.performed) {
+        const v = typeof b.value === "number" ? b.value.toFixed(2) : "—";
+        blindTag.textContent = `blind ${b.metric ?? ""} ${v}`.trim();
+        blindTag.dataset.grade = typeof b.value === "number" ? (b.value >= 0.7 ? "good" : b.value >= 0.4 ? "fair" : "weak") : "none";
+        blindTag.title =
+          `Measured on ${b.n_blind_rows ?? "?"} row(s) in ${b.n_blind_wells ?? 0} well(s) the model was not fitted on, held back as ${b.protocol ?? "?"}.\n` +
+          (b.answers_new_well
+            ? "Whole wells were held back, so this is what the model does on a well it has never seen."
+            : "Rows were drawn from wells the model also trained on, so this says the relationship is learnable here — not that it travels to a new well.");
+      } else {
+        blindTag.textContent = "not blind-tested";
+        blindTag.dataset.grade = "none";
+        blindTag.title =
+          "This model was fitted without holding anything back, so there is no measurement of how it performs on data it has not seen. " +
+          "Its training score is not that measurement and is deliberately not shown here.";
+      }
       const applyBtn = document.createElement("button");
       applyBtn.type = "button";
       applyBtn.textContent = "Apply to scope";
@@ -744,7 +806,7 @@ export async function buildMlContent(
       const delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.textContent = "Delete";
-      row.append(desc, applyBtn, renameBtn, delBtn);
+      row.append(desc, blindTag, applyBtn, renameBtn, delBtn);
       savedList.appendChild(row);
 
       applyBtn.addEventListener("click", async () => {
