@@ -8589,3 +8589,30 @@ accepted. It is 95 KB now — a third of the size — and nothing was deleted.
 - [ ] One thing to watch, and the reason to click through rather than take my word: the split was
       done by line range. If a future session finds a contract in a `record_*.md` that CLAUDE.md
       should have kept, that is the failure mode — tell me and it comes back up.
+
+### Reframe: regularize, and putting several wells on one frame
+
+Two capabilities the roadmap had listed as shipped since the day they were planned, and which
+did not exist. They are in the **Reframe** pane, not the Frame module group — a module returns a
+vector aligned to whatever frame it was handed, so it cannot change the sampling at all, which is
+why `block` upscales by replacing values at the well's own depths.
+
+- [ ] **Regularize.** Open Reframe, pick a source, choose *Make the existing sampling uniform* and
+      leave the step box empty. It takes the source's own median spacing. The point is that a
+      log delivered at a wobbling 0.1524 stays at 0.1524 — reading the number off the probe and
+      typing it back is only a chance to get it wrong. Put a number in the box and that wins.
+- [ ] **Put every well on one frame.** Tick *Align* with several wells selected. Every well comes
+      out on the same top, base and step, not merely the same step. This was a real defect and not
+      just a missing feature: a plain step re-frame anchored each well on its own first depth, so
+      ten wells re-framed at 0.5 landed on 1500.00, 1500.50 … and 1498.25, 1498.75 …. Every read
+      in this app is an exact depth match, so nothing downstream could line those wells up — the
+      exact failure Reframe exists to fix, reappearing one level up. Check a crossplot or a
+      multi-well overlay across the aligned set.
+- [ ] **Depths a well has no data for come back MISSING**, and the run says so in its notes. The
+      shared frame spans every selected well, so a shallow well acquires empty rows at the deep
+      end. That is the same rule `match_well` already followed — a borrowed frame is taken whole.
+- [ ] **Regularize plus Align without a step is refused**, by name, rather than run. Each well has
+      its own spacing, so adopting one would quietly make that well the standard for the field.
+      State the step and it proceeds.
+- [ ] `match_well` and `match_set` ignore the Align tick, because they are already aligned by
+      construction — the frame is borrowed whole from one place.

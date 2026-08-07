@@ -91,6 +91,58 @@ and the first version mode-averaged it to 80 where the rock averages 60. Codes m
 in their own range, or small enough (`OBVIOUS_CLASS_CODE`) that no measurement could be mistaken
 for them. It stays a guess, which is why the resolved method is REPORTED per curve.
 
+### Regularize, and one frame across wells (2026-08-07)
+
+Two capabilities the roadmap listed under a ✅ from the day they were SCOPED, and which did not
+exist — `resample`, `regularize` and `align_multiwell` were carried as shipped Frame modules for
+two days. The correction is not just the checkbox: **they were never Frame modules and cannot be.**
+A module is handed a curve frame and returns a vector aligned to it, so it cannot change the sample
+count at all. `frame::block` looks like an exception and is the proof — it upscales by replacing
+values at the well's own depths rather than by producing fewer of them, which is exactly why a
+blocked curve is written `draw_style: "step"`. Anything that changes the sampling has to write a
+new set with its own depth column, and that is Reframe. Jauhar's own redirect on 2026-08-05 said
+so before the code did: *"resample and regularize, log cons/set should be have independent
+sampling."*
+
+**Regularize takes the source's OWN spacing when no step is given.** The operation is "make this
+uniform", not "make this coarser": a delivery whose depths wobble around 0.1524 should come out at
+0.1524, and asking the user to read that number off the probe and type it back is only a chance to
+get it wrong. It falls back to the median rather than the mean or the modal gap — one dropped
+interval in a thousand moves a mean and cannot move a median. A source whose depths do not advance
+is refused by name rather than divided by zero.
+
+**A shared step is not a shared frame, and this closed a real defect.** The `step` target anchored
+each well on its own first depth (`target.top.unwrap_or(src_top)`), so ten wells re-framed at 0.5
+came out on 1500.00, 1500.50 … and 1498.25, 1498.75 …: the same STEP, no common DEPTH. Every read
+here is an exact depth match, so nothing downstream could line those wells up — **the exact failure
+Reframe exists to fix, reappearing one level up.** `TargetSpec.align` folds a MIN/MAX depth query
+across the selected wells and hands every one of them the same top, base and step. `match_well` and
+`match_set` never had the defect and ignore the flag, because a borrowed frame is taken WHOLE — the
+file already reasoned that this is what makes two wells come out on the same rows; `align` gives a
+computed frame the same guarantee.
+
+Depths a well has no data for come back **MISSING**, stated in the run's notes rather than left to
+be discovered. That is the same rule the borrowed frame follows, and the honest one: a shallow well
+on a field-wide frame has no measurements at the deep end, and a gap says so where an interpolation
+would not.
+
+**Regularize plus align without an explicit step is REFUSED.** Each well has its own spacing, so
+the fallback would have to elect one — and whichever well won would silently become the standard
+for the field, in a run whose output looks entirely plausible. It is the `gr_normalize` argument:
+where there is no generic answer, refuse by name rather than pick.
+
+The shared interval comes from `source_extent`, a `MIN(depth)/MAX(depth)` aggregate per source
+kind, so the alignment pass does not read every well's curve data a second time — the per-well pass
+still reads each source exactly once. It deliberately spans the source's WHOLE range rather than
+only the curves being re-framed: the frame is a property of the delivery, and a set whose extent
+changed with the curve selection would not be one frame at all.
+
+Pinned by `aligned_wells_land_on_identical_depths_not_merely_the_same_step`, which asserts from
+both sides — the aligned wells must share every depth AND the unaligned ones must share none, or a
+flag that did nothing would pass — plus
+`regularize_adopts_the_sources_own_spacing_when_no_step_is_given` and
+`regularize_across_wells_refuses_rather_than_electing_one_wells_spacing`.
+
 ### One Normalize, for any curve
 
 `condition::normalize` — any curve, three methods (percentile pair / min-max / z-score), LINEAR or

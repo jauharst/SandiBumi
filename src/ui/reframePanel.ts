@@ -84,6 +84,7 @@ export async function buildReframeContent(
   tgtKind.className = "form-control";
   for (const [v, t] of [
     ["step", "A sampling I give"],
+    ["regularize", "Make the existing sampling uniform"],
     ["match_well", "Match another well's sampling"],
     ["match_set", "Match another set's sampling"],
   ]) {
@@ -110,7 +111,18 @@ export async function buildReframeContent(
   );
   const matchWellRow = formRow("Well", matchWell, "Its standard depth grid becomes this well's frame.");
   const matchSetRow = formRow("Set", matchSet, "A set that carries its own frame.");
-  grid.append(stepRow, matchWellRow, matchSetRow);
+  const alignBox = document.createElement("input");
+  alignBox.type = "checkbox";
+  alignBox.className = "form-check";
+  const alignControl = document.createElement("label");
+  alignControl.append(alignBox, document.createTextNode(" Put every well on one frame"));
+  const alignRow = formRow("Align", alignControl);
+  const alignHint = document.createElement("p");
+  alignHint.className = "form-hint";
+  alignHint.textContent =
+    "Same top, base and step for every well, so they can be compared depth by depth. Without it " +
+    "each well anchors on its own first reading and no two share a depth.";
+  grid.append(stepRow, matchWellRow, matchSetRow, alignRow, alignHint);
 
   // --- Method ---------------------------------------------------------------
   const method = document.createElement("select");
@@ -190,9 +202,13 @@ export async function buildReframeContent(
   // --- Behaviour ------------------------------------------------------------
   const syncRows = (): void => {
     srcNameRow.hidden = srcKind.value === "standard";
-    stepRow.hidden = tgtKind.value !== "step";
+    stepRow.hidden = tgtKind.value !== "step" && tgtKind.value !== "regularize";
+    stepInput.placeholder = tgtKind.value === "regularize" ? "optional - defaults to the source's own spacing" : "e.g. 0.5";
     matchWellRow.hidden = tgtKind.value !== "match_well";
     matchSetRow.hidden = tgtKind.value !== "match_set";
+    const alignApplicable = tgtKind.value === "step" || tgtKind.value === "regularize";
+    alignRow.hidden = !alignApplicable;
+    alignHint.hidden = !alignApplicable;
   };
   srcKind.addEventListener("change", () => {
     syncRows();
@@ -248,8 +264,14 @@ export async function buildReframeContent(
       status.textContent = "No wells in scope — pick a group, pin/select wells, or choose All.";
       return null;
     }
-    if (tgtKind.value === "step" && !(parseFloat(stepInput.value) > 0)) {
+    const stepGiven = parseFloat(stepInput.value) > 0;
+    if (tgtKind.value === "step" && !stepGiven) {
       status.textContent = "Set the sampling to re-frame onto.";
+      stepInput.focus();
+      return null;
+    }
+    if (tgtKind.value === "regularize" && alignBox.checked && !stepGiven) {
+      status.textContent = "Aligning every well onto one frame needs a step — the source wells don't share one.";
       stepInput.focus();
       return null;
     }
@@ -267,7 +289,8 @@ export async function buildReframeContent(
         .filter(Boolean),
       target: {
         kind: tgtKind.value,
-        step: tgtKind.value === "step" ? parseFloat(stepInput.value) : null,
+        step: (tgtKind.value === "step" || tgtKind.value === "regularize") && stepGiven ? parseFloat(stepInput.value) : null,
+        align: alignBox.checked,
         well_id: allWells.find((w) => w.well_name === matchWell.value)?.well_id ?? null,
         set_name: matchSet.value || null,
         top: null,
