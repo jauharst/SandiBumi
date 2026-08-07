@@ -1174,6 +1174,28 @@ export interface MlRequest {
    *  bounded as well by user"*). A model fitted over a whole well learns one relation for every
    *  formation it passed through. Omit for the whole logged interval. */
   interval?: DepthWindow;
+  /** What the feature space is normalized AGAINST, when `standardize` is on.
+   *
+   *  Omit or null for the data-derived basis every run used before this existed: mean and spread
+   *  computed from the samples in hand. `"limits"` uses the fixed per-curve ranges in `norm_limits`.
+   *
+   *  **This is the add-a-well trap.** On a data-derived basis, adding one well recomputes every mean
+   *  and scale, which moves every boundary expressed in them — in the wells that were *already
+   *  there*. Nothing reports that anything changed and both answers look reasonable. A basis fixed
+   *  to limits the analyst chose is stable across wells. */
+  norm_basis?: string | null;
+  /** Fixed per-curve limits for `norm_basis: "limits"`. Matched to features by name and re-ordered
+   *  into the resolved feature order by the backend, so a caller can no more reorder a basis than it
+   *  can reorder the features. Never filled in for you: a run whose inputs are not all covered is
+   *  refused, because the same curve over two ranges gives two answers and both look right. */
+  norm_limits?: CurveLimit[];
+}
+
+/** One curve's fixed normalization range. */
+export interface CurveLimit {
+  curve: string;
+  low: number;
+  high: number;
 }
 
 /** One feature subset a coverage-segmented run fitted a model for, or declined to. Reported per

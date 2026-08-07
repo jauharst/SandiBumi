@@ -836,7 +836,46 @@ from sklearn.preprocessing import StandardScaler
 seed = int(P(p, "seed", SEED_DEFAULT))
 supervised = task in ("regression", "classification")
 metrics = {}
-if bool(P(p, "standardize", True)):
+norm_basis = str(header.get("norm_basis") or "data")
+norm_limits = header.get("norm_limits") or []
+if bool(P(p, "standardize", True)) and norm_basis == "limits":
+    # SB-MLA-033. A basis that does NOT come from the samples in hand, so adding a well to the
+    # build set cannot move it - and therefore cannot move every boundary in the wells that were
+    # already there. Rust has already checked that every feature has a usable pair and put them
+    # in feature order; nothing is inferred here.
+    #
+    # Carried in a StandardScaler rather than applied inline, because the scaler is what travels
+    # in the joblib dump. Doing the arithmetic here and dumping scaler=None would leave the
+    # artifact silently un-normalised on apply - the exact "different transform, quietly wrong
+    # rather than obviously broken" failure the artifact design exists to prevent. Setting
+    # mean_ = low and scale_ = high - low makes transform() compute (x - low) / (high - low),
+    # which maps the declared range onto 0..1.
+    lo = np.array([float(a) for a, _ in norm_limits], dtype=float)
+    hi = np.array([float(b) for _, b in norm_limits], dtype=float)
+    scaler = StandardScaler()
+    scaler.mean_ = lo
+    scaler.scale_ = hi - lo
+    scaler.var_ = scaler.scale_ ** 2
+    scaler.n_features_in_ = int(lo.shape[0])
+    scaler.n_samples_seen_ = 0
+    Xs = scaler.transform(X) if n_train else X
+    As = scaler.transform(A) if n_apply else A
+    metrics["norm_basis"] = "limits"
+    metrics["pre_transform"] = (
+        "inputs normalised onto 0..1 against FIXED limits you set, not against the samples in "
+        "this run. The basis does not move when the well set changes, so a boundary found today "
+        "means the same thing after another well is added. A parameter in distance units - "
+        "DBSCAN eps above all - is in fractions of each curve's declared range."
+    )
+    metrics["standardize_basis_mean"] = [round(float(v), 6) for v in lo]
+    metrics["standardize_basis_scale"] = [round(float(v), 6) for v in (hi - lo)]
+    # Values outside the declared range are NOT clipped: they land below 0 or above 1 and stay
+    # ordered. Clipping would quietly merge everything past the limit into one value, which on a
+    # distance-based method reads as a population of identical rock.
+    _oob = int(np.sum((X < lo) | (X > hi))) if n_train else 0
+    if _oob:
+        metrics["norm_out_of_range"] = _oob
+elif bool(P(p, "standardize", True)):
     # Fitted on the FIT rows only when a blind split is in force. A scaler that has seen the
     # blind wells' mean and scale makes the blind score optimistic by construction - the same
     # leak SB-MLA-028 closed in the leaderboard, and it would arrive here through the back door.
@@ -844,16 +883,23 @@ if bool(P(p, "standardize", True)):
     scaler = StandardScaler().fit(basis)
     Xs = scaler.transform(X) if n_train else X
     As = scaler.transform(A) if n_apply else A
+    metrics["norm_basis"] = "data"
     # SB-MLA-034 / SB-MLA-032. The pre-transform is ANNOUNCED, and so is the basis it was fitted on.
     # Standardisation is not cosmetic: it is what makes a DBSCAN eps meaningful, what stops a
     # resistivity in ohm-m dominating a porosity in v/v on any distance-based method, and it is
     # fitted on a particular set of rows - so the same model applied to a different well set is
     # standing on a different mean and scale. A user reading "eps = 0.5" needs to know that 0.5 is in
     # standard deviations of THIS basis.
+    # SB-MLA-033's other half. The basis is DERIVED FROM THIS SELECTION, so it moves when the
+    # selection does - and every boundary expressed in it moves with it, in the wells that were
+    # already there. Saying so on every data-derived run is the only warning available at fit time;
+    # the size of the move is reported on a retrain, where there is a previous basis to compare to.
     metrics["pre_transform"] = (
         "inputs standardised to zero mean and unit variance, fitted on %s (%d row(s)). Any parameter "
         "in distance units - DBSCAN eps above all - is in standard deviations of that basis, not in "
-        "the curves' own units." % (
+        "the curves' own units. This basis is computed from the wells in THIS run: change the well "
+        "set and it is recomputed, which moves every boundary expressed in it - including in the "
+        "wells you did not touch. Use fixed limits if you need a basis that holds still." % (
             "the FIT rows only, so the blind wells' mean and scale never reach the model"
             if (supervised and fit_rows is not None) else
             ("the training rows" if supervised else "the wells being clustered"),
@@ -1606,6 +1652,208 @@ pub struct MlRequest {
     /// pre-existing payload keeps running over the whole well.
     #[serde(default)]
     pub interval: DepthWindow,
+    /// What the feature space is normalised AGAINST, when `standardize` is on (`SB-MLA-033`).
+    ///
+    /// `None` / `"data"` is the data-derived basis every run used before this existed: mean and
+    /// scale computed from the samples in hand. `"limits"` uses the fixed per-curve limits in
+    /// [`MlRequest::norm_limits`], which belong to the analyst rather than to the current selection.
+    ///
+    /// **This is the add-a-well trap, and it is silent.** On a data-derived basis, adding one well
+    /// to a model-build set recomputes every mean and every scale, which moves every cluster
+    /// boundary and every distance threshold in the wells that were *already there* — a `DBSCAN`
+    /// `eps` of 0.5 is 0.5 standard deviations of whatever happened to be selected. The old
+    /// interpretation does not come back, nothing reports that anything changed, and both answers
+    /// look equally reasonable. A basis fixed to limits the analyst chose is stable across wells, so
+    /// the same rock lands in the same place whoever else is in the run.
+    #[serde(default)]
+    pub norm_basis: Option<String>,
+    /// Fixed per-curve limits for `norm_basis = "limits"`. Matched to features BY NAME here and
+    /// re-ordered into the resolved feature order before they are sent, so a caller can no more
+    /// reorder a basis than it can reorder the features themselves.
+    ///
+    /// **Ships empty and is never filled in by the backend.** A limit is a statement about what
+    /// range of a curve matters in this field, which is exactly the kind of number `SB-CORE-004`
+    /// forbids inventing — a GR normalised 0–150 and one normalised 0–200 give different clusters,
+    /// and both look right. A `"limits"` run whose features are not all covered is REFUSED.
+    #[serde(default)]
+    pub norm_limits: Vec<CurveLimit>,
+}
+
+/// One curve's fixed normalisation range (`SB-MLA-033`).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CurveLimit {
+    pub curve: String,
+    pub low: f64,
+    pub high: f64,
+}
+
+/// The declared normalisation bases. A string on the wire, an enum here, so an unrecognised value
+/// is refused by name instead of falling through to whichever branch happens to be the `else`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum NormBasis {
+    /// Mean and scale from the samples in hand — what every run did before `SB-MLA-033`.
+    Data,
+    /// Fixed limits, in resolved feature order: `(low, high)` per feature.
+    Limits(Vec<(f64, f64)>),
+}
+
+/// Resolves the request's declared basis against its resolved feature order, or refuses.
+///
+/// Refuses rather than substitutes, in all three failure modes, because each of them has a
+/// plausible-looking fallback that would silently change the answer: a missing limit could fall back
+/// to the data-derived basis (which is the very thing the user asked to avoid), an inverted pair
+/// could be swapped (making the transform negative-going without saying so), and a zero-width pair
+/// could be nudged (dividing by a number nobody chose).
+pub(crate) fn resolve_norm_basis(
+    basis: Option<&str>,
+    limits: &[CurveLimit],
+    features: &[String],
+) -> Result<NormBasis, String> {
+    match basis.map(str::trim).unwrap_or("").to_lowercase().as_str() {
+        "" | "data" => Ok(NormBasis::Data),
+        "limits" => {
+            let mut out = Vec::with_capacity(features.len());
+            let mut missing: Vec<&str> = Vec::new();
+            for f in features {
+                match limits.iter().find(|l| l.curve.trim().eq_ignore_ascii_case(f)) {
+                    Some(l) if l.low.is_finite() && l.high.is_finite() && l.high > l.low => {
+                        out.push((l.low, l.high))
+                    }
+                    Some(l) => {
+                        return Err(format!(
+                            "the fixed limits for {f} are {} to {} - the high limit has to be above \
+                             the low one, and neither can be blank. Fix that pair or switch the \
+                             basis back to the data in hand",
+                            l.low, l.high
+                        ))
+                    }
+                    None => missing.push(f),
+                }
+            }
+            if !missing.is_empty() {
+                return Err(format!(
+                    "a fixed normalisation basis needs a low and a high for EVERY input, and {} \
+                     has none: {}. SandiBumi will not choose them - a curve normalised over one \
+                     range and the same curve normalised over another give different answers and \
+                     both look right",
+                    if missing.len() == 1 { "this input" } else { "these inputs" },
+                    missing.join(", ")
+                ));
+            }
+            Ok(NormBasis::Limits(out))
+        }
+        other => Err(format!(
+            "unknown normalisation basis '{other}' - use 'data' for the samples in hand, or \
+             'limits' for fixed per-curve limits"
+        )),
+    }
+}
+
+/// Pulls a stored basis out of a model's `metrics_json`: `(kind, means, scales)`.
+fn stored_basis(metrics_json: &str) -> Option<(String, Vec<f64>, Vec<f64>)> {
+    let v: serde_json::Value = serde_json::from_str(metrics_json).ok()?;
+    let nums = |k: &str| -> Option<Vec<f64>> {
+        Some(v.get(k)?.as_array()?.iter().filter_map(serde_json::Value::as_f64).collect())
+    };
+    let kind = v.get("norm_basis").and_then(|k| k.as_str()).unwrap_or("data").to_string();
+    Some((kind, nums("standardize_basis_mean")?, nums("standardize_basis_scale")?))
+}
+
+/// SB-MLA-033's reporting half — how far the feature space MOVED between the model a name already
+/// pointed at and the one just fitted under a suffixed name.
+///
+/// A retrain on a changed well set is exactly the case the requirement names, and
+/// `db::resolve_model_name` already detects it: the new model is stored as `PERM_RF_1` precisely
+/// because `PERM_RF` is still there. That is the one moment a previous basis exists to compare
+/// against, so it is where the comparison belongs.
+///
+/// The movement is quoted in **standard deviations of the OLD basis**, because that is the unit
+/// every threshold carried over from the earlier model is expressed in — a DBSCAN `eps` of 0.5, a
+/// cluster edge, a distance cutoff. Saying "the mean moved 4 API" would leave the reader to work out
+/// whether that matters; saying it moved 0.42 of the spread the old model was reading in says it.
+///
+/// Silent when nothing moved, which is the honest outcome of a retrain on identical data — a note
+/// that fires on every retrain is one people stop reading.
+fn basis_shift_note(
+    conn: &Connection,
+    desired: &str,
+    stored_name: &str,
+    metrics: &serde_json::Value,
+    features: &[String],
+) -> Option<String> {
+    // No collision means no earlier model of this name, so there is nothing this fit replaced and
+    // nothing to have moved away from.
+    if desired.trim().eq_ignore_ascii_case(stored_name) {
+        return None;
+    }
+    let (prev_json, prev_feats): (String, String) = conn
+        .query_row(
+            "SELECT metrics_json, feature_curves FROM ml_models WHERE upper(name) = upper(?1) LIMIT 1",
+            duckdb::params![desired.trim()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok()?;
+    let (old_kind, old_mean, old_scale) = stored_basis(&prev_json)?;
+    let (new_kind, new_mean, new_scale) = stored_basis(&metrics.to_string())?;
+
+    // A basis is a vector in feature order, so comparing across different feature lists would be
+    // comparing GR's mean against RHOB's. Say so rather than lining them up by position.
+    let prev_list: Vec<String> = serde_json::from_str(&prev_feats).unwrap_or_default();
+    if prev_list.len() != features.len()
+        || !prev_list.iter().zip(features).all(|(a, b)| a.eq_ignore_ascii_case(b))
+    {
+        return Some(format!(
+            "'{}' was fitted on different inputs ({}), so its feature space and this one cannot be \
+             compared - treat any threshold carried over from it as meaningless here",
+            desired.trim(),
+            prev_list.join(", ")
+        ));
+    }
+    if old_kind != new_kind {
+        return Some(format!(
+            "the normalisation basis CHANGED between '{}' ({old_kind}) and this fit ({new_kind}). \
+             Every threshold expressed in the old basis - a DBSCAN eps above all - is in different \
+             units here, even where the numbers look comparable",
+            desired.trim()
+        ));
+    }
+    if old_kind == "limits" {
+        // Fixed limits are the point of the feature: if they are the same, nothing moved, and if the
+        // user changed them they changed them deliberately and the pair above already said so.
+        return None;
+    }
+    if old_mean.len() != new_mean.len() || old_mean.len() != features.len() {
+        return None;
+    }
+
+    // Largest mover, in old standard deviations for the centre and as a ratio for the spread.
+    let mut worst: Option<(&str, f64, f64)> = None;
+    for i in 0..features.len() {
+        let os = old_scale.get(i).copied().unwrap_or(0.0);
+        if !(os.is_finite() && os > 0.0) {
+            continue;
+        }
+        let shift = ((new_mean[i] - old_mean[i]) / os).abs();
+        let ratio = new_scale.get(i).copied().unwrap_or(os) / os;
+        if worst.is_none_or(|(_, s, _)| shift > s) {
+            worst = Some((features[i].as_str(), shift, ratio));
+        }
+    }
+    let (curve, shift, ratio) = worst?;
+    // Below this the two spaces are the same space to any practical reading, and a note about a
+    // move of 0.001 standard deviations would train the user to ignore the ones that matter.
+    if shift < 0.01 && (ratio - 1.0).abs() < 0.01 {
+        return None;
+    }
+    Some(format!(
+        "the feature space was RESCALED against '{}': the basis is derived from the wells in each \
+         run, and this run's wells are not that run's. {curve} moved most - its centre by {shift:.2} \
+         standard deviations of the old basis, its spread to {:.0}% of what it was. A boundary or a \
+         distance threshold read off the earlier model does NOT mean the same thing here, including \
+         in the wells both runs share. Fixed limits would have held the basis still",
+        desired.trim(),
+        ratio * 100.0
+    ))
 }
 
 /// Applying an already-fitted model. Deliberately NOT an `MlRequest`: there is no training
@@ -2647,20 +2895,28 @@ fn run_ml_coverage(
             .map(|s| format!("{s}_{sd}CURVE"));
         let save_features = save_name.as_ref().map(|_| sub.as_slice());
 
-        let run = match exec_ml_full(
-            &python,
-            &req.task,
-            &req.algorithm,
-            &req.params,
-            sd,
-            &x_train,
-            Some(&y_train),
-            &x_apply,
-            n_apply,
-            save_features,
-            Some(&groups),
-            &blind_mask,
-        ) {
+        // SB-MLA-033, resolved against THIS segment's features rather than the full list. Each
+        // segment is a separate model over a different subset, so it takes the limits for the
+        // curves it actually uses — a basis carrying a column the model never sees would put the
+        // pairs out of step with the matrix.
+        let run = match resolve_norm_basis(req.norm_basis.as_deref(), &req.norm_limits, &sub)
+            .and_then(|norm| {
+                exec_ml_full(
+                    &python,
+                    &req.task,
+                    &req.algorithm,
+                    &req.params,
+                    sd,
+                    &x_train,
+                    Some(&y_train),
+                    &x_apply,
+                    n_apply,
+                    save_features,
+                    Some(&groups),
+                    &blind_mask,
+                    &norm,
+                )
+            }) {
             Ok(r) => r,
             Err(e) => {
                 segments.push(CoverageSegment {
@@ -3438,7 +3694,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     let mut roster: Vec<TrainWellRecord> = Vec::new();
     let mut apply: Vec<ApplyWell> = Vec::new();
     let mut x_apply: Vec<f32> = Vec::new();
-    let mut frame_report: Vec<String> = Vec::new();
+    let frame_report: Vec<String>;
     {
         let conn = db.lock().unwrap();
         if supervised {
@@ -3708,6 +3964,12 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         }
     });
 
+    // SB-MLA-033. Resolved AFTER the features are resolved and before anything is fitted, so a
+    // basis that does not cover the inputs costs the user a message rather than a run.
+    let norm = match resolve_norm_basis(req.norm_basis.as_deref(), &req.norm_limits, &features) {
+        Ok(n) => n,
+        Err(e) => return fail(&e),
+    };
     match exec_ml_full(
         &python,
         &req.task,
@@ -3721,6 +3983,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         save_features,
         if supervised { Some(groups.as_slice()) } else { None },
         &blind_mask,
+        &norm,
     ) {
         Err(e) => fail(&e),
         Ok(MlRun { mut metrics, outs, model_blob, sklearn, runtime }) => {
@@ -3953,6 +4216,11 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                                 notes.push(format!(
                                     "a model named '{name}' already exists, so this one was saved as '{stored}' - retraining makes a NEW model rather than replacing the one an existing curve was made with"
                                 ));
+                                // SB-MLA-033. The rename already told the user there are now two
+                                // models; this says whether they are two models of the same space.
+                                if let Some(n) = basis_shift_note(&conn, name, &stored, &metrics, &features) {
+                                    notes.push(n);
+                                }
                             }
                             model_id = Some(id);
                             model_name = Some(stored);
@@ -4550,8 +4818,11 @@ pub(crate) fn exec_ml(
     x_apply: &[f32],
     n_apply: usize,
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>), String> {
-    exec_ml_full(python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None, None, &[])
-        .map(|r| (r.metrics, r.outs))
+    exec_ml_full(
+        python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None, None, &[],
+        &NormBasis::Data,
+    )
+    .map(|r| (r.metrics, r.outs))
 }
 
 /// What one fitting subprocess returned. A named struct rather than the 4-tuple this used to be:
@@ -4589,12 +4860,22 @@ pub(crate) fn exec_ml_full(
     // drawing individual rows reach the runner as the same thing and cannot diverge there.
     groups: Option<&[f32]>,
     blind_mask: &[f32],
+    // SB-MLA-033. Already resolved against the feature order by `resolve_norm_basis`, so the runner
+    // receives positions and never has to match a curve name — the same discipline the ordered
+    // feature contract follows, for the same reason.
+    norm: &NormBasis,
 ) -> Result<MlRun, String> {
     let n_train = if d == 0 { 0 } else { x_train.len() / d };
     let groups = groups.filter(|g| g.len() == n_train);
     // A mask of the wrong length is dropped rather than sent: the runner reads a fixed byte count
     // from the payload, so a short one would silently shift every column after it.
     let blind_mask = if blind_mask.len() == n_train { blind_mask } else { &[][..] };
+    let (norm_basis, norm_limits) = match norm {
+        NormBasis::Data => ("data", vec![]),
+        NormBasis::Limits(pairs) => {
+            ("limits", pairs.iter().map(|&(a, b)| vec![a, b]).collect::<Vec<_>>())
+        }
+    };
     let header = serde_json::json!({
         "task": task, "algorithm": algorithm, "params": params,
         "d": d, "n_train": n_train, "has_target": y_train.is_some(), "n_apply": n_apply,
@@ -4602,6 +4883,8 @@ pub(crate) fn exec_ml_full(
         "features": save_features.unwrap_or(&[]),
         "has_groups": groups.is_some(),
         "has_blind": !blind_mask.is_empty(),
+        "norm_basis": norm_basis,
+        "norm_limits": norm_limits,
     });
 
     let script = ScriptFile::new("fit", &ml_runner())
@@ -5559,6 +5842,8 @@ mod tests {
             coverage_segments: false,
             output_step: None,
             interval: DepthWindow::default(),
+            norm_basis: None,
+            norm_limits: vec![],
         }
     }
 
@@ -7299,6 +7584,150 @@ mod tests {
             runtime_json: None,
             sklearn_version: Some("1.5.0"),
         }
+    }
+
+    /// **SB-MLA-033.** A fixed basis is a set of numbers only the analyst can supply — a GR
+    /// normalised 0–150 and the same GR normalised 0–200 give different clusters and both look
+    /// right. So an incomplete or unusable basis is REFUSED by name rather than completed from the
+    /// data, which is precisely the thing the user asked to stop doing.
+    ///
+    /// Pinned from both sides. A complete basis must resolve, or the refusals are just a broken
+    /// feature; and the DEFAULT must stay data-derived, or every payload written before this
+    /// existed would start refusing.
+    #[test]
+    fn a_fixed_basis_is_refused_rather_than_completed_when_a_curve_has_no_limits() {
+        let feats: Vec<String> = vec!["GR".into(), "RHOB".into()];
+        let lim = |c: &str, lo: f64, hi: f64| CurveLimit { curve: c.into(), low: lo, high: hi };
+
+        // Complete and usable — resolves.
+        let ok = resolve_norm_basis(
+            Some("limits"),
+            &[lim("GR", 0.0, 150.0), lim("RHOB", 1.9, 2.9)],
+            &feats,
+        )
+        .expect("a complete basis must resolve");
+        match ok {
+            NormBasis::Limits(p) => assert_eq!(p, vec![(0.0, 150.0), (1.9, 2.9)]),
+            NormBasis::Data => panic!("asked for limits, got the data-derived basis"),
+        }
+
+        // One curve uncovered — refused, and the message NAMES it, because "invalid basis" leaves
+        // the user checking every row of the table by hand.
+        let err = resolve_norm_basis(Some("limits"), &[lim("GR", 0.0, 150.0)], &feats).unwrap_err();
+        assert!(err.contains("RHOB"), "the uncovered curve must be named: {err}");
+        assert!(!err.to_lowercase().contains("gr,"), "the covered curve must not be blamed: {err}");
+
+        // Inverted and zero-width pairs are refused too. Both have a plausible-looking repair —
+        // swap them, nudge them apart — and both would silently change the transform.
+        for (lo, hi) in [(150.0, 0.0), (150.0, 150.0)] {
+            let e = resolve_norm_basis(
+                Some("limits"),
+                &[lim("GR", lo, hi), lim("RHOB", 1.9, 2.9)],
+                &feats,
+            )
+            .unwrap_err();
+            assert!(e.contains("GR"), "the bad pair must be named: {e}");
+        }
+
+        // The other side: nothing declared is the data-derived basis, exactly as before this
+        // existed. An older payload carries neither field and must run unchanged.
+        for basis in [None, Some(""), Some("data")] {
+            assert!(
+                matches!(resolve_norm_basis(basis, &[], &feats), Ok(NormBasis::Data)),
+                "{basis:?} must stay data-derived"
+            );
+        }
+        // An unrecognised value is refused rather than falling through to either branch.
+        assert!(resolve_norm_basis(Some("minmax"), &[], &feats).is_err());
+    }
+
+    /// **SB-MLA-033, the silent half.** The basis reaches the runner as bare positions, so a pair
+    /// out of step with the matrix would normalise GR by RHOB's range — and that computes, plots and
+    /// ships. Limits are therefore matched BY NAME and re-ordered into the resolved feature order,
+    /// the same discipline the ordered-feature contract follows, for the same reason.
+    ///
+    /// Pinned from both sides: supplied out of order they must follow the FEATURES, and a
+    /// case-different name must still match, or a user typing `gr` would get a spurious refusal.
+    #[test]
+    fn fixed_limits_follow_the_feature_order_not_the_order_they_were_supplied_in() {
+        let feats: Vec<String> = vec!["GR".into(), "RHOB".into(), "NPHI".into()];
+        // Supplied in a deliberately different order, one of them lower-cased.
+        let limits = vec![
+            CurveLimit { curve: "NPHI".into(), low: 0.0, high: 0.6 },
+            CurveLimit { curve: "gr".into(), low: 0.0, high: 150.0 },
+            CurveLimit { curve: "RHOB".into(), low: 1.9, high: 2.9 },
+        ];
+        let NormBasis::Limits(pairs) = resolve_norm_basis(Some("limits"), &limits, &feats).unwrap()
+        else {
+            panic!("expected fixed limits");
+        };
+        assert_eq!(
+            pairs,
+            vec![(0.0, 150.0), (1.9, 2.9), (0.0, 0.6)],
+            "the basis must be in FEATURE order, not supplied order"
+        );
+    }
+
+    /// **SB-MLA-033, the reporting half — the add-a-well trap.** On a data-derived basis, adding one
+    /// well recomputes every mean and scale, so every boundary expressed in it moves *in the wells
+    /// that were already there*. Nothing about the new run looks wrong; the old interpretation
+    /// simply no longer means what it did, and both answers are equally plausible on the screen.
+    ///
+    /// Pinned from both sides, and the second side is what makes the first usable: a retrain on
+    /// data that did NOT move the basis must stay quiet, or the note fires on every retrain and
+    /// stops being read. The movement is quoted in standard deviations of the OLD basis because
+    /// that is the unit every carried-over threshold is already in.
+    #[test]
+    fn a_retrain_that_moves_the_feature_space_says_so_and_one_that_does_not_stays_quiet() {
+        use crate::db;
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let feats: Vec<String> = vec!["GR".into(), "RHOB".into()];
+        let on: Vec<String> = vec!["A".into()];
+        let blob = vec![1u8, 2, 3];
+
+        // The model the name already points at: GR centred on 75 with a spread of 20.
+        let basis = |mean: [f64; 2], scale: [f64; 2]| {
+            serde_json::json!({
+                "norm_basis": "data",
+                "standardize_basis_mean": mean,
+                "standardize_basis_scale": scale,
+            })
+        };
+        let first = basis([75.0, 2.4], [20.0, 0.15]).to_string();
+        let mut fixture = model_fixture("PERM_RF", &feats, &on, &blob, None);
+        fixture.metrics_json = &first;
+        let (_, stored) = db::insert_ml_model(&conn, &fixture).unwrap();
+        assert_eq!(stored, "PERM_RF");
+
+        // Retrain after adding a shalier well: GR's centre moves half a standard deviation of the
+        // basis the earlier model was reading in.
+        let moved = basis([85.0, 2.4], [24.0, 0.15]);
+        let note = basis_shift_note(&conn, "PERM_RF", "PERM_RF_1", &moved, &feats)
+            .expect("a basis that moved must be reported");
+        assert!(note.contains("RESCALED"), "{note}");
+        assert!(note.contains("GR"), "the largest mover must be named: {note}");
+        assert!(note.contains("0.50"), "the shift is in OLD standard deviations: {note}");
+        assert!(note.contains("120%"), "the spread change must be quoted: {note}");
+        assert!(note.contains("Fixed limits"), "the fix must be named: {note}");
+
+        // Quiet where nothing moved — same data, same space, nothing to warn about.
+        assert!(
+            basis_shift_note(&conn, "PERM_RF", "PERM_RF_1", &basis([75.0, 2.4], [20.0, 0.15]), &feats)
+                .is_none(),
+            "an unchanged basis must not produce a note"
+        );
+        // Quiet where there was no earlier model of that name: nothing was replaced.
+        assert!(
+            basis_shift_note(&conn, "PERM_RF", "PERM_RF", &moved, &feats).is_none(),
+            "a first save has nothing to compare against"
+        );
+        // A basis over different inputs is not comparable, and says so rather than lining the
+        // vectors up by position — that would compare GR's mean against RHOB's.
+        let other: Vec<String> = vec!["GR".into(), "NPHI".into()];
+        let mismatch = basis_shift_note(&conn, "PERM_RF", "PERM_RF_1", &moved, &other)
+            .expect("a feature-list change must be reported, not silently skipped");
+        assert!(mismatch.contains("different inputs"), "{mismatch}");
     }
 
     #[test]

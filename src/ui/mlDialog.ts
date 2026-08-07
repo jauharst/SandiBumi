@@ -763,6 +763,10 @@ export async function buildMlContent(
     label.append(cb, document.createTextNode(` ${c.name}`), tail);
     featBox.appendChild(label);
   }
+  // The fixed-limits table is per input curve, so it follows the ticks. Delegated on the box rather
+  // than bound per checkbox: the list carries every imported log on a real delivery, and one
+  // listener that outlives the rows is cheaper than several hundred that do not.
+  featBox.addEventListener("change", () => renderBasisLimits());
   sIn.appendChild(
     formRow(
       "Input curves",
@@ -1374,7 +1378,84 @@ export async function buildMlContent(
   normLab.append(normCb, document.createTextNode(" Standardize inputs (z-score)"));
   const normWhy = document.createElement("div");
   normWhy.className = "ml-norm-why";
-  normWrap.append(normLab, normWhy);
+
+  // SB-MLA-033 — what the feature space is normalized AGAINST.
+  //
+  // On a data-derived basis, adding one well to the build set recomputes every mean and scale, so
+  // every boundary expressed in it moves in the wells that were ALREADY there. Nothing looks wrong
+  // afterwards, which is why this needs a control rather than a warning.
+  //
+  // The limits are never filled in for the user. A GR normalized 0-150 and the same GR normalized
+  // 0-200 give different clusters and both look right, so the range is the analyst's statement
+  // about their field (SB-CORE-004) and the run refuses until every input has one.
+  let normBasis: "data" | "limits" = "data";
+  const basisLimits = new Map<string, { lo: string; hi: string }>();
+  const basisSeg = document.createElement("div");
+  basisSeg.className = "seg ml-basis-seg";
+  const basisTable = document.createElement("div");
+  basisTable.className = "ml-basis-limits";
+  basisTable.hidden = true;
+
+  /** Rebuilds the limits table for the currently ticked inputs, keeping anything already typed. */
+  function renderBasisLimits(): void {
+    const feats = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    basisTable.hidden = normBasis !== "limits";
+    if (normBasis !== "limits") return;
+    basisTable.innerHTML = "";
+    if (feats.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ml-norm-why";
+      empty.textContent = "Tick some input curves first — the limits are per curve.";
+      basisTable.appendChild(empty);
+      return;
+    }
+    for (const name of feats) {
+      const row = document.createElement("div");
+      row.className = "ml-basis-row";
+      const label = document.createElement("span");
+      label.className = "ml-basis-curve";
+      label.textContent = name;
+      row.appendChild(label);
+      const held = basisLimits.get(name) ?? { lo: "", hi: "" };
+      for (const end of ["lo", "hi"] as const) {
+        const box = document.createElement("input");
+        box.type = "number";
+        box.className = "form-control ml-basis-num";
+        box.placeholder = end === "lo" ? "low" : "high";
+        box.value = held[end];
+        box.addEventListener("input", () => {
+          const cur = basisLimits.get(name) ?? { lo: "", hi: "" };
+          cur[end] = box.value;
+          basisLimits.set(name, cur);
+        });
+        row.appendChild(box);
+      }
+      basisTable.appendChild(row);
+    }
+  }
+
+  for (const [id, label] of [
+    ["data", "From the data"],
+    ["limits", "Fixed limits"],
+  ] as ["data" | "limits", string][]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "seg-opt";
+    b.setAttribute("aria-pressed", String(id === normBasis));
+    b.textContent = label;
+    b.addEventListener("click", () => {
+      normBasis = id;
+      for (const o of Array.from(basisSeg.children)) {
+        o.setAttribute("aria-pressed", String((o as HTMLElement).textContent === label));
+      }
+      renderBasisLimits();
+      syncNorm();
+    });
+    basisSeg.appendChild(b);
+  }
+  const basisWhy = document.createElement("div");
+  basisWhy.className = "ml-norm-why";
+  normWrap.append(normLab, normWhy, basisSeg, basisWhy, basisTable);
 
   /** Says what standardizing would do FOR THE CHOSEN ALGORITHM, which is the only form of the
    *  question with an answer. Mirrors the Model section's state in both directions. */
@@ -1387,6 +1468,22 @@ export async function buildMlContent(
         "whether or not it carries information. The scaler is fitted on the FIT rows only and stored with " +
         "the model, so an apply run reuses the same transform rather than refitting one on different wells.";
     normWhy.classList.toggle("ml-norm-off", !stdCb.checked && !SCALE_FREE.has(algo.id));
+    // The basis only means anything when something is being normalized.
+    basisSeg.hidden = !stdCb.checked;
+    basisWhy.hidden = !stdCb.checked;
+    if (!stdCb.checked) {
+      basisTable.hidden = true;
+    } else {
+      basisWhy.textContent =
+        normBasis === "data"
+          ? "Mean and spread come from the wells in THIS run. Add a well and they are recomputed — " +
+            "which moves every boundary expressed in them, including in the wells you did not touch. " +
+            "A retrain reports how far the space moved."
+          : "Each curve is normalized onto 0–1 against limits you set, so the basis does not move when " +
+            "the well set does. Give every input a low and a high — SandiBumi will not choose them, " +
+            "because the same curve over two ranges gives two answers and both look right.";
+      renderBasisLimits();
+    }
   }
   normCb.addEventListener("change", () => {
     stdCb.checked = normCb.checked;
@@ -2044,6 +2141,24 @@ export async function buildMlContent(
     const multi = picked.length > 1;
     const base = outInput.value.trim() || task.defaultOut;
     const saveBase = saveInput.value.trim();
+    // SB-MLA-033, refused here as well as in Rust — and this is the case Rust cannot catch on its
+    // own. `Number("")` is 0, not NaN, so a blank low box would reach the backend as a perfectly
+    // valid limit of zero and normalize the curve against a range nobody typed.
+    if (stdCb.checked && normBasis === "limits") {
+      const bad = features.filter((c) => {
+        const l = basisLimits.get(c);
+        if (!l || l.lo.trim() === "" || l.hi.trim() === "") return true;
+        const [lo, hi] = [Number(l.lo), Number(l.hi)];
+        return !Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo;
+      });
+      if (bad.length > 0) {
+        setStatus(
+          `Fixed limits need a low and a high above it for every input — ${bad.join(", ")} ${bad.length === 1 ? "does" : "do"} not have one yet`,
+        );
+        statusLine.textContent = `Set the limits for ${bad.join(", ")}, or switch the basis back to the data.`;
+        return;
+      }
+    }
     const req: MlRequest = {
       task: task.id,
       algorithm: algo.id,
@@ -2063,6 +2178,17 @@ export async function buildMlContent(
       output_step:
         task.supervised && resMode === "step" && Number(resStep.value) > 0 ? Number(resStep.value) : null,
       interval: fitInterval.getWindow(),
+      // SB-MLA-033. Only sent when the user actually chose fixed limits, so an omitted field keeps
+      // meaning "the data-derived basis" for every payload written before this existed. A blank box
+      // travels as NaN and the backend refuses by name rather than treating it as zero.
+      norm_basis: normBasis === "limits" ? "limits" : null,
+      norm_limits:
+        normBasis === "limits"
+          ? features.map((curve) => {
+              const l = basisLimits.get(curve) ?? { lo: "", hi: "" };
+              return { curve, low: Number(l.lo), high: Number(l.hi) };
+            })
+          : [],
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
