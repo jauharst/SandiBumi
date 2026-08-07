@@ -44,6 +44,11 @@ use std::sync::Mutex;
 const ML_BUILD_MODEL: &str = r#"
 EFFECTIVE = {}
 
+# SB-MLA-012. Set when an estimator is swapped for another because its library is missing. Recorded
+# here rather than only in a free-text note, because a note is prose and the `algorithm` a model row
+# stores is what a later reader matches on.
+SUBSTITUTION = {}
+
 # SB-MLA-057. The values a log file uses to mean "no reading". A parameter is a THRESHOLD or a
 # LIMIT, and one of these arriving as a threshold is never a threshold - it is an absence that lost
 # its type somewhere upstream. They are worth refusing by name because they compute: -999.25 as a
@@ -124,6 +129,14 @@ def build_model(task, algo, p, seed):
                                     random_state=seed, verbosity=0), None
             except ImportError:
                 from sklearn.ensemble import HistGradientBoostingRegressor
+                # SB-MLA-012. The substitution is recorded as the algorithm ACTUALLY used, not under
+                # the requested id. One name over two methods is the failure: `gbdt` meaning
+                # XGBoost's gradient boosting on one machine and scikit-learn's histogram gradient
+                # boosting on another is two different regularisations, two sets of defaults and two
+                # different answers, filed under a single label - so a model's stored `algorithm`
+                # would not identify the estimator that produced its curve.
+                SUBSTITUTION["requested"] = algo
+                SUBSTITUTION["used"] = "sklearn_hist_gbdt"
                 return HistGradientBoostingRegressor(max_iter=int(P(p, "n_estimators", 300)),
                                                      learning_rate=float(P(p, "learning_rate", 0.1)),
                                                      max_depth=int(P(p, "max_depth", 4)) or None,
@@ -1113,6 +1126,10 @@ if task == "regression":
         fail("unknown regression algorithm '" + algo + "'")
     if build_note:
         metrics["note"] = build_note
+    if SUBSTITUTION:
+        # SB-MLA-012: the id a later reader must match on is the one that actually ran.
+        metrics["algorithm_requested"] = SUBSTITUTION["requested"]
+        metrics["algorithm_used"] = SUBSTITUTION["used"]
     cv_score(model, "r2", "r2_cv")
     Xf, yf = fit_xy(y)
     # NOT refitted on the blind wells afterwards. The blind wells still get their curve, so the
@@ -1150,6 +1167,10 @@ elif task == "classification":
         fail("unknown classification algorithm '" + algo + "'")
     if build_note:
         metrics["note"] = build_note
+    if SUBSTITUTION:
+        # SB-MLA-012: the id a later reader must match on is the one that actually ran.
+        metrics["algorithm_requested"] = SUBSTITUTION["requested"]
+        metrics["algorithm_used"] = SUBSTITUTION["used"]
     cv_score(model, "accuracy", "accuracy_cv")
     Xf, yf = fit_xy(yi)
     model.fit(Xf, yf)
@@ -3794,7 +3815,15 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                         &crate::db::NewMlModel {
                             name,
                             task: &req.task,
-                            algorithm: &req.algorithm,
+                            // SB-MLA-012. The estimator that ACTUALLY ran. Where a library was
+                            // missing and another was substituted, the runner reports the id it
+                            // used, and storing the requested one instead would file two different
+                            // methods under a single name — the model row would then not identify
+                            // the estimator that produced its own curve.
+                            algorithm: metrics
+                                .get("algorithm_used")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(&req.algorithm),
                             feature_curves: &features,
                             target_curve: target.as_deref(),
                             params_json: &params_json,

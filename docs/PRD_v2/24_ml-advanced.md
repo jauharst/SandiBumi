@@ -1416,7 +1416,7 @@ is well-judged; the defect is that it is transient.
 
 **Verified by.** SB-MLA-T11
 
-#### SB-MLA-012 — Artifact version skew fails loudly, and a substituted algorithm is never silent          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-012 — Artifact version skew fails loudly, and a substituted algorithm is never silent          [P1] [status: PRESENT-OK]
 
 **Requirement.** Loading a model artifact that cannot be deserialised under the current runtime
 MUST fail with a message naming the recorded runtime, the current runtime and the differing
@@ -1429,12 +1429,9 @@ sometimes means XGBoost's gradient boosting and sometimes means scikit-learn's h
 boosting is one name over two methods, and the two have different defaults, different regularisation
 and different results.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:91`–`:102` catches `ImportError` and substitutes
-`HistGradientBoostingRegressor`, recording the substitution only in a free-text
-`metrics["note"]` string. The stored `algorithm` column still reads the requested id. The
-divergence is not cosmetic: the substituted estimator is constructed with
-`max_iter = n_estimators (300)`, `learning_rate = 0.1`, `max_depth = 4` here, while the leaderboard's
-copy constructs it bare (`ml.rs:1143`) at scikit-learn's `max_iter = 100`, `max_depth = None`.
+**As-built.** `PRESENT-OK` (2026-08-07) — the runner sets `SUBSTITUTION` when an estimator is swapped for another because its library is missing, reports `algorithm_requested` and `algorithm_used`, and the model row now stores the id that ACTUALLY ran. Storing the requested one filed two different methods under a single label, so a model's `algorithm` did not identify the estimator that produced its own curve — `gbdt` meaning XGBoost on one machine and scikit-learn's histogram gradient boosting on another is two regularisations, two sets of defaults and two different answers.
+
+The second divergence this entry recorded — the leaderboard constructing the substitute bare at scikit-learn's defaults while the fit path passed the user's — **was already closed** when `ML_BUILD_MODEL` was unified into one copy both runners concatenate; that half of the entry was stale. The artifact-skew half is `SB-MLA-005`'s runtime record, which detects and names drift.
 
 **Verified by.** SB-MLA-T12, SB-MLA-T27
 
