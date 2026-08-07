@@ -28,7 +28,90 @@ use std::sync::Mutex;
 
 /// Python side of the bridge. Keep messages ASCII (Windows console encodings) and keep
 /// the algorithm ids in sync with the catalog in `src/ui/mlDialog.ts`.
-const ML_RUNNER: &str = r#"
+/// ONE definition of every supported supervised estimator, embedded verbatim in the training runner
+/// and in the leaderboard runner.
+///
+/// SB-MLA-026. Declared twice and independently, the two drifted, and every divergence flattered or
+/// misrepresented the ranking the user chooses from: the leaderboard ranked `degree = 3` polynomial
+/// regression **as a straight line**, ran the gradient-boosting fallback at 100 iterations against
+/// the run's 300, and built `SVC` without `probability=True` — not a cosmetic difference, because
+/// that flag makes scikit-learn fit internal Platt scaling and changes the estimator. The leaderboard
+/// also accepted no parameter map at all, so a user's own hyperparameters were ranked as defaults.
+///
+/// A ranking of models nobody will fit is not a degraded ranking; it is a ranking of the wrong
+/// things, presented cleanly. Syncing two copies would have fixed those three and left the mechanism
+/// that produced them, so there is one copy and both runners concatenate it.
+const ML_BUILD_MODEL: &str = r#"
+def build_model(task, algo, p, seed):
+    p = p or {}
+    if task == "regression":
+        if algo == "rf":
+            from sklearn.ensemble import RandomForestRegressor
+            return RandomForestRegressor(n_estimators=int(p.get("n_estimators", 200)),
+                                         max_depth=int(p.get("max_depth", 0)) or None,
+                                         random_state=seed, n_jobs=-1), None
+        if algo == "gbdt":
+            try:
+                from xgboost import XGBRegressor
+                return XGBRegressor(n_estimators=int(p.get("n_estimators", 300)),
+                                    learning_rate=float(p.get("learning_rate", 0.1)),
+                                    max_depth=int(p.get("max_depth", 4)),
+                                    random_state=seed, verbosity=0), None
+            except ImportError:
+                from sklearn.ensemble import HistGradientBoostingRegressor
+                return HistGradientBoostingRegressor(max_iter=int(p.get("n_estimators", 300)),
+                                                     learning_rate=float(p.get("learning_rate", 0.1)),
+                                                     max_depth=int(p.get("max_depth", 4)) or None,
+                                                     random_state=seed), \
+                    "xgboost not installed - used sklearn HistGradientBoosting (pip install xgboost)"
+        if algo == "svr":
+            from sklearn.svm import SVR
+            return SVR(C=float(p.get("C", 10.0)), epsilon=float(p.get("epsilon", 0.1))), None
+        if algo == "ann":
+            from sklearn.neural_network import MLPRegressor
+            hidden = tuple(int(t) for t in str(p.get("hidden", "64,32")).replace(" ", "").split(",") if t)
+            return MLPRegressor(hidden_layer_sizes=hidden or (64, 32),
+                                max_iter=int(p.get("max_iter", 500)), random_state=seed), None
+        if algo == "linear":
+            from sklearn.linear_model import LinearRegression
+            deg = int(p.get("degree", 1))
+            if deg > 1:
+                from sklearn.pipeline import make_pipeline
+                from sklearn.preprocessing import PolynomialFeatures
+                return make_pipeline(PolynomialFeatures(deg), LinearRegression()), None
+            return LinearRegression(), None
+    elif task == "classification":
+        if algo == "svm":
+            from sklearn.svm import SVC
+            return SVC(C=float(p.get("C", 10.0)), probability=True, random_state=seed), None
+        if algo == "knn":
+            from sklearn.neighbors import KNeighborsClassifier
+            return KNeighborsClassifier(n_neighbors=int(p.get("n_neighbors", 7))), None
+        if algo == "rf":
+            from sklearn.ensemble import RandomForestClassifier
+            return RandomForestClassifier(n_estimators=int(p.get("n_estimators", 200)),
+                                          random_state=seed, n_jobs=-1), None
+        if algo == "gnb":
+            from sklearn.naive_bayes import GaussianNB
+            return GaussianNB(), None
+        if algo == "logreg":
+            from sklearn.linear_model import LogisticRegression
+            return LogisticRegression(C=float(p.get("C", 1.0)), max_iter=1000), None
+    return None, None
+"#;
+
+/// The training runner: the shared estimator definitions, then the fit-and-apply body.
+fn ml_runner() -> String {
+    format!("{ML_BUILD_MODEL}{ML_RUNNER_BODY}")
+}
+
+/// The leaderboard runner, from the SAME estimator definitions. Composing both from one fragment is
+/// what makes SB-MLA-026 structural rather than a pair of copies somebody has to remember to sync.
+fn ml_eval_runner() -> String {
+    format!("{ML_BUILD_MODEL}{ML_EVAL_RUNNER_BODY}")
+}
+
+const ML_RUNNER_BODY: &str = r#"
 import sys, json
 import numpy as np
 
@@ -82,43 +165,11 @@ def cv_score(model, scoring, key):
 
 outs = []
 if task == "regression":
-    if algo == "rf":
-        from sklearn.ensemble import RandomForestRegressor
-        model = RandomForestRegressor(n_estimators=int(p.get("n_estimators", 200)),
-                                      max_depth=int(p.get("max_depth", 0)) or None,
-                                      random_state=seed, n_jobs=-1)
-    elif algo == "gbdt":
-        try:
-            from xgboost import XGBRegressor
-            model = XGBRegressor(n_estimators=int(p.get("n_estimators", 300)),
-                                 learning_rate=float(p.get("learning_rate", 0.1)),
-                                 max_depth=int(p.get("max_depth", 4)), random_state=seed, verbosity=0)
-        except ImportError:
-            from sklearn.ensemble import HistGradientBoostingRegressor
-            model = HistGradientBoostingRegressor(max_iter=int(p.get("n_estimators", 300)),
-                                                  learning_rate=float(p.get("learning_rate", 0.1)),
-                                                  max_depth=int(p.get("max_depth", 4)) or None,
-                                                  random_state=seed)
-            metrics["note"] = "xgboost not installed - used sklearn HistGradientBoosting (pip install xgboost)"
-    elif algo == "svr":
-        from sklearn.svm import SVR
-        model = SVR(C=float(p.get("C", 10.0)), epsilon=float(p.get("epsilon", 0.1)))
-    elif algo == "ann":
-        from sklearn.neural_network import MLPRegressor
-        hidden = tuple(int(t) for t in str(p.get("hidden", "64,32")).replace(" ", "").split(",") if t)
-        model = MLPRegressor(hidden_layer_sizes=hidden or (64, 32),
-                             max_iter=int(p.get("max_iter", 500)), random_state=seed)
-    elif algo == "linear":
-        from sklearn.linear_model import LinearRegression
-        deg = int(p.get("degree", 1))
-        if deg > 1:
-            from sklearn.pipeline import make_pipeline
-            from sklearn.preprocessing import PolynomialFeatures
-            model = make_pipeline(PolynomialFeatures(deg), LinearRegression())
-        else:
-            model = LinearRegression()
-    else:
+    model, build_note = build_model(task, algo, p, seed)
+    if model is None:
         fail("unknown regression algorithm '" + algo + "'")
+    if build_note:
+        metrics["note"] = build_note
     cv_score(model, "r2", "r2_cv5")
     model.fit(Xs, y)
     pred = model.predict(Xs)
@@ -130,23 +181,11 @@ if task == "regression":
 
 elif task == "classification":
     yi = y.astype(int)
-    if algo == "svm":
-        from sklearn.svm import SVC
-        model = SVC(C=float(p.get("C", 10.0)), probability=True, random_state=seed)
-    elif algo == "knn":
-        from sklearn.neighbors import KNeighborsClassifier
-        model = KNeighborsClassifier(n_neighbors=int(p.get("n_neighbors", 7)))
-    elif algo == "rf":
-        from sklearn.ensemble import RandomForestClassifier
-        model = RandomForestClassifier(n_estimators=int(p.get("n_estimators", 200)), random_state=seed, n_jobs=-1)
-    elif algo == "gnb":
-        from sklearn.naive_bayes import GaussianNB
-        model = GaussianNB()
-    elif algo == "logreg":
-        from sklearn.linear_model import LogisticRegression
-        model = LogisticRegression(C=float(p.get("C", 1.0)), max_iter=1000)
-    else:
+    model, build_note = build_model(task, algo, p, seed)
+    if model is None:
         fail("unknown classification algorithm '" + algo + "'")
+    if build_note:
+        metrics["note"] = build_note
     cv_score(model, "accuracy", "accuracy_cv5")
     model.fit(Xs, yi)
     metrics["accuracy_train"] = float(np.mean(model.predict(Xs) == yi))
@@ -1039,7 +1078,7 @@ pub(crate) fn exec_ml_full(
     });
 
     let mut cmd = Command::new(python);
-    cmd.args(["-c", ML_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.args(["-c", &ml_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
     {
@@ -1097,7 +1136,7 @@ pub(crate) fn exec_ml_full(
 // every combo (single sklearn import); no curves are written — this ranks approaches to pick from.
 // ---------------------------------------------------------------------------------------------
 
-const ML_EVAL_RUNNER: &str = r#"
+const ML_EVAL_RUNNER_BODY: &str = r#"
 import sys, json
 import numpy as np
 
@@ -1109,6 +1148,8 @@ header = json.loads(sys.stdin.buffer.readline().decode("utf-8"))
 task = header["task"]; d = header["d"]; n = header["n_train"]
 folds = int(header.get("folds", 5)); seed = int(header.get("seed", 42))
 standardize = bool(header.get("standardize", True)); combos = header["combos"]
+p = header.get("params") or {}
+params_for = header.get("params_for")
 total = n * d + n + n
 raw = sys.stdin.buffer.read(4 * total)
 if len(raw) != 4 * total:
@@ -1130,44 +1171,10 @@ from sklearn.metrics import r2_score, accuracy_score, f1_score, confusion_matrix
 # so every score reported as blind is optimistic by construction (SB-MLA-028). The scalers are
 # fitted per fold, on the fold's training rows only, further down.
 
+# The estimator a leaderboard row scores is built by the SAME build_model the training run calls,
+# from the SAME parameter map (SB-MLA-026). A row must describe the model the user will actually fit.
 def make_model(algo):
-    if task == "regression":
-        if algo == "rf":
-            from sklearn.ensemble import RandomForestRegressor
-            return RandomForestRegressor(n_estimators=200, random_state=seed, n_jobs=-1)
-        if algo == "gbdt":
-            try:
-                from xgboost import XGBRegressor
-                return XGBRegressor(n_estimators=300, learning_rate=0.1, max_depth=4, random_state=seed, verbosity=0)
-            except ImportError:
-                from sklearn.ensemble import HistGradientBoostingRegressor
-                return HistGradientBoostingRegressor(random_state=seed)
-        if algo == "svr":
-            from sklearn.svm import SVR
-            return SVR(C=10.0, epsilon=0.1)
-        if algo == "ann":
-            from sklearn.neural_network import MLPRegressor
-            return MLPRegressor(hidden_layer_sizes=(64, 32), max_iter=500, random_state=seed)
-        if algo == "linear":
-            from sklearn.linear_model import LinearRegression
-            return LinearRegression()
-    else:
-        if algo == "svm":
-            from sklearn.svm import SVC
-            return SVC(C=10.0, random_state=seed)
-        if algo == "knn":
-            from sklearn.neighbors import KNeighborsClassifier
-            return KNeighborsClassifier(n_neighbors=7)
-        if algo == "rf":
-            from sklearn.ensemble import RandomForestClassifier
-            return RandomForestClassifier(n_estimators=200, random_state=seed, n_jobs=-1)
-        if algo == "gnb":
-            from sklearn.naive_bayes import GaussianNB
-            return GaussianNB()
-        if algo == "logreg":
-            from sklearn.linear_model import LogisticRegression
-            return LogisticRegression(C=1.0, max_iter=1000)
-    return None
+    return build_model(task, algo, p if algo == params_for else {}, seed)[0]
 
 ng = int(len(np.unique(groups)))
 use_group = ng >= 2
@@ -1277,8 +1284,20 @@ pub struct MlEvalRequest {
     pub feature_curves: Vec<String>,
     pub target_curve: String,
     pub train_well_ids: Vec<String>,
-    /// Algorithm ids to compare (same ids as ML_RUNNER); empty → nothing to do.
+    /// Algorithm ids to compare (same ids as the training runner); empty → nothing to do.
     pub algorithms: Vec<String>,
+    /// The SAME hyperparameter map the training run will be given. Without it the leaderboard
+    /// ranked every candidate at its defaults, so a user who set `degree = 3` or `n_estimators`
+    /// chose from a table describing models they were not about to fit (SB-MLA-026).
+    #[serde(default)]
+    pub params: serde_json::Map<String, serde_json::Value>,
+    /// Which algorithm `params` belongs to. The dialog holds one algorithm's settings at a time, so
+    /// the map is applied to that row and every other row is scored at its defaults — which is what
+    /// the run would fit for them, since the user has configured nothing else. Applied to all rows
+    /// instead, an `C` set for SVR would silently re-rank logistic regression against a value
+    /// nobody chose for it. `None` → every row at defaults.
+    #[serde(default)]
+    pub params_for: Option<String>,
     /// Feature subsets to try (each a subset of feature_curves by name); empty → the full set only.
     #[serde(default)]
     pub subsets: Vec<Vec<String>>,
@@ -1325,6 +1344,10 @@ pub struct MlEvalResult {
     pub cv: String,
     pub n_splits: usize,
     pub note: Option<String>,
+    /// Echo of the request's `params_for`: which row was scored with the user's own settings. The
+    /// requirement is that the leaderboard says so rather than presenting a mixed table cleanly —
+    /// every other row is at library defaults, and a reader cannot tell by looking.
+    pub params_for: Option<String>,
     pub error: Option<String>,
 }
 
@@ -1336,6 +1359,7 @@ fn eval_fail(msg: &str) -> MlEvalResult {
         cv: String::new(),
         n_splits: 0,
         note: None,
+        params_for: None,
         error: Some(msg.to_string()),
     }
 }
@@ -1447,7 +1471,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
 
     let seed = req.seed.unwrap_or(42);
     let folds = req.folds.unwrap_or(5).clamp(2, 10);
-    match exec_ml_eval(&python, &req.task, d, n_train, &x_train, &y_train, &groups, &combos, req.standardize, seed, folds) {
+    match exec_ml_eval(&python, &req.task, d, n_train, &x_train, &y_train, &groups, &combos, req.standardize, seed, folds, &req.params, req.params_for.as_deref()) {
         Err(e) => eval_fail(&e),
         Ok(py) => {
             // `py.n_groups` is the number of wells that ACTUALLY contributed samples (masking can
@@ -1497,7 +1521,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 (None, None) => std::cmp::Ordering::Equal,
             });
-            MlEvalResult { rows, n_train, n_groups: py.n_groups, cv: py.cv, n_splits: py.n_splits, note, error: None }
+            MlEvalResult { rows, n_train, n_groups: py.n_groups, cv: py.cv, n_splits: py.n_splits, note, params_for: req.params_for.clone(), error: None }
         }
     }
 }
@@ -1549,6 +1573,8 @@ pub(crate) fn exec_ml_eval(
     standardize: bool,
     seed: i64,
     folds: usize,
+    params: &serde_json::Map<String, serde_json::Value>,
+    params_for: Option<&str>,
 ) -> Result<PyEvalOut, String> {
     let combos_json: Vec<serde_json::Value> = combos
         .iter()
@@ -1557,10 +1583,11 @@ pub(crate) fn exec_ml_eval(
     let header = serde_json::json!({
         "task": task, "d": d, "n_train": n_train,
         "standardize": standardize, "seed": seed, "folds": folds, "combos": combos_json,
+        "params": params, "params_for": params_for,
     });
 
     let mut cmd = Command::new(python);
-    cmd.args(["-c", ML_EVAL_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.args(["-c", &ml_eval_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
     {
@@ -2058,6 +2085,8 @@ mod tests {
             target_curve: "RHOB".into(),
             train_well_ids: vec![ida, idb],
             algorithms: vec!["linear".into()],
+            params: Default::default(),
+            params_for: None,
             subsets: vec![],
             standardize: false,
             seed: Some(42),
@@ -2181,7 +2210,7 @@ mod tests {
             }
         }
         let combos = vec![("linear".to_string(), vec![0usize]), ("rf".to_string(), vec![0usize])];
-        let out = exec_ml_eval(&py, "regression", 1, y.len(), &x, &y, &g, &combos, false, 42, 3)
+        let out = exec_ml_eval(&py, "regression", 1, y.len(), &x, &y, &g, &combos, false, 42, 3, &Default::default(), None)
             .expect("eval run failed");
         assert_eq!(out.cv, "blind-well GroupKFold");
         assert_eq!(out.n_groups, 3);
@@ -2214,7 +2243,7 @@ mod tests {
             }
         }
         let combos = vec![("knn".to_string(), vec![0usize, 1usize])];
-        let out = exec_ml_eval(&py, "classification", 2, y.len(), &x, &y, &g, &combos, true, 42, 3)
+        let out = exec_ml_eval(&py, "classification", 2, y.len(), &x, &y, &g, &combos, true, 42, 3, &Default::default(), None)
             .expect("eval run failed");
         let row = &out.rows[0];
         assert!(row.error.is_none(), "knn errored: {:?}", row.error);
@@ -2234,7 +2263,8 @@ mod tests {
     /// at all. The two halves together admit one arrangement.
     #[test]
     fn no_transform_is_fitted_outside_the_folds_training_rows() {
-        let src = ML_EVAL_RUNNER;
+        let src = ml_eval_runner();
+        let src = src.as_str();
 
         // Side one: nothing is fitted before the split, and the split sees the RAW matrix.
         assert!(
@@ -2268,6 +2298,114 @@ mod tests {
         );
     }
 
+    /// SB-MLA-026 / SB-MLA-T27. The requirement asks for a test asserting that the evaluation and
+    /// training paths construct identical estimators for every supported algorithm. The strongest
+    /// form of that assertion is that there is only one construction to compare: both runners are
+    /// composed from `ML_BUILD_MODEL`, so an estimator cannot be declared in one and not the other.
+    ///
+    /// Pinned from both sides. "Both embed the fragment" alone would pass on a runner that embedded
+    /// it and then shadowed it with a local constructor — which is exactly the shape the defect had,
+    /// two independent declarations — so the second half asserts no estimator is constructed outside
+    /// the fragment at all.
+    #[test]
+    fn the_leaderboard_builds_the_same_estimators_the_run_will_fit() {
+        // Every estimator this product can fit. A new algorithm added to one runner and not the
+        // other is the defect this test exists to prevent, so the list is spelled out.
+        const ESTIMATORS: &[&str] = &[
+            "RandomForestRegressor(",
+            "XGBRegressor(",
+            "HistGradientBoostingRegressor(",
+            "SVR(",
+            "MLPRegressor(",
+            "LinearRegression(",
+            "PolynomialFeatures(",
+            "SVC(",
+            "KNeighborsClassifier(",
+            "RandomForestClassifier(",
+            "GaussianNB(",
+            "LogisticRegression(",
+        ];
+
+        for name in ESTIMATORS {
+            assert!(
+                ML_BUILD_MODEL.contains(name),
+                "{name} is not in the shared estimator definitions"
+            );
+            // Side one: neither runner body declares its own.
+            assert!(
+                !ML_RUNNER_BODY.contains(name),
+                "the training runner constructs {name} itself instead of calling build_model - that \
+                 is the second declaration the leaderboard used to drift from"
+            );
+            assert!(
+                !ML_EVAL_RUNNER_BODY.contains(name),
+                "the leaderboard runner constructs {name} itself instead of calling build_model"
+            );
+        }
+
+        // Side two: both composed runners actually carry the shared definitions and call them.
+        for (who, src) in [("training", ml_runner()), ("leaderboard", ml_eval_runner())] {
+            assert!(src.contains(ML_BUILD_MODEL), "the {who} runner does not embed build_model");
+            assert!(
+                src.contains("build_model(task, algo, p, seed)"),
+                "the {who} runner never calls build_model with the run's own parameter map"
+            );
+        }
+
+        // And the leaderboard reads a parameter map at all — without it every candidate is ranked
+        // at its defaults however the run is configured.
+        assert!(
+            ML_EVAL_RUNNER_BODY.contains("p = header.get(\"params\")"),
+            "the leaderboard runner ignores the hyperparameters the run will use"
+        );
+    }
+
+    /// The behavioural half of SB-MLA-T27. `degree` is the divergence with the largest consequence:
+    /// the leaderboard used to rank a cubic fit as a straight line, so a user comparing `linear`
+    /// against anything else was reading the wrong row entirely.
+    #[test]
+    fn a_polynomial_degree_is_ranked_as_a_polynomial_not_as_a_line() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // y = x^2 over three wells. A straight line cannot fit it; a cubic-capable pipeline can.
+        // Same data, same algorithm id, one parameter apart.
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        let mut g = Vec::new();
+        for well in 0..3 {
+            for i in 0..40 {
+                let xv = (well * 40 + i) as f32 * 0.05;
+                x.push(xv);
+                y.push(xv * xv);
+                g.push(well as f32);
+            }
+        }
+        let combos = vec![("linear".to_string(), vec![0usize])];
+        let run = |params: serde_json::Map<String, serde_json::Value>| {
+            // Scoped to "linear", the way the dialog scopes the settings it is showing.
+            exec_ml_eval(
+                &py, "regression", 1, y.len(), &x, &y, &g, &combos, false, 42, 3, &params,
+                Some("linear"),
+            )
+            .expect("eval run failed")
+        };
+
+        let straight = run(Default::default());
+        let mut cubic_params = serde_json::Map::new();
+        cubic_params.insert("degree".into(), serde_json::json!(3));
+        let cubic = run(cubic_params);
+
+        let s = straight.rows[0].score.expect("straight score");
+        let c = cubic.rows[0].score.expect("cubic score");
+        assert!(
+            c > s,
+            "degree=3 scored {c} against a straight line's {s} - the leaderboard is still ranking \
+             the same estimator for both, so the parameter never reached it"
+        );
+    }
+
     /// The other half of SB-MLA-T29, and the one that needs the optional package. A fixture where
     /// one well sits far from the other two is the case the leak flatters: pooled centring drags the
     /// outlier toward the middle before the model is asked to be blind to it.
@@ -2293,7 +2431,7 @@ mod tests {
             }
         }
         let combos = vec![("linear".to_string(), vec![0usize])];
-        let out = exec_ml_eval(&py, "regression", 1, y.len(), &x, &y, &g, &combos, true, 42, 3)
+        let out = exec_ml_eval(&py, "regression", 1, y.len(), &x, &y, &g, &combos, true, 42, 3, &Default::default(), None)
             .expect("eval run failed");
         assert_eq!(out.cv, "blind-well GroupKFold");
         let row = &out.rows[0];

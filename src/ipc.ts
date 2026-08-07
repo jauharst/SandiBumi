@@ -1219,6 +1219,11 @@ export interface MlEvalRequest {
   target_curve: string;
   train_well_ids: string[];
   algorithms: string[];
+  /** The same hyperparameters the run will be given, so a row describes the model you will fit. */
+  params?: Record<string, number | string | boolean>;
+  /** Which algorithm `params` belongs to. Every other row is scored at its defaults, which is what
+   *  the run would fit for them — an `C` set for SVR must not silently re-rank logistic regression. */
+  params_for?: string | null;
   /** Feature subsets to try (each a subset of feature_curves); empty → full set only. */
   subsets: string[][];
   standardize: boolean;
@@ -1260,6 +1265,8 @@ export interface MlEvalResult {
   cv: string;
   n_splits: number;
   note: string | null;
+  /** Which row was scored with the settings on screen; every other row is at library defaults. */
+  params_for: string | null;
   error: string | null;
 }
 

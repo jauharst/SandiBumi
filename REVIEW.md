@@ -8645,3 +8645,29 @@ where three vendors offer none — was optimistic by construction. Two separate 
 - [ ] `docs/PRD_v2/24_ml-advanced.md` had recorded that this importance "is correctly cross-validated
       at the group level". It never was. The document is corrected in place and says what it used to
       claim, so the correction is auditable rather than quietly overwritten.
+
+### ML: the leaderboard ranked models nobody was going to fit
+
+`SB-MLA-026`. The hyperparameters were written out twice — once in the training runner, once in the
+leaderboard — and the two had drifted. The leaderboard's whole purpose is to be trusted for a
+choice, so a ranking of different models is not a degraded ranking; it is a ranking of the wrong
+things, presented cleanly.
+
+- [ ] **Set `degree` to 3 on Linear and press Compare.** It used to be ranked as a straight line,
+      because the leaderboard's copy had no polynomial branch at all. Now the row scores the cubic
+      you would actually fit. This is the divergence with the largest consequence — it changed which
+      row won.
+- [ ] Two more that were quieter: the gradient-boosting fallback ran at 100 iterations in the
+      leaderboard against the run's 300, and `SVC` was built without `probability=True`, which makes
+      scikit-learn fit internal Platt scaling — a different estimator, not a different output.
+- [ ] **The leaderboard now takes your settings at all.** It previously accepted no parameter map,
+      so every candidate was ranked at library defaults however you had configured the run.
+- [ ] **New "Settings" column: `yours` on one row, `defaults` on the rest.** Your settings belong to
+      the algorithm the dialog is showing, so that row uses them and the others are scored at the
+      defaults the run would fit for them. Applying one algorithm's `C` to every row would re-rank
+      estimators against a number nobody chose for them — but a mixed table that does not say so is
+      the thing this rule exists to prevent. Check the column names the algorithm you had selected.
+- [ ] The fix is one shared definition both runners are composed from, not two copies kept in step.
+      Syncing copies would have fixed these three and left the mechanism that produced them. The
+      test names every estimator and asserts each is in the shared fragment and in **neither**
+      runner body, so a runner that embeds it and then shadows it still fails.

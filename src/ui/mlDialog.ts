@@ -464,6 +464,10 @@ export async function buildMlContent(
         train_well_ids: trainIds,
         input_set: setPicker.inputSet(),
         algorithms: task.algos.map((a) => a.id),
+        // The settings currently on screen, and the algorithm they belong to. The leaderboard must
+        // rank the model the run will fit, not the same id at library defaults.
+        params: Object.fromEntries(paramInputs.map(({ spec, get }) => [spec.key, get()])),
+        params_for: algo.id,
         subsets: buildSubsets(features, subsetSel.value),
         standardize: stdCb.checked,
         seed: Math.round(parseFloat(seedInput.value) || 42),
@@ -796,7 +800,7 @@ export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: b
   const table = document.createElement("table");
   table.className = "mc-table ml-leaderboard";
   const head = document.createElement("tr");
-  for (const h of ["#", "Algorithm", "Curves", scoreLabel, "±", secLabel]) {
+  for (const h of ["#", "Algorithm", "Settings", "Curves", scoreLabel, "±", secLabel]) {
     const th = document.createElement("th");
     th.textContent = h;
     head.appendChild(th);
@@ -811,11 +815,15 @@ export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: b
   res.rows.forEach((row, i) => {
     const tr = document.createElement("tr");
     const sec = isClf ? row.metrics?.["macro_f1"] : row.metrics?.["rmse"];
+    // Which estimator this row actually describes. One row carries the settings on screen; the rest
+    // are at library defaults, which is what the run would fit for them — but only if it is said.
+    const settings = res.params_for && row.algorithm === res.params_for ? "yours" : "defaults";
     const cells = row.error
-      ? [String(i + 1), row.algorithm, row.features.join(", "), "error", "—", row.error]
+      ? [String(i + 1), row.algorithm, settings, row.features.join(", "), "error", "—", row.error]
       : [
           String(i + 1),
           row.algorithm,
+          settings,
           row.features.join(", "),
           row.score != null ? row.score.toFixed(4) : "—",
           row.score_std != null ? `±${row.score_std.toFixed(3)}` : "",

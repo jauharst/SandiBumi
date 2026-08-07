@@ -1393,7 +1393,17 @@ of either in this chapter, because the leaderboard's entire purpose is to be *tr
 choice*. A ranking that describes different models from the ones the user will fit is not a
 degraded ranking — it is a ranking of the wrong things, presented cleanly.
 
-**As-built.** `PRESENT-DIVERGENT` — the hyperparameters are declared twice and independently:
+**As-built.** ~~`PRESENT-DIVERGENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** There is now ONE
+declaration of every supported supervised estimator — `ML_BUILD_MODEL` — and both runners are
+composed from it (`ml_runner()`, `ml_eval_runner()`), so an estimator cannot be declared in one and
+not the other. Syncing the two copies would have fixed the three divergences below and left the
+mechanism that produced them. `MlEvalRequest` now carries the run's own `params`, scoped by
+`params_for` to the algorithm the dialog is showing: applying one algorithm's `C` to every row would
+re-rank estimators against a value nobody chose for them, and every other row is scored at the
+defaults the run would fit for it. The leaderboard states this per row in a **Settings** column
+(`yours` / `defaults`), which is the requirement's "MUST say so for that row" half.
+
+Was: the hyperparameters were declared twice and independently:
 `ML_RUNNER` at `ml.rs:84`–`:169` reading `p.get(...)` with defaults, and `ML_EVAL_RUNNER`'s
 `make_model` at `ml.rs:1132`–`:1169` with every value hard-coded. `MlEvalRequest` (`ml.rs:1233`)
 carries no parameter map at all, and the frontend sends only the algorithm id list
@@ -1401,10 +1411,16 @@ carries no parameter map at all, and the frontend sends only the algorithm id li
 (`ml.rs:113`–`:119`) has no eval counterpart, so `degree = 3` is ranked as linear; the
 `HistGradientBoosting` fallback is bare in eval (`ml.rs:1143`, `max_iter = 100`,
 `max_depth = None`) against `max_iter = 300`, `max_depth = 4` in the run (`ml.rs:98`–`:101`); and
-`SVC` is constructed without `probability=True` in eval (`ml.rs:1156`) against `ml.rs:135`. No
-test in `ml.rs:1532`–`:2174` compares the two.
+`SVC` is constructed without `probability=True` in eval (`ml.rs:1156`) against `ml.rs:135` — not a
+cosmetic difference, since that flag makes scikit-learn fit internal Platt scaling and changes the
+estimator. No test compared the two. All three are gone by construction.
 
-**Verified by.** SB-MLA-T27
+**Verified by.** SB-MLA-T27 — implemented as
+`the_leaderboard_builds_the_same_estimators_the_run_will_fit` (structural; names every estimator and
+asserts each appears in the shared fragment and in **neither** runner body, so a runner that embedded
+the fragment and then shadowed it — the shape the defect actually had — still fails) and
+`a_polynomial_degree_is_ranked_as_a_polynomial_not_as_a_line` (behavioural, skips without
+scikit-learn: on `y = x²`, `degree = 3` must outscore the straight line it used to be ranked as).
 
 #### SB-MLA-027 — Every reported score names its protocol          [P1] [status: PRESENT-DIVERGENT]
 
@@ -3542,7 +3558,7 @@ chapter cannot be mistaken for a restatement of its dossier**, and because `03_E
 | `SB-MLA-023` | `facies.rs:23`/`:24` against `ml.rs:163` — two k-means engines, different constants |
 | `SB-MLA-024` | `facies.rs:41` (7) against `ml.rs:64` (42) — two seed defaults |
 | `SB-MLA-025` | `hfu.rs:103`, `lorenz.rs:152`, `facies.rs:318` — three within-cluster-sum-of-squares partitioners |
-| `SB-MLA-026` | `ml.rs:1132`–`:1176` against `ml.rs:87`–`:147` — the leaderboard fits a different model from the run |
+| `SB-MLA-026` | ~~`ml.rs:1132`–`:1176` against `ml.rs:87`–`:147` — the leaderboard fits a different model from the run~~ **CLOSED 2026-08-07.** One `ML_BUILD_MODEL`, both runners composed from it. Pinned by `the_leaderboard_builds_the_same_estimators_the_run_will_fit` |
 | `SB-MLA-028` | ~~`ml.rs:1129`–`:1130` before `ml.rs:1171`–`:1176` — the scaler is fitted before the split~~ **CLOSED 2026-08-07.** One scaler per fold, fitted on `X[tr]` only, built after the splitter. Pinned by `no_transform_is_fitted_outside_the_folds_training_rows` |
 | `SB-MLA-061` | `python_engine.rs:47`–`:48` — the missing-interpreter message |
 | `SB-MLA-062` | `ml.rs:630` — the single-writer lock is taken across the fit |
