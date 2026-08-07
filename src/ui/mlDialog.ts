@@ -10,6 +10,8 @@ import {
   runMl,
   runMlEval,
   statsCurveSummary,
+  curveSampling,
+  type CurveSampling,
   type CurveStatsRow,
   type MlEvalResult,
   type MlEvalRow,
@@ -818,6 +820,7 @@ export async function buildMlContent(
     if (!outEdited) outInput.value = algo.out ?? task.defaultOut;
     echoTransform();
     renderParams();
+    syncNorm();
     // Asked per selection rather than once: the answer depends on which algorithm is chosen, and
     // the backend caches the runtime probe, so every call after the first is free. A generation
     // counter drops a stale answer — the user can change the algorithm faster than the round trip.
@@ -861,17 +864,82 @@ export async function buildMlContent(
   qcHead.className = "mc-chain-note";
   const qcOut = document.createElement("div");
   qcOut.className = "ml-qc-out";
-  sQc.append(formRow("Fitness", qcBtn, "Measures the curves and wells currently selected, for the model currently chosen."), qcHead, qcOut);
+
+  // Normalization, shown where the reason to change it appears.
+  //
+  // Jauhar, 2026-08-07: *"in data qc, can we also provide normalization of data input, since
+  // different log and scale will provide different weight as well, mainly for several algorithm not
+  // all"*. The setting itself already existed in Model ▸ Common. What did not exist was any way to
+  // decide it: the scale finding is measured here, and the control was two sections away.
+  //
+  // **This is one setting with two views, never two checkboxes.** A second control holding its own
+  // copy of the same state is how the two come to disagree, and a run would then normalize or not
+  // depending on which section you looked at last. Both read and write `stdCb`.
+  const normWrap = document.createElement("div");
+  normWrap.className = "ml-norm";
+  const normCb = document.createElement("input");
+  normCb.type = "checkbox";
+  const normLab = document.createElement("label");
+  normLab.append(normCb, document.createTextNode(" Standardize inputs (z-score)"));
+  const normWhy = document.createElement("div");
+  normWhy.className = "ml-norm-why";
+  normWrap.append(normLab, normWhy);
+
+  /** Says what standardizing would do FOR THE CHOSEN ALGORITHM, which is the only form of the
+   *  question with an answer. Mirrors the Model section's state in both directions. */
+  function syncNorm(): void {
+    normCb.checked = stdCb.checked;
+    normWhy.textContent = SCALE_FREE.has(algo.id)
+      ? `${algo.label} is unaffected by it — it treats each curve on its own terms, so the z-score changes ` +
+        "nothing it predicts. Harmless to leave on; it is recorded either way."
+      : `${algo.label} weighs every input together, so without this the widest-ranging curve dominates ` +
+        "whether or not it carries information. The scaler is fitted on the FIT rows only and stored with " +
+        "the model, so an apply run reuses the same transform rather than refitting one on different wells.";
+    normWhy.classList.toggle("ml-norm-off", !stdCb.checked && !SCALE_FREE.has(algo.id));
+  }
+  normCb.addEventListener("change", () => {
+    stdCb.checked = normCb.checked;
+    syncNorm();
+    void refreshQc();
+  });
+  stdCb.addEventListener("change", syncNorm);
+
+  sQc.append(
+    formRow("Normalization", normWrap, "The same setting as Model ▸ Common — shown here because this is where the reason to change it is measured."),
+    formRow("Fitness", qcBtn, "Measures the curves and wells currently selected, for the model currently chosen."),
+    qcHead,
+    qcOut,
+  );
   let qcGen = 0;
 
-  /** True where the estimator's arithmetic depends on the SCALE of its inputs.
+  /** True where the estimator's PREDICTIONS are invariant to rescaling an input.
    *
-   *  The split is the one that decides whether a scale warning is a finding or noise. Trees split
-   *  one feature at a time on a threshold, so multiplying a curve by a thousand changes nothing
-   *  they do; everything else here measures a distance, a dot product or a gradient across all
-   *  features at once, and a curve with a thousand times the spread of its neighbours dominates
-   *  that whether or not it carries any information. Linear regression is in the tolerant set for a
-   *  different reason: scale changes its coefficients but not its fit. */
+   *  Jauhar asked for this to be cross-checked rather than assumed (2026-08-07), so the reasoning is
+   *  written down per estimator against what `ML_BUILD_MODEL` actually constructs — not against what
+   *  the algorithm is called, which is where this kind of table usually goes wrong.
+   *
+   *  **Invariant, and why each one is:**
+   *  - `rf`, `gbdt` — trees split one feature at a time on a threshold. Any monotone rescaling maps
+   *    every candidate split to an equivalent one, so the tree is the same tree.
+   *  - `gnb` — GaussianNB fits a mean and variance PER FEATURE independently. Scaling feature *j*
+   *    by *a* scales its fitted mean and standard deviation by *a* too, and the log-likelihood
+   *    changes by −log *a*, which is identical for every class. The argmax is untouched.
+   *  - `linear` — scikit-learn's `LinearRegression` is unregularised OLS, so rescaling changes the
+   *    coefficients and not one predicted value. (At `degree > 1` this stays true algebraically;
+   *    unscaled inputs raised to a power are merely harder to condition numerically.)
+   *
+   *  **Not invariant, and the reason is not always distance:**
+   *  - `svr`, `svm` (RBF kernel), `knn`, `kmeans`, `gmm`, `hier`, `dbscan`, `tsne` — all measure a
+   *    distance across every feature at once, so the widest-ranging curve decides the answer whether
+   *    or not it carries information.
+   *  - `ann` — gradient descent on unscaled inputs converges to a different place in a fixed
+   *    iteration budget.
+   *  - `logreg` — the trap in this list. Its arithmetic looks linear, but scikit-learn's
+   *    `LogisticRegression` is L2-penalised by default: a widely-ranging feature earns a small
+   *    coefficient, a small coefficient is penalised less, and the fit therefore moves with the
+   *    scale. It is deliberately NOT in the invariant set.
+   *  - `pca` — the most scale-sensitive thing here. Components follow variance, so on unscaled data
+   *    the first component is essentially whichever curve has the largest units. */
   const SCALE_FREE = new Set(["rf", "gbdt", "gnb", "linear"]);
 
   async function refreshQc(): Promise<void> {
@@ -903,7 +971,17 @@ export async function buildMlContent(
       return;
     }
     if (gen !== qcGen) return;
-    renderQc(qcHead, qcOut, rows, {
+    // The sampling probe is a second round trip, deliberately: it answers a question the coverage
+    // numbers raise rather than one they answer, and asking it always would put a per-curve query
+    // behind every QC open. Failing it is not fatal — the coverage findings still stand.
+    let sampling: [string, CurveSampling[]][] = [];
+    try {
+      sampling = await curveSampling(wellIds, curves);
+    } catch {
+      /* the sampling findings are simply absent, not wrong */
+    }
+    if (gen !== qcGen) return;
+    renderQc(qcHead, qcOut, rows, sampling, {
       curves,
       inputs: feats,
       target: task.supervised ? targetSel.value : null,
@@ -2095,8 +2173,88 @@ interface QcFinding {
  *
  * Exported so it can be driven with synthetic rows over the vite dev server.
  */
-export function qcFindings(rows: CurveStatsRow[], ctx: QcContext): QcFinding[] {
+export function qcFindings(
+  rows: CurveStatsRow[],
+  sampling: [string, CurveSampling[]][],
+  ctx: QcContext,
+): QcFinding[] {
   const out: QcFinding[] = [];
+
+  // --- 0. Sampling, before anything that depends on it ----------------------
+  //
+  // Jauhar, 2026-08-07: *"each log has different resolution, sometimes it looks low frequency such
+  // as resistivity, sometimes high such as rxo, gr, or nphi"*. Every read in this application aligns
+  // curves onto the well's frame by EXACT depth match, which is right and cheap when the curves came
+  // from one delivery — and returns nothing at all when they did not. A resistivity delivered on a
+  // 0.5 m grid, joined onto a 0.1524 m frame, coincides at no depth: fully logged, fully stored, and
+  // it reads as absent.
+  //
+  // Reported FIRST and separately from coverage, because "missing" and "present on another grid"
+  // send an interpreter in opposite directions — and the second one previously reported itself as
+  // the first, which sends them looking for a log they already have.
+  const offGrid = new Map<string, { wells: string[]; own: number; step: number | null }>();
+  const steps = new Map<string, number[]>();
+  for (const [, curves] of sampling) {
+    for (const s of curves) {
+      if (s.step != null && s.step > 0) {
+        const list = steps.get(s.curve) ?? [];
+        list.push(s.step);
+        steps.set(s.curve, list);
+      }
+      // The signature of the fault: real samples, none of which land on the frame. A curve with a
+      // FEW landing is a different situation (partial overlap) and is left to the coverage check,
+      // which measures it properly.
+      if (s.n_own > 0 && s.n_on_frame === 0) {
+        const e = offGrid.get(s.curve) ?? { wells: [], own: 0, step: s.step };
+        e.wells.push("");
+        e.own += s.n_own;
+        offGrid.set(s.curve, e);
+      }
+    }
+  }
+  for (const [, curves] of sampling) {
+    for (const s of curves) {
+      const e = offGrid.get(s.curve);
+      if (e && s.n_own > 0 && s.n_on_frame === 0 && e.step == null) e.step = s.step;
+    }
+  }
+  for (const [curve, e] of offGrid) {
+    out.push({
+      level: "alert",
+      title: `${curve} is logged but sits on a different depth grid`,
+      detail:
+        `It holds ${e.own.toLocaleString()} samples${e.step ? ` at about ${e.step.toFixed(4)} spacing` : ""}, ` +
+        "and not one of them falls on a depth this well's other curves use. Curves are joined by exact " +
+        "depth, so every read of it comes back blank and every row it touches is dropped. This is not a " +
+        "missing curve — do not go looking for it. Re-frame it onto the well's own sampling " +
+        "(Data ▸ Frame ▸ Resample) and it will come straight in.",
+    });
+  }
+  // The softer version: the curves ARE on one grid, but they were logged at different rates. Nothing
+  // is lost here — the join still works — but a curve carrying a value every 0.5 m beside one
+  // carrying a value every 0.1 m contributes a fifth as many rows, and its influence on the fit is
+  // the same fraction. Worth knowing, not worth stopping for.
+  const rates = [...steps.entries()]
+    .map(([curve, list]) => ({ curve, step: list.reduce((a, b) => a + b, 0) / list.length }))
+    .filter((r) => r.step > 0);
+  if (rates.length > 1) {
+    const fine = rates.reduce((a, b) => (b.step < a.step ? b : a));
+    const coarse = rates.reduce((a, b) => (b.step > a.step ? b : a));
+    const ratio = coarse.step / fine.step;
+    if (ratio > 1.5 && !offGrid.has(coarse.curve)) {
+      out.push({
+        level: "warn",
+        title: `${coarse.curve} is sampled about ${ratio < 10 ? ratio.toFixed(1) : Math.round(ratio)}× more coarsely than ${fine.curve}`,
+        detail:
+          `${coarse.step.toFixed(4)} against ${fine.step.toFixed(4)}. Both are on the well's frame, so nothing is ` +
+          `lost — but ${coarse.curve} answers for a fraction of the depths, and every row where it is blank is ` +
+          `dropped from the fit entirely, taking the finely-sampled curves at that depth with it. Sampling is ` +
+          "not the same as vertical resolution: how often a tool was read tells you nothing about how thin a bed " +
+          "it can see, and neither number is something SandiBumi can infer for you.",
+      });
+    }
+  }
+
   const byCurve = new Map<string, CurveStatsRow[]>();
   for (const r of rows) {
     const list = byCurve.get(r.curve) ?? [];
@@ -2164,10 +2322,20 @@ export function qcFindings(rows: CurveStatsRow[], ctx: QcContext): QcFinding[] {
           "Drop the curve or drop the wells; leaving both narrows the model to whichever wells happen to have everything.",
       });
     } else if (share > 0.3) {
+      // The cost is stated in ROWS THE OTHER CURVES LOSE, not as a coverage percentage. A curve
+      // covering 48% of the well sounds like a partial input; what it actually does is delete 52% of
+      // every OTHER curve's rows as well, because a depth is used only where every input has a
+      // value. The second framing is the one that changes a decision — usually to drop the curve.
+      const best = Math.max(...counts.map((x) => x.n));
+      const lost = Math.max(0, best - n);
       out.push({
         level: "warn",
-        title: `${c} is blank over ${Math.round(share * 100)}% of the selected interval`,
-        detail: "Every blank depth removes the whole row, including the curves that were logged there.",
+        title: `${c} covers ${Math.round((1 - share) * 100)}% of the interval, and costs the run ${lost.toLocaleString()} rows`,
+        detail:
+          `A depth is used only where EVERY input has a value, so the ${lost.toLocaleString()} depths ${c} does not ` +
+          "reach are dropped whole — taking the curves that were logged there with them. Dropping this curve " +
+          `from the inputs would give the model ${lost.toLocaleString()} more rows to learn from, and it is worth ` +
+          "comparing both ways on the leaderboard before deciding which is the better trade.",
       });
     }
   }
@@ -2310,9 +2478,15 @@ export function qcFindings(rows: CurveStatsRow[], ctx: QcContext): QcFinding[] {
   return [headline, ...out];
 }
 
-function renderQc(head: HTMLElement, host: HTMLElement, rows: CurveStatsRow[], ctx: QcContext): void {
+function renderQc(
+  head: HTMLElement,
+  host: HTMLElement,
+  rows: CurveStatsRow[],
+  sampling: [string, CurveSampling[]][],
+  ctx: QcContext,
+): void {
   host.innerHTML = "";
-  const findings = qcFindings(rows, ctx);
+  const findings = qcFindings(rows, sampling, ctx);
   const alerts = findings.filter((f) => f.level === "alert").length;
   const warns = findings.filter((f) => f.level === "warn").length;
   head.textContent =

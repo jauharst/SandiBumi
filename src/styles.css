@@ -5101,6 +5101,19 @@ textarea {
    and must not be able to re-roll the meaning of "this will not fit". A left rule rather than a
    filled card, so a panel of six findings does not read as six alarms - the rule carries the grade
    and the text carries the finding. */
+/* One setting, two views - Model owns the checkbox, Data QC shows it beside the measurement that
+   decides it. Never a second piece of state: two checkboxes for one thing is how they drift. */
+.ml-norm-why {
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+/* Off, on an estimator that needs it. Not an alarm - the run is legitimate and the QC panel below
+   states the size of the effect - but it is the one combination worth catching the eye. */
+.ml-norm-off {
+  color: var(--qc-warn);
+}
 .ml-qc-item {
   margin: 6px 0;
   padding: 6px 10px;

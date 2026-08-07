@@ -1494,6 +1494,28 @@ pub fn ml_runtime() -> serde_json::Value {
         .clone()
 }
 
+/// The ONE log set a model's training rows all came from, or `None`.
+///
+/// `None` covers three different situations on purpose, because all three mean the same thing to a
+/// caller: the model predates the record, it was fitted from the live store, or its wells were read
+/// from more than one set. Only an unambiguous single set can be reused without choosing on the
+/// user's behalf — and a model whose wells came from FINAL and RAW has no single answer to inherit.
+fn training_sets(training_json: Option<&str>) -> Option<String> {
+    let rec: TrainingRecord = serde_json::from_str(training_json?).ok()?;
+    let mut names: Vec<&str> = rec.wells.iter().filter_map(|w| w.set_name.as_deref()).collect();
+    // Every contributing well must have been read from a set, or the ones that were not came from
+    // the live store and there is no single provenance to carry forward.
+    if names.len() != rec.wells.len() || names.is_empty() {
+        return None;
+    }
+    names.sort_unstable();
+    names.dedup();
+    match names.as_slice() {
+        [one] => Some((*one).to_string()),
+        _ => None,
+    }
+}
+
 /// SB-MLA-008 — what would stop THIS configuration reproducing, said before the run.
 ///
 /// The requirement's escape clause asks the product to name the source of any non-determinism rather
@@ -2397,6 +2419,35 @@ pub fn apply_ml_model(
         return fail("this saved model records no input curves");
     }
 
+    // ...and so does its log set, for exactly the same reason the feature ORDER does.
+    //
+    // Jauhar, 2026-08-07: *"user dont need to re input well, data, rerun model again to
+    // propagate"*. The features were already locked to the artifact; the SET they are read from was
+    // not, so a model fitted on FINAL porosity could be applied against the live store and nothing
+    // anywhere would say so. That is the same class of defect as a reordered matrix — it computes,
+    // it plots, and the curve is quietly a different quantity — and it was the one half of the
+    // contract still taken from the caller.
+    //
+    // The caller may still override. What it may not do is override SILENTLY.
+    let mut notes: Vec<String> = Vec::new();
+    let model_set: Option<String> = training_sets(info.training_json.as_deref());
+    let input_set: Option<String> = match (req.input_set.as_deref().map(str::trim).filter(|s| !s.is_empty()), &model_set) {
+        // Nothing asked for, and the model remembers: use what it was fitted on.
+        (None, Some(set)) => {
+            notes.push(format!(
+                "read from log set '{set}', the set this model was fitted on - propagating it does not need the inputs restated"
+            ));
+            Some(set.clone())
+        }
+        (Some(asked), Some(set)) if !asked.eq_ignore_ascii_case(set) => {
+            notes.push(format!(
+                "this model was fitted on log set '{set}' and is being applied against '{asked}'. The curves may carry the same names and different values, so its blind score does not describe this run"
+            ));
+            Some(asked.to_string())
+        }
+        (asked, _) => asked.map(str::to_string),
+    };
+
     let mut apply: Vec<ApplyWell> = Vec::new();
     let mut x_apply: Vec<f32> = Vec::new();
     {
@@ -2406,7 +2457,7 @@ pub fn apply_ml_model(
             fetch.push(mk.clone());
         }
         for well_id in &req.apply_well_ids {
-            match fetch_curve_frame_from_set(&conn, well_id, &fetch, req.input_set.as_deref(), None) {
+            match fetch_curve_frame_from_set(&conn, well_id, &fetch, input_set.as_deref(), None) {
                 Ok((depth, cols)) => {
                     // Name the curve that is missing. "missing input curve data" sends somebody
                     // hunting through five mnemonics; the model knows exactly which it needs.
@@ -2606,13 +2657,18 @@ pub fn apply_ml_model(
         }
         start += m;
     }
-    let mut notes = vec![format!(
-        "applied the saved model '{}' ({} on {}), trained on {} well(s) - nothing was refitted",
-        info.name,
-        info.algorithm,
-        info.target_curve.clone().unwrap_or_else(|| "-".into()),
-        info.trained_on.len()
-    )];
+    let mut notes = {
+        let mut n = vec![format!(
+            "applied the saved model '{}' ({} on {}), trained on {} well(s) - nothing was refitted",
+            info.name,
+            info.algorithm,
+            info.target_curve.clone().unwrap_or_else(|| "-".into()),
+            info.trained_on.len()
+        )];
+        // Which set the inputs were read from, decided above rather than by the caller.
+        n.extend(notes);
+        n
+    };
     // SB-MLA-005 and SB-MLA-002, both checked HERE because this is the moment the artifact is
     // actually used. A warning at save time would name a runtime that had not yet diverged, and a
     // training set that is fine today can be superseded tomorrow by somebody re-running porosity.
@@ -4870,6 +4926,55 @@ mod tests {
         // And the mirror: a component the CURRENT probe did not ask about cannot manufacture a step.
         let older_probe = serde_json::json!({ "python": "3.12.4" });
         assert!(runtime_drift(Some(&same), &older_probe).is_empty());
+    }
+
+    /// **A model carries the log set it was fitted on, so propagating it needs nothing restated.**
+    ///
+    /// Jauhar, 2026-08-07: *"user dont need to re input well, data, rerun model again to
+    /// propagate"*. The feature list was already locked to the artifact and its ORDER enforced by
+    /// the runner; the set those features are READ from was still taken from the caller, so a model
+    /// fitted on FINAL porosity could be applied against the live store with nothing saying so —
+    /// the same class of defect as a reordered matrix, and the last half of the contract still
+    /// outside it.
+    ///
+    /// Pinned from both sides. A single recorded set is inherited. Every case where there is no ONE
+    /// answer returns `None` rather than choosing on the user's behalf — and the three that produce
+    /// it are genuinely different situations that happen to demand the same silence: no record at
+    /// all, a well read from the live store, and wells read from two different sets.
+    #[test]
+    fn a_model_carries_the_log_set_it_was_fitted_on_and_never_guesses_between_two() {
+        let w = |set: Option<&str>, name: &str| TrainWellRecord {
+            well_id: format!("id-{name}"),
+            well: name.into(),
+            rows: 100,
+            masked: 0,
+            incomplete: 0,
+            set_name: set.map(str::to_string),
+            set_id: set.map(|_| "sid".to_string()),
+            set_version: set.map(|_| 1),
+        };
+        let json = |wells: Vec<TrainWellRecord>| {
+            serde_json::to_string(&TrainingRecord { mask_curve: None, wells }).unwrap()
+        };
+
+        // Every well from one set: that is the set to inherit.
+        let one = json(vec![w(Some("FINAL"), "SANDI-1"), w(Some("FINAL"), "SANDI-2")]);
+        assert_eq!(training_sets(Some(&one)).as_deref(), Some("FINAL"));
+
+        // Two sets. There is no single answer, and picking one would silently decide which rock the
+        // propagation reads - so it declines and the caller's own choice stands.
+        let two = json(vec![w(Some("FINAL"), "SANDI-1"), w(Some("RAW"), "SANDI-2")]);
+        assert!(training_sets(Some(&two)).is_none(), "two sets have no one answer to inherit");
+
+        // One well read from the live store. The model is NOT "trained on FINAL" - part of it was
+        // trained on values that can move - so there is nothing safe to carry forward.
+        let mixed = json(vec![w(Some("FINAL"), "SANDI-1"), w(None, "SANDI-2")]);
+        assert!(training_sets(Some(&mixed)).is_none(), "a live-store well leaves no frozen set");
+
+        // Nothing recorded, and nothing at all.
+        assert!(training_sets(None).is_none(), "a model saved before the record existed");
+        assert!(training_sets(Some(&json(vec![]))).is_none(), "no wells, no set");
+        assert!(training_sets(Some("not json")).is_none());
     }
 
     /// **SB-MLA-002 — the training log set is recorded, and a set that has moved is named.**

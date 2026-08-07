@@ -1292,6 +1292,29 @@ export function mlDeterminismNote(task: string, algorithm: string): Promise<stri
   return invoke<string | null>("ml_determinism_note", { task, algorithm });
 }
 
+/** What one curve's OWN sampling looks like, and how much of it survives the join onto the well's
+ *  frame. `n_own` large beside `n_on_frame` zero is the finding: the curve is fully logged and
+ *  coincides with the frame at no depth, so every read of it returns blank. */
+export interface CurveSampling {
+  curve: string;
+  n_own: number;
+  /** Median spacing between the curve's own depths — median, not mean, so one gap across a casing
+   *  shoe cannot drag it away from the sampling the tool actually ran at. */
+  step: number | null;
+  top: number | null;
+  base: number | null;
+  n_on_frame: number;
+  imported: boolean;
+}
+
+/** Per well, how each named curve is sampled against that well's frame. */
+export function curveSampling(
+  wellIds: string[],
+  curves: string[],
+): Promise<[string, CurveSampling[]][]> {
+  return invoke<[string, CurveSampling[]][]>("curve_sampling", { wellIds, curves });
+}
+
 /** Applies a saved model to wells it has never seen. Nothing is refitted — a refit on different
  *  data is a different model. The model's own curve list drives the inputs, so the caller cannot
  *  reorder them. */

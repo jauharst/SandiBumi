@@ -1839,6 +1839,35 @@ async fn list_ml_models(db: tauri::State<'_, DbState>) -> Result<Vec<db::MlModel
 /// Computed in Rust rather than compared in the picker so there is ONE implementation of each check
 /// and one wording. A model list is short and the runtime probe is cached, so this is one query and
 /// no subprocess after the first call.
+/// How each curve is SAMPLED, against the frame every read aligns onto.
+///
+/// Answers the question the coverage numbers cannot: a curve reported as blank everywhere is either
+/// absent or delivered on a grid that coincides with the frame at no depth, and those call for
+/// opposite responses. Measured per well because sampling is a property of the delivery, and a field
+/// where one well came from a different vendor is exactly where this bites.
+#[tauri::command]
+async fn curve_sampling(
+    db: tauri::State<'_, DbState>,
+    well_ids: Vec<String>,
+    curves: Vec<String>,
+) -> Result<Vec<(String, Vec<equations::CurveSampling>)>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = conn.lock().unwrap();
+        let mut out = Vec::new();
+        for id in &well_ids {
+            let frame = equations::well_frame(&c, id).unwrap_or_default();
+            match equations::curve_sampling(&c, id, &curves, &frame) {
+                Ok(rows) => out.push((id.clone(), rows)),
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// SB-MLA-008 — what about THIS configuration would not reproduce elsewhere, before it is run.
 ///
 /// Scoped to what the product can observe in its own code rather than to second-hand claims about
@@ -3305,6 +3334,7 @@ pub fn run() {
             list_ml_models,
             ml_model_warnings,
             ml_determinism_note,
+            curve_sampling,
             rename_ml_model,
             delete_ml_model,
             run_ml_eval,

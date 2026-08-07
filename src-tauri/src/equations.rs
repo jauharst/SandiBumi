@@ -488,6 +488,116 @@ fn fetch_computed_curve_aligned(
     Ok(depth_grid.iter().map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN)).collect())
 }
 
+/// What one curve's OWN sampling looks like, and how much of it survives the join onto a frame.
+///
+/// Every read in this module aligns by EXACT depth match. That is correct and cheap when the curves
+/// share a grid, which they do whenever they came from one delivery — and it silently returns
+/// nothing when they do not. A resistivity delivered on a 0.5 m grid, joined onto a 0.1524 m frame,
+/// coincides at no depth at all: the curve is fully logged, fully stored, and reads as absent.
+///
+/// The diagnosis matters more than the count. "Missing" and "present on a different grid" call for
+/// opposite responses — go and find the curve, versus reconcile the sampling — and until now the
+/// second reported itself as the first, which sends an interpreter looking for a log they already
+/// have.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CurveSampling {
+    pub curve: String,
+    /// Samples the curve actually holds, on its own depths.
+    pub n_own: usize,
+    /// Median spacing between its own consecutive depths. `None` below two samples, where a
+    /// spacing is undefined rather than zero.
+    pub step: Option<f64>,
+    pub top: Option<f64>,
+    pub base: Option<f64>,
+    /// How many of the frame's depths this curve answers for. Zero beside a large `n_own` is the
+    /// whole finding.
+    pub n_on_frame: usize,
+    /// True where the curve was found in the generic store rather than as a standard column or a
+    /// computed curve — the only place a foreign grid can come from today.
+    pub imported: bool,
+}
+
+/// Measures each named curve's own sampling against a frame, for one well.
+///
+/// Deliberately separate from `fetch_curve_frame`: that answers "give me these curves on this grid",
+/// which is what a module wants, and this answers "why did that come back empty", which is what a
+/// person wants. Folding the second into the first would put a per-curve extra query on the hot path
+/// of every module run in the application.
+pub fn curve_sampling(
+    conn: &Connection,
+    well_id: &str,
+    curve_names: &[String],
+    frame: &[f32],
+) -> duckdb::Result<Vec<CurveSampling>> {
+    let frame_bits: std::collections::HashSet<u32> = frame.iter().map(|d| d.to_bits()).collect();
+    let mut out = Vec::new();
+    for name in curve_names {
+        let upper = name.trim().to_uppercase();
+        // Own depths, wherever the curve lives. The generic store is asked first because it is the
+        // only source that can carry a grid of its own; a computed curve was written against a
+        // frame and a standard column IS the frame.
+        let curve_id: Option<String> = conn
+            .query_row(
+                "SELECT curve_id FROM curve_meta
+                 WHERE well_id = ?1 AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
+                 ORDER BY (set_name = 'RAW') DESC, (upper(mnemonic) = ?2) DESC,
+                          set_name, run_no NULLS FIRST, curve_id
+                 LIMIT 1",
+                params![well_id, upper],
+                |row| row.get(0),
+            )
+            .ok();
+        let depths: Vec<f32> = match &curve_id {
+            Some(id) => {
+                let mut stmt = conn.prepare(
+                    "SELECT depth FROM curve_samples WHERE curve_id = ?1 AND value IS NOT NULL ORDER BY depth",
+                )?;
+                stmt.query_map(params![id], |r| r.get::<_, f32>(0))?.collect::<duckdb::Result<_>>()?
+            }
+            None => {
+                let mut stmt = conn.prepare(
+                    "SELECT depth FROM computed_curves WHERE well_id = ?1 AND upper(curve_name) = ?2 ORDER BY depth",
+                )?;
+                stmt.query_map(params![well_id, upper], |r| r.get::<_, f32>(0))?
+                    .collect::<duckdb::Result<_>>()?
+            }
+        };
+        let n_own = depths.len();
+        let n_on_frame = depths.iter().filter(|d| frame_bits.contains(&d.to_bits())).count();
+        // MEDIAN spacing, not mean: one gap across a casing shoe would drag a mean far off the
+        // sampling the tool actually ran at, and the sampling is the question.
+        let step = if n_own >= 2 {
+            let mut gaps: Vec<f64> =
+                depths.windows(2).map(|w| (w[1] - w[0]) as f64).filter(|g| *g > 0.0).collect();
+            if gaps.is_empty() {
+                None
+            } else {
+                gaps.sort_by(|a, b| a.partial_cmp(b).expect("finite by construction"));
+                Some(gaps[gaps.len() / 2])
+            }
+        } else {
+            None
+        };
+        out.push(CurveSampling {
+            curve: upper,
+            n_own,
+            step,
+            top: depths.first().map(|d| *d as f64),
+            base: depths.last().map(|d| *d as f64),
+            n_on_frame,
+            imported: curve_id.is_some(),
+        });
+    }
+    Ok(out)
+}
+
+/// The well's own frame — the depths every read in this module aligns onto.
+pub fn well_frame(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<f32>> {
+    let mut stmt =
+        conn.prepare("SELECT depth FROM standard_curves WHERE well_id = ?1 ORDER BY depth")?;
+    stmt.query_map(params![well_id], |r| r.get::<_, f32>(0))?.collect()
+}
+
 /// Looks up a curve in the generic store (`curve_meta`/`curve_samples`) by
 /// mnemonic-or-family and aligns its samples onto the depth grid. Set RAW has ABSOLUTE
 /// priority — any RAW match (mnemonic or family) beats any match from another set, so
