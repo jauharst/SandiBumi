@@ -815,6 +815,16 @@ def fit_xy(yv):
     """The rows the model is allowed to learn from. Everything else is being kept honest."""
     return (Xs[fit_rows], yv[fit_rows]) if fit_rows is not None else (Xs, yv)
 
+def name_protocol(key, sentence):
+    """SB-MLA-027 - a score is a claim, and a claim without its protocol is not checkable.
+
+    R-squared over the fitted rows, over folds of the same wells, and over wells the model never saw
+    are three different numbers that answer three different questions, and they are routinely quoted
+    as one. Kept as DATA next to the score rather than as prose in a note, so a renderer that prints
+    the number can always find the sentence that qualifies it.
+    """
+    metrics.setdefault("score_protocols", {})[key] = sentence
+
 def cv_score(model, scoring, key):
     """Validation score over the FIT wells.
 
@@ -839,11 +849,24 @@ def cv_score(model, scoring, key):
                                  cv=GroupKFold(n_splits=nsp), groups=gf, scoring=scoring)
             metrics[key] = float(np.mean(sc))
             metrics[key + "_folds"] = "%d wells held out one at a time" % nsp if nsp == ng else "%d well groups" % nsp
+            name_protocol(key, "whole wells held out (%s) - this answers 'will it work on the next well'"
+                          % metrics[key + "_folds"])
         else:
             # One well: there is no blind fold to be had, and saying so is the point.
             sc = cross_val_score(est, X if fit_rows is None else X[fit_rows], yf, cv=KFold(n_splits=5, shuffle=True, random_state=seed), scoring=scoring)
             metrics[key] = float(np.mean(sc))
             metrics[key + "_folds"] = "random folds within ONE well - not a blind score"
+            # SB-MLA-019. The protocol DEGRADED, and the number it produced sits under the same key a
+            # sound protocol would have used. Random folds within one well score the model on rock a
+            # few centimetres from rock it was fitted on, so the number is a smoothness measure, not
+            # a validation - and it reads HIGH, which is the wrong direction for a caveat to fail in.
+            # Flagged as data rather than left in prose so a renderer cannot print the score without
+            # being able to find the qualification.
+            metrics["cv_degraded"] = True
+            metrics[key + "_degraded"] = True
+            name_protocol(key, "random folds inside ONE well - the model is scored on rock centimetres "
+                               "from rock it was fitted on, so this measures smoothness, not validity, "
+                               "and it reads higher than a real blind score would")
     except Exception as e:
         metrics["cv_error"] = str(e)
 
@@ -857,6 +880,25 @@ def blind_score(model, kind):
     if groups is not None:
         metrics["n_blind_wells"] = int(len(np.unique(groups[blind])))
         metrics["n_fit_wells"] = int(len(np.unique(groups[fit_rows])))
+    # SB-MLA-027. Whole wells and drawn rows are not the same claim, and only the first answers
+    # "will this work on the next well" - a row split leaves the held-out samples centimetres from
+    # fitted ones. The protocol is stated with the score rather than inferred from the split mode.
+    whole_wells = False
+    if groups is not None:
+        # Disjoint well sets is the property that matters, not the requested mode: it is what makes
+        # the held-out rows rock the model has never been near.
+        whole_wells = not (set(np.unique(groups[blind])) & set(np.unique(groups[fit_rows])))
+    if whole_wells:
+        blind_protocol = (
+            "%d row(s) from %d WHOLE well(s) the model never saw - this answers 'will it work on the "
+            "next well'" % (int(np.sum(blind)), int(metrics.get("n_blind_wells", 0)))
+        )
+    else:
+        blind_protocol = (
+            "%d row(s) drawn out of wells the model was also fitted on - held-out samples sit "
+            "centimetres from fitted ones, so this reads higher than a whole-well score would"
+            % int(np.sum(blind))
+        )
     # How alike the two sides are, per feature and on the target. This is the evidence for
     # "similar statistics", and it is reported rather than asserted: a stratified draw is
     # SUPPOSED to make these match, so a pair that does not match is the signal that the strata
@@ -879,8 +921,11 @@ def blind_score(model, kind):
             ss_res = float(np.sum((yb - pb) ** 2)); ss_tot = max(float(np.sum((yb - np.mean(yb)) ** 2)), 1e-12)
             metrics["r2_blind"] = 1.0 - ss_res / ss_tot
             metrics["rmse_blind"] = float(np.sqrt(np.mean((yb - pb) ** 2)))
+            for kk in ("r2_blind", "rmse_blind"):
+                name_protocol(kk, blind_protocol)
         else:
             metrics["accuracy_blind"] = float(np.mean(model.predict(Xb) == yb.astype(int)))
+            name_protocol("accuracy_blind", blind_protocol)
     except Exception as e:
         metrics["blind_error"] = str(e)
 
@@ -1032,6 +1077,12 @@ if task == "regression":
     metrics["r2_train"] = 1.0 - ss_res / ss_tot
     metrics["rmse_train"] = float(np.sqrt(np.mean((yf - pred) ** 2)))
     metrics["n_train"] = n_train
+    # SB-MLA-027. The in-sample score. It is the one most likely to be quoted as an answer and the
+    # one that answers least: a model with enough capacity drives it toward 1 by memorising, so it
+    # measures capacity, not skill.
+    for kk in ("r2_train", "rmse_train"):
+        name_protocol(kk, "the rows the model was FITTED ON - in-sample, so it measures how much the "
+                          "model could memorise and not how it will behave on rock it has not seen")
     blind_score(model, "r2")
     base_pred = model.predict(As).astype(np.float32)
     outs.append(("", base_pred))
@@ -1055,6 +1106,9 @@ elif task == "classification":
     Xf, yf = fit_xy(yi)
     model.fit(Xf, yf)
     metrics["accuracy_train"] = float(np.mean(model.predict(Xf) == yf))
+    name_protocol("accuracy_train", "the rows the model was FITTED ON - in-sample, so it measures how "
+                                    "much the model could memorise and not how it will behave on rock "
+                                    "it has not seen")
     metrics["class_counts"] = {str(c): int(np.sum(yf == c)) for c in np.unique(yf)}
     metrics["n_train"] = n_train
     blind_score(model, "accuracy")

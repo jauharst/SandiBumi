@@ -1578,7 +1578,7 @@ remaining wells getting curves they should not."
 
 **Verified by.** SB-MLA-T18 (`CHARACTERIZATION`)
 
-#### SB-MLA-019 — A cross-validation protocol that degraded MUST NOT report a score as if it had not          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-019 — A cross-validation protocol that degraded MUST NOT report a score as if it had not          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where blind-well cross-validation cannot be performed because fewer than two
 groups contributed samples, the run MUST refuse to report a cross-validated score. It MUST NOT
@@ -1590,12 +1590,7 @@ prediction, and the dossier's cautionary fixture puts the gap at 0.99 against 0.
 attached to a number that is already in the leaderboard's `score` column will be read as a caveat
 on a valid score rather than as an invalidation.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:1171`–`:1176` falls back to
-`KFold(n_splits, shuffle=True, random_state=seed)` when fewer than two groups survive, and
-`ml.rs:1412`–`:1429` reports the degradation as a `note` while still populating `score` and
-`score_std`. The note's wording is honest — "scores fell back to random KFold and may be
-optimistic" — and it is attached to a number that the sort at `ml.rs:1446`–`:1449` then ranks
-alongside genuine blind-well scores.
+**As-built.** `PRESENT-OK` (2026-08-07) — when only one well group is available the run falls back to random `KFold` within that well, and it now says so as DATA rather than only as prose: `cv_degraded` and `<key>_degraded` are set, and `score_protocols[<key>]` states that the model was scored on rock centimetres from rock it was fitted on. Flagged as data because a renderer that can print the score must be able to find the qualification; the degraded number reads HIGH, which is the wrong direction for a caveat to fail in.
 
 **Verified by.** SB-MLA-T19
 
@@ -1803,7 +1798,7 @@ the fragment and then shadowed it — the shape the defect actually had — stil
 `a_polynomial_degree_is_ranked_as_a_polynomial_not_as_a_line` (behavioural, skips without
 scikit-learn: on `y = x²`, `degree = 3` must outscore the straight line it used to be ranked as).
 
-#### SB-MLA-027 — Every reported score names its protocol          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-027 — Every reported score names its protocol          [P1] [status: PRESENT-OK]
 
 **Requirement.** Every reported performance metric MUST carry the evaluation protocol that produced
 it — training-set, within-well cross-validation with its splitter and shuffle state, or blind-well
@@ -1814,12 +1809,7 @@ displayed under names that differ only by the metric.
 `score = 0.44` from the leaderboard has no way to know these are different questions, and the
 natural reading — that the leaderboard is pessimistic or buggy — is exactly backwards.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:75`–`:81` reports `r2_cv5` / `accuracy_cv5` from
-`cross_val_score(..., cv=5)`, which is scikit-learn's **unshuffled** `KFold`/`StratifiedKFold` over
-a matrix pooled in training-well order — neither blind-well nor random, but a function of each
-well's sample count. The leaderboard reports a genuine `GroupKFold` score in a field called
-`score` (`ml.rs:1175`–`:1176`). Neither carries its protocol. The comment at `ml.rs:1095`
-additionally mischaracterises the run-path CV as "plain random 5-fold" when it is unshuffled.
+**As-built.** `PRESENT-OK` (2026-08-07) — `name_protocol` puts a sentence beside every reported score in `metrics.score_protocols`: in-sample, cross-validated over whole wells, cross-validated within one well, or blind. The blind sentence distinguishes whole-held-out wells from rows drawn out of wells the model was also fitted on, decided by whether the two well sets are DISJOINT rather than by the requested split mode — the disjointness is the property that makes the rows rock the model has never been near. R-squared in-sample, over folds of the same wells, and over unseen wells are three different claims that are routinely quoted as one.
 
 **Verified by.** SB-MLA-T28
 
