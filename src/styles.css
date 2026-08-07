@@ -4574,6 +4574,20 @@ textarea {
   border-color: color-mix(in srgb, var(--qc-alert) 45%, var(--border));
   background: color-mix(in srgb, var(--qc-alert) 10%, transparent);
 }
+/* SB-MLA-005. Present ONLY when the runtime a model was fitted under has moved — so unlike the blind
+   tag, which grades every model, this one's absence is the normal state and its presence is the whole
+   message. --qc-warn rather than --qc-alert: a changed library is a reason to look, not proof the
+   prediction is wrong, and the tooltip is where the components are named. */
+.ml-runtime-tag {
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  color: var(--qc-warn);
+  border: 1px solid color-mix(in srgb, var(--qc-warn) 45%, var(--border));
+  background: color-mix(in srgb, var(--qc-warn) 10%, transparent);
+}
 .mc-param-row {
   display: flex;
   align-items: center;
@@ -4853,6 +4867,12 @@ textarea {
   gap: 2px 10px;
   margin-bottom: 8px;
   font-size: var(--fs-md);
+}
+/* The unit and origin beside a curve name in a picker. Dim and secondary: it answers "which RHOB
+   is this" without competing with the mnemonic, which is what the eye scans for. */
+.mc-curve-src {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
 }
 .mc-settings {
   display: flex;

@@ -4,6 +4,7 @@ import {
   listCurveCatalog,
   listMlModels,
   listWells,
+  mlModelWarnings,
   renameMlModel,
   runMl,
   runMlEval,
@@ -63,6 +64,96 @@ export function readBlind(json: string | null | undefined): BlindRecord | null {
   } catch {
     return null;
   }
+}
+
+/** SB-MLA-002 + SB-MLA-004 — one entry per well that actually contributed rows to the fit.
+ *  Written by `ml.rs::assemble_training`; `trained_on` answers "which wells", this answers
+ *  "which rock". */
+export interface TrainWellRecord {
+  well_id: string;
+  well: string;
+  rows: number;
+  masked: number;
+  incomplete: number;
+  set_name?: string | null;
+  set_id?: string | null;
+  set_version?: number | null;
+}
+
+/** SB-MLA-004 — the run-level mask wrapped around the per-well roster. `mask_curve: null` means no
+ *  mask was used, which is a different fact from a mask that was applied and flagged nothing (that
+ *  reads as a name with every `masked` at zero, and an all-zero bad-hole flag across a field usually
+ *  means the flag was never computed). Mirrors `ml.rs::TrainingRecord`. */
+export interface TrainingRecord {
+  mask_curve: string | null;
+  wells: TrainWellRecord[];
+}
+
+function readTraining(json: string | null | undefined): TrainingRecord | null {
+  if (!json) return null;
+  try {
+    const v = JSON.parse(json) as TrainingRecord;
+    return v && typeof v === "object" && Array.isArray(v.wells) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function readRoster(json: string | null | undefined): TrainWellRecord[] {
+  return readTraining(json)?.wells ?? [];
+}
+
+/** Which log set the training rows were read from. A model with no set was fitted from the CURRENT
+ *  store, and that is weaker provenance rather than a missing field: the values can move under the
+ *  model without anything changing name or version, so it is said in those words. */
+export function describeTrainingSets(json: string | null | undefined): string {
+  const roster = readRoster(json);
+  if (roster.length === 0) return "not recorded (saved before this was kept)";
+  const named = roster.filter((r) => r.set_name);
+  if (named.length === 0) return "the current store — no frozen log set, so these values can move under the model";
+  const sets = [...new Set(named.map((r) => `${r.set_name}${r.set_version ? ` v${r.set_version}` : ""}`))];
+  const live = named.length === roster.length ? "" : ` (${roster.length - named.length} well(s) from the current store)`;
+  return sets.join(", ") + live;
+}
+
+/** How much rock the run mask took out. Reported with the WORST well named: a mask that removed a
+ *  fifth of the field evenly and one that emptied a single well are different situations with the
+ *  same total. */
+export function describeMaskEffect(json: string | null | undefined): string {
+  const rec = readTraining(json);
+  if (!rec || rec.wells.length === 0) return "not recorded";
+  const roster = rec.wells;
+  // The curve is named first, because "which flag was this" is the question a reviewer asks before
+  // "how much did it take". An absent mask says so outright rather than reading as a missing field.
+  if (!rec.mask_curve) return "no mask was applied";
+  const masked = roster.reduce((a, r) => a + (r.masked || 0), 0);
+  // A mask that flagged nothing is NOT the same as no mask: an all-zero bad-hole flag across a whole
+  // field is usually a flag nobody computed, and that is worth reading as a fact about the run.
+  if (masked === 0) return `${rec.mask_curve} — applied, and it excluded nothing`;
+  const total = roster.reduce((a, r) => a + (r.rows || 0) + (r.masked || 0) + (r.incomplete || 0), 0);
+  const worst = roster.reduce((a, r) => ((r.masked || 0) > (a.masked || 0) ? r : a), roster[0]);
+  const pct = total > 0 ? Math.round((100 * masked) / total) : 0;
+  return `${rec.mask_curve} — ${masked} of ${total} sample(s) excluded (${pct}%), most from ${worst.well} (${worst.masked})`;
+}
+
+/** SB-MLA-005 — the library set the artifact was written under. Falls back to the standalone
+ *  scikit-learn column for models saved before the full record existed, rather than reading blank. */
+export function describeRuntime(
+  json: string | null | undefined,
+  sklearnVersion: string | null | undefined,
+): string {
+  if (json) {
+    try {
+      const v = JSON.parse(json) as Record<string, string | null>;
+      // A null is "probed, not installed" and is worth showing — for xgboost it says which estimator
+      // actually fitted the model. Only a component that was never probed is left out.
+      const parts = Object.entries(v).map(([name, ver]) => `${name} ${ver || "not installed"}`);
+      if (parts.length > 0) return parts.sort().join(", ");
+    } catch {
+      /* fall through to the older single-version record */
+    }
+  }
+  return sklearnVersion ? `scikit-learn ${sklearnVersion} (only this was recorded)` : "not recorded";
 }
 
 interface ParamSpec {
@@ -224,18 +315,28 @@ export async function buildMlContent(
   const featBox = document.createElement("div");
   featBox.className = "mc-wells";
   const featChecks = new Map<string, HTMLInputElement>();
-  for (const name of curveNames) {
+  for (const c of catalog) {
     const label = document.createElement("label");
     const cb = document.createElement("input");
     cb.type = "checkbox";
-    cb.value = name;
-    cb.checked = DEFAULT_FEATURES.includes(name);
-    featChecks.set(name, cb);
-    label.append(cb, document.createTextNode(` ${name}`));
+    cb.value = c.name;
+    cb.checked = DEFAULT_FEATURES.includes(c.name);
+    featChecks.set(c.name, cb);
+    // The unit and where the curve came from, beside the name. The list now carries every
+    // IMPORTED log as well as the standard columns and the computed ones, so on a real delivery
+    // it is long — and "which RHOB is this" is the first question a long list raises.
+    const tail = document.createElement("span");
+    tail.className = "mc-curve-src";
+    tail.textContent = `${c.units ? ` ${c.units}` : ""} · ${c.source.toLowerCase()}`;
+    label.append(cb, document.createTextNode(` ${c.name}`), tail);
     featBox.appendChild(label);
   }
   content.appendChild(
-    formRow("Input curves", featBox, "Order matters for clustering: class 0 = lowest mean of the FIRST checked curve (put GR first)."),
+    formRow(
+      "Input curves",
+      featBox,
+      "Tick any curve the model should learn from — standard columns, computed curves and imported logs alike. Order matters for clustering: class 0 = lowest mean of the FIRST checked curve (put GR first).",
+    ),
   );
 
   const targetSel = document.createElement("select");
@@ -740,10 +841,18 @@ export async function buildMlContent(
   savedWrap.append(savedHead, savedList, savedNote);
   content.appendChild(savedWrap);
 
+  // SB-MLA-002 + SB-MLA-005. Fetched alongside the list rather than after it: the first call spawns
+  // the runtime probe, and running the two in flight together means the list appears at the speed of
+  // the slower one instead of their sum. A failure here must not take the model list down — a picker
+  // that shows nothing because a warning could not be computed is worse than one showing no warning.
+  let warnings = new Map<string, string[]>();
+
   const refreshSaved = async (): Promise<void> => {
     let models: MlModelInfo[];
     try {
-      models = await listMlModels();
+      const [list, warned] = await Promise.all([listMlModels(), mlModelWarnings().catch(() => [])]);
+      models = list;
+      warnings = new Map(warned.map((w) => [w.model_id, w.notes]));
     } catch (e) {
       savedNote.textContent = `Could not list saved models: ${e}`;
       return;
@@ -769,11 +878,18 @@ export async function buildMlContent(
         `  ·  ${m.n_train} samples from ${m.trained_on.length} well(s)  ·  ${m.created_at}  ·  ${mb}`;
       desc.title =
         `Trained on: ${m.trained_on.join(", ") || "—"}\n` +
-        `scikit-learn ${m.sklearn_version ?? "unknown"}\n` +
         `Standardized: ${m.standardize ? "yes (the scaler is stored with the model)" : "no"}\n` +
         // SB-MLA-003. The wells and the count do not pin a re-run: the same wells at a later log-set
         // version are different rows with the same names and often the same count.
-        `Training rows: ${m.train_hash ?? "not recorded (saved before this was kept)"}`;
+        `Training rows: ${m.train_hash ?? "not recorded (saved before this was kept)"}\n` +
+        // SB-MLA-002 + SB-MLA-004. Which log set the rows were read from, and how much rock the
+        // mask took out — the two facts a re-run has to match and neither of which is in the
+        // well list.
+        `Read from: ${describeTrainingSets(m.training_json)}\n` +
+        `Mask: ${describeMaskEffect(m.training_json)}\n` +
+        // SB-MLA-005. The artifact is a pickle, so it is loadable only under a compatible set —
+        // and joblib, the component that actually unpickles it, is the one nobody thinks of.
+        `Runtime: ${describeRuntime(m.runtime_json, m.sklearn_version)}`;
 
       // SB-MLA-009. How well the model travels, stated on the row you pick it from — because this
       // is the moment somebody decides to apply it to fifty wells they have no core in. A model
@@ -797,6 +913,19 @@ export async function buildMlContent(
           "This model was fitted without holding anything back, so there is no measurement of how it performs on data it has not seen. " +
           "Its training score is not that measurement and is deliberately not shown here.";
       }
+      // SB-MLA-002 + SB-MLA-005. Only where something has actually MOVED under the model — a badge
+      // on every row would be a badge nobody reads, and the one row that matters would be lost in a
+      // column of reassurance. The wording comes from the backend, so this row and the run result
+      // that follows it cannot describe the same problem two different ways.
+      const notes = warnings.get(m.model_id) ?? [];
+      let driftTag: HTMLSpanElement | null = null;
+      if (notes.length > 0) {
+        driftTag = document.createElement("span");
+        driftTag.className = "ml-runtime-tag";
+        driftTag.textContent = notes.length > 1 ? `${notes.length} warnings` : "has drifted";
+        driftTag.title = notes.join("\n\n");
+      }
+
       const applyBtn = document.createElement("button");
       applyBtn.type = "button";
       applyBtn.textContent = "Apply to scope";
@@ -806,7 +935,9 @@ export async function buildMlContent(
       const delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.textContent = "Delete";
-      row.append(desc, blindTag, applyBtn, renameBtn, delBtn);
+      row.append(desc, blindTag);
+      if (driftTag) row.appendChild(driftTag);
+      row.append(applyBtn, renameBtn, delBtn);
       savedList.appendChild(row);
 
       applyBtn.addEventListener("click", async () => {

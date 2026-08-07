@@ -289,6 +289,37 @@ pub fn list_curve_catalog(conn: &Connection) -> duckdb::Result<Vec<CurveCatalogE
     for r in rows {
         entries.push(r?);
     }
+
+    // The IMPORTED logs — the generic store. Rule 11 has always let a module or an equation consume
+    // any imported mnemonic, because `fetch_curve_frame` falls through to
+    // `fetch_generic_curve_aligned`; the CATALOG never listed them, so anything that offers the user
+    // a list of curves to choose from offered the six standard columns and the computed ones only.
+    // A well delivered with PEF, CALI, DRHO, SGR and three resistivities showed none of them, and
+    // the picker looked like the product could not read them — the backend could, all along.
+    //
+    // DISTINCT on the mnemonic because the catalog is PROJECT-WIDE and the store is per
+    // (well, set, run): one PEF entry, not one per well per delivery. `MIN(unit)` picks a
+    // representative for the same reason the computed join uses MAX — the per-well truth stays
+    // available through the frame read, which resolves per well anyway.
+    let mut stmt = conn.prepare(
+        "SELECT upper(mnemonic), MIN(unit)
+         FROM curve_meta
+         WHERE upper(mnemonic) <> 'DEPTH'
+         GROUP BY upper(mnemonic)
+         ORDER BY 1",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(CurveCatalogEntry { name: row.get(0)?, units: row.get(1)?, source: "Imported".into() })
+    })?;
+    for r in rows {
+        let e = r?;
+        // A name already carried by a standard column or a computed curve keeps THAT entry: those
+        // are what `fetch_curve_frame` resolves first, so listing the imported one beside it would
+        // offer a choice the reader does not actually have.
+        if !entries.iter().any(|x| x.name.eq_ignore_ascii_case(&e.name)) {
+            entries.push(e);
+        }
+    }
     Ok(entries)
 }
 
@@ -1248,6 +1279,59 @@ pub(crate) fn write_equation_output(
 
 #[cfg(test)]
 mod tests {
+    /// **An imported log is offered wherever the product asks the user to pick a curve.**
+    ///
+    /// `fetch_curve_frame` has resolved the generic store since rule 11, so a module or an equation
+    /// could always consume PEF, CALI, DRHO or a second resistivity run. `list_curve_catalog` did
+    /// not list them — so every picker built from it (the ML dialog's input checkboxes above all)
+    /// showed the six standard columns and the computed curves, and a well delivered with fifteen
+    /// logs offered five. The engine could read them the whole time; the list could not say so, and
+    /// an input a user cannot see is an input the product does not have.
+    ///
+    /// Pinned from both sides: the imported name appears, AND a name already carried by a standard
+    /// column or a computed curve appears exactly ONCE — `fetch_curve_frame` resolves those first,
+    /// so listing the imported twin beside it would offer a choice that does not exist.
+    #[test]
+    fn an_imported_log_is_offered_as_an_input_not_only_the_standard_six() {
+        use crate::db;
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-1", None, None, Some(0.0)).unwrap();
+        let id = well.to_string();
+        for (mn, unit, fam) in
+            [("PEF", "B/E", "PEF"), ("CALI", "IN", "CALI"), ("DRHO", "G/C3", "DRHO")]
+        {
+            db::upsert_curve_meta(&conn, &id, "RAW", mn, Some(unit), Some(fam), Some("LAS import"), None)
+                .unwrap();
+        }
+        // The same mnemonic delivered again in a second set, and once as a standard column.
+        db::upsert_curve_meta(&conn, &id, "FPROOH", "PEF", Some("B/E"), Some("PEF"), Some("LAS import"), None)
+            .unwrap();
+        db::upsert_curve_meta(&conn, &id, "RAW", "GR", Some("GAPI"), Some("GR"), Some("LAS import"), None)
+            .unwrap();
+
+        let catalog = super::list_curve_catalog(&conn).unwrap();
+        let names: Vec<&str> = catalog.iter().map(|c| c.name.as_str()).collect();
+        for want in ["PEF", "CALI", "DRHO"] {
+            assert!(names.contains(&want), "an imported log must be pickable: {names:?}");
+        }
+        assert_eq!(
+            names.iter().filter(|n| **n == "PEF").count(),
+            1,
+            "one entry per mnemonic, not one per well per delivery: {names:?}"
+        );
+        assert_eq!(
+            names.iter().filter(|n| **n == "GR").count(),
+            1,
+            "the standard column is what a frame read resolves, so it is the entry that stands"
+        );
+        let pef = catalog.iter().find(|c| c.name == "PEF").unwrap();
+        assert_eq!(pef.units.as_deref(), Some("B/E"), "the unit travels, so a picker can show it");
+        assert_eq!(pef.source, "Imported", "the reader can tell a delivered log from a computed one");
+        assert!(!names.contains(&"DEPTH"), "the index is not an input curve");
+    }
+
     /// **Every tool that reads or writes a curve offers a log set** (Jauhar, 2026-08-05:
     /// *"each tools or modules should give user freedom to define input and output log set ...
     /// and their own curves"*).

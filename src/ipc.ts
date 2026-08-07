@@ -1239,6 +1239,14 @@ export interface MlModelInfo {
    *  version" from "the same rows"; this can. Null on a model saved before it was recorded, which
    *  is the honest answer for such a model rather than a hash that means nothing. */
   train_hash: string | null;
+  /** SB-MLA-002 + SB-MLA-004 — JSON array of `TrainWellRecord`: per contributing well, the rows it
+   *  gave, the rows the mask removed, the rows that were incomplete, and the log set (name, id,
+   *  version) its frame was read from. `trained_on` says which wells; this says which rock. */
+  training_json: string | null;
+  /** SB-MLA-005 — JSON object of the interpreter and library versions that fitted and serialised
+   *  this artifact. The blob is a pickle, so it is loadable only under a compatible set, and
+   *  `joblib` — the serialiser itself — is in here for that reason. */
+  runtime_json: string | null;
 }
 
 export interface MlApplyRequest {
@@ -1254,6 +1262,24 @@ export interface MlApplyRequest {
 
 export function listMlModels(): Promise<MlModelInfo[]> {
   return invoke<MlModelInfo[]>("list_ml_models");
+}
+
+/** SB-MLA-002 + SB-MLA-005 — what each saved model would be warned about IF applied now.
+ *
+ *  Both requirements say the warning must come BEFORE the model is applied, and an apply run cannot
+ *  give either early: it learns the runtime from a reply header that arrives after the prediction,
+ *  and by then the curves are written. So the picker asks first.
+ *
+ *  The comparison itself lives in Rust (`ml::model_warnings`) rather than here, so the list and the
+ *  run result cannot word the same problem two different ways. Only models with something to say are
+ *  returned. */
+export interface ModelWarnings {
+  model_id: string;
+  notes: string[];
+}
+
+export function mlModelWarnings(): Promise<ModelWarnings[]> {
+  return invoke<ModelWarnings[]>("ml_model_warnings");
 }
 
 /** Applies a saved model to wells it has never seen. Nothing is refitted — a refit on different

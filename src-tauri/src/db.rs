@@ -694,10 +694,21 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             -- rows with the same names and possibly the same count. NULL on a model saved before
             -- this existed, which is an honest "not recorded" rather than a hash that means nothing.
             train_hash      VARCHAR,
+            -- SB-MLA-002 + SB-MLA-004. The per-well training roster: for each well, what it
+            -- contributed, the log set its rows were READ FROM (name, id, version), and how many of
+            -- its samples the run mask removed. `trained_on` answers "which wells"; this answers
+            -- "which rock", which is the question a re-run has to match. JSON array.
+            training_json   VARCHAR,
+            -- SB-MLA-005. The interpreter and every library that participated in fitting or
+            -- serialising the artifact — the blob is a pickle, so it is loadable only under a
+            -- compatible set, and joblib is the serialiser, not a bystander. JSON object.
+            runtime_json    VARCHAR,
             PRIMARY KEY (model_id)
         );
         -- Added via ALTER so projects written before 2026-08-07 converge on the same shape.
         ALTER TABLE ml_models ADD COLUMN IF NOT EXISTS train_hash VARCHAR;
+        ALTER TABLE ml_models ADD COLUMN IF NOT EXISTS training_json VARCHAR;
+        ALTER TABLE ml_models ADD COLUMN IF NOT EXISTS runtime_json VARCHAR;
 
         -- Special core analysis: capillary-pressure measurements. Several Pc/Sw points
         -- per plug, so no primary key — re-import replaces per well (like core_data).
@@ -2707,6 +2718,13 @@ pub struct MlModelInfo {
     /// column existed: "not recorded" is the truth about such a model, and it must not be
     /// confusable with a hash.
     pub train_hash: Option<String>,
+    /// SB-MLA-002 + SB-MLA-004 — the per-well training roster (JSON array of
+    /// [`crate::ml::TrainWellRecord`]). `None` on a model saved before it existed.
+    pub training_json: Option<String>,
+    /// SB-MLA-005 — the runtime that fitted and serialised the artifact (JSON object). `None` on a
+    /// model saved before it existed, which is why the apply-side check says "not recorded" rather
+    /// than reporting a mismatch it cannot actually see.
+    pub runtime_json: Option<String>,
 }
 
 fn json_names(s: &str) -> Vec<String> {
@@ -2737,49 +2755,75 @@ pub fn resolve_model_name(conn: &Connection, desired: &str) -> DbResult<String> 
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn insert_ml_model(
-    conn: &Connection,
-    name: &str,
-    task: &str,
-    algorithm: &str,
-    feature_curves: &[String],
-    target_curve: Option<&str>,
-    params_json: &str,
-    metrics_json: &str,
-    trained_on: &[String],
-    n_train: usize,
-    standardize: bool,
-    sklearn_version: Option<&str>,
-    note: Option<&str>,
-    data: &[u8],
-    // SB-MLA-003 — fingerprint of the exact training matrix. `None` only where the caller genuinely
-    // cannot compute one; a blank string is never stored, because "not recorded" and "hashed to
-    // nothing" must stay distinguishable.
-    train_hash: Option<&str>,
-) -> DbResult<(String, String)> {
-    let name = resolve_model_name(conn, name)?;
+/// Everything a saved model records, as one named value.
+///
+/// A struct rather than the positional argument list this used to be. Fifteen parameters had grown
+/// to include two ADJACENT `&str` JSON blobs — `params_json` and `metrics_json` — so transposing
+/// them compiled, ran, and produced a model whose recorded settings were its scores. That is the
+/// silent-wrongness class exactly: nothing downstream can catch it, and the whole point of these
+/// fields is that somebody will one day read them to answer a question about a delivered curve.
+/// Named fields make the transposition impossible rather than unlikely, and let SB-MLA-002/004/005
+/// be added without lengthening a list nobody can check by eye.
+pub struct NewMlModel<'a> {
+    pub name: &'a str,
+    pub task: &'a str,
+    pub algorithm: &'a str,
+    /// ORDERED — the order is part of the apply contract.
+    pub feature_curves: &'a [String],
+    pub target_curve: Option<&'a str>,
+    pub params_json: &'a str,
+    pub metrics_json: &'a str,
+    pub trained_on: &'a [String],
+    pub n_train: usize,
+    pub standardize: bool,
+    pub note: Option<&'a str>,
+    pub data: &'a [u8],
+    /// SB-MLA-003 — fingerprint of the exact training matrix. `None` only where the caller genuinely
+    /// cannot compute one; a blank string is never stored, because "not recorded" and "hashed to
+    /// nothing" must stay distinguishable.
+    pub train_hash: Option<&'a str>,
+    /// SB-MLA-002 + SB-MLA-004 — the per-well training roster: what each well contributed, which log
+    /// set it was read from, and how many of its samples the mask removed. JSON array.
+    pub training_json: Option<&'a str>,
+    /// SB-MLA-005 — the interpreter and every library that participated in fitting or serialising
+    /// the artifact. JSON object.
+    pub runtime_json: Option<&'a str>,
+    /// Kept as its own column because it predates `runtime_json` and readers select it by name; it
+    /// is the one runtime component the artifact cannot be loaded without.
+    pub sklearn_version: Option<&'a str>,
+}
+
+pub fn insert_ml_model(conn: &Connection, m: &NewMlModel<'_>) -> DbResult<(String, String)> {
+    let name = resolve_model_name(conn, m.name)?;
     let id = Uuid::new_v4().to_string();
+    // A fn, not a closure: a closure would infer one lifetime for every call and the three
+    // arguments borrow from different places.
+    fn blank_to_none(s: Option<&str>) -> Option<&str> {
+        s.map(str::trim).filter(|v| !v.is_empty())
+    }
     conn.execute(
         "INSERT INTO ml_models (model_id, name, task, algorithm, feature_curves, target_curve,
                                 params_json, metrics_json, trained_on, n_train, standardize,
-                                sklearn_version, note, data, train_hash)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                                sklearn_version, note, data, train_hash, training_json, runtime_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             id,
             name,
-            task,
-            algorithm,
-            serde_json::to_string(feature_curves).unwrap_or_else(|_| "[]".into()),
-            target_curve,
-            params_json,
-            metrics_json,
-            serde_json::to_string(trained_on).unwrap_or_else(|_| "[]".into()),
-            n_train as i64,
-            i32::from(standardize),
-            sklearn_version,
-            note,
-            data,
-            train_hash.map(str::trim).filter(|h| !h.is_empty()),
+            m.task,
+            m.algorithm,
+            serde_json::to_string(m.feature_curves).unwrap_or_else(|_| "[]".into()),
+            m.target_curve,
+            m.params_json,
+            m.metrics_json,
+            serde_json::to_string(m.trained_on).unwrap_or_else(|_| "[]".into()),
+            m.n_train as i64,
+            i32::from(m.standardize),
+            m.sklearn_version,
+            m.note,
+            m.data,
+            blank_to_none(m.train_hash),
+            blank_to_none(m.training_json),
+            blank_to_none(m.runtime_json),
         ],
     )?;
     Ok((id, name))
@@ -2790,7 +2834,8 @@ pub fn list_ml_models(conn: &Connection) -> DbResult<Vec<MlModelInfo>> {
     let mut stmt = conn.prepare(
         "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
                 metrics_json, trained_on, n_train, standardize, sklearn_version, note,
-                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), train_hash
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), train_hash,
+                training_json, runtime_json
          FROM ml_models ORDER BY created_at DESC, name",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -2811,6 +2856,8 @@ pub fn list_ml_models(conn: &Connection) -> DbResult<Vec<MlModelInfo>> {
             created_at: r.get(13)?,
             bytes: r.get(14)?,
             train_hash: r.get(15)?,
+            training_json: r.get(16)?,
+            runtime_json: r.get(17)?,
         })
     })?;
     let mut out = Vec::new();
@@ -2825,7 +2872,8 @@ pub fn get_ml_model(conn: &Connection, model_id: &str) -> DbResult<(MlModelInfo,
     let info = conn.query_row(
         "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
                 metrics_json, trained_on, n_train, standardize, sklearn_version, note,
-                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), train_hash, data
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), train_hash,
+                training_json, runtime_json, data
          FROM ml_models WHERE model_id = ?1",
         params![model_id],
         |r| {
@@ -2847,8 +2895,10 @@ pub fn get_ml_model(conn: &Connection, model_id: &str) -> DbResult<(MlModelInfo,
                     created_at: r.get(13)?,
                     bytes: r.get(14)?,
                     train_hash: r.get(15)?,
+                    training_json: r.get(16)?,
+                    runtime_json: r.get(17)?,
                 },
-                r.get::<_, Vec<u8>>(16)?,
+                r.get::<_, Vec<u8>>(18)?,
             ))
         },
     )?;

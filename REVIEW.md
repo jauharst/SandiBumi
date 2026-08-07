@@ -8978,3 +8978,52 @@ performance stated beside them.
       under a heading implying there is a model somewhere.
 - [ ] LAS export does not carry this yet. The honest place for it there is a `~Other` block, and
       that is a separate increment.
+
+## A saved model says what rock it learned from — and every log is offered as an input (2026-08-07)
+
+`SB-MLA-002`, `SB-MLA-004`, `SB-MLA-005`, plus a bug you found.
+
+**The bug first, because it was costing you inputs.** The ML dialog has always had a checkbox per
+curve, but the list it was built from only ever contained the six standard columns and whatever
+modules had computed. It never looked at the imported curve store — so a well delivered with fifteen
+logs offered you five, and the extra runs, PEF, CALI, spectral GR and everything else looked as
+though the app could not use them. It always could: the fetch path reads them by mnemonic and has
+done since the generic store shipped. Only the picker was blind. Every imported mnemonic is now in
+the list, tagged with its unit and where it came from, and you tick as many as you want.
+
+**What a saved model now records about its own training rock.** Three facts that were missing, all
+of them things a re-run has to match and none of them derivable from the well list:
+
+- **Which log set each well's rows were read from**, per well — because the input set resolves per
+  well. Ask for `FINAL` across a field where three wells do not have one, and those three quietly
+  read live values while the rest read stored ones. The record says so, and the run tells you at the
+  time, by name.
+- **The mask, by name, and what it took out per well.** Masked samples and samples dropped for a
+  missing curve are counted separately: they call for opposite fixes, and a single "rows not used"
+  number reads as the mask's doing when often it is a curve nobody logged. The run reports the total
+  with the worst well named.
+- **The interpreter and every library that took part** — Python, numpy, scipy, scikit-learn, joblib
+  and xgboost. The model file is a pickle, so joblib is the one that actually reads it back, and it
+  is the component nobody thinks of.
+
+**And a "has drifted" tag on the model row, before you apply anything.** If the log set a model
+learned from has been superseded or deleted, or the libraries on this machine have moved since it
+was fitted, the row says so and the tooltip names what changed. This had to be at pick time rather
+than at run time: a run can only report its own runtime after it has predicted, and by then the
+curves are written.
+
+- [ ] **Open ML Models on a well with imported logs.** Every mnemonic in the well is in the input
+      list, not just GR/RHOB/NPHI/DT/RT/CALI. Each shows its unit and whether it was imported or
+      computed. Tick several and train — the ones you ticked are the ones it uses.
+- [ ] **Train a supervised model with a log set selected, save it, then hover its row in Saved
+      models.** The tooltip names the set and version it read from.
+- [ ] **Train one with a mask curve.** The run message says how much it excluded, as a percentage,
+      and names the well that lost the most. The tooltip names the mask curve.
+- [ ] **Train one with no mask.** It says "no mask was applied" — not blank, and not confusable
+      with a mask that ran and flagged nothing (which says exactly that instead).
+- [ ] **Re-run the module that made a training input, so its log set version moves. Reopen ML
+      Models.** The old model's row carries a warning naming the well and the version step. This is
+      the one worth checking: it is the difference between a model you can reproduce and one you
+      cannot, and nothing else on the row would tell you.
+- [ ] **Look at a model saved before today.** No warnings at all. A record that did not exist is not
+      a mismatch, and a tag that fires on every old model is a tag you would stop reading.

@@ -936,7 +936,7 @@ either runner; the recorder cannot recurse) and by the assertions added to
 `regression_linear_recovers_line`, which check against a REAL runner that a supplied value reads
 as supplied and an unsupplied one reads as defaulted with its source named. Native path open.
 
-#### SB-MLA-002 — A saved model records the input log set it was trained from          [P1] [status: ABSENT]
+#### SB-MLA-002 — A saved model records the input log set it was trained from          [P1] [status: PRESENT-OK]
 
 **Requirement.** A persisted model MUST record the identifier and version of the log set its
 training frame was read from. Applying a model whose recorded training log set no longer exists,
@@ -948,11 +948,43 @@ model trained today and one trained after the next porosity re-run "are fitted o
 with nothing in either artifact able to say so". A model is a function of its training rock; the
 identity of that rock is part of the model's identity.
 
-**As-built.** `ABSENT` — `MlRequest::input_set` is used to fetch the frame but is not among the
-arguments passed to `insert_ml_model` at `ml.rs:733`–`:748`, and there is no column for it in the
-schema at `db.rs:675`–`:692`.
+**As-built.** ~~`ABSENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: `MlRequest::input_set` was
+used to fetch the frame but was not among the arguments passed to `insert_ml_model`, and there was
+no column for it in the schema.
 
-**Verified by.** SB-MLA-T02
+`ml_models.training_json` now carries a `TrainWellRecord` **per contributing well** — well id, well
+name, the rows it gave, and the `set_name` / `set_id` / `set_version` those rows were read from.
+Recorded per well rather than once per model because `resolve_input_set` is resolved per well: a run
+asking for `FINAL` across a field where three wells have no `FINAL` reads stored values for the rest
+and CURRENT values for those three, and a single model-level field would have to state one of those
+two and be wrong about the others.
+
+*A well with no matching set is recorded as `None`, and that is a statement rather than a blank.* It
+means the rows came from the live store, where they can move under the model without anything
+changing name or version — weaker provenance than a frozen set, so it is said in those words
+(`describeTrainingSets`) rather than left to read as a missing field. The run itself says so too, in
+a note naming those wells, because the moment to notice is before the model is saved.
+
+*The warning is `training_set_drift`, and it distinguishes the two ways a set stops being what it
+was:* deleted ("no longer exists") and superseded — a set whose current version has moved past the
+recorded one. Both name the well and the set. Capped at four with "and N more", because a message
+naming ninety wells is one nobody finishes reading.
+
+*It runs at both moments, from one implementation.* On the apply path it joins the `MlResult` notes,
+which is what the requirement's "applying … MUST warn" asks for literally. It also runs in
+`ml::model_warnings`, behind the `ml_model_warnings` command the saved-model picker calls — the same
+reasoning as SB-MLA-005: by the time an apply run can say anything, the curves are written, and the
+moment that changes a decision is the one where somebody is choosing which model to push across a
+field. Same function, same sentence, both places.
+
+*Only wells that contributed rows are recorded.* A well in `apply_well_ids` that yielded nothing —
+missing curve, everything masked — is not part of the training rock, and listing it would make the
+record disagree with the fingerprint of `SB-MLA-003`.
+
+**Verified by.** SB-MLA-T02 —
+`ml::tests::a_model_records_the_log_set_its_rows_came_from_and_names_it_when_it_has_moved` (pins the
+per-well set record round-tripping through the schema, a deleted set naming the well, a superseded
+version naming the well, and an unchanged set staying silent).
 
 #### SB-MLA-003 — A saved model identifies the exact training rows          [P1] [status: PRESENT-OK]
 
@@ -999,7 +1031,7 @@ A NULL hash on a model saved before the column existed is the honest answer for 
 (pure; pins stability, one changed feature value, one changed target value, row order, feature
 names, feature ORDER, and both canonicalisations).
 
-#### SB-MLA-004 — A saved model records the exclusion mask and its effect          [P1] [status: ABSENT]
+#### SB-MLA-004 — A saved model records the exclusion mask and its effect          [P1] [status: PRESENT-OK]
 
 **Requirement.** A persisted model MUST record the mask curve used (or its explicit absence) and
 the count of samples the mask removed, per well. A run whose mask removed samples MUST report that
@@ -1010,14 +1042,48 @@ the model's identity. It is also the parameter most likely to differ between an 
 a reviewer's re-run, because a bad-hole flag is itself a computed curve owned by `ENV`. Techlog's
 HRA inputs table names the same optional bad-hole flag, so the convention is corroborated.
 
-**As-built.** `ABSENT` — the mask is applied in both paths (training path, and `ml.rs:1348` in the
-leaderboard) but appears in neither the `LogSetSpec` at `ml.rs:670` nor the `ml_models` row at
-`ml.rs:733`. The leaderboard does report mask-driven **well** collapse (`ml.rs:1412`–`:1429`),
-which is the right instinct applied to the wrong granularity.
+**As-built.** ~~`ABSENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: the mask was applied in both
+paths but appeared in neither the `LogSetSpec` nor the `ml_models` row. The leaderboard reported
+mask-driven **well** collapse, which was the right instinct at the wrong granularity.
 
-**Verified by.** SB-MLA-T04
+`ml_models.training_json` is a `TrainingRecord`: the run-level `mask_curve` wrapped around a
+per-well roster carrying `masked` and `incomplete`. The run reports the total to the user with the
+**worst well named** — a mask that removed a fifth of the field evenly and one that emptied a single
+well are different situations behind the same total, and only the second is a data problem.
 
-#### SB-MLA-005 — A saved model records the runtime that produced it          [P1] [status: PARTIAL]
+*The curve's NAME is half the requirement and it nearly went missing.* An earlier reading of this
+As-built claimed the name was already in `params_json`; it is not — that field holds the estimator's
+effective hyperparameters, which is a different question. A record saying only "3 samples excluded"
+cannot be re-run, because the next analyst has no way to know whether that was a bad-hole flag, a
+coal flag or a hand-drawn interval. The mask is wrapped AROUND the roster rather than repeated on
+each well, since it is one decision applied to the whole run and a field copied onto ninety rows is
+ninety chances to find two of them disagreeing.
+
+*`mask_curve: null` is written explicitly, and that is the requirement's "or its explicit absence".*
+The distinction it reaches for is real: no mask at all, versus a mask that was applied and flagged
+nothing. The second reads as a name with every `masked` at zero — and an all-zero bad-hole flag
+across a field usually means the flag was never computed, which is worth noticing rather than
+reading as clean hole. `describeMaskEffect` says each of the three in its own words.
+
+*`masked` and `incomplete` are counted separately, and this is the whole design of the record.* Both
+are rows that did not train the model, so one combined count would satisfy the requirement's letter.
+But they call for opposite fixes: `masked` means the flag curve excluded real rock, and the response
+is to widen the interval or revisit the flag; `incomplete` means a feature curve was missing or NaN,
+and the response is to find that curve. A well that gave nothing at all is the case where confusing
+them costs most — its rows are `incomplete = depth.len()`, so the record says "this well has no
+RHOB", not "your mask ate a well".
+
+*The counts are per well and the total is derived*, not the other way round, because the per-well
+form answers a question the total cannot: which well. `describeMaskEffect` re-derives the percentage
+from the roster for the model tooltip, so the run message and the saved-model row cannot disagree.
+
+**Verified by.** SB-MLA-T04 —
+`ml::tests::the_mask_effect_is_recorded_per_well_and_is_never_confused_with_a_missing_curve` (drives
+one well that is masked AND incomplete, pins both counts separately against a constructed flag, pins
+that they sum to every depth so neither can borrow from the other, pins the same well unmasked, and
+pins the mask name round-tripping with `"mask_curve":null` written out rather than omitted).
+
+#### SB-MLA-005 — A saved model records the runtime that produced it          [P1] [status: PRESENT-OK]
 
 **Requirement.** A persisted model MUST record the interpreter version and the version of every
 library that participated in fitting or serialising it. Loading an artifact under a runtime that
@@ -1028,13 +1094,70 @@ component.
 compatible library set. A blob that fails to load, or silently loads with changed behaviour, is
 the failure mode this record exists to diagnose. One version field cannot do that.
 
-**As-built.** `PARTIAL` — `sklearn_version` is captured (`ml.rs:745`, `db.rs:675`–`:692`). The
-Python version, `numpy`, `joblib` and `xgboost` versions are not, and `xgboost` is load-bearing:
-`ml.rs:91`–`:102` silently substitutes `HistGradientBoosting` for `XGBRegressor` when the import
-fails, which is a **different algorithm** recorded under the same `algorithm` string with only a
-free-text `metrics["note"]` to say so.
+**As-built.** ~~`PARTIAL`~~ → **`PRESENT-OK` (closed 2026-08-07).** Was: only `sklearn_version` was
+captured; the Python version, `numpy`, `joblib` and `xgboost` were not.
 
-**Verified by.** SB-MLA-T05, SB-MLA-T12
+`ML_RUNTIME_PY` is ONE probe — interpreter, `numpy`, `scipy`, `sklearn`, `joblib`, `xgboost` —
+textually shared by the fitting runner, the apply runner and the standalone `ml::ml_runtime()`. One
+definition rather than three, because the entire value of this record is a comparison, and two probes
+that named their components differently would report a mismatch between `scikit-learn` and `sklearn`
+on a machine where nothing had changed. It lands in `ml_models.runtime_json`; `sklearn_version` stays
+as its own column so models saved before this still read (`describeRuntime` falls back to it and
+says so).
+
+*The set is not arbitrary.* `joblib` is the SERIALISER — a pickle written by one version and read by
+another is the exact failure this record exists to name, and it is the component nobody thinks of as
+participating in a fit. `scipy` because scikit-learn's solvers reach into it, `numpy` because the
+arrays are its, the interpreter because a pickle protocol is a property of it, and `xgboost` because
+when it is installed it *is* the estimator for `gbdt`.
+
+*A missing package is written as an explicit JSON `null`, never omitted and never `""`.* Three states,
+and the comparison needs all three: an absent KEY means this build never probed that component, so
+nothing can be said; `null` means it was probed and was not installed; a string is the version. The
+middle one is what lets the check report the case that matters most here — a model fitted with no
+`xgboost`, and therefore on the substituted scikit-learn estimator, now being applied on a machine
+that has it. A "compare the versions we both have" check cannot see that step at all, because one
+side has no version. An empty string would read as "version unknown", which calls for a different
+response again.
+
+*The warning had to move to where the decision is.* The requirement says "before the model is
+applied", and an apply run can only report its own runtime once it has already predicted — the reply
+header arrives after the prediction, by which time the curves are written. So `ml_runtime()` probes
+separately, `OnceLock`-cached like `python_status` (the answer cannot change while the app runs, and
+probing per row would spawn a subprocess per model in the list). The apply path keeps its own
+comparison as well, since a model can be applied from a chain that never opened the list.
+
+*One implementation, not two.* The picker calls `ml_model_warnings`, which runs `runtime_drift` and
+`training_set_drift` in Rust and returns the finished sentences; the frontend renders strings and
+compares nothing. A first cut mirrored the comparison in TypeScript and it was wrong to: a warning
+worded one way on the row it is picked from and another way in the run result that follows reads as
+two different problems. Only models with something to say are returned, so the picker is not handed a
+row per model to filter.
+
+*`runtime_drift` is deliberately silent in three cases, and each silence is a decision.* Nothing
+recorded — a model saved before this existed — is an absence of evidence, not a mismatch. Identical
+values, obviously, `null` against `null` included. And a key MISSING from either side: the model
+predates the probe knowing about that component, or this probe did not ask, and neither is evidence
+of a change. What is named is a component both sides answered for and that differs —
+`sklearn 1.5.0 -> 1.6.0`, `scipy 1.14.0 -> not installed`, `xgboost not installed -> 2.1.0`.
+
+*On the row, the tag appears only when something has moved.* A badge on every model would be a badge
+nobody reads, and the one row that matters would be lost in a column of reassurance. It is
+`--qc-warn`, not `--qc-alert`: a changed library is a reason to look, not proof the prediction is
+wrong.
+
+**Divergence from the requirement, stated.** The requirement's As-built cited the `xgboost`
+substitution as evidence. Recording `xgboost` closes the *runtime* half — an xgboost model applied
+under a different xgboost is now named. The substitution itself, where an absent `xgboost` yields a
+scikit-learn estimator recorded under the requested `algorithm` string, is a distinct defect and
+stays open under **SB-MLA-012**, which is where it belongs: it is a lie about the algorithm, not
+about the runtime.
+
+**Verified by.** SB-MLA-T05 —
+`ml::tests::a_runtime_step_is_named_component_by_component_and_an_unrecorded_one_is_not_a_mismatch`
+(pins per-component naming, one note rather than one per component, a matching component staying out
+of the message, a removed library, an absence that has BECOME a presence, and all four silences).
+SB-MLA-T12 remains open with SB-MLA-012.
 
 #### SB-MLA-006 — A curve produced by a fitted model names that model          [P0] [status: PRESENT-OK]
 
@@ -2668,6 +2791,12 @@ one of them.
 constructed count exactly. A run with no mask records the absence explicitly, not as a null field.
 **Source.** `SB-MLA-004`; the mask convention at `ml.rs:1348`.
 
+**Reading, stated (2026-08-07).** "Not as a null field" is taken to mean *not as a field a reader
+cannot tell from one that was never written* — the as-built writes `"mask_curve": null` into the JSON
+rather than omitting the key. The test asserts the literal text is present, so an omission would fail
+it. A sentinel string such as `"none"` was rejected: it cannot be distinguished from a mask curve
+somebody actually named `NONE`.
+
 #### SB-MLA-T05 — the runtime record is complete
 **Input.** Any successful supervised fit.
 **Operation.** Read the model row.
@@ -3814,10 +3943,10 @@ chapter cannot be mistaken for a restatement of its dossier**, and because `03_E
 
 | Requirement | Origin |
 |---|---|
-| `SB-MLA-002` | `ml.rs:733`–`:748` — `insert_ml_model` records no input log set |
+| ~~`SB-MLA-002`~~ | ~~`ml.rs:733`–`:748` — `insert_ml_model` records no input log set~~ **CLOSED 2026-08-07** — `training_json` records the resolved set PER WELL, because `input_set` resolves per well; a well reading from the live store says so, and `training_set_drift` names a deleted or superseded set on apply |
 | `SB-MLA-003` | `ml.rs:720`–`:732` — well names are recorded; the rows are not |
-| `SB-MLA-004` | `ml.rs:733`–`:748` — no mask curve is persisted with the model |
-| `SB-MLA-005` | `ml.rs:745` — the sklearn version is recorded; nothing else about the runtime is |
+| ~~`SB-MLA-004`~~ | ~~`ml.rs:733`–`:748` — no mask curve is persisted with the model~~ **CLOSED 2026-08-07** — the same per-well record carries `masked` and `incomplete` SEPARATELY, since they call for opposite fixes; the run reports the total with the worst well named |
+| ~~`SB-MLA-005`~~ | ~~`ml.rs:745` — the sklearn version is recorded; nothing else about the runtime is~~ **CLOSED 2026-08-07** — one shared probe (interpreter, numpy, scipy, sklearn, joblib, xgboost) written by both runners, compared at PICK time via the cached `ml_runtime` command so the warning lands before the apply. The `xgboost` *substitution* stays open under `SB-MLA-012` — that is a lie about the algorithm, not the runtime |
 | `SB-MLA-007` | `db.rs:2740` — `delete_ml_model` is unconditional |
 | ~~`SB-MLA-010`~~ | ~~`report.rs` and `export.rs` contain no ML reference at all — the chapter's spine~~ **CLOSED 2026-08-07** — the PDF and the Word twin both print the provenance block, driven from `computed_curves.set_id` so it describes the live curves rather than every run. LAS export still carries nothing; that realisation is `DIO`'s per §2 |
 | `SB-MLA-011` | `ml.rs:580`–`:587`, `:720`–`:732` — empty-training wells are filtered out of `trained_on` |

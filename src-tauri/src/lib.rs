@@ -1828,6 +1828,28 @@ async fn list_ml_models(db: tauri::State<'_, DbState>) -> Result<Vec<db::MlModel
     .map_err(|e| e.to_string())?
 }
 
+/// SB-MLA-002 + SB-MLA-005 — what each saved model would be warned about IF it were applied now,
+/// answered before it is.
+///
+/// Both requirements ask for a warning "before the model is applied", and an apply run cannot give
+/// either one early: it learns the runtime from a reply header that arrives after the prediction,
+/// and by then the curves are written. So the same two checks the apply path runs are asked here,
+/// at the moment somebody is looking at a list of models deciding which to push across a field.
+///
+/// Computed in Rust rather than compared in the picker so there is ONE implementation of each check
+/// and one wording. A model list is short and the runtime probe is cached, so this is one query and
+/// no subprocess after the first call.
+#[tauri::command]
+async fn ml_model_warnings(db: tauri::State<'_, DbState>) -> Result<Vec<ml::ModelWarnings>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = conn.lock().unwrap();
+        Ok(ml::model_warnings(&c))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn rename_ml_model(db: tauri::State<'_, DbState>, model_id: String, new_name: String) -> Result<String, String> {
     let conn = db.0.lock().unwrap();
@@ -3269,6 +3291,7 @@ pub fn run() {
             run_ml,
             apply_ml_model,
             list_ml_models,
+            ml_model_warnings,
             rename_ml_model,
             delete_ml_model,
             run_ml_eval,

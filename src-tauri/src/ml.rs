@@ -554,16 +554,62 @@ fn ml_shared_constants_py() -> String {
     )
 }
 
-/// The training runner: the shared constants, the shared estimator definitions, then the
-/// fit-and-apply body.
+/// SB-MLA-005 — the runtime probe, shared by the fitting runner and the apply runner.
+///
+/// ONE definition, because the whole point is to compare a model's recorded runtime against the one
+/// about to load it, and two probes that named their components differently would report a mismatch
+/// between `scikit-learn` and `sklearn` on an identical machine.
+///
+/// The set is not arbitrary. `joblib` is the SERIALISER — a pickle written by one version and read
+/// by another is precisely the failure this record exists to name, and it is the component most
+/// often overlooked because nobody thinks of it as participating in the fit. `scipy` is in because
+/// scikit-learn's solvers reach into it, `numpy` because the arrays are its, and the interpreter
+/// itself because a pickle protocol is a property of it.
+///
+/// `xgboost` is in for a different reason from the rest: when it is present it IS the estimator for
+/// `gbdt`, so a model fitted under it and applied under a later one is exactly the case the
+/// requirement names — "every library that participated in fitting". When it is absent the runner
+/// substitutes a scikit-learn estimator (see SB-MLA-012), and its absence from the record is then
+/// correct rather than a gap.
+///
+/// A missing package is written as an explicit JSON **null**, never omitted and never `""`. The three
+/// states are genuinely different and the comparison needs all of them: a KEY THAT IS ABSENT means
+/// this build never probed that component, so nothing can be said about it; `null` means it was
+/// probed and was not installed; a string is the version. Only the middle one lets the drift check
+/// report the case that matters most here — a model fitted with no `xgboost` (and therefore, per
+/// SB-MLA-012, a substituted scikit-learn estimator) now being applied on a machine that has it.
+/// An empty string would read as "version unknown", which calls for a different response again.
+///
+/// The probe IMPORTS the module rather than asking `importlib.metadata` for a distribution version:
+/// the distribution is `scikit-learn` and the module is `sklearn`, and a probe naming it the first
+/// way while the runner named it the second would report a mismatch on an identical machine.
+const ML_RUNTIME_PY: &str = r#"
+def _runtime():
+    import sys as _s
+    out = {"python": "%d.%d.%d" % _s.version_info[:3]}
+    for _n in ("numpy", "scipy", "sklearn", "joblib", "xgboost"):
+        try:
+            out[_n] = __import__(_n).__version__
+        except Exception:
+            out[_n] = None
+    return out
+"#;
+
+/// The training runner: the shared constants, the runtime probe, the shared estimator definitions,
+/// then the fit-and-apply body.
 fn ml_runner() -> String {
-    format!("{}{ML_BUILD_MODEL}{ML_RUNNER_BODY}", ml_shared_constants_py())
+    format!("{}{ML_RUNTIME_PY}{ML_BUILD_MODEL}{ML_RUNNER_BODY}", ml_shared_constants_py())
 }
 
 /// The leaderboard runner, from the SAME estimator definitions. Composing both from one fragment is
 /// what makes SB-MLA-026 structural rather than a pair of copies somebody has to remember to sync.
 fn ml_eval_runner() -> String {
     format!("{}{ML_BUILD_MODEL}{ML_EVAL_RUNNER_BODY}", ml_shared_constants_py())
+}
+
+/// The apply runner, carrying the same runtime probe so its answer can be compared with the model's.
+fn ml_apply_runner() -> String {
+    format!("{ML_RUNTIME_PY}{ML_APPLY_RUNNER}")
 }
 
 const ML_RUNNER_BODY: &str = r#"
@@ -845,8 +891,15 @@ if save_model and supervised:
         # computed. Report it and let the caller say so.
         metrics["model_save_error"] = str(e)
 
+# SB-MLA-005. Reported on EVERY run, not only when a model is saved: the curve is as much a product
+# of this library set as the artifact is, and a run that saved nothing still has to be reproducible.
+# joblib is in here because it is the SERIALISER - a pickle written by one version and read by
+# another is the failure this record exists to name - and scipy because sklearn's solvers reach into
+# it. Missing entries are omitted rather than written empty, so "not installed" cannot be read as
+# "version unknown".
 sys.stdout.buffer.write((json.dumps({"suffixes": [s for s, _ in outs], "metrics": metrics,
-                                     "model_len": len(model_blob), "sklearn": sklearn_version}) + "\n").encode("utf-8"))
+                                     "model_len": len(model_blob), "sklearn": sklearn_version,
+                                     "runtime": _runtime()}) + "\n").encode("utf-8"))
 for _, arr in outs:
     sys.stdout.buffer.write(np.ascontiguousarray(arr, dtype=np.float32).tobytes())
 if model_blob:
@@ -905,7 +958,8 @@ if task == "classification" and hasattr(model, "predict_proba"):
     outs.append(("_PROB", np.max(model.predict_proba(As), axis=1).astype(np.float32)))
 
 sys.stdout.buffer.write((json.dumps({"suffixes": [s for s, _ in outs],
-                                     "metrics": {"n_apply": n_apply, "applied": True}}) + "\n").encode("utf-8"))
+                                     "metrics": {"n_apply": n_apply, "applied": True},
+                                     "runtime": _runtime()}) + "\n").encode("utf-8"))
 for _, arr in outs:
     sys.stdout.buffer.write(np.ascontiguousarray(arr, dtype=np.float32).tobytes())
 "#;
@@ -1318,6 +1372,218 @@ fn strata_for(y: &[f32], classification: bool) -> Vec<i64> {
         .collect()
 }
 
+/// SB-MLA-002 + SB-MLA-004 — what ONE training well contributed, and what it was read from.
+///
+/// `trained_on` answers "which wells". This answers "which rock", which is the question a re-run has
+/// to match and the one a well list cannot reach: the same well at a later log-set version is
+/// different rows under the same name.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TrainWellRecord {
+    pub well_id: String,
+    pub well: String,
+    /// Rows that reached X/y.
+    pub rows: usize,
+    /// Rows the run mask removed (SB-MLA-004). The mask decides which rows trained the model, so
+    /// under SB-MLA-003 it is part of the model's identity — and it is the parameter most likely to
+    /// differ between an analyst's run and a reviewer's re-run, because a bad-hole flag is itself a
+    /// computed curve somebody else owns.
+    pub masked: usize,
+    /// Rows dropped for a missing target or input, which the mask had nothing to do with. Recorded
+    /// SEPARATELY because the two call for opposite fixes — widen the mask, or go and find the
+    /// missing curve — and a single "rows not used" number reads as the mask's doing.
+    pub incomplete: usize,
+    /// SB-MLA-002. The log set this well's frame was read from. `None` means the CURRENT store,
+    /// which is a different and weaker provenance: the values can move under the model without
+    /// anything changing name or version.
+    pub set_name: Option<String>,
+    pub set_id: Option<String>,
+    pub set_version: Option<i64>,
+}
+
+/// SB-MLA-004 — the whole training record: the run-level mask, and the per-well roster.
+///
+/// The mask is wrapped around the roster rather than repeated on each well because it is one
+/// decision applied to the whole run, and a field copied onto ninety rows is ninety chances for a
+/// reader to find two of them disagreeing.
+///
+/// **`mask_curve: None` is a positive statement, not a blank.** The requirement asks for the mask
+/// "or its explicit absence", and the distinction it is reaching for is real: no mask at all, versus
+/// a mask that was applied and flagged nothing. The second reads as `Some(name)` with every `masked`
+/// at zero — and an all-zero bad-hole flag across a field is usually a sign the flag was never
+/// computed, which is worth noticing rather than reading as clean hole.
+///
+/// The shape is versionless on purpose: `training_json` is written by this build and has never
+/// shipped in another, so there is no earlier form to tolerate. A model saved before the column
+/// existed has NULL, which every reader already treats as "not recorded".
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TrainingRecord {
+    /// The run mask, by curve name, uppercased as the run applied it. `None` = no mask was used.
+    pub mask_curve: Option<String>,
+    /// One entry per well that actually contributed rows. A well that gave nothing is not part of
+    /// the training rock, and listing it would make this record disagree with SB-MLA-003's
+    /// fingerprint about what the model was fitted on.
+    pub wells: Vec<TrainWellRecord>,
+}
+
+/// SB-MLA-005 — every recorded runtime component that differs from the one about to load the model.
+///
+/// Named component by component rather than as "the runtime differs", because the responses are not
+/// the same: a numpy step is usually nothing, a **joblib** step is the one that unpickles the blob,
+/// and a scikit-learn step can change an estimator's arithmetic without changing its name.
+///
+/// Three recorded states, and the difference between two of them is the whole point (see
+/// `ML_RUNTIME_PY`). A recorded VERSION that has changed or gone is the ordinary case. A recorded
+/// **null** — probed at fit time, not installed — that is now present is reported too, because for
+/// `xgboost` that means the fit used a substituted scikit-learn estimator and this machine would not.
+/// A key MISSING from the record is silent: the model predates the probe knowing about that
+/// component, and inventing a mismatch out of that would cry wolf on every older model.
+fn runtime_drift(recorded: Option<&str>, current: &serde_json::Value) -> Vec<String> {
+    let Some(rec) = recorded.and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) else {
+        return Vec::new();
+    };
+    let (Some(rec), Some(cur)) = (rec.as_object(), current.as_object()) else {
+        return Vec::new();
+    };
+    // A key absent from `current` is treated as "this probe did not ask", so it cannot manufacture a
+    // step; only a key the CURRENT probe answered null for is read as "not installed".
+    let mut diffs: Vec<String> = Vec::new();
+    for (name, was) in rec {
+        let Some(now) = cur.get(name) else { continue };
+        if now == was {
+            continue;
+        }
+        let show = |v: &serde_json::Value| v.as_str().unwrap_or("not installed").to_string();
+        diffs.push(format!("{name} {} -> {}", show(was), show(now)));
+    }
+    if diffs.is_empty() {
+        return Vec::new();
+    }
+    diffs.sort();
+    vec![format!(
+        "this model was fitted under a different runtime ({}). The artifact is a pickle, so it is loadable only under a compatible set - it loaded here, but a prediction made under a changed library is not guaranteed to be the one the model was validated on",
+        diffs.join(", ")
+    )]
+}
+
+/// SB-MLA-005 — the runtime a model would be applied under, probed ONCE per session.
+///
+/// The requirement says the warning must come BEFORE the model is applied, and the apply run reports
+/// its own runtime only once it has already predicted. So the interpreter is asked separately, at the
+/// moment the user is looking at a list of models deciding which one to push across fifty wells.
+///
+/// Cached like `python_status`: the answer cannot change while the app is running, and probing per
+/// row would spawn a subprocess per model in the list.
+pub fn ml_runtime() -> serde_json::Value {
+    static RUNTIME: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            let Some(python) = find_python() else { return serde_json::Value::Null };
+            // The SAME `_runtime()` the runners use — a second probe naming its components
+            // differently would report a mismatch between `scikit-learn` and `sklearn` on one
+            // machine, which is the failure mode this whole comparison exists to avoid.
+            let script = format!("{ML_RUNTIME_PY}\nimport json, sys\nsys.stdout.write(json.dumps(_runtime()))\n");
+            let mut cmd = Command::new(&python);
+            cmd.args(["-c", &script]).stdout(Stdio::piped()).stderr(Stdio::null());
+            hide_console(&mut cmd);
+            cmd.output()
+                .ok()
+                .filter(|o| o.status.success())
+                .and_then(|o| serde_json::from_slice(&o.stdout).ok())
+                .unwrap_or(serde_json::Value::Null)
+        })
+        .clone()
+}
+
+/// SB-MLA-002 + SB-MLA-005 — everything a saved model's row should warn about, per model.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModelWarnings {
+    pub model_id: String,
+    pub notes: Vec<String>,
+}
+
+/// The same two checks the apply path runs, asked BEFORE anything is applied.
+///
+/// Computed here rather than in the picker so each check has ONE implementation and one wording. A
+/// warning that reads differently in the list and in the run result reads as two different problems,
+/// and the model has not changed between those two moments.
+///
+/// Only models with something to say appear. A list that returned a row per model, most of them
+/// empty, would put the burden of finding the two that matter back on the caller.
+pub fn model_warnings(conn: &Connection) -> Vec<ModelWarnings> {
+    let now = ml_runtime();
+    crate::db::list_ml_models(conn)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|m| {
+            let mut notes = Vec::new();
+            if !now.is_null() {
+                notes.extend(runtime_drift(m.runtime_json.as_deref(), &now));
+            }
+            notes.extend(training_set_drift(conn, m.training_json.as_deref()));
+            (!notes.is_empty()).then(|| ModelWarnings { model_id: m.model_id, notes })
+        })
+        .collect()
+}
+
+/// SB-MLA-002 — the recorded training log set no longer exists, or has been superseded.
+///
+/// The point is not that applying the model is wrong; it is that the rock the model learned from is
+/// no longer what that set name returns, so a re-fit today would not reproduce this model and a
+/// reviewer comparing the two would have no way to see why. Reported BY NAME, with the well, because
+/// "a training set was superseded" is not actionable and "PHIE_FINAL v2 on SANDI-7 is now v3" is.
+///
+/// Wells are summarised rather than listed one per line past a handful: on a field-scale model this
+/// is the difference between a note and a wall.
+fn training_set_drift(conn: &Connection, training_json: Option<&str>) -> Vec<String> {
+    let Some(rec) = training_json.and_then(|s| serde_json::from_str::<TrainingRecord>(s).ok()) else {
+        return Vec::new();
+    };
+    let mut gone: Vec<String> = Vec::new();
+    let mut superseded: Vec<String> = Vec::new();
+    for r in &rec.wells {
+        let (Some(set_name), Some(set_id), Some(version)) = (&r.set_name, &r.set_id, r.set_version)
+        else {
+            continue;
+        };
+        let exists: bool = conn
+            .query_row("SELECT 1 FROM log_sets WHERE set_id = ?1", duckdb::params![set_id], |_| Ok(()))
+            .is_ok();
+        if !exists {
+            gone.push(format!("{} ({set_name})", r.well));
+            continue;
+        }
+        if let Some((_, latest)) = resolve_input_set(conn, &r.well_id, set_name) {
+            if latest > version {
+                superseded.push(format!("{} ({set_name} v{version} -> v{latest})", r.well));
+            }
+        }
+    }
+    let say = |what: &str, list: Vec<String>| -> Option<String> {
+        if list.is_empty() {
+            return None;
+        }
+        let shown = if list.len() > 4 {
+            format!("{}, and {} more", list[..4].join(", "), list.len() - 4)
+        } else {
+            list.join(", ")
+        };
+        Some(format!("the log set this model was trained from {what}: {shown}. Re-fitting today would read different rock, so this model can no longer be reproduced from that set name"))
+    };
+    [say("no longer exists", gone), say("has been superseded", superseded)].into_iter().flatten().collect()
+}
+
+/// The `log_sets` row a named input set resolves to for one well — the same "latest version wins"
+/// rule `fetch_curve_frame_from_set` reads by, asked separately so the answer can be RECORDED.
+fn resolve_input_set(conn: &Connection, well_id: &str, set_name: &str) -> Option<(String, i64)> {
+    conn.query_row(
+        "SELECT set_id, version FROM log_sets WHERE well_id = ?1 AND upper(set_name) = upper(?2)
+         ORDER BY version DESC LIMIT 1",
+        duckdb::params![well_id, set_name],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+    )
+    .ok()
+}
+
 fn assemble_training(
     conn: &Connection,
     train_well_ids: &[String],
@@ -1325,19 +1591,23 @@ fn assemble_training(
     tgt: &str,
     mask_curve: Option<&String>,
     input_set: Option<&str>,
-) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<String>) {
+) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<String>, Vec<TrainWellRecord>) {
     let mut fetch_names = features.to_vec();
     fetch_names.push(tgt.to_string());
     if let Some(mk) = mask_curve {
         fetch_names.push(mk.clone());
     }
+    let set_name = input_set.map(str::trim).filter(|s| !s.is_empty());
     let mut x_train: Vec<f32> = Vec::new();
     let mut y_train: Vec<f32> = Vec::new();
     // One well index per row, so the runner can hold out whole wells rather than samples.
     let mut groups: Vec<f32> = Vec::new();
     let mut empty_train: Vec<String> = Vec::new();
+    let mut roster: Vec<TrainWellRecord> = Vec::new();
     for (g, well_id) in train_well_ids.iter().enumerate() {
         let before = y_train.len();
+        let mut masked = 0usize;
+        let mut incomplete = 0usize;
         if let Ok((depth, cols)) = fetch_curve_frame_from_set(conn, well_id, &fetch_names, input_set, None) {
             if let (Some(tv), Some(fcols)) = (
                 cols.get(tgt),
@@ -1348,6 +1618,7 @@ fn assemble_training(
                     // MASK convention (workflow.rs): a mask value of exactly 1.0 excludes the
                     // sample from X/y; 0.0 / NaN / absent keeps it.
                     if mcol.map_or(false, |m| m[i] == 1.0) {
+                        masked += 1;
                         continue;
                     }
                     if tv[i].is_finite() && fcols.iter().all(|c| c[i].is_finite()) {
@@ -1356,17 +1627,45 @@ fn assemble_training(
                         }
                         y_train.push(tv[i]);
                         groups.push(g as f32);
+                    } else {
+                        incomplete += 1;
                     }
                 }
+            } else {
+                // The well has depths but not the columns, so every one of them is incomplete.
+                // Counted rather than left at zero: "0 masked, 0 incomplete, 0 rows" would read as
+                // an empty well when what happened is that a curve is missing.
+                incomplete = depth.len();
             }
         }
+        let rows = y_train.len() - before;
         // A well that moved y_train not at all contributed nothing — unreadable, lacking the
         // target/feature, or fully masked. Record it instead of dropping it invisibly.
-        if y_train.len() == before {
+        if rows == 0 {
             empty_train.push(well_id.clone());
         }
+        let resolved = set_name.and_then(|s| resolve_input_set(conn, well_id, s));
+        roster.push(TrainWellRecord {
+            well_id: well_id.clone(),
+            well: well_name(conn, well_id),
+            rows,
+            masked,
+            incomplete,
+            set_name: set_name.map(str::to_string),
+            set_id: resolved.as_ref().map(|(id, _)| id.clone()),
+            set_version: resolved.map(|(_, v)| v),
+        });
     }
-    (x_train, y_train, groups, empty_train)
+    (x_train, y_train, groups, empty_train, roster)
+}
+
+/// A well's name, falling back to its id. Used wherever a record is written for a person to read —
+/// a UUID in a provenance table is a value nobody can act on.
+fn well_name(conn: &Connection, well_id: &str) -> String {
+    conn.query_row("SELECT well_name FROM wells WHERE well_id = ?1", duckdb::params![well_id], |r| {
+        r.get::<_, String>(0)
+    })
+    .unwrap_or_else(|_| well_id.to_string())
 }
 
 struct ApplyWell {
@@ -1441,18 +1740,20 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     let mut y_train: Vec<f32> = Vec::new();
     let mut groups: Vec<f32> = Vec::new();
     let mut empty_train: Vec<String> = Vec::new();
+    let mut roster: Vec<TrainWellRecord> = Vec::new();
     let mut apply: Vec<ApplyWell> = Vec::new();
     let mut x_apply: Vec<f32> = Vec::new();
     {
         let conn = db.lock().unwrap();
         if supervised {
             let tgt = target.clone().unwrap();
-            let (xt, yt, gt, empty) =
+            let (xt, yt, gt, empty, rec) =
                 assemble_training(&conn, &req.train_well_ids, &features, &tgt, mask_curve.as_ref(), req.input_set.as_deref());
             x_train = xt;
             y_train = yt;
             groups = gt;
             empty_train = empty;
+            roster = rec;
         }
         let mut apply_fetch = features.clone();
         if let Some(mk) = &mask_curve {
@@ -1555,6 +1856,46 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             empty_train.len(),
             requested - empty_train.len()
         ));
+    }
+    // SB-MLA-004. "A run whose mask removed samples MUST report that count to the user." Reported
+    // as a TOTAL with the worst well named, not as a per-well list: on a field run that list is
+    // hundreds of lines, and the number that changes an interpreter's mind is how much rock left
+    // the fit and whether it left one well in particular.
+    if supervised {
+        let masked: usize = roster.iter().map(|r| r.masked).sum();
+        if masked > 0 {
+            let total = masked + roster.iter().map(|r| r.rows + r.incomplete).sum::<usize>();
+            let share = if total > 0 { 100.0 * masked as f64 / total as f64 } else { 0.0 };
+            let worst = roster.iter().max_by_key(|r| r.masked).map(|r| (r.well.clone(), r.masked));
+            let mut msg = format!(
+                "the mask curve {} excluded {masked} of {total} training sample(s) ({share:.0}%)",
+                mask_curve.as_deref().unwrap_or("MASK"),
+            );
+            if let Some((w, m)) = worst {
+                // A mask that removed a fifth of the field evenly and one that emptied a single
+                // well are different situations with the same total.
+                msg.push_str(&format!("; most from {w} ({m})"));
+            }
+            notes.push(msg);
+        }
+    }
+    // SB-MLA-002, the fit-side half. A named input set that a well does not have is NOT an error —
+    // `fetch_curve_frame_from_set` degrades to the current store — but it is a silent change of
+    // provenance for that well, and a model recorded as "trained from FINAL" whose rows partly came
+    // from live values is exactly the confusion the requirement exists to prevent.
+    if supervised {
+        if let Some(set) = req.input_set.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            let missing: Vec<&str> =
+                roster.iter().filter(|r| r.set_id.is_none()).map(|r| r.well.as_str()).collect();
+            if !missing.is_empty() {
+                notes.push(format!(
+                    "{} of {} training well(s) have no log set named '{set}', so their rows were read from the CURRENT store instead: {}",
+                    missing.len(),
+                    roster.len(),
+                    missing.join(", ")
+                ));
+            }
+        }
     }
     let n_apply = x_apply.len() / d;
     if n_apply == 0 {
@@ -1668,7 +2009,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         &blind_mask,
     ) {
         Err(e) => fail(&e),
-        Ok((mut metrics, outs, model_blob, sklearn)) => {
+        Ok(MlRun { mut metrics, outs, model_blob, sklearn, runtime }) => {
             // SB-MLA-001. The runner reports what IT defaulted; the choices Rust made are Rust's
             // to record, and the blind-split seed is one of them — defaulted here, and the single
             // parameter that decides which wells the reported blind score is a score of.
@@ -1807,22 +2148,42 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                             .unwrap_or_else(|_| id.clone())
                         })
                         .collect();
+                    // SB-MLA-002 + SB-MLA-004. The roster is stored for the wells that actually
+                    // CONTRIBUTED — a well that gave the fit nothing was not part of the training
+                    // rock, and listing it with `rows: 0` beside the others would make `n_train`
+                    // and the roster disagree about how many wells trained the model.
+                    let training_json = serde_json::to_string(&TrainingRecord {
+                        // SB-MLA-004. The mask BY NAME, or an explicit `None` — the two are
+                        // different facts about the run, not a value and its absence.
+                        mask_curve: mask_curve.clone(),
+                        wells: roster.iter().filter(|r| r.rows > 0).cloned().collect(),
+                    })
+                    .ok();
+                    let runtime_json = (!runtime.is_null()).then(|| runtime.to_string());
                     match crate::db::insert_ml_model(
                         &conn,
-                        name,
-                        &req.task,
-                        &req.algorithm,
-                        &features,
-                        target.as_deref(),
-                        &params_json,
-                        &serde_json::to_string(&metrics).unwrap_or_default(),
-                        &trained_on,
-                        n_train,
-                        req.params.get("standardize").and_then(|v| v.as_bool()).unwrap_or(true),
-                        (!sklearn.is_empty()).then_some(sklearn.as_str()),
-                        req.model_note.as_deref(),
-                        &model_blob,
-                        train_hash.as_deref(),
+                        &crate::db::NewMlModel {
+                            name,
+                            task: &req.task,
+                            algorithm: &req.algorithm,
+                            feature_curves: &features,
+                            target_curve: target.as_deref(),
+                            params_json: &params_json,
+                            metrics_json: &serde_json::to_string(&metrics).unwrap_or_default(),
+                            trained_on: &trained_on,
+                            n_train,
+                            standardize: req
+                                .params
+                                .get("standardize")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(true),
+                            note: req.model_note.as_deref(),
+                            data: &model_blob,
+                            train_hash: train_hash.as_deref(),
+                            training_json: training_json.as_deref(),
+                            runtime_json: runtime_json.as_deref(),
+                            sklearn_version: (!sklearn.is_empty()).then_some(sklearn.as_str()),
+                        },
                     ) {
                         Ok((id, stored)) => {
                             if &stored != name {
@@ -2069,7 +2430,7 @@ pub fn apply_ml_model(
         "d": d, "n_apply": n_apply, "model_len": blob.len(), "features": features,
     });
     let mut cmd = Command::new(&python);
-    cmd.args(["-c", ML_APPLY_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.args(["-c", &ml_apply_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -2103,6 +2464,8 @@ pub fn apply_ml_model(
     struct OutHeader {
         suffixes: Vec<String>,
         metrics: serde_json::Value,
+        #[serde(default)]
+        runtime: serde_json::Value,
     }
     let hdr: OutHeader = match serde_json::from_slice(&output.stdout[..nl]) {
         Ok(h) => h,
@@ -2205,13 +2568,18 @@ pub fn apply_ml_model(
         }
         start += m;
     }
-    let notes = vec![format!(
+    let mut notes = vec![format!(
         "applied the saved model '{}' ({} on {}), trained on {} well(s) - nothing was refitted",
         info.name,
         info.algorithm,
         info.target_curve.clone().unwrap_or_else(|| "-".into()),
         info.trained_on.len()
     )];
+    // SB-MLA-005 and SB-MLA-002, both checked HERE because this is the moment the artifact is
+    // actually used. A warning at save time would name a runtime that had not yet diverged, and a
+    // training set that is fine today can be superseded tomorrow by somebody re-running porosity.
+    notes.extend(runtime_drift(info.runtime_json.as_deref(), &hdr.runtime));
+    notes.extend(training_set_drift(&conn, info.training_json.as_deref()));
     MlResult {
         outputs: out_names,
         metrics: hdr.metrics,
@@ -2240,7 +2608,20 @@ pub(crate) fn exec_ml(
     n_apply: usize,
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>), String> {
     exec_ml_full(python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None, None, &[])
-        .map(|(m, o, _, _)| (m, o))
+        .map(|r| (r.metrics, r.outs))
+}
+
+/// What one fitting subprocess returned. A named struct rather than the 4-tuple this used to be:
+/// SB-MLA-005 adds a fifth member, and a five-element tuple of two JSON values and two strings is a
+/// transposition waiting to happen at the one call site that has to get provenance right.
+pub(crate) struct MlRun {
+    pub metrics: serde_json::Value,
+    pub outs: Vec<(String, Vec<f32>)>,
+    pub model_blob: Vec<u8>,
+    /// Kept separate from `runtime` because it is stored in its own column and was there first.
+    pub sklearn: String,
+    /// SB-MLA-005 — the interpreter and libraries that actually ran this fit.
+    pub runtime: serde_json::Value,
 }
 
 /// As `exec_ml`, but when `save_features` is `Some(names)` the fitted scaler + estimator come
@@ -2265,7 +2646,7 @@ pub(crate) fn exec_ml_full(
     // drawing individual rows reach the runner as the same thing and cannot diverge there.
     groups: Option<&[f32]>,
     blind_mask: &[f32],
-) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>, Vec<u8>, String), String> {
+) -> Result<MlRun, String> {
     let n_train = if d == 0 { 0 } else { x_train.len() / d };
     let groups = groups.filter(|g| g.len() == n_train);
     // A mask of the wrong length is dropped rather than sent: the runner reads a fixed byte count
@@ -2317,6 +2698,8 @@ pub(crate) fn exec_ml_full(
         model_len: usize,
         #[serde(default)]
         sklearn: String,
+        #[serde(default)]
+        runtime: serde_json::Value,
     }
     let hdr: OutHeader =
         serde_json::from_slice(&output.stdout[..nl]).map_err(|e| format!("bad ML result header: {e}"))?;
@@ -2335,7 +2718,13 @@ pub(crate) fn exec_ml_full(
         bytemuck::cast_slice_mut::<f32, u8>(&mut vals).copy_from_slice(&body[i * n_apply * 4..(i + 1) * n_apply * 4]);
         outs.push((s.clone(), vals));
     }
-    Ok((hdr.metrics, outs, body[expect..].to_vec(), hdr.sklearn))
+    Ok(MlRun {
+        metrics: hdr.metrics,
+        outs,
+        model_blob: body[expect..].to_vec(),
+        sklearn: hdr.sklearn,
+        runtime: hdr.runtime,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -3723,7 +4112,7 @@ mod tests {
         for (which, src) in [
             ("train", ml_runner()),
             ("leaderboard", ml_eval_runner()),
-            ("apply", ML_APPLY_RUNNER.to_string()),
+            ("apply", ml_apply_runner()),
         ] {
             for module in ["torch", "tensorflow", "keras", "onnx", "h5py", "tflite"] {
                 assert!(
@@ -4300,6 +4689,235 @@ mod tests {
         (std::sync::Mutex::new(conn), a, b)
     }
 
+    /// **SB-MLA-005 — a runtime step is named component by component, and a missing record is not
+    /// a mismatch.**
+    ///
+    /// Pinned from both sides. The obvious half is that a changed version is reported. The half that
+    /// decides whether anybody keeps reading these warnings is the second: a model saved before the
+    /// record existed must produce NO warning at all. A check that treated "not recorded" as "does
+    /// not match" would fire on every model in every project that predates today, and a warning that
+    /// fires on everything is one nobody reads when it finally means something.
+    #[test]
+    fn a_runtime_step_is_named_component_by_component_and_an_unrecorded_one_is_not_a_mismatch() {
+        // What the real probe writes: every component it asked about, `null` where it was absent.
+        let now = serde_json::json!({
+            "python": "3.12.4", "numpy": "2.1.0", "scipy": null,
+            "sklearn": "1.6.0", "joblib": "1.4.2", "xgboost": "2.1.0",
+        });
+        let same = serde_json::json!({
+            "python": "3.12.4", "numpy": "2.1.0", "scipy": null,
+            "sklearn": "1.5.0", "joblib": "1.4.2", "xgboost": "2.1.0",
+        })
+        .to_string();
+        let notes = runtime_drift(Some(&same), &now);
+        assert_eq!(notes.len(), 1, "one note, not one per component");
+        assert!(notes[0].contains("sklearn 1.5.0 -> 1.6.0"), "the component is named: {}", notes[0]);
+        assert!(!notes[0].contains("numpy"), "a component that matches is not listed: {}", notes[0]);
+        assert!(!notes[0].contains("scipy"), "absent then and absent now is not a step: {}", notes[0]);
+
+        // joblib is the SERIALISER. A step here is the one that unpickles the blob, so it must be
+        // named rather than folded into "the runtime differs".
+        let jl = serde_json::json!({ "joblib": "1.2.0" }).to_string();
+        assert!(runtime_drift(Some(&jl), &now)[0].contains("joblib 1.2.0 -> 1.4.2"));
+
+        // Recorded, and now gone: install it, do not match a version.
+        let gone = serde_json::json!({ "scipy": "1.14.0" }).to_string();
+        assert!(runtime_drift(Some(&gone), &now)[0].contains("scipy 1.14.0 -> not installed"));
+
+        // The reverse, and the case xgboost exists in this record for: the fit had no xgboost, so it
+        // ran on the substituted scikit-learn estimator (SB-MLA-012). This machine HAS xgboost, so
+        // the same request would fit a different algorithm — the one step a naive "compare the
+        // versions we both have" check cannot see, because one side has no version at all.
+        let subbed = serde_json::json!({ "xgboost": null }).to_string();
+        assert!(
+            runtime_drift(Some(&subbed), &now)[0].contains("xgboost not installed -> 2.1.0"),
+            "an absence that has become a presence is a runtime step"
+        );
+
+        // The other side, and the one that keeps the warning worth reading.
+        assert!(runtime_drift(None, &now).is_empty(), "a model with no record cannot have drifted");
+        assert!(
+            runtime_drift(Some(&now.to_string()), &now).is_empty(),
+            "an identical runtime says nothing"
+        );
+        // A component present now but never recorded is silent: the model predates the probe asking
+        // about it, so there is no evidence either way.
+        let partial = serde_json::json!({ "python": "3.12.4" }).to_string();
+        assert!(runtime_drift(Some(&partial), &now).is_empty());
+        // And the mirror: a component the CURRENT probe did not ask about cannot manufacture a step.
+        let older_probe = serde_json::json!({ "python": "3.12.4" });
+        assert!(runtime_drift(Some(&same), &older_probe).is_empty());
+    }
+
+    /// **SB-MLA-002 — the training log set is recorded, and a set that has moved is named.**
+    ///
+    /// The point is not that applying the model is wrong. It is that the rock the model learned from
+    /// is no longer what that set name returns, so a re-fit today would not reproduce this model and
+    /// a reviewer comparing the two would have nothing to point at. Both drift cases are pinned, and
+    /// so is the case that must stay quiet.
+    #[test]
+    fn a_model_records_the_log_set_its_rows_came_from_and_names_it_when_it_has_moved() {
+        use crate::equations::{create_log_set, LogSetSpec};
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, well, "SANDI-1", None, None, Some(0.0)).unwrap();
+        let id = well.to_string();
+        let spec = LogSetSpec {
+            set_name: "FINAL".into(),
+            module: "equation:phie".into(),
+            params_json: "{}".into(),
+            inputs_json: "[]".into(),
+        };
+        let (v1, ver1) = create_log_set(&conn, &id, &spec).unwrap();
+        assert_eq!(ver1, 1);
+
+        let roster = |set_id: Option<&str>, version: Option<i64>| {
+            serde_json::to_string(&TrainingRecord {
+                mask_curve: None,
+                wells: vec![TrainWellRecord {
+                    well_id: id.clone(),
+                    well: "SANDI-1".into(),
+                    rows: 500,
+                    masked: 0,
+                    incomplete: 0,
+                    set_name: Some("FINAL".into()),
+                    set_id: set_id.map(str::to_string),
+                    set_version: version,
+                }],
+            })
+            .unwrap()
+        };
+
+        // Nothing has changed: silence.
+        assert!(training_set_drift(&conn, Some(&roster(Some(&v1), Some(1)))).is_empty());
+
+        // Somebody re-ran porosity. The set name still resolves — to different rock.
+        create_log_set(&conn, &id, &spec).unwrap();
+        let moved = training_set_drift(&conn, Some(&roster(Some(&v1), Some(1))));
+        assert_eq!(moved.len(), 1);
+        assert!(moved[0].contains("superseded"), "{}", moved[0]);
+        assert!(moved[0].contains("SANDI-1 (FINAL v1 -> v2)"), "named, not merely counted: {}", moved[0]);
+
+        // A set id that is not there at all is a different situation and says so.
+        let vanished = training_set_drift(&conn, Some(&roster(Some("no-such-set"), Some(1))));
+        assert_eq!(vanished.len(), 1);
+        assert!(vanished[0].contains("no longer exists"), "{}", vanished[0]);
+
+        // A model fitted from the CURRENT store has no set to check, and must not be warned about:
+        // it never claimed to come from a frozen set, and inventing a warning would train the reader
+        // to ignore the ones that mean something.
+        assert!(training_set_drift(&conn, Some(&roster(None, None))).is_empty());
+        assert!(training_set_drift(&conn, None).is_empty(), "a model saved before the record existed");
+    }
+
+    /// **SB-MLA-004 — the mask's effect is recorded per well, and never confused with a missing
+    /// curve.**
+    ///
+    /// A single "rows not used" count would satisfy a careless reading of the requirement and be
+    /// useless: masked rows and incomplete rows call for OPPOSITE fixes — widen the mask, or go and
+    /// find the missing curve. So both are counted, and the test drives one well of each kind plus
+    /// one that is both, and checks the two numbers never borrow from each other.
+    #[test]
+    fn the_mask_effect_is_recorded_per_well_and_is_never_confused_with_a_missing_curve() {
+        use crate::db;
+        use uuid::Uuid;
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 10usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let gr: Vec<f32> = (0..n).map(|i| 20.0 + i as f32).collect();
+
+        // One well with a complete frame, and a BADHOLE flag over its first three depths.
+        let a = Uuid::new_v4();
+        db::insert_well(&conn, a, "SANDI-1", None, None, Some(0.0)).unwrap();
+        let mut rhob: Vec<f32> = vec![2.3; n];
+        // ... and two depths where the TARGET was never measured. Nothing to do with the mask.
+        rhob[8] = f32::NAN;
+        rhob[9] = f32::NAN;
+        db::insert_standard_curves(
+            &conn, a, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n], rhob,
+            vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        let flag: Vec<f32> = (0..n).map(|i| if i < 3 { 1.0 } else { 0.0 }).collect();
+        crate::equations::write_computed_curve(&conn, &a.to_string(), &depths, "BADHOLE", &flag).unwrap();
+
+        let features = vec!["GR".to_string()];
+        let ids = vec![a.to_string()];
+        let (_x, y, _g, empty, roster) =
+            assemble_training(&conn, &ids, &features, "RHOB", Some(&"BADHOLE".to_string()), None);
+
+        assert!(empty.is_empty(), "the well contributed, so it is not an empty well");
+        assert_eq!(y.len(), 5, "10 depths, 3 masked, 2 with no target");
+        let r = &roster[0];
+        assert_eq!(r.rows, 5);
+        assert_eq!(r.masked, 3, "exactly the flagged depths");
+        assert_eq!(r.incomplete, 2, "the unmeasured target is NOT the mask's doing");
+        assert_eq!(r.rows + r.masked + r.incomplete, n, "every depth is accounted for");
+        assert_eq!(r.well, "SANDI-1", "a UUID in a provenance record is not actionable");
+
+        // The other side: the same well with no mask loses nothing to one.
+        let (_x2, y2, _g2, _e2, roster2) =
+            assemble_training(&conn, &ids, &features, "RHOB", None, None);
+        assert_eq!(y2.len(), 8, "the three flagged depths are ordinary rows without a mask");
+        assert_eq!(roster2[0].masked, 0, "no mask, nothing attributed to one");
+        assert_eq!(roster2[0].incomplete, 2);
+
+        // And the half the counts alone cannot carry: WHICH flag this was. A model recording only
+        // "3 samples excluded" cannot be re-run, because the next analyst has no way to know whether
+        // that was BADHOLE, a coal flag or a hand-drawn interval — and the requirement asks for the
+        // curve "or its explicit absence", which are two different facts rather than a value and a
+        // blank. `null` here is the second of them, not a missing field.
+        let named = serde_json::to_string(&TrainingRecord {
+            mask_curve: Some("BADHOLE".into()),
+            wells: roster.clone(),
+        })
+        .unwrap();
+        let back: TrainingRecord = serde_json::from_str(&named).unwrap();
+        assert_eq!(back.mask_curve.as_deref(), Some("BADHOLE"));
+        assert_eq!(back.wells[0].masked, 3, "the roster survives the wrapper");
+
+        let unmasked =
+            serde_json::to_string(&TrainingRecord { mask_curve: None, wells: roster2 }).unwrap();
+        let back2: TrainingRecord = serde_json::from_str(&unmasked).unwrap();
+        assert!(back2.mask_curve.is_none(), "no mask is recorded as no mask");
+        assert!(
+            unmasked.contains("\"mask_curve\":null"),
+            "written explicitly, so a reader can tell it from a field that was never set: {unmasked}"
+        );
+    }
+
+    /// A saved model with the boring fields filled in. Deliberately NOT a `Default` impl on
+    /// `NewMlModel`: requiring every field at the real call site is the property that makes the
+    /// struct worth having, and a `..Default::default()` would hand the omission back.
+    fn model_fixture<'a>(
+        name: &'a str,
+        feature_curves: &'a [String],
+        trained_on: &'a [String],
+        data: &'a [u8],
+        train_hash: Option<&'a str>,
+    ) -> crate::db::NewMlModel<'a> {
+        crate::db::NewMlModel {
+            name,
+            task: "regression",
+            algorithm: "rf",
+            feature_curves,
+            target_curve: Some("PERM"),
+            params_json: "{}",
+            metrics_json: "{}",
+            trained_on,
+            n_train: 100,
+            standardize: true,
+            note: None,
+            data,
+            train_hash,
+            training_json: None,
+            runtime_json: None,
+            sklearn_version: Some("1.5.0"),
+        }
+    }
+
     #[test]
     fn a_retrained_model_never_overwrites_the_one_a_delivered_curve_was_made_with() {
         use crate::db;
@@ -4307,10 +4925,10 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let feats = vec!["GR".to_string()];
         let blob = vec![1u8, 2, 3];
-        let (_, first) = db::insert_ml_model(&conn, "PERM_RF", "regression", "rf", &feats, Some("PERM"),
-            "{}", "{}", &["A".into()], 100, true, Some("1.5.0"), None, &blob, Some("aaaa")).unwrap();
-        let (_, second) = db::insert_ml_model(&conn, "PERM_RF", "regression", "rf", &feats, Some("PERM"),
-            "{}", "{}", &["A".into(), "B".into()], 200, true, Some("1.5.0"), None, &blob, Some("bbbb")).unwrap();
+        let one: Vec<String> = vec!["A".into()];
+        let two: Vec<String> = vec!["A".into(), "B".into()];
+        let (_, first) = db::insert_ml_model(&conn, &model_fixture("PERM_RF", &feats, &one, &blob, Some("aaaa"))).unwrap();
+        let (_, second) = db::insert_ml_model(&conn, &model_fixture("PERM_RF", &feats, &two, &blob, Some("bbbb"))).unwrap();
         assert_eq!(first, "PERM_RF");
         assert_eq!(second, "PERM_RF_1", "a second fit is a NEW model, not a replacement");
         assert_eq!(db::list_ml_models(&conn).unwrap().len(), 2);
@@ -4322,8 +4940,9 @@ mod tests {
         let conn = duckdb::Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let blob = vec![7u8; 4096];
-        let (id, _) = db::insert_ml_model(&conn, "M", "regression", "rf", &["GR".into()], Some("PERM"),
-            "{}", "{}", &["A".into()], 10, true, None, None, &blob, None).unwrap();
+        let feats: Vec<String> = vec!["GR".into()];
+        let on: Vec<String> = vec!["A".into()];
+        let (id, _) = db::insert_ml_model(&conn, &model_fixture("M", &feats, &on, &blob, None)).unwrap();
         let listed = db::list_ml_models(&conn).unwrap();
         assert_eq!(listed[0].bytes, 4096, "the size is reported so the picker can show it");
         assert_eq!(listed[0].feature_curves, vec!["GR".to_string()]);
@@ -4408,7 +5027,7 @@ mod tests {
             "d": 2, "n_apply": 2, "model_len": blob.len(), "features": ["RHOB", "GR"],
         });
         let mut cmd = Command::new(&python);
-        cmd.args(["-c", ML_APPLY_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.args(["-c", &ml_apply_runner()]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         hide_console(&mut cmd);
         let mut child = cmd.spawn().unwrap();
         {
@@ -4511,7 +5130,7 @@ mod tests {
 
         let features = vec!["GR".to_string()];
         let ids = vec![good.to_string(), bad.to_string()];
-        let (_x, y, groups, empty) = assemble_training(&conn, &ids, &features, "RHOB", None, None);
+        let (_x, y, groups, empty, roster) = assemble_training(&conn, &ids, &features, "RHOB", None, None);
         assert_eq!(groups.len(), y.len(), "every training row carries the well it came from");
 
         assert_eq!(y.len(), n, "the well with the target contributes all its rows");
@@ -4520,6 +5139,12 @@ mod tests {
             vec![bad.to_string()],
             "the target-less well is flagged empty, not silently dropped"
         );
+        // SB-MLA-004. The empty well's rows were lost to a MISSING TARGET, not to a mask — and the
+        // record says which, because the two call for opposite fixes.
+        let bad_rec = roster.iter().find(|r| r.well_id == bad.to_string()).unwrap();
+        assert_eq!(bad_rec.rows, 0);
+        assert_eq!(bad_rec.masked, 0, "no mask was given, so nothing may be attributed to one");
+        assert_eq!(bad_rec.incomplete, n, "the rows are accounted for, not merely absent");
     }
 
     /// Masking that empties a whole training well must be reported truthfully: the leaderboard
