@@ -20,8 +20,47 @@ use std::collections::HashMap;
 /// cluster-ordering axis. CURVE1 is required; the rest are optional (an absent curve simply
 /// drops that feature dimension).
 const SLOTS: [&str; 5] = ["CURVE1", "CURVE2", "CURVE3", "CURVE4", "CURVE5"];
-const RESTARTS: usize = 8;
-const MAX_ITERS: usize = 100;
+
+// ---------------------------------------------------------------------------
+// SB-MLA-023 — ONE k-means definition, whichever engine runs it
+// ---------------------------------------------------------------------------
+//
+// SandiBumi has two k-means engines for platform reasons: this dependency-free native one, which is
+// what Electrofacies and GMM Facies run per well, and scikit-learn's, which the ML suite runs when
+// the user picks k-means there. They were configured differently — 8 restarts and a 100-iteration
+// cap here against scikit-learn's 10 and 300 — and restart count and iteration cap are precisely
+// the two knobs that decide WHICH local optimum a k-means lands in. So the same curves, the same K
+// and the same seed gave two different facies schemes depending on which door the user came in, and
+// nothing on either screen said so.
+//
+// These four constants are that definition, and `ml.rs` builds its Python runner FROM them rather
+// than restating them (`ml::ml_shared_constants_py`), so there is no second copy to drift. Pinned by
+// `the_two_kmeans_engines_are_configured_from_one_definition`.
+//
+// The values are scikit-learn's own documented defaults, adopted rather than invented. Both moves
+// are in the safe direction: restarts are kept best-of-N by inertia, so 10 can only find an optimum
+// at least as good as 8 ever did, and Lloyd's algorithm decreases inertia monotonically, so raising
+// the cap only changes runs that had NOT converged at 100 — where the old cap was silently
+// truncating rather than converging.
+
+/// How many k-means++ restarts, keeping the lowest-inertia labelling. scikit-learn's `n_init`.
+pub(crate) const KMEANS_RESTARTS: usize = 10;
+/// Lloyd-iteration cap per restart. scikit-learn's `max_iter`.
+pub(crate) const KMEANS_MAX_ITERS: usize = 300;
+/// Convergence tolerance on the centre shift, scaled by the mean feature variance — scikit-learn's
+/// `tol` and its scaling rule. Without this the native engine ran to exact label stability, which is
+/// a different stopping rule from the Python one and the third divergence the two engines had.
+pub(crate) const KMEANS_TOL: f64 = 1e-4;
+
+/// SB-MLA-024 — the one seed default. This module used to fall back to **7** while the ML suite
+/// used **42**; neither is wrong, and two values for one concept is the defect. No vendor in the
+/// corpus ships a seed control at all, so there is no external value to defer to — 42 wins because
+/// it is already the number in `ml.rs`, in the ML dialog and in the leaderboard header.
+///
+/// This CHANGES the default clustering Electrofacies and GMM Facies produce. A run made before
+/// this recorded its seed, so it is still reproducible by typing 7 back in; what moves is the
+/// result of pressing Run without touching the field.
+pub(crate) const SEED_DEFAULT: f64 = 42.0;
 
 pub fn electrofacies_spec() -> ModuleSpec {
     ModuleSpec {
@@ -38,7 +77,7 @@ pub fn electrofacies_spec() -> ModuleSpec {
             .into(),
         args: vec![
             param("K", "Number of facies (clusters)", "", 5.0, 2.0, 12.0),
-            param("SEED", "Random seed (reproducibility)", "", 7.0, 0.0, 1e9),
+            param("SEED", "Random seed (reproducibility)", "", SEED_DEFAULT, 0.0, 1e9),
             opt("OPT_STANDARDIZE", "Feature scaling", "ZSCORE", &["ZSCORE", "NONE"]),
             log_in("CURVE1", "Curve 1 (also orders the facies)", "", "GR", true),
             log_in("CURVE2", "Curve 2 (optional)", "", "RHOB", false),
@@ -88,7 +127,7 @@ fn prep_samples(ctx: &ModuleContext) -> Result<Prep, String> {
     let k = (ctx.p("K", 0).round().max(2.0) as usize).min(12);
     let seed = {
         let s = ctx.p("SEED", 0);
-        if s.is_finite() { s.max(0.0) as u64 } else { 7 }
+        if s.is_finite() { s.max(0.0) as u64 } else { SEED_DEFAULT as u64 }
     };
     let zscore = ctx.o("OPT_STANDARDIZE") != "NONE";
 
@@ -154,7 +193,7 @@ pub fn electrofacies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     // Best-of-N k-means++ restarts, keeping the lowest-inertia labelling.
     let mut best_labels: Vec<usize> = Vec::new();
     let mut best_inertia = f64::INFINITY;
-    for r in 0..RESTARTS {
+    for r in 0..KMEANS_RESTARTS {
         let mut rng = Rng::new(seed ^ (r as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1));
         let (labels, inertia) = kmeans_once(&pts, k, dims, &mut rng);
         if inertia < best_inertia {
@@ -189,7 +228,7 @@ pub fn gmm_facies_spec() -> ModuleSpec {
             .into(),
         args: vec![
             param("K", "Number of facies (mixture components)", "", 5.0, 2.0, 12.0),
-            param("SEED", "Random seed (reproducibility)", "", 7.0, 0.0, 1e9),
+            param("SEED", "Random seed (reproducibility)", "", SEED_DEFAULT, 0.0, 1e9),
             opt("OPT_STANDARDIZE", "Feature scaling", "ZSCORE", &["ZSCORE", "NONE"]),
             log_in("CURVE1", "Curve 1 (also orders the facies)", "", "GR", true),
             log_in("CURVE2", "Curve 2 (optional)", "", "RHOB", false),
@@ -213,7 +252,7 @@ pub fn gmm_facies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     // modules agree on well-separated data and only diverge where GMM's soft view matters).
     let mut init_labels: Vec<usize> = Vec::new();
     let mut best_inertia = f64::INFINITY;
-    for r in 0..RESTARTS {
+    for r in 0..KMEANS_RESTARTS {
         let mut rng = Rng::new(seed ^ (r as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1));
         let (labels, inertia) = kmeans_once(&pts, k, dims, &mut rng);
         if inertia < best_inertia {
@@ -261,7 +300,7 @@ pub fn gmm_facies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let ln2pi = (2.0 * std::f64::consts::PI).ln();
     let mut resp = vec![vec![0.0f64; k]; m];
     let mut prev_ll = f64::NEG_INFINITY;
-    for _ in 0..MAX_ITERS {
+    for _ in 0..KMEANS_MAX_ITERS {
         // E-step (log-space with log-sum-exp for stability).
         let mut ll = 0.0;
         for (i, p) in pts.iter().enumerate() {
@@ -326,8 +365,23 @@ pub fn gmm_facies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 }
 
 /// One k-means run: k-means++ seeding + Lloyd iterations. Returns (labels, inertia).
+///
+/// Stops on [`KMEANS_TOL`], scaled by the mean feature variance — scikit-learn's rule, so the two
+/// engines stop at the same place and not merely after the same number of iterations. The
+/// no-label-changed break stays as a fast path; it can only fire where the centres did not move at
+/// all, which is a strict subset of what the tolerance already catches.
 fn kmeans_once(pts: &[Vec<f64>], k: usize, dims: usize, rng: &mut Rng) -> (Vec<usize>, f64) {
     let m = pts.len();
+    // The tolerance is relative because it is compared against a distance in FEATURE space, and an
+    // absolute 1e-4 would mean "converged" on z-scored curves and "keep going" on raw resistivity.
+    let tol = {
+        let mut mean_var = 0.0;
+        for d in 0..dims {
+            let mu = pts.iter().map(|p| p[d]).sum::<f64>() / m as f64;
+            mean_var += pts.iter().map(|p| (p[d] - mu).powi(2)).sum::<f64>() / m as f64;
+        }
+        KMEANS_TOL * (mean_var / dims.max(1) as f64)
+    };
     // --- k-means++ seeding ---
     let mut centers: Vec<Vec<f64>> = Vec::with_capacity(k);
     centers.push(pts[(rng.unit() * m as f64) as usize % m].clone());
@@ -359,7 +413,7 @@ fn kmeans_once(pts: &[Vec<f64>], k: usize, dims: usize, rng: &mut Rng) -> (Vec<u
 
     // --- Lloyd iterations ---
     let mut labels = vec![0usize; m];
-    for _ in 0..MAX_ITERS {
+    for _ in 0..KMEANS_MAX_ITERS {
         let mut changed = false;
         for (i, p) in pts.iter().enumerate() {
             let mut best = 0;
@@ -386,10 +440,13 @@ fn kmeans_once(pts: &[Vec<f64>], k: usize, dims: usize, rng: &mut Rng) -> (Vec<u
                 sums[c][d] += p[d];
             }
         }
+        let mut shift = 0.0f64;
         for c in 0..k {
             if counts[c] > 0 {
                 for d in 0..dims {
-                    centers[c][d] = sums[c][d] / counts[c] as f64;
+                    let moved = sums[c][d] / counts[c] as f64;
+                    shift += (moved - centers[c][d]).powi(2);
+                    centers[c][d] = moved;
                 }
             } else {
                 // Empty cluster: grab the globally worst-fit point.
@@ -405,9 +462,13 @@ fn kmeans_once(pts: &[Vec<f64>], k: usize, dims: usize, rng: &mut Rng) -> (Vec<u
                 centers[c] = pts[worst].clone();
                 labels[worst] = c;
                 changed = true;
+                // A reseeded centre is a jump, not a step. Folding it into the shift would let one
+                // empty cluster's relocation read as "not converged" for another iteration, or —
+                // worse on a tiny distance scale — mask a real move. Force another pass instead.
+                shift = f64::INFINITY;
             }
         }
-        if !changed {
+        if !changed || shift <= tol {
             break;
         }
     }

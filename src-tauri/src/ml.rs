@@ -125,15 +125,40 @@ def build_model(task, algo, p, seed):
     return None, None
 "#;
 
-/// The training runner: the shared estimator definitions, then the fit-and-apply body.
+/// SB-MLA-023 / SB-MLA-024 — the product's k-means and seed definitions, EMITTED into the Python
+/// runners from the Rust constants that the native engine runs on.
+///
+/// `facies.rs` holds the definition because it holds the implementation; this function is what stops
+/// there being a second copy of it written in Python. Restating `n_init=10, max_iter=300` in the
+/// runner text would compile, run and look right — and would go stale the day somebody changed the
+/// native side, which is exactly the history this requirement exists to end.
+///
+/// Emitted as module-level Python names rather than substituted at each call site so that the value
+/// appears once in the generated source too, and so the conformance test has something to read.
+fn ml_shared_constants_py() -> String {
+    format!(
+        "# Generated from facies.rs - SandiBumi's one k-means definition (SB-MLA-023).\n\
+         KMEANS_N_INIT = {}\n\
+         KMEANS_MAX_ITER = {}\n\
+         KMEANS_TOL = {:e}\n\
+         SEED_DEFAULT = {}\n",
+        crate::facies::KMEANS_RESTARTS,
+        crate::facies::KMEANS_MAX_ITERS,
+        crate::facies::KMEANS_TOL,
+        crate::facies::SEED_DEFAULT as i64,
+    )
+}
+
+/// The training runner: the shared constants, the shared estimator definitions, then the
+/// fit-and-apply body.
 fn ml_runner() -> String {
-    format!("{ML_BUILD_MODEL}{ML_RUNNER_BODY}")
+    format!("{}{ML_BUILD_MODEL}{ML_RUNNER_BODY}", ml_shared_constants_py())
 }
 
 /// The leaderboard runner, from the SAME estimator definitions. Composing both from one fragment is
 /// what makes SB-MLA-026 structural rather than a pair of copies somebody has to remember to sync.
 fn ml_eval_runner() -> String {
-    format!("{ML_BUILD_MODEL}{ML_EVAL_RUNNER_BODY}")
+    format!("{}{ML_BUILD_MODEL}{ML_EVAL_RUNNER_BODY}", ml_shared_constants_py())
 }
 
 const ML_RUNNER_BODY: &str = r#"
@@ -187,7 +212,7 @@ except ImportError:
     fail("scikit-learn is not installed for this Python - run: pip install scikit-learn")
 from sklearn.preprocessing import StandardScaler
 
-seed = int(P(p, "seed", 42))
+seed = int(P(p, "seed", SEED_DEFAULT))
 supervised = task in ("regression", "classification")
 metrics = {}
 if bool(P(p, "standardize", True)):
@@ -319,7 +344,11 @@ elif task == "clustering":
     prob = None
     if algo == "kmeans":
         from sklearn.cluster import KMeans
-        labels = KMeans(n_clusters=k, n_init=10, random_state=seed).fit_predict(As)
+        # SB-MLA-023: n_init / max_iter / tol come from facies.rs, not from scikit-learn's defaults
+        # and not from a number typed here. Restart count and iteration cap decide WHICH local
+        # optimum k-means lands in, so two engines configured differently are two methods.
+        labels = KMeans(n_clusters=k, n_init=KMEANS_N_INIT, max_iter=KMEANS_MAX_ITER,
+                        tol=KMEANS_TOL, random_state=seed).fit_predict(As)
     elif algo == "gmm":
         from sklearn.mixture import GaussianMixture
         gm = GaussianMixture(n_components=k, random_state=seed).fit(As)
@@ -1099,7 +1128,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     // re-runnable whatever the subprocess does with it. Only wells that actually contributed
     // rows can be held out — holding back a well that turned out to be empty would reserve a
     // blind set of nothing and score the model on it.
-    let split_seed = req.split_seed.unwrap_or(42);
+    let split_seed = req.split_seed.unwrap_or(crate::facies::SEED_DEFAULT as u64);
     // Rows per contributing well, in one pass — the fraction is a share of THESE, so the counts
     // have to come from the pooled matrix rather than from the requested well list (a well that
     // contributed nothing is not 20% of a five-well field).
@@ -1736,7 +1765,7 @@ def fail(msg):
 
 header = json.loads(sys.stdin.buffer.readline().decode("utf-8"))
 task = header["task"]; d = header["d"]; n = header["n_train"]
-folds = int(header.get("folds", 5)); seed = int(header.get("seed", 42))
+folds = int(header.get("folds", 5)); seed = int(header.get("seed", SEED_DEFAULT))
 standardize = bool(header.get("standardize", True)); combos = header["combos"]
 p = header.get("params") or {}
 params_for = header.get("params_for")
@@ -2059,7 +2088,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
         combos.truncate(MAX_COMBOS);
     }
 
-    let seed = req.seed.unwrap_or(42);
+    let seed = req.seed.unwrap_or(crate::facies::SEED_DEFAULT as i64);
     let folds = req.folds.unwrap_or(5).clamp(2, 10);
     match exec_ml_eval(&python, &req.task, d, n_train, &x_train, &y_train, &groups, &combos, req.standardize, seed, folds, &req.params, req.params_for.as_deref()) {
         Err(e) => eval_fail(&e),
@@ -2212,6 +2241,144 @@ mod tests {
 
     fn params(pairs: &[(&str, serde_json::Value)]) -> serde_json::Map<String, serde_json::Value> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    }
+
+    /// **SB-MLA-023, the half that fails the build.** The product has two k-means engines for
+    /// platform reasons, and they were configured differently — 8 restarts and 100 iterations in
+    /// the native one against scikit-learn's 10 and 300, with no tolerance at all on the native
+    /// side. Restart count and iteration cap are precisely the two knobs that select WHICH local
+    /// optimum k-means lands in, so the same curves, K and seed gave two different facies schemes
+    /// depending on which door the user came in.
+    ///
+    /// This is the structural check, and it is the one that matters: the numbers must reach Python
+    /// FROM the Rust definition, so there is no second copy of them to go stale. A test that merely
+    /// asserted both said 10 would pass a pair of literals sitting in two files, which is the state
+    /// this requirement exists to end.
+    ///
+    /// Needs no Python, so a divergence fails the gate — which is what the requirement asks for and
+    /// what an end-to-end comparison alone could not deliver, since that one has to skip where
+    /// scikit-learn is absent.
+    #[test]
+    fn the_two_kmeans_engines_are_configured_from_one_definition() {
+        let emitted = ml_shared_constants_py();
+        for (name, want) in [
+            ("KMEANS_N_INIT", crate::facies::KMEANS_RESTARTS.to_string()),
+            ("KMEANS_MAX_ITER", crate::facies::KMEANS_MAX_ITERS.to_string()),
+            ("SEED_DEFAULT", (crate::facies::SEED_DEFAULT as i64).to_string()),
+        ] {
+            assert!(
+                emitted.contains(&format!("{name} = {want}")),
+                "the runner preamble must carry the native value of {name} ({want}):\n{emitted}",
+            );
+        }
+        // The tolerance is emitted in scientific notation, so match it by parsing rather than by
+        // spelling — `1e-4` and `0.0001` are the same number and either would be correct.
+        let tol: f64 = emitted
+            .lines()
+            .find_map(|l| l.strip_prefix("KMEANS_TOL = "))
+            .and_then(|v| v.trim().parse().ok())
+            .expect("the preamble declares a tolerance");
+        assert!((tol - crate::facies::KMEANS_TOL).abs() < 1e-12, "tolerance emitted as {tol}");
+
+        // Both runners get the preamble, and both use the NAMES. A literal here would compile, run
+        // and look right while silently forking the definition again.
+        for (which, src) in [("train", ml_runner()), ("leaderboard", ml_eval_runner())] {
+            assert!(src.contains("KMEANS_N_INIT = "), "{which} runner is missing the preamble");
+            assert!(
+                !src.contains("n_init=10") && !src.contains("max_iter=300"),
+                "{which} runner still hardcodes a k-means constant beside the shared one",
+            );
+        }
+        assert!(
+            ML_RUNNER_BODY.contains("n_init=KMEANS_N_INIT")
+                && ML_RUNNER_BODY.contains("max_iter=KMEANS_MAX_ITER")
+                && ML_RUNNER_BODY.contains("tol=KMEANS_TOL"),
+            "the KMeans call must read all three from the shared definition",
+        );
+        // SB-MLA-024 — one seed default, and neither runner may write its own.
+        assert!(
+            !ML_RUNNER_BODY.contains("\"seed\", 42") && !ML_EVAL_RUNNER_BODY.contains("\"seed\", 42"),
+            "a seed default restated in Python is a second definition of the same concept",
+        );
+    }
+
+    /// The end-to-end half of SB-MLA-023: with one definition behind both, the two engines must
+    /// actually agree on data whose answer is not in doubt.
+    ///
+    /// Deliberately a THREE-blob fixture with wide separation. k-means is only well-posed where the
+    /// clustering is unambiguous, and a fixture with overlapping groups would be testing whose
+    /// pseudo-random draw got luckier — the native engine seeds from SplitMix64 and scikit-learn
+    /// from NumPy's Mersenne Twister, so identical labelling in general is not on offer and
+    /// claiming it would be a false pin. What IS on offer, and what a user notices, is that both
+    /// find the same obvious answer with the same number of restarts and the same stopping rule.
+    ///
+    /// Skips where scikit-learn is absent, so the gate never depends on it — the structural test
+    /// above is the one that fails the build.
+    #[test]
+    fn the_two_kmeans_engines_label_the_same_data_the_same_way() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // Three separated blobs in (GR-like, RHOB-like), interleaved so neither engine can be right
+        // by accident of row order. Jitter is deterministic — a fixture that moved between runs
+        // could not tell a divergence from a coincidence.
+        let centres = [(25.0f32, 2.62f32), (75.0, 2.45), (140.0, 2.30)];
+        let (mut gr, mut rhob, mut x_apply) = (Vec::new(), Vec::new(), Vec::new());
+        for i in 0..60 {
+            for (cx, cy) in centres {
+                let j = (i % 7) as f32;
+                let (a, b) = (cx + j * 0.3, cy + j * 0.002);
+                gr.push(a);
+                rhob.push(b);
+                x_apply.extend_from_slice(&[a, b]);
+            }
+        }
+        let n = gr.len();
+
+        let mut logs = std::collections::HashMap::new();
+        logs.insert("CURVE1".to_string(), gr);
+        logs.insert("CURVE2".to_string(), rhob);
+        let mut mod_params = std::collections::HashMap::new();
+        mod_params.insert("K".to_string(), vec![3.0; n]);
+        mod_params.insert("SEED".to_string(), vec![crate::facies::SEED_DEFAULT; n]);
+        let ctx = crate::modules::ModuleContext {
+            n,
+            logs,
+            params: mod_params,
+            opts: std::collections::HashMap::new(),
+            depth_unit: Default::default(),
+        };
+        let native = crate::facies::electrofacies(&ctx).expect("native clustering ran");
+        let native = &native["FACIES"];
+
+        let (_, outs) = exec_ml(
+            &py,
+            "clustering",
+            "kmeans",
+            &params(&[
+                ("k", serde_json::json!(3)),
+                ("seed", serde_json::json!(crate::facies::SEED_DEFAULT as i64)),
+            ]),
+            2,
+            &[],
+            None,
+            &x_apply,
+            n,
+        )
+        .expect("scikit-learn clustering ran");
+        let sk = &outs[0].1;
+
+        // Both order their cluster ids by ascending mean of the FIRST feature, so the labels are
+        // directly comparable — no permutation matching, which would let a genuine disagreement
+        // about WHICH samples group together pass as a relabelling.
+        assert_eq!(native.len(), sk.len());
+        let disagree = (0..n).filter(|&i| native[i] != sk[i]).count();
+        assert_eq!(
+            disagree, 0,
+            "the two k-means engines disagreed on {disagree} of {n} samples of a three-blob \
+             fixture — one definition means one answer here",
+        );
     }
 
     #[test]

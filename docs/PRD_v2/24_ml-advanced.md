@@ -1353,7 +1353,7 @@ are both `#[ignore]`, legitimately, because both need a real interpreter with `s
 
 ### Group C — One name, one method
 
-#### SB-MLA-023 — One k-means, one definition          [P0] [status: PRESENT-DIVERGENT]
+#### SB-MLA-023 — One k-means, one definition          [P0] [status: PRESENT-OK]
 
 **Requirement.** SandiBumi MUST expose exactly one k-means definition, with one restart count, one
 iteration cap, one initialisation rule and one convergence tolerance, whatever engine executes it.
@@ -1366,17 +1366,37 @@ and iteration cap are precisely the two knobs that select which local optimum a 
 which is why every vendor in §2.9 exposes a restart control and Techlog ships a fall-off diagnostic
 to reason about it.
 
-**As-built.** `PRESENT-DIVERGENT` — `facies.rs:23` `RESTARTS = 8` with `facies.rs:24`
-`MAX_ITERS = 100`, against `ml.rs:163` `KMeans(n_clusters=k, n_init=10, random_state=seed)` at
-scikit-learn's default `max_iter = 300`. Both use k-means++ style seeding
-(`facies.rs:318`–`:406`), both z-score by default (`facies.rs:82`, `ml.rs:67`) using population
-standard deviation (`facies.rs:119`, matching scikit-learn's `ddof = 0`), and both order labels by
-the mean of the first curve (`facies.rs:409`–`:430`, `ml.rs:181`–`:185`) — so the divergence is
-narrow, well-defined and entirely in the two constants. No test compares them.
+**As-built.** `PRESENT-OK` (closed 2026-08-07) — the definition is now four named constants in
+`facies.rs` (`KMEANS_RESTARTS = 10`, `KMEANS_MAX_ITERS = 300`, `KMEANS_TOL = 1e-4`, `SEED_DEFAULT`),
+and `ml::ml_shared_constants_py` **emits them into the Python runner preamble** so the scikit-learn
+side is configured FROM the same values rather than restating them. `KMeans(...)` reads
+`n_init=KMEANS_N_INIT, max_iter=KMEANS_MAX_ITER, tol=KMEANS_TOL`; no literal remains in either
+runner. The values are scikit-learn's documented defaults, adopted rather than invented, and both
+moves are in the safe direction — restarts are best-of-N by inertia so 10 dominates 8, and Lloyd is
+monotone in inertia so a higher cap only affects runs that had not converged at 100.
+
+The third divergence the original survey did not name was the **stopping rule**: the native engine
+ran to exact label stability while scikit-learn stopped on `tol`. `facies::kmeans_once` now
+implements scikit-learn's rule — centre shift against `KMEANS_TOL` scaled by the mean feature
+variance — with the no-label-changed break kept as a fast path, which can only fire where the shift
+is exactly zero. A reseeded empty cluster forces another pass rather than being counted as a step.
+
+Unchanged and already conformant: k-means++ seeding, population-sd z-scoring, and label ordering by
+the mean of the first curve.
+
+**Two tests, deliberately.** `the_two_kmeans_engines_are_configured_from_one_definition` needs no
+Python and so **fails the build** on divergence, as the requirement demands — and it checks the
+values reach Python *from* Rust, which is the property that stops the fork recurring; a test merely
+asserting both say 10 would pass two literals in two files.
+`the_two_kmeans_engines_label_the_same_data_the_same_way` runs both engines on a three-blob fixture
+and requires identical labelling, skipping where scikit-learn is absent. The fixture is deliberately
+unambiguous: the two engines draw from different generators (SplitMix64 against NumPy's Mersenne
+Twister), so identical labelling on overlapping groups is not on offer and pinning it would be a
+false claim.
 
 **Verified by.** SB-MLA-T23
 
-#### SB-MLA-024 — One seed concept, one default          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-024 — One seed concept, one default          [P1] [status: PRESENT-OK]
 
 **Requirement.** The random seed MUST be a single named concept with a single documented default
 across every module and engine in the product.
@@ -1385,11 +1405,17 @@ across every module and engine in the product.
 one concept is the defect, and it is the kind that survives indefinitely because both behaviours
 are individually correct.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:64` defaults to **42**; `facies.rs:80` falls back to
-**7** and the module specs declare 7 (`facies.rs:41`, `facies.rs:179`). The dossier's §5.2 records
-the split verbatim as SandiBumi's own, noting that **no vendor in the corpus ships a seed control
-at all** — so there is no external value to defer to and this is purely an internal consistency
-choice.
+**As-built.** `PRESENT-OK` (closed 2026-08-07) — one constant, `facies::SEED_DEFAULT = 42`, read by
+both Electrofacies and GMM Facies module specs, by the native fallback, by the ML suite's Rust-side
+defaults (`req.seed`, `req.split_seed`) and by both Python runners through the emitted preamble. The
+dossier's §5.2 records the split as SandiBumi's own and notes that **no vendor in the corpus ships a
+seed control at all**, so there was no external value to defer to; 42 wins because it was already
+the number in `ml.rs`, in the ML dialog and in the leaderboard header, leaving the two facies specs
+as the only sites to move.
+
+**This changes results.** Electrofacies and GMM Facies previously defaulted to 7. A run made before
+this recorded its seed and remains reproducible by typing 7 back in; what moves is the clustering
+produced by pressing Run without touching the field. Logged in `REVIEW.md`.
 
 **Verified by.** SB-MLA-T24
 

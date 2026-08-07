@@ -8822,6 +8822,36 @@ application's own advice fell through to the arithmetic mean.
 - [ ] **Block, Smooth and Despike an ordinary curve and nothing has changed.** The rule fires on the
       declaration, never on how the values look.
 
+## One k-means, and one seed default — RESULTS CHANGE (2026-08-07)
+
+`SB-MLA-023` / `SB-MLA-024`. SandiBumi has two k-means engines: the built-in one behind
+**Facies ▸ Electrofacies** and **GMM Facies**, and scikit-learn's behind **ML Models ▸ clustering**.
+They were set up differently — 8 restarts and a 100-iteration cap in the built-in one against
+scikit-learn's 10 and 300, and no convergence tolerance at all on the built-in side. Restart count
+and iteration cap are exactly the two settings that decide *which* of the several clusterings the
+data supports is the one you get, so **the same curves, the same K and the same seed gave two
+different facies schemes depending on which door you came in**, with nothing on either screen
+saying so.
+
+Both now run one definition: 10 restarts, a 300-iteration cap, and scikit-learn's convergence
+tolerance implemented natively. The values are scikit-learn's own documented defaults rather than
+anything invented here, and both moves are in the safe direction — restarts keep the best result by
+inertia, so 10 can only find a fit at least as good as 8 did, and the higher cap only affects runs
+that had not finished converging at 100.
+
+- [ ] **Re-run Electrofacies on a well you have clustered before, at the same K and seed.** The
+      answer may differ slightly from the old one. Where it does, the new one is the better fit —
+      it is the lowest-inertia result of more restarts run further.
+- [ ] **The seed default is now 42 in every module.** Electrofacies and GMM Facies used to default
+      to **7**; the ML suite has always used 42. **This changes what you get from pressing Run
+      without touching the seed field.** An old run recorded its seed, so it is still reproducible —
+      type 7 back in. Check a saved log set's parameters if you need to reproduce one.
+- [ ] **Cluster the same curves both ways** — Facies ▸ Electrofacies, then ML Models ▸ clustering ▸
+      k-means over the same well, same K, same seed. On rock where the grouping is clear-cut they
+      should now agree. They are still two engines drawing random numbers differently, so on genuinely
+      ambiguous data they can land on different local answers; what is fixed is that they no longer
+      differ *by configuration*.
+
 ## ML — the run records what it actually used, defaults included (2026-08-07)
 
 `SB-MLA-001`. The record kept against every run was the settings you *typed*, which is the one set
