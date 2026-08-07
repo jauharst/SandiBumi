@@ -21,6 +21,7 @@ import {
 } from "../ipc";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
+import { FACIES_PALETTE } from "./plotCanvas";
 import { formRow } from "./modal";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
@@ -671,7 +672,14 @@ export async function buildMlContent(
   const paramsGrid = document.createElement("div");
   paramsGrid.className = "mc-settings";
   sModel.appendChild(formRow("Parameters", paramsGrid));
-  let paramInputs: { spec: ParamSpec; get: () => number | string }[] = [];
+  let paramInputs: {
+    spec: ParamSpec;
+    get: () => number | string;
+    /** Whether this field still holds the algorithm's default — the distinction SB-MLA-001 records
+     *  and the form previously did not show. */
+    changed: () => boolean;
+    reset: () => void;
+  }[] = [];
 
   const outInput = document.createElement("input");
   outInput.type = "text";
@@ -713,13 +721,27 @@ export async function buildMlContent(
   const setPicker = buildLogSetPicker({ write: "ML" });
   for (const row of setPicker.rows) sIn.appendChild(row);
 
+  // Every parameter the runner reads through `P(p, key, default)` has a field here, and always did.
+  // What it did not have was any way to see WHICH of them you had changed — a grid of numbers looks
+  // identical whether they are your settings or the library's, and SB-MLA-001 exists because that
+  // distinction decides whether a run can be reproduced. The record has kept it since; the form did
+  // not show it. Now a changed field marks itself and offers its default back.
+  const paramsReset = document.createElement("button");
+  paramsReset.type = "button";
+  paramsReset.className = "ml-param-reset";
+  paramsReset.textContent = "Reset to defaults";
+  paramsReset.hidden = true;
+
   function renderParams(): void {
     paramsGrid.innerHTML = "";
     paramInputs = [];
+    paramsReset.hidden = true;
     if (algo.params.length === 0) {
       const none = document.createElement("span");
       none.className = "mc-empty";
-      none.textContent = "No tuning parameters.";
+      // Naming the estimator matters: "no tuning parameters" under a bare heading reads as a
+      // failure to load the form. Under the algorithm's own name it reads as a fact about it.
+      none.textContent = `${algo.label} has nothing to tune — it is fitted from the data alone.`;
       paramsGrid.appendChild(none);
       return;
     }
@@ -744,14 +766,34 @@ export async function buildMlContent(
         if (spec.kind === "num") input.step = "any";
         input.value = String(spec.def);
       }
+      // The default is on the field itself rather than in a separate column: a "default" column
+      // doubles the width of the grid to carry a number that is only interesting when it differs
+      // from the one beside it.
+      input.title = `${spec.label} — default ${spec.def}. The run records whether this value was yours or the default (SB-MLA-001).`;
+      const mark = () => {
+        label.classList.toggle("mc-field-changed", String(input.value) !== String(spec.def));
+        paramsReset.hidden = !paramInputs.some((p) => p.changed());
+      };
+      input.addEventListener("input", mark);
+      input.addEventListener("change", mark);
       label.append(t, input);
       paramsGrid.appendChild(label);
       paramInputs.push({
         spec,
         get: () => (spec.kind === "num" ? parseFloat(input.value) || 0 : input.value),
+        changed: () => String(input.value) !== String(spec.def),
+        reset: () => {
+          input.value = String(spec.def);
+          mark();
+        },
       });
     }
+    paramsGrid.appendChild(paramsReset);
   }
+  paramsReset.addEventListener("click", () => {
+    for (const p of paramInputs) p.reset();
+    paramsReset.hidden = true;
+  });
 
   function syncAlgo(): void {
     algoDesc.textContent = algo.desc;
@@ -1747,9 +1789,265 @@ export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: b
     host.appendChild(note);
   }
   renderScoreChart(host, res, isClf, tied);
+  renderMetricBars(host, res, isClf);
+  renderBlindCrossplot(host, res, isClf);
   renderPredictorConsensus(host, res);
   host.appendChild(detail);
   if (firstOkRow) renderEvalDetail(detail, firstOkRow, isClf);
+}
+
+/**
+ * The two headline scores side by side, one bar chart each.
+ *
+ * Jauhar, 2026-08-07: *"visualization should also provide histogram of r2 and rmse comparison
+ * between models"*. They are drawn as a PAIR and never on one axis, because they are different
+ * quantities in different units pointing in opposite directions — R² is dimensionless and higher is
+ * better, RMSE is in the target's own units and lower is better. Sharing an axis would put the best
+ * model at opposite ends of the same picture.
+ *
+ * Both are sorted by R² — the same order as the table and the score chart — rather than each by its
+ * own metric. Two differently-ordered charts side by side invite the reader to compare rows by
+ * position, and here position would mean two different things.
+ *
+ * The disagreement between them is the reason to draw both. R² is a share of variance explained, so
+ * it flatters a model tested over a wide range and punishes one tested over a narrow one; RMSE says
+ * how wrong the prediction is in the units the answer will be quoted in. A model that wins on R² and
+ * loses on RMSE has been scored on a broader spread of rock, not fitted better.
+ *
+ * Exported for the vite dev server.
+ */
+export function renderMetricBars(host: HTMLElement, res: MlEvalResult, isClf: boolean): void {
+  const ok = res.rows.filter((r) => !r.error && r.score != null);
+  if (ok.length < 2) return;
+  const secKey = isClf ? "macro_f1" : "rmse";
+  const secLabel = isClf ? "macro-F1" : "RMSE";
+  // "Higher is better" for accuracy and macro-F1; for RMSE it is the opposite, and the caption has
+  // to say so or the longest bar reads as the winner.
+  const secBetterHigh = isClf;
+  const sec = ok.map((r) => {
+    const v = r.metrics?.[secKey];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  });
+  if (sec.every((v) => v == null)) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "ml-chart ml-metric-bars";
+  const cap = document.createElement("div");
+  cap.className = "mc-chain-note";
+  cap.textContent = `${isClf ? "Accuracy" : "R²"} and ${secLabel} across models — both in the score order above`;
+  wrap.appendChild(cap);
+
+  const grid = document.createElement("div");
+  grid.className = "ml-bars-grid";
+
+  const panel = (
+    title: string,
+    values: (number | null)[],
+    betterHigh: boolean,
+    fmt: (v: number) => string,
+  ): HTMLElement => {
+    const col = document.createElement("div");
+    col.className = "ml-bars-col";
+    const h = document.createElement("div");
+    h.className = "ml-bars-title";
+    h.textContent = `${title} — ${betterHigh ? "higher is better" : "lower is better"}`;
+    col.appendChild(h);
+    const finite = values.filter((v): v is number => v != null);
+    const max = Math.max(...finite, 0);
+    const min = Math.min(...finite, 0);
+    // Bars from a common zero, so length is proportional to the value rather than to its distance
+    // from an arbitrary floor. A truncated axis is how two near-identical models come to look like a
+    // landslide, which is the exact misreading `tiedAtTheTop` exists to prevent.
+    const span = Math.max(Math.abs(max), Math.abs(min), 1e-9);
+    // The best value on THIS metric, which need not be the top row.
+    const best = finite.length ? (betterHigh ? Math.max(...finite) : Math.min(...finite)) : null;
+    ok.forEach((r, i) => {
+      const v = values[i];
+      const line = document.createElement("div");
+      line.className = "ml-bar-row";
+      const name = document.createElement("span");
+      name.className = "ml-bar-name";
+      name.textContent = r.algorithm;
+      name.title = r.features.join(", ");
+      const track = document.createElement("div");
+      track.className = "ml-bar-track";
+      const bar = document.createElement("div");
+      bar.className = "ml-bar";
+      // A negative R² is a real and important reading — the model is worse than predicting the
+      // mean — so it is drawn, on its own side of zero, rather than clamped to nothing.
+      if (v != null && v < 0) bar.classList.add("ml-bar-neg");
+      bar.style.width = v == null ? "0%" : `${(Math.abs(v) / span) * 100}%`;
+      if (v != null && best != null && v === best) bar.classList.add("ml-bar-best");
+      track.appendChild(bar);
+      const val = document.createElement("span");
+      val.className = "ml-bar-val";
+      val.textContent = v == null ? "—" : fmt(v);
+      line.append(name, track, val);
+      col.appendChild(line);
+    });
+    return col;
+  };
+
+  grid.append(
+    panel(isClf ? "Accuracy" : "R²", ok.map((r) => r.score as number), true, (v) => v.toFixed(3)),
+    panel(secLabel, sec, secBetterHigh, (v) => (Math.abs(v) >= 0.01 ? v.toFixed(4) : v.toExponential(2))),
+  );
+  wrap.appendChild(grid);
+
+  // The two metrics disagreeing is a finding, not a glitch, and it is the one an experienced eye is
+  // looking for. Said only when it happens.
+  const bestScoreIdx = 0; // rows arrive sorted by score
+  let bestSecIdx = -1;
+  sec.forEach((v, i) => {
+    if (v == null) return;
+    const cur = bestSecIdx >= 0 ? sec[bestSecIdx] : null;
+    if (cur == null || (secBetterHigh ? v > cur : v < cur)) bestSecIdx = i;
+  });
+  if (bestSecIdx >= 0 && bestSecIdx !== bestScoreIdx) {
+    const note = document.createElement("div");
+    note.className = "mc-chain-note ml-consensus-note";
+    note.textContent = isClf
+      ? `${ok[bestScoreIdx].algorithm} has the best accuracy and ${ok[bestSecIdx].algorithm} the best macro-F1. ` +
+        `Accuracy is dominated by the commonest class, macro-F1 weights every class equally — so the second ` +
+        `model is doing better on the thin facies, which is usually the ones worth predicting.`
+      : `${ok[bestScoreIdx].algorithm} has the best R² and ${ok[bestSecIdx].algorithm} the lowest RMSE. ` +
+        `R² is a share of variance explained and rewards a model tested over a wide range; RMSE is the error ` +
+        `in the units the answer gets quoted in. Where they disagree, RMSE is the one a volumetric inherits.`;
+    wrap.appendChild(note);
+  }
+  host.appendChild(wrap);
+}
+
+/**
+ * Predicted against measured, on rows the model did not see.
+ *
+ * Jauhar, 2026-08-07: *"result visualization should provide xplot prediction vs blind test either
+ * for model user wanna see (provide all, but shows depend on user)"*. So every model's points are
+ * computed and carried back; the picker chooses which one is drawn. Computing them all costs
+ * nothing extra — the out-of-fold predictions already existed inside the cross-validation and were
+ * being discarded once the score was taken from them.
+ *
+ * **The 1:1 line is the subject, not decoration.** A score says how close the cloud is to it; the
+ * picture says HOW it misses, and those are different findings with different fixes. A model that
+ * is tight but rotated off 1:1 is mis-scaled and can be corrected; one that is flat at the mean has
+ * learned nothing and cannot; one that tracks well then saturates at the top end has run out of
+ * calibration range, which is a coring problem rather than a modelling one. All three can share an
+ * R².
+ *
+ * **Coloured by well, because that is the reading the aggregate cannot give.** A blind R² of 0.7
+ * over three wells can be 0.9, 0.85 and 0.1 — and the third well is the one that says whether this
+ * curve travels. Ordered by first appearance so a well keeps its colour between models.
+ *
+ * Exported for the vite dev server.
+ */
+export function renderBlindCrossplot(host: HTMLElement, res: MlEvalResult, isClf: boolean): void {
+  // A classifier's predicted-vs-actual is the confusion matrix, which the detail panel already
+  // draws. Plotting class codes on two continuous axes would invite reading the distance between
+  // facies 1 and facies 4 as three of something.
+  if (isClf) return;
+  const ok = res.rows.filter((r) => !r.error && r.blind_pred?.length);
+  if (ok.length === 0 || !res.blind_actual?.length) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "ml-chart ml-xplot";
+  const bar = document.createElement("div");
+  bar.className = "ml-xplot-bar";
+  const cap = document.createElement("div");
+  cap.className = "mc-chain-note";
+  const pick = document.createElement("select");
+  pick.className = "form-control ml-xplot-pick";
+  ok.forEach((r, i) => {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = `${r.algorithm} · ${r.features.length} curve(s) · R² ${r.score?.toFixed(3) ?? "—"}`;
+    pick.appendChild(o);
+  });
+  bar.append(cap, pick);
+  wrap.appendChild(bar);
+  const plotHost = document.createElement("div");
+  wrap.appendChild(plotHost);
+
+  const wells = [...new Set(res.blind_well)];
+  const draw = (i: number): void => {
+    const row = ok[i];
+    plotHost.innerHTML = "";
+    cap.textContent =
+      `Predicted vs measured on held-out rows · ${res.blind_sampled.toLocaleString()} of ` +
+      `${res.blind_total.toLocaleString()} shown · both axes on one scale, so the dashed line is 1:1`;
+    plotHost.appendChild(blindScatterSvg(res, row, wells));
+    const legend = document.createElement("div");
+    legend.className = "ml-xplot-legend";
+    wells.forEach((w, wi) => {
+      const chip = document.createElement("span");
+      chip.className = "ml-xplot-chip";
+      const dot = document.createElement("span");
+      dot.className = "ml-xplot-dot";
+      dot.style.background = wellColor(wi);
+      chip.append(dot, document.createTextNode(w));
+      legend.appendChild(chip);
+    });
+    plotHost.appendChild(legend);
+  };
+  pick.addEventListener("change", () => draw(Number(pick.value)));
+  draw(0);
+  host.appendChild(wrap);
+}
+
+/** Per-well colour for the crossplot. Reads from the app's own facies palette so a well keeps a
+ *  recognisable colour beside the facies tracks, and cycles rather than running out. */
+function wellColor(i: number): string {
+  return FACIES_PALETTE[i % FACIES_PALETTE.length];
+}
+
+function blindScatterSvg(res: MlEvalResult, row: MlEvalRow, wells: string[]): SVGSVGElement {
+  const pts: { x: number; y: number; w: number }[] = [];
+  for (let i = 0; i < res.blind_actual.length; i++) {
+    const x = res.blind_actual[i];
+    const y = row.blind_pred[i];
+    if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    pts.push({ x, y, w: Math.max(0, wells.indexOf(res.blind_well[i] ?? "")) });
+  }
+  const size = 360;
+  const pad = 42;
+  const svg = svgEl("svg", { viewBox: `0 0 ${size} ${size}`, class: "ml-xplot-svg", width: "100%" });
+  if (pts.length === 0) return svg;
+
+  // ONE range for both axes. A predicted-vs-measured plot is read against the 1:1 line, and two
+  // independently scaled axes would draw that line at 45° whatever the model did — turning a
+  // systematic bias into a picture of a perfect fit.
+  const lo = Math.min(...pts.map((p) => Math.min(p.x, p.y)));
+  const hi = Math.max(...pts.map((p) => Math.max(p.x, p.y)));
+  const m = (hi - lo) * 0.05 || 1e-6;
+  const a = lo - m;
+  const b = hi + m;
+  const X = (v: number) => pad + ((v - a) / (b - a)) * (size - pad - 10);
+  const Y = (v: number) => size - pad - ((v - a) / (b - a)) * (size - pad - 10);
+
+  svg.appendChild(svgEl("rect", { x: pad, y: 10, width: size - pad - 10, height: size - pad - 10, class: "ml-xp-frame" }));
+  svg.appendChild(svgEl("line", { x1: X(a), y1: Y(a), x2: X(b), y2: Y(b), class: "ml-xp-unity" }));
+  for (const p of pts) {
+    const c = svgEl("circle", { cx: X(p.x), cy: Y(p.y), r: 1.9, class: "ml-xp-pt" });
+    c.setAttribute("fill", wellColor(p.w));
+    svg.appendChild(c);
+  }
+  const lab = (x: number, y: number, s: string, cls: string, anchor = "middle") => {
+    const t = svgEl("text", { x, y, class: cls, "text-anchor": anchor });
+    t.textContent = s;
+    svg.appendChild(t);
+  };
+  const f = (v: number) => (Math.abs(v) >= 0.01 && Math.abs(v) < 1e5 ? v.toFixed(2) : v.toExponential(1));
+  lab(X(a), size - pad + 14, f(a), "ml-xp-axis", "start");
+  lab(X(b), size - pad + 14, f(b), "ml-xp-axis", "end");
+  lab(size / 2, size - 6, "measured", "ml-xp-axis");
+  const yl = svgEl("text", { x: 12, y: size / 2, class: "ml-xp-axis", "text-anchor": "middle", transform: `rotate(-90 12 ${size / 2})` });
+  yl.textContent = "predicted (out of fold)";
+  svg.appendChild(yl);
+  // Only the y MAX is labelled. Both axes deliberately share one range — that is what makes the
+  // dashed line 1:1 — so the y minimum is the same number as the x minimum, printed a few pixels
+  // away from it in the corner where the two axes meet. Two identical numbers touching read as a
+  // rendering fault, and the second one carries nothing the first did not.
+  lab(pad - 5, Y(b) + 4, f(b), "ml-xp-axis", "end");
+  return svg;
 }
 
 /** What the Data QC section was asked about. Passed as one object because every check needs several

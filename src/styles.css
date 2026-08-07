@@ -4702,6 +4702,32 @@ textarea {
   outline: none;
   border-color: var(--accent);
 }
+/* A parameter that no longer holds its default. SB-MLA-001 records which values were the user's and
+   which the library's, because that is what decides whether a run can be reproduced - and a grid of
+   numbers looks identical either way until something says so. Accent on the LABEL, not a filled
+   field: this marks a fact about the value, not a problem with it. */
+.mc-field-changed > span {
+  color: var(--accent-dim, #8a4f28);
+  font-weight: 600;
+}
+.mc-field-changed input,
+.mc-field-changed select {
+  border-color: var(--accent);
+}
+.ml-param-reset {
+  align-self: flex-end;
+  background: none;
+  border: none;
+  padding: 0 0 3px;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.ml-param-reset:hover {
+  color: var(--accent);
+}
 .mc-rm {
   margin-left: auto;
 }
@@ -5161,6 +5187,124 @@ textarea {
 .ml-sc-tieband {
   fill: var(--qc-warn);
   opacity: 0.1;
+}
+/* --- R2 / RMSE comparison ------------------------------------------------------
+   Two panels, never one axis: R2 is dimensionless and higher is better, RMSE is in the target's own
+   units and lower is better, so a shared axis would put the best model at opposite ends of one
+   picture. Side by side on a wide pane, stacked when there is no room. */
+.ml-bars-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.ml-bars-title {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.ml-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+.ml-bar-name {
+  flex: 0 0 78px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-bar-track {
+  flex: 1 1 auto;
+  height: 11px;
+  background: var(--bg-panel-alt, #e9dfc8);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.ml-bar {
+  height: 100%;
+  background: var(--text-dim);
+}
+/* Best on THIS metric, which need not be the top row - that divergence is the reason both charts
+   are drawn. */
+.ml-bar-best {
+  background: var(--accent);
+}
+/* A negative R2 means worse than predicting the mean. Drawn rather than clamped away, and marked,
+   because it is one of the few readings that condemns a model outright. */
+.ml-bar-neg {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--qc-alert) 0 4px,
+    color-mix(in srgb, var(--qc-alert) 60%, transparent) 4px 8px
+  );
+}
+.ml-bar-val {
+  flex: 0 0 62px;
+  text-align: right;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+/* --- Predicted vs measured, on held-out rows ----------------------------------- */
+.ml-xplot-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.ml-xplot-pick {
+  flex: 0 0 auto;
+  max-width: 300px;
+  margin-left: auto;
+}
+.ml-xplot-svg {
+  display: block;
+  max-width: 380px;
+  margin: 0 auto;
+}
+.ml-xp-frame {
+  fill: none;
+  stroke: var(--border);
+}
+/* The subject of the plot, not decoration: a score says how close the cloud is to this line, the
+   picture says HOW it misses. Dashed so points on top of it stay readable. */
+.ml-xp-unity {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.8;
+}
+.ml-xp-pt {
+  opacity: 0.62;
+}
+.ml-xp-axis {
+  font-family: var(--font-body);
+  font-size: 10px;
+  fill: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ml-xplot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: center;
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.ml-xplot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ml-xplot-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
 }
 /* Cross-model consensus reuses the importance row geometry on purpose: it answers the same shape of
    question one level up, and a second visual language for "which curve carries" would read as a

@@ -2847,6 +2847,23 @@ yt = y.astype(int) if clf else y
 labels = sorted(int(v) for v in np.unique(yt)) if clf else None
 scoring = "accuracy" if clf else "r2"
 
+# Rows carried back for the predicted-vs-actual crossplot. Every point is an OUT-OF-FOLD
+# prediction - made by a model that did not see that row - so the picture answers the same
+# question the score does. A crossplot of fitted values would look better and mean nothing.
+#
+# Sampled EVENLY over the pooled row order rather than taking the first N: the rows are ordered
+# well by well, so the first N would be one or two wells and the picture would describe them
+# instead of the field. This is also what keeps the payload a bounded diagnostic rather than the
+# curve data rule 3 is about - the cap is the reason it is not that.
+CROSSPLOT_MAX = 2000
+_step = max(1, int(np.ceil(n / float(CROSSPLOT_MAX))))
+XP = np.arange(0, n, _step)[:CROSSPLOT_MAX]
+
+def _finite(a):
+    # NaN is not valid JSON, and serde rejects what Python's json emits for it. A row no fold
+    # could predict comes back as null, which is the honest value: not zero, not omitted.
+    return [None if not np.isfinite(v) else round(float(v), 6) for v in a]
+
 rows = []
 for combo in combos:
     algo = combo["algorithm"]; fidx = combo["feat_idx"]
@@ -2902,9 +2919,15 @@ for combo in combos:
     rows.append({"algorithm": algo, "feat_idx": fidx, "score": score,
                  "score_std": float(np.std(fold_scores)), "metrics": metrics,
                  "importances": imp, "importances_std": imp_std,
-                 "n_imp_folds": int(len(fold_imps)), "confusion": conf, "labels": labs})
+                 "n_imp_folds": int(len(fold_imps)), "confusion": conf, "labels": labs,
+                 "blind_pred": _finite(oof[XP])})
 
+# The actual values and the well each sampled row came from are the SAME for every model, so they
+# ride once at the top rather than being repeated per row: fifteen copies of one column is fifteen
+# chances for a reader to wonder which is authoritative.
 out = {"rows": rows, "n_groups": ng, "n_splits": int(nsplits),
+       "blind_actual": _finite(y[XP]), "blind_group": [int(v) for v in groups[XP]],
+       "blind_sampled": int(len(XP)), "blind_total": int(n),
        "cv": "blind-well GroupKFold" if use_group else "random KFold"}
 sys.stdout.buffer.write((json.dumps(out) + "\n").encode("utf-8"))
 "#;
@@ -2977,6 +3000,13 @@ pub struct MlEvalRow {
     pub n_imp_folds: usize,
     pub confusion: Option<Vec<Vec<i64>>>,
     pub labels: Option<Vec<i64>>,
+    /// SB-MLA-027 — this model's OUT-OF-FOLD prediction for each sampled row, aligned position for
+    /// position with [`MlEvalResult::blind_actual`].
+    ///
+    /// Out-of-fold, so every point was predicted by a model that had not seen that row: the picture
+    /// answers the same question the score does. A crossplot of fitted values would look better and
+    /// say nothing. `None` where no fold could predict that row — never zero, which is a value.
+    pub blind_pred: Vec<Option<f64>>,
     pub error: Option<String>,
 }
 
@@ -2992,6 +3022,21 @@ pub struct MlEvalResult {
     /// requirement is that the leaderboard says so rather than presenting a mixed table cleanly —
     /// every other row is at library defaults, and a reader cannot tell by looking.
     pub params_for: Option<String>,
+    /// The measured value at each sampled row — the x-axis of every model's crossplot.
+    ///
+    /// Carried ONCE rather than per row because it is the same column for every model: fifteen
+    /// copies of one truth is fifteen chances for a reader to wonder which is authoritative, and
+    /// one place to get an alignment wrong instead of fifteen.
+    pub blind_actual: Vec<Option<f64>>,
+    /// Which well each sampled row came from, BY NAME. A crossplot coloured by well is how an
+    /// interpreter sees that a model is carried by two wells and fails on the third — the aggregate
+    /// R² above it cannot show that, and it is the reading that decides whether the curve ships.
+    pub blind_well: Vec<String>,
+    /// How many rows the picture is drawn from, and how many there were. Stated because the sample
+    /// is capped: a scatter that silently showed 2,000 of 60,000 points would read as all of them,
+    /// and density is the first thing anybody judges from a crossplot.
+    pub blind_sampled: usize,
+    pub blind_total: usize,
     pub error: Option<String>,
 }
 
@@ -3004,6 +3049,10 @@ fn eval_fail(msg: &str) -> MlEvalResult {
         n_splits: 0,
         note: None,
         params_for: None,
+        blind_actual: vec![],
+        blind_well: vec![],
+        blind_sampled: 0,
+        blind_total: 0,
         error: Some(msg.to_string()),
     }
 }
@@ -3045,8 +3094,13 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
     let mut x_train: Vec<f32> = Vec::new();
     let mut y_train: Vec<f32> = Vec::new();
     let mut groups: Vec<f32> = Vec::new();
+    // Names for the crossplot's per-point well label, taken here because this is where the
+    // connection is held. Index-aligned with `req.train_well_ids`, which is what the runner's
+    // `groups` column indexes into.
+    let train_names: Vec<String>;
     {
         let conn = db.lock().unwrap();
+        train_names = req.train_well_ids.iter().map(|id| well_name(&conn, id)).collect();
         let mut fetch_names = features.clone();
         fetch_names.push(target.clone());
         if let Some(mk) = &mask_curve {
@@ -3190,6 +3244,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                     n_imp_folds: r.n_imp_folds,
                     confusion: r.confusion,
                     labels: r.labels,
+                    blind_pred: r.blind_pred,
                     error: r.error,
                 })
                 .collect();
@@ -3200,7 +3255,27 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 (None, None) => std::cmp::Ordering::Equal,
             });
-            MlEvalResult { rows, n_train, n_groups: py.n_groups, cv: py.cv, n_splits: py.n_splits, note, params_for: req.params_for.clone(), error: None }
+            // A group index the runner reports but the caller's list does not cover would be a
+            // bug rather than a well, so it is named as unknown rather than silently indexed.
+            let blind_well: Vec<String> = py
+                .blind_group
+                .iter()
+                .map(|&g| train_names.get(g).cloned().unwrap_or_else(|| "?".to_string()))
+                .collect();
+            MlEvalResult {
+                rows,
+                n_train,
+                n_groups: py.n_groups,
+                cv: py.cv,
+                n_splits: py.n_splits,
+                note,
+                params_for: req.params_for.clone(),
+                blind_actual: py.blind_actual,
+                blind_well,
+                blind_sampled: py.blind_sampled,
+                blind_total: py.blind_total,
+                error: None,
+            }
         }
     }
 }
@@ -3226,6 +3301,8 @@ struct PyEvalRow {
     #[serde(default)]
     labels: Option<Vec<i64>>,
     #[serde(default)]
+    blind_pred: Vec<Option<f64>>,
+    #[serde(default)]
     error: Option<String>,
 }
 
@@ -3235,6 +3312,14 @@ pub(crate) struct PyEvalOut {
     n_groups: usize,
     n_splits: usize,
     cv: String,
+    #[serde(default)]
+    blind_actual: Vec<Option<f64>>,
+    #[serde(default)]
+    blind_group: Vec<usize>,
+    #[serde(default)]
+    blind_sampled: usize,
+    #[serde(default)]
+    blind_total: usize,
 }
 
 /// One python round-trip evaluating every combo. Returns parsed rows (feature INDICES; the caller
@@ -5482,6 +5567,34 @@ mod tests {
         assert!(lin.error.is_none(), "linear errored: {:?}", lin.error);
         assert!(lin.score.unwrap() > 0.999, "linear blind-well R2 = {:?}", lin.score);
         assert_eq!(lin.importances.len(), 1);
+
+        // The crossplot's alignment contract. `blind_actual[i]` and `blind_pred[i]` must be the same
+        // ROW, and `blind_group[i]` must be that row's well — a misalignment produces a scatter that
+        // looks entirely plausible and describes nothing, which nothing downstream could catch.
+        //
+        // Pinned on an EXACT relationship, so alignment and correctness are separable: y = 2x + 1
+        // means a correctly aligned linear prediction lands on its own actual to within rounding,
+        // while any shuffle of one array against the other scatters immediately. The runner rounds
+        // to six decimals for the wire, so the tolerance is about that and nothing else.
+        assert_eq!(
+            lin.blind_pred.len(),
+            out.blind_actual.len(),
+            "one prediction per sampled row, or the two arrays cannot be indexed together",
+        );
+        assert_eq!(out.blind_group.len(), out.blind_actual.len(), "one well per sampled row");
+        assert_eq!(out.blind_total, y.len(), "the total is the population, not the sample");
+        assert!(out.blind_sampled > 0 && out.blind_sampled <= out.blind_total);
+        let mut checked = 0;
+        for (i, (a, p)) in out.blind_actual.iter().zip(lin.blind_pred.iter()).enumerate() {
+            let (Some(a), Some(p)) = (a, p) else { continue };
+            assert!(
+                (a - p).abs() < 1e-3,
+                "row {i}: actual {a} against prediction {p} - the two arrays are not the same rows",
+            );
+            assert!(out.blind_group[i] < 3, "row {i} names well {} of 3", out.blind_group[i]);
+            checked += 1;
+        }
+        assert!(checked > 10, "only {checked} rows carried both an actual and a prediction");
     }
 
     #[test]

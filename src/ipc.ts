@@ -1357,6 +1357,12 @@ export interface MlEvalRow {
   n_imp_folds: number;
   confusion: number[][] | null;
   labels: number[] | null;
+  /** This model's OUT-OF-FOLD prediction per sampled row, aligned with `MlEvalResult.blind_actual`.
+   *
+   *  Out-of-fold, so every point was predicted by a model that had not seen that row — the crossplot
+   *  answers the same question the score does. A scatter of fitted values would look better and mean
+   *  nothing. `null` where no fold could predict that row; never 0, which is a value. */
+  blind_pred: (number | null)[];
   error: string | null;
 }
 
@@ -1369,6 +1375,16 @@ export interface MlEvalResult {
   note: string | null;
   /** Which row was scored with the settings on screen; every other row is at library defaults. */
   params_for: string | null;
+  /** The measured value at each sampled row — the x-axis every model's crossplot shares. Carried
+   *  once rather than per row: it is the same column for all of them. */
+  blind_actual: (number | null)[];
+  /** Which well each sampled row came from, by name. A crossplot coloured by well shows a model
+   *  carried by two wells and failing on the third, which the aggregate R² above it cannot. */
+  blind_well: string[];
+  /** Points drawn, and points there were. The sample is capped, and a scatter that silently showed
+   *  2,000 of 60,000 would read as all of them — density is the first thing anybody judges. */
+  blind_sampled: number;
+  blind_total: number;
   error: string | null;
 }
 
