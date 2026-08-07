@@ -600,10 +600,17 @@ the same method is implemented on both sides of it without anything asserting th
 
 ### 3.1b Disposition of the 15 still open (2026-08-07)
 
-Counted from the headings, not estimated: **51 `PRESENT-OK`, 1 `PRESENT-DIVERGENT`, 2 `PARTIAL`,
-11 `ABSENT`** of 65. This subsection says what the remaining fourteen actually are, because "ABSENT"
+Counted from the headings, not estimated: **52 `PRESENT-OK`, 1 `PRESENT-DIVERGENT`, 2 `PARTIAL`,
+10 `ABSENT`** of 65. This subsection says what the remaining thirteen actually are, because "ABSENT"
 covers three very different situations and treating them as one backlog would put seven items on a
 list that can never be worked.
+
+**A caution the -050 close earned.** Two of the statuses in this chapter turned out to be wrong in
+the *pessimistic* direction — -050 read "no feature-subset scoring exists" when two implementations
+were sitting in the tree, and -054 asked for a resampling record where nothing is resampled at all.
+An `ABSENT` that is really "present and unexamined" is the more expensive error, because it stops
+anyone looking. Where an item below is closed on a re-reading rather than on new code, that is said
+plainly rather than counted as work.
 
 **Seven cannot be built, and that is the final answer, not a deferral.** SB-MLA-037, -038, -039 and
 -040 (fuzzy combination, equal-population binning, the uncertainty band's edge behaviour, the
@@ -625,15 +632,15 @@ meaningless in a composite. The honest options are a scalar channel through the 
 (~40 call sites) or implementing it only on the ML path, which has `MlResult.notes`. Neither is a
 knowledge gap; both are scope.
 
-**Two are real work, ranked.** SB-MLA-050 (leave-one-out feature scoring must exclude the held-out
-frame) is a contained correctness fix and the recommended next increment. SB-MLA-031 (shipped vendor
-defaults surfaced at the point of choice) needs care rather than effort: SandiBumi cannot publish a
-competitor's defaults, so what it can surface is *that a default came from somewhere* and what that
-somewhere was, which is a narrower requirement than the one written.
+**One is real work.** SB-MLA-031 (shipped vendor defaults surfaced at the point of choice) needs care
+rather than effort: SandiBumi cannot publish a competitor's defaults, so what it can surface is
+*that a default came from somewhere* and what that somewhere was, which is a narrower requirement
+than the one written. It is the recommended next increment in this chapter.
 
-*(SB-MLA-033 was the third here and closed on 2026-08-07. Its residue is scope rather than
-knowledge: the fixed basis covers the ML path, and the native `facies.rs` engines still standardise
-from the samples in hand.)*
+*(SB-MLA-033 and SB-MLA-050 were the other two here, both closed 2026-08-07. -033 was new code and
+its residue is scope: the fixed basis covers the ML path, and the native `facies.rs` engines still
+standardise from the samples in hand. -050 was mostly a re-reading — the exclusion was already
+correct in both places and what was missing was the hard-fail fixture proving it stays that way.)*
 
 **Four are judgement calls awaiting Jauhar.** SB-MLA-025 (`PRESENT-DIVERGENT`) wants one
 within-cluster-sum-of-squares partition declared across three applications; the code has two
@@ -2358,7 +2365,7 @@ There is no KNN regression path and no distance weighting.
 
 **Verified by.** SB-MLA-T47, SB-MLA-T48. Escalation E-2.
 
-#### SB-MLA-050 — Feature scoring by leave-one-out excludes the held-out frame          [P2] [status: ABSENT]
+#### SB-MLA-050 — Feature scoring by leave-one-out excludes the held-out frame          [P2] [status: PRESENT-OK]
 
 **Requirement.** A leave-one-out feature-subset score MUST exclude the held-out frame from its own
 neighbour search. A scoring run whose `k = 1` error is exactly zero on the training set MUST fail.
@@ -2368,7 +2375,33 @@ without the exclusion, `k = 1` reconstructs the training data with zero error an
 subset scores perfectly. It is the rare vendor page that documents its own failure mode, and the
 fixture it implies is a hard-fail test rather than a tolerance check.
 
-**As-built.** `ABSENT` — no feature-subset scoring exists.
+**As-built.** ~~`ABSENT`~~ → **`PRESENT-OK` (closed 2026-08-07).** The earlier note read "no
+feature-subset scoring exists", which was wrong on both halves — and being wrong in that direction is
+the worse way to be wrong, because it left a real neighbour search unexamined.
+
+**What exists, precisely.** SandiBumi has feature-subset scoring in the leaderboard
+(`MlEvalRequest::subsets`, scoring algorithm × subset combos, `knn` among the algorithms), and it has
+a leave-one-out neighbour search in `modules::log_predict` — the Facimage-style synthetic log. Both
+already excluded correctly: the leaderboard holds out **whole wells** via `GroupKFold`, so a
+held-out row is never in the fold that fits, and `log_predict` skips `*ti == i`. What did NOT exist
+was the thing this requirement actually asks for — **the hard-fail fixture**. The exclusion in
+`log_predict` was one `continue` that no test touched, exactly the sort of line a later reader
+deletes as redundant.
+
+`a_k1_neighbour_search_that_reproduces_its_training_data_exactly_is_a_failure` is that fixture, and
+it was verified by breaking the code rather than by passing: with the `continue` disabled it fails
+with **60 of 60 samples reproduced exactly**. That is what makes it a hard fail rather than a
+tolerance check — the failure is not approximate and it does not look like a failure. It looks like
+a perfect model, and it would silently defeat the MAX_RAW washout rule the module exists for, since
+a synthetic RHOB that self-matches simply echoes the washed-out log it was meant to replace. Pinned
+from both sides: a test asserting only "the error is non-zero" passes on a predictor returning
+garbage, so the synthetic must also track the target it was fitted on.
+
+**What SandiBumi does not have, stated so this `PRESENT-OK` is not read as more than it is:** a
+dedicated Facimage-style scorer that ranks feature subsets *by* leave-one-out neighbour error. Its
+subset ranking is cross-validated by well, which answers a stronger question than LOO does on log
+data — adjacent depths are near-duplicates, so leaving out one sample leaves its neighbour behind
+and the score comes back optimistic anyway. That is a capability difference, not an unmet obligation.
 
 **Correction, 2026-08-07.** This note previously read that the leaderboard's permutation importance
 "answers a different question and is correctly cross-validated at the group level". The first half

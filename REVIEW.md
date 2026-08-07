@@ -9539,3 +9539,24 @@ that is the unit any threshold you carried over is already in.
       whole point of the feature.
 - [ ] **Apply a saved fixed-limits model to a new well.** It must use the same limits it was fitted
       with, not recompute anything.
+
+## The synthetic log cannot cheat by copying itself (2026-08-07)
+
+Nothing to click for this one — it is a guard, and the reason it is worth knowing about is that the
+failure it prevents looks like success.
+
+**Synthetic Log (KNN Predict)** works by finding, for each depth, the most similar depths elsewhere
+in the well and averaging what the target curve reads there. If it were allowed to count a sample as
+its own neighbour, then at K = 1 the closest match to any depth would be that depth itself, at
+distance zero — so the synthetic would reproduce the raw curve **exactly**, every time. The error
+would be zero, any set of predictors would look perfect, and a synthetic RHOB would simply echo the
+washed-out log it was there to replace, quietly defeating MAX_RAW.
+
+The guard has always been there. What was missing was anything to keep it there: it is one line, of
+the kind a later reader removes as redundant. There is now a test that fails loudly without it — I
+checked by disabling the line, and it reports **60 of 60 samples reproduced exactly** rather than
+drifting slightly off.
+
+- [ ] **If you use Synthetic Log with MAX_RAW on a washed-out RHOB**, sanity-check the result against
+      a good-hole interval: the synthetic should differ from the raw curve everywhere, not track it.
+      If it ever looks identical to the input, that is the failure above and worth telling me about.
