@@ -2221,16 +2221,36 @@ tools here should be universal for all logs"._
   prefix** (`OUT_PREFIX_OPT`) so a trial lands as `TEST_VSH` beside the live interpretation —
   handled once in the runner, and **Monte Carlo refuses a prefixed step by name** because its plan
   builder resolves cutoffs from declared LogOut names.
-- **Frame ◐ (2026-08-05, partial)** — SHIPPED: `frame::block` (four bed definitions) and
-  `frame::bed_detect`, both registered in `modules.rs`. Coarsening is a box average, never an
-  interpolation; a blocked curve is written `draw_style: "step"`. Reverse/Sort belong in Intake, not
-  here. **NOT shipped, and this bullet claimed otherwise until 2026-08-07: `resample`, `regularize`,
-  `align_multiwell`.** Resampling exists, but as `reframe::resample_onto` inside the **Reframe** tool
-  — a different thing from a Frame module: you point Reframe at a log set, where a module is
-  chainable, zone-overridable and mask-aware. `regularize` and `align_multiwell` are not implemented
-  anywhere. The line was written when Frame was SCOPED and carried a ✅ from the day it was planned,
-  which is how a plan becomes a false claim: nothing was edited, only the checkbox. Decide whether
-  the two open ones are still wanted before writing them back in.
+- **Frame ✅ (2026-08-05)** — `frame::block` (four bed definitions) and `frame::bed_detect`, both
+  registered in `modules.rs`. Coarsening is a box average, never an interpolation; a blocked curve is
+  written `draw_style: "step"`. Reverse/Sort belong in Intake, not here. **Frame is TWO modules and
+  that is now deliberate** — this bullet listed `resample`, `regularize` and `align_multiwell` under
+  a ✅ from the day they were SCOPED until 2026-08-07, which is how a plan becomes a false claim:
+  nothing gets edited, only the checkbox. They were never Frame modules and cannot be, because **a
+  module returns a vector aligned to its input frame and so cannot change the sampling at all** —
+  `block` upscales by replacing values at the well's own depths, which is why it needs `draw_style:
+  "step"`. Changing a frame is Reframe's job (Jauhar's own redirect, 2026-08-05: *"resample and
+  regularize, log cons/set should be have independent sampling"*), and all three live there. → next
+  bullet.
+- **Reframe: regularize + align ✅ (2026-08-07)** — the two that were listed-but-missing, built where
+  the frame can actually change. **`kind: "regularize"`** takes the source's OWN median spacing when
+  no step is given: the operation is "make this uniform", not "make this coarser", and re-typing the
+  number off the probe is only a chance to get it wrong. **`TargetSpec.align`** puts every well of a
+  run on ONE frame — same top, base and step. That closed a real defect, not just a gap: the `step`
+  target anchored each well on its own first depth (`target.top.unwrap_or(src_top)`), so ten wells
+  re-framed at 0.5 shared a STEP and not a single DEPTH (1500.00, 1500.50… against 1498.25,
+  1498.75…). Every read here is an exact depth match, so nothing downstream could line those wells
+  up — **the failure Reframe exists to fix, reappearing one level up**. `match_well`/`match_set`
+  never had it, because the file already reasoned that a borrowed frame is taken WHOLE so "two wells
+  come out on the same rows"; `align` gives a computed frame the same guarantee, and depths a well
+  has no data for come back MISSING for the same stated reason. **Regularize + align without an
+  explicit step is REFUSED by name** — each well has its own spacing and adopting one would silently
+  make that well the standard for the field. The shared interval comes from a MIN/MAX depth query
+  (`source_extent`), not from reading every well's curves, so the per-well pass still reads each
+  source exactly once. Pinned by `aligned_wells_land_on_identical_depths_not_merely_the_same_step`
+  (which asserts from both sides — unaligned wells must share NO depth, or the flag is inert),
+  `regularize_adopts_the_sources_own_spacing_when_no_step_is_given`, and
+  `regularize_across_wells_refuses_rather_than_electing_one_wells_spacing`.
 - **Statistics ✅ (2026-08-05)** — Curve Summary, Pair Summary, Fit (1..n predictors + blind-well CV, saveable as an
   `ml_models` artifact), Versus (two log SETS — the first consumer of log-set provenance) and
   Thickness. Thickness is its own tool on Jauhar's call (*"we talk about thickness not only in pay

@@ -106,12 +106,28 @@ pub struct SourceSpec {
 /// The frame to land on.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TargetSpec {
-    /// `"step"` (a uniform sampling), `"match_well"` (another well's standard grid) or
-    /// `"match_set"` (another set's frame, in the same well).
+    /// `"step"` (a uniform sampling), `"regularize"` (the source's OWN spacing, made uniform),
+    /// `"match_well"` (another well's standard grid) or `"match_set"` (another set's frame, in the
+    /// same well).
     pub kind: String,
-    /// Uniform sampling in the project's depth unit.
+    /// Uniform sampling in the project's depth unit. Optional for `regularize`, which falls back to
+    /// the source's median spacing.
     #[serde(default)]
     pub step: Option<f64>,
+    /// Put every well of the run on ONE frame — the same top, base and step — instead of anchoring
+    /// each on its own source top.
+    ///
+    /// Without this, a `step` target gives each well a grid anchored on that well's own first
+    /// depth, so ten wells re-framed at 0.5 come out sharing a STEP but not a single DEPTH
+    /// (1500.00, 1500.50 … against 1498.25, 1498.75 …). Every read in this app is an exact depth
+    /// match, so nothing downstream can line those wells up — which is the failure Reframe exists
+    /// to fix, reappearing one level up. `match_well`/`match_set` never had the problem because a
+    /// borrowed frame is taken whole; this gives the same guarantee to a frame we compute.
+    ///
+    /// Depths a given well has no data for come back MISSING, deliberately — the same answer, and
+    /// for the same reason, as a borrowed frame that overhangs the source.
+    #[serde(default)]
+    pub align: bool,
     /// Well whose frame to copy, for `match_well`.
     #[serde(default)]
     pub well_id: Option<String>,
@@ -436,7 +452,15 @@ fn nearest_at(depth: &[f32], vals: &[f32], target: f64) -> f32 {
 }
 
 /// Builds the output depth column.
-fn build_frame(target: &TargetSpec, src_depth: &[f32], conn: &Connection, well_id: &str) -> Result<Vec<f32>, String> {
+/// `shared` is the run-wide interval computed by [`shared_extent`] when the target asks to align.
+/// It overrides the source's own extent so every well of the run lands on identical depths.
+fn build_frame(
+    target: &TargetSpec,
+    src_depth: &[f32],
+    conn: &Connection,
+    well_id: &str,
+    shared: Option<(f64, f64)>,
+) -> Result<Vec<f32>, String> {
     let live: Vec<f64> = src_depth.iter().filter(|d| d.is_finite()).map(|d| *d as f64).collect();
     if live.is_empty() {
         return Err("the source has no depths to re-frame".into());
@@ -470,12 +494,31 @@ fn build_frame(target: &TargetSpec, src_depth: &[f32], conn: &Connection, well_i
             Ok(borrowed.into_iter().filter(|d| (*d as f64) >= top && (*d as f64) <= base).collect())
         }
         _ => {
-            let step = target.step.filter(|s| *s > 0.0).ok_or(
-                "set the sampling to re-frame onto — there is no generic value for it, and a \
-                 wrong one is invisible once the curve is written",
-            )?;
-            let top = target.top.unwrap_or(src_top);
-            let base = target.base.unwrap_or(src_base);
+            // REGULARIZE is the same frame builder with the step supplied by the source instead of
+            // by the user: the point is to make an irregular sampling uniform WITHOUT changing how
+            // finely it was logged, so re-typing the number off the probe would only be a chance to
+            // get it wrong. An explicit step still wins — regularize-and-coarsen is one operation.
+            let step = match target.step.filter(|s| *s > 0.0) {
+                Some(s) => s,
+                None if target.kind == "regularize" => {
+                    let s = median_step(src_depth);
+                    if !(s > 0.0) {
+                        return Err("this source has no usable spacing to regularize onto — its \
+                                    depths do not advance"
+                            .into());
+                    }
+                    s
+                }
+                None => {
+                    return Err("set the sampling to re-frame onto — there is no generic value for \
+                                it, and a wrong one is invisible once the curve is written"
+                        .into())
+                }
+            };
+            let (top, base) = match shared {
+                Some(iv) => iv,
+                None => (target.top.unwrap_or(src_top), target.base.unwrap_or(src_base)),
+            };
             if !(base > top) {
                 return Err("the interval's base must be below its top".into());
             }
@@ -656,15 +699,118 @@ fn read_source(
 // The run
 // ---------------------------------------------------------------------------
 
-pub fn run_reframe(conn: &Connection, req: &ReframeRequest) -> Vec<ReframeResult> {
-    req.well_ids.iter().map(|w| one_well(conn, w, req)).collect()
+/// Depth extent of a source, without reading a single value.
+///
+/// The aligned frame has to span every well of the run, which is known only after looking at all of
+/// them — and holding a whole field's curve data in memory to learn two numbers per well is not a
+/// trade worth making. This asks the database for the extent instead, so the per-well pass below
+/// still reads each source exactly once.
+///
+/// The extent covers the source's WHOLE depth range rather than only the curves asked for. That is
+/// deliberate: a superset frame costs some rows that come back MISSING, and MISSING is already the
+/// documented answer for a frame that overhangs its source. A frame clipped per curve would put the
+/// wells back on different rows, which is the entire thing this is here to prevent.
+fn source_extent(conn: &Connection, well_id: &str, source: &SourceSpec) -> Result<(f64, f64), String> {
+    let row: Option<(Option<f64>, Option<f64>)> = match source.kind.as_str() {
+        "import" => {
+            let set = source.name.as_deref().unwrap_or("RAW");
+            conn.query_row(
+                "SELECT MIN(s.depth), MAX(s.depth) FROM curve_samples s
+                 JOIN curve_meta m ON m.curve_id = s.curve_id
+                 WHERE m.well_id = ?1 AND upper(m.set_name) = upper(?2)",
+                params![well_id, set],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok()
+        }
+        "logset" => {
+            let set = source.name.as_deref().ok_or("pick the log set to re-frame")?;
+            let set_id: String = conn
+                .query_row(
+                    "SELECT set_id FROM log_sets WHERE well_id = ?1 AND upper(set_name) = upper(?2)
+                     ORDER BY version DESC LIMIT 1",
+                    params![well_id, set],
+                    |r| r.get(0),
+                )
+                .map_err(|_| format!("no log set '{set}' on this well"))?;
+            conn.query_row(
+                "SELECT MIN(depth), MAX(depth) FROM computed_curves_archive WHERE set_id = ?1",
+                params![set_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok()
+        }
+        _ => conn
+            .query_row(
+                "SELECT MIN(depth), MAX(depth) FROM standard_curves WHERE well_id = ?1",
+                params![well_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok(),
+    };
+    match row {
+        Some((Some(t), Some(b))) if b >= t => Ok((t, b)),
+        _ => Err("that source has no depths on this well".into()),
+    }
 }
 
-fn one_well(conn: &Connection, well_id: &str, req: &ReframeRequest) -> ReframeResult {
+/// The interval every well of an aligned run shares: shallowest top to deepest base.
+///
+/// Wells whose source cannot be read are simply not represented here — they fail on their own in
+/// the pass below, with their own message, and letting one unreadable well collapse the frame for
+/// the rest would turn a single bad well into a failed batch.
+fn shared_extent(conn: &Connection, req: &ReframeRequest) -> Option<(f64, f64)> {
+    let mut acc: Option<(f64, f64)> = None;
+    for w in &req.well_ids {
+        if let Ok((t, b)) = source_extent(conn, w, &req.source) {
+            acc = Some(match acc {
+                Some((at, ab)) => (at.min(t), ab.max(b)),
+                None => (t, b),
+            });
+        }
+    }
+    acc
+}
+
+pub fn run_reframe(conn: &Connection, req: &ReframeRequest) -> Vec<ReframeResult> {
+    let computed = matches!(req.target.kind.as_str(), "step" | "regularize");
+
+    // A borrowed frame (match_well / match_set) is already identical across wells by construction,
+    // so aligning one is not an error, just nothing to do.
+    if req.target.align && !computed {
+        return req.well_ids.iter().map(|w| one_well(conn, w, req, None)).collect();
+    }
+
+    // REGULARIZE takes its step from the source, and across wells there is no single source to take
+    // it from. Picking one well's spacing for the whole field would be a silent decision about
+    // which well is representative, so it is refused by name and the user states the step.
+    if req.target.align && req.target.kind == "regularize" && !req.target.step.is_some_and(|s| s > 0.0) {
+        return req
+            .well_ids
+            .iter()
+            .map(|w| {
+                let mut r = one_well_shell(conn, w);
+                r.error = Some(
+                    "regularizing several wells onto one frame needs the sampling stated: each \
+                     well has its own spacing, and adopting one of them would silently make that \
+                     well the standard for the field. Give a step, or regularize one well at a time."
+                        .into(),
+                );
+                r
+            })
+            .collect();
+    }
+
+    let shared = if req.target.align { shared_extent(conn, req) } else { None };
+    req.well_ids.iter().map(|w| one_well(conn, w, req, shared)).collect()
+}
+
+/// An empty result carrying only the well's identity — the shape every early refusal returns.
+fn one_well_shell(conn: &Connection, well_id: &str) -> ReframeResult {
     let well_name: String = conn
         .query_row("SELECT well_name FROM wells WHERE well_id = ?1", params![well_id], |r| r.get(0))
         .unwrap_or_else(|_| well_id.to_string());
-    let mut res = ReframeResult {
+    ReframeResult {
         well_id: well_id.to_string(),
         well_name,
         source_step: f64::NAN,
@@ -676,7 +822,16 @@ fn one_well(conn: &Connection, well_id: &str, req: &ReframeRequest) -> ReframeRe
         version: None,
         notes: vec![],
         error: None,
-    };
+    }
+}
+
+fn one_well(
+    conn: &Connection,
+    well_id: &str,
+    req: &ReframeRequest,
+    shared: Option<(f64, f64)>,
+) -> ReframeResult {
+    let mut res = one_well_shell(conn, well_id);
 
     let (src_depth, cols) = match read_source(conn, well_id, &req.source, &req.curves) {
         Ok(v) => v,
@@ -685,7 +840,7 @@ fn one_well(conn: &Connection, well_id: &str, req: &ReframeRequest) -> ReframeRe
             return res;
         }
     };
-    let out_depth = match build_frame(&req.target, &src_depth, conn, well_id) {
+    let out_depth = match build_frame(&req.target, &src_depth, conn, well_id, shared) {
         Ok(v) => v,
         Err(e) => {
             res.error = Some(e);
@@ -701,6 +856,17 @@ fn one_well(conn: &Connection, well_id: &str, req: &ReframeRequest) -> ReframeRe
     res.depth_top = out_depth.first().copied().unwrap_or(f32::NAN) as f64;
     res.depth_base = out_depth.last().copied().unwrap_or(f32::NAN) as f64;
     res.rows = out_depth.len();
+
+    if shared.is_some() {
+        // Said per well and not once for the run, because this is the number that explains a well
+        // whose output starts above its own first reading — the rows are there so the field lines
+        // up, and they are MISSING rather than wrong.
+        res.notes.push(format!(
+            "Aligned: every well in this run is on one frame, {:.4}–{:.4} at {:.4}. Depths outside \
+             this well's own logged interval are MISSING.",
+            res.depth_top, res.depth_base, res.target_step
+        ));
+    }
 
     // Upsampling a curve by box average would leave most output samples empty, so the method has
     // to change with the direction — and saying so beats returning a curve full of holes.
@@ -988,6 +1154,7 @@ mod tests {
             target: TargetSpec {
                 kind: "step".into(),
                 step: Some(0.5),
+                align: false,
                 well_id: None,
                 set_name: None,
                 top: None,
@@ -1041,5 +1208,117 @@ mod tests {
         let mean: f64 = (d.last().unwrap() - d.first().unwrap()) as f64 / (d.len() - 1) as f64;
         assert!((median - 0.1524).abs() < 1e-4, "the median is unmoved: {median}");
         assert!(mean > 0.20, "while the mean has become a number nobody logged at: {mean}");
+    }
+
+    fn step_target(kind: &str, step: Option<f64>, align: bool) -> TargetSpec {
+        TargetSpec {
+            kind: kind.into(),
+            step,
+            align,
+            well_id: None,
+            set_name: None,
+            top: None,
+            base: None,
+        }
+    }
+
+    /// **Aligned wells come out on the SAME depths, not merely the same step.**
+    ///
+    /// Two wells spudded at different depths, re-framed at one sampling. Anchored on their own
+    /// source tops they share a step and no depth at all, and since every read in this app is an
+    /// exact depth match, nothing downstream can put them side by side — the failure Reframe was
+    /// built to fix, one level up. Pinned from BOTH sides: aligned must be identical, and unaligned
+    /// must NOT be, or the test would pass on a build where the flag does nothing.
+    #[test]
+    fn aligned_wells_land_on_identical_depths_not_merely_the_same_step() {
+        let conn = Connection::open_in_memory().unwrap();
+        let a = ramp(100, 0.1, 1500.00);
+        let b = ramp(100, 0.1, 1498.25);
+
+        let shared = Some((1498.25, 1510.00));
+        let fa = build_frame(&step_target("step", Some(0.5), true), &a, &conn, "A", shared).unwrap();
+        let fb = build_frame(&step_target("step", Some(0.5), true), &b, &conn, "B", shared).unwrap();
+        assert_eq!(fa, fb, "aligned wells must land on one frame, sample for sample");
+
+        // The control. Without the shared interval each well anchors on its own first depth, so the
+        // two frames share a spacing and not a single depth — which is precisely the bug.
+        let ua = build_frame(&step_target("step", Some(0.5), false), &a, &conn, "A", None).unwrap();
+        let ub = build_frame(&step_target("step", Some(0.5), false), &b, &conn, "B", None).unwrap();
+        assert_ne!(ua, ub, "unaligned wells anchor on their own tops - if these match, align is inert");
+        assert!(
+            !ua.iter().any(|d| ub.contains(d)),
+            "and they overlap at NO depth, which is why an exact-match read finds nothing: {:?} vs {:?}",
+            &ua[..3],
+            &ub[..3]
+        );
+    }
+
+    /// **Regularize takes the source's own spacing, and does not quietly change how finely it was
+    /// logged.** The operation is "make this uniform", not "make this coarser" — a user who wanted
+    /// coarser would say so. Re-typing the number off the probe is the only alternative, and it is
+    /// a chance to get it wrong that buys nothing.
+    #[test]
+    fn regularize_adopts_the_sources_own_spacing_when_no_step_is_given() {
+        let conn = Connection::open_in_memory().unwrap();
+        // An irregular source: mostly 0.1524 with two gaps, so the MEDIAN is the logged sampling
+        // while the mean is a number nobody logged at.
+        let mut d: Vec<f32> = ramp(40, 0.1524, 2000.0);
+        d.extend(ramp(40, 0.1524, 2020.0));
+        d.extend(ramp(40, 0.1524, 2050.0));
+
+        let f = build_frame(&step_target("regularize", None, false), &d, &conn, "A", None).unwrap();
+        let got = median_step(&f);
+        assert!(
+            (got - 0.1524).abs() < 1e-4,
+            "regularize should land on the logged sampling, got {got}"
+        );
+        // And it is genuinely uniform now, which the source was not.
+        let spans: Vec<f64> = f.windows(2).map(|w| (w[1] - w[0]) as f64).collect();
+        assert!(
+            spans.iter().all(|s| (s - got).abs() < 1e-3),
+            "every gap is now the same; the whole point of regularizing"
+        );
+        assert!(
+            d.windows(2).any(|w| ((w[1] - w[0]) as f64 - 0.1524).abs() > 1.0),
+            "the fixture really was irregular, or this test proves nothing"
+        );
+    }
+
+    /// **Regularizing several wells onto one frame is REFUSED rather than electing a well.**
+    ///
+    /// Regularize gets its step from the source; align needs one step for the whole run. Resolving
+    /// that by taking some well's spacing would silently make that well the standard for the field,
+    /// and the output would look entirely normal either way. The user states the step instead.
+    #[test]
+    fn regularize_across_wells_refuses_rather_than_electing_one_wells_spacing() {
+        let conn = Connection::open_in_memory().unwrap();
+        let req = ReframeRequest {
+            well_ids: vec!["A".into(), "B".into()],
+            source: SourceSpec { kind: "standard".into(), name: None },
+            curves: vec![],
+            target: step_target("regularize", None, true),
+            methods: Default::default(),
+            default_method: Method::default(),
+            output_set: "R".into(),
+            preview: true,
+        };
+        let out = run_reframe(&conn, &req);
+        assert_eq!(out.len(), 2, "every well still gets a row saying why");
+        for r in &out {
+            let msg = r.error.as_deref().unwrap_or("");
+            assert!(msg.contains("sampling stated"), "refused by name, got {msg:?}");
+        }
+
+        // The control: state the step and the same request is accepted, so the refusal is about the
+        // missing number and not about aligning at all.
+        let mut ok = req;
+        ok.target.step = Some(0.5);
+        let out = run_reframe(&conn, &ok);
+        assert!(
+            out.iter().all(|r| r.error.as_deref().unwrap_or("") != {
+                "regularizing several wells onto one frame needs the sampling stated"
+            }),
+            "with a step given, the sampling refusal is gone"
+        );
     }
 }

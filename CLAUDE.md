@@ -785,6 +785,17 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
   returns its DECLARED key**, never a name it built itself.
 - **Reframe writes to the ARCHIVE only.** The ordinary write path DELETEs a curve's rows first, so a
   re-frame through it would blank the readable interpretation and report success doing it.
+- **Changing a frame is Reframe's job and cannot be a module.** A module returns a vector aligned to
+  its input frame, so it cannot change the sample count at all — `frame::block` upscales by replacing
+  values at the well's own depths, which is why it needs `draw_style: "step"`. `resample`,
+  `regularize` and `align` live in `reframe.rs` for that reason, not as Frame modules.
+- **A shared step is not a shared frame.** `TargetSpec.align` puts every well of a run on ONE top,
+  base and step; without it each well anchors on its own first depth, so wells re-framed at the same
+  step land on depths that never coincide — and every read here is an exact depth match. Depths a
+  well has no data for come back MISSING, the same rule a borrowed `match_well` frame follows.
+- **Regularize takes the source's OWN median spacing when no step is given** — the operation is "make
+  this uniform", not "make this coarser". Combined with `align` across wells it REFUSES instead,
+  because electing one well's spacing would silently make that well the standard for the field.
 - **LONG / WIDE / BLOCK is declared, never sniffed.** A depth is the number that carries a UNIT, and
   a label line is rejoined with the file's own DELIMITER — joined with a space, `4640,0 ft` becomes
   a depth of zero.
