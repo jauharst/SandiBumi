@@ -2144,7 +2144,7 @@ is invisible, and this is the one SOM quantity IP prints with a primary citation
 
 **Verified by.** SB-MLA-T46
 
-#### SB-MLA-043 — The cluster randomness index ships          [P2] [status: ABSENT]
+#### SB-MLA-043 — The cluster randomness index ships          [P2] [status: PRESENT-OK]
 
 **Requirement.** SandiBumi MUST provide a stratigraphic cluster-quality index measuring vertical
 bed coherence, computed as the ratio of mean cluster-layer thickness to the thickness expected
@@ -2159,7 +2159,11 @@ something silhouette structurally cannot: silhouette is computed with no knowled
 are ordered in depth. A `K` that is good on both criteria is a genuinely different claim from a `K`
 that is good on either. This is the cheapest genuine capability gain in the chapter.
 
-**As-built.** `ABSENT` — no implementation anywhere in the tree.
+**As-built.** `PRESENT-OK` (2026-08-07) — `facies.rs::cluster_randomness_index`, emitted as `FACIES_CRI`. Per cluster, carried at each sample as ITS cluster's index, so it is not a constant curve dressed up as a log: each class really does have its own bed coherence, and the useful reading — "the facies here forms beds N times thicker than chance" — is a statement about this depth.
+
+**It answers the question the silhouette structurally cannot.** A silhouette is geometric and blind to depth: shuffle a facies log sample by sample and it does not move at all, while the log stops being a geological description. Under a random arrangement the runs of a class with proportion `p` are geometric with mean length `1/(1-p)`, so the index is `observed_mean_run * (1 - p)`; 1.0 is indistinguishable from random, above 1 is coherent bedding, below 1 means the clustering is chasing sample-to-sample noise. A depth gap BREAKS a run rather than being spanned, or two beds either side of a washout are counted as one thick one.
+
+**Verified by.** `a_facies_scheme_says_whether_its_beds_are_thicker_than_chance` — including the anchor itself: a genuinely random arrangement must come back at about 1.0, which validates the normalisation rather than only the plumbing, and is what makes the number readable without a calibration table.
 
 **Verified by.** SB-MLA-T41, SB-MLA-T42
 

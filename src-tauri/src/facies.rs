@@ -91,6 +91,12 @@ pub fn electrofacies_spec() -> ModuleSpec {
                  sits closer to another cluster than its own",
                 "",
             ),
+            log_out(
+                "FACIES_CRI",
+                "Cluster randomness index of the facies at this depth: 1.0 is indistinguishable from \
+                 a random arrangement, 3.0 means its beds are three times thicker than chance",
+                "",
+            ),
         ],
     }
 }
@@ -302,6 +308,55 @@ pub(crate) fn silhouette_per_sample(pts: &[Vec<f64>], labels: &[usize], k: usize
     out
 }
 
+/// Cluster randomness index, per cluster (SB-MLA-043).
+///
+/// **Is this facies scheme stratigraphy, or is it noise with class codes on it?** The silhouette
+/// answers a geometric question — are the clusters apart in curve space — and is completely blind to
+/// depth: shuffle a facies log sample by sample and its silhouette does not move at all, while the
+/// log stops being a geological description. This is the missing half.
+///
+/// For each cluster, the ratio of its observed mean layer thickness to the thickness expected if the
+/// same samples were arranged at random. Under a random arrangement the runs of a class with
+/// proportion `p` are geometric with mean length `1/(1-p)` samples, so the index is
+/// `observed_mean_run * (1 - p)`.
+///
+/// **1.0 means indistinguishable from random.** Above 1 the class forms coherent beds — 3.0 says its
+/// layers are three times thicker than chance would give. Below 1 it is interleaved more finely than
+/// random, which usually means the clustering is chasing sample-to-sample noise.
+///
+/// Measured in SAMPLES, and the value is a ratio, so a uniformly sampled well needs no depth
+/// conversion — but a gap breaks a run rather than being spanned, or two beds either side of a
+/// washout would be counted as one thick one.
+pub(crate) fn cluster_randomness_index(labels: &[usize], idx: &[usize], k: usize) -> Vec<f64> {
+    let n = labels.len();
+    let mut runs = vec![0usize; k];
+    let mut counts = vec![0usize; k];
+    for s in 0..n {
+        counts[labels[s]] += 1;
+        // A new run starts at the first sample, after a label change, or across a depth gap — the
+        // samples here are the COMPLETE ones, so a skipped depth means missing data between them.
+        let starts = s == 0 || labels[s - 1] != labels[s] || idx[s] != idx[s - 1] + 1;
+        if starts {
+            runs[labels[s]] += 1;
+        }
+    }
+    (0..k)
+        .map(|c| {
+            if counts[c] == 0 || runs[c] == 0 || n == 0 {
+                return f64::NAN;
+            }
+            let p = counts[c] as f64 / n as f64;
+            let observed = counts[c] as f64 / runs[c] as f64;
+            // p == 1 is one class over the whole well: there is no random arrangement to compare
+            // against, because every arrangement is the same one.
+            if p >= 1.0 {
+                return f64::NAN;
+            }
+            observed * (1.0 - p)
+        })
+        .collect()
+}
+
 pub fn electrofacies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let n = ctx.n;
     let mut out = vec![f32::NAN; n];
@@ -331,11 +386,21 @@ pub fn electrofacies(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     // choice of engine silently changed how much a user could tell about the answer.
     let sil = silhouette_per_sample(&pts, &best_labels, k, seed);
     let mut sil_out = vec![f32::NAN; n];
+    // SB-MLA-043, carried per sample as ITS CLUSTER'S index. Not a constant curve dressed up as a
+    // log: each class really does have its own bed coherence, and the useful reading is "the facies
+    // at this depth forms beds N times thicker than chance", which is a statement about this depth.
+    let cri = cluster_randomness_index(&best_labels, &idx, k);
+    let mut cri_out = vec![f32::NAN; n];
     for (s, &i) in idx.iter().enumerate() {
         sil_out[i] = sil[s];
+        cri_out[i] = cri[best_labels[s]] as f32;
     }
 
-    Ok(HashMap::from([("FACIES".to_string(), out), ("FACIES_SIL".to_string(), sil_out)]))
+    Ok(HashMap::from([
+        ("FACIES".to_string(), out),
+        ("FACIES_SIL".to_string(), sil_out),
+        ("FACIES_CRI".to_string(), cri_out),
+    ]))
 }
 
 pub fn gmm_facies_spec() -> ModuleSpec {
@@ -762,6 +827,60 @@ mod tests {
             mislabelled.iter().any(|s| *s < 0.0),
             "a deliberately wrong labelling must produce negative silhouettes, got {mislabelled:?}"
         );
+    }
+
+    /// **SB-MLA-043 — is this facies scheme stratigraphy, or noise with class codes on it?**
+    ///
+    /// The silhouette cannot answer that. It is a geometric statistic and it is completely blind to
+    /// depth: shuffle a facies log sample by sample and the silhouette does not move at all, while
+    /// the log stops being a geological description. So the two measures are pinned against exactly
+    /// that — the SAME samples in a blocky order and in a scrambled one.
+    ///
+    /// 1.0 is the anchor and it is not arbitrary: it is what a random arrangement of the same class
+    /// proportions produces by construction, which is what makes the number readable without a
+    /// calibration table.
+    #[test]
+    fn a_facies_scheme_says_whether_its_beds_are_thicker_than_chance() {
+        // Same class proportions, same counts, two orders.
+        let blocky: Vec<usize> = (0..12).flat_map(|i| std::iter::repeat(i % 2).take(10)).collect();
+        let mut scrambled = Vec::new();
+        for i in 0..120 {
+            scrambled.push(i % 2); // strictly alternating: the least bedded arrangement there is
+        }
+        let idx: Vec<usize> = (0..120).collect();
+
+        let b = cluster_randomness_index(&blocky, &idx, 2);
+        let s = cluster_randomness_index(&scrambled, &idx, 2);
+        assert!(b[0] > 4.0, "ten-sample beds must read as far thicker than chance, got {b:?}");
+        assert!(
+            s[0] < 1.0,
+            "a strictly alternating log is finer than random and must read below 1.0, got {s:?}"
+        );
+
+        // The anchor itself. A genuinely random arrangement must sit near 1.0, or the number cannot
+        // be read without a lookup table — which is the entire point of normalising by chance.
+        let mut rng = Rng::new(20260807);
+        let random: Vec<usize> = (0..4000).map(|_| (rng.next_u64() % 2) as usize).collect();
+        let r = cluster_randomness_index(&random, &(0..4000).collect::<Vec<_>>(), 2);
+        assert!((r[0] - 1.0).abs() < 0.15, "a random arrangement must sit at about 1.0, got {r:?}");
+
+        // A gap must BREAK a run, or two beds either side of a washout count as one thick bed and
+        // the index reports coherence the well does not have.
+        let two_beds = vec![0usize; 20];
+        let contiguous: Vec<usize> = (0..20).collect();
+        let split: Vec<usize> = (0..10).chain(500..510).collect();
+        let whole = cluster_randomness_index(&two_beds, &contiguous, 1);
+        let broken = cluster_randomness_index(&two_beds, &split, 1);
+        assert!(
+            whole[0].is_nan() && broken[0].is_nan(),
+            "one class over the whole interval has no random arrangement to compare against"
+        );
+        // With a second class present the gap-breaking is observable.
+        let mut lab = vec![0usize; 20];
+        lab[19] = 1;
+        let w = cluster_randomness_index(&lab, &contiguous, 2);
+        let g = cluster_randomness_index(&lab, &split, 2);
+        assert!(g[0] < w[0], "a gap must split the run rather than being spanned: {g:?} vs {w:?}");
     }
 
     /// SB-MLA-063 / SB-MLA-036 — the two silent behaviours in this module, pinned from both sides.
