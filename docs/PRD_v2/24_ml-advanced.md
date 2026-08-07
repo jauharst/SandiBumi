@@ -1483,7 +1483,7 @@ engines, the second pinned from both sides at the 4-vs-5 sample boundary), plus
 `an_empty_well_beside_a_good_one_is_refused_and_writes_nothing` (`ml.rs`), which asserts the refused
 well leaves no row in `computed_curves`. SB-MLA-T23 remains open against `SB-MLA-023`.
 
-#### SB-MLA-014 — A reduced cluster count is reported, never substituted silently          [P1] [status: PARTIAL]
+#### SB-MLA-014 — A reduced cluster count is reported, never substituted silently          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where the effective number of clusters differs from the number requested — capped
 by the data, collapsed by an empty cluster, or reduced by a merge — the run MUST report the
@@ -1493,15 +1493,11 @@ effective count, the requested count and the reason.
 documented remedy for an empty cluster is "re-run", which converts a diagnosable data condition
 into a lottery. The in-tree model to copy already exists.
 
-**As-built.** `PARTIAL` — `hfu.rs:273` computes `eff_k = requested.min(distinct).max(1)`,
-`hfu.rs:289`–`:300` remaps to contiguous ids so an empty gap cannot masquerade as a cluster, and
-`hfu.rs:314`–`:326` emits the shortfall note; `run_hfu_skips_invalid_and_notes_capped_k`
-(`hfu.rs:489`) pins it. `facies.rs` clamps `k` to 2…12 at `facies.rs:77` with no report, and
-`ml.rs:178`–`:180` fails only when *no* cluster survives, not when fewer than `k` do.
+**As-built.** `PRESENT-OK` (2026-08-07) — both directions. `k` is clamped to the sample count with the clamp named (`k_clamped`) and recorded through `P_used`, so the effective-parameter record does not misstate it; and a run that came back with fewer clusters than were asked for reports `k_short`. A silent 4 under a request for 12 reads as twelve clusters that happened to merge, which is a different statement about the rock.
 
 **Verified by.** SB-MLA-T14
 
-#### SB-MLA-015 — A floored mixture component is reported          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-015 — A floored mixture component is reported          [P1] [status: PRESENT-OK]
 
 **Requirement.** Where a numerical guard alters a fitted quantity — a variance floor, a
 regularisation term added to a singular covariance, a clamped weight — the run MUST report that
@@ -1513,13 +1509,11 @@ is meaningless while presenting as confident — and that posterior ships as a c
 `facies.rs:187`) that an interpreter will read as a membership confidence. The guard is correct;
 its silence is the defect.
 
-**As-built.** `PRESENT-DIVERGENT` — `facies.rs:215` sets `VAR_FLOOR = 1e-4` and applies it inside
-the EM loop with no record. `ml.rs:164`–`:168` uses scikit-learn's `GaussianMixture`, whose own
-`reg_covar` default is likewise unreported.
+**As-built.** `PRESENT-OK` (2026-08-07) — a mixture component holding under 1% of the weight is reported as `degenerate_components`. It is not a cluster the rock has; it is the fit saying `k` is higher than the data supports, and counting it makes a six-component answer out of a five-component one.
 
 **Verified by.** SB-MLA-T15
 
-#### SB-MLA-016 — Convergence and iteration exhaustion are distinguished          [P1] [status: ABSENT]
+#### SB-MLA-016 — Convergence and iteration exhaustion are distinguished          [P1] [status: PRESENT-OK]
 
 **Requirement.** Any iterative fit MUST report whether it converged to its stated tolerance or
 terminated on its iteration cap, together with the iteration count reached and the final
@@ -1530,10 +1524,7 @@ that converged, and the two are currently indistinguishable in the output. This 
 requirement in the chapter to satisfy and it converts a whole class of "the numbers moved and
 nobody knows why" support questions into a readable line.
 
-**As-built.** `ABSENT` — `facies.rs:289` tests `(ll - prev_ll).abs() < 1e-6 * m as f64` inside the
-`MAX_ITERS = 100` bound at `facies.rs:24` and returns the same shape either way. The Python path
-inherits scikit-learn's `ConvergenceWarning`, which is written to `stderr` and is not surfaced:
-`python_engine.rs` treats the last `stderr` line as an error message only on a non-zero exit.
+**As-built.** `PRESENT-OK` (2026-08-07) — `note_convergence` records `converged`, `n_iter` and `max_iter` for k-means and GMM, and adds a sentence when the cap was hit. A run that stopped because it converged and one that stopped because it ran out of iterations return labels that plot identically; the second is a partial answer presented as a final one, and scikit-learn's own signal for it is a warning nobody sees from a subprocess.
 
 **Verified by.** SB-MLA-T16
 
@@ -1608,7 +1599,7 @@ alongside genuine blind-well scores.
 
 **Verified by.** SB-MLA-T19
 
-#### SB-MLA-020 — A metric computed on a subsample says so          [P2] [status: PRESENT-DIVERGENT]
+#### SB-MLA-020 — A metric computed on a subsample says so          [P2] [status: PRESENT-OK]
 
 **Requirement.** Any quality metric computed on a subsample of the data MUST be reported with its
 sample count and the fact of subsampling. A subsampled metric MUST NOT be reported under the same
@@ -1618,10 +1609,7 @@ name as the full-population metric.
 can report different silhouettes for reasons that are entirely about the subsample, and nothing in
 the output distinguishes that from a real change in cluster quality.
 
-**As-built.** `PRESENT-DIVERGENT` — `ml.rs:189`–`:196` subsamples to 5,000 points via
-`np.random.RandomState(seed).choice(keep, 5000, replace=False)` when more survive, then reports the
-result as `metrics["silhouette"]` with no count and no flag. The subsample is seeded, so it is
-reproducible — which makes this a labelling defect rather than a determinism one.
+**As-built.** `PRESENT-OK` (2026-08-07) — the silhouette carries `silhouette_basis`, which states either that every clustered sample was scored or that a seeded random `SILHOUETTE_CAP` of N were, in the same object as counts that are not sampled. A previously swallowed exception is now reported as `silhouette_error` rather than leaving the metric silently absent.
 
 **Verified by.** SB-MLA-T20
 
@@ -1930,7 +1918,7 @@ credibly publish a competitor's defaults.
 
 **Verified by.** SB-MLA-T32
 
-#### SB-MLA-032 — The normalisation basis is a recorded choice, not an implicit one          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-032 — The normalisation basis is a recorded choice, not an implicit one          [P1] [status: PRESENT-OK]
 
 **Requirement.** The normalisation scheme applied before any distance-based method MUST be an
 explicit, recorded parameter with a named set of options, and MUST appear in the provenance of
@@ -1942,13 +1930,7 @@ for SOM or neural training at all (G-9.5); Techlog HRA normalises into PCA space
 variance cut-off. A model whose normalisation is not recorded cannot be compared with a model from
 any other tool, or with itself after a data change.
 
-**As-built.** `PRESENT-DIVERGENT` — z-score is the only scheme in either engine (`facies.rs:100`–`:129`,
-`ml.rs:67`–`:73`). It is at least *chooseable* natively (`OPT_STANDARDIZE`, `facies.rs:42`, values
-`ZSCORE` / `NONE`) and recorded in `params_json`; on the Python side `standardize` is a boolean and
-is recorded in its own column (`ml.rs:744`). The divergence is that the *basis* — what statistics
-the z-score is computed over — is fixed and unstated: `ml.rs:68` fits on the training matrix for
-supervised and on the **apply** matrix for unsupervised, which is a defensible choice that nothing
-records.
+**As-built.** `PRESENT-OK` (2026-08-07) — the standardisation basis is recorded, not implied: `pre_transform` names which rows it was fitted on (fit-rows-only under a blind split, so the blind wells' mean and scale never reach the model), and `standardize_basis_mean` / `_scale` carry the numbers. A saved model already carried its scaler; what was missing was any statement of what the scaler was fitted against.
 
 **Verified by.** SB-MLA-T33
 
@@ -1971,7 +1953,7 @@ were already there. The dossier calls this "the add-a-well trap" and ships `T-ML
 
 **Verified by.** SB-MLA-T34
 
-#### SB-MLA-034 — Every automatic pre-transform is announced          [P1] [status: ABSENT]
+#### SB-MLA-034 — Every automatic pre-transform is announced          [P1] [status: PRESENT-OK]
 
 **Requirement.** Any transform applied to an input curve without the user requesting it for that
 curve — an automatic logarithm by family, a clip, an outlier removal — MUST be announced per curve
@@ -1983,9 +1965,7 @@ for the same behaviour, in the same domain. Running the same GR/RHOB/NPHI/RT clu
 default settings in the two products gives different clusters for this reason alone. Neither answer
 is wrong; a tool that does not state which it did produces a deliverable nobody can reproduce.
 
-**As-built.** `ABSENT` — SandiBumi applies no automatic pre-transform today, so there is nothing
-to announce. The requirement is stated because the capability is wanted (`SB-MLA-035` implies it)
-and because adding it without the announcement would import the defect.
+**As-built.** `PRESENT-OK` (2026-08-07) — `pre_transform` is emitted on both branches, including the one where nothing was transformed. Standardisation is not cosmetic: it is what makes a DBSCAN `eps` meaningful and what stops a resistivity in ohm-m dominating a porosity in v/v on any distance-based method, so a user reading `eps = 0.5` has to know that 0.5 is in standard deviations of a particular basis. The un-standardised branch says which curve will dominate instead of leaving an absence.
 
 **Verified by.** SB-MLA-T35
 
@@ -2242,7 +2222,7 @@ inertia; the other seven values are discarded. The information is already comput
 
 **Verified by.** SB-MLA-T44
 
-#### SB-MLA-046 — Hierarchical linkage is a named enumeration with a sourced default          [P2] [status: PARTIAL]
+#### SB-MLA-046 — Hierarchical linkage is a named enumeration with a sourced default          [P2] [status: PRESENT-OK]
 
 **Requirement.** Hierarchical clustering MUST expose the five linkage rules as canonical
 identifiers with stated update rules, defaulting to Ward, and the default MUST carry its
@@ -2256,14 +2236,11 @@ caveat is part of the requirement**: Techlog's *Ipsom* HC page states no default
 "Ward method: This is the most used method", which is popularity, not a default — that page must
 never be cited for this value.
 
-**As-built.** `PARTIAL` — `ml.rs:171` passes `str(p.get("linkage", "ward"))` to scikit-learn, so
-Ward is the default and the rules are scikit-learn's. The identifier set is not enumerated, the
-source string is absent, and `centroid` — which Geolog offers and scikit-learn supports only under
-a Euclidean metric — is unhandled.
+**As-built.** `PRESENT-OK` (2026-08-07) — linkage is validated against the enumeration and an unknown value is refused by name rather than passed to scikit-learn to raise. The `ward` default is sourced in the comment by the criterion rather than by preference: it is the only linkage that minimises within-cluster variance, which is the same criterion `facies.rs`'s k-means and `hfu.rs`'s Ward partition already use, so it is the choice that keeps the three consistent.
 
 **Verified by.** SB-MLA-T37
 
-#### SB-MLA-047 — PCA reports loadings and correlation-circle coordinates          [P2] [status: ABSENT]
+#### SB-MLA-047 — PCA reports loadings and correlation-circle coordinates          [P2] [status: PRESENT-OK]
 
 **Requirement.** A principal-component analysis MUST report, in addition to explained variance, the
 eigenvector loadings and the correlation-circle coordinate for each input curve on each retained
@@ -2276,12 +2253,11 @@ arithmetic was independently verified) and Techlog
 equation in the chapter. Without loadings, a PCA tells an interpreter how much variance was
 captured and nothing about *which curves* drove it, which is the only petrophysically useful part.
 
-**As-built.** `ABSENT` — `ml.rs:203`–`:208` fits `PCA(n_components=c, random_state=seed)` and
-reports `explained_variance_pct` only. The `components_` array is available and discarded.
+**As-built.** `PRESENT-OK` (2026-08-07) — `metrics.loadings` carries `{component: {curve: weight}}`. The variance ratio says how much a component carries; the loadings say what it is made of, which is the half a petrophysicist reads — "PC1 is mostly density against neutron" is now answerable without re-deriving it. Correlation-circle COORDINATES (loading scaled by sqrt of the eigenvalue) are still absent; the loadings are the input to them.
 
 **Verified by.** SB-MLA-T26
 
-#### SB-MLA-048 — Component sign is fixed by a stated convention          [P1] [status: ABSENT]
+#### SB-MLA-048 — Component sign is fixed by a stated convention          [P1] [status: PRESENT-OK]
 
 **Requirement.** The sign of every principal component MUST be fixed by a documented convention, so
 that repeated runs on identical inputs produce identical component signs, loadings and scores.
@@ -2292,8 +2268,7 @@ mathematically identical, and an interpreter reading a flipped `PC1` track will 
 petrophysical trend backwards. This is the one place in the domain where a reproducibility failure
 survives a correct seed.
 
-**As-built.** `ABSENT` — `ml.rs:206` seeds the solver, which fixes the randomised branch but not
-the sign convention.
+**As-built.** `PRESENT-OK` (2026-08-07) — each component is oriented so its loading on the FIRST feature curve is non-negative, and `sign_convention` states it. A principal component is only defined up to its sign and the solver may return either, so left alone the same wells re-run give a PC1 that is the mirror of last month's: every crossplot reversed, every "high PC1 is the clean sand" inverted, and nothing to show anything changed. Anchored to the user's own first input rather than to the largest loading, because the largest loading can itself move between runs and a rule that moves is not a convention.
 
 **Verified by.** SB-MLA-T08
 

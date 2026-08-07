@@ -2477,8 +2477,13 @@ the curve smooth, and if synthesized, should it carry a separate curve name the 
 back-transform does.
 
 **ML PRD (`docs/PRD_v2/24_ml-advanced.md`) audit, same day.** Of 65 requirements: 22 PRESENT-OK,
-11 PRESENT-DIVERGENT, 8 PARTIAL, 23 ABSENT, 1 PRESENT-UNVERIFIED — **now 25 / 10 / 7 / 22 / 1
-after the three closures below.** That backlog is real but it is
+11 PRESENT-DIVERGENT, 8 PARTIAL, 23 ABSENT, 1 PRESENT-UNVERIFIED — **now 34 PRESENT-OK / 7
+PRESENT-DIVERGENT / 5 PARTIAL / 18 ABSENT / 1 PRESENT-UNVERIFIED (2026-08-07), counted from the file
+rather than estimated.** Closed that day: -007, -014, -015, -016, -017, -020, -021, -032, -034, -046,
+-047, -048. The harsh critique of what remains weak is `docs/critique_ml.md`, and its §13 is a
+shorter and more useful backlog than the list below: extrapolation detection, carrying the
+"simulated" fact on the curve rather than in a run note, and moving the runner into a real `.py`
+file behind `include_str!`. That backlog is real but it is
 not all reachable work — a large part of the ABSENT set describes capabilities SandiBumi has not
 built at all (SOM maps and their distortion measure, fuzzy-logic combination and its uncertainty
 band, the tie-in acceptance threshold, the native non-sklearn clustering path with its own quality
