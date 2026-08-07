@@ -9348,3 +9348,34 @@ word.
       wells and curves. Say yes to the second question, then look at that curve's provenance — it
       should say the model was DELETED, not just print its name. Delete a model nothing used: that
       one should just go, with no second question.
+
+**Item 5's second half, and a PRD sweep.** Spectral matching and two curves, as you chose. Plus
+twelve more PRD requirements, all of the same family: a run that did something other than what was
+asked and did not say so. And an outage found while writing it up — the Python runner was passed on
+the command line, Windows caps that near 32 KB, and adding comments broke every ML feature at once.
+
+- [ ] **Tick "Also write a spectrally textured copy" and run a regression.** You get TWO curves:
+      `<name>` unchanged, and `<name>_SIM` with the frequency content the target has. Plot both.
+      `_SIM` should look like a real log; `<name>` should look like a prediction. **The point is that
+      the honest one is the plainer one.** Read the note under the run — it should say the detail is
+      one realisation of many, right in its statistics and arbitrary in its placement.
+- [ ] **Check the means agree.** `_SIM` must not shift the level of the curve, only add wiggle.
+- [ ] **Try to use `<name>_SIM` as an input curve for another model.** It must REFUSE and tell you to
+      use the plain curve. This is the one that would otherwise quietly train a model on invented
+      detail.
+- [ ] **Run the same fit twice with the same seed.** `_SIM` must be identical both times — it is a
+      simulation, not a random doodle.
+- [ ] **Run PCA twice.** PC1 must not flip sign between runs. Check `loadings` in the results — it
+      should tell you what each component is made of, per input curve.
+- [ ] **Run a clustering with k larger than you have samples**, and one with k too high for the data.
+      The first should say it clamped k; the second should say fewer clusters came back than asked.
+      Neither should quietly return a different number of clusters than you typed.
+- [ ] **Run k-means with a very low iteration cap** if you can — the result should say it did NOT
+      converge, rather than handing you labels that look final.
+- [ ] **Look at any score in the results.** Every one should now be able to tell you what it is a
+      score OF — fitted rows, folds of the same wells, or wells the model never saw. A one-well run
+      should say its cross-validation is not a blind score.
+- [ ] **Open a curve made by ML on a well that was NOT in the training set** and read its provenance.
+      It should say this well did not train the model, so its curve is an extrapolation.
+- [ ] **Sanity check that ML still runs at all.** This is the outage check: any fit, any algorithm. If
+      you see "The filename or extension is too long", something reverted.
