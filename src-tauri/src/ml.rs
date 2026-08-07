@@ -393,6 +393,64 @@ fn blind_sentence(blind: Option<&serde_json::Value>) -> String {
 ///
 /// This is the point of the whole provenance group: a parameter that carries the paper it came from,
 /// through the computation, into the deliverable. Until now the lineage stopped at the database.
+/// One live curve that names a saved model as the thing that produced it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModelCitation {
+    pub well_name: String,
+    pub set_name: String,
+    pub curves: Vec<String>,
+}
+
+/// Which delivered curves would be orphaned by deleting this model (SB-MLA-007).
+///
+/// A saved model is the answer to "which model produced this curve", and that is the entire reason
+/// artifacts exist here. Deleting one silently does not corrupt anything — the curve keeps its
+/// numbers — it does something quieter and worse: the curve goes on citing a model id that resolves
+/// to nothing, so the provenance block in a delivered report names a model nobody can produce. The
+/// failure surfaces in front of a client, months later, as a question that cannot be answered.
+///
+/// Driven from `computed_curves.set_id` like `ml_provenance`, so it counts what a deliverable would
+/// actually PRINT rather than every run the project has ever seen. A superseded version is not in
+/// the deliverable, and refusing a deletion to protect a curve nobody will ever read would make this
+/// check the thing people learn to force past.
+pub fn model_citations(conn: &Connection, model_id: &str) -> Vec<ModelCitation> {
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT w.well_name, ls.set_name, ls.set_id
+         FROM log_sets ls
+         JOIN wells w ON w.well_id = ls.well_id
+         WHERE ls.module LIKE 'ml:%'
+           AND ls.params_json LIKE ?1
+           AND EXISTS (SELECT 1 FROM computed_curves cc WHERE cc.set_id = ls.set_id)
+         ORDER BY w.well_name, ls.set_name",
+    ) else {
+        return Vec::new();
+    };
+    // Matched on the id as it appears in the recorded JSON. A LIKE rather than a JSON extract
+    // because the reference sits at two different depths - the ordinary path writes `model_id` at
+    // the top level, the coverage path records one per segment - and a query that knew only one
+    // shape would silently report "not cited" for the other.
+    let needle = format!("%\"{model_id}\"%");
+    let rows = stmt.query_map(duckdb::params![needle], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+    });
+    let Ok(rows) = rows else { return Vec::new() };
+
+    let mut out = Vec::new();
+    for (well_name, set_name, set_id) in rows.flatten() {
+        let curves: Vec<String> = conn
+            .prepare("SELECT DISTINCT curve_name FROM computed_curves WHERE set_id = ?1 ORDER BY curve_name")
+            .and_then(|mut s| {
+                s.query_map(duckdb::params![set_id], |r| r.get::<_, String>(0))
+                    .map(|it| it.flatten().collect())
+            })
+            .unwrap_or_default();
+        if !curves.is_empty() {
+            out.push(ModelCitation { well_name, set_name, curves });
+        }
+    }
+    out
+}
+
 pub fn ml_provenance(conn: &Connection, well_id: &str) -> Vec<MlProvenanceRow> {
     let Ok(mut stmt) = conn.prepare(
         "SELECT ls.set_id, ls.set_name, ls.module, ls.params_json, ls.inputs_json,
@@ -6405,6 +6463,78 @@ mod tests {
         assert_eq!(first, "PERM_RF");
         assert_eq!(second, "PERM_RF_1", "a second fit is a NEW model, not a replacement");
         assert_eq!(db::list_ml_models(&conn).unwrap().len(), 2);
+    }
+
+    /// **SB-MLA-007 — a model a delivered curve cites is not deletable without a word, and one
+    /// nothing cites is.**
+    ///
+    /// Deleting a cited model corrupts nothing: the curve keeps its numbers. It does something
+    /// quieter and more expensive — the curve goes on naming a model id that resolves to nothing, so
+    /// the provenance block in a report names something nobody can produce, and the failure surfaces
+    /// in front of a client months later as a question that cannot be answered.
+    ///
+    /// Pinned from both sides, because the second is what decides whether the first is any use. A
+    /// check that flagged every model would be one people learn to click past, so a model nothing
+    /// cites must come back clean — and so must one whose log set carries no curves, since a
+    /// superseded version is not in the deliverable and protecting it would make the refusal noise.
+    #[test]
+    fn a_model_a_delivered_curve_cites_is_not_deletable_without_a_word() {
+        use crate::db;
+        use crate::equations::{create_log_set, write_computed_curves_versioned, LogSetSpec};
+        use uuid::Uuid;
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "SANDI-CITE", None, None, Some(0.0)).unwrap();
+        let well_id = well.to_string();
+
+        let feats: Vec<String> = vec!["GR".into()];
+        let on: Vec<String> = vec!["SANDI-CITE".into()];
+        let blob = vec![1u8, 2, 3];
+        let (cited_id, _) = db::insert_ml_model(&conn, &model_fixture("CITED", &feats, &on, &blob, None)).unwrap();
+        let (lonely_id, _) = db::insert_ml_model(&conn, &model_fixture("LONELY", &feats, &on, &blob, None)).unwrap();
+
+        // A curve made by CITED, recorded the way the fit path records it.
+        let depths: Vec<f32> = (0..20).map(|i| 1000.0 + i as f32).collect();
+        let vals: Vec<f32> = (0..20).map(|i| 0.1 + i as f32 * 0.001).collect();
+        let spec = LogSetSpec {
+            set_name: "ML".into(),
+            module: "ml:regression:rf".into(),
+            params_json: serde_json::json!({ "algorithm": "rf", "model_id": cited_id, "model_name": "CITED" })
+                .to_string(),
+            inputs_json: "[\"GR\"]".into(),
+        };
+        let (set_id, _) = create_log_set(&conn, &well_id, &spec).unwrap();
+        write_computed_curves_versioned(&conn, &well_id, &depths, &[("PHIT_ML", vals.as_slice())], &set_id).unwrap();
+
+        // The cited one is found, and the citation says WHERE — a refusal naming no curve is one
+        // nobody can act on.
+        let cited = model_citations(&conn, &cited_id);
+        assert_eq!(cited.len(), 1, "the delivered curve must be found: {cited:?}");
+        assert_eq!(cited[0].well_name, "SANDI-CITE");
+        assert_eq!(cited[0].set_name, "ML");
+        assert_eq!(cited[0].curves, vec!["PHIT_ML".to_string()]);
+
+        // The other side. A model nothing cites is clean, or the check becomes noise.
+        assert!(
+            model_citations(&conn, &lonely_id).is_empty(),
+            "a model no curve names must not be protected, or the refusal is one people click past"
+        );
+
+        // A log set with no rows is not in any deliverable. Protecting it would flag a model whose
+        // curves were re-run and superseded, which is the commonest case of all.
+        let empty_spec = LogSetSpec {
+            set_name: "ML".into(),
+            module: "ml:regression:rf".into(),
+            params_json: serde_json::json!({ "model_id": lonely_id }).to_string(),
+            inputs_json: "[]".into(),
+        };
+        create_log_set(&conn, &well_id, &empty_spec).unwrap();
+        assert!(
+            model_citations(&conn, &lonely_id).is_empty(),
+            "a set carrying no curves is not in a deliverable and must not protect its model"
+        );
     }
 
     #[test]

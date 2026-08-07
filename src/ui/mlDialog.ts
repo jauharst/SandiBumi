@@ -1788,12 +1788,31 @@ export async function buildMlContent(
         if (!window.confirm(`Delete the saved model '${m.name}'?\n\nCurves it already produced are kept, but they can no longer be reproduced from this model.`)) {
           return;
         }
+        // SB-MLA-007. The backend REFUSES while a live curve names this model, and its refusal
+        // lists what would be orphaned — so the second question quotes that list rather than the
+        // generic warning above. A curve citing a model id that resolves to nothing is a provenance
+        // block in a report naming something nobody can produce, and it surfaces months later.
         try {
           await deleteMlModel(m.model_id);
-          await refreshSaved();
         } catch (e) {
-          savedNote.textContent = `Delete failed: ${e}`;
+          const msg = String(e);
+          // Only a citation refusal deserves a second question; anything else is a real failure.
+          if (!msg.includes("name this model")) {
+            savedNote.textContent = `Delete failed: ${e}`;
+            return;
+          }
+          if (!window.confirm(`${msg}\n\nDelete '${m.name}' anyway?`)) {
+            savedNote.textContent = "Kept.";
+            return;
+          }
+          try {
+            await deleteMlModel(m.model_id, true);
+          } catch (e2) {
+            savedNote.textContent = `Delete failed: ${e2}`;
+            return;
+          }
         }
+        await refreshSaved();
       });
     }
   };

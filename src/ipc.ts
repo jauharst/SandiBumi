@@ -1379,8 +1379,22 @@ export function renameMlModel(modelId: string, newName: string): Promise<string>
   return invoke<string>("rename_ml_model", { modelId, newName });
 }
 
-export function deleteMlModel(modelId: string): Promise<void> {
-  return invoke<void>("delete_ml_model", { modelId });
+/** One live curve set that names a saved model as what produced it (SB-MLA-007). */
+export interface ModelCitation {
+  well_name: string;
+  set_name: string;
+  curves: string[];
+}
+
+/** Which delivered curves would be orphaned by deleting this model. */
+export function mlModelCitations(modelId: string): Promise<ModelCitation[]> {
+  return invoke<ModelCitation[]>("ml_model_citations", { modelId });
+}
+
+/** Deletes a saved model. REFUSES when a live curve cites it, naming what would be orphaned;
+ *  `force` is the user's own decision taken after reading that list. */
+export function deleteMlModel(modelId: string, force = false): Promise<void> {
+  return invoke<void>("delete_ml_model", { modelId, force });
 }
 
 /** Model-comparison leaderboard (Wave B item 3). */
