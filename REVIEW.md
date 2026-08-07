@@ -9061,3 +9061,64 @@ matching — those are not properties of an algorithm and are reported separatel
 - [ ] **Run the same clustering twice on the same wells with the same seed.** The facies numbers are
       identical, not merely similar. Change the seed and they are not.
 - [ ] **Run the same regression twice.** Same curve, and the same reported R², to every digit.
+
+## The ML pane, rebuilt as four sections (2026-08-07)
+
+Your seven points from the click-through, in order.
+
+**1 — The style.** Every control you struck through (Task, Algorithm, Target curve, Mask, Output
+curve) was a bare dropdown inheriting the browser's own look, while the controls beside them looked
+right because they are segmented pills that carry their own styling. `.form-control` is the design
+system's input style and exactly one control in the pane was using it. They all do now.
+
+**2 — Four sections.** **Input · Data QC · Model · Results**, in the order the work is done. One
+scrolling column had grown to a dozen rows in no useful order — the algorithm at the top, its
+parameters two thirds down, the output curve below that — so setting up a run meant scrolling past
+everything twice. The section strip stays put while a long Results panel scrolls under it, and
+**Run Model** is a footer outside the sections, reachable from all four.
+
+**3 — One algorithm list.** The Task dropdown is gone. The algorithm picker now groups by what you
+are predicting: **Continuous log**, **Discrete log**, **Electrofacies**, **Reduction**. Random
+Forest appears under both supervised groups, which is honest — it is two estimators with one idea.
+Picking the algorithm sets the task, so changing your mind no longer resets your choice.
+
+**4 — Data QC that knows what it is checking for.** Every finding is about the data **and the
+model**, never the data alone, because "is this data good" has no answer: four orders of magnitude
+between two curves is fatal to k-means and irrelevant to a random forest. Same wells, same curves —
+SVR gets a red *"RES_DEEP would swamp every other input, turn on Standardize"*; Random Forest gets a
+green *"scale does not matter to this estimator"*. It also reports how many rows can actually reach
+the fit, which curve caps that, which wells are missing which curve, whether your target looks like
+a class code or a continuous log, and whether K is more classes than the data can carry.
+
+**5 — Parameters.** They were always editable. What you could not see was which ones you had
+changed — a grid of numbers looks the same whether they are your settings or the library's. A
+changed field now marks itself and offers **Reset to defaults**, and each field's tooltip names its
+default. The run has always recorded the difference; the form now shows it.
+
+**6 — Predicted vs measured, per model.** In Results, under the comparison charts. Every point is a
+prediction made by a model that had not seen that row, so the picture answers the same question the
+score does. Pick which model you are looking at from the dropdown on the panel. **Coloured by
+well** — that is the reading the score cannot give you.
+
+**7 — R² and RMSE across models.** Two bar panels side by side, never one axis, because higher is
+better for one and lower for the other. Where they disagree the panel says why.
+
+- [ ] **Open ML Models.** Four sections across the top, and every dropdown and field looks like the
+      rest of the application.
+- [ ] **Open the Algorithm list.** Four groups by what you are predicting; Random Forest under both
+      supervised ones. Pick a clustering algorithm — the target curve and train wells disappear,
+      because there is no target.
+- [ ] **Pick your curves and wells on Input, then open Data QC.** It measures that selection.
+      Read the row-count line first: it is what everything else is read against.
+- [ ] **Switch between Support Vector Regression and Random Forest and re-check.** The scale finding
+      changes from red to green on the same data. That is the point of the section.
+- [ ] **Change a parameter.** Its label goes accent-coloured and a Reset appears.
+- [ ] **Run Compare algorithms on a real target.** The Results section gets the leaderboard, the
+      dot-and-whisker score chart, the R²/RMSE panels, the predicted-vs-measured crossplot and the
+      cross-model "which curve carries" panel.
+- [ ] **On the crossplot, step through the models.** A good one sits on the dashed 1:1 line. Look
+      for one whose cloud is tight but rotated off it (mis-scaled, correctable) or flat at the mean
+      (learned nothing). Both can score the same R².
+- [ ] **Look at the well colours on the crossplot.** This is the one worth your time: a blind R² of
+      0.7 over three wells can be 0.9, 0.85 and 0.1, and the third well is the one that says whether
+      the curve travels.
