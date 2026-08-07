@@ -5155,6 +5155,22 @@ textarea {
    Results section with several of them stacked, so a single toolbar at the top would be ambiguous
    about which chart it acts on. Right-aligned and quiet, so they read as an afterthought to the
    figure rather than as part of it. */
+/* Interval picker: marker list, then the two depths it fills in. The depths stay editable after a
+   marker sets them, so the run always sends numbers - what was used stays recoverable from the
+   record even after somebody moves the tops. */
+.ml-interval-sel {
+  min-width: 170px;
+  flex: 1 1 170px;
+}
+.ml-interval-num {
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+}
+.ml-interval-num input {
+  width: 84px;
+}
+
 .ml-chart-export {
   display: flex;
   justify-content: flex-end;

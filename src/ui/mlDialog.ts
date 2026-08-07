@@ -3,6 +3,7 @@ import {
   deleteMlModel,
   listCurveCatalog,
   listMlModels,
+  listTops,
   listWells,
   mlDeterminismNote,
   mlModelWarnings,
@@ -20,6 +21,7 @@ import {
   type MlRequest,
   type MlResult,
   type SplitBalance,
+  type TopEntry,
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup, setStatus } from "../state";
@@ -341,9 +343,10 @@ export async function buildMlContent(
   // control (Organic increment 2), and a second mechanism for "pick one of these" would be a second
   // thing to keep in agreement.
   const SECTIONS = [
-    ["input", "Input", "Which curves, which wells, and which stored values to read them from."],
+    ["input", "Input", "Which curves, which wells, over which interval, and which stored values to read them from."],
     ["qc", "Data QC", "Whether the data you just chose can support the model you are about to fit."],
-    ["model", "Model", "What to fit, how it is validated, and what the outputs are called."],
+    ["model", "Model", "What to fit, how it is validated, and what the outputs are called. Run Model lives here."],
+    ["dist", "Model Distribution", "Propagate a kept model to the rest of the field — its own wells, interval and names."],
     ["results", "Results", "What the run produced, how the models compare, and the models you have kept."],
   ] as const;
   type SectionId = (typeof SECTIONS)[number][0];
@@ -394,6 +397,7 @@ export async function buildMlContent(
   const sIn = panels.get("input") as HTMLElement;
   const sQc = panels.get("qc") as HTMLElement;
   const sModel = panels.get("model") as HTMLElement;
+  const sDist = panels.get("dist") as HTMLElement;
   const sRes = panels.get("results") as HTMLElement;
 
   // --- Algorithm: THREE groups, by what kind of log comes out ---------------
@@ -991,6 +995,11 @@ export async function buildMlContent(
   const setPicker = buildLogSetPicker({ write: "ML" });
   for (const row of setPicker.rows) sIn.appendChild(row);
 
+  // Which interval the FIT learns from. In Input, beside the wells and curves, because it is part
+  // of "what am I learning from" rather than of "what shall I fit".
+  const fitInterval = buildIntervalPicker("Interval");
+  sIn.appendChild(fitInterval.row);
+
   // Every parameter the runner reads through `P(p, key, default)` has a field here, and always did.
   // What it did not have was any way to see WHICH of them you had changed — a grid of numbers looks
   // identical whether they are your settings or the library's, and SB-MLA-001 exists because that
@@ -1298,11 +1307,17 @@ export async function buildMlContent(
   }
   qcBtn.addEventListener("click", () => void refreshQc());
 
-  // --- Run: a FOOTER, outside the sections ---------------------------------
-  // Run has to be reachable from every section. Inside Results it would mean switching sections to
-  // start a run and switching back to change a setting, and inside Model it would imply the run is
-  // a property of the model section rather than of the whole pane. The Organic module-pane spec
-  // puts the primary action in a footer for exactly this reason.
+  // --- Run: inside the Model section ---------------------------------------
+  //
+  // Jauhar, 2026-08-07: *"run model should only shown on model tab, and only applied to defined
+  // input wells and data that shown in qc"*. It was a pane FOOTER, visible from every section,
+  // which is what made the second half of that sentence a fair question: a button standing under
+  // Data QC reads as acting on what Data QC is showing, and a button standing under Results reads
+  // as re-running whatever produced them.
+  //
+  // It fits, and fitting is the Model section's subject. Propagating a fitted model is a different
+  // action with a different scope, and it now has its own section and its own button — which is the
+  // real answer to "what does this apply to": each button sits with the choices it consumes.
   const runBtn = document.createElement("button");
   runBtn.type = "button";
   runBtn.textContent = "Run Model";
@@ -1312,7 +1327,6 @@ export async function buildMlContent(
   const runRow = document.createElement("div");
   runRow.className = "mc-run-row ml-footer";
   runRow.append(runBtn, statusLine);
-  content.appendChild(runRow);
 
   // --- Keep the fitted model ------------------------------------------------
   // Until now the fit died with the subprocess: you could not train on the cored wells and
@@ -1327,6 +1341,8 @@ export async function buildMlContent(
     "Keeps the fitted model (and its scaler) so it can be applied to other wells later, without refitting",
   );
   sModel.appendChild(saveRow);
+  // Last in the section, because it consumes everything above it.
+  sModel.appendChild(runRow);
 
   // --- Compare (leaderboard) — supervised only ------------------------------
   const subsetSel = document.createElement("select");
@@ -1429,6 +1445,176 @@ export async function buildMlContent(
   hint.textContent = "Needs Python with numpy + scikit-learn (pip install scikit-learn); xgboost optional.";
   sRes.appendChild(hint);
 
+  // --- Model Distribution ---------------------------------------------------
+  //
+  // Jauhar, 2026-08-07: *"for propagation, add new subpanes there, use phrase Model Distribution, so
+  // final well selection, interval selection, set/cons name, and log name behave like other
+  // modules"*. Propagating was previously an Apply button on a row in the saved-models list, which
+  // made it look like a property of that row rather than a run of its own — and it silently borrowed
+  // the FIT's wells, interval and names, so "apply this to the rest of the field" meant editing the
+  // Input section until it no longer described the fit that had been reviewed.
+  //
+  // So it is its own section with its own scope, its own interval and its own names, shaped like
+  // every other batch run in the application. The one thing it does NOT restate is the model's
+  // features and the log set they came from: those travel inside the artifact, and letting a caller
+  // restate them would invite them to differ (SB-MLA-006).
+  const distModel = document.createElement("select");
+  distModel.className = "form-control";
+  const distModelNote = document.createElement("div");
+  distModelNote.className = "mc-chain-note";
+  sDist.appendChild(formRow("Model", distModel));
+  sDist.appendChild(distModelNote);
+
+  const distScope = await buildWellScope();
+  sDist.appendChild(distScope.el);
+  const distInterval = buildIntervalPicker("Interval");
+  sDist.appendChild(distInterval.row);
+
+  const distSetPicker = buildLogSetPicker({ write: "ML" });
+  for (const row of distSetPicker.rows) sDist.appendChild(row);
+
+  const distOut = document.createElement("input");
+  distOut.className = "form-control";
+  distOut.placeholder = "e.g. RHOB_PRED";
+  sDist.appendChild(
+    formRow(
+      "Output curve",
+      distOut,
+      "The name the propagated log is written under. Give it its own name — a distribution written over the curve the fit produced would overwrite the one you reviewed.",
+    ),
+  );
+
+  const distMask = document.createElement("select");
+  distMask.className = "form-control";
+  {
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "(none)";
+    distMask.appendChild(none);
+    for (const name of curveNames) {
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      distMask.appendChild(o);
+    }
+  }
+  sDist.appendChild(
+    formRow(
+      "Mask (exclude)",
+      distMask,
+      "Its own mask, not the fit's: the wells being propagated to are different wells, and a bad-hole flag is a property of the hole it was computed in.",
+    ),
+  );
+
+  const distBtn = document.createElement("button");
+  distBtn.type = "button";
+  distBtn.textContent = "Distribute Model";
+  distBtn.classList.add("primary");
+  const distStatus = document.createElement("div");
+  distStatus.className = "mc-status";
+  const distRun = document.createElement("div");
+  distRun.className = "mc-run-row ml-footer";
+  distRun.append(distBtn, distStatus);
+  sDist.appendChild(distRun);
+  const distResults = document.createElement("div");
+  sDist.appendChild(distResults);
+
+  /** Kept in step with the saved-model list, which is the only source of models to distribute. */
+  let distModels: MlModelInfo[] = [];
+  function syncDistModels(models: MlModelInfo[]): void {
+    distModels = models;
+    const keep = distModel.value;
+    distModel.innerHTML = "";
+    if (models.length === 0) {
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = "(no saved models yet)";
+      distModel.appendChild(o);
+      distModelNote.textContent =
+        "Fit something on the Model section with a name in Save model as, and it will appear here. " +
+        "Distribution deliberately runs from a SAVED model rather than from the last run: a refit on " +
+        "different data is a different model, and a curve that cannot name the model it came from " +
+        "cannot be defended in a report.";
+      return;
+    }
+    for (const m of models) {
+      const o = document.createElement("option");
+      o.value = m.model_id;
+      o.textContent = `${m.name}  —  ${m.algorithm} on ${m.target_curve ?? "?"}`;
+      distModel.appendChild(o);
+    }
+    if (models.some((m) => m.model_id === keep)) distModel.value = keep;
+    syncDistNote();
+  }
+  function syncDistNote(): void {
+    const m = distModels.find((x) => x.model_id === distModel.value);
+    if (!m) {
+      distModelNote.textContent = "";
+      return;
+    }
+    // The features and their ORDER are the apply contract and are read from the artifact, so they
+    // are stated here rather than offered as choices. A model fitted on [GR, RHOB] fed [RHOB, GR]
+    // returns confident nonsense nothing downstream can catch.
+    distModelNote.textContent =
+      `Needs ${m.feature_curves.join(", ")} — in that order, from the artifact, not from Input. ` +
+      `Fitted on ${m.n_train.toLocaleString()} rows from ${m.trained_on.length} well(s)` +
+      (m.sklearn_version ? ` with scikit-learn ${m.sklearn_version}` : "") +
+      ". Leave the input log set on (current values) and it reads the set it was fitted on.";
+    if (!distOut.value.trim()) distOut.value = `${m.target_curve ?? "ML"}_DIST`;
+  }
+  distModel.addEventListener("change", syncDistNote);
+
+  distBtn.addEventListener("click", async () => {
+    const m = distModels.find((x) => x.model_id === distModel.value);
+    if (!m) {
+      distStatus.textContent = "Pick a saved model first.";
+      return;
+    }
+    const wellIds = distScope.getWellIds();
+    if (wellIds.length === 0) {
+      distStatus.textContent = "No wells in scope — pick a group, pin or select wells, or choose All.";
+      return;
+    }
+    if (!distOut.value.trim()) {
+      distStatus.textContent = "Give the distributed curve a name.";
+      return;
+    }
+    distBtn.disabled = true;
+    distStatus.textContent = `Distributing '${m.name}' to ${wellIds.length} well(s)…`;
+    const t0 = performance.now();
+    try {
+      const res = await applyMlModel({
+        model_id: m.model_id,
+        apply_well_ids: wellIds,
+        output_curve: distOut.value.trim(),
+        input_set: distSetPicker.inputSet(),
+        output_set: distSetPicker.outputSet(),
+        mask_curve: distMask.value || null,
+        interval: distInterval.getWindow(),
+      });
+      const ms = Math.round(performance.now() - t0);
+      if (res.error) {
+        distStatus.textContent = `Failed: ${res.error}`;
+      } else {
+        const total = res.wells.length || wellIds.length;
+        const ok = res.wells.filter((w) => !w.error).length;
+        const outs = res.outputs.join(", ");
+        distStatus.textContent =
+          `Done in ${ms} ms → ${outs}` + (ok < total ? ` — ${total - ok} well(s) need attention` : "");
+        if (ok > 0) {
+          recordProcess("ML", `Distributed model '${m.name}' → ${outs} on ${ok}/${total} well(s)`);
+          setStatus(`Distributed '${m.name}': ${outs} on ${ok}/${total} well(s)`);
+          bumpDataVersion();
+        }
+      }
+      renderResults(distResults, res, nameOf);
+    } catch (e) {
+      distStatus.textContent = `Failed: ${e}`;
+    } finally {
+      distBtn.disabled = false;
+    }
+  });
+
   // --- Saved models ---------------------------------------------------------
   // A trained model is a named, dated, citable artifact here: apply it to new wells without
   // refitting, because a refit on different data is a different model.
@@ -1457,8 +1643,12 @@ export async function buildMlContent(
       warnings = new Map(warned.map((w) => [w.model_id, w.notes]));
     } catch (e) {
       savedNote.textContent = `Could not list saved models: ${e}`;
+      syncDistModels([]);
       return;
     }
+    // ONE fetch feeds both the list and the distribution picker. Two calls would let the two
+    // disagree about which models exist — a model deleted here and still offered there.
+    syncDistModels(models);
     savedList.innerHTML = "";
     if (models.length === 0) {
       savedNote.textContent =
@@ -1648,6 +1838,7 @@ export async function buildMlContent(
       coverage_segments: task.supervised && covCb.checked,
       output_step:
         task.supervised && resMode === "step" && Number(resStep.value) > 0 ? Number(resStep.value) : null,
+      interval: fitInterval.getWindow(),
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
@@ -1737,7 +1928,15 @@ export async function buildMlContent(
   });
 
   syncAlgo();
-  return { el: content, dispose: () => scope.dispose() };
+  return {
+    el: content,
+    dispose: () => {
+      scope.dispose();
+      distScope.dispose();
+      fitInterval.dispose();
+      distInterval.dispose();
+    },
+  };
 }
 
 function fmtMetric(v: unknown): string {
@@ -3134,6 +3333,120 @@ function svgEl<K extends keyof SVGElementTagNameMap>(
   const el = document.createElementNS(SVG_NS, tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
   return el;
+}
+
+/** A depth window, as the backend's `DepthWindow` takes it. An open side stays null. */
+interface IntervalPick {
+  top: number | null;
+  base: number | null;
+}
+
+/**
+ * "Which interval" — by marker, or by typed depths, or neither.
+ *
+ * Jauhar, 2026-08-07: *"it should be tops bounded as well by user"*. A model fitted over a whole
+ * well learns one relation for every formation it passed through, and a deltaic sand and the
+ * carbonate below it do not share a porosity-permeability transform.
+ *
+ * The markers come from ONE well — whichever is selected — and are then applied as DEPTHS to every
+ * well in the run. That is a real limitation and the control says so, because the alternative would
+ * be worse in a way that is hard to see: resolving "Gumai" per well sounds more correct, but a well
+ * that lacks the marker would silently fall back to its whole length and join the fit as a
+ * different population. A depth window is at least the same window everywhere.
+ *
+ * Returns `getWindow`, which is what the request carries, and a `dispose` for the well subscription.
+ */
+function buildIntervalPicker(
+  label: string,
+): { row: HTMLElement; getWindow: () => IntervalPick; dispose: () => void } {
+  let tops: TopEntry[] = [];
+  const sel = document.createElement("select");
+  sel.className = "form-control ml-interval-sel";
+  const topIn = document.createElement("input");
+  const baseIn = document.createElement("input");
+  for (const i of [topIn, baseIn]) {
+    i.type = "number";
+    i.step = "any";
+    i.className = "form-control";
+  }
+  const mkNum = (text: string, input: HTMLInputElement) => {
+    const l = document.createElement("label");
+    l.className = "mc-field ml-interval-num";
+    const s = document.createElement("span");
+    s.textContent = text;
+    l.append(s, input);
+    return l;
+  };
+  const why = document.createElement("div");
+  why.className = "ml-norm-why";
+  const wrap = document.createElement("div");
+  wrap.className = "ml-cov";
+  const line = document.createElement("div");
+  line.className = "mc-settings";
+  line.append(sel, mkNum("Top", topIn), mkNum("Base", baseIn));
+  wrap.append(line, why);
+  const row = formRow(label, wrap);
+
+  const describe = () => {
+    const t = topIn.value.trim();
+    const b = baseIn.value.trim();
+    why.textContent =
+      !t && !b
+        ? "The whole logged interval of every well in this run."
+        : `${t || "the top of the log"} to ${b || "TD"}, applied as DEPTHS to every well here — the marker list is read from the selected well only, so check it suits the others.`;
+  };
+  sel.addEventListener("change", () => {
+    // A marker fills the boxes and then lets go. The depths stay editable, and a run always sends
+    // numbers — so what was actually used is recoverable from the record even after the tops move.
+    const i = Number(sel.value);
+    if (!Number.isFinite(i) || i < 0) {
+      topIn.value = "";
+      baseIn.value = "";
+    } else {
+      topIn.value = String(tops[i].depth);
+      // The interval is this marker down to the NEXT one; the deepest marker runs to TD, which is
+      // an EMPTY base rather than a guessed number.
+      baseIn.value = i + 1 < tops.length ? String(tops[i + 1].depth) : "";
+    }
+    describe();
+  });
+  for (const i of [topIn, baseIn]) {
+    i.addEventListener("input", () => {
+      sel.value = "-1";
+      describe();
+    });
+  }
+
+  const load = async (): Promise<void> => {
+    const w = appState.selectedWell.get();
+    sel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "-1";
+    none.textContent = w ? "(whole well)" : "(no well selected — type depths)";
+    sel.appendChild(none);
+    tops = w ? await listTops(w.well_id).catch(() => [] as TopEntry[]) : [];
+    tops.sort((a, b) => a.depth - b.depth);
+    tops.forEach((t, i) => {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = `${t.top_name} (${t.depth})`;
+      sel.appendChild(o);
+    });
+    sel.value = "-1";
+    describe();
+  };
+  void load();
+  const off = appState.selectedWell.subscribe(() => void load());
+  describe();
+
+  return {
+    row,
+    getWindow: () => ({
+      top: topIn.value.trim() === "" ? null : Number(topIn.value),
+      base: baseIn.value.trim() === "" ? null : Number(baseIn.value),
+    }),
+    dispose: off,
+  };
 }
 
 /** The presentation properties a standalone SVG has to carry itself. */

@@ -1078,6 +1078,10 @@ pub struct MlRequest {
     /// answer on the user's behalf.
     #[serde(default)]
     pub output_step: Option<f64>,
+    /// Confine BOTH the fit and the prediction to this depth window. Open by default, so every
+    /// pre-existing payload keeps running over the whole well.
+    #[serde(default)]
+    pub interval: DepthWindow,
 }
 
 /// Applying an already-fitted model. Deliberately NOT an `MlRequest`: there is no training
@@ -1088,6 +1092,12 @@ pub struct MlApplyRequest {
     /// Read the model's feature curves from this log set (see [`MlRequest::input_set`]).
     #[serde(default)]
     pub input_set: Option<String>,
+    /// Confine the prediction to this depth window. Open by default. NOT inherited from the model:
+    /// the interval a model was FITTED over is a statement about where it learned, and the interval
+    /// it is being applied to is a separate decision the user makes per distribution — propagating
+    /// a Gumai-fitted model into the Talang Akar is a choice, and a wrong one, but it is theirs.
+    #[serde(default)]
+    pub interval: DepthWindow,
     /// Version the applied curves into this log set (default `ML`).
     #[serde(default)]
     pub output_set: Option<String>,
@@ -1152,6 +1162,57 @@ pub struct SplitReport {
     /// How many wells contributed rows. Present in both modes: in `sample` mode it is the answer
     /// to "how much rock is this really?", which the well lists no longer give.
     pub wells_pooled: usize,
+}
+
+/// The depth window a run is confined to.
+///
+/// Jauhar, 2026-08-07: *"it should be tops bounded as well by user"*. A model fitted over a whole
+/// well learns one relation for every formation it passed through, and a shale-prone deltaic sand
+/// and the carbonate below it do not share a porosity-permeability transform. Confining the fit to
+/// the interval the interpreter actually means is the difference between a model and an average.
+///
+/// **Each side is independent, and an open side is open.** That is the same convention
+/// `TopInterval` already follows in the frontend — the last top in a well runs to TD, which is
+/// expressed as no base rather than as a guessed one. Treating a missing base as "no window" would
+/// silently widen the run back to the whole well.
+///
+/// Applied like the run MASK, and for the same reason: a sample outside the window is not sent to
+/// python, so the scatter-back leaves it NaN. A depth outside the interval was not interpreted, and
+/// an empty sample says exactly that.
+#[derive(Debug, Clone, Copy, Default, Deserialize, serde::Serialize)]
+pub struct DepthWindow {
+    #[serde(default)]
+    pub top: Option<f64>,
+    #[serde(default)]
+    pub base: Option<f64>,
+}
+
+impl DepthWindow {
+    /// True when this window constrains nothing — used to keep the notes quiet on an ordinary run.
+    pub fn is_open(&self) -> bool {
+        self.top.is_none() && self.base.is_none()
+    }
+
+    /// Inclusive at the top, EXCLUSIVE at the base — so two abutting intervals cannot both claim
+    /// the sample sitting exactly on their shared marker, which would double-count it in any run
+    /// that swept a well zone by zone.
+    pub fn contains(&self, d: f32) -> bool {
+        let d = d as f64;
+        if !d.is_finite() {
+            return false;
+        }
+        self.top.map_or(true, |t| d >= t) && self.base.map_or(true, |b| d < b)
+    }
+
+    /// How the window reads in a note, for a run that has to say what it was confined to.
+    pub fn describe(&self) -> String {
+        match (self.top, self.base) {
+            (Some(t), Some(b)) => format!("{t} to {b}"),
+            (Some(t), None) => format!("{t} to TD"),
+            (None, Some(b)) => format!("the top of the log to {b}"),
+            (None, None) => "the whole well".to_string(),
+        }
+    }
 }
 
 fn fail(msg: &str) -> MlResult {
@@ -1813,7 +1874,7 @@ fn run_ml_coverage(
                     let mut avail = vec![0u32; depth.len()];
                     let mut masked = 0usize;
                     for i in 0..depth.len() {
-                        if mcol.is_some_and(|m| m[i] == 1.0) {
+                        if mcol.is_some_and(|m| m[i] == 1.0) || !req.interval.contains(depth[i]) {
                             masked += 1;
                             continue;
                         }
@@ -1899,7 +1960,7 @@ fn run_ml_coverage(
         // Trains on every row carrying this subset, whatever else those rows carry.
         let (mut x_train, mut y_train, mut groups, _empty, roster) = {
             let conn = db.lock().unwrap();
-            assemble_training(&conn, &req.train_well_ids, &sub, &target, mask_curve.as_ref(), req.input_set.as_deref())
+            assemble_training(&conn, &req.train_well_ids, &sub, &target, mask_curve.as_ref(), req.input_set.as_deref(), req.interval)
         };
         let transform = req
             .target_transform
@@ -2420,6 +2481,7 @@ fn assemble_training(
     tgt: &str,
     mask_curve: Option<&String>,
     input_set: Option<&str>,
+    window: DepthWindow,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<String>, Vec<TrainWellRecord>) {
     let mut fetch_names = features.to_vec();
     fetch_names.push(tgt.to_string());
@@ -2447,6 +2509,13 @@ fn assemble_training(
                     // MASK convention (workflow.rs): a mask value of exactly 1.0 excludes the
                     // sample from X/y; 0.0 / NaN / absent keeps it.
                     if mcol.map_or(false, |m| m[i] == 1.0) {
+                        masked += 1;
+                        continue;
+                    }
+                    // Counted with the masked rows rather than the incomplete ones: both are
+                    // deliberate exclusions, whereas `incomplete` means a curve was never measured
+                    // there, and a well refused for having no rows has to name which it was.
+                    if !window.contains(depth[i]) {
                         masked += 1;
                         continue;
                     }
@@ -2603,7 +2672,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         if supervised {
             let tgt = target.clone().unwrap();
             let (xt, yt, gt, empty, rec) =
-                assemble_training(&conn, &req.train_well_ids, &features, &tgt, mask_curve.as_ref(), req.input_set.as_deref());
+                assemble_training(&conn, &req.train_well_ids, &features, &tgt, mask_curve.as_ref(), req.input_set.as_deref(), req.interval);
             x_train = xt;
             y_train = yt;
             groups = gt;
@@ -2614,6 +2683,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         if let Some(mk) = &mask_curve {
             apply_fetch.push(mk.clone());
         }
+        let window = req.interval;
         for well_id in &req.apply_well_ids {
             match fetch_curve_frame_from_set(&conn, well_id, &apply_fetch, req.input_set.as_deref(), None) {
                 Ok((depth, cols)) => {
@@ -2634,7 +2704,9 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     for i in 0..depth.len() {
                         // Masked apply rows (mask == 1.0) are never sent to python, so scatter-back
                         // leaves them NaN — the OUTPUT-blanking half of the module MASK convention.
-                        if mcol.map_or(false, |m| m[i] == 1.0) {
+                        // A depth outside the run's interval takes the same route: it was never
+                        // interpreted, and an empty sample says exactly that.
+                        if mcol.map_or(false, |m| m[i] == 1.0) || !window.contains(depth[i]) {
                             masked += 1;
                             continue;
                         }
@@ -2937,6 +3009,18 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             if let Some(step) = out_step {
                 metrics["output_step"] = serde_json::json!(step);
             }
+            if !req.interval.is_open() {
+                // Said on every confined run, whether or not it changed the row count. A model
+                // fitted over one zone and read as a whole-well answer is the error this prevents,
+                // and it is only preventable if the confinement is on the record beside the score.
+                notes.push(format!(
+                    "confined to {} - both the rows this was fitted on and the depths it wrote. Its scores describe that interval and nothing above or below it",
+                    req.interval.describe()
+                ));
+            }
+            if !req.interval.is_open() {
+                metrics["interval"] = serde_json::json!({ "top": req.interval.top, "base": req.interval.base });
+            }
             let mut blocks_written = 0usize;
             let mut wells = Vec::new();
             let conn = db.lock().unwrap();
@@ -3227,6 +3311,7 @@ pub fn apply_ml_model(
         return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
     };
     let mask_curve = req.mask_curve.as_deref().map(|m| m.trim().to_uppercase()).filter(|m| !m.is_empty());
+    let window = req.interval;
 
     let (info, blob) = {
         let conn = db.lock().unwrap();
@@ -3322,7 +3407,7 @@ pub fn apply_ml_model(
                     let mut idx = Vec::new();
                     let mut masked = 0usize;
                     for i in 0..depth.len() {
-                        if mcol.map_or(false, |m| m[i] == 1.0) {
+                        if mcol.map_or(false, |m| m[i] == 1.0) || !window.contains(depth[i]) {
                             masked += 1;
                             continue;
                         }
@@ -4483,6 +4568,7 @@ mod tests {
             target_transform: None,
             coverage_segments: false,
             output_step: None,
+            interval: DepthWindow::default(),
         }
     }
 
@@ -4736,6 +4822,59 @@ mod tests {
         assert_eq!(transformed_unit("log10", Some("mD")), "log10(mD)");
         assert_eq!(transformed_unit("log10", Some("  ")), "log10");
         assert_eq!(transformed_unit("log10", None), "log10");
+    }
+
+    /// **A tops-bounded run is bounded on BOTH sides of the work: what it learns from, and what it
+    /// writes.**
+    ///
+    /// Jauhar, 2026-08-07: *"it should be tops bounded as well by user"*. A model fitted over a
+    /// whole well learns one relation for every formation it passed through, and a deltaic sand and
+    /// the carbonate below it do not share a porosity-permeability transform.
+    ///
+    /// Three things here are the ones that go wrong quietly:
+    ///
+    /// An open side must stay open. The last top in a well runs to TD, expressed as no base rather
+    /// than a guessed one — read as "no window", the run silently widens back to the whole well and
+    /// the interpreter gets a field-wide model under a zone's name.
+    ///
+    /// The base is EXCLUSIVE while the top is inclusive, so two abutting zones cannot both claim the
+    /// sample sitting exactly on their shared marker. Swept zone by zone, an inclusive base would
+    /// count that sample twice — once in each model, in both scores.
+    ///
+    /// And a NaN depth is in no window at all. `contains` on a non-finite depth has to be false, or
+    /// a comparison that is false in both directions lets it fall through whichever branch was
+    /// written second.
+    #[test]
+    fn a_tops_bounded_run_is_confined_on_both_sides_and_an_open_side_stays_open() {
+        let both = DepthWindow { top: Some(2000.0), base: Some(2100.0) };
+        assert!(!both.is_open());
+        assert!(both.contains(2000.0), "the top marker's own sample is INSIDE its zone");
+        assert!(both.contains(2099.9));
+        assert!(!both.contains(2100.0), "the base marker belongs to the zone BELOW, or it is counted twice");
+        assert!(!both.contains(1999.9));
+
+        // An open side is open, not zero and not the top of the log.
+        let to_td = DepthWindow { top: Some(2000.0), base: None };
+        assert!(to_td.contains(9999.0), "no base means run to TD");
+        assert!(!to_td.contains(1999.0));
+        let from_top = DepthWindow { top: None, base: Some(2100.0) };
+        assert!(from_top.contains(0.0), "no top means start at the top of the log");
+        assert!(!from_top.contains(2100.0));
+
+        // The default constrains nothing, which is what keeps every pre-existing payload whole.
+        let open = DepthWindow::default();
+        assert!(open.is_open());
+        assert!(open.contains(-1.0) && open.contains(1e9));
+
+        // A depth that is not a number is in no window, including the open one.
+        assert!(!both.contains(f32::NAN));
+        assert!(!open.contains(f32::NAN));
+
+        // The description is what the run's note quotes, so an open side must not read as a number.
+        assert_eq!(both.describe(), "2000 to 2100");
+        assert_eq!(to_td.describe(), "2000 to TD");
+        assert_eq!(from_top.describe(), "the top of the log to 2100");
+        assert_eq!(open.describe(), "the whole well");
     }
 
     /// **A depth is predicted by the largest model whose curves it carries, and by nothing else.**
@@ -6043,7 +6182,7 @@ mod tests {
         let features = vec!["GR".to_string()];
         let ids = vec![a.to_string()];
         let (_x, y, _g, empty, roster) =
-            assemble_training(&conn, &ids, &features, "RHOB", Some(&"BADHOLE".to_string()), None);
+            assemble_training(&conn, &ids, &features, "RHOB", Some(&"BADHOLE".to_string()), None, DepthWindow::default());
 
         assert!(empty.is_empty(), "the well contributed, so it is not an empty well");
         assert_eq!(y.len(), 5, "10 depths, 3 masked, 2 with no target");
@@ -6056,7 +6195,7 @@ mod tests {
 
         // The other side: the same well with no mask loses nothing to one.
         let (_x2, y2, _g2, _e2, roster2) =
-            assemble_training(&conn, &ids, &features, "RHOB", None, None);
+            assemble_training(&conn, &ids, &features, "RHOB", None, None, DepthWindow::default());
         assert_eq!(y2.len(), 8, "the three flagged depths are ordinary rows without a mask");
         assert_eq!(roster2[0].masked, 0, "no mask, nothing attributed to one");
         assert_eq!(roster2[0].incomplete, 2);
@@ -6175,6 +6314,7 @@ mod tests {
                 apply_well_ids: vec![blind.clone()],
                 output_curve: "PHIT_ML".into(),
                 mask_curve: None,
+                interval: DepthWindow::default(),
             },
             None,
         );
@@ -6450,7 +6590,8 @@ mod tests {
 
         let features = vec!["GR".to_string()];
         let ids = vec![good.to_string(), bad.to_string()];
-        let (_x, y, groups, empty, roster) = assemble_training(&conn, &ids, &features, "RHOB", None, None);
+        let (_x, y, groups, empty, roster) =
+            assemble_training(&conn, &ids, &features, "RHOB", None, None, DepthWindow::default());
         assert_eq!(groups.len(), y.len(), "every training row carries the well it came from");
 
         assert_eq!(y.len(), n, "the well with the target contributes all its rows");

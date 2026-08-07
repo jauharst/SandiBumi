@@ -1170,6 +1170,10 @@ export interface MlRequest {
    *  Omit or null to write at the input frame, which is what every run did before this existed. A
    *  saved model records it, and applying that model inherits it. */
   output_step?: number | null;
+  /** Confine BOTH the fit and the prediction to this depth window (Jauhar: *"it should be tops
+   *  bounded as well by user"*). A model fitted over a whole well learns one relation for every
+   *  formation it passed through. Omit for the whole logged interval. */
+  interval?: DepthWindow;
 }
 
 /** One feature subset a coverage-segmented run fitted a model for, or declined to. Reported per
@@ -1286,6 +1290,15 @@ export interface MlModelInfo {
   runtime_json: string | null;
 }
 
+/** A depth window a run is confined to.
+ *
+ *  Each side is independent and an open side stays open: no base means run to TD, exactly as the
+ *  last top in a well does. Omit the whole object for the full logged interval. */
+export interface DepthWindow {
+  top?: number | null;
+  base?: number | null;
+}
+
 export interface MlApplyRequest {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
@@ -1295,6 +1308,9 @@ export interface MlApplyRequest {
   apply_well_ids: string[];
   output_curve: string;
   mask_curve?: string | null;
+  /** Confine the prediction to this depth window. NOT inherited from the model: where a model
+   *  LEARNED and where you choose to propagate it are separate decisions. */
+  interval?: DepthWindow;
 }
 
 export function listMlModels(): Promise<MlModelInfo[]> {
