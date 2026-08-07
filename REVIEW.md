@@ -9260,3 +9260,61 @@ dark does a see-through panel become obvious.
 - [ ] **A fourth, found independently the same day and fixed on the ML branch**: the coverage-segment
       cards in the ML pane's Results. Same token, same white-on-dark result. Mentioned here so the
       count in this section's title is not read as the whole tally.
+
+## ML pane, round 3 — the five points from your click-through (2026-08-07)
+
+**1 + 2 — Run Model moved, and propagation became its own section.** These were one change: the
+same question ("what does this button apply to") answered by putting each button with the choices it
+consumes. Run Model was a pane FOOTER visible from every section — standing under Data QC it read as
+acting on what Data QC was showing. It is now last in **Model**, after everything it consumes.
+
+**Model Distribution** is a fifth section with its own well scope, interval, log sets, output name
+and mask. Its mask is its own on purpose: those are different wells, and a bad-hole flag is a
+property of the hole it was computed in. What it does NOT restate is the model's features and their
+order — those travel inside the artifact, and letting a caller restate them would invite them to
+differ. It prints them instead.
+
+**Tops bounding** confines both the rows a model learns from and the depths it writes. Pick a marker
+and it fills two editable depth boxes; the run always sends numbers, so what was used stays
+recoverable after somebody moves the tops. Three rules, all silent when wrong: an open side stays
+OPEN (the deepest marker runs to TD, and reading a missing base as "no window" would widen the run
+back to the whole well under a zone's name); the base is EXCLUSIVE while the top is inclusive, so two
+abutting zones cannot both claim the sample on their shared marker; and a NaN depth is in no window.
+**The limitation, stated in the control:** markers are read from the SELECTED well and applied as
+depths to every well in the run. Resolving per well sounds more correct, but a well lacking the
+marker would fall back to its whole length and join the fit as a different population.
+
+**3 — Three algorithm groups.** Universal (Random Forest, Support Vector — the families the runner
+fits both ways, listed once with a Continuous/Discrete control beside them), Continuous only,
+Discrete only. Electrofacies clustering sits under Discrete because it writes class codes; PCA and
+t-SNE under Continuous because they write component curves. Nothing was dropped.
+
+**4 — Copy / Image / SVG / Print** under the score chart and the predicted-vs-measured crossplot.
+
+**5 — sampling is not resolution.** You are right, and this is the half that needs no decision from
+you: every supervised run now MEASURES how much the prediction wiggles against the measured target it
+learned from, and says so when it falls short. A prediction is always smoother than its target
+because the model can only carry through the detail its inputs contain — a curve read over feet
+cannot produce detail measured over inches. **Nothing synthesizes the missing detail**, because that
+produces a log that looks better resolved without being better known. Two questions on that are
+waiting for you.
+
+- [ ] **Open ML Models.** Five sections. Run Model is at the bottom of **Model** and nowhere else.
+- [ ] **On Input, pick a marker in Interval.** Top and Base fill in; the deepest marker leaves Base
+      empty (runs to TD). Type over them and the marker selection clears — the depths win.
+- [ ] **Run bounded.** The written curve should be blank above the top and below the base, and the
+      notes should say what it was confined to.
+- [ ] **Check the base marker's own sample.** It belongs to the zone BELOW. Run two abutting zones
+      into two curves and no depth should appear in both.
+- [ ] **Save a model, then go to Model Distribution.** Pick it: the note names the curves it needs
+      and the order. Choose a DIFFERENT well set and a different interval, give the curve its own
+      name, Distribute. It must not inherit the fit's wells or interval.
+- [ ] **Open the Algorithm list.** Three groups. Random Forest and Support Vector appear once, under
+      Universal, with Continuous/Discrete beside the picker.
+- [ ] **Switch Support Vector to Discrete.** The picker keeps its name and the parameters drop to the
+      classifier's set. Then pick Random Forest — it should STAY on Discrete.
+- [ ] **Run a regression where the target is much sharper than the inputs** (core porosity from GR
+      and deep resistivity). The notes should say the prediction is smoother than the measured log,
+      and by roughly how much. Read a thin bed off it and see whether you agree.
+- [ ] **Export a chart.** Copy, Image, SVG and Print under the score chart and the crossplot. Open
+      the SVG somewhere else — the colours must survive leaving the app.

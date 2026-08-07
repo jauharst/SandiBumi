@@ -2466,3 +2466,32 @@ frontend-only; 1, 2 and 5 change what the pane IS; 4 is an export pass.
    GROUP, which sizes to its content, so the pinned background was only as wide as the four tabs and
    the form scrolled through beside them. The sticky element is now a full-width bar holding
    the pills.
+
+### A-ML status after the round-3 work (2026-08-07)
+
+Items 1, 2, 3, 4 and 6 of the click-through are DONE (PRs #16 and #18). Item 5 is half done: the
+resolution shortfall is measured and reported on every supervised run; **synthesizing** the missing
+frequency content is not built, and should not be until Jauhar answers two questions — should the
+added detail be spectrally matched to the training target or should the tool simply report and leave
+the curve smooth, and if synthesized, should it carry a separate curve name the way the log10
+back-transform does.
+
+**ML PRD (`docs/PRD_v2/24_ml-advanced.md`) audit, same day.** Of 65 requirements: 22 PRESENT-OK,
+11 PRESENT-DIVERGENT, 8 PARTIAL, 23 ABSENT, 1 PRESENT-UNVERIFIED. That backlog is real but it is
+not all reachable work — a large part of the ABSENT set describes capabilities SandiBumi has not
+built at all (SOM maps and their distortion measure, fuzzy-logic combination and its uncertainty
+band, the tie-in acceptance threshold, the native non-sklearn clustering path with its own quality
+index and restart spread). Those are feature decisions, not gaps in shipped code.
+
+The ABSENT/PARTIAL items that DO describe code already in the tree, and are therefore the honest
+next backlog, in priority order:
+
+- **SB-MLA-007** — a model cited by a stored curve cannot be deleted silently. `deleteMlModel`
+  exists and does not check; a delivered curve naming a model that is gone cannot be defended.
+- **SB-MLA-017** — a cancelled run must leave no partially populated log set.
+- **SB-MLA-021** — density-based noise (DBSCAN) is a reported class, not a missing value.
+- **SB-MLA-022** — the ordered-feature refusal is verified on the DEFAULT gate. The test exists and
+  is `#[ignore]`d, so the contract is proven only when somebody remembers to run the ignored set.
+- **SB-MLA-011 / -012** — per-well training/apply roles, and a substituted algorithm recorded under
+  the name that was requested. The runtime half of -012 shipped; the algorithm-name half did not.
+- **SB-MLA-030 / -063 / -065** — typed probability outputs, and declared rather than silent caps.
