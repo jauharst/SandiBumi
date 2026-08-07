@@ -12,6 +12,7 @@ import {
   type MlModelInfo,
   type MlRequest,
   type MlResult,
+  type SplitBalance,
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
@@ -295,7 +296,38 @@ export async function buildMlContent(
   pctLab.append(splitPct, document.createTextNode(" % of samples held blind"));
   const seedLab = document.createElement("label");
   seedLab.append(document.createTextNode("seed "), splitSeed);
-  splitFields.append(pctLab, seedLab);
+
+  // The two modes answer different questions and neither is a better version of the other, so this
+  // is a choice rather than a default with an override. `.seg`/`.seg-opt` is the app's segmented
+  // control (Organic increment 2) — the same component the Field Dashboard's Flag/Metric pills use.
+  const modeSeg = document.createElement("div");
+  modeSeg.className = "seg ml-split-mode";
+  let splitMode: "well" | "sample" = "well";
+  const modeBtns = new Map<string, HTMLButtonElement>();
+  for (const [id, label, title] of [
+    ["well", "Whole wells", "Hold back entire wells. Answers: will this model work on the next well I drill? Cannot leak."],
+    ["sample", "Random rows", "Draw individual samples, stratified so the blind set carries the same distribution. Exact percentage; optimistic on log data, because the depth above and below a held-out sample are usually in the fit set."],
+  ] as const) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "seg-opt";
+    // `aria-pressed` is what `.seg-opt` styles off, not a class — the convention the Field
+    // Dashboard's pills already set. One selected-state mechanism, not two.
+    b.setAttribute("aria-pressed", String(id === "well"));
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener("click", () => {
+      splitMode = id;
+      for (const [k, el] of modeBtns) el.setAttribute("aria-pressed", String(k === id));
+      echoSplit();
+    });
+    modeBtns.set(id, b);
+    modeSeg.appendChild(b);
+  }
+  const modeLab = document.createElement("label");
+  modeLab.append(document.createTextNode("held back as "), modeSeg);
+
+  splitFields.append(pctLab, modeLab, seedLab);
   splitWrap.append(splitOnLabel, splitFields, splitEcho);
 
   /** Say what the percentage is aiming at, and what it CANNOT promise, before the run.
@@ -321,6 +353,15 @@ export async function buildMlContent(
       return;
     }
     const pct = Math.max(0, Math.min(100, Number(splitPct.value) || 0));
+    if (splitMode === "sample") {
+      splitEcho.textContent =
+        `SandiBumi draws exactly ${pct}% of the pooled samples at random from all ${n} wells, stratified on the ` +
+        `target so the blind set carries the same distribution as the whole. Every well is on both sides. ` +
+        `This scores optimistically on log data — the depths either side of a held-out sample are usually in ` +
+        `the fit set — so read it beside the cross-validation score, which stays grouped by well.`;
+      splitEcho.classList.add("ml-split-thin");
+      return;
+    }
     splitEcho.textContent =
       `SandiBumi picks whole wells from the ${n} selected until about ${pct}% of their pooled samples are held back. ` +
       `Whole wells rarely divide the data exactly — the share actually reached is reported with the score.` +
@@ -329,8 +370,10 @@ export async function buildMlContent(
   }
   splitOn.addEventListener("change", () => {
     splitPct.disabled = splitSeed.disabled = !splitOn.checked;
+    for (const el of modeBtns.values()) el.disabled = !splitOn.checked;
     echoSplit();
   });
+  for (const el of modeBtns.values()) el.disabled = true;
   splitPct.addEventListener("input", echoSplit);
   for (const cb of train.checks.values()) cb.addEventListener("change", echoSplit);
 
@@ -741,6 +784,7 @@ export async function buildMlContent(
       save_model_as: task.supervised && saveInput.value.trim() ? saveInput.value.trim() : null,
       blind_fraction: task.supervised && splitOn.checked ? Number(splitPct.value) / 100 : null,
       split_seed: task.supervised && splitOn.checked ? Number(splitSeed.value) || 0 : null,
+      split_mode: task.supervised && splitOn.checked ? splitMode : null,
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
@@ -895,11 +939,13 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
 
   const askedPct = sp.requested_fraction * 100;
   const gotPct = sp.achieved_fraction * 100;
+  const bySample = sp.mode === "sample";
   const head = document.createElement("div");
   head.className = "ml-split-head";
   head.textContent =
-    `Blind test — ${gotPct.toFixed(1)}% of the data held back ` +
-    `(asked for ${Math.round(askedPct)}%, seed ${sp.seed})`;
+    `Blind test — ${gotPct.toFixed(1)}% of the data held back, ` +
+    (bySample ? "drawn as random rows" : "held back as whole wells") +
+    ` (asked for ${Math.round(askedPct)}%, seed ${sp.seed})`;
   box.appendChild(head);
 
   for (const [label, ids, rows, cls] of [
@@ -913,26 +959,41 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
     k.textContent = label;
     const v = document.createElement("span");
     // Samples beside the names, because the names alone do not say how much rock this is — two
-    // wells can be a third of the field or a twentieth of it.
+    // wells can be a third of the field or a twentieth of it. In sample mode there are no names
+    // to print (every well is on both sides), so the row count carries the whole answer.
     v.textContent = ids.length
       ? `${ids.map(name).join(", ")} — ${rows.toLocaleString()} samples`
-      : "—";
+      : bySample
+        ? `${rows.toLocaleString()} samples, drawn from all ${sp.wells_pooled} well(s)`
+        : "—";
     row.append(k, v);
     box.appendChild(row);
   }
 
-  // Whole wells are lumpy, so the request is a target and missing it is normal. Say so when the
-  // miss is big enough to change what the score means — silently printing the achieved number
-  // beside the requested one would leave the user to notice the gap themselves.
-  const miss = Math.abs(gotPct - askedPct);
-  if (miss >= 5) {
+  if (bySample) {
+    // Not a warning about a mistake — a label on what the number means. The user chose this mode
+    // knowing what it does; what they must not do is quote the score without the qualifier.
     const g = document.createElement("div");
-    g.className = miss >= 15 ? "ml-split-gap ml-split-gap-warn" : "ml-split-gap";
+    g.className = "ml-split-gap ml-split-gap-warn";
     g.textContent =
-      `Whole wells could not divide these samples at ${Math.round(askedPct)}% — the nearest reachable split holds ` +
-      `${gotPct.toFixed(1)}%. Wells are held back whole so the model is never scored on rock it saw a few centimetres away; ` +
-      `that is what makes the share coarse.`;
+      "A row drawn blind usually has the depth above and below it in the fit set, so this score is optimistic — " +
+      "it says the model learned the relationship in these wells, not that it will hold in the next one. " +
+      "The cross-validation row below is still grouped by well and does not have that problem; read the two together.";
     box.appendChild(g);
+  } else {
+    // Whole wells are lumpy, so the request is a target and missing it is normal. Say so when the
+    // miss is big enough to change what the score means — silently printing the achieved number
+    // beside the requested one would leave the user to notice the gap themselves.
+    const miss = Math.abs(gotPct - askedPct);
+    if (miss >= 5) {
+      const g = document.createElement("div");
+      g.className = miss >= 15 ? "ml-split-gap ml-split-gap-warn" : "ml-split-gap";
+      g.textContent =
+        `Whole wells could not divide these samples at ${Math.round(askedPct)}% — the nearest reachable split holds ` +
+        `${gotPct.toFixed(1)}%. Wells are held back whole so the model is never scored on rock it saw a few centimetres away; ` +
+        `that is what makes the share coarse.`;
+      box.appendChild(g);
+    }
   }
 
   // Regression and classification report different things; show whichever pair exists.
@@ -944,10 +1005,20 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
 
   const scores = document.createElement("table");
   scores.className = "mc-table ml-score-table";
+  // Mode-aware, because the same row means a different thing in each and the wrong wording is a
+  // false claim rather than a clumsy one: a sample split never held out a well, so calling its
+  // score a score on "blind wells" states exactly what did not happen.
+  const blindWells = num("n_blind_wells");
   const rows: [string, number | null, string][] = [
-    [`${unit} on the wells it was fitted on`, trainV, "in-sample — always the flattering one"],
+    [`${unit} on the rows it was fitted on`, trainV, "in-sample — always the flattering one"],
     [`${unit} in cross-validation`, cvV, String(m[isClf ? "accuracy_cv_folds" : "r2_cv_folds"] ?? "folds of the fitted wells")],
-    [`${unit} on the blind wells`, blindV, `${num("n_blind") ?? 0} samples in ${num("n_blind_wells") ?? 0} well(s) the model never saw`],
+    [
+      bySample ? `${unit} on the blind rows` : `${unit} on the blind wells`,
+      blindV,
+      bySample
+        ? `${num("n_blind") ?? 0} rows drawn from wells the model also trained on`
+        : `${num("n_blind") ?? 0} samples in ${blindWells ?? 0} well(s) the model never saw`,
+    ],
   ];
   for (const [label, v, note] of rows) {
     if (v == null) continue;
@@ -969,9 +1040,16 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
     const warn = gap > 0.15;
     const g = document.createElement("div");
     g.className = warn ? "ml-split-gap ml-split-gap-warn" : "ml-split-gap";
+    // In sample mode a small gap says nothing about travelling to a new WELL — the blind rows came
+    // from the same wells. Claiming otherwise would be the single most misleading sentence on the
+    // panel, so the two modes get different readings of the same number.
     g.textContent = warn
-      ? `The model scores ${gap.toFixed(3)} better on the wells it was fitted on than on the wells it was not. That gap is the part of the fit that does not travel.`
-      : `Train and blind agree to within ${Math.abs(gap).toFixed(3)} — the fit travels to wells it has not seen.`;
+      ? bySample
+        ? `The model scores ${gap.toFixed(3)} better on the rows it was fitted on than on the rows it was not — and both came from the same wells. A gap this size on a within-well split usually means memorisation.`
+        : `The model scores ${gap.toFixed(3)} better on the wells it was fitted on than on the wells it was not. That gap is the part of the fit that does not travel.`
+      : bySample
+        ? `Fitted and blind rows agree to within ${Math.abs(gap).toFixed(3)}. That says the model learned the relationship present in these wells — not that it travels to a new one. Compare the cross-validation row for that.`
+        : `Train and blind agree to within ${Math.abs(gap).toFixed(3)} — the fit travels to wells it has not seen.`;
     box.appendChild(g);
   }
   if (sp.blind_wells.length === 1) {
@@ -979,6 +1057,61 @@ function renderSplit(host: HTMLElement, res: MlResult, nameOf?: (id: string) => 
     thin.className = "ml-split-gap ml-split-gap-warn";
     thin.textContent = "One blind well is one opinion. It says the model is not broken; it does not say the score is stable.";
     box.appendChild(thin);
+  }
+
+  // "Similar statistics" is a claim, so it is evidenced rather than asserted. A stratified draw is
+  // SUPPOSED to make these match — so a row that does not match is the useful one: it means that
+  // stratum was too thin to divide representatively, and the blind score leans on it.
+  const bal = Array.isArray(m.split_balance) ? (m.split_balance as SplitBalance[]) : null;
+  if (bal && bal.length) {
+    const cap = document.createElement("div");
+    cap.className = "ml-split-head ml-balance-head";
+    cap.textContent = "How alike the two sides are";
+    box.appendChild(cap);
+
+    const t = document.createElement("table");
+    t.className = "mc-table ml-balance-table";
+    const hr = document.createElement("tr");
+    for (const h of ["", "fitted mean", "blind mean", "difference"]) {
+      const th = document.createElement("th");
+      th.textContent = h;
+      hr.appendChild(th);
+    }
+    t.appendChild(hr);
+    for (const b of bal) {
+      // Scaled by the fitted side's own spread, because a 0.02 gap is nothing on GR and everything
+      // on porosity — an absolute difference cannot be compared across curves.
+      const sd = Math.max(Math.abs(b.fit_sd), 1e-9);
+      const z = Math.abs(b.fit_mean - b.blind_mean) / sd;
+      const tr = document.createElement("tr");
+      if (z > 0.25) tr.className = "ml-balance-off";
+      const cells = [
+        b.name,
+        b.fit_mean.toPrecision(4),
+        b.blind_mean.toPrecision(4),
+        `${z < 0.005 ? "<0.01" : z.toFixed(2)} sd`,
+      ];
+      cells.forEach((c, i) => {
+        const el = document.createElement(i === 0 ? "th" : "td");
+        el.textContent = c;
+        tr.appendChild(el);
+      });
+      t.appendChild(tr);
+    }
+    box.appendChild(t);
+
+    const worst = Math.max(
+      ...bal.map((b) => Math.abs(b.fit_mean - b.blind_mean) / Math.max(Math.abs(b.fit_sd), 1e-9)),
+    );
+    const note = document.createElement("div");
+    note.className = worst > 0.25 ? "ml-score-note ml-split-gap-warn" : "ml-score-note";
+    note.textContent =
+      worst > 0.25
+        ? `The two sides differ by up to ${worst.toFixed(2)} standard deviations on one input — the blind set is not a ` +
+          `representative sample of the whole, so its score is partly a statement about which rows happened to be drawn.`
+        : "Every input and the target agree between the two sides to well within a quarter of a standard deviation — " +
+          "the blind set is a representative sample of the whole.";
+    box.appendChild(note);
   }
   host.appendChild(box);
 }

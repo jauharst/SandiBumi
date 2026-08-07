@@ -757,6 +757,27 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- `pinned` added via ALTER so existing project databases converge on the same shape.
         ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS pinned INTEGER DEFAULT 0;
 
+        -- SB-MLA-055. A row here DECLARES that a curve's values are class identifiers — a facies
+        -- code, a litho code, a predicted class — and not a quantity. Averaging or interpolating
+        -- one produces a number that is not any class: the mean of facies 1 and facies 4 is 2.5,
+        -- which plots, exports and reads back as a facies that was never in the scheme.
+        --
+        -- Its own table rather than a column on `curve_meta`, because `curve_meta` covers only the
+        -- generic IMPORT store and the curves that need this most are module outputs, which live in
+        -- `computed_curves` and have no metadata row anywhere. Keyed by NAME for the same reason —
+        -- that is the only identifier `computed_curves` carries.
+        --
+        -- DECLARED, not detected. `reframe::looks_discrete` still guesses from the values so a
+        -- LITH curve off a LAS is handled sensibly, but a guess may only pick the DEFAULT method:
+        -- a caliper that happens to read whole inches must stay averageable when the user says so.
+        -- A declaration is the producer's statement about what the numbers MEAN, so it overrides.
+        CREATE TABLE IF NOT EXISTS curve_class (
+            well_id     UUID NOT NULL,
+            curve_name  VARCHAR NOT NULL,
+            source      VARCHAR,   -- what declared it, e.g. 'electrofacies', 'ml:classification'
+            PRIMARY KEY (well_id, curve_name)
+        );
+
         CREATE TABLE IF NOT EXISTS curve_samples (
             curve_id    UUID NOT NULL,
             depth       FLOAT NOT NULL,
@@ -1217,6 +1238,39 @@ pub fn list_array_curves(conn: &Connection, well_id: &str) -> DbResult<Vec<Array
         })?
         .collect::<duckdb::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+/// Records that these curves hold class identifiers, not quantities (`curve_class`, SB-MLA-055).
+///
+/// Called by whatever PRODUCED the curve, because that is the only place the answer is known
+/// rather than guessed. A classifier writes both a class curve and its probability curves in one
+/// run, and the probabilities are ordinary continuous quantities — so this takes the output names
+/// it is given and never infers a family from a prefix.
+///
+/// Idempotent: a re-run of the same module re-declares the same curves, and a declaration that
+/// disappeared on the second run would leave the curve protected only until it was recomputed.
+pub fn declare_class_curves(conn: &Connection, well_id: &str, names: &[String], source: &str) -> DbResult<()> {
+    for name in names {
+        conn.execute(
+            "INSERT INTO curve_class (well_id, curve_name, source) VALUES (?, ?, ?)
+             ON CONFLICT (well_id, curve_name) DO UPDATE SET source = excluded.source",
+            duckdb::params![well_id, name.to_uppercase(), source],
+        )?;
+    }
+    Ok(())
+}
+
+/// Every curve declared as a class curve on this well, upper-cased.
+///
+/// Returned as a set for the whole well in one query rather than a per-curve lookup: the callers
+/// are transform paths that loop over curves, and a query per curve inside that loop would put a
+/// round trip between every column and the next.
+pub fn class_curves_for_well(conn: &Connection, well_id: &str) -> DbResult<std::collections::HashSet<String>> {
+    let mut stmt = conn.prepare("SELECT upper(curve_name) FROM curve_class WHERE well_id = ?")?;
+    let rows = stmt
+        .query_map([well_id], |r| r.get::<_, String>(0))?
+        .collect::<duckdb::Result<Vec<_>>>()?;
+    Ok(rows.into_iter().collect())
 }
 
 /// Deletes one array curve from a well (the Data Sets dialog's remove action).

@@ -150,8 +150,14 @@ d = header["d"]; n_train = header["n_train"]; has_y = header["has_target"]; n_ap
 save_model = bool(header.get("save_model", False))
 feature_names = header.get("features") or []
 has_groups = bool(header.get("has_groups", False))
-blind_groups = header.get("blind_groups") or []
-total = n_train * d + (n_train if has_y else 0) + n_apply * d + (n_train if has_groups else 0)
+# The blind set arrives as a per-ROW mask in the binary payload, not as a list of well indices.
+# Both split modes reduce to the same thing here - holding out whole wells is one particular row
+# mask - so the runner has one code path and cannot behave differently for the two. Sending it as
+# a payload column rather than a JSON list also keeps the header small when 30% of 200 000 rows
+# are held out.
+has_blind = bool(header.get("has_blind", False))
+total = (n_train * d + (n_train if has_y else 0) + n_apply * d
+         + (n_train if has_groups else 0) + (n_train if has_blind else 0))
 raw = sys.stdin.buffer.read(4 * total)
 if len(raw) != 4 * total:
     fail("truncated input stream")
@@ -164,12 +170,15 @@ def take(count):
 X = take(n_train * d).reshape(n_train, d).astype(np.float64)
 y = take(n_train).astype(np.float64) if has_y else None
 A = take(n_apply * d).reshape(n_apply, d).astype(np.float64)
-# One well index per training row. Two things need it and both are wrong without it: the
-# validation score must hold out whole WELLS (a random fold puts the same well on both sides,
-# and the model has then seen the interval it is being scored on), and the blind split is a
-# split of wells, never of samples, for exactly the same reason.
+# One well index per training row. CROSS-VALIDATION always holds out whole WELLS with it, in both
+# split modes and deliberately: a random fold puts the same well on both sides, and the model has
+# then seen the interval it is being scored on. So a sample-mode run still gets one score that
+# cannot leak, beside the sample-blind score it asked for.
 groups = take(n_train).astype(np.int64) if has_groups else None
-blind = np.isin(groups, np.asarray(blind_groups, dtype=np.int64)) if (has_groups and blind_groups) else None
+# Which rows are blind was decided in Rust - see split_blind_wells / split_blind_samples. The
+# runner never draws the split itself: it has to be reported and re-runnable whatever the
+# subprocess does with it.
+blind = take(n_train) > 0.5 if has_blind else None
 fit_rows = ~blind if blind is not None else None
 
 try:
@@ -230,15 +239,31 @@ def cv_score(model, scoring, key):
         metrics["cv_error"] = str(e)
 
 def blind_score(model, kind):
-    """Score on wells the model was never fitted on. The only number here that is honest by
-    construction rather than by argument."""
+    """Score on the rows held out of the fit."""
     if blind is None or not int(np.sum(blind)):
         return
     Xb, yb = Xs[blind], y[blind]
     metrics["n_blind"] = int(np.sum(blind))
-    metrics["n_blind_wells"] = int(len(np.unique(groups[blind])))
     metrics["n_fit"] = int(np.sum(fit_rows))
-    metrics["n_fit_wells"] = int(len(np.unique(groups[fit_rows])))
+    if groups is not None:
+        metrics["n_blind_wells"] = int(len(np.unique(groups[blind])))
+        metrics["n_fit_wells"] = int(len(np.unique(groups[fit_rows])))
+    # How alike the two sides are, per feature and on the target. This is the evidence for
+    # "similar statistics", and it is reported rather than asserted: a stratified draw is
+    # SUPPOSED to make these match, so a pair that does not match is the signal that the strata
+    # were wrong - a class with three samples in it cannot be split representatively.
+    try:
+        cmp = []
+        for j, nm in enumerate(feature_names or [("x%d" % j) for j in range(d)]):
+            cf, cb = X[fit_rows, j], X[blind, j]
+            cmp.append({"name": nm, "fit_mean": float(np.mean(cf)), "blind_mean": float(np.mean(cb)),
+                        "fit_sd": float(np.std(cf)), "blind_sd": float(np.std(cb))})
+        yf_, yb_ = y[fit_rows], y[blind]
+        cmp.append({"name": "(target)", "fit_mean": float(np.mean(yf_)), "blind_mean": float(np.mean(yb_)),
+                    "fit_sd": float(np.std(yf_)), "blind_sd": float(np.std(yb_))})
+        metrics["split_balance"] = cmp
+    except Exception:
+        pass
     try:
         if kind == "r2":
             pb = model.predict(Xb)
@@ -486,10 +511,23 @@ pub struct MlRequest {
     /// exactly, which is what lets every saved workflow and older IPC payload run unchanged.
     #[serde(default)]
     pub blind_fraction: Option<f64>,
-    /// Seed for the well shuffle. Fixed by default so the same request re-runs to the same
-    /// split — a blind score that moves when nothing changed cannot be cited (`SB-MLA-008`).
+    /// Seed for the draw. Fixed by default so the same request re-runs to the same split — a blind
+    /// score that moves when nothing changed cannot be cited (`SB-MLA-008`).
     #[serde(default)]
     pub split_seed: Option<u64>,
+    /// How the blind set is drawn: `"well"` (default) holds back whole wells; `"sample"` draws
+    /// individual rows, stratified on the target.
+    ///
+    /// They answer different questions and neither is a better version of the other. **By well**
+    /// asks "will this model work on the next well I drill?" — the only question a field study
+    /// actually has, and the only split that cannot leak. **By sample** asks "has this model
+    /// learned the relationship present in these wells?" — the conventional ML hold-out, exact in
+    /// its percentage and balanced in its statistics, and optimistic on log data because
+    /// consecutive depths are near-duplicates of each other.
+    ///
+    /// Defaults to `"well"`, which is what every older payload sends by omission.
+    #[serde(default)]
+    pub split_mode: Option<String>,
     /// Read every feature, target and mask curve from THIS log set's stored values (latest
     /// version per well) instead of whatever the current values happen to be. Curves the set
     /// never wrote fall back to normal resolution.
@@ -561,6 +599,8 @@ pub struct MlResult {
 /// score is always "which ones?".
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SplitReport {
+    /// In `sample` mode both lists are empty — every well contributes to both sides, so naming
+    /// them would say nothing. The row counts carry the whole answer there.
     pub fit_wells: Vec<String>,
     pub blind_wells: Vec<String>,
     /// Usable training rows on each side — what the fraction is really a fraction of.
@@ -570,6 +610,12 @@ pub struct SplitReport {
     /// `blind_rows / (fit_rows + blind_rows)`. What the user actually got.
     pub achieved_fraction: f64,
     pub seed: u64,
+    /// `"well"` or `"sample"` — see [`MlRequest::split_mode`]. Recorded because the two are
+    /// different claims and a score quoted without it cannot be read.
+    pub mode: String,
+    /// How many wells contributed rows. Present in both modes: in `sample` mode it is the answer
+    /// to "how much rock is this really?", which the well lists no longer give.
+    pub wells_pooled: usize,
 }
 
 fn fail(msg: &str) -> MlResult {
@@ -626,16 +672,7 @@ fn split_blind_wells(counts: &[usize], fraction: f64, seed: u64) -> Vec<usize> {
         return Vec::new();
     }
     let target = (total as f64) * fraction.min(1.0);
-    // SplitMix64, the generator facies.rs already uses — one definition of "seeded shuffle" in
-    // this repo, and reproducible across platforms in a way a hash-map iteration order is not.
-    let mut s = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    let mut next = || {
-        s = s.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = s;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    };
+    let mut next = splitmix(seed);
     let mut order: Vec<usize> = (0..n).collect();
     for i in (1..n).rev() {
         let j = (next() % (i as u64 + 1)) as usize;
@@ -678,6 +715,155 @@ fn split_blind_wells(counts: &[usize], fraction: f64, seed: u64) -> Vec<usize> {
     }
     blind.sort_unstable();
     blind
+}
+
+/// SplitMix64 — the one seeded generator in this repo (`facies.rs`, `split_blind_wells`).
+/// Reproducible across platforms in a way a hash-map iteration order is not.
+fn splitmix(seed: u64) -> impl FnMut() -> u64 {
+    let mut s = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    move || {
+        s = s.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = s;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+}
+
+/// Draw `fraction` of the ROWS at random as the blind set, STRATIFIED so the draw carries the same
+/// distribution as the whole (Jauhar, 2026-08-07: *"random sample 3000 data from there with
+/// similar statistic taken to be tested as blind"*).
+///
+/// Returns a 0/1 mask, one entry per training row.
+///
+/// **Stratified, not plain random, because "similar statistic" is the requirement.** A flat 30%
+/// draw over 10 000 rows has no obligation to be representative: a thin coal of forty samples can
+/// land wholly on one side, and a classifier's rarest facies can miss the blind set entirely — at
+/// which point the blind accuracy is an average over the classes that happened to be drawn.
+/// Drawing 30% WITHIN each stratum forces both sides to carry the same mix. `strata` is the class
+/// for a classifier and a decile of the target for a regressor; either way the split is balanced on
+/// the quantity being predicted, which is the one that decides the score.
+///
+/// Each stratum contributes `round(fraction * size)`, then the remainder is corrected against the
+/// exact target so the total lands on the requested count rather than accumulating rounding error
+/// across ten strata. Every stratum with two or more rows keeps at least one on each side; a
+/// stratum of one cannot be divided and goes to the fit, because a blind class the model was never
+/// shown scores zero for a reason that is not the model's.
+///
+/// **This split leaks and the caller says so.** Consecutive depths at a 0.1524 m sampling are all
+/// but the same rock, so a row drawn blind usually has its neighbour in the fit set and the score
+/// is optimistic. That is a property of the method, not a defect in it — the well-grouped
+/// cross-validation score is reported beside it precisely so the two can be compared.
+fn split_blind_samples(strata: &[i64], fraction: f64, seed: u64) -> Vec<f32> {
+    let n = strata.len();
+    let mut mask = vec![0f32; n];
+    if n < 2 || !(fraction > 0.0) {
+        return mask;
+    }
+    let f = fraction.min(1.0);
+    let want_total = ((n as f64) * f).round() as usize;
+    let want_total = want_total.clamp(1, n - 1);
+
+    // Rows grouped by stratum, in first-seen order so the result does not depend on hash ordering.
+    let mut order: Vec<i64> = Vec::new();
+    let mut buckets: std::collections::HashMap<i64, Vec<usize>> = std::collections::HashMap::new();
+    for (i, s) in strata.iter().enumerate() {
+        buckets.entry(*s).or_insert_with(|| {
+            order.push(*s);
+            Vec::new()
+        });
+        buckets.get_mut(s).unwrap().push(i);
+    }
+
+    let mut next = splitmix(seed);
+    let mut taken = 0usize;
+    for s in &order {
+        let rows = buckets.get_mut(s).unwrap();
+        let m = rows.len();
+        if m < 2 {
+            continue; // cannot divide a stratum of one; it stays in the fit set.
+        }
+        let want = (((m as f64) * f).round() as usize).clamp(1, m - 1);
+        for i in (1..m).rev() {
+            let j = (next() % (i as u64 + 1)) as usize;
+            rows.swap(i, j);
+        }
+        for &r in rows.iter().take(want) {
+            mask[r] = 1.0;
+            taken += 1;
+        }
+    }
+
+    // Correct the total. Per-stratum rounding drifts (ten strata of 55 rows at 30% round to 17
+    // each, 170 against a target of 165), and a user who asked for 3000 of 10000 should get 3000.
+    // Corrections are drawn from the shuffled rows so they stay seeded and stay spread across
+    // strata rather than all coming out of the first one.
+    let mut adjust = |want_more: bool, count: usize| {
+        let mut left = count;
+        for s in &order {
+            if left == 0 {
+                break;
+            }
+            let rows = &buckets[s];
+            let held: usize = rows.iter().filter(|&&r| mask[r] > 0.5).count();
+            for &r in rows.iter() {
+                if left == 0 {
+                    break;
+                }
+                let is_blind = mask[r] > 0.5;
+                // Never empty a side of a stratum that had two rows to divide.
+                if want_more && !is_blind && held + 1 < rows.len() {
+                    mask[r] = 1.0;
+                    left -= 1;
+                } else if !want_more && is_blind && held > 1 {
+                    mask[r] = 0.0;
+                    left -= 1;
+                }
+            }
+        }
+    };
+    if taken < want_total {
+        adjust(true, want_total - taken);
+    } else if taken > want_total {
+        adjust(false, taken - want_total);
+    }
+
+    // The same floor the well split holds: a blind test that silently produces no blind row, or
+    // leaves nothing to fit on, is the clean-looking nothing SB-CORE-002 forbids.
+    let held: usize = mask.iter().filter(|v| **v > 0.5).count();
+    if held == 0 {
+        mask[0] = 1.0;
+    } else if held == n {
+        mask[0] = 0.0;
+    }
+    mask
+}
+
+/// The strata `split_blind_samples` balances on: the class itself for a classifier, a decile of the
+/// target for a regressor.
+///
+/// Deciles rather than raw values because a continuous target has as many strata as rows otherwise,
+/// and every stratum of one would fall through the `m < 2` guard and land in the fit set. Ten is
+/// the conventional choice and is enough to hold the shape of a distribution without making the
+/// strata too thin to divide.
+fn strata_for(y: &[f32], classification: bool) -> Vec<i64> {
+    if classification {
+        return y.iter().map(|v| if v.is_finite() { *v as i64 } else { i64::MIN }).collect();
+    }
+    let mut sorted: Vec<f32> = y.iter().copied().filter(|v| v.is_finite()).collect();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    if sorted.is_empty() {
+        return vec![0; y.len()];
+    }
+    let cuts: Vec<f32> = (1..10).map(|k| crate::distribution::percentile(&sorted, k as f32 * 10.0)).collect();
+    y.iter()
+        .map(|v| {
+            if !v.is_finite() {
+                return i64::MIN;
+            }
+            cuts.iter().filter(|c| *v > **c).count() as i64
+        })
+        .collect()
 }
 
 fn assemble_training(
@@ -923,25 +1109,48 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     }
     let contributing: Vec<usize> = row_counts.keys().copied().collect();
     let counts: Vec<usize> = row_counts.values().copied().collect();
-    let blind_pos = req
-        .blind_fraction
-        .filter(|f| supervised && *f > 0.0)
-        .map(|f| split_blind_wells(&counts, f, split_seed))
-        .unwrap_or_default();
-    let blind_groups: Vec<usize> = blind_pos.iter().map(|&i| contributing[i]).collect();
-    let split = req.blind_fraction.filter(|f| supervised && *f > 0.0).map(|f| {
-        let blind_rows: usize = blind_pos.iter().map(|&i| counts[i]).sum();
+    let by_sample = req.split_mode.as_deref().map(str::trim).unwrap_or("well").eq_ignore_ascii_case("sample");
+    let asked = req.blind_fraction.filter(|f| supervised && *f > 0.0);
+
+    // Both modes end as ONE row mask over the pooled training rows, which is what the runner
+    // takes. Holding out whole wells is just a particular mask, so the subprocess has a single
+    // code path and the two modes cannot diverge in how the fit is done — only in what is drawn.
+    let mut blind_mask: Vec<f32> = Vec::new();
+    let mut blind_groups: Vec<usize> = Vec::new();
+    if let Some(f) = asked {
+        if by_sample {
+            let strata = strata_for(&y_train, req.task == "classification");
+            blind_mask = split_blind_samples(&strata, f, split_seed);
+        } else {
+            let blind_pos = split_blind_wells(&counts, f, split_seed);
+            blind_groups = blind_pos.iter().map(|&i| contributing[i]).collect();
+            blind_mask = groups
+                .iter()
+                .map(|g| if blind_groups.contains(&(*g as usize)) { 1.0 } else { 0.0 })
+                .collect();
+        }
+    }
+
+    let split = asked.map(|f| {
+        let blind_rows = blind_mask.iter().filter(|v| **v > 0.5).count();
         let total_rows: usize = counts.iter().sum();
         SplitReport {
-            fit_wells: contributing
-                .iter()
-                .filter(|g| !blind_groups.contains(g))
-                .filter_map(|&g| req.train_well_ids.get(g).cloned())
-                .collect(),
-            blind_wells: blind_groups
-                .iter()
-                .filter_map(|&g| req.train_well_ids.get(g).cloned())
-                .collect(),
+            // Named only where naming them means something — in sample mode every well is on
+            // both sides, and printing all of them under "Held blind" would be a lie of layout.
+            fit_wells: if by_sample {
+                Vec::new()
+            } else {
+                contributing
+                    .iter()
+                    .filter(|g| !blind_groups.contains(g))
+                    .filter_map(|&g| req.train_well_ids.get(g).cloned())
+                    .collect()
+            },
+            blind_wells: if by_sample {
+                Vec::new()
+            } else {
+                blind_groups.iter().filter_map(|&g| req.train_well_ids.get(g).cloned()).collect()
+            },
             fit_rows: total_rows - blind_rows,
             blind_rows,
             requested_fraction: f,
@@ -951,6 +1160,8 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 blind_rows as f64 / total_rows as f64
             },
             seed: split_seed,
+            mode: if by_sample { "sample".into() } else { "well".into() },
+            wells_pooled: contributing.len(),
         }
     });
 
@@ -966,7 +1177,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         n_apply,
         save_features,
         if supervised { Some(groups.as_slice()) } else { None },
-        &blind_groups,
+        &blind_mask,
     ) {
         Err(e) => fail(&e),
         Ok((mut metrics, outs, model_blob, sklearn)) => {
@@ -974,12 +1185,23 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             // to record, and the blind-split seed is one of them — defaulted here, and the single
             // parameter that decides which wells the reported blind score is a score of.
             if let Some(eff) = metrics.get_mut("effective_params").and_then(|v| v.as_object_mut()) {
-                if req.blind_fraction.filter(|f| supervised && *f > 0.0).is_some() {
+                if asked.is_some() {
                     eff.insert(
                         "split_seed".into(),
                         serde_json::json!({
                             "value": split_seed,
                             "defaulted": req.split_seed.is_none(),
+                            "source": "ml.rs run_ml default",
+                        }),
+                    );
+                    // The mode changes what the blind score is a claim ABOUT, so it belongs in the
+                    // record beside the seed — a re-run from a record that omits it would produce
+                    // the same number meaning something else.
+                    eff.insert(
+                        "split_mode".into(),
+                        serde_json::json!({
+                            "value": if by_sample { "sample" } else { "well" },
+                            "defaulted": req.split_mode.is_none(),
                             "source": "ml.rs run_ml default",
                         }),
                     );
@@ -1418,19 +1640,24 @@ pub(crate) fn exec_ml_full(
     save_features: Option<&[String]>,
     // `groups` is one well index per training row. Without it the runner has no way to hold out a
     // WELL, and every validation number it reports is a random-sample fold — see `cv_score`.
-    // `blind_groups` names which of those indices are held blind; empty = no split was asked for.
+    // `blind_mask` is 1.0 for a row held out of the fit, one entry per training row; empty = no
+    // split was asked for. A MASK rather than a list of wells, so that holding out whole wells and
+    // drawing individual rows reach the runner as the same thing and cannot diverge there.
     groups: Option<&[f32]>,
-    blind_groups: &[usize],
+    blind_mask: &[f32],
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>, Vec<u8>, String), String> {
     let n_train = if d == 0 { 0 } else { x_train.len() / d };
     let groups = groups.filter(|g| g.len() == n_train);
+    // A mask of the wrong length is dropped rather than sent: the runner reads a fixed byte count
+    // from the payload, so a short one would silently shift every column after it.
+    let blind_mask = if blind_mask.len() == n_train { blind_mask } else { &[][..] };
     let header = serde_json::json!({
         "task": task, "algorithm": algorithm, "params": params,
         "d": d, "n_train": n_train, "has_target": y_train.is_some(), "n_apply": n_apply,
         "save_model": save_features.is_some(),
         "features": save_features.unwrap_or(&[]),
         "has_groups": groups.is_some(),
-        "blind_groups": blind_groups,
+        "has_blind": !blind_mask.is_empty(),
     });
 
     let mut cmd = Command::new(python);
@@ -1448,6 +1675,10 @@ pub(crate) fn exec_ml_full(
         stdin.write_all(bytemuck::cast_slice(x_apply)).map_err(|e| e.to_string())?;
         if let Some(g) = groups {
             stdin.write_all(bytemuck::cast_slice(g)).map_err(|e| e.to_string())?;
+        }
+        // LAST, matching the runner's `take` order — X, y, A, groups, blind.
+        if !blind_mask.is_empty() {
+            stdin.write_all(bytemuck::cast_slice(blind_mask)).map_err(|e| e.to_string())?;
         }
     } // drop closes stdin
 
@@ -2026,6 +2257,7 @@ mod tests {
             output_set: None,
             blind_fraction: None,
             split_seed: None,
+            split_mode: None,
             task: task.into(),
             algorithm: if task == "clustering" { "kmeans".into() } else { "linear".into() },
             params: serde_json::Map::new(),
@@ -2249,6 +2481,107 @@ mod tests {
         assert_eq!(u, b, "a well is held out once or not at all");
     }
 
+    /// Jauhar, 2026-08-07: *"real 30% of data, from existing assume 10000 of data, random sample
+    /// 3000 data from there with similar statistic taken to be tested as blind"*. Two claims, and
+    /// the test pins both because either alone would pass a wrong implementation.
+    ///
+    /// EXACTLY 3000 of 10000 — a plain per-stratum rounding drifts (ten strata of 1000 at 30% is
+    /// fine, but ten of 55 rounds to 170 against a target of 165), and a user who asked for 3000
+    /// should get 3000, not "about 3000".
+    ///
+    /// And REPRESENTATIVE — every stratum contributes its own 30%, which is the entire difference
+    /// between this and a flat random draw. Pinned on a deliberately lopsided population where a
+    /// flat draw would routinely miss the rare stratum: without stratification the rarest class
+    /// lands wholly on one side often enough to make a blind accuracy meaningless, and nothing
+    /// downstream could tell.
+    #[test]
+    fn a_sample_split_draws_the_exact_count_and_keeps_every_stratum_in_proportion() {
+        // 10 000 rows, ten strata, deliberately unequal: 5 000 / 2 000 / 1 000 / … / 20.
+        let sizes = [5000usize, 2000, 1000, 700, 500, 400, 200, 120, 60, 20];
+        let mut strata: Vec<i64> = Vec::new();
+        for (s, n) in sizes.iter().enumerate() {
+            strata.extend(std::iter::repeat(s as i64).take(*n));
+        }
+        assert_eq!(strata.len(), 10_000);
+
+        let mask = split_blind_samples(&strata, 0.30, 42);
+        let held = mask.iter().filter(|v| **v > 0.5).count();
+        assert_eq!(held, 3000, "asked for 3000 of 10000 rows");
+
+        // Each stratum contributes its own share, within one row of rounding plus the total
+        // correction. A flat random draw would satisfy the count above and fail this.
+        let mut at = 0usize;
+        for (s, n) in sizes.iter().enumerate() {
+            let got = mask[at..at + n].iter().filter(|v| **v > 0.5).count();
+            let want = (*n as f64 * 0.30).round() as usize;
+            assert!(
+                got.abs_diff(want) <= 2,
+                "stratum {s} ({n} rows): held {got}, proportional share is {want}"
+            );
+            assert!(got > 0 && got < *n, "stratum {s} keeps rows on both sides");
+            at += n;
+        }
+    }
+
+    /// A stratum of ONE cannot be divided, and the row goes to the FIT side. Blind is where a score
+    /// is computed, and a class the model was never shown scores zero for a reason that is not the
+    /// model's — so the undividable row is spent on training, where it at least teaches something.
+    ///
+    /// The floors from the well split hold here too, and for the same reason: a blind test that
+    /// produces no blind row, or leaves nothing to fit on, is the clean-looking nothing
+    /// SB-CORE-002 forbids.
+    #[test]
+    fn an_undividable_stratum_goes_to_the_fit_side_and_both_sides_keep_rows() {
+        // Four singleton strata beside one real one.
+        let strata: Vec<i64> = vec![0, 1, 2, 3, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9];
+        let mask = split_blind_samples(&strata, 0.5, 7);
+        for i in 0..4 {
+            assert!(mask[i] < 0.5, "a stratum of one row is not held blind (row {i})");
+        }
+        let held = mask.iter().filter(|v| **v > 0.5).count();
+        assert!(held > 0 && held < strata.len(), "both sides carry rows");
+
+        // Degenerate asks, pinned from both sides.
+        assert!(split_blind_samples(&[0, 0, 0], 0.0, 1).iter().all(|v| *v < 0.5), "no split asked for");
+        assert!(split_blind_samples(&[0], 0.5, 1).iter().all(|v| *v < 0.5), "one row cannot be split");
+        let all = split_blind_samples(&vec![0i64; 20], 1.0, 1);
+        assert!(all.iter().any(|v| *v < 0.5), "all-blind still leaves something to fit on");
+
+        // Seeded and reproducible - SB-MLA-008.
+        assert_eq!(split_blind_samples(&strata, 0.5, 7), split_blind_samples(&strata, 0.5, 7));
+        let pop: Vec<i64> = (0..500).map(|i| i % 5).collect();
+        assert_ne!(
+            split_blind_samples(&pop, 0.3, 1),
+            split_blind_samples(&pop, 0.3, 2),
+            "the seed must actually choose the rows"
+        );
+    }
+
+    /// A classifier stratifies on the CLASS; a regressor has no classes, so it stratifies on
+    /// deciles of the target. Raw values would give a continuous target as many strata as rows, and
+    /// every one of them would be a stratum of one — which the guard above sends to the fit side,
+    /// leaving nothing blind at all. This pins the boundary between the two readings.
+    #[test]
+    fn a_continuous_target_is_stratified_by_decile_and_a_class_target_by_class() {
+        let classes: Vec<f32> = vec![0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
+        assert_eq!(strata_for(&classes, true), vec![0, 0, 1, 1, 2, 2]);
+
+        // 100 distinct porosities: as classes that would be 100 strata of one.
+        let cont: Vec<f32> = (0..100).map(|i| i as f32 * 0.003).collect();
+        assert_eq!(strata_for(&cont, true).len(), 100);
+        let dec = strata_for(&cont, false);
+        let mut uniq: Vec<i64> = dec.clone();
+        uniq.sort_unstable();
+        uniq.dedup();
+        assert!(uniq.len() <= 10 && uniq.len() >= 8, "deciles, got {} strata", uniq.len());
+        assert!(dec[0] < dec[99], "the strata follow the target, low to high");
+
+        // And the whole point: the continuous target still splits.
+        let mask = split_blind_samples(&dec, 0.3, 3);
+        let held = mask.iter().filter(|v| **v > 0.5).count();
+        assert_eq!(held, 30, "30 of 100 rows");
+    }
+
     /// The fraction the user typed and the fraction they got are different numbers whenever whole
     /// wells cannot divide the rows exactly — which is most of the time. Reporting only the request
     /// would make the blind score a claim about an unstated amount of rock, so the two are pinned
@@ -2395,6 +2728,89 @@ mod tests {
         // stops the test passing on a run that held out the wells and then quietly fitted on them.
         let r2b = m["r2_blind"].as_f64().unwrap();
         assert!(r2b > 0.99, "the underlying relation is linear, so the blind r2 should be high: {r2b}");
+    }
+
+    /// The sample-mode twin of the test above, on the same four wells, and the contrast between
+    /// them is the point. Jauhar asked for a real row-level draw: 30% of the pooled samples, taken
+    /// with similar statistics, whatever well each row came from.
+    ///
+    /// Three things must hold that the well-mode path cannot show. The count is EXACT (four wells
+    /// of 60 rows is 240; 30% is 72, not "about 70"). Both sides draw on EVERY well, so the well
+    /// lists are deliberately empty rather than listing all four under both headings. And the
+    /// balance table comes back, because "similar statistic" is a claim that has to be evidenced
+    /// rather than asserted — each well here occupies its own GR window, so an unstratified draw
+    /// would show visibly different means. Needs sklearn.
+    #[test]
+    #[ignore]
+    fn a_sample_split_draws_rows_from_every_well_and_reports_how_alike_the_two_sides_are() {
+        use crate::db;
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 60usize;
+        let mut ids = Vec::new();
+        for w in 0..4 {
+            let id = Uuid::new_v4();
+            db::insert_well(&conn, id, &format!("SANDI-{w}"), None, None, Some(0.0)).unwrap();
+            let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+            let gr: Vec<f32> = (0..n).map(|i| 20.0 + (w * 60) as f32 + i as f32).collect();
+            let rhob: Vec<f32> = (0..n).map(|i| 2.0 + (i % 7) as f32 * 0.05).collect();
+            db::insert_standard_curves(
+                &conn, id, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
+                rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
+            )
+            .unwrap();
+            let t: Vec<f32> = (0..n).map(|i| 0.4 - 0.002 * gr[i] + 0.05 * rhob[i]).collect();
+            crate::equations::write_computed_curve(&conn, &id.to_string(), &depths, "PHIT_CORE", &t).unwrap();
+            ids.push(id.to_string());
+        }
+        let dbm = Mutex::new(conn);
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy");
+            return;
+        }
+
+        let mut req = mk_req("regression", &["GR", "RHOB"], Some("PHIT_CORE"), &ids, &ids);
+        req.blind_fraction = Some(0.30);
+        req.split_seed = Some(11);
+        req.split_mode = Some("sample".into());
+        let r = run_ml(&dbm, &req, None);
+        assert!(r.error.is_none(), "run failed: {:?}", r.error);
+
+        let sp = r.split.expect("a run with a blind fraction reports the split it performed");
+        assert_eq!(sp.mode, "sample");
+        assert_eq!(sp.blind_rows + sp.fit_rows, 240, "four wells of 60 labelled rows");
+        assert_eq!(sp.blind_rows, 72, "30% of 240 is exact, not approximate");
+        assert!((sp.achieved_fraction - 0.30).abs() < 1e-9, "a row draw hits the fraction exactly");
+        assert!(
+            sp.blind_wells.is_empty() && sp.fit_wells.is_empty(),
+            "every well is on both sides, so naming them would say nothing",
+        );
+        assert_eq!(sp.wells_pooled, 4, "how much rock this is, which the well lists no longer say");
+
+        let m = &r.metrics;
+        assert_eq!(m["n_blind"].as_u64(), Some(72), "the runner received the mask Rust drew");
+        assert_eq!(m["n_fit"].as_u64(), Some(168));
+        // Cross-validation stays grouped by WELL in sample mode, deliberately - so the run carries
+        // one score that cannot leak beside the one that can.
+        assert!(m.get("r2_cv").and_then(|v| v.as_f64()).is_some(), "a well-grouped CV score too: {m}");
+
+        // "Similar statistic" - evidenced. Each well spans its own GR window, so an unstratified
+        // draw would show the two sides' means pulling apart.
+        let bal = m["split_balance"].as_array().expect("the balance table travels with the split");
+        assert!(bal.iter().any(|e| e["name"] == "(target)"), "the target is compared, not only the inputs");
+        for e in bal {
+            let (fm, bm) = (e["fit_mean"].as_f64().unwrap(), e["blind_mean"].as_f64().unwrap());
+            let sd = e["fit_sd"].as_f64().unwrap().max(1e-9);
+            assert!(
+                (fm - bm).abs() < 0.25 * sd,
+                "{}: fit mean {fm:.4} against blind mean {bm:.4} is not a representative draw",
+                e["name"],
+            );
+        }
     }
 
     /// SB-MLA-T13 end to end: a two-well clustering run where one well is clusterable and one

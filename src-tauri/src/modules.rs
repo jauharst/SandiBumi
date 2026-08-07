@@ -295,6 +295,25 @@ impl ModuleContext {
 
 pub type ModuleOutputs = HashMap<String, Vec<f32>>;
 
+/// The DECLARED output keys of `module` whose values are class identifiers rather than quantities
+/// (`SB-MLA-055`). Everything not listed is a continuous curve.
+///
+/// Keyed by the manifest's declared output key, not by the written curve name — the user can rename
+/// an output and add a prefix, and a rule that matched on `FACIES*` would lose the curve the moment
+/// they did, while catching an unrelated `FACIES_CONFIDENCE` that is not a class at all.
+///
+/// `gmm_facies` is the case that makes the distinction load-bearing: it writes a class curve AND a
+/// probability curve in the same run. `FPROB` is an ordinary continuous quantity and must stay
+/// averageable — a per-module flag, or a name prefix, would wrongly protect it and the user would
+/// find their probability curve resampled by MODE.
+pub(crate) fn class_outputs(module: &str) -> &'static [&'static str] {
+    match module {
+        "electrofacies" => &["FACIES"],
+        "gmm_facies" => &["FACIES_GMM"],
+        _ => &[],
+    }
+}
+
 fn limit(v: f64, lo: f64, hi: f64) -> f64 {
     // `f64::clamp` panics when `lo > hi` or either bound is NaN, and the bounds here are module
     // PARAMETERS — a zone override or an unbounded Monte Carlo draw can push one past the other

@@ -220,6 +220,32 @@ pub(crate) const OUT_NAME_PREFIX: &str = "__OUT_";
 ///
 /// Jauhar, 2026-08-05: *"naming each output curve in bulk when modules gonna run"* — the grid in
 /// the module pane is a row per entry returned here.
+/// The names a run actually WRITES for its class outputs (`SB-MLA-055`).
+///
+/// Walks `modules::class_outputs` through the same two transforms the write path applies — the
+/// per-output rename from `resolve_output_names`, then the universal prefix — so a FACIES the user
+/// renamed to LITHO under prefix `TEST_` is declared as `TEST_LITHO`. Deriving it here rather than
+/// threading a flag through `ModuleOutputs` keeps the change off every module's return type; the
+/// cost is that this must apply the SAME two transforms, which is why it reads them from the same
+/// two places rather than restating either.
+fn class_output_names(
+    module: &str,
+    out_names: &[(String, String)],
+    opts: &HashMap<String, String>,
+) -> Vec<String> {
+    let prefix = opts
+        .get(OUT_PREFIX_OPT)
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_uppercase())
+        .unwrap_or_default();
+    modules::class_outputs(module)
+        .iter()
+        .filter_map(|key| out_names.iter().find(|(declared, _)| declared == key).map(|(_, n)| n.clone()))
+        .map(|n| format!("{prefix}{n}"))
+        .collect()
+}
+
 pub(crate) fn resolve_output_names(
     spec: &modules::ModuleSpec,
     opts: &HashMap<String, String>,
@@ -744,7 +770,24 @@ pub fn run_workflow_module_into(
         None
     } else {
         let conn = db.lock().unwrap();
-        equations::write_computed_curves_versioned_batch(&conn, &writes).err().map(|e| e.to_string())
+        let err = equations::write_computed_curves_versioned_batch(&conn, &writes).err().map(|e| e.to_string());
+        // SB-MLA-055. Record which of these curves hold CLASS CODES, so a later re-frame or block
+        // cannot average them into a value that is not any class. Declared from the manifest's
+        // output keys and resolved through the same rename + prefix the write itself used, so a
+        // renamed FACIES is still protected.
+        //
+        // After the write and never in place of it: a declaration is metadata about a curve, so
+        // failing to record it must cost the metadata, not the run. It is also idempotent, which is
+        // what lets a re-run re-declare rather than needing to know whether it already had.
+        if err.is_none() {
+            let class_names = class_output_names(&req.module, &out_names, &opts);
+            if !class_names.is_empty() {
+                for wr in &writes {
+                    let _ = crate::db::declare_class_curves(&conn, &wr.well_id, &class_names, &req.module);
+                }
+            }
+        }
+        err
     };
 
     // A Phase-2 set-allocation or write failure downgrades the affected wells in the panel —
@@ -1556,6 +1599,73 @@ mod tests {
     use super::*;
     use crate::ingest;
     use std::collections::HashMap;
+
+    /// SB-MLA-055, the declaration half. A class output is registered under the name the run
+    /// actually wrote — through the per-output rename AND the universal prefix — because a
+    /// declaration filed under the manifest key would protect a curve nobody has.
+    ///
+    /// Pinned from BOTH sides, and the second side is the one that matters. `gmm_facies` writes
+    /// FACIES_GMM beside FPROB, and FPROB is an ordinary probability: averageable, interpolatable,
+    /// continuous. An implementation that flagged the whole module, or matched on a `FACIES`
+    /// prefix, would pass the first assertion and quietly resample the user's probability curve by
+    /// MODE. Neither half alone would catch that.
+    #[test]
+    fn a_class_output_is_declared_under_the_name_the_run_wrote_and_a_probability_output_is_not() {
+        let out_names = vec![
+            ("FACIES_GMM".to_string(), "LITHO".to_string()), // renamed by the user
+            ("FPROB".to_string(), "FPROB".to_string()),
+        ];
+        let mut opts: HashMap<String, String> = HashMap::new();
+        opts.insert(OUT_PREFIX_OPT.to_string(), "test_".into());
+
+        let got = class_output_names("gmm_facies", &out_names, &opts);
+        assert_eq!(got, vec!["TEST_LITHO".to_string()], "the rename and the prefix both apply");
+        assert!(!got.iter().any(|n| n.contains("FPROB")), "a probability curve is continuous and stays averageable");
+
+        // Without a prefix, and without a rename.
+        let plain = vec![("FACIES".to_string(), "FACIES".to_string())];
+        assert_eq!(
+            class_output_names("electrofacies", &plain, &HashMap::new()),
+            vec!["FACIES".to_string()]
+        );
+        // A module with no class outputs declares nothing — the flag is opt-in, so a new module
+        // cannot inherit protection it never asked for.
+        assert!(class_output_names("vsh", &plain, &HashMap::new()).is_empty());
+    }
+
+    /// The enforcement half. A DECLARED class curve is resampled by a class-safe method whatever
+    /// was asked for; an undeclared curve is left exactly as the user set it.
+    ///
+    /// That second half is not politeness — `reframe`'s own doc promises it. A caliper logged in
+    /// whole inches passes `looks_discrete`, and the user must be able to say MEAN and get MEAN.
+    /// So a guess may pick the DEFAULT and only a declaration may override a decision; a test that
+    /// pinned the coercion alone would be satisfied by a heuristic that breaks that promise.
+    #[test]
+    fn a_declared_class_curve_is_never_averaged_and_an_undeclared_one_keeps_the_method_asked_for() {
+        use crate::reframe::{class_safe_method, Method};
+
+        // Everything that can invent a value becomes MODE, or NEAREST where it was point-wise.
+        assert_eq!(class_safe_method(Method::Mean), Method::Mode);
+        assert_eq!(class_safe_method(Method::Geometric), Method::Mode);
+        assert_eq!(class_safe_method(Method::Harmonic), Method::Mode);
+        // MEDIAN is in the list on purpose: reframe's `combine` takes it through R-type-7
+        // percentile, so an even-count interval of {1, 2} returns 1.5 - not a class.
+        assert_eq!(class_safe_method(Method::Median), Method::Mode);
+        assert_eq!(class_safe_method(Method::Interpolate), Method::Nearest);
+        // Already safe, and unchanged - a coercion that moved these would be churn the user sees.
+        assert_eq!(class_safe_method(Method::Nearest), Method::Nearest);
+        assert_eq!(class_safe_method(Method::Mode), Method::Mode);
+        assert_eq!(class_safe_method(Method::Auto), Method::Mode);
+
+        // The other side: a curve nobody declared is not touched by any of this. `class_safe_method`
+        // is only ever reached through the registry lookup, so an undeclared FACIES-looking curve
+        // still gets the method the request named.
+        let plain = vec![("FACIES".to_string(), "FACIES".to_string())];
+        assert!(
+            class_output_names("smooth", &plain, &HashMap::new()).is_empty(),
+            "nothing declares a curve a class curve except the module that produced it as one",
+        );
+    }
 
     /// The shared cutoff classifier must reproduce the .paysum NaN propagation exactly:
     /// a missing input excludes it and everything downstream, and a missing PERM fails an

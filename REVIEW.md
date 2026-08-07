@@ -8726,6 +8726,62 @@ and the well subset is chosen to reach it.
       contributes is not known until the curves are read and the mask applied, and a number the
       dialog guessed and the run then contradicted would be worse than no number. It says what is
       being aimed at, and warns that few wells make the steps coarse.
+
+## ML — the second split mode: random rows, stratified (2026-08-07)
+
+Jauhar again, third time and explicit: *"real 30% of data, from existing assume 10000 of data,
+random sample 3000 data from there with similar statistic taken to be tested as blind"*. So the
+conventional ML hold-out now exists beside the by-well one. **They answer different questions and
+neither is a better version of the other**, which is why it is a segmented choice rather than a
+default with an override.
+
+- [ ] **Tick the blind test, then switch "held back as" to Random rows.** The percentage becomes
+      exact — 3000 of 10 000, not "about 3000". Hover each option: whole wells answers *will this
+      work on the next well I drill*, random rows answers *has this learned the relationship in
+      these wells*.
+- [ ] **The draw is STRATIFIED, not flat.** Each stratum (the class for a classifier, a decile of
+      the target for a regressor) contributes its own 30%, so the blind set carries the same
+      distribution as the whole. A flat draw can put a thin coal wholly on one side.
+- [ ] **"How alike the two sides are" is the evidence, and it can fail.** Every input and the target
+      are compared, scaled by the fitted side's own spread — an absolute difference cannot be
+      compared across GR and porosity. A row past a quarter of a standard deviation is marked in the
+      warn colour and the note below says the blind set is not representative. **Try a classifier
+      with a very rare facies** — that is the case that should light up.
+- [ ] **Every label on the panel changes with the mode, because the same word would be a lie.** In
+      sample mode it reads "R² on the blind rows … drawn from wells the model also trained on", and
+      the agreement line says the model learned the relationship *in these wells* rather than "the
+      fit travels to wells it has not seen". Check both modes and confirm neither claims the other's
+      guarantee.
+- [ ] **Cross-validation stays grouped by well in BOTH modes.** That is the point: a sample-mode run
+      carries one score that can leak and one that cannot, side by side. If they disagree badly, the
+      model is memorising depth neighbours.
+- [ ] **The mode is in the run record** ("Settings this run actually used"), beside the seed — the
+      same number means a different thing under each, so a record without it cannot be re-run.
+
+## Class curves are never averaged or interpolated (2026-08-07)
+
+`SB-MLA-055`. A facies code is a name that happens to be written as a number. The mean of facies 1
+and facies 4 is 2.5, which is not a facies — and it plots as a block track, exports to LAS and reads
+back into the next module without complaint. Nothing downstream can tell it is wrong.
+
+Re-framing already guessed well: `looks_discrete` picked MODE for anything that looked like a code
+scheme. But it only ever ran on the **Auto** method, so choosing Interpolate or Mean explicitly went
+straight through, and there was no record anywhere saying a curve *is* a class curve.
+
+- [ ] **Run Electrofacies (or GMM Facies), then re-frame that well with the method set to MEAN or
+      INTERPOLATE.** The FACIES curve comes back resampled by MODE/NEAREST anyway, and the run notes
+      say so by name: which curve, what was asked, what was used. A substitution you cannot see is
+      the thing this exists to prevent.
+- [ ] **The probability curve is NOT protected.** `gmm_facies` writes FACIES_GMM beside FPROB; FPROB
+      is an ordinary continuous probability and must stay averageable. Check it still resamples by
+      MEAN.
+- [ ] **Rename the output, or set an output prefix, and re-run.** The declaration follows the name
+      the run actually wrote (TEST_LITHO, not FACIES), so a renamed class curve is still protected.
+- [ ] **An ordinary curve is untouched.** A caliper that happens to read whole inches still looks
+      discrete to the guesser — set it to MEAN and it stays MEAN. A guess may pick the default;
+      only a declaration overrides a decision you made.
+- [ ] Known gap, not yet closed: `frame::block` and `condition::smooth`/`despike` do not consult the
+      registry yet, so blocking a FACIES curve by MEAN still averages it. Next increment.
 - [ ] **It warns when a side is too thin** — "A blind set of one well is one opinion, not a spread",
       "Fitting on one well is a model of that well". Both are legitimate runs, so neither is refused.
 - [ ] **The seed is yours and it is stated.** Same seed, same wells — a blind score you cannot

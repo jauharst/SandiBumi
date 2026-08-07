@@ -7171,6 +7171,47 @@ input[type="number"].num-editing:focus {
   font-size: var(--fs-sm);
   color: var(--text-dim, #6f6857);
 }
+/* The two split modes are a choice, not a default with an override, so they get the app's
+ * segmented control rather than a checkbox. Inline-sized: this one sits in a row of fields, unlike
+ * the Field Dashboard's, which spans its own line. */
+.ml-split-mode {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.ml-split-mode .seg-opt {
+  padding: 3px 10px;
+  font-size: var(--fs-sm);
+}
+.ml-split-fields label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The balance table proves the "similar statistics" claim, so it reads as evidence attached to the
+ * split rather than as a second result — smaller, and set in beside it. */
+.ml-balance-head {
+  margin-top: 10px;
+}
+.ml-balance-table {
+  font-size: var(--fs-sm);
+  margin-top: 4px;
+}
+.ml-balance-table td,
+.ml-balance-table th {
+  text-align: right;
+  padding: 2px 8px;
+}
+.ml-balance-table th:first-child {
+  text-align: left;
+  font-weight: 500;
+}
+/* A row that did NOT balance is the useful one — it means that stratum was too thin to divide.
+ * Marked with the warn colour, never hidden. */
+.ml-balance-table tr.ml-balance-off td:last-child {
+  color: var(--warn, #d96a52);
+  font-weight: 600;
+}
 /* Too few wells on one side for the score to mean much. Not an error - the run is legitimate,
  * and saying so is more use than refusing it. */
 .ml-split-thin {

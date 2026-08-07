@@ -1135,14 +1135,20 @@ export interface MlRequest {
    *  quantity it can hit exactly. Omit for no split (every training well is fitted on, exactly as
    *  before). */
   blind_fraction?: number | null;
-  /** Seed for the well shuffle, so the same request re-runs to the same split. */
+  /** Seed for the draw, so the same request re-runs to the same split. */
   split_seed?: number | null;
+  /** `"well"` (default) holds back whole wells — the only split that cannot leak, and the one that
+   *  answers "will this work on the next well?". `"sample"` draws individual rows stratified on the
+   *  target — exact in its percentage, balanced in its statistics, and optimistic on log data
+   *  because consecutive depths are near-duplicates. */
+  split_mode?: string | null;
 }
 
 /** The split as it was actually performed, not as it was requested — the requested share is kept
  *  beside the achieved one because whole wells rarely divide the samples exactly, and the gap is
  *  what the blind score is really a score of. */
 export interface SplitReport {
+  /** Empty in `sample` mode — every well is on both sides, so naming them would say nothing. */
   fit_wells: string[];
   blind_wells: string[];
   /** Usable training samples on each side — what the fraction is really a fraction of. */
@@ -1153,6 +1159,23 @@ export interface SplitReport {
    *  this is what was actually reached — never a restatement of the request. */
   achieved_fraction: number;
   seed: number;
+  /** `"well"` or `"sample"` — the two are different claims, and a score quoted without it cannot
+   *  be read. */
+  mode: string;
+  /** How many wells contributed rows. The answer to "how much rock is this?" in `sample` mode,
+   *  where the well lists are empty. */
+  wells_pooled: number;
+}
+
+/** How alike the fit and blind sides are, per feature and on the target — the evidence for a
+ *  stratified draw's "similar statistics" claim. Reported rather than asserted: a pair that does
+ *  NOT match is the signal that the strata were too thin to divide representatively. */
+export interface SplitBalance {
+  name: string;
+  fit_mean: number;
+  blind_mean: number;
+  fit_sd: number;
+  blind_sd: number;
 }
 
 export interface MlWellResult {
