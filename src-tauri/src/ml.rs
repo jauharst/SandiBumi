@@ -1704,6 +1704,77 @@ fn block_to_step(depth: &[f32], values: &mut [f32], step: f64, class_curve: bool
     answer.len()
 }
 
+/// How rough a curve is: the mean absolute step between neighbouring live samples, divided by the
+/// curve's own standard deviation.
+///
+/// Dividing by the spread is what makes two curves comparable — a permeability in millidarcies and a
+/// density in g/cc have wildly different step sizes and the question is not how big the steps are but
+/// how big they are RELATIVE to the range the curve covers. Gaps are skipped rather than bridged: a
+/// step across a washout is not a measurement of anything.
+///
+/// Deliberately not an FFT. The question a petrophysicist is asking here is "does this log wiggle
+/// like the log it is predicting", and the mean absolute difference answers it in a number that can
+/// be explained, checked by hand, and computed on a curve with holes in it. A power spectrum needs a
+/// regular grid, and these curves have gaps.
+fn roughness(values: &[f32]) -> Option<f64> {
+    let live: Vec<f64> = values.iter().filter(|v| v.is_finite()).map(|v| *v as f64).collect();
+    if live.len() < 8 {
+        return None;
+    }
+    let mean = live.iter().sum::<f64>() / live.len() as f64;
+    let var = live.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / live.len() as f64;
+    let sd = var.sqrt();
+    if !(sd > 0.0) {
+        return None;
+    }
+    // Steps taken only between samples that are BOTH live, so a gap contributes nothing rather than
+    // one enormous jump that would read as high-frequency detail.
+    let mut steps = 0usize;
+    let mut total = 0f64;
+    for w in values.windows(2) {
+        if w[0].is_finite() && w[1].is_finite() {
+            total += (w[1] - w[0]).abs() as f64;
+            steps += 1;
+        }
+    }
+    (steps >= 4).then(|| total / steps as f64 / sd)
+}
+
+/// What a predicted curve's vertical resolution is worth, measured against the target it learned
+/// from.
+///
+/// Jauhar, 2026-08-07: *"rhob and dres with same sampling at 0.5 f can have different resolution or
+/// curve/wave frequency, if we wanna predict rhob, predicted rhob log frequency should follow
+/// original rhob as well"*. He is right, and it is the harder half of the sampling question: two
+/// curves on one 0.5 ft frame can carry completely different vertical resolution, because a density
+/// pad reads a few inches and a deep induction reads several feet.
+///
+/// **A prediction is always smoother than its target, and that is physics, not a bug.** The model
+/// can only carry through the detail its INPUTS contain; asked to predict a sharp density from a
+/// smooth resistivity, it returns the sharpness the resistivity had. So this reports the shortfall
+/// rather than correcting it: restoring the missing detail means SYNTHESIZING it, which produces a
+/// curve that looks better resolved without being better known, and that is a decision for the
+/// interpreter to make explicitly rather than a default to inherit.
+///
+/// Returned as a ratio and a sentence. Below 1 the prediction is smoother than the measured log by
+/// roughly that factor.
+fn resolution_note(target_train: &[f32], predicted: &[f32], target_name: &str) -> Option<String> {
+    let (rt, rp) = (roughness(target_train)?, roughness(predicted)?);
+    if !(rt > 0.0) {
+        return None;
+    }
+    let ratio = rp / rt;
+    // A prediction within a quarter of its target's roughness is doing as well as this measure can
+    // tell. Saying so on every run would train the eye to skip the line that matters.
+    if ratio >= 0.75 {
+        return None;
+    }
+    Some(format!(
+        "vertical resolution: this prediction varies about {:.0}% as much between neighbouring samples as the measured {target_name} it learned from, so it is a SMOOTHER log than the one it is standing in for. That is the resolution its inputs carry, not a fault in the fit - a curve read over feet cannot produce detail measured over inches. Read thin beds off it with that in mind; nothing here has invented the missing detail, and nothing should without saying so",
+        ratio * 100.0
+    ))
+}
+
 /// Most feature subsets one run will fit models for.
 ///
 /// A field where every well is missing a different curve can present a great many availability
@@ -3020,6 +3091,15 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             }
             if !req.interval.is_open() {
                 metrics["interval"] = serde_json::json!({ "top": req.interval.top, "base": req.interval.base });
+            }
+            // Measured on the model's OWN output (the untransformed one), against the target rows it
+            // was fitted on. Reported, never corrected: see `resolution_note`.
+            if let Some(tgt) = target.as_deref() {
+                if let Some((_, native)) = outs.iter().find(|(sfx, _)| sfx.is_empty()) {
+                    if let Some(n) = resolution_note(&y_train, native, tgt) {
+                        notes.push(n);
+                    }
+                }
             }
             let mut blocks_written = 0usize;
             let mut wells = Vec::new();
@@ -4824,6 +4904,63 @@ mod tests {
         assert_eq!(transformed_unit("log10", None), "log10");
     }
 
+    /// **Sampling is not resolution, and a prediction says which one it fell short on.**
+    ///
+    /// Jauhar, 2026-08-07: *"rhob and dres with same sampling at 0.5 f can have different resolution
+    /// or curve/wave frequency"*. He is right, and it is the harder half of the sampling question: a
+    /// density pad reads a few inches and a deep induction reads several feet, so two curves on one
+    /// 0.5 ft frame carry completely different vertical resolution. Blocking to a thickness cannot
+    /// see that at all - both curves have the same sample spacing.
+    ///
+    /// A prediction is always smoother than its target, because the model can only carry through the
+    /// detail its INPUTS contain. So this is measured and reported, never corrected: restoring the
+    /// missing detail means synthesizing it, and a curve that looks better resolved without being
+    /// better known is the more expensive failure.
+    ///
+    /// Pinned from both sides. A smooth prediction of a rough target must be REPORTED, and a
+    /// prediction that already matches its target's roughness must be SILENT - a line printed on
+    /// every run is a line the eye learns to skip, and this one has to be read when it appears.
+    #[test]
+    fn a_smooth_prediction_of_a_rough_log_says_so_and_a_faithful_one_stays_quiet() {
+        // A rough target: fine detail on a trend, as a density pad reads it.
+        let rough: Vec<f32> = (0..200)
+            .map(|i| 2.4 + 0.02 * ((i % 2) as f32) + 0.0005 * i as f32)
+            .collect();
+        // A smooth prediction of the same thing: the trend, none of the detail. This is what a model
+        // fed only low-resolution curves returns, and it plots as a perfectly plausible density.
+        let smooth: Vec<f32> = (0..200).map(|i| 2.41 + 0.0005 * i as f32).collect();
+
+        let note = resolution_note(&rough, &smooth, "RHOB").expect("a smoother prediction must be reported");
+        assert!(note.contains("vertical resolution"), "{note}");
+        assert!(note.contains("RHOB"), "the note must name the target it fell short of: {note}");
+        assert!(note.contains("SMOOTHER"), "{note}");
+
+        // The other side: a prediction that wiggles like its target says nothing.
+        assert!(
+            resolution_note(&rough, &rough, "RHOB").is_none(),
+            "a prediction matching its target's roughness must not print a warning"
+        );
+
+        // Roughness is RELATIVE to the curve's own spread, or a permeability in millidarcies would
+        // always look rougher than a porosity in fractions and the two could never be compared.
+        let big: Vec<f32> = rough.iter().map(|v| v * 1000.0).collect();
+        let (a, b) = (roughness(&rough).unwrap(), roughness(&big).unwrap());
+        assert!((a - b).abs() < 1e-4, "scaling a curve must not change how rough it is: {a} vs {b}");
+
+        // A gap contributes no step. Bridged, the jump across it would read as fine detail - the
+        // exact opposite of the truth, since nothing was measured there at all.
+        let mut holed = rough.clone();
+        for i in 90..110 {
+            holed[i] = f32::NAN;
+        }
+        let r = roughness(&holed).expect("a curve with a gap still has a roughness");
+        assert!(r < a * 1.5, "a gap must not be counted as a step: {r} against {a}");
+
+        // Too little to say anything is None, not zero: zero would read as "perfectly smooth".
+        assert!(roughness(&[1.0, 2.0, 3.0]).is_none());
+        assert!(roughness(&[2.5f32; 50]).is_none(), "a flat curve has no spread to be rough relative to");
+    }
+
     /// **A tops-bounded run is bounded on BOTH sides of the work: what it learns from, and what it
     /// writes.**
     ///
@@ -6333,6 +6470,205 @@ mod tests {
             let want = 0.4 - 0.002 * gr[i] + 0.05 * rhob[i];
             assert!((pred[i] - want).abs() < 1e-3, "row {i}: predicted {} want {want}", pred[i]);
         }
+    }
+
+    /// **End to end, the whole round-2/round-3 workflow in one run: bound the fit to an interval,
+    /// fit a model per available-input pattern, write at a stated resolution, save the artifact, and
+    /// propagate it to an unseen well over a DIFFERENT interval.**
+    ///
+    /// Each of those has its own unit test. This one exists because they interact, and the
+    /// interactions are where the silent failures live: an interval applied to the fit but not to
+    /// the write, a coverage segment that ignores the interval, a block that spans the interval
+    /// edge, a distribution that inherits the fit's window instead of taking its own. Every one of
+    /// those produces a full, plausible curve.
+    ///
+    /// Needs sklearn + joblib, so it is `#[ignore]`d and the green gate can never depend on it.
+    #[test]
+    #[ignore]
+    fn the_whole_ml_workflow_holds_together_from_bounded_fit_to_distribution() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy");
+            return;
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 240usize;
+        // RES_DEEP stops half way down, so the deep half can only be predicted without it - the
+        // coverage case. Depths run 1000..1239 so the interval below cuts a real boundary.
+        let mk = |name: &str, with_target: bool| -> String {
+            let id = Uuid::new_v4();
+            db::insert_well(&conn, id, name, None, None, Some(0.0)).unwrap();
+            let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+            let gr: Vec<f32> = (0..n).map(|i| 20.0 + (i % 53) as f32).collect();
+            let rhob: Vec<f32> = (0..n).map(|i| 2.0 + (i % 7) as f32 * 0.05).collect();
+            let rt: Vec<f32> = (0..n)
+                .map(|i| if i >= n / 2 { f32::NAN } else { 5.0 + (i % 11) as f32 })
+                .collect();
+            db::insert_standard_curves(
+                &conn, id, depths.clone(), gr.clone(), rt.clone(), vec![f32::NAN; n],
+                rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
+            )
+            .unwrap();
+            if with_target {
+                let t: Vec<f32> = (0..n).map(|i| 0.4 - 0.002 * gr[i] + 0.05 * rhob[i]).collect();
+                crate::equations::write_computed_curve(&conn, &id.to_string(), &depths, "PHIT_CORE", &t).unwrap();
+            }
+            id.to_string()
+        };
+        let cored = mk("SANDI-E2E-1", true);
+        let blind = mk("SANDI-E2E-2", false);
+        let dbm = std::sync::Mutex::new(conn);
+
+        // --- 1. Bounded, segmented, blocked fit -------------------------------
+        const TOP: f64 = 1020.0;
+        const BASE: f64 = 1200.0;
+        let mut req = mk_req(
+            "regression",
+            &["GR", "RHOB", "RES_DEEP"],
+            Some("PHIT_CORE"),
+            &[cored.clone()],
+            &[cored.clone()],
+        );
+        req.output_curve = "PHIT_ML".into();
+        req.save_model_as = Some("PHIT_E2E".into());
+        req.coverage_segments = true;
+        req.output_step = Some(4.0);
+        req.interval = DepthWindow { top: Some(TOP), base: Some(BASE) };
+        let fit = run_ml(&dbm, &req, None);
+        assert!(fit.error.is_none(), "fit failed: {:?}", fit.error);
+        assert!(fit.wells[0].error.is_none(), "{:?}", fit.wells[0].error);
+
+        // Two segments: one where RES_DEEP exists, one where it does not. Neither averaged.
+        let segs = fit.metrics.get("coverage_segments").and_then(|v| v.as_array()).expect("segments reported");
+        let fitted: Vec<&serde_json::Value> =
+            segs.iter().filter(|s| s.get("skipped").is_some_and(|x| x.is_null())).collect();
+        assert_eq!(fitted.len(), 2, "one model with RES_DEEP, one without: {segs:#?}");
+        let widths: Vec<usize> =
+            fitted.iter().map(|s| s["features"].as_array().unwrap().len()).collect();
+        assert!(widths.contains(&3) && widths.contains(&2), "expected a 3-curve and a 2-curve model, got {widths:?}");
+
+        // --- 2. The interval bounded the WRITE, not only the fit ---------------
+        {
+            let conn = dbm.lock().unwrap();
+            let (depth, cols) =
+                crate::equations::fetch_curve_frame(&conn, &cored, &["PHIT_ML".into()]).unwrap();
+            let pred = cols.get("PHIT_ML").unwrap();
+            let mut inside = 0usize;
+            for i in 0..depth.len() {
+                let d = depth[i] as f64;
+                if d < TOP || d >= BASE {
+                    assert!(
+                        !pred[i].is_finite(),
+                        "depth {d} is outside {TOP}..{BASE} and must be MISSING, got {}",
+                        pred[i]
+                    );
+                } else if pred[i].is_finite() {
+                    inside += 1;
+                }
+            }
+            assert!(inside > 100, "the interval should carry most of its depths, got {inside}");
+
+            // --- 3. The block held one value across each 4 m interval ----------
+            // Anchored on an absolute grid, so blocks are [1020,1024), [1024,1028)... Neighbours
+            // inside one block must be identical; a block boundary is where a change is allowed.
+            let mut same_within = 0usize;
+            for i in 1..depth.len() {
+                if !pred[i].is_finite() || !pred[i - 1].is_finite() {
+                    continue;
+                }
+                let (a, b) = ((depth[i - 1] as f64 / 4.0).floor(), (depth[i] as f64 / 4.0).floor());
+                if a == b {
+                    assert!(
+                        (pred[i] - pred[i - 1]).abs() < 1e-6,
+                        "depths {} and {} are in one 4 m block and must hold one value",
+                        depth[i - 1], depth[i]
+                    );
+                    same_within += 1;
+                }
+            }
+            assert!(same_within > 50, "the run should have produced many within-block pairs, got {same_within}");
+        }
+
+        // --- 4. The artifacts, and what they carry -----------------------------
+        let models = {
+            let conn = dbm.lock().unwrap();
+            db::list_ml_models(&conn).unwrap()
+        };
+        assert_eq!(
+            models.len(),
+            2,
+            "one saved model per fitted segment: {:?}",
+            models.iter().map(|m| m.name.clone()).collect::<Vec<_>>()
+        );
+        let three = models
+            .iter()
+            .find(|m| m.feature_curves.len() == 3)
+            .expect("the three-curve segment kept a model");
+        assert!(three.name.contains("3CURVE"), "a saved model names the curves it needs: {}", three.name);
+
+        // --- 5. Distribute to an unseen well, over its OWN interval ------------
+        // Deliberately a different window: the apply path must NOT inherit the fit's.
+        const DTOP: f64 = 1100.0;
+        let applied = apply_ml_model(
+            &dbm,
+            &MlApplyRequest {
+                input_set: None,
+                output_set: None,
+                model_id: three.model_id.clone(),
+                apply_well_ids: vec![blind.clone()],
+                output_curve: "PHIT_DIST".into(),
+                mask_curve: None,
+                interval: DepthWindow { top: Some(DTOP), base: None },
+            },
+            None,
+        );
+        assert!(applied.error.is_none(), "distribution failed: {:?}", applied.error);
+        assert!(applied.wells[0].error.is_none(), "{:?}", applied.wells[0].error);
+
+        let conn = dbm.lock().unwrap();
+        let (depth, cols) = crate::equations::fetch_curve_frame(
+            &conn,
+            &blind,
+            &["GR".into(), "RHOB".into(), "PHIT_DIST".into()],
+        )
+        .unwrap();
+        let gr = cols.get("GR").unwrap();
+        let rhob = cols.get("RHOB").unwrap();
+        let pred = cols.get("PHIT_DIST").unwrap();
+        let mut checked = 0usize;
+        for i in 0..depth.len() {
+            let d = depth[i] as f64;
+            if d < DTOP {
+                assert!(!pred[i].is_finite(), "depth {d} is above the distribution top and must be MISSING");
+                continue;
+            }
+            // The three-curve model needs RES_DEEP, which this well lacks below the halfway point,
+            // so a missing prediction there is correct - the model was never fed, not misapplied.
+            if !pred[i].is_finite() {
+                continue;
+            }
+            let want = 0.4 - 0.002 * gr[i] + 0.05 * rhob[i];
+            assert!(
+                (pred[i] - want).abs() < 5e-3,
+                "row {i} at {d}: distributed {} want {want}",
+                pred[i]
+            );
+            checked += 1;
+        }
+        // Exactly 20, and the number is the whole point of the case. The distribution starts at
+        // 1100; RES_DEEP, which this model needs, runs out after 1119. So the three-curve model can
+        // answer 1100..1119 and nothing else — bounded above by the interval the user chose and
+        // below by the curve the model requires. A looser floor here would pass just as happily if
+        // the interval were being ignored and the whole well came back predicted.
+        assert_eq!(
+            checked, 20,
+            "the distribution is bounded above by its own interval (1100) and below by where \
+             RES_DEEP stops (1119), so it must answer exactly those 20 depths"
+        );
     }
 
     /// The ordering contract. A model fitted on [GR, RHOB] fed a matrix ordered [RHOB, GR] would
