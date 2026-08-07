@@ -5046,6 +5046,128 @@ textarea {
 .ml-tie-note {
   margin-top: 6px;
 }
+/* --- The four-section ML pane -------------------------------------------------
+   Input / Data QC / Model / Results as a segmented strip. The strip is sticky so the section names
+   stay reachable while a long Results panel scrolls under them - switching section by scrolling back
+   to the top is the thing that makes tabs feel worse than one long column. */
+.ml-sections {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 10px;
+  background: var(--bg-panel);
+}
+.ml-section[hidden] {
+  display: none;
+}
+/* The footer carries Run, which belongs to the whole pane rather than to any one section. A top rule
+   rather than a filled bar: it is the end of the form, not a toolbar. */
+.ml-footer {
+  position: sticky;
+  bottom: 0;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+/* --- Data QC findings ---------------------------------------------------------
+   Graded on the --qc-* status tokens, never the brand ramp: a client skin recolours the application
+   and must not be able to re-roll the meaning of "this will not fit". A left rule rather than a
+   filled card, so a panel of six findings does not read as six alarms - the rule carries the grade
+   and the text carries the finding. */
+.ml-qc-item {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--bg-panel-alt, #f0e7d5);
+}
+.ml-qc-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+}
+.ml-qc-detail {
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.ml-qc-alert {
+  border-left-color: var(--qc-alert);
+  background: color-mix(in srgb, var(--qc-alert) 7%, transparent);
+}
+.ml-qc-warn {
+  border-left-color: var(--qc-warn);
+  background: color-mix(in srgb, var(--qc-warn) 7%, transparent);
+}
+/* An OK finding is still a finding - it states what was measured and why it is fine, which is what
+   makes the panel worth opening when nothing is wrong. Tinted, not shouted. */
+.ml-qc-ok {
+  border-left-color: var(--qc-ok);
+  background: color-mix(in srgb, var(--qc-ok) 6%, transparent);
+}
+/* The two comparison panels under the leaderboard. A card on the plot surface rather than loose in
+   the pane: they are a picture of the table above, and the ground says "this is a plot" the same way
+   every other plot surface in the app does. Data density stays professional - no extra air. */
+.ml-chart {
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  background: var(--plot-bg, #f2ead9);
+  border: 1px solid var(--border, #d9cbb0);
+  border-radius: var(--r-lg, 12px);
+}
+.ml-chart > .mc-chain-note {
+  margin-bottom: 6px;
+}
+.ml-score-chart {
+  display: block;
+  overflow: visible;
+}
+.ml-score-chart text {
+  font-family: var(--font-body);
+  font-size: 11px;
+  fill: var(--text-dim, #6f6857);
+}
+.ml-score-chart .ml-sc-label {
+  fill: var(--text, #2f2a22);
+}
+.ml-score-chart .ml-sc-value {
+  font-variant-numeric: tabular-nums;
+}
+.ml-score-chart .ml-sc-axis {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+.ml-score-chart .ml-sc-whisker,
+.ml-score-chart .ml-sc-cap {
+  stroke: var(--text-dim, #6f6857);
+  stroke-width: 1.25;
+  opacity: 0.75;
+}
+.ml-score-chart .ml-sc-dot {
+  fill: var(--text-dim, #6f6857);
+}
+/* A single separable leader gets the accent; a tie gets the QC warn tint on EVERY dot in it. The
+   distinction is the same one the table makes - mc-best names a winner, ml-lb-tied says there is
+   none - and it must survive a client skin, so the tie is on the --qc-* tokens rather than the
+   brand ramp. */
+.ml-score-chart .ml-sc-best {
+  fill: var(--accent, #9c6b3f);
+}
+.ml-score-chart .ml-sc-tied {
+  fill: var(--qc-warn);
+}
+.ml-sc-tieband {
+  fill: var(--qc-warn);
+  opacity: 0.1;
+}
+/* Cross-model consensus reuses the importance row geometry on purpose: it answers the same shape of
+   question one level up, and a second visual language for "which curve carries" would read as a
+   second kind of measurement. */
+.ml-consensus .ml-imp-name {
+  font-variant-numeric: tabular-nums;
+}
 /* Per-well outcome tally. The warn variant fires when any well was refused (SB-MLA-013) - the
  * count is the headline, because a run that wrote 37 of 40 wells is a different result from one
  * that wrote all 40, and the metrics above it look identical either way. */

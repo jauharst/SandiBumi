@@ -9,6 +9,8 @@ import {
   renameMlModel,
   runMl,
   runMlEval,
+  statsCurveSummary,
+  type CurveStatsRow,
   type MlEvalResult,
   type MlEvalRow,
   type MlModelInfo,
@@ -177,6 +179,18 @@ interface AlgoSpec {
 interface TaskSpec {
   id: MlRequest["task"];
   label: string;
+  /** Heading this task's algorithms sit under in the single grouped picker.
+   *
+   *  Jauhar, 2026-08-07: *"just split algorithm for continuous log or discrete log, its okay if
+   *  there are 1 alg that can used for those 2 shown together"*. So the question the picker asks is
+   *  **what are you predicting**, not "pick a task, now pick an algorithm from what that leaves" —
+   *  and Random Forest legitimately appears under both continuous and discrete, because it is two
+   *  estimators with one idea rather than one estimator doing two jobs. The old cascade also reset
+   *  the algorithm every time the task changed, which is a click nobody asked for.
+   *
+   *  Phrased as the OUTPUT rather than as the statistical name: an interpreter picks by what they
+   *  want out of it, and "regression" is the method's name for the answer, not the answer. */
+  group: string;
   supervised: boolean;
   defaultOut: string;
   algos: AlgoSpec[];
@@ -192,6 +206,7 @@ const TASKS: TaskSpec[] = [
   {
     id: "regression",
     label: "Predict a continuous log (regression)",
+    group: "Continuous log  —  predict a value",
     supervised: true,
     defaultOut: "ML_PRED",
     algos: [
@@ -215,6 +230,7 @@ const TASKS: TaskSpec[] = [
   {
     id: "classification",
     label: "Predict a discrete log (classification)",
+    group: "Discrete log  —  predict a class",
     supervised: true,
     defaultOut: "ML_CLASS",
     algos: [
@@ -238,6 +254,7 @@ const TASKS: TaskSpec[] = [
   {
     id: "clustering",
     label: "Electrofacies clustering (unsupervised)",
+    group: "Electrofacies  —  no target curve",
     supervised: false,
     defaultOut: "FACIES_ML",
     algos: [
@@ -258,6 +275,7 @@ const TASKS: TaskSpec[] = [
   {
     id: "reduction",
     label: "Dimensionality reduction (PCA / t-SNE)",
+    group: "Reduction  —  no target curve",
     supervised: false,
     defaultOut: "PC",
     algos: [
@@ -294,23 +312,92 @@ export async function buildMlContent(
   let algo = task.algos[0];
 
   const content = document.createElement("div");
-  content.className = "mc-dialog";
+  content.className = "mc-dialog ml-pane";
 
-  // --- Task + algorithm ----------------------------------------------------
-  const taskSel = document.createElement("select");
-  for (const t of TASKS) {
-    const o = document.createElement("option");
-    o.value = t.id;
-    o.textContent = t.label;
-    taskSel.appendChild(o);
+  // --- The four sections ----------------------------------------------------
+  //
+  // Jauhar, 2026-08-07: *"better to split into subpanes inside ML, for input, data qc, model,
+  // result visualization"*. One scrolling column had grown to a dozen form rows in no particular
+  // order — the algorithm at the top, its parameters two thirds of the way down, the output curve
+  // below that — so setting up a run meant scrolling past everything twice.
+  //
+  // The order is the order the work is done in, and each section answers one question: what am I
+  // learning from, is that data fit to learn from, what shall I fit, and what came out. A segmented
+  // strip rather than a new tab component — `.seg`/`.seg-opt` is already this app's segmented
+  // control (Organic increment 2), and a second mechanism for "pick one of these" would be a second
+  // thing to keep in agreement.
+  const SECTIONS = [
+    ["input", "Input", "Which curves, which wells, and which stored values to read them from."],
+    ["qc", "Data QC", "Whether the data you just chose can support the model you are about to fit."],
+    ["model", "Model", "What to fit, how it is validated, and what the outputs are called."],
+    ["results", "Results", "What the run produced, how the models compare, and the models you have kept."],
+  ] as const;
+  type SectionId = (typeof SECTIONS)[number][0];
+
+  const tabStrip = document.createElement("div");
+  tabStrip.className = "seg ml-sections";
+  const panels = new Map<SectionId, HTMLElement>();
+  const tabs = new Map<SectionId, HTMLButtonElement>();
+  const sectionHost = document.createElement("div");
+  sectionHost.className = "ml-section-host";
+  let activeSection: SectionId = "input";
+
+  function showSection(id: SectionId): void {
+    activeSection = id;
+    for (const [k, el] of tabs) el.setAttribute("aria-pressed", String(k === id));
+    for (const [k, el] of panels) el.hidden = k !== id;
+    // Data QC is a measurement over the CURRENT selection, so it is taken when the section is
+    // opened rather than kept live: recomputing on every checkbox click would spawn a query per
+    // keystroke, and a stale answer beside a changed selection is worse than an absent one.
+    if (id === "qc") void refreshQc();
   }
-  content.appendChild(formRow("Task", taskSel));
 
+  for (const [id, label, title] of SECTIONS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "seg-opt";
+    b.textContent = label;
+    b.title = title;
+    b.setAttribute("aria-pressed", String(id === activeSection));
+    b.addEventListener("click", () => showSection(id));
+    tabs.set(id, b);
+    tabStrip.appendChild(b);
+
+    const panel = document.createElement("div");
+    panel.className = "ml-section";
+    panel.hidden = id !== activeSection;
+    panels.set(id, panel);
+    sectionHost.appendChild(panel);
+  }
+  content.append(tabStrip, sectionHost);
+  const sIn = panels.get("input") as HTMLElement;
+  const sQc = panels.get("qc") as HTMLElement;
+  const sModel = panels.get("model") as HTMLElement;
+  const sRes = panels.get("results") as HTMLElement;
+
+  // --- Algorithm: ONE grouped picker ---------------------------------------
+  // Was two cascading selects. The task is now DERIVED from which group the chosen algorithm sits
+  // in, so `Random Forest` can appear under both continuous and discrete without either entry
+  // having to explain itself.
   const algoSel = document.createElement("select");
+  algoSel.className = "form-control";
+  for (const t of TASKS) {
+    const g = document.createElement("optgroup");
+    g.label = t.group;
+    for (const a of t.algos) {
+      const o = document.createElement("option");
+      // task:algo, because an algorithm id alone is ambiguous once `rf` is in two groups.
+      o.value = `${t.id}:${a.id}`;
+      o.textContent = a.label;
+      g.appendChild(o);
+    }
+    algoSel.appendChild(g);
+  }
+  algoSel.value = `${task.id}:${algo.id}`;
   const algoDesc = document.createElement("div");
   algoDesc.className = "mc-chain-note";
-  content.appendChild(formRow("Algorithm", algoSel));
-  content.appendChild(algoDesc);
+  sModel.appendChild(formRow("Algorithm", algoSel));
+  sModel.appendChild(algoDesc);
 
   // SB-MLA-008. What about the chosen configuration would not reproduce on another machine, said
   // BEFORE the run rather than discovered when somebody cannot repeat the result. Hidden unless
@@ -319,7 +406,7 @@ export async function buildMlContent(
   const detNote = document.createElement("div");
   detNote.className = "ml-determinism-note";
   detNote.hidden = true;
-  content.appendChild(detNote);
+  sModel.appendChild(detNote);
 
   // --- Input curves + target ----------------------------------------------
   const featBox = document.createElement("div");
@@ -341,7 +428,7 @@ export async function buildMlContent(
     label.append(cb, document.createTextNode(` ${c.name}`), tail);
     featBox.appendChild(label);
   }
-  content.appendChild(
+  sIn.appendChild(
     formRow(
       "Input curves",
       featBox,
@@ -350,6 +437,7 @@ export async function buildMlContent(
   );
 
   const targetSel = document.createElement("select");
+  targetSel.className = "form-control";
   for (const name of curveNames) {
     const o = document.createElement("option");
     o.value = name;
@@ -361,7 +449,7 @@ export async function buildMlContent(
     "Target curve", targetSel,
     "The labelled 'ground truth' to learn (core-calibrated curve, interpreted facies, …).",
   );
-  content.appendChild(targetRow);
+  sIn.appendChild(targetRow);
 
   // --- Target transform (SB-MLA-035) --------------------------------------
   // Permeability spans decades and is fitted in log10 space because that is where the relation is
@@ -404,11 +492,12 @@ export async function buildMlContent(
     "Fit target as", xfSeg,
     "A transformed quantity is a different quantity. Whichever space the model is fitted in is the space its scores describe.",
   );
-  content.append(xfRow, xfEcho);
+  sModel.append(xfRow, xfEcho);
 
   // Optional MASK curve — kept visible for ALL tasks (it also governs the unsupervised fit pool),
   // default "(none)" so data is never silently dropped.
   const maskSel = document.createElement("select");
+  maskSel.className = "form-control";
   const maskNone = document.createElement("option");
   maskNone.value = "";
   maskNone.textContent = "(none)";
@@ -419,7 +508,7 @@ export async function buildMlContent(
     o.textContent = name;
     maskSel.appendChild(o);
   }
-  content.appendChild(
+  sIn.appendChild(
     formRow(
       "Mask (exclude)", maskSel,
       "Optional 0/1 flag curve: samples where the mask = 1 are excluded from training and left blank (NaN) in the output — bad-hole, coal, casing.",
@@ -447,7 +536,7 @@ export async function buildMlContent(
   }
   const train = wellBox(false);
   const trainRow = formRow("Train wells", train.el, "Wells whose labelled samples fit the model.");
-  content.appendChild(trainRow);
+  sIn.appendChild(trainRow);
 
   // --- Blind test split ----------------------------------------------------
   // The percentage is a share of the DATA — of the samples these wells actually gave, not of the
@@ -572,20 +661,21 @@ export async function buildMlContent(
     splitWrap,
     "Wells kept out of the fit and used to score it. They still get their predicted curve, so you can lay it against core.",
   );
-  content.appendChild(splitRow);
+  sModel.appendChild(splitRow);
   echoSplit();
 
   // Apply wells = the run scope. Unsupervised models also FIT on these (pooled — field-wide).
-  content.appendChild(scope.el);
+  sIn.appendChild(scope.el);
 
   // --- Hyperparameters + output -------------------------------------------
   const paramsGrid = document.createElement("div");
   paramsGrid.className = "mc-settings";
-  content.appendChild(formRow("Parameters", paramsGrid));
+  sModel.appendChild(formRow("Parameters", paramsGrid));
   let paramInputs: { spec: ParamSpec; get: () => number | string }[] = [];
 
   const outInput = document.createElement("input");
   outInput.type = "text";
+  outInput.className = "form-control";
   outInput.value = task.defaultOut;
   let outEdited = false;
   outInput.addEventListener("input", () => {
@@ -593,7 +683,7 @@ export async function buildMlContent(
     // The transform echo names the two curves it will write, so it has to follow the name.
     echoTransform();
   });
-  content.appendChild(
+  sModel.appendChild(
     formRow("Output curve", outInput, "Extra outputs get suffixes: _PROB (confidence), or PC1/PC2… for reduction."),
   );
 
@@ -614,14 +704,14 @@ export async function buildMlContent(
   seedText.textContent = "Seed";
   seedLabel.append(seedText, seedInput);
   commonWrap.append(stdLabel, seedLabel);
-  content.appendChild(formRow("Common", commonWrap));
+  sModel.appendChild(formRow("Common", commonWrap));
 
   // --- Input / output log set (`logSetPicker.ts`). A model fitted on today's PHIE and one fitted
   // after the next porosity re-run are fitted on different rock; naming the set is what lets a
   // saved model say which (Jauhar, 2026-08-05). Output defaults to ML, which is where every
   // prediction went before this was selectable.
   const setPicker = buildLogSetPicker({ write: "ML" });
-  for (const row of setPicker.rows) content.appendChild(row);
+  for (const row of setPicker.rows) sIn.appendChild(row);
 
   function renderParams(): void {
     paramsGrid.innerHTML = "";
@@ -661,19 +751,6 @@ export async function buildMlContent(
         get: () => (spec.kind === "num" ? parseFloat(input.value) || 0 : input.value),
       });
     }
-  }
-
-  function refreshAlgos(): void {
-    algoSel.innerHTML = "";
-    for (const a of task.algos) {
-      const o = document.createElement("option");
-      o.value = a.id;
-      o.textContent = a.label;
-      algoSel.appendChild(o);
-    }
-    algo = task.algos[0];
-    algoSel.value = algo.id;
-    syncAlgo();
   }
 
   function syncAlgo(): void {
@@ -716,16 +793,95 @@ export async function buildMlContent(
   }
   let detGen = 0;
 
-  taskSel.addEventListener("change", () => {
-    task = TASKS.find((t) => t.id === taskSel.value) ?? TASKS[0];
-    refreshAlgos();
-  });
   algoSel.addEventListener("change", () => {
-    algo = task.algos.find((a) => a.id === algoSel.value) ?? task.algos[0];
+    const [taskId, algoId] = algoSel.value.split(":");
+    task = TASKS.find((t) => t.id === taskId) ?? TASKS[0];
+    algo = task.algos.find((a) => a.id === algoId) ?? task.algos[0];
     syncAlgo();
   });
 
-  // --- Run + results -------------------------------------------------------
+  // --- Data QC --------------------------------------------------------------
+  //
+  // Jauhar, 2026-08-07: *"for data qc, adjust based on ML choosen, i.e. trees, clustering, etc"*.
+  // The checks are not generic, because what makes data unfit depends entirely on what is about to
+  // be fitted: a random forest does not care that RHOB is 2.5 and GR is 90, and k-means cares about
+  // nothing else. A fixed checklist would either warn about scale on a tree model (noise) or stay
+  // quiet about it on a distance model (the failure this section exists to catch).
+  //
+  // Everything here comes from `stats_curve_summary`, which already reports n, n_missing, min/max
+  // and standard deviation per well per curve, and already honours the input set and the mask. A
+  // second statistics path for the same numbers would be a second convention to keep in agreement.
+  const qcBtn = document.createElement("button");
+  qcBtn.type = "button";
+  qcBtn.className = "form-run-btn";
+  qcBtn.textContent = "Check the data";
+  const qcHead = document.createElement("div");
+  qcHead.className = "mc-chain-note";
+  const qcOut = document.createElement("div");
+  qcOut.className = "ml-qc-out";
+  sQc.append(formRow("Fitness", qcBtn, "Measures the curves and wells currently selected, for the model currently chosen."), qcHead, qcOut);
+  let qcGen = 0;
+
+  /** True where the estimator's arithmetic depends on the SCALE of its inputs.
+   *
+   *  The split is the one that decides whether a scale warning is a finding or noise. Trees split
+   *  one feature at a time on a threshold, so multiplying a curve by a thousand changes nothing
+   *  they do; everything else here measures a distance, a dot product or a gradient across all
+   *  features at once, and a curve with a thousand times the spread of its neighbours dominates
+   *  that whether or not it carries any information. Linear regression is in the tolerant set for a
+   *  different reason: scale changes its coefficients but not its fit. */
+  const SCALE_FREE = new Set(["rf", "gbdt", "gnb", "linear"]);
+
+  async function refreshQc(): Promise<void> {
+    const gen = ++qcGen;
+    const feats = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    const wellIds = task.supervised
+      ? [...train.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id)
+      : scope.getWellIds();
+    qcOut.innerHTML = "";
+    if (feats.length === 0 || wellIds.length === 0) {
+      qcHead.textContent =
+        "Pick input curves and wells on the Input section first — this measures that selection, not the project.";
+      return;
+    }
+    qcHead.textContent = "Measuring…";
+    const curves = task.supervised ? [...feats, targetSel.value] : feats;
+    let rows: CurveStatsRow[];
+    try {
+      [rows] = await statsCurveSummary({
+        well_ids: wellIds,
+        curves,
+        input_set: setPicker.inputSet(),
+        mask_curve: maskSel.value || null,
+        percentiles: [],
+      });
+    } catch (e) {
+      if (gen !== qcGen) return;
+      qcHead.textContent = `Could not measure the data: ${e}`;
+      return;
+    }
+    if (gen !== qcGen) return;
+    renderQc(qcHead, qcOut, rows, {
+      curves,
+      inputs: feats,
+      target: task.supervised ? targetSel.value : null,
+      wells: wellIds.length,
+      algorithm: algo.id,
+      algorithmLabel: algo.label,
+      taskId: task.id,
+      scaleFree: SCALE_FREE.has(algo.id),
+      k: Number(paramInputs.find((p) => p.spec.key === "k")?.get() ?? 0) || null,
+      standardize: stdCb.checked,
+      masked: !!maskSel.value,
+    });
+  }
+  qcBtn.addEventListener("click", () => void refreshQc());
+
+  // --- Run: a FOOTER, outside the sections ---------------------------------
+  // Run has to be reachable from every section. Inside Results it would mean switching sections to
+  // start a run and switching back to change a setting, and inside Model it would imply the run is
+  // a property of the model section rather than of the whole pane. The Organic module-pane spec
+  // puts the primary action in a footer for exactly this reason.
   const runBtn = document.createElement("button");
   runBtn.type = "button";
   runBtn.textContent = "Run Model";
@@ -733,7 +889,7 @@ export async function buildMlContent(
   const statusLine = document.createElement("div");
   statusLine.className = "mc-status";
   const runRow = document.createElement("div");
-  runRow.className = "mc-run-row";
+  runRow.className = "mc-run-row ml-footer";
   runRow.append(runBtn, statusLine);
   content.appendChild(runRow);
 
@@ -749,7 +905,7 @@ export async function buildMlContent(
     saveInput,
     "Keeps the fitted model (and its scaler) so it can be applied to other wells later, without refitting",
   );
-  content.appendChild(saveRow);
+  sModel.appendChild(saveRow);
 
   // --- Compare (leaderboard) — supervised only ------------------------------
   const subsetSel = document.createElement("select");
@@ -775,11 +931,11 @@ export async function buildMlContent(
     wrap.append(subsetSel, compareBtn, compareStatus);
     return wrap;
   })(), "Leaderboard: blind-well GroupKFold CV (whole wells held out) + permutation importance + confusion matrix. Needs ≥2 train wells.");
-  content.appendChild(compareRow);
+  sRes.appendChild(compareRow);
 
   const results = document.createElement("div");
   results.className = "mc-results";
-  content.appendChild(results);
+  sRes.appendChild(results);
 
   const buildSubsets = (features: string[], strategy: string): string[][] => {
     const full = features.slice();
@@ -850,7 +1006,7 @@ export async function buildMlContent(
   const hint = document.createElement("div");
   hint.className = "mc-chain-note";
   hint.textContent = "Needs Python with numpy + scikit-learn (pip install scikit-learn); xgboost optional.";
-  content.appendChild(hint);
+  sRes.appendChild(hint);
 
   // --- Saved models ---------------------------------------------------------
   // A trained model is a named, dated, citable artifact here: apply it to new wells without
@@ -864,7 +1020,7 @@ export async function buildMlContent(
   const savedNote = document.createElement("div");
   savedNote.className = "mc-chain-note";
   savedWrap.append(savedHead, savedList, savedNote);
-  content.appendChild(savedWrap);
+  sRes.appendChild(savedWrap);
 
   // SB-MLA-002 + SB-MLA-005. Fetched alongside the list rather than after it: the first call spawns
   // the runtime probe, and running the two in flight together means the list appears at the speed of
@@ -1108,7 +1264,7 @@ export async function buildMlContent(
     }
   });
 
-  refreshAlgos();
+  syncAlgo();
   return { el: content, dispose: () => scope.dispose() };
 }
 
@@ -1590,8 +1746,564 @@ export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: b
       `importances hold across wells.`;
     host.appendChild(note);
   }
+  renderScoreChart(host, res, isClf, tied);
+  renderPredictorConsensus(host, res);
   host.appendChild(detail);
   if (firstOkRow) renderEvalDetail(detail, firstOkRow, isClf);
+}
+
+/** What the Data QC section was asked about. Passed as one object because every check needs several
+ *  of these and a nine-argument call is a transposition waiting to happen. */
+export interface QcContext {
+  /** Every curve the run reads — inputs AND the target. A row reaches the fit only where all of
+   *  them exist, so this is the set the coverage question is asked over. */
+  curves: string[];
+  /** The inputs alone. Kept SEPARATE from `curves` because the scale question is about what the
+   *  estimator is fed, and the target is not fed to it: a permeability target spanning four decades
+   *  cannot swamp a distance calculation it never enters. Reported against the full list, that check
+   *  raises a confident, plausible, wrong alert on every core-calibrated regression — which is worse
+   *  than not checking, because the fix it names (standardize) would not change the answer. */
+  inputs: string[];
+  /** Null for an unsupervised run, where there is no target to be short of. */
+  target: string | null;
+  wells: number;
+  algorithm: string;
+  algorithmLabel: string;
+  taskId: string;
+  /** True where the estimator ignores the scale of its inputs (trees, naive Bayes, linear). */
+  scaleFree: boolean;
+  /** Requested cluster count, where the algorithm has one. */
+  k: number | null;
+  standardize: boolean;
+  masked: boolean;
+}
+
+interface QcFinding {
+  level: "ok" | "warn" | "alert";
+  title: string;
+  detail: string;
+}
+
+/**
+ * Whether the selected data can support the selected model.
+ *
+ * Every finding here is a statement about the pair, never about the data alone, because "is this
+ * data good" has no answer — a spread of four orders of magnitude between two curves is fatal to
+ * k-means and completely irrelevant to a random forest, and a checklist that reported it either way
+ * would be wrong half the time in whichever direction the reader was not expecting.
+ *
+ * Findings are RANKED, worst first, and a clean run says so rather than showing nothing: an empty
+ * panel reads as "the check did not run".
+ *
+ * Exported so it can be driven with synthetic rows over the vite dev server.
+ */
+export function qcFindings(rows: CurveStatsRow[], ctx: QcContext): QcFinding[] {
+  const out: QcFinding[] = [];
+  const byCurve = new Map<string, CurveStatsRow[]>();
+  for (const r of rows) {
+    const list = byCurve.get(r.curve) ?? [];
+    list.push(r);
+    byCurve.set(r.curve, list);
+  }
+  const total = (c: string, f: (r: CurveStatsRow) => number) =>
+    (byCurve.get(c) ?? []).reduce((a, r) => a + f(r), 0);
+
+  // --- 1. Is there anything to fit at all -----------------------------------
+  // A model needs every input AND the target present at the SAME depth, and a run where each curve
+  // is 90% complete but their gaps do not overlap has far fewer usable rows than any single column
+  // suggests. The intersection cannot be recovered from per-curve totals, so what is reported is the
+  // LIMIT it cannot exceed, named as such.
+  //
+  // This one is pushed FIRST and stays first whatever its level, because it is the scale everything
+  // below it is read against. Sorted with the rest it would sink under three warnings whenever the
+  // data was fine, which is exactly when a reader most needs to know they have 140 rows and not
+  // 14,000.
+  const counts = ctx.curves.map((c) => ({ curve: c, n: total(c, (r) => r.n) }));
+  const thinnest = counts.reduce((a, b) => (b.n < a.n ? b : a), counts[0] ?? { curve: "", n: 0 });
+  // Rows per input rather than an absolute floor: 500 rows is comfortable for two curves and thin
+  // for eight, and a fixed number would be wrong at both ends.
+  const perInput = thinnest.n / Math.max(1, ctx.inputs.length);
+  const headline: QcFinding =
+    thinnest.n === 0
+      ? {
+          level: "alert",
+          title: `${thinnest.curve} has no samples in the selected wells`,
+          detail:
+            "Nothing can be fitted. Either the curve is absent from these wells, the mask excluded all of it, " +
+            "or the input log set does not carry it.",
+        }
+      : perInput < 30
+        ? {
+            level: "alert",
+            title: `At most ${thinnest.n.toLocaleString()} rows for ${ctx.inputs.length} input(s) — limited by ${thinnest.curve}`,
+            detail:
+              `About ${Math.round(perInput)} rows per input curve. At that ratio almost any algorithm here will fit ` +
+              "the noise and score well doing it. Use fewer inputs, or more wells.",
+          }
+        : {
+            level: "ok",
+            title: `At most ${thinnest.n.toLocaleString()} rows can reach the fit`,
+            detail:
+              `Capped by ${thinnest.curve}, the shortest of the selected curves — about ${Math.round(perInput)} rows ` +
+              "per input. The real count is lower wherever the curves' gaps do not line up, and the run reports it.",
+          };
+
+  // --- 2. Coverage per curve ------------------------------------------------
+  for (const c of ctx.curves) {
+    const n = total(c, (r) => r.n);
+    const miss = total(c, (r) => r.n_missing);
+    const denom = n + miss;
+    if (denom === 0) continue;
+    const share = miss / denom;
+    const empties = (byCurve.get(c) ?? []).filter((r) => r.n === 0);
+    if (empties.length > 0) {
+      out.push({
+        level: "warn",
+        title: `${c} is missing entirely from ${empties.length} of ${ctx.wells} well(s)`,
+        detail:
+          `${empties.map((r) => r.well).slice(0, 6).join(", ")}${empties.length > 6 ? `, and ${empties.length - 6} more` : ""}. ` +
+          "Those wells contribute nothing to the fit and are not a smaller contribution — they are absent. " +
+          "Drop the curve or drop the wells; leaving both narrows the model to whichever wells happen to have everything.",
+      });
+    } else if (share > 0.3) {
+      out.push({
+        level: "warn",
+        title: `${c} is blank over ${Math.round(share * 100)}% of the selected interval`,
+        detail: "Every blank depth removes the whole row, including the curves that were logged there.",
+      });
+    }
+  }
+
+  // --- 3. Scale, and ONLY where scale matters -------------------------------
+  // Over `inputs`, never `curves` — the target is not fed to the estimator, so it cannot dominate a
+  // distance. See the field's own note.
+  const spreads = ctx.inputs
+    .map((c) => {
+      const rs = (byCurve.get(c) ?? []).filter((r) => r.std != null && (r.std as number) > 0);
+      if (rs.length === 0) return null;
+      // Pooled by well count rather than by sample count: this is a question about the size of the
+      // numbers, not a precise statistic, and one enormous well should not decide it alone.
+      return { curve: c, sd: rs.reduce((a, r) => a + (r.std as number), 0) / rs.length };
+    })
+    .filter((v): v is { curve: string; sd: number } => v != null);
+  if (spreads.length > 1) {
+    const hi = spreads.reduce((a, b) => (b.sd > a.sd ? b : a));
+    const lo = spreads.reduce((a, b) => (b.sd < a.sd ? b : a));
+    const ratio = hi.sd / lo.sd;
+    if (ctx.scaleFree) {
+      out.push({
+        level: "ok",
+        title: `Scale does not matter to ${ctx.algorithmLabel}`,
+        detail:
+          `${hi.curve} varies about ${ratio < 10 ? ratio.toFixed(1) : Math.round(ratio)}× as widely as ${lo.curve}, ` +
+          "which would dominate a distance-based model. This one splits one curve at a time on a threshold, " +
+          "so it is unaffected either way.",
+      });
+    } else if (ratio > 20 && !ctx.standardize) {
+      out.push({
+        level: "alert",
+        title: `${hi.curve} would swamp every other input`,
+        detail:
+          `It varies about ${Math.round(ratio)}× as widely as ${lo.curve}, and ${ctx.algorithmLabel} measures ` +
+          "distance across all inputs at once — so that curve decides the answer whether or not it carries any " +
+          "information. Turn on Standardize inputs in the Model section.",
+      });
+    } else if (ratio > 20) {
+      out.push({
+        level: "ok",
+        title: "Standardizing is doing real work here",
+        detail:
+          `${hi.curve} varies about ${Math.round(ratio)}× as widely as ${lo.curve}. Without the z-score it would ` +
+          `decide every distance ${ctx.algorithmLabel} measures. The scaler is stored with the model, so an ` +
+          "apply run uses the same transform rather than refitting one.",
+      });
+    }
+  }
+
+  // --- 4. The target, where there is one ------------------------------------
+  if (ctx.target) {
+    const t = byCurve.get(ctx.target) ?? [];
+    const tn = t.reduce((a, r) => a + r.n, 0);
+    const wellsWithTarget = t.filter((r) => r.n > 0).length;
+    if (tn === 0) {
+      out.push({
+        level: "alert",
+        title: `The target ${ctx.target} has no samples at all`,
+        detail: "Nothing is labelled, so there is nothing to learn. Pick a target the training wells actually carry.",
+      });
+    } else if (wellsWithTarget < 2) {
+      out.push({
+        level: "alert",
+        title: `Only ${wellsWithTarget} well carries ${ctx.target}`,
+        detail:
+          "A model fitted in one well has no way to be validated on another, and its cross-validation score is " +
+          "measured on folds of the same well. Nothing here can tell you whether it travels.",
+      });
+    } else if (wellsWithTarget < ctx.wells) {
+      out.push({
+        level: "warn",
+        title: `${ctx.target} is present in ${wellsWithTarget} of ${ctx.wells} training wells`,
+        detail:
+          "The rest contribute no labelled rows. That is not an error — it is the usual shape of core coverage — " +
+          "but the model is learning from those wells only, and a blind test can hold back at most " +
+          `${wellsWithTarget - 1} of them.`,
+      });
+    }
+
+    // A classifier fitted on a continuous target is a common and expensive mistake: it computes,
+    // labels every distinct value a class, and the accuracy is meaningless. The tell is the number
+    // of distinct values, which the summary cannot give directly — but a target whose range spans
+    // far more than a handful of integers is not a class code.
+    if (ctx.taskId === "classification") {
+      const lo = Math.min(...t.filter((r) => r.min != null).map((r) => r.min as number));
+      const hi = Math.max(...t.filter((r) => r.max != null).map((r) => r.max as number));
+      if (Number.isFinite(lo) && Number.isFinite(hi) && (hi - lo > 50 || !Number.isInteger(lo) || !Number.isInteger(hi))) {
+        out.push({
+          level: "alert",
+          title: `${ctx.target} does not look like a class code`,
+          detail:
+            `It runs from ${lo.toFixed(3)} to ${hi.toFixed(3)}. A classifier will treat every distinct value as its ` +
+            "own class, fit happily, and report an accuracy that means nothing. If this is a continuous log, " +
+            "choose a Continuous log algorithm instead.",
+        });
+      }
+    }
+    if (ctx.taskId === "regression") {
+      const lo = Math.min(...t.filter((r) => r.min != null).map((r) => r.min as number));
+      const hi = Math.max(...t.filter((r) => r.max != null).map((r) => r.max as number));
+      if (Number.isFinite(lo) && Number.isFinite(hi) && hi > 0 && lo >= 0 && hi / Math.max(lo, 1e-9) > 1000) {
+        out.push({
+          level: "warn",
+          title: `${ctx.target} spans more than three orders of magnitude`,
+          detail:
+            `${lo.toExponential(1)} to ${hi.toExponential(1)}. Fitted as measured, the largest values dominate the ` +
+            "error and the low end is fitted almost not at all. Set Fit target as → log10 in the Model section, " +
+            "which is the space this relation is usually linear in.",
+        });
+      }
+    }
+  }
+
+  // --- 5. Cluster count against what the data can carry ---------------------
+  if (ctx.k && ctx.k > 1) {
+    const perWell = thinnest.n / Math.max(1, ctx.wells);
+    if (thinnest.n / ctx.k < 30) {
+      out.push({
+        level: "alert",
+        title: `${ctx.k} classes over about ${thinnest.n.toLocaleString()} rows`,
+        detail:
+          `That is roughly ${Math.round(thinnest.n / ctx.k)} samples per class. Below about thirty, a class is a ` +
+          "handful of depths and its mean is not a rock property. Lower K or add wells.",
+      });
+    } else {
+      out.push({
+        level: "ok",
+        title: `${ctx.k} classes over about ${thinnest.n.toLocaleString()} rows`,
+        detail:
+          `Roughly ${Math.round(thinnest.n / ctx.k)} samples per class, about ${Math.round(perWell)} rows per well. ` +
+          "Class numbering is ordered by the mean of the FIRST checked input curve, so put GR first if you want " +
+          "0 to be the cleanest sand.",
+      });
+    }
+  }
+
+  const rank = { alert: 0, warn: 1, ok: 2 } as const;
+  out.sort((a, b) => rank[a.level] - rank[b.level]);
+  return [headline, ...out];
+}
+
+function renderQc(head: HTMLElement, host: HTMLElement, rows: CurveStatsRow[], ctx: QcContext): void {
+  host.innerHTML = "";
+  const findings = qcFindings(rows, ctx);
+  const alerts = findings.filter((f) => f.level === "alert").length;
+  const warns = findings.filter((f) => f.level === "warn").length;
+  head.textContent =
+    (alerts
+      ? `${alerts} thing${alerts === 1 ? "" : "s"} to fix before fitting ${ctx.algorithmLabel}`
+      : warns
+        ? `Nothing blocking, ${warns} thing${warns === 1 ? "" : "s"} worth knowing`
+        : `Nothing found against ${ctx.algorithmLabel}`) +
+    ` · ${ctx.curves.length} curve(s), ${ctx.wells} well(s)` +
+    (ctx.masked ? ", mask applied" : "");
+
+  for (const f of findings) {
+    const card = document.createElement("div");
+    card.className = `ml-qc-item ml-qc-${f.level}`;
+    const t = document.createElement("div");
+    t.className = "ml-qc-title";
+    t.textContent = f.title;
+    const d = document.createElement("div");
+    d.className = "ml-qc-detail";
+    d.textContent = f.detail;
+    card.append(t, d);
+    host.appendChild(card);
+  }
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgEl<K extends keyof SVGElementTagNameMap>(
+  tag: K,
+  attrs: Record<string, string | number>,
+): SVGElementTagNameMap[K] {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+}
+
+/**
+ * The leaderboard, drawn.
+ *
+ * The table above it already carries every number, so this is not a second copy of the data — it is
+ * the one thing the table cannot show: **whether the gap between two models is bigger than the
+ * uncertainty in either of them.** A column of scores four decimal places wide invites the eye to
+ * read 0.7412 as beating 0.7385, and the `tiedAtTheTop` note says otherwise in a sentence somebody
+ * has to stop and parse. Here the whiskers either overlap or they do not.
+ *
+ * Sorted best-first like the table, and deliberately the same order — a chart that re-sorted would
+ * make the reader map one to the other.
+ *
+ * The tie band is shaded across the whole plot rather than drawn per row, because what it marks is a
+ * REGION of the score axis inside which this run cannot distinguish anything, not a property of the
+ * rows that happen to fall in it. A fifth model landing there later is equally undecided.
+ *
+ * Errored rows are omitted rather than drawn at zero: a model that failed to fit has no score, and a
+ * dot at the bottom of the axis is a score of zero, which is a different and much stronger claim.
+ *
+ * Exported so it can be driven with synthetic rows over the vite dev server — the whisker geometry
+ * and the band are wrong in ways a screenshot shows and a type check does not.
+ */
+export function renderScoreChart(
+  host: HTMLElement,
+  res: MlEvalResult,
+  isClf: boolean,
+  tied: number,
+): void {
+  const ok = res.rows.filter((r) => !r.error && r.score != null);
+  // One model is not a comparison. Two is the smallest one worth a picture.
+  if (ok.length < 2) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "ml-chart";
+  const cap = document.createElement("div");
+  cap.className = "mc-chain-note";
+  cap.textContent = `${isClf ? "Accuracy" : "R²"} by model — dot is the mean across folds, bar is the spread between them`;
+  wrap.appendChild(cap);
+
+  const rowH = 22;
+  const padL = 156;
+  const padR = 62;
+  const padT = 8;
+  const width = 620;
+  const height = padT + ok.length * rowH + 22;
+
+  const lo = Math.min(...ok.map((r) => (r.score as number) - (r.score_std ?? 0)));
+  const hi = Math.max(...ok.map((r) => (r.score as number) + (r.score_std ?? 0)));
+  // A flat run (every model identical) would divide by zero; a hair of span keeps the dots visible
+  // and, correctly, keeps them on top of each other.
+  const pad = Math.max((hi - lo) * 0.08, 1e-6);
+  const x0 = lo - pad;
+  const x1 = hi + pad;
+  const X = (v: number) => padL + ((v - x0) / (x1 - x0)) * (width - padL - padR);
+
+  const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, class: "ml-score-chart", width: "100%" });
+
+  // The undecided region, drawn once. It spans from the leader's lower whisker to the top of
+  // whatever the tie reaches, which is exactly the interval `tiedAtTheTop` tests against.
+  if (tied > 1) {
+    const band = ok.slice(0, tied);
+    const bLo = Math.min(...band.map((r) => (r.score as number) - (r.score_std ?? 0)));
+    const bHi = Math.max(...band.map((r) => (r.score as number) + (r.score_std ?? 0)));
+    svg.appendChild(
+      svgEl("rect", {
+        x: X(bLo),
+        y: padT - 2,
+        width: Math.max(1, X(bHi) - X(bLo)),
+        height: ok.length * rowH + 4,
+        class: "ml-sc-tieband",
+      }),
+    );
+  }
+
+  ok.forEach((r, i) => {
+    const cy = padT + i * rowH + rowH / 2;
+    const score = r.score as number;
+    const sd = r.score_std ?? 0;
+
+    const label = svgEl("text", { x: padL - 8, y: cy + 4, class: "ml-sc-label", "text-anchor": "end" });
+    // The curve COUNT rather than the curve names: the table beside this carries the names, and a
+    // list of six mnemonics at this size is unreadable. How many curves a model needed is the thing
+    // being traded against its score, and that is a number.
+    label.textContent = `${r.algorithm} · ${r.features.length} curve${r.features.length === 1 ? "" : "s"}`;
+    const t = document.createElementNS(SVG_NS, "title");
+    t.textContent = r.features.join(", ");
+    label.appendChild(t);
+    svg.appendChild(label);
+
+    if (sd > 0) {
+      svg.appendChild(svgEl("line", { x1: X(score - sd), y1: cy, x2: X(score + sd), y2: cy, class: "ml-sc-whisker" }));
+      for (const e of [score - sd, score + sd]) {
+        svg.appendChild(svgEl("line", { x1: X(e), y1: cy - 4, x2: X(e), y2: cy + 4, class: "ml-sc-cap" }));
+      }
+    }
+    const dot = svgEl("circle", { cx: X(score), cy, r: 4.5, class: "ml-sc-dot" });
+    if (i < tied) dot.setAttribute("class", tied === 1 ? "ml-sc-dot ml-sc-best" : "ml-sc-dot ml-sc-tied");
+    svg.appendChild(dot);
+
+    const val = svgEl("text", { x: width - padR + 6, y: cy + 4, class: "ml-sc-value" });
+    val.textContent = sd > 0 ? `${score.toFixed(3)} ±${sd.toFixed(3)}` : score.toFixed(3);
+    svg.appendChild(val);
+  });
+
+  for (const [v, anchor] of [
+    [x0, "start"],
+    [x1, "end"],
+  ] as const) {
+    const t = svgEl("text", { x: X(v), y: height - 5, class: "ml-sc-axis", "text-anchor": anchor });
+    t.textContent = v.toFixed(2);
+    svg.appendChild(t);
+  }
+
+  wrap.appendChild(svg);
+  host.appendChild(wrap);
+}
+
+/**
+ * Which curve is actually carrying the prediction — asked across every model rather than inside one.
+ *
+ * The importance panel below answers "what did THIS model lean on". That is a different and weaker
+ * question: a curve can top one algorithm's importance and vanish from the next, and when it does,
+ * what has been measured is the algorithm rather than the rock. The question an interpreter is
+ * really asking before committing a logging programme — *is GR carrying this, or is it just the
+ * random forest?* — needs every model in the run to vote.
+ *
+ * **Importance is normalised WITHIN each model before anything is compared.** Permutation importance
+ * is a drop in that model's own score, so a random forest's and an SVR's are not the same quantity
+ * and averaging them raw would produce a number with no meaning that still sorts. Each model's
+ * importances are scaled to its own maximum, which makes every vote a share of that model's total
+ * reliance — comparable because it is dimensionless, not because the units happen to look alike.
+ *
+ * **The denominator is models that USED the curve, not models in the run.** The leaderboard ranks
+ * algorithm × curve subsets, so most curves are absent from most rows. Counting a curve as scoring
+ * zero in a model that was never offered it would bury exactly the curve a small subset was built
+ * to test.
+ *
+ * **A model whose importance could not be measured does not vote.** `n_imp_folds == 0` means no fold
+ * could be permuted; its zeros are an absence of measurement, and letting them average in would drag
+ * every curve toward "does not carry".
+ *
+ * The spread across models is the point of the whole panel, so it is stated: a curve at 0.9 in one
+ * model and 0.1 in another has the same mean as one at 0.5 twice, and only the second is a finding.
+ */
+export function renderPredictorConsensus(host: HTMLElement, res: MlEvalResult): void {
+  const voters = res.rows.filter(
+    (r) => !r.error && r.n_imp_folds > 0 && r.importances?.length === r.features.length,
+  );
+  // Two models cannot disagree usefully, and one cannot disagree at all.
+  if (voters.length < 2) return;
+
+  const shares = new Map<string, number[]>();
+  for (const r of voters) {
+    // Scaled to this model's own maximum: a share of what THIS model leaned on.
+    const max = Math.max(...r.importances.map((v) => Math.abs(v)), 0);
+    if (!(max > 0)) continue; // a model that leaned on nothing has no opinion to record
+    r.features.forEach((f, i) => {
+      const s = Math.max(0, r.importances[i] ?? 0) / max;
+      const list = shares.get(f) ?? [];
+      list.push(s);
+      shares.set(f, list);
+    });
+  }
+  if (shares.size === 0) return;
+
+  const stats = [...shares.entries()]
+    .map(([curve, vals]) => {
+      const n = vals.length;
+      const mean = vals.reduce((a, b) => a + b, 0) / n;
+      const spread = Math.max(...vals) - Math.min(...vals);
+      return { curve, n, mean, spread, lo: Math.min(...vals), hi: Math.max(...vals) };
+    })
+    .sort((a, b) => b.mean - a.mean);
+
+  const wrap = document.createElement("div");
+  wrap.className = "ml-chart ml-consensus";
+  const cap = document.createElement("div");
+  cap.className = "mc-chain-note";
+  cap.textContent = `Which curve carries — across ${voters.length} models, each scaled to its own strongest input`;
+  wrap.appendChild(cap);
+
+  for (const s of stats) {
+    const line = document.createElement("div");
+    line.className = "ml-imp-row";
+    const name = document.createElement("span");
+    name.className = "ml-imp-name";
+    name.textContent = s.curve;
+    const barWrap = document.createElement("div");
+    barWrap.className = "ml-imp-bar-wrap";
+    const bar = document.createElement("div");
+    bar.className = "ml-imp-bar";
+    bar.style.width = `${s.mean * 100}%`;
+    barWrap.appendChild(bar);
+    // The range across models, drawn over the mean. Where it is wide the mean is not the finding.
+    const range = document.createElement("div");
+    range.className = "ml-imp-whisker";
+    range.style.left = `${s.lo * 100}%`;
+    range.style.width = `${Math.max(0.5, (s.hi - s.lo) * 100)}%`;
+    barWrap.appendChild(range);
+    const val = document.createElement("span");
+    val.className = "ml-imp-val";
+    val.textContent = `${s.mean.toFixed(2)} · ${s.n}/${voters.length}`;
+    line.append(name, barWrap, val);
+
+    // Two different reasons a row should not be read as a predictor, and they are not the same
+    // finding, so they are not the same message.
+    if (s.n < voters.length / 2) {
+      line.classList.add("ml-imp-unclear");
+      line.title =
+        `Offered to ${s.n} of ${voters.length} models, so most of this run never tested it. ` +
+        `A high share here is a statement about those ${s.n} runs, not about the field.`;
+    } else if (s.spread > 0.5) {
+      line.classList.add("ml-imp-unclear");
+      line.title =
+        `Ranges ${s.lo.toFixed(2)} to ${s.hi.toFixed(2)} across the models that used it. ` +
+        `A curve that carries in one algorithm and not another is telling you about the algorithm. ` +
+        `The mean is not the finding here — the spread is.`;
+    } else {
+      line.title =
+        `${s.lo.toFixed(2)} to ${s.hi.toFixed(2)} across ${s.n} models. ` +
+        `Consistent across algorithms, which is what makes it a property of the rock rather than of the fit.`;
+    }
+    wrap.appendChild(line);
+  }
+
+  // The panel below this one shows what the SELECTED model leaned on, and the two will often
+  // disagree — which is the most useful thing either of them says and the easiest to mistake for a
+  // bug. A reader who sees RHOB on top here and GR on top there concludes one panel is broken,
+  // stops trusting both, and goes back to reading the score column alone.
+  //
+  // So the reconciliation is stated rather than left to be worked out. Both outcomes are worth
+  // printing: disagreement means the leader is that algorithm's preference, and agreement is the
+  // stronger result — the same curve wins whichever way the problem is fitted.
+  const best = res.rows.find((r) => !r.error && r.score != null && r.n_imp_folds > 0);
+  const bestTop =
+    best && best.importances?.length
+      ? best.features[best.importances.indexOf(Math.max(...best.importances))]
+      : null;
+  const consensusTop = stats[0]?.curve ?? null;
+  if (bestTop && consensusTop) {
+    const note = document.createElement("div");
+    note.className = "mc-chain-note ml-consensus-note";
+    note.textContent =
+      bestTop === consensusTop
+        ? `${consensusTop} leads both the best-scoring model and the run as a whole — the same curve wins ` +
+          `whichever way the problem is fitted, which is the strongest form this evidence takes.`
+        : `The best-scoring model (${best?.algorithm}) leans hardest on ${bestTop}, but ${consensusTop} is what ` +
+          `carries across the run. Not a contradiction — ${bestTop} is that algorithm's preference, and a curve ` +
+          `only one algorithm relies on is a fact about the fit rather than about the rock. Both are worth ` +
+          `logging; only ${consensusTop} is worth planning around.`;
+    wrap.appendChild(note);
+  }
+  host.appendChild(wrap);
 }
 
 function renderEvalDetail(host: HTMLElement, row: MlEvalRow, isClf: boolean): void {
