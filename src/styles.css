@@ -1303,7 +1303,9 @@ textarea {
 }
 
 .stats-table th {
-  background: var(--panel-alt, var(--bg));
+  /* Was var(--panel-alt, var(--bg)) — a fallback chain whose LAST link is undeclared too, so it
+     collapsed to transparent exactly as a bare var() would, and this header is sticky. */
+  background: var(--bg-panel-alt);
   font-weight: 600;
   text-align: center;
   position: sticky;
@@ -6842,7 +6844,9 @@ input[type="number"].num-editing:focus {
   border-radius: var(--r-lg);
   padding: 8px 10px;
   margin: 6px 0;
-  background: var(--panel);
+  /* The pane's own ground is --bg-panel (the dock group is a white card), so a card ON it takes
+     the warm-neutral alt — the same card-on-card step .cond-stage and --plot-bg take. */
+  background: var(--bg-panel-alt);
 }
 .fluor-class-head {
   display: flex;
@@ -7032,7 +7036,10 @@ input[type="number"].num-editing:focus {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--panel);
+  /* OPAQUE is load-bearing here, not decoration: a sticky header lets the scrolling rows show
+     straight through it the moment this resolves to transparent. --bg-panel-alt is what every
+     other sticky grid header in this file uses (.dbgrid, .workflow-grid, .wellparams-grid). */
+  background: var(--bg-panel-alt);
 }
 
 .intake-grid thead tr:nth-child(2) th {
