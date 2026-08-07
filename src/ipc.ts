@@ -1613,12 +1613,26 @@ export interface FaciesConfusionRequest {
   well_ids: string[];
   pred_curve: string;
   ref_curve: string;
+  /** Dominant-class purity (0..1) at or above which the mapping is accepted. **No default** — omit
+   *  it and the result is reported unjudged (SB-MLA-052). The method note states a threshold is
+   *  required and states no value; neither does any source the app holds. */
+  accept_threshold?: number;
 }
 
 export interface RefClassRow {
   ref_label: number;
   dominant_pred: number;
+  /** ROW-normalised — of this reference class's samples, the fraction in `dominant_pred`. */
   purity: number;
+  count: number;
+}
+
+/** The column-wise counterpart of `RefClassRow` — the "recognition rate" axis. */
+export interface PredClassRow {
+  pred_label: number;
+  dominant_ref: number;
+  /** COLUMN-normalised — of the samples called `pred_label`, the fraction really `dominant_ref`. */
+  recognition: number;
   count: number;
 }
 
@@ -1627,8 +1641,25 @@ export interface FaciesConfusionResult {
   pred_labels: number[];
   /** matrix[i][j] = count where reference == ref_labels[i] and prediction == pred_labels[j]. */
   matrix: number[][];
+  /** `matrix` over its ROW sums, as fractions 0..1. Read it with `row_axis`, never bare. */
+  row_pct: number[][];
+  /** `matrix` over its COLUMN sums, as fractions 0..1. Read it with `col_axis`, never bare. */
+  col_pct: number[][];
+  /** Prose statement of what `row_pct` and `per_ref[].purity` divide by (SB-MLA-051). */
+  row_axis: string;
+  /** Prose statement of what `col_pct` and `per_pred[].recognition` divide by. */
+  col_axis: string;
   per_ref: RefClassRow[];
+  per_pred: PredClassRow[];
+  /** ROW-normalised: Σ dominant-cell counts / total pairs. */
   overall_purity: number;
+  /** The threshold the USER stated, echoed back, or `null` when they stated none. */
+  accept_threshold: number | null;
+  /** `null` when no threshold was stated — a mapping is never judged against a number the app
+   *  chose for itself (SB-MLA-052). */
+  accepted: boolean | null;
+  /** Why there is no verdict, when there is none. */
+  accept_note: string | null;
   n: number;
   /** ANOVA variance reduction of log10(core k) grouped by the predicted class (1 − SS_within/
    *  SS_total): 1 = the typing explains all core-perm variance, 0 = none. `null` when no core
@@ -1636,6 +1667,12 @@ export interface FaciesConfusionResult {
   k_var_reduction: number | null;
   /** Core plugs that contributed to `k_var_reduction`. */
   n_core_plugs: number;
+  /** Plugs with usable permeability that found no log sample inside the match tolerance, and so
+   *  contributed to nothing. Reported so a statistic over 9 of 90 plugs cannot read as one over
+   *  90 (SB-MLA-054). */
+  n_core_unmatched: number;
+  /** How a core plug was put on the log's depth frame — the method and its tolerance, in words. */
+  core_match_note: string;
   error: string | null;
 }
 

@@ -24,15 +24,49 @@ pub struct FaciesConfusionRequest {
     pub pred_curve: String,
     /// Reference rock-type curve, e.g. a core-derived RT or a rock-typing RT.
     pub ref_curve: String,
+    /// Dominant-class purity at or above which the mapping is ACCEPTED, as a fraction 0..1.
+    ///
+    /// **Ships with no default and stays `None` until the user states one** (SB-MLA-052,
+    /// SB-CORE-004). The method note this module implements says to accept the mapping when
+    /// dominant-class purity is above a threshold and states no value, and no source in the
+    /// corpus states one either. Electing a number here would put SandiBumi's guess behind the
+    /// method's silence, and a mapping stamped "accepted" against an invented bar is worse than
+    /// one carrying a bare purity the reader has to judge. `#[serde(default)]`, so every caller
+    /// that predates this still deserializes.
+    #[serde(default)]
+    pub accept_threshold: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct RefClassRow {
     pub ref_label: i64,
     pub dominant_pred: i64,
+    /// ROW-normalised: of the samples of this reference class, the fraction the model put in
+    /// `dominant_pred`. See `row_axis` — this number is meaningless without its axis.
     pub purity: f64,
     pub count: i64,
 }
+
+/// The column-wise counterpart of `RefClassRow` — Geolog's "recognition rate" axis.
+#[derive(Debug, Serialize)]
+pub struct PredClassRow {
+    pub pred_label: i64,
+    pub dominant_ref: i64,
+    /// COLUMN-normalised: of the samples the model called this predicted class, the fraction that
+    /// really were `dominant_ref`. See `col_axis`.
+    pub recognition: f64,
+    pub count: i64,
+}
+
+/// What a ROW-normalised cell divides by, in words. Emitted with the result so a payload cannot be
+/// read with the wrong denominator (SB-MLA-051).
+pub const ROW_AXIS: &str =
+    "row (by reference class): of the samples this reference class holds, the fraction the model \
+     assigned to each predicted class - answers whether the model FINDS this rock";
+/// What a COLUMN-normalised cell divides by, in words.
+pub const COL_AXIS: &str =
+    "column (by predicted class): of the samples the model assigned to this predicted class, the \
+     fraction that really were each reference class - answers whether the label can be TRUSTED";
 
 #[derive(Debug, Serialize)]
 pub struct FaciesConfusionResult {
@@ -40,9 +74,26 @@ pub struct FaciesConfusionResult {
     pub pred_labels: Vec<i64>,
     /// matrix[i][j] = count where reference == ref_labels[i] and prediction == pred_labels[j].
     pub matrix: Vec<Vec<i64>>,
+    /// `matrix` divided by its ROW sums, as fractions 0..1. Labelled by `row_axis`.
+    pub row_pct: Vec<Vec<f64>>,
+    /// `matrix` divided by its COLUMN sums, as fractions 0..1. Labelled by `col_axis`.
+    pub col_pct: Vec<Vec<f64>>,
+    /// Prose statement of what `row_pct` (and `per_ref[].purity`) divides by.
+    pub row_axis: String,
+    /// Prose statement of what `col_pct` (and `per_pred[].recognition`) divides by.
+    pub col_axis: String,
     pub per_ref: Vec<RefClassRow>,
-    /// Σ over reference classes of the dominant-cell count / total pairs.
+    pub per_pred: Vec<PredClassRow>,
+    /// Σ over reference classes of the dominant-cell count / total pairs. ROW-normalised.
     pub overall_purity: f64,
+    /// The threshold the USER stated, echoed so the result records the decision it was judged
+    /// against. `None` means none was stated — see `accept_note`.
+    pub accept_threshold: Option<f64>,
+    /// `overall_purity >= accept_threshold`, or `None` when no threshold was stated. A mapping is
+    /// never judged against a number SandiBumi chose.
+    pub accepted: Option<bool>,
+    /// Why there is no verdict, when there is none.
+    pub accept_note: Option<String>,
     pub n: usize,
     /// ANOVA-style variance reduction of log10(core k) when grouped by the PREDICTED class:
     /// 1 − SS_within/SS_total. 1 = the typing explains all core-perm variance, 0 = none.
@@ -50,7 +101,21 @@ pub struct FaciesConfusionResult {
     pub k_var_reduction: f64,
     /// Core plugs that contributed to `k_var_reduction` (valid k, matched to a predicted class).
     pub n_core_plugs: usize,
+    /// Plugs with a usable permeability that found NO log sample inside `core_match_tol_m`, and so
+    /// contributed to nothing. Reported rather than absorbed: a variance reduction computed on
+    /// nine of ninety plugs is a different statement from one computed on ninety (SB-MLA-054).
+    pub n_core_unmatched: usize,
+    /// How a core plug was put on the log's depth frame, in words — the method and its tolerance.
+    pub core_match_note: String,
     pub error: Option<String>,
+}
+
+/// How the core-to-log depth join is done, stated with the result rather than left in the source.
+fn core_match_note() -> String {
+    format!(
+        "core plugs joined to the NEAREST log sample within {CORE_MATCH_TOL_M} m; no interpolation, \
+         and a plug with no sample inside that distance is dropped rather than stretched to one"
+    )
 }
 
 fn confusion_err(msg: &str) -> FaciesConfusionResult {
@@ -58,11 +123,21 @@ fn confusion_err(msg: &str) -> FaciesConfusionResult {
         ref_labels: vec![],
         pred_labels: vec![],
         matrix: vec![],
+        row_pct: vec![],
+        col_pct: vec![],
+        row_axis: ROW_AXIS.to_string(),
+        col_axis: COL_AXIS.to_string(),
         per_ref: vec![],
+        per_pred: vec![],
         overall_purity: f64::NAN,
+        accept_threshold: None,
+        accepted: None,
+        accept_note: None,
         n: 0,
         k_var_reduction: f64::NAN,
         n_core_plugs: 0,
+        n_core_unmatched: 0,
+        core_match_note: core_match_note(),
         error: Some(msg.to_string()),
     }
 }
@@ -113,11 +188,17 @@ pub fn build_confusion(pairs: &[(i64, i64)]) -> FaciesConfusionResult {
 
     let mut per_ref = Vec::new();
     let mut dominant_total = 0i64;
+    let mut row_pct = vec![vec![0.0f64; pred_labels.len()]; ref_labels.len()];
     for (i, &rl) in ref_labels.iter().enumerate() {
         let row = &matrix[i];
         let rowsum: i64 = row.iter().sum();
         let (jmax, &vmax) = row.iter().enumerate().max_by_key(|&(_, &v)| v).unwrap();
         dominant_total += vmax;
+        if rowsum > 0 {
+            for (j, &v) in row.iter().enumerate() {
+                row_pct[i][j] = v as f64 / rowsum as f64;
+            }
+        }
         per_ref.push(RefClassRow {
             ref_label: rl,
             dominant_pred: pred_labels[jmax],
@@ -127,16 +208,74 @@ pub fn build_confusion(pairs: &[(i64, i64)]) -> FaciesConfusionResult {
     }
     let overall_purity = dominant_total as f64 / pairs.len() as f64;
 
+    // The other axis. Same cells, different denominator, and a different question — one says
+    // whether the model finds a rock, the other whether its label can be trusted (SB-MLA-051).
+    let mut per_pred = Vec::new();
+    let mut col_pct = vec![vec![0.0f64; pred_labels.len()]; ref_labels.len()];
+    for (j, &pl) in pred_labels.iter().enumerate() {
+        let colsum: i64 = (0..ref_labels.len()).map(|i| matrix[i][j]).sum();
+        let (imax, vmax) = (0..ref_labels.len())
+            .map(|i| (i, matrix[i][j]))
+            .max_by_key(|&(_, v)| v)
+            .unwrap();
+        if colsum > 0 {
+            for i in 0..ref_labels.len() {
+                col_pct[i][j] = matrix[i][j] as f64 / colsum as f64;
+            }
+        }
+        per_pred.push(PredClassRow {
+            pred_label: pl,
+            dominant_ref: ref_labels[imax],
+            recognition: if colsum > 0 { vmax as f64 / colsum as f64 } else { 0.0 },
+            count: colsum,
+        });
+    }
+
     FaciesConfusionResult {
         ref_labels,
         pred_labels,
         matrix,
+        row_pct,
+        col_pct,
+        row_axis: ROW_AXIS.to_string(),
+        col_axis: COL_AXIS.to_string(),
         per_ref,
+        per_pred,
         overall_purity,
+        accept_threshold: None,
+        accepted: None,
+        accept_note: None,
         n: pairs.len(),
         k_var_reduction: f64::NAN,
         n_core_plugs: 0,
+        n_core_unmatched: 0,
+        core_match_note: core_match_note(),
         error: None,
+    }
+}
+
+/// Applies the user's acceptance threshold, or records that they stated none (SB-MLA-052).
+fn judge(res: &mut FaciesConfusionResult, threshold: Option<f64>) {
+    match threshold {
+        Some(t) if t.is_finite() && (0.0..=1.0).contains(&t) => {
+            res.accept_threshold = Some(t);
+            res.accepted = Some(res.overall_purity >= t);
+        }
+        Some(_) => {
+            res.accept_note = Some(
+                "the acceptance threshold must be a dominant-class purity between 0 and 1; the \
+                 mapping was not judged"
+                    .into(),
+            );
+        }
+        None => {
+            res.accept_note = Some(
+                "no acceptance threshold was stated, so the mapping is reported and not judged. \
+                 The method note says to accept above a threshold and states no value, and neither \
+                 does any source SandiBumi holds - the bar is yours to set for this field."
+                    .into(),
+            );
+        }
     }
 }
 
@@ -177,6 +316,7 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
     let mut pairs: Vec<(i64, i64)> = Vec::new();
     // (predicted class, log10 core k) at core-plug depths — for the k-variance-reduction QC.
     let mut core_groups: Vec<(i64, f64)> = Vec::new();
+    let mut core_unmatched = 0usize;
     {
         let conn = db.lock().unwrap();
         let names = vec![pred.clone(), refc.clone()];
@@ -198,9 +338,14 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
                     if !(k.is_finite() && k > 0.0) {
                         continue;
                     }
-                    let Some(idx) = nearest_within(&d, plug.depth) else { continue };
+                    let Some(idx) = nearest_within(&d, plug.depth) else {
+                        core_unmatched += 1;
+                        continue;
+                    };
                     if idx < pv.len() && (pv[idx] as f64).is_finite() {
                         core_groups.push(((pv[idx] as f64).round() as i64, k.log10()));
+                    } else {
+                        core_unmatched += 1;
                     }
                 }
             }
@@ -209,6 +354,8 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
     let mut res = build_confusion(&pairs);
     res.k_var_reduction = variance_reduction(&core_groups);
     res.n_core_plugs = core_groups.len();
+    res.n_core_unmatched = core_unmatched;
+    judge(&mut res, req.accept_threshold);
     res
 }
 
@@ -239,6 +386,80 @@ mod tests {
     #[test]
     fn confusion_rejects_empty() {
         assert!(build_confusion(&[]).error.is_some());
+    }
+
+    #[test]
+    fn a_confusion_cell_carries_both_normalisations_and_names_which_axis_each_divides_by() {
+        // The imbalance that makes this a correctness rule rather than a display one: reference
+        // class 1 is small and perfectly found, but the predicted-1 label is mostly reference 2.
+        // Row says 100 %, column says 18 %, and both are true of the same cell.
+        let mut pairs: Vec<(i64, i64)> = vec![(1, 1); 10];
+        pairs.extend(vec![(2, 1); 45]);
+        pairs.extend(vec![(2, 2); 45]);
+        let res = build_confusion(&pairs);
+
+        assert_eq!(res.matrix, vec![vec![10, 0], vec![45, 45]]);
+        // ROW: of reference class 1's samples, all went to predicted 1.
+        assert!((res.row_pct[0][0] - 1.0).abs() < 1e-12);
+        // COLUMN: of the samples called predicted 1, only 10 of 55 really were reference 1.
+        assert!((res.col_pct[0][0] - 10.0 / 55.0).abs() < 1e-12);
+        // Neither alone would pass: emitting one matrix under both names must fail here.
+        assert!((res.row_pct[0][0] - res.col_pct[0][0]).abs() > 0.5);
+        // And they must not be swapped — rows sum to 1 across, columns sum to 1 down.
+        for row in &res.row_pct {
+            assert!((row.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+        }
+        for j in 0..res.pred_labels.len() {
+            let s: f64 = (0..res.ref_labels.len()).map(|i| res.col_pct[i][j]).sum();
+            assert!((s - 1.0).abs() < 1e-12);
+        }
+        // Each summary row states its own axis's answer, and they disagree by construction.
+        let ref1 = res.per_ref.iter().find(|r| r.ref_label == 1).unwrap();
+        assert!((ref1.purity - 1.0).abs() < 1e-12);
+        let pred1 = res.per_pred.iter().find(|p| p.pred_label == 1).unwrap();
+        assert_eq!(pred1.dominant_ref, 2);
+        assert!((pred1.recognition - 45.0 / 55.0).abs() < 1e-12);
+        assert_eq!(pred1.count, 55);
+        // A percentage travels with the denominator it was divided by, never bare.
+        assert!(res.row_axis.contains("reference class") && res.row_axis.contains("row"));
+        assert!(res.col_axis.contains("predicted class") && res.col_axis.contains("column"));
+        assert_ne!(res.row_axis, res.col_axis);
+    }
+
+    #[test]
+    fn a_mapping_is_never_judged_against_a_threshold_sandibumi_chose() {
+        let pairs: Vec<(i64, i64)> = {
+            let mut p = vec![(1, 1); 10];
+            p.extend(vec![(2, 1); 45]);
+            p.extend(vec![(2, 2); 45]);
+            p
+        };
+        // Stating nothing yields no verdict and says why — not a silent pass against a default.
+        let mut none = build_confusion(&pairs);
+        judge(&mut none, None);
+        assert!((none.overall_purity - 0.55).abs() < 1e-12);
+        assert_eq!(none.accepted, None);
+        assert_eq!(none.accept_threshold, None);
+        assert!(none.accept_note.as_deref().unwrap().contains("yours to set"));
+
+        // The other side: a threshold the user DID state is honoured and recorded with the result,
+        // so a stored verdict can always be read back against the bar it was measured on.
+        let mut pass = build_confusion(&pairs);
+        judge(&mut pass, Some(0.5));
+        assert_eq!(pass.accepted, Some(true));
+        assert_eq!(pass.accept_threshold, Some(0.5));
+        assert!(pass.accept_note.is_none());
+
+        let mut fail = build_confusion(&pairs);
+        judge(&mut fail, Some(0.9));
+        assert_eq!(fail.accepted, Some(false));
+        assert_eq!(fail.accept_threshold, Some(0.9));
+
+        // A purity is a fraction; 90 typed for 90 % is refused rather than read as "never accept".
+        let mut bad = build_confusion(&pairs);
+        judge(&mut bad, Some(90.0));
+        assert_eq!(bad.accepted, None);
+        assert!(bad.accept_note.as_deref().unwrap().contains("between 0 and 1"));
     }
 
     #[test]
@@ -283,9 +504,10 @@ mod tests {
         crate::equations::write_computed_curve(&conn, &ids, &depth, "RT_LOG", &rt).unwrap();
         crate::equations::write_computed_curve(&conn, &ids, &depth, "RT_REF", &rt).unwrap();
         // Core plugs: class-1 depths carry k≈100 mD, class-2 depths k≈1 mD (well separated),
-        // plus one invalid-k plug that must be skipped.
-        let cd: Vec<f32> = vec![2000.2, 2001.2, 2002.2, 2005.7, 2006.2, 2007.7, 2050.0];
-        let ck: Vec<f32> = vec![100.0, 110.0, 90.0, 1.0, 1.1, 0.9, -5.0];
+        // plus one invalid-k plug that must be skipped, and one valid-k plug 40 m below the
+        // logged interval that must be COUNTED as unmatched rather than absorbed.
+        let cd: Vec<f32> = vec![2000.2, 2001.2, 2002.2, 2005.7, 2006.2, 2007.7, 2050.0, 2049.0];
+        let ck: Vec<f32> = vec![100.0, 110.0, 90.0, 1.0, 1.1, 0.9, -5.0, 50.0];
         let cp = vec![0.2f32; cd.len()];
         let nanv = vec![f32::NAN; cd.len()];
         crate::db::insert_core_data(&conn, &ids, "RAW", None, &cd, &cp, &ck, &nanv, &nanv).unwrap();
@@ -298,6 +520,7 @@ mod tests {
                 pred_curve: "RT_LOG".into(),
                 ref_curve: "RT_REF".into(),
                 input_set: None,
+                accept_threshold: None,
             },
         );
         assert!(res.error.is_none(), "err={:?}", res.error);
@@ -307,5 +530,58 @@ mod tests {
         assert!(res.k_var_reduction > 0.95, "R²k={}", res.k_var_reduction);
         // Identical curves → perfect purity, untouched by the core extension.
         assert!((res.overall_purity - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_core_plug_with_no_log_sample_in_tolerance_is_counted_not_absorbed() {
+        use duckdb::Connection;
+        use uuid::Uuid;
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "FT-2", None, None, None).unwrap();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        crate::db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![40.0; n],
+            vec![10.0; n],
+            vec![0.2; n],
+            vec![2.4; n],
+            vec![80.0; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let ids = id.to_string();
+        let rt: Vec<f32> = (0..n).map(|i| if i < 10 { 1.0 } else { 2.0 }).collect();
+        crate::equations::write_computed_curve(&conn, &ids, &depth, "RT_LOG", &rt).unwrap();
+        crate::equations::write_computed_curve(&conn, &ids, &depth, "RT_REF", &rt).unwrap();
+        // Two plugs inside the logged interval, three valid-k plugs far below it.
+        let cd: Vec<f32> = vec![2000.2, 2006.2, 2100.0, 2200.0, 2300.0];
+        let ck: Vec<f32> = vec![100.0, 1.0, 50.0, 60.0, 70.0];
+        let cp = vec![0.2f32; cd.len()];
+        let nanv = vec![f32::NAN; cd.len()];
+        crate::db::insert_core_data(&conn, &ids, "RAW", None, &cd, &cp, &ck, &nanv, &nanv).unwrap();
+
+        let db = Mutex::new(conn);
+        let res = run_facies_confusion(
+            &db,
+            &FaciesConfusionRequest {
+                well_ids: vec![ids],
+                pred_curve: "RT_LOG".into(),
+                ref_curve: "RT_REF".into(),
+                input_set: None,
+                accept_threshold: None,
+            },
+        );
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        // Neither side is allowed to swallow the three: they are not in the statistic...
+        assert_eq!(res.n_core_plugs, 2);
+        // ...and they are not forgotten either. Five plugs went in, five are accounted for.
+        assert_eq!(res.n_core_unmatched, 3);
+        // The join rule travels with the number it produced.
+        assert!(res.core_match_note.contains("NEAREST") && res.core_match_note.contains(" m"));
     }
 }
