@@ -8616,3 +8616,30 @@ why `block` upscales by replacing values at the well's own depths.
       State the step and it proceeds.
 - [ ] `match_well` and `match_set` ignore the Align tick, because they are already aligned by
       construction — the frame is borrowed whole from one place.
+
+### Three surfaces that were painting with a token this app does not have
+
+`--panel` is not a token in this design system; the surface tokens are `--bg-app`, `--bg-panel`,
+`--bg-panel-alt` and `--bg-hover`. Three rules referenced one that is declared nowhere, and a
+`var()` naming a token nothing declares does not fall back to anything — it resolves to
+transparent. **Check these in the DARK theme.** The light theme is the reason all three survived
+since they were written: a transparent card on the cream ground looks about right, and only on
+dark does a see-through panel become obvious.
+
+- [ ] **The Intake pane's column-mapping grid.** Load a delivery and scroll the preview past the
+      first screen. The header row carries the role pickers and stays put while the rows scroll
+      under it — it should be solid, with the role tints readable on top of it. It had been
+      see-through, so the numbers from row 180 were sliding through the pickers you were setting.
+- [ ] **The same pane's array preview**, below the grid. Same check, same header.
+- [ ] **The Statistics panel.** Scroll a long table; the Well / Zone / Item header should be
+      solid. This one was not in the original report — it was found by listing every custom
+      property the stylesheet declares and diffing that against every `var()` in it. It looked
+      defended, because it named a fallback: the fallback was undeclared too, so it collapsed
+      exactly the same way. Worth knowing that check exists, since this is twice now.
+- [ ] **The Photo Log pane's fluorescence cards** (Advance ▸ Core Imaging ▸ Core Photos…, with
+      more than one kind of show declared). Each kind sits in its own card; on dark the cards
+      should read as cards rather than as one flat column.
+- [ ] The role tints in the Intake header are unchanged in meaning — still the same colour per
+      role, still translucent so they read as a tint *of* the header rather than a colour of
+      their own. They now have something opaque underneath to tint, which is what was missing.
+      If any tint now looks heavier or flatter than you remember, say so.
