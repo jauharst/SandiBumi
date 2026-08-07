@@ -989,6 +989,40 @@ export async function buildMlContent(
   }
   resStep.addEventListener("input", syncRes);
 
+  // --- The second, textured curve (round-3 item 5) ---------------------------
+  //
+  // Sampling and resolution are different things, so this sits beside the sampling control rather
+  // than inside it: blocking to the target's step stops a curve OVERSTATING its resolution, and this
+  // addresses the opposite complaint — a prediction that is smoother than the log it was fitted
+  // against, because a regression predicts the conditional mean and can only carry through detail
+  // its inputs contain.
+  //
+  // OFF by default, and it writes a SECOND curve rather than changing the first. The plain
+  // prediction is the defensible one; a textured curve looks more like a real log, which is exactly
+  // backwards from how much it can be trusted, so it has to be asked for and it has to be named.
+  const specCb = document.createElement("input");
+  specCb.type = "checkbox";
+  const specLabel = document.createElement("label");
+  specLabel.className = "mc-field ml-cov";
+  const specText = document.createElement("span");
+  specText.textContent = "Also write a spectrally textured copy";
+  specLabel.append(specCb, specText);
+  const specWhy = document.createElement("div");
+  specWhy.className = "ml-norm-why";
+  const specWrap = document.createElement("div");
+  specWrap.className = "ml-cov";
+  specWrap.append(specLabel, specWhy);
+  const specRow = formRow("Missing detail", specWrap);
+  sModel.appendChild(specRow);
+  function syncSpec(): void {
+    const base = (outInput.value.trim() || task.defaultOut).toUpperCase();
+    specRow.style.display = task.id === "regression" ? "" : "none";
+    specWhy.textContent = specCb.checked
+      ? `A second curve, ${base}_SIM, gets the frequency content ${targetSel.value || "the target"} has and the prediction lacks — matched to the measured target's own spectrum, well by well. ${base} itself is untouched. The added detail is NOT a measurement: it is one realisation of many, right in its statistics and arbitrary in its placement, so do not correlate a bed seen only in ${base}_SIM between wells.`
+      : `${base} will be smoother than ${targetSel.value || "the target"}, because a model can only carry through detail its inputs contain. Tick this to also write a copy carrying the detail the target has — as a separate curve, never in place of this one.`;
+  }
+  specCb.addEventListener("change", syncSpec);
+
   covCb.addEventListener("change", () => {
     syncCoverage();
     void refreshQc();
@@ -1111,6 +1145,7 @@ export async function buildMlContent(
     // than offering a choice one of whose options cannot apply.
     resRow.style.display = task.supervised ? "" : "none";
     syncRes();
+    syncSpec();
     // Asked per selection rather than once: the answer depends on which algorithm is chosen, and
     // the backend caches the runtime probe, so every call after the first is free. A generation
     // counter drops a stale answer — the user can change the algorithm faster than the round trip.
@@ -1846,6 +1881,8 @@ export async function buildMlContent(
     const params: Record<string, number | string | boolean> = {
       standardize: stdCb.checked,
       seed: Math.round(parseFloat(seedInput.value) || 42),
+      // Regression only: there is no "missing frequency content" in a class code.
+      spectral_texture: task.id === "regression" && specCb.checked,
     };
     for (const { spec, get } of paramInputs) params[spec.key] = get();
     const picked = alsoSelected();
