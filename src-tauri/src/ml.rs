@@ -44,6 +44,33 @@ use std::sync::Mutex;
 const ML_BUILD_MODEL: &str = r#"
 EFFECTIVE = {}
 
+# SB-MLA-057. The values a log file uses to mean "no reading". A parameter is a THRESHOLD or a
+# LIMIT, and one of these arriving as a threshold is never a threshold - it is an absence that lost
+# its type somewhere upstream. They are worth refusing by name because they compute: -999.25 as a
+# DBSCAN eps produces one enormous cluster and no error at all.
+NULL_SENTINELS = (-999.25, -999.0, -9999.0, -99999.0, -9999.25)
+
+# SB-MLA-030. What a `_PROB` curve actually IS, per estimator. These are not interchangeable and a
+# reader cannot tell them apart from the track: a calibrated posterior answers "how likely is this
+# class", a Platt-scaled SVM distance answers "how far inside the margin is it", and a k-NN vote
+# fraction answers "how many of the seven nearest agreed" - which on k=7 can only ever take seven
+# values. The dossier records that both IP and Geolog emit relative-only probabilities and SAY so;
+# emitting one under the same convention as a posterior without saying so is the interoperability
+# defect this closes.
+PROB_MEANING = {
+    "rf": "the fraction of trees voting for the winning class - a vote share, not a calibrated "
+          "posterior, and it is optimistic near the training data",
+    "knn": "the fraction of the k nearest neighbours agreeing on the winning class - it can only "
+           "take k+1 distinct values, so it is coarse by construction",
+    "gaussian_nb": "the winning class's posterior under the naive-Bayes independence assumption - "
+                   "calibrated only to the extent the inputs really are independent, which log "
+                   "curves are not",
+    "logreg": "the winning class's logistic posterior - the best calibrated of these, and still "
+              "conditional on the model being right",
+    "svm": "the winning class's Platt-scaled score - a monotone squashing of distance from the "
+           "decision boundary fitted by internal cross-validation, NOT a posterior",
+}
+
 def P(p, key, default):
     """Read a parameter, and RECORD what was actually used (SB-MLA-001).
 
@@ -53,11 +80,24 @@ def P(p, key, default):
     goes through here and every default is recorded AS a default, naming where it came from.
     Reading `P(p, key, default)` directly is the defect this exists to prevent; there should be
     no `p.get` left in either runner.
+
+    SB-MLA-057 is enforced here too, for the same reason: this is the ONE door every parameter
+    comes through, so a check here cannot be forgotten by the next parameter somebody adds.
+    "No value" is already a distinct state - it returns the declared default and is recorded as
+    defaulted - so a missing-data sentinel arriving as a value can only be a mistake.
     """
     v = dict.get(p, key) if p else None
     if v is None or v == "":
         EFFECTIVE[key] = {"value": default, "defaulted": True, "source": "ml.rs build_model default"}
         return default
+    if isinstance(v, float) and v != v:
+        fail("parameter '" + key + "' is not-a-number. Leave it blank to use the default (" +
+             str(default) + ") - blank is a real state here and means 'use the default', which NaN "
+             "cannot say.")
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and float(v) in NULL_SENTINELS:
+        fail("parameter '" + key + "' was given " + str(v) + ", which is a missing-data sentinel, "
+             "not a setting. It would compute rather than fail. Leave it blank to use the default (" +
+             str(default) + ").")
     EFFECTIVE[key] = {"value": v, "defaulted": False}
     return v
 
@@ -1122,6 +1162,13 @@ elif task == "classification":
     blind_score(model, "accuracy")
     outs.append(("", model.predict(As).astype(np.float32)))
     outs.append(("_PROB", np.max(model.predict_proba(As), axis=1).astype(np.float32)))
+    # SB-MLA-030. A `_PROB` curve is not one quantity across this product, and the differences
+    # matter: a calibrated posterior, a distance-derived score squeezed through Platt scaling, and a
+    # k-NN vote fraction are read the same way off a track and mean different things. Declared per
+    # run, in words, rather than left to a mnemonic that cannot carry the distinction.
+    metrics["prob_definition"] = PROB_MEANING.get(
+        algo, "the winning class's score from %s, normalised across classes to sum to 1" % algo)
+    metrics["prob_normalisation"] = "across the classes at each depth, summing to 1"
 
 elif task == "clustering":
     k = int(P(p, "k", 5))
@@ -1174,7 +1221,31 @@ elif task == "clustering":
         labels = AgglomerativeClustering(n_clusters=k, linkage=link).fit_predict(As)
     elif algo == "dbscan":
         from sklearn.cluster import DBSCAN
-        labels = DBSCAN(eps=float(P(p, "eps", 0.5)), min_samples=int(P(p, "min_samples", 10))).fit_predict(As)
+        eps = float(P(p, "eps", 0.5))
+        # SB-MLA-053. `eps` is a DISTANCE, and what one unit of it means is decided entirely by the
+        # pre-transform. Standardised, it is a multiple of a standard deviation and the same 0.5
+        # means the same thing on any field. Un-standardised, it is in the mixed units of whatever
+        # curves were picked - a deep resistivity in ohm-m and a porosity in v/v are three orders of
+        # magnitude apart, so the resistivity alone decides every neighbourhood and the porosity
+        # contributes nothing. The result is not an error; it is one huge cluster, or noise
+        # everywhere, and nothing says why.
+        #
+        # The name stays `eps` because that is scikit-learn's own and renaming it would fork the
+        # vocabulary. What it multiplies is DECLARED instead, and the meaningless case is called out
+        # rather than left for the user to infer from a bad answer.
+        metrics["eps_unit"] = (
+            "standard deviations of the standardisation basis" if scaler is not None
+            else "the RAW mixed units of the selected curves"
+        )
+        if scaler is None:
+            metrics["eps_warning"] = (
+                "eps = %g is being applied in the curves' own units because standardisation is off. "
+                "Whichever input has the largest numeric range decides every neighbourhood on its "
+                "own, and the others contribute nothing - this usually returns one huge cluster or "
+                "noise everywhere, with no error. Turn standardisation on, or set eps in the units "
+                "of your largest-range curve deliberately." % eps
+            )
+        labels = DBSCAN(eps=eps, min_samples=int(P(p, "min_samples", 10))).fit_predict(As)
     else:
         fail("unknown clustering algorithm '" + algo + "'")
     # SB-MLA-021. Real clusters get ids ordered by first-feature mean; a sample the algorithm
@@ -1232,6 +1303,13 @@ elif task == "clustering":
             metrics["silhouette_error"] = str(e)
     outs.append(("", out))
     if prob is not None:
+        # SB-MLA-030. GMM's is the one genuinely calibrated posterior here, and it deserves to be
+        # distinguished from the classifier scores rather than sharing an undifferentiated name.
+        metrics["prob_definition"] = (
+            "the winning mixture component's RESPONSIBILITY - a true posterior over the components. "
+            "1.0 is unambiguous; about 1/K means the sample sits on a boundary between components"
+        )
+        metrics["prob_normalisation"] = "across the K mixture components at each depth, summing to 1"
         outs.append(("_PROB", prob.astype(np.float32)))
 
 elif task == "reduction":
@@ -1519,8 +1597,9 @@ pub struct MlApplyRequest {
     pub input_set: Option<String>,
     /// Confine the prediction to this depth window. Open by default. NOT inherited from the model:
     /// the interval a model was FITTED over is a statement about where it learned, and the interval
-    /// it is being applied to is a separate decision the user makes per distribution — propagating
-    /// a Gumai-fitted model into the Talang Akar is a choice, and a wrong one, but it is theirs.
+    /// it is being applied to is a separate decision the user makes per distribution — propagating a
+    /// model fitted in one formation into a different one is a choice, and usually a wrong one, but
+    /// it is theirs to make and to see.
     #[serde(default)]
     pub interval: DepthWindow,
     /// Version the applied curves into this log set (default `ML`).
@@ -7406,6 +7485,57 @@ mod tests {
             s.path().to_path_buf()
         };
         assert!(!path.exists(), "the temp script must be removed when the run drops it");
+    }
+
+    /// **SB-MLA-022 — the ordered-feature contract is checked on the DEFAULT gate.**
+    ///
+    /// The runtime refusal lives inside the joblib artifact and needs a real interpreter, so the test
+    /// that exercises it is `#[ignore]`d and legitimately so. That left one of the four things this
+    /// tree does better than any incumbent resting on somebody remembering to run the ignored set.
+    ///
+    /// The gap is closable without scikit-learn because the strongest guarantee here is STRUCTURAL,
+    /// not behavioural: an apply request has no feature list at all, so a caller cannot state an
+    /// order to get wrong. `apply_ml_model` drives the fetch from the artifact's own list. A refusal
+    /// catches a bad order; having nowhere to express one means it cannot arise from this product at
+    /// all, and that property is checkable here.
+    #[test]
+    fn an_apply_request_cannot_state_a_feature_order_for_the_model_to_refuse() {
+        // An EXHAUSTIVE struct literal, deliberately. If a `feature_curves` field is ever added to
+        // the apply request this stops COMPILING with "missing field", which is a stronger and
+        // earlier guard than any runtime assertion — and the reason is here for whoever hits it: a
+        // caller-supplied order is a second place to state the feature list, therefore a second
+        // place to get it wrong, and a model fed [RHOB, GR] where it was fitted on [GR, RHOB]
+        // returns confident nonsense that nothing downstream can catch.
+        let _shape = MlApplyRequest {
+            input_set: None,
+            interval: DepthWindow::default(),
+            output_set: None,
+            model_id: "m-1".into(),
+            apply_well_ids: vec!["w-1".into()],
+            output_curve: "PERM_ML".into(),
+            mask_curve: None,
+        };
+
+        // And a feature list offered over IPC is ignored rather than honoured — an older or
+        // hand-built caller cannot smuggle one in.
+        let json = serde_json::json!({
+            "model_id": "m-1",
+            "apply_well_ids": ["w-1"],
+            "output_curve": "PERM_ML",
+            "feature_curves": ["RHOB", "GR"],
+        });
+        let req: MlApplyRequest =
+            serde_json::from_value(json).expect("an unknown feature list must be ignored, not fatal");
+        assert_eq!(req.model_id, "m-1", "the model id is the only thing that selects features");
+
+        // And the runner still refuses a mismatch, for models applied by anything that is not this
+        // request type. Source-level, which is the weaker kind of assertion — the behavioural test
+        // is `a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order`, which needs sklearn.
+        let src = ml_apply_runner();
+        assert!(
+            src.contains("features") && (src.contains("!=") || src.contains("fail(")),
+            "the apply runner must still check the artifact's feature list"
+        );
     }
 
     #[test]

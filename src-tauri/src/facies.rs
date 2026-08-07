@@ -124,12 +124,45 @@ fn prep_samples(ctx: &ModuleContext) -> Result<Prep, String> {
     }
     let dims = present.len();
 
-    let k = (ctx.p("K", 0).round().max(2.0) as usize).min(12);
+    // SB-MLA-063. K is clamped to 2..=12, and a clamp that BINDS is reported. Silently returning 12
+    // clusters to somebody who asked for 20 hands them a facies scheme with a different number of
+    // classes than the one they designed, and every count and crossplot legend downstream is then
+    // about a scheme nobody chose. The cap itself is kept — 12 is the palette length shared with
+    // `plotCanvas.ts`, past which two classes would print the same colour.
+    let k_asked = ctx.p("K", 0).round();
+    if k_asked.is_finite() && k_asked > 12.0 {
+        // REFUSED, not clamped. A module returns curves and has no channel to carry a warning, so a
+        // clamp here could only ever be silent — and silently returning 12 classes to somebody who
+        // asked for 20 hands them a facies scheme with a different number of classes than the one
+        // they designed, after which every count, legend and crossplot downstream describes a scheme
+        // nobody chose. This is the same call SB-MLA-063 already praises in the t-SNE limit: refuse,
+        // and name the number that was asked for.
+        return Err(format!(
+            "K = {} is above the maximum of 12: the class palette holds 12 colours, past which two \
+             facies would print in the same colour on the log view and in the printed composite. \
+             Lower K, or split the interval",
+            k_asked as i64
+        ));
+    }
+    let k = (k_asked.max(2.0) as usize).min(12);
     let seed = {
         let s = ctx.p("SEED", 0);
         if s.is_finite() { s.max(0.0) as u64 } else { SEED_DEFAULT as u64 }
     };
-    let zscore = ctx.o("OPT_STANDARDIZE") != "NONE";
+    // SB-MLA-036. The enumeration is addressed by ID and an unrecognised one is REFUSED. `!= "NONE"`
+    // meant every typo, every stale chain step and every hand-edited workflow silently standardised —
+    // the branch that changes the answer most, chosen by an option nobody validated.
+    let zscore = match ctx.o("OPT_STANDARDIZE").trim().to_uppercase().as_str() {
+        "ZSCORE" | "" => true,
+        "NONE" => false,
+        other => {
+            return Err(format!(
+                "OPT_STANDARDIZE is '{other}', which is not one of ZSCORE or NONE. Feature scaling \
+                 decides whether the curve with the largest numbers dominates every cluster, so this \
+                 is refused rather than guessed at"
+            ))
+        }
+    };
 
     // Collect complete samples (all present curves non-NaN), keeping the source depth index.
     let mut idx: Vec<usize> = Vec::new();

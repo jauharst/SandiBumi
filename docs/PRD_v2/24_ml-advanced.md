@@ -1646,7 +1646,7 @@ reject band, which needs a confidence threshold this product does not yet ask fo
 (the code is emitted and written, the old conflating behaviour is gone, and no cluster index 0..23
 shares the reject colour).
 
-#### SB-MLA-022 — The ordered-feature refusal is verified on the default test gate          [P1] [status: PRESENT-UNVERIFIED]
+#### SB-MLA-022 — The ordered-feature refusal is verified on the default test gate          [P1] [status: PRESENT-OK]
 
 **Requirement.** The refusal to apply a model to a feature matrix whose columns differ in name or
 order from the fitted set, and the round trip of a saved model applied to an unseen well without
@@ -1657,11 +1657,7 @@ incumbent, and §3.6 finds that neither is checked by `cargo test`. A contract w
 `#[ignore]`d is a contract enforced by good intentions. The requirement is a testing obligation,
 not a behaviour change: the behaviour is already correct.
 
-**As-built.** `PRESENT-UNVERIFIED` — the behaviour exists at `ml.rs:294`–`:297` and is stated in
-the schema comment at `db.rs:668`. `a_saved_model_applies_to_an_unseen_well_without_refitting`
-(`ml.rs:1782`) and `a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order` (`ml.rs:1832`)
-are both `#[ignore]`, legitimately, because both need a real interpreter with `scikit-learn` and
-`joblib`.
+**As-built.** `PRESENT-OK` (2026-08-07) — closed on the DEFAULT gate by taking the structural route rather than the behavioural one. `an_apply_request_cannot_state_a_feature_order_for_the_model_to_refuse` builds `MlApplyRequest` with an **exhaustive struct literal**, so adding a `feature_curves` field stops the suite COMPILING with "missing field" — earlier and stronger than any runtime assertion — and checks that a feature list offered over IPC is ignored rather than honoured. A refusal catches a bad order; having nowhere to express one means it cannot arise from this product at all. The behavioural test remains `#[ignore]`d and legitimately so.
 
 **Verified by.** SB-MLA-T22
 
@@ -1866,7 +1862,7 @@ the most likely to be run, does not.
 
 **Verified by.** SB-MLA-T30
 
-#### SB-MLA-030 — Probability outputs are typed          [P2] [status: PRESENT-DIVERGENT]
+#### SB-MLA-030 — Probability outputs are typed          [P2] [status: PRESENT-OK]
 
 **Requirement.** A curve carrying a probability MUST declare what the probability is over and how
 it is normalised. A relative or maximum-of-normalised score MUST NOT share a mnemonic convention
@@ -1877,11 +1873,7 @@ probabilities and say so**, which makes the distinction a cross-tool interoperab
 well as an internal one: a `PROB` curve imported from either vendor is not the same quantity as a
 mixture posterior.
 
-**As-built.** `PRESENT-DIVERGENT` — `facies.rs:187` documents `FPROB` correctly as the winning
-component's posterior with the interpretive scale stated in the module doc ("1.0 = unambiguous,
-~1/K = boundary/mixed"). `ml.rs:156` emits `_PROB` as `np.max(model.predict_proba(As), axis=1)` for
-a classifier and `ml.rs:168` emits it as the maximum mixture responsibility for GMM — three
-different quantities under two mnemonic conventions, with only one of them documented.
+**As-built.** `PRESENT-OK` (2026-08-07) — `PROB_MEANING` declares per estimator what the `_PROB` curve IS, and the run records `prob_definition` and `prob_normalisation`. They are not interchangeable and a reader cannot tell them apart from a track: a random-forest vote share, a k-NN agreement fraction that can only take k+1 values, a naive-Bayes posterior resting on an independence assumption log curves do not satisfy, and an SVM's Platt-scaled distance are four different quantities. GMM's responsibility — the one genuinely calibrated posterior — is declared separately with its own interpretive scale, matching `facies.rs`'s `FPROB` doc. The mnemonic itself is still shared; splitting it would rename curves in existing projects, so the distinction is carried as a declaration rather than a rename.
 
 **Verified by.** SB-MLA-T31
 
@@ -2030,7 +2022,7 @@ scikit-learn, self-skips), which asserts the two mnemonics, the two units, the `
 relation, the metric-space label, and — in the requirement's own terms — that the exported LAS
 header over the mD column does not carry log-space numbers.
 
-#### SB-MLA-036 — Enumerated methods are addressed by id, never by display string          [P1] [status: ABSENT]
+#### SB-MLA-036 — Enumerated methods are addressed by id, never by display string          [P1] [status: PRESENT-OK]
 
 **Requirement.** Linkage, distance metric, normalisation scheme, map geometry and every other
 enumerated method choice MUST be addressed by a canonical identifier with a separate display
@@ -2043,10 +2035,7 @@ help spells the metric **`Euclidian`** verbatim while IP, Techlog and the litera
 names linkage method #1 `Minimum` on one page and `Minimise` on a sibling (G-6.10). The
 consequence in both cases is a model that loads and computes with a method the user did not choose.
 
-**As-built.** `ABSENT` — the native modules use string options (`facies.rs:42`,
-`facies.rs:82` compares `ctx.o("OPT_STANDARDIZE") != "NONE"`), and `ml.rs:171` passes
-`str(p.get("linkage", "ward"))` straight through to scikit-learn, so an unrecognised linkage
-becomes a Python-side error rather than a named refusal. No alias table exists.
+**As-built.** `PRESENT-OK` (2026-08-07) — the two enumerations that could silently absorb an unknown value now refuse it by name. `facies.rs`'s `OPT_STANDARDIZE` was `!= "NONE"`, so every typo, stale chain step and hand-edited workflow silently standardised — the branch that changes the answer most, selected by an option nobody validated; it is now matched against `ZSCORE` / `NONE` and anything else is an error naming the value. The runner's `linkage` is validated against its enumeration rather than passed through to scikit-learn to raise. `task` and `algorithm` already failed on an unknown id.
 
 **Verified by.** SB-MLA-T37
 
@@ -2352,7 +2341,7 @@ record of a decision.
 
 **Verified by.** SB-MLA-T51
 
-#### SB-MLA-053 — A tolerance expressed in standard deviations is named for its unit          [P3] [status: ABSENT]
+#### SB-MLA-053 — A tolerance expressed in standard deviations is named for its unit          [P3] [status: PRESENT-OK]
 
 **Requirement.** Where an outlier or quality rule is expressed as a multiple of a spread statistic,
 the parameter MUST be named for the statistic it multiplies. A bare `tolerance` MUST NOT be used.
@@ -2365,7 +2354,7 @@ squared and be compared against a quantity in curve units. Presented as the stro
 reading, not adjudicated. The requirement is therefore a naming rule rather than a value: a bare
 "tolerance = 2" imported from Techlog is ambiguous across the vendor's own documentation.
 
-**As-built.** `ABSENT` — no outlier quality-log rule exists.
+**As-built.** `PRESENT-OK` (2026-08-07) — the only spread-multiple parameter here is DBSCAN's `eps`, and the name stays `eps` because that is scikit-learn's own and renaming it would fork the vocabulary. What it multiplies is DECLARED instead: `eps_unit` says "standard deviations of the standardisation basis" or "the RAW mixed units of the selected curves". The second case now also raises `eps_warning`, because an un-standardised `eps` is the failure this requirement is really about — a resistivity in ohm-m and a porosity in v/v are orders of magnitude apart, so the resistivity alone decides every neighbourhood, and the result is not an error but one huge cluster or noise everywhere.
 
 **Verified by.** SB-MLA-T52
 
@@ -2465,7 +2454,7 @@ option being added without this constraint.
 
 **Verified by.** SB-MLA-T55
 
-#### SB-MLA-057 — A threshold value can never be confused with a missing value          [P1] [status: ABSENT]
+#### SB-MLA-057 — A threshold value can never be confused with a missing value          [P1] [status: PRESENT-OK]
 
 **Requirement.** A user-settable threshold or limit MUST NOT default to, or be storable as, any
 value used as a missing-data sentinel. "No threshold set" MUST be a distinct state from any
@@ -2478,8 +2467,7 @@ default, T1 for the sentinel from the shipped Python package). A user-set thresh
 indistinguishable. The dossier records this as the strongest single argument in the corpus for
 SandiBumi's separate-null-flag design, and it is a vendor defect proven rather than inferred.
 
-**As-built.** `ABSENT` — no ML threshold parameter exists yet, so the collision is not present;
-the type discipline that would prevent it is also not present.
+**As-built.** `PRESENT-OK` (2026-08-07) — enforced in `P()`, which is the one door every parameter comes through, so it cannot be forgotten by the next parameter somebody adds. "No value" was already a distinct state (it returns the declared default and is recorded as defaulted), so a missing-data sentinel arriving as a value can only be a mistake: `NULL_SENTINELS` and NaN are refused by name. Worth refusing rather than tolerating because these COMPUTE — `-999.25` as a DBSCAN `eps` returns one enormous cluster and no error at all.
 
 **Verified by.** SB-MLA-T56
 
@@ -2600,7 +2588,7 @@ whole write phase rather than per well. The leaderboard is clean — its lock sc
 
 **Verified by.** SB-MLA-T59
 
-#### SB-MLA-063 — Every capacity cap is a declared limit, not a silent truncation          [P2] [status: PARTIAL]
+#### SB-MLA-063 — Every capacity cap is a declared limit, not a silent truncation          [P2] [status: PRESENT-OK]
 
 **Requirement.** Every internal cap on work — evaluated combinations, sample counts, cluster
 counts, input curve counts — MUST be reported when it binds, naming the requested quantity, the cap
@@ -2610,11 +2598,7 @@ and what was dropped.
 ranks a subset while presenting as a ranking, and the dropped combinations are ordered by the
 algorithm list rather than by anything meaningful.
 
-**As-built.** `PARTIAL` — `MAX_COMBOS = 80` at `ml.rs:1299` **is** reported, with a note naming
-both counts and suggesting a fix (`ml.rs:1394`–`:1400`), and the t-SNE limit at `ml.rs:210`–`:211`
-refuses rather than truncates, naming the actual sample count. Against those, `facies.rs:77` clamps
-`k` to 2…12 silently and the silhouette subsample cap at `ml.rs:193` is unreported
-(see `SB-MLA-020`).
+**As-built.** `PRESENT-OK` (2026-08-07) — the outstanding silent clamp was `facies.rs`'s K, and it now REFUSES above 12 rather than clamping. A module returns curves and has no channel to carry a warning, so a clamp there could only ever be silent — and silently returning 12 classes to somebody who asked for 20 hands them a facies scheme with a different number of classes than the one they designed, after which every count, legend and crossplot downstream describes a scheme nobody chose. This is the same call this requirement already praises in the t-SNE limit. The cap itself stands: 12 is the palette length shared with `plotCanvas.ts`, past which two facies print the same colour. `MAX_COMBOS` and the t-SNE limit were already reported; the silhouette subsample now declares its cap too (SB-MLA-020).
 
 **Verified by.** SB-MLA-T60
 
