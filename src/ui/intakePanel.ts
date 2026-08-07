@@ -67,6 +67,16 @@ export async function buildIntakeContent(
     CURVE: "color-mix(in srgb, var(--accent2, #7a8a5e) 34%, transparent)",
     IGNORE: "transparent",
   };
+  /** The header a tint is painted ON. Every TINT is translucent by design — a role tint has to
+   *  read as a tint OF the header surface, not as a colour of its own — and that only works over
+   *  something opaque. This header is `position: sticky`, and an inline background beats the
+   *  stylesheet, so setting the tint alone leaves nothing beneath it and the scrolling rows show
+   *  straight through the header. The tint therefore goes on as a gradient LAYER over the same
+   *  --bg-panel-alt the CSS rule paints for a header cell that carries no tint. */
+  const headerBg = (role: IntakeRole): string =>
+    TINT[role] === "transparent"
+      ? "var(--bg-panel-alt)"
+      : `linear-gradient(${TINT[role]}, ${TINT[role]}), var(--bg-panel-alt)`;
 
   let paths: string[] = [];
   let probe: IntakeProbe | null = null;
@@ -462,7 +472,7 @@ export async function buildIntakeContent(
       kind.className = "intake-col-kind";
       kind.textContent = `${col.kind} · ${col.filled} filled`;
       th.append(nm, kind);
-      th.style.background = TINT[roles[i]];
+      th.style.background = headerBg(roles[i]);
       nameRow.appendChild(th);
 
       const rt = document.createElement("th");
@@ -486,7 +496,7 @@ export async function buildIntakeContent(
         void refreshArrayPreview();
       });
       rt.appendChild(sel);
-      rt.style.background = TINT[roles[i]];
+      rt.style.background = headerBg(roles[i]);
       roleRow.appendChild(rt);
     });
     thead.append(nameRow, roleRow);
