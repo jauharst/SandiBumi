@@ -6619,6 +6619,74 @@ input[type="number"].num-editing:focus {
 .dock-multimin .mc-dialog {
   max-width: none;
 }
+
+/* --- Wide-content panes fill the pane they are given (2026-08-07) --------------------
+ * `.mc-dialog` caps at 620px, which is the Organic form-column width and is right for a
+ * one-shot fit form. Five of these panes stopped being that: they carry tables, a confusion
+ * matrix, charts and a leaderboard, and in a wide pane they left most of it empty — the card
+ * simply ended, with the dock's background showing past it (Jauhar, 2026-08-07: "when
+ * resized, it wont fill"). They opt out exactly as SandiMin already did.
+ *
+ * The two calibration fits (Thomeer, saturation-height) KEEP the cap deliberately. They
+ * genuinely are a column of fields, which is the same split the `.module-pane` rule below
+ * already draws — a picture tool squeezed into a form column is the complaint, a form column
+ * that stays a form column is not. */
+.dock-ml .mc-dialog,
+.dock-facies-tie .mc-dialog,
+.dock-montecarlo .mc-dialog,
+.dock-lorenz .mc-dialog,
+.dock-hfu .mc-dialog {
+  max-width: none;
+}
+
+/* Filling is not stretching. Lifting the cap alone gave a 1210px-wide Output curve box and a
+ * 1210px algorithm picker, which is worse than the gap it filled — a text field that wide is
+ * harder to read and to aim at. So single-line controls keep roughly the width they had at the
+ * form-column size, and the space goes to the things that can use it. */
+.dock-ml .form-row > select,
+.dock-ml .form-row > input,
+.dock-facies-tie .form-row > select,
+.dock-facies-tie .form-row > input,
+.dock-montecarlo .form-row > select,
+.dock-montecarlo .form-row > input,
+.dock-lorenz .form-row > select,
+.dock-lorenz .form-row > input,
+.dock-hfu .form-row > select,
+.dock-hfu .form-row > input {
+  max-width: 460px;
+}
+
+/* Where the pane is wide enough for two readable columns, the FORM gains a second column
+ * rather than every field growing. Measured with a container query against the section's own
+ * box, not a media query against the window: a pane can be narrow in a wide window, which is
+ * the normal case in a docked workspace and exactly where a window-keyed rule answers wrong. */
+.dock-ml .ml-section-host {
+  container-type: inline-size;
+}
+.dock-ml .ml-section {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 34px;
+  align-items: start;
+}
+@container (min-width: 1060px) {
+  .dock-ml .ml-section {
+    grid-template-columns: 1fr 1fr;
+  }
+  /* A row carrying explanatory prose, the co-run chips, a table or a chart takes the full
+   * section width. Splitting a sentence into a column makes it a narrower sentence, not a
+   * shorter one, and a leaderboard in half a pane is the original complaint again. */
+  .dock-ml .ml-section > *:has(.ml-norm-why),
+  .dock-ml .ml-section > *:has(.ml-also-stack),
+  .dock-ml .ml-section > *:has(.mc-chain-note),
+  .dock-ml .ml-section > *:has(table),
+  .dock-ml .ml-section > *:has(canvas),
+  .dock-ml .ml-section > .mc-run-row,
+  .dock-ml .ml-section > .mc-results,
+  .dock-ml .ml-section > .mc-status {
+    grid-column: 1 / -1;
+  }
+}
 /* Form-column panes keep the dialog-era column width; the composite/report previews
  * scale with the pane instead. */
 .module-pane,

@@ -3078,6 +3078,95 @@ fn resolve_input_set(conn: &Connection, well_id: &str, set_name: &str) -> Option
     .ok()
 }
 
+/// SB-MLA-054's provenance half — how every ML input landed on the run's depth frame, as run notes.
+///
+/// The Data QC section already SHOWS this per curve, through `equations::curve_sampling`. What was
+/// missing is that the answer never reached the run's own record: a user who did not open that
+/// section got a fit quietly assembled from fewer curves than they picked, and the result said only
+/// "missing input curve" — which sends an interpreter hunting for a log that is sitting right there
+/// on a different grid. This reads the SAME helper, so the note and the panel cannot disagree.
+///
+/// Reports the join rule once, then names any curve that EXISTS on a well but contributed no sample.
+/// Silent otherwise — a note on every run is a note nobody reads.
+///
+/// **The trigger is "contributed NOTHING", deliberately, and not a coverage fraction.** Zero is the
+/// one unambiguous case, and it is the one that masquerades as a missing curve. A curve where some
+/// depths coincide and most do not is a real hazard too, but warning on it needs a threshold —
+/// "fewer than a fifth landed" — and no source states one, so it would be SandiBumi's invention
+/// deciding when a run looks wrong (`SB-CORE-004`). Partial coverage is already visible in the
+/// sample counts this run reports; total absence was not visible anywhere.
+fn frame_notes(
+    conn: &Connection,
+    well_ids: &[String],
+    names: &[String],
+    input_set: Option<&str>,
+) -> Vec<String> {
+    // curve -> (wells it is off-frame on, one spacing pair to quote)
+    let mut off: std::collections::BTreeMap<String, (Vec<String>, Option<(f64, f64)>)> =
+        Default::default();
+    for well_id in well_ids {
+        let Ok((depth, _)) = fetch_curve_frame_from_set(conn, well_id, names, input_set, None) else {
+            continue;
+        };
+        if depth.is_empty() {
+            continue;
+        }
+        let Ok(sampling) = crate::equations::curve_sampling(conn, well_id, names, &depth) else {
+            continue;
+        };
+        // The frame's own spacing, measured the same way `curve_sampling` measures a curve's.
+        let frame_step = {
+            let mut gaps: Vec<f64> =
+                depth.windows(2).map(|w| (w[1] - w[0]) as f64).filter(|g| *g > 0.0).collect();
+            gaps.sort_by(|a, b| a.partial_cmp(b).expect("finite by construction"));
+            (!gaps.is_empty()).then(|| gaps[gaps.len() / 2])
+        };
+        for s in sampling {
+            // Stored somewhere, and not one of its depths is on the frame. A curve the well simply
+            // does not carry has `n_own == 0` and is a MISSING curve — a different diagnosis with a
+            // different fix, already reported as such.
+            if s.n_own == 0 || s.n_on_frame > 0 {
+                continue;
+            }
+            let entry = off.entry(s.curve.clone()).or_default();
+            entry.0.push(well_name(conn, well_id));
+            if entry.1.is_none() {
+                if let (Some(a), Some(b)) = (s.step, frame_step) {
+                    entry.1 = Some((a, b));
+                }
+            }
+        }
+    }
+    if off.is_empty() {
+        return vec![];
+    }
+    let mut notes = vec![
+        "inputs are joined to the run frame by EXACT depth equality - nothing is interpolated, \
+         snapped or gap-filled, and there is no depth tolerance"
+            .to_string(),
+    ];
+    for (curve, (wells, steps)) in off {
+        let spacing = match steps {
+            Some((own, frame)) => format!(
+                " (stored at about {own:.4} against a run frame at about {frame:.4}, in the project's depth unit)"
+            ),
+            None => String::new(),
+        };
+        let shown = if wells.len() > 4 {
+            format!("{}, and {} more", wells[..4].join(", "), wells.len() - 4)
+        } else {
+            wells.join(", ")
+        };
+        notes.push(format!(
+            "{curve} EXISTS on {} well(s) but none of its samples land on the run frame{spacing}, \
+             so it contributed nothing: {shown}. This is a different problem from a missing curve - \
+             put the inputs on one frame with Reframe before fitting",
+            wells.len()
+        ));
+    }
+    notes
+}
+
 fn assemble_training(
     conn: &Connection,
     train_well_ids: &[String],
@@ -3349,6 +3438,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     let mut roster: Vec<TrainWellRecord> = Vec::new();
     let mut apply: Vec<ApplyWell> = Vec::new();
     let mut x_apply: Vec<f32> = Vec::new();
+    let mut frame_report: Vec<String> = Vec::new();
     {
         let conn = db.lock().unwrap();
         if supervised {
@@ -3360,6 +3450,18 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             groups = gt;
             empty_train = empty;
             roster = rec;
+        }
+        // SB-MLA-054. Asked on the wells the model LEARNS from, and on the target as well as the
+        // features — a target on a different grid empties the fit just as thoroughly as an input
+        // does, and reads exactly the same in every count.
+        {
+            let mut framed = features.clone();
+            if let Some(t) = &target {
+                framed.push(t.clone());
+            }
+            let scope: &[String] =
+                if supervised { &req.train_well_ids } else { &req.apply_well_ids };
+            frame_report = frame_notes(&conn, scope, &framed, req.input_set.as_deref());
         }
         let mut apply_fetch = features.clone();
         if let Some(mk) = &mask_curve {
@@ -3458,6 +3560,9 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     // fully masked). Without this, a 20-well selection fit on 3 wells looks like a clean 20-well
     // run — the exact silent-degradation the app's cardinal rule forbids.
     let mut notes: Vec<String> = transform_notes;
+    // SB-MLA-054, before the sample-count notes: a curve that never reached the frame is the
+    // reason those counts look the way they do, so it has to be read first.
+    notes.extend(frame_report);
     if supervised && !empty_train.is_empty() {
         let requested = req.train_well_ids.len();
         notes.push(format!(
@@ -5190,6 +5295,71 @@ mod tests {
 
     fn params(pairs: &[(&str, serde_json::Value)]) -> serde_json::Map<String, serde_json::Value> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    }
+
+    /// **SB-MLA-054.** The training frame is an exact-depth join, so a curve stored on a different
+    /// sampling contributes nothing — and used to be indistinguishable, in every count the run
+    /// reports, from a curve the well never had. One says "log this well and refit"; the other says
+    /// "the log is there, put it on one frame". No number in the result told them apart.
+    ///
+    /// Pinned from both sides: the off-frame curve must be NAMED with both spacings, and a curve
+    /// that genuinely is not there must NOT produce the note — otherwise the diagnostic would fire
+    /// on every run with an absent optional curve and stop being read.
+    #[test]
+    fn a_curve_on_a_different_depth_grid_is_named_as_such_and_never_as_a_missing_curve() {
+        use uuid::Uuid;
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "SANDI-54", None, None, None).unwrap();
+        // The well's own frame: 0.5 units.
+        let n = 40usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        crate::db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![40.0; n],
+            vec![10.0; n],
+            vec![0.2; n],
+            vec![2.4; n],
+            vec![80.0; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let ids = id.to_string();
+        // A computed curve on a DIFFERENT grid, offset so that NOT ONE depth coincides — and
+        // chosen so that is provable rather than lucky. 0.0625 + 0.125i is always an odd multiple
+        // of 0.0625, so it can never equal 0.5j; every value is a sum of powers of two and so is
+        // exact in f32, which matters because the join compares raw bit patterns. A "realistic"
+        // 0.1524 does NOT work: it rounds in f32 so that one sample lands on the frame by
+        // accident, and one landed sample means the curve did contribute.
+        let odd: Vec<f32> = (0..120).map(|i| 2000.0625 + i as f32 * 0.125).collect();
+        let vals: Vec<f32> = odd.iter().map(|_| 1.0f32).collect();
+        crate::equations::write_computed_curve(&conn, &ids, &odd, "OFFGRID", &vals).unwrap();
+
+        let wells = vec![ids.clone()];
+
+        // The curve exists and is unusable — say so, name it, and quote both spacings.
+        let notes = frame_notes(&conn, &wells, &["OFFGRID".to_string()], None);
+        assert!(!notes.is_empty(), "off-frame curve produced no note");
+        let all = notes.join(" | ");
+        assert!(all.contains("EXACT depth equality"), "join rule not stated: {all}");
+        assert!(all.contains("OFFGRID") && all.contains("SANDI-54"), "curve/well not named: {all}");
+        assert!(all.contains("0.1250") && all.contains("0.5000"), "spacings not quoted: {all}");
+        assert!(all.contains("Reframe"), "no actionable fix named: {all}");
+
+        // The other side. A curve this well simply does not carry is a MISSING curve, and must not
+        // be reported as a framing problem — the fix is different and so is the diagnosis.
+        assert!(
+            frame_notes(&conn, &wells, &["NOSUCHCURVE".to_string()], None).is_empty(),
+            "an absent curve was reported as an off-frame one"
+        );
+        // And a curve that IS on the frame stays silent, so the note means something when it fires.
+        assert!(
+            frame_notes(&conn, &wells, &["GR".to_string()], None).is_empty(),
+            "a curve that landed on the frame produced a framing note"
+        );
     }
 
     /// **SB-MLA-023, the half that fails the build.** The product has two k-means engines for
