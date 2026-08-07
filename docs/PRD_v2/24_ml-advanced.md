@@ -2573,7 +2573,7 @@ correct and on disk. The requirement is recorded to protect this behaviour.
 
 **Verified by.** SB-MLA-T58
 
-#### SB-MLA-062 — A long fit does not hold the global write lock          [P1] [status: PRESENT-DIVERGENT]
+#### SB-MLA-062 — A long fit does not hold the global write lock          [P1] [status: PRESENT-OK]
 
 **Requirement.** No ML operation may hold the global database lock across a subprocess call or any
 other unbounded wait. Where results must be written under the lock, the lock MUST be acquired after
@@ -2583,12 +2583,9 @@ the computation and released between wells.
 responsiveness). A blocking subprocess is exactly the unbounded wait that requirement exists for,
 and an ML fit over a portfolio is among the longest operations the product performs.
 
-**As-built.** `PRESENT-DIVERGENT` — the fit itself is correctly outside the lock: `exec_ml_full` is
-called at `ml.rs:614` and the connection is not acquired until `ml.rs:630`. The write-back loop
-then holds that single lock across **every apply well** (`ml.rs:630`–`:706`), including the
-per-well `create_log_set` and versioned write at `ml.rs:676`–`:677`, so the lock is held for the
-whole write phase rather than per well. The leaderboard is clean — its lock scope closes at
-`ml.rs:1360` before the Python call.
+**As-built.** `PRESENT-OK` (2026-08-07) — the write-back loop now acquires the lock **per well** and drops it at the end of each iteration; every prediction is computed lock-free above it. The bounded pre-loop work (a few catalog reads and one model insert) is in its own scope that releases before the loop starts, and the cancellation stamp takes its own short lock afterwards.
+
+Held across the whole loop as it was, a portfolio run froze every other panel in the application for the entire write phase — DuckDB is a single-writer connection behind one mutex, so whoever holds it holds the product. Releasing between wells is safe **against** the write discipline rather than in spite of it: each well's write is a DELETE of that well's target curve names followed by an append, all inside `with_txn`, and two wells never touch each other's rows. What an interleaved writer can do is land a curve between two of this run's wells — exactly what it could already do between two separate runs.
 
 **Verified by.** SB-MLA-T59
 

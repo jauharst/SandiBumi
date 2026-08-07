@@ -3693,6 +3693,18 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             }
             let mut blocks_written = 0usize;
             let mut wells = Vec::new();
+            // SB-MLA-062. This block's lock is BOUNDED — a handful of catalog reads and one model
+            // insert — and it is released at the closing brace, before the per-well write loop
+            // below re-acquires it once per well. Held across the whole loop instead, a field-scale
+            // run froze every other panel in the application for the entire write phase: DuckDB is
+            // a single-writer connection behind one mutex, so whoever holds it holds the product.
+            //
+            // Releasing between wells is safe against the write discipline rather than in spite of
+            // it: each well's write is a DELETE of that well's target curve names followed by an
+            // append, all under `with_txn`, and two wells never touch each other's rows. What an
+            // interleaved writer can do is land a curve between two of this run's wells, which is
+            // exactly what it could do between two separate runs.
+            let (units, blind, model_id, model_name) = {
             let conn = db.lock().unwrap();
             // The unit of every curve about to be written, so a reader can tell log10(mD) from mD
             // (SB-MLA-035). A blank target unit stays blank: "we do not know" must not be dressed
@@ -3815,6 +3827,8 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     }
                 }
             }
+            (units, blind, model_id, model_name)
+            };
             let mut start = 0usize;
             // SB-MLA-017. The set ids this run actually wrote, and whether a cancel cut it short.
             let mut written_sets: Vec<String> = Vec::new();
@@ -3875,6 +3889,11 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     curves.push((name.clone(), full));
                 }
                 let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
+                // SB-MLA-062. Acquired HERE, per well, and dropped at the end of this iteration —
+                // every prediction above was computed lock-free. On a portfolio run this is the
+                // difference between the rest of the application being usable throughout and being
+                // frozen until the last well is written.
+                let conn = db.lock().unwrap();
                 // SB-MLA-006. The model reference rides in `params_json` beside the effective
                 // parameters, in the SAME shape the apply path writes, so one reader answers
                 // "which model made this curve?" for both paths. `module` keeps its existing
@@ -3974,6 +3993,9 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             // because the set name and the module string are the ones a complete run writes. So the
             // sets that DID get written say what they are.
             if cancelled_wells > 0 && !written_sets.is_empty() {
+                // Its own short lock — the loop released the last one, and this is a handful of
+                // UPDATEs (SB-MLA-062).
+                let conn = db.lock().unwrap();
                 let n = mark_cancelled_sets(&conn, &written_sets, written_sets.len(), apply.len());
                 notes.push(format!(
                     "this run was CANCELLED after {} of {} well(s) - the {n} log set(s) already written are marked as coming from a cancelled run, so they are not mistaken for a complete run over fewer wells. The wells that were cut are listed above with 'cancelled'",
