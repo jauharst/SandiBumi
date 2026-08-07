@@ -9178,3 +9178,56 @@ and the panel says so rather than leaving you to work it out.
 - [ ] **Force a skip**: choose an input present in only a handful of rows. That segment should
       appear as a warn-tinted card stating its row count and that its depths were left blank,
       never silently vanish.
+
+## ML - writing the output at the target sampling (2026-08-07)
+
+Your item 4: *"each log has different resolution, sometimes it looks low frequency such resistivity,
+sometimes high such rxo, gr, or nphi. Result should adjust their frequency to log target"*, then
+*"writing output at target sampling"*.
+
+A model fitted against a target read every 0.5 m predicts at every INPUT depth, so it wrote a value
+every 0.1524 m. That curve claims three times the vertical resolution anything it learned from ever
+had, and on a log view it is indistinguishable from a log a tool actually ran at that rate.
+
+**Model section, "Output resolution": As predicted | Target sampling.** Open Data QC once and the
+target's own measured sampling is filled into the block-thickness box - the median across your
+training wells, not the mean, because one well logged at a different rate would otherwise offer you
+a spacing no tool ever ran at. It stays editable; nothing is decided for you.
+
+What it does: one value per interval, held across the interval. **The depth frame does not change.**
+Computed curves are read back by exact depth match, so a curve written at its own coarser sampling
+would land on depths the well does not have and read back all-missing - which is why re-framing is
+Reframe's job and this is the same discipline Block (Upscale) already follows. The consequence for
+you: **set the curve's draw style to Step in the curve editor**, or the log view draws a gradient
+between two block values that nothing measured. The run says so in its notes.
+
+Three rules inside it:
+
+- **Blocks are anchored on an absolute depth grid**, not on each well's first sample. Anchored per
+  well, two wells would get the same block thickness at different block boundaries, so a bed sitting
+  mid-block in one well straddles a boundary in the next. The numbers stay plausible and stop being
+  comparable.
+- **A class curve takes the block's commonest CODE, never a mean.** The mean of facies 1 and facies 4
+  is 2.5, which is not a facies. A `_PROB` curve beside it is a real number and averages normally.
+- **A depth the model did not answer stays missing.** It never inherits a value from its block.
+
+Under a log10 target transform the block mean runs in log space, which makes it the **geometric mean
+of the millidarcies** - the standard permeability upscale - by construction rather than by a special
+case.
+
+A saved model records the resolution it was made to write at, and **applying it later inherits that**
+along with its log set. A fit reviewed as a 0.5 m answer, propagated at the input sampling, would be
+a curve at a different resolution from the one you signed off, under the same model's name.
+
+- [ ] **Open Data QC with a coarse target selected** (core permeability, or a blocked log). Then open
+      Model: the block thickness box is already filled with its measured spacing.
+- [ ] **Run once As predicted and once at Target sampling**, into two output curve names, and put
+      both in a log view. The second should be visibly blocky and the first should not.
+- [ ] **Set the blocked curve's draw style to Step** (right-click the curve in the log view). Before
+      you do, it draws sloping lines between block values - that is the display lying, not the data.
+- [ ] **Check the depth frame did not change**: the blocked curve should have a sample at every depth
+      the unblocked one does, just repeated within each block.
+- [ ] **Save the model, then Apply it to other wells.** The result notes should say it was written at
+      the same resolution, without you setting anything.
+- [ ] **Try it on a classification run.** The class curve should hold whole codes - never a 2.5
+      between facies 2 and 3 - while its `_PROB` companion averages.

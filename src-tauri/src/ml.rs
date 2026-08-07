@@ -1061,6 +1061,23 @@ pub struct MlRequest {
     /// two.
     #[serde(default)]
     pub coverage_segments: bool,
+    /// Write the prediction at this vertical resolution: one value per `output_step`-thick interval,
+    /// held across the interval, on the well's own depths.
+    ///
+    /// A model fitted against a target sampled every 0.5 m predicts at every INPUT depth, so it
+    /// emits a value every 0.1524 m — a curve claiming three times the resolution anything it
+    /// learned from ever had, and nothing downstream can tell. Set to the target's own sampling and
+    /// the curve stops overstating itself.
+    ///
+    /// The frame does NOT change — only the values, held in blocks — because `computed_curves` are
+    /// read back by exact depth match, so a curve written at its own coarser sampling would land on
+    /// depths the well does not have and read back all-missing. Re-framing is `reframe.rs`'s job.
+    ///
+    /// `None` writes at the input frame, which is what every run did before this existed. Declared
+    /// rather than inferred: a run that quietly coarsened its own output would be changing the
+    /// answer on the user's behalf.
+    #[serde(default)]
+    pub output_step: Option<f64>,
 }
 
 /// Applying an already-fitted model. Deliberately NOT an `MlRequest`: there is no training
@@ -1539,6 +1556,93 @@ fn unit_for_output(suffix: &str, transform: &str, target_unit: Option<&str>) -> 
     (!u.is_empty()).then_some(u)
 }
 
+/// Whether an output carries CLASS CODES rather than a quantity.
+///
+/// A class code is a name written as a number, and the mean of facies 1 and facies 4 is 2.5, which
+/// is not a facies — the same rule `frame::block` refuses an averaging statistic under (SB-MLA-055).
+/// The distinction is by (task, suffix), not by inspecting the values: a well whose classes happen
+/// to come out {0, 1} is indistinguishable from a probability by inspection, and guessing wrong in
+/// that direction averages codes silently.
+fn output_is_class(task: &str, suffix: &str) -> bool {
+    match task {
+        // The base curve is the predicted class; `_PROB` beside it is a confidence, which is a real
+        // quantity and averages honestly.
+        "classification" | "clustering" => suffix.is_empty(),
+        // Regression predicts a quantity, and reduction's PC1… are continuous scores.
+        _ => false,
+    }
+}
+
+/// Hold one value per `step`-thick interval, across the interval, ON THE WELL'S OWN DEPTHS.
+///
+/// Jauhar, 2026-08-07: *"sampling rate, each log has different resolution … Result should adjust
+/// their frequency to log target"*, then *"writing output at target sampling"*. A model fitted
+/// against a target sampled every 0.5 m predicts at every input depth, so it emits a value every
+/// 0.1524 m — a curve claiming three times the vertical resolution any of its training data had.
+/// Nothing downstream can tell; it plots as a detailed log.
+///
+/// **The frame does not change, only the values.** This is `frame::block`'s discipline and it is not
+/// a stylistic choice: `computed_curves` are read back by EXACT depth match, so a curve written at
+/// its own coarser sampling would land on depths the well does not have and read back all-missing.
+/// Re-framing is `reframe.rs`'s job precisely because it cannot be done here. The consequence for
+/// the reader is that the curve needs `draw_style: "step"` in the layout, or the log view draws a
+/// gradient between two block values that nothing ever measured — the run says so in its notes.
+///
+/// Blocks are anchored on an ABSOLUTE grid (`floor(depth / step)`), not on each well's first sample.
+/// Anchoring per well would give two wells the same block THICKNESS at different block BOUNDARIES,
+/// so a bed straddling a boundary in one well would sit mid-block in the next and the two would not
+/// be comparable — the same trap `TargetSpec.align` exists for.
+///
+/// Returns the number of distinct blocks the well's live samples fell into.
+fn block_to_step(depth: &[f32], values: &mut [f32], step: f64, class_curve: bool) -> usize {
+    if !(step > 0.0) {
+        return 0;
+    }
+    // The bin each sample belongs to, computed once. A closure over `values` would borrow it for as
+    // long as it lives and block the write-back below.
+    let bins: Vec<Option<i64>> = (0..values.len())
+        .map(|i| {
+            let d = depth.get(i).copied().unwrap_or(f32::NAN) as f64;
+            (d.is_finite() && values[i].is_finite()).then(|| (d / step).floor() as i64)
+        })
+        .collect();
+    let mut buckets: std::collections::BTreeMap<i64, Vec<f32>> = Default::default();
+    for (i, k) in bins.iter().enumerate() {
+        if let Some(k) = k {
+            buckets.entry(*k).or_default().push(values[i]);
+        }
+    }
+    let answer: std::collections::BTreeMap<i64, f32> = buckets
+        .iter()
+        .map(|(k, v)| {
+            let a = if class_curve {
+                // The block's commonest code, ties to the shallowest — `frame::block`'s MODE rule,
+                // deliberately the same one, so "upscale a class curve" has a single definition.
+                let mut best = (v[0], 0usize);
+                for x in v {
+                    let c = v.iter().filter(|y| (**y - *x).abs() < 1e-6).count();
+                    if c > best.1 {
+                        best = (*x, c);
+                    }
+                }
+                best.0
+            } else {
+                // Arithmetic, and that is the right mean for a volume fraction. Under a log10
+                // transform this runs in LOG space, which makes it the geometric mean of the
+                // millidarcies — the standard permeability upscale, for free and by construction.
+                (v.iter().map(|x| *x as f64).sum::<f64>() / v.len() as f64) as f32
+            };
+            (*k, a)
+        })
+        .collect();
+    for (i, k) in bins.iter().enumerate() {
+        if let Some(a) = k.and_then(|k| answer.get(&k)) {
+            values[i] = *a;
+        }
+    }
+    answer.len()
+}
+
 /// Most feature subsets one run will fit models for.
 ///
 /// A field where every well is missing a different curve can present a great many availability
@@ -1757,7 +1861,21 @@ fn run_ml_coverage(
         wells_data.iter().map(|_| Default::default()).collect();
     let mut predicted_rows: Vec<usize> = vec![0; wells_data.len()];
     let mut out_names_all: Vec<String> = Vec::new();
+    let mut class_names: std::collections::BTreeSet<String> = Default::default();
     let mut units: Vec<(String, String)> = Vec::new();
+    // Same rule as the ordinary path: a step that is not a thickness is dropped with a note rather
+    // than failing a run that has already fitted every segment.
+    let out_step: Option<f64> = match req.output_step {
+        Some(s) if s.is_finite() && s > 0.0 => Some(s),
+        Some(s) => {
+            notes.push(format!(
+                "an output resolution of {s} is not a thickness, so the curves are written at the input sampling instead"
+            ));
+            None
+        }
+        None => None,
+    };
+    let mut blocks_written = 0usize;
     let target_unit = {
         let conn = db.lock().unwrap();
         catalog_unit(&conn, &target)
@@ -1971,6 +2089,13 @@ fn run_ml_coverage(
                 let name = out_name_for(&base, suffix, &transform);
                 if !out_names_all.contains(&name) {
                     out_names_all.push(name.clone());
+                    // Recorded HERE, where the suffix is still in hand. By the time the accumulated
+                    // curves are blocked they are names only, and re-deriving "is this the class
+                    // curve or the probability beside it" from a name would be guessing at exactly
+                    // the point where guessing wrong averages class codes.
+                    if output_is_class(&req.task, suffix) {
+                        class_names.insert(name.clone());
+                    }
                     // Only a regression predicts a quantity. A class code has no unit, and a blank
                     // declared for one would be a claim rather than an absence.
                     if req.task == "regression" {
@@ -2050,8 +2175,24 @@ fn run_ml_coverage(
                 wells_out.push(MlWellResult { well_id: w.well_id.clone(), rows_predicted: 0, error: Some(msg) });
                 continue;
             }
-            let curves: Vec<(&str, &[f32])> =
-                acc[wi].iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
+            // Blocked AFTER every segment has contributed, never per segment. A block spanning the
+            // boundary between two segments' rock holds samples from both models, and averaging
+            // them is the honest answer for that interval — blocking each segment separately would
+            // instead give that block two competing values and let write order pick one.
+            let mut blocked: Vec<(String, Vec<f32>)> = Vec::new();
+            if let Some(step) = out_step {
+                for (name, values) in &acc[wi] {
+                    let mut v = values.clone();
+                    let n = block_to_step(&w.depth, &mut v, step, class_names.contains(name));
+                    blocks_written = blocks_written.max(n);
+                    blocked.push((name.clone(), v));
+                }
+            }
+            let curves: Vec<(&str, &[f32])> = if blocked.is_empty() {
+                acc[wi].iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect()
+            } else {
+                blocked.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect()
+            };
             let spec = crate::equations::LogSetSpec {
                 set_name: out_set.clone(),
                 module: format!("ml:{}:{}", req.task, req.algorithm),
@@ -2098,9 +2239,21 @@ fn run_ml_coverage(
         }
     }
 
+    if let Some(step) = out_step {
+        notes.push(if blocks_written > 0 {
+            format!(
+                "written at {step} resolution: one value per {step}-thick interval, held across it, on each well's own depths (up to {blocks_written} blocks in a well). Blocks are taken AFTER every segment has contributed, so an interval spanning two segments' rock averages both rather than one of them winning. Set this curve's draw style to Step in the curve editor"
+            )
+        } else {
+            format!(
+                "an output resolution of {step} was asked for but no well had a live prediction to block, so the curves are at the input sampling"
+            )
+        });
+    }
+
     MlResult {
         outputs: out_names_all,
-        metrics: serde_json::json!({ "coverage_segments": segments }),
+        metrics: serde_json::json!({ "coverage_segments": segments, "output_step": out_step }),
         wells: wells_out,
         notes,
         model_id: None,
@@ -2762,6 +2915,29 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             }
             let out_names: Vec<String> =
                 outs.iter().map(|(s, _)| out_name_for(&base, s, &transform)).collect();
+            // The vertical resolution the curves will be written at. Resolved HERE rather than at
+            // the write loop because the model is saved before the curves are, and the resolution a
+            // model was made to write at has to travel with it — an apply run that quietly reverted
+            // to the input sampling would produce a curve at a different resolution from the one the
+            // fit was reviewed at, under the same model's name.
+            //
+            // A non-positive or non-finite step is dropped rather than refused: the fit has already
+            // happened, and losing a field's predictions over a mistyped box is the more expensive
+            // failure. It says so instead.
+            let out_step: Option<f64> = match req.output_step {
+                Some(s) if s.is_finite() && s > 0.0 => Some(s),
+                Some(s) => {
+                    notes.push(format!(
+                        "an output resolution of {s} is not a thickness, so the curves are written at the input sampling instead"
+                    ));
+                    None
+                }
+                None => None,
+            };
+            if let Some(step) = out_step {
+                metrics["output_step"] = serde_json::json!(step);
+            }
+            let mut blocks_written = 0usize;
             let mut wells = Vec::new();
             let conn = db.lock().unwrap();
             // The unit of every curve about to be written, so a reader can tell log10(mD) from mD
@@ -2929,10 +3105,14 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     continue;
                 }
                 let mut curves: Vec<(String, Vec<f32>)> = Vec::with_capacity(outs.len());
-                for ((_, values), name) in outs.iter().zip(&out_names) {
+                for ((suffix, values), name) in outs.iter().zip(&out_names) {
                     let mut full = vec![f32::NAN; aw.depth.len()];
                     for (j, &i) in aw.idx.iter().enumerate() {
                         full[i] = values[start + j];
+                    }
+                    if let Some(step) = out_step {
+                        let n = block_to_step(&aw.depth, &mut full, step, output_is_class(&req.task, suffix));
+                        blocks_written = blocks_written.max(n);
                     }
                     curves.push((name.clone(), full));
                 }
@@ -3007,6 +3187,24 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 start += m;
             }
 
+            if let Some(step) = out_step {
+                // Stated whether or not it changed anything, and the "no blocks" case is stated too:
+                // a resolution setting that silently did nothing is the one a reader would go on
+                // trusting. The step-draw reminder is here for the same reason `frame::block` puts
+                // it in its own doc — the layout is where draw style lives, and a blocked curve
+                // drawn as a line shows a gradient between two block values that nothing measured.
+                notes.push(if blocks_written > 0 {
+                    format!(
+                        "written at {step} resolution: one value per {step}-thick interval, held across it, on each well's own depths (up to {blocks_written} blocks in a well). Set this curve's draw style to Step in the curve editor, or the log view draws a gradient between two block values that nothing measured"
+                    )
+                } else {
+                    format!(
+                        "an output resolution of {step} was asked for but no well had a live prediction to block, so the curves are at the input sampling"
+                    )
+                });
+                metrics["output_step"] = serde_json::json!(step);
+            }
+
             MlResult { outputs: out_names, metrics, wells, notes, model_id, model_name, split, error: None }
         }
     }
@@ -3074,6 +3272,20 @@ pub fn apply_ml_model(
         }
         (asked, _) => asked.map(str::to_string),
     };
+    // ...and so does the resolution it was made to write at. The same argument again: a fit reviewed
+    // as a 0.5 m answer, propagated at the input sampling, is a curve at a different vertical
+    // resolution from the one that was signed off, carrying the same model's name. The model records
+    // it, so the apply path does not have to be told.
+    let out_step: Option<f64> = serde_json::from_str::<serde_json::Value>(&info.metrics_json)
+        .ok()
+        .and_then(|m| m.get("output_step").and_then(|v| v.as_f64()))
+        .filter(|s| s.is_finite() && *s > 0.0);
+    if let Some(step) = out_step {
+        notes.push(format!(
+            "written at {step} resolution, the resolution this model was fitted to write at - one value per {step}-thick interval, held across it, on each well's own depths. Set the curve's draw style to Step in the curve editor"
+        ));
+    }
+    let mut blocks_written = 0usize;
 
     let mut apply: Vec<ApplyWell> = Vec::new();
     let mut x_apply: Vec<f32> = Vec::new();
@@ -3228,10 +3440,14 @@ pub fn apply_ml_model(
             continue;
         }
         let mut curves: Vec<(String, Vec<f32>)> = Vec::with_capacity(outs.len());
-        for ((_, values), name) in outs.iter().zip(&out_names) {
+        for ((suffix, values), name) in outs.iter().zip(&out_names) {
             let mut full = vec![f32::NAN; aw.depth.len()];
             for (j, &i) in aw.idx.iter().enumerate() {
                 full[i] = values[start + j];
+            }
+            if let Some(step) = out_step {
+                let n = block_to_step(&aw.depth, &mut full, step, output_is_class(&info.task, suffix));
+                blocks_written = blocks_written.max(n);
             }
             curves.push((name.clone(), full));
         }
@@ -4266,6 +4482,7 @@ mod tests {
             model_note: None,
             target_transform: None,
             coverage_segments: false,
+            output_step: None,
         }
     }
 
@@ -4580,6 +4797,69 @@ mod tests {
              feed - the four-curve depths here carry all three of NO_RT's curves - while a depth \
              carrying no kept subset stays unclaimed"
         );
+    }
+
+    /// **A prediction written at the target's sampling stops claiming the inputs' resolution.**
+    ///
+    /// Jauhar, 2026-08-07: *"sampling rate, each log has different resolution … Result should adjust
+    /// their frequency to log target"*, then *"writing output at target sampling"*. A model fitted
+    /// against a target read every 0.5 m predicts at every INPUT depth, so it emits a value every
+    /// 0.1524 m. Nothing downstream can tell that curve from one a tool actually logged at that rate.
+    ///
+    /// Four things could go wrong here and three of them are silent:
+    ///
+    /// The frame must NOT change. `computed_curves` are read back by exact depth match, so a curve
+    /// written at its own coarser sampling lands on depths the well does not have and reads back
+    /// all-missing — a whole run lost with nothing saying so.
+    ///
+    /// A class curve must take the block's MODE, never its mean. The mean of facies 1 and facies 4
+    /// is 2.5, which is not a facies and which nothing downstream can reject (SB-MLA-055).
+    ///
+    /// A depth with no prediction must stay MISSING. Filling it from its block would invent an answer
+    /// exactly where the model declined to give one.
+    ///
+    /// And blocks must be anchored on an ABSOLUTE grid, not on each well's first sample. Per-well
+    /// anchoring gives two wells the same block THICKNESS at different block BOUNDARIES, so a bed
+    /// mid-block in one well straddles a boundary in the next — the numbers stay plausible and stop
+    /// being comparable, which is the trap `TargetSpec.align` exists for.
+    #[test]
+    fn a_prediction_written_at_the_target_sampling_never_claims_the_inputs_resolution() {
+        // 0.25 m sampling, blocked to 0.5 m. Bins are floor(d / 0.5): 0,0,1,1,2,2.
+        let depth: Vec<f32> = vec![0.0, 0.25, 0.5, 0.75, 1.0, 1.25];
+        let mut v: Vec<f32> = vec![1.0, 3.0, 10.0, 20.0, 5.0, f32::NAN];
+        let n = block_to_step(&depth, &mut v, 0.5, false);
+        assert_eq!(n, 3, "three 0.5 m blocks carry live samples");
+        assert_eq!(v.len(), depth.len(), "the FRAME must not change - only the values");
+        assert_eq!(&v[..5], &[2.0, 2.0, 15.0, 15.0, 5.0], "each block's mean, held across the block");
+        assert!(v[5].is_nan(), "a depth the model did not answer must stay missing, not inherit its block");
+
+        // A class curve. Same block, codes 1, 1, 4.
+        let cd: Vec<f32> = vec![0.0, 0.1, 0.2];
+        let mut cv: Vec<f32> = vec![1.0, 1.0, 4.0];
+        block_to_step(&cd, &mut cv, 0.5, true);
+        assert_eq!(cv, vec![1.0, 1.0, 1.0], "a class block takes its commonest CODE, never a mean");
+        assert!(!cv.contains(&2.0), "the mean of facies 1 and facies 4 is 2.5 and is not a facies");
+
+        // The absolute grid. These two depths straddle 0.5, so they are two blocks and keep their
+        // own values. Anchored on this well's first sample (0.4) they would both land in one block
+        // and be averaged to 5 — plausible, and not the same rock as the next well's blocks.
+        let ad: Vec<f32> = vec![0.4, 0.6];
+        let mut av: Vec<f32> = vec![2.0, 8.0];
+        assert_eq!(block_to_step(&ad, &mut av, 0.5, false), 2);
+        assert_eq!(av, vec![2.0, 8.0], "blocks are anchored on an absolute grid, not on the well's first sample");
+
+        // A step that is not a thickness changes nothing rather than dividing by it.
+        let mut zv: Vec<f32> = vec![1.0, 2.0];
+        assert_eq!(block_to_step(&[0.0, 1.0], &mut zv, 0.0, false), 0);
+        assert_eq!(zv, vec![1.0, 2.0]);
+
+        // And the class/quantity split is decided by (task, suffix), never by looking at values: a
+        // classifier's own output is codes, the `_PROB` beside it is a real number that averages.
+        assert!(output_is_class("classification", ""));
+        assert!(!output_is_class("classification", "_PROB"));
+        assert!(output_is_class("clustering", ""));
+        assert!(!output_is_class("regression", ""));
+        assert!(!output_is_class("reduction", "1"));
     }
 
     /// **SB-MLA-035 — a transformed quantity is a distinct quantity, with its own name and its own

@@ -5129,6 +5129,19 @@ textarea {
   font-size: var(--fs-md);
   color: var(--text);
 }
+/* The block thickness sits beside the segmented control, not under it: it is that control's
+   argument, and a value on its own line reads as a separate setting. */
+.ml-cov > .mc-settings {
+  align-items: center;
+}
+.ml-res-step {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.ml-res-step input {
+  width: 88px;
+}
 .ml-qc-item {
   margin: 6px 0;
   padding: 6px 10px;

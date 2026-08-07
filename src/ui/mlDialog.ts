@@ -746,6 +746,73 @@ export async function buildMlContent(
       ? "Each depth is predicted by the largest model whose inputs it carries: where all your curves exist, a model on all of them; where one is short, a smaller model on the rest. Every segment gets its own blind score and its own saved model, because they are different models — one number over both would describe neither."
       : "One model over the depths where EVERY input has a value. A curve logged over half the interval therefore removes the other half of all the others too. Turn this on to keep that rock.";
   }
+  // --- Output resolution ----------------------------------------------------
+  // Jauhar, 2026-08-07: *"sampling rate, each log has different resolution … Result should adjust
+  // their frequency to log target"*, then *"writing output at target sampling"*. A model fitted
+  // against a 0.5 m target predicts at every INPUT depth, so it emits a value every 0.1524 m — a
+  // curve claiming three times the vertical resolution anything it learned from ever had.
+  //
+  // Declared, never inferred. The app's own rule everywhere else (LONG/WIDE is declared, the light
+  // is declared): a run that quietly coarsened its own output would be changing the answer on the
+  // user's behalf. The measured target step is FILLED IN so the choice costs one click, not a
+  // lookup — but it is still a choice, and it is still editable.
+  const resSeg = document.createElement("div");
+  resSeg.className = "seg";
+  let resMode: "input" | "step" = "input";
+  const resBtns = new Map<typeof resMode, HTMLButtonElement>();
+  for (const [k, label] of [
+    ["input", "As predicted"],
+    ["step", "Target sampling"],
+  ] as [typeof resMode, string][]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "seg-opt";
+    b.textContent = label;
+    b.setAttribute("aria-pressed", String(k === resMode));
+    b.addEventListener("click", () => {
+      resMode = k;
+      for (const [kk, el] of resBtns) el.setAttribute("aria-pressed", String(kk === k));
+      syncRes();
+    });
+    resBtns.set(k, b);
+    resSeg.appendChild(b);
+  }
+  const resStep = document.createElement("input");
+  resStep.type = "number";
+  resStep.step = "any";
+  resStep.className = "form-control";
+  const resStepLabel = document.createElement("label");
+  resStepLabel.className = "mc-field ml-res-step";
+  const resStepText = document.createElement("span");
+  resStepText.textContent = "Block thickness";
+  resStepLabel.append(resStepText, resStep);
+  const resWhy = document.createElement("div");
+  resWhy.className = "ml-norm-why";
+  const resWrap = document.createElement("div");
+  resWrap.className = "ml-cov";
+  const resTop = document.createElement("div");
+  resTop.className = "mc-settings";
+  resTop.append(resSeg, resStepLabel);
+  resWrap.append(resTop, resWhy);
+  const resRow = formRow("Output resolution", resWrap);
+  sModel.appendChild(resRow);
+  /** The target's own median sampling, measured over the training wells. Null until QC has run. */
+  let targetStep: number | null = null;
+  function syncRes(): void {
+    resStepLabel.style.display = resMode === "step" ? "" : "none";
+    if (resMode === "step" && !resStep.value && targetStep) resStep.value = String(targetStep);
+    const shown = Number(resStep.value);
+    resWhy.textContent =
+      resMode === "input"
+        ? targetStep
+          ? `The curve gets a value at every depth its INPUTS have — finer than the ${targetStep} spacing of ${targetSel.value || "the target"}, so it will look more detailed than anything it learned from.`
+          : "The curve gets a value at every depth its inputs have. Where the target was logged more coarsely than the inputs, that is more vertical resolution than the model can actually support."
+        : shown > 0
+          ? `One value per ${shown} interval, held across it, on each well's own depths — so the curve stops claiming resolution it does not have. The depth frame is unchanged; set the curve's draw style to Step in the curve editor, or the log view draws a gradient between two block values that nothing measured.`
+          : "Enter the thickness one value should cover. Open Data QC and the target's own measured sampling is filled in here.";
+  }
+  resStep.addEventListener("input", syncRes);
+
   covCb.addEventListener("change", () => {
     syncCoverage();
     void refreshQc();
@@ -857,6 +924,10 @@ export async function buildMlContent(
     renderParams();
     syncNorm();
     syncCoverage();
+    // "Target sampling" has no meaning without a target, so the whole row is supervised-only rather
+    // than offering a choice one of whose options cannot apply.
+    resRow.style.display = task.supervised ? "" : "none";
+    syncRes();
     // Asked per selection rather than once: the answer depends on which algorithm is chosen, and
     // the backend caches the runtime probe, so every call after the first is free. A generation
     // counter drops a stale answer — the user can change the algorithm faster than the round trip.
@@ -1017,6 +1088,20 @@ export async function buildMlContent(
       /* the sampling findings are simply absent, not wrong */
     }
     if (gen !== qcGen) return;
+    // The target's own sampling, so the Output resolution box can be filled in rather than looked
+    // up. MEDIAN across the training wells, not the mean: one well logged at a different rate would
+    // drag a mean to a spacing no tool ever ran at, and this number is offered as a default the user
+    // may accept without checking.
+    if (task.supervised && targetSel.value) {
+      const steps = sampling
+        .flatMap(([, cs]) => cs)
+        .filter((s) => s.curve === targetSel.value.toUpperCase() && s.step != null && (s.step as number) > 0)
+        .map((s) => s.step as number)
+        .sort((a, b) => a - b);
+      targetStep = steps.length ? Number(steps[Math.floor((steps.length - 1) / 2)].toFixed(4)) : null;
+      if (targetStep && !resStep.value) resStep.value = String(targetStep);
+      syncRes();
+    }
     renderQc(qcHead, qcOut, rows, sampling, {
       curves,
       inputs: feats,
@@ -1378,6 +1463,8 @@ export async function buildMlContent(
       split_mode: task.supervised && splitOn.checked ? splitMode : null,
       target_transform: task.id === "regression" && targetXf ? targetXf : null,
       coverage_segments: task.supervised && covCb.checked,
+      output_step:
+        task.supervised && resMode === "step" && Number(resStep.value) > 0 ? Number(resStep.value) : null,
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";

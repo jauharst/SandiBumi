@@ -1158,6 +1158,18 @@ export interface MlRequest {
    *  saved model (suffixed `_<n>CURVE`), because they are different models on different feature sets
    *  and one number over both would describe neither. Supervised only. */
   coverage_segments?: boolean;
+  /** Write the prediction at this vertical resolution: one value per `output_step`-thick interval,
+   *  held across the interval, on the well's own depths.
+   *
+   *  A model fitted against a target sampled every 0.5 m predicts at every INPUT depth, so it emits
+   *  a value every 0.1524 m — a curve claiming three times the resolution anything it learned from
+   *  ever had. The depth FRAME is unchanged (computed curves are read back by exact depth match, so
+   *  writing at a coarser sampling would make the curve read back all-missing); only the values are
+   *  held in blocks, which is why such a curve wants `draw_style: "step"` in the layout.
+   *
+   *  Omit or null to write at the input frame, which is what every run did before this existed. A
+   *  saved model records it, and applying that model inherits it. */
+  output_step?: number | null;
 }
 
 /** One feature subset a coverage-segmented run fitted a model for, or declined to. Reported per
