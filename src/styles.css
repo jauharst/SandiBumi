@@ -7219,3 +7219,31 @@ input[type="number"].num-editing:focus {
   color: var(--warn, #d96a52);
   font-weight: 600;
 }
+
+/* --- Effective parameter record (SB-MLA-001) -------------------------------
+ * Collapsed by default: on a clean run it is bookkeeping, and the summary line already says how
+ * many values were defaulted. Open, it is the answer to "what did this actually run with", which
+ * is the question a result six months old cannot otherwise answer. */
+.ml-eff {
+  margin: 8px 0;
+  font-size: var(--fs-sm);
+}
+.ml-eff > summary {
+  cursor: pointer;
+  color: var(--text-dim, #6f6857);
+  padding: 2px 0;
+}
+.ml-eff > summary:hover {
+  color: var(--text, #2a2620);
+}
+.ml-eff-src {
+  color: var(--text-dim, #6f6857);
+}
+/* A value nobody typed. Marked, never hidden - the difference between choosing 200 trees and
+ * having 200 trees chosen for you is invisible in a report six months later. */
+.ml-eff-table tr.ml-eff-defaulted td:first-child {
+  font-style: italic;
+}
+.ml-eff-table tr.ml-eff-defaulted td {
+  background: color-mix(in srgb, var(--accent, #c67139) 6%, transparent);
+}

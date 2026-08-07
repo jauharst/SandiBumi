@@ -42,39 +42,64 @@ use std::sync::Mutex;
 /// things, presented cleanly. Syncing two copies would have fixed those three and left the mechanism
 /// that produced them, so there is one copy and both runners concatenate it.
 const ML_BUILD_MODEL: &str = r#"
+EFFECTIVE = {}
+
+def P(p, key, default):
+    """Read a parameter, and RECORD what was actually used (SB-MLA-001).
+
+    A re-run cannot be reconstructed from a record that omits a value that changed the answer,
+    and the value that changed the answer is very often one nobody supplied - `seed` above all,
+    which is the single parameter with the largest effect on a clustering result. So every read
+    goes through here and every default is recorded AS a default, naming where it came from.
+    Reading `P(p, key, default)` directly is the defect this exists to prevent; there should be
+    no `p.get` left in either runner.
+    """
+    v = dict.get(p, key) if p else None
+    if v is None or v == "":
+        EFFECTIVE[key] = {"value": default, "defaulted": True, "source": "ml.rs build_model default"}
+        return default
+    EFFECTIVE[key] = {"value": v, "defaulted": False}
+    return v
+
+def P_used(key, value):
+    """Note the value a parameter was CLAMPED to, beside the one that was asked for. A request
+    the code silently narrowed is a parameter the record would otherwise misstate."""
+    if key in EFFECTIVE and EFFECTIVE[key].get("value") != value:
+        EFFECTIVE[key]["used"] = value
+
 def build_model(task, algo, p, seed):
     p = p or {}
     if task == "regression":
         if algo == "rf":
             from sklearn.ensemble import RandomForestRegressor
-            return RandomForestRegressor(n_estimators=int(p.get("n_estimators", 200)),
-                                         max_depth=int(p.get("max_depth", 0)) or None,
+            return RandomForestRegressor(n_estimators=int(P(p, "n_estimators", 200)),
+                                         max_depth=int(P(p, "max_depth", 0)) or None,
                                          random_state=seed, n_jobs=-1), None
         if algo == "gbdt":
             try:
                 from xgboost import XGBRegressor
-                return XGBRegressor(n_estimators=int(p.get("n_estimators", 300)),
-                                    learning_rate=float(p.get("learning_rate", 0.1)),
-                                    max_depth=int(p.get("max_depth", 4)),
+                return XGBRegressor(n_estimators=int(P(p, "n_estimators", 300)),
+                                    learning_rate=float(P(p, "learning_rate", 0.1)),
+                                    max_depth=int(P(p, "max_depth", 4)),
                                     random_state=seed, verbosity=0), None
             except ImportError:
                 from sklearn.ensemble import HistGradientBoostingRegressor
-                return HistGradientBoostingRegressor(max_iter=int(p.get("n_estimators", 300)),
-                                                     learning_rate=float(p.get("learning_rate", 0.1)),
-                                                     max_depth=int(p.get("max_depth", 4)) or None,
+                return HistGradientBoostingRegressor(max_iter=int(P(p, "n_estimators", 300)),
+                                                     learning_rate=float(P(p, "learning_rate", 0.1)),
+                                                     max_depth=int(P(p, "max_depth", 4)) or None,
                                                      random_state=seed), \
                     "xgboost not installed - used sklearn HistGradientBoosting (pip install xgboost)"
         if algo == "svr":
             from sklearn.svm import SVR
-            return SVR(C=float(p.get("C", 10.0)), epsilon=float(p.get("epsilon", 0.1))), None
+            return SVR(C=float(P(p, "C", 10.0)), epsilon=float(P(p, "epsilon", 0.1))), None
         if algo == "ann":
             from sklearn.neural_network import MLPRegressor
-            hidden = tuple(int(t) for t in str(p.get("hidden", "64,32")).replace(" ", "").split(",") if t)
+            hidden = tuple(int(t) for t in str(P(p, "hidden", "64,32")).replace(" ", "").split(",") if t)
             return MLPRegressor(hidden_layer_sizes=hidden or (64, 32),
-                                max_iter=int(p.get("max_iter", 500)), random_state=seed), None
+                                max_iter=int(P(p, "max_iter", 500)), random_state=seed), None
         if algo == "linear":
             from sklearn.linear_model import LinearRegression
-            deg = int(p.get("degree", 1))
+            deg = int(P(p, "degree", 1))
             if deg > 1:
                 from sklearn.pipeline import make_pipeline
                 from sklearn.preprocessing import PolynomialFeatures
@@ -83,20 +108,20 @@ def build_model(task, algo, p, seed):
     elif task == "classification":
         if algo == "svm":
             from sklearn.svm import SVC
-            return SVC(C=float(p.get("C", 10.0)), probability=True, random_state=seed), None
+            return SVC(C=float(P(p, "C", 10.0)), probability=True, random_state=seed), None
         if algo == "knn":
             from sklearn.neighbors import KNeighborsClassifier
-            return KNeighborsClassifier(n_neighbors=int(p.get("n_neighbors", 7))), None
+            return KNeighborsClassifier(n_neighbors=int(P(p, "n_neighbors", 7))), None
         if algo == "rf":
             from sklearn.ensemble import RandomForestClassifier
-            return RandomForestClassifier(n_estimators=int(p.get("n_estimators", 200)),
+            return RandomForestClassifier(n_estimators=int(P(p, "n_estimators", 200)),
                                           random_state=seed, n_jobs=-1), None
         if algo == "gnb":
             from sklearn.naive_bayes import GaussianNB
             return GaussianNB(), None
         if algo == "logreg":
             from sklearn.linear_model import LogisticRegression
-            return LogisticRegression(C=float(p.get("C", 1.0)), max_iter=1000), None
+            return LogisticRegression(C=float(P(p, "C", 1.0)), max_iter=1000), None
     return None, None
 "#;
 
@@ -153,10 +178,10 @@ except ImportError:
     fail("scikit-learn is not installed for this Python - run: pip install scikit-learn")
 from sklearn.preprocessing import StandardScaler
 
-seed = int(p.get("seed", 42))
+seed = int(P(p, "seed", 42))
 supervised = task in ("regression", "classification")
 metrics = {}
-if bool(p.get("standardize", True)):
+if bool(P(p, "standardize", True)):
     # Fitted on the FIT rows only when a blind split is in force. A scaler that has seen the
     # blind wells' mean and scale makes the blind score optimistic by construction - the same
     # leak SB-MLA-028 closed in the leaderboard, and it would arrive here through the back door.
@@ -265,7 +290,7 @@ elif task == "classification":
     outs.append(("_PROB", np.max(model.predict_proba(As), axis=1).astype(np.float32)))
 
 elif task == "clustering":
-    k = int(p.get("k", 5))
+    k = int(P(p, "k", 5))
     prob = None
     if algo == "kmeans":
         from sklearn.cluster import KMeans
@@ -277,10 +302,10 @@ elif task == "clustering":
         labels = np.argmax(resp, axis=1); prob = np.max(resp, axis=1)
     elif algo == "hier":
         from sklearn.cluster import AgglomerativeClustering
-        labels = AgglomerativeClustering(n_clusters=k, linkage=str(p.get("linkage", "ward"))).fit_predict(As)
+        labels = AgglomerativeClustering(n_clusters=k, linkage=str(P(p, "linkage", "ward"))).fit_predict(As)
     elif algo == "dbscan":
         from sklearn.cluster import DBSCAN
-        labels = DBSCAN(eps=float(p.get("eps", 0.5)), min_samples=int(p.get("min_samples", 10))).fit_predict(As)
+        labels = DBSCAN(eps=float(P(p, "eps", 0.5)), min_samples=int(P(p, "min_samples", 10))).fit_predict(As)
     else:
         fail("unknown clustering algorithm '" + algo + "'")
     # DBSCAN noise (-1) stays NaN; real clusters get ids ordered by first-feature mean.
@@ -311,7 +336,8 @@ elif task == "clustering":
 elif task == "reduction":
     if algo == "pca":
         from sklearn.decomposition import PCA
-        c = max(1, min(d, int(p.get("n_components", 3))))
+        c = max(1, min(d, int(P(p, "n_components", 3))))
+        P_used("n_components", c)
         pca = PCA(n_components=c, random_state=seed)
         Z = pca.fit_transform(As)
         metrics["explained_variance_pct"] = [round(float(v) * 100, 2) for v in pca.explained_variance_ratio_]
@@ -319,7 +345,8 @@ elif task == "reduction":
         if n_apply > 20000:
             fail("t-SNE is limited to 20000 samples (got " + str(n_apply) + ") - select fewer wells")
         from sklearn.manifold import TSNE
-        perp = min(float(p.get("perplexity", 30.0)), max(5.0, (n_apply - 1) / 3.0))
+        perp = min(float(P(p, "perplexity", 30.0)), max(5.0, (n_apply - 1) / 3.0))
+        P_used("perplexity", perp)
         ts = TSNE(n_components=2, perplexity=perp, random_state=seed)
         Z = ts.fit_transform(As)
         if hasattr(ts, "kl_divergence_"):
@@ -334,6 +361,10 @@ else:
     fail("unknown task '" + task + "'")
 
 metrics["n_apply"] = n_apply
+# SB-MLA-001: the EFFECTIVE parameter set, defaults included and marked as defaults. Rust cannot
+# assemble this - it does not know which of the caller's keys this algorithm actually read, nor
+# what the runner substituted for the ones it did not send.
+metrics["effective_params"] = EFFECTIVE
 
 # A fitted model is an ARTIFACT, not a by-product of one run: dump it so the SAME model can be
 # applied to other wells later. The SCALER goes with it - refitting a StandardScaler on the apply
@@ -860,7 +891,29 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         &blind_groups,
     ) {
         Err(e) => fail(&e),
-        Ok((metrics, outs, model_blob, sklearn)) => {
+        Ok((mut metrics, outs, model_blob, sklearn)) => {
+            // SB-MLA-001. The runner reports what IT defaulted; the choices Rust made are Rust's
+            // to record, and the blind-split seed is one of them — defaulted here, and the single
+            // parameter that decides which wells the reported blind score is a score of.
+            if let Some(eff) = metrics.get_mut("effective_params").and_then(|v| v.as_object_mut()) {
+                if req.blind_fraction.filter(|f| supervised && *f > 0.0).is_some() {
+                    eff.insert(
+                        "split_seed".into(),
+                        serde_json::json!({
+                            "value": split_seed,
+                            "defaulted": req.split_seed.is_none(),
+                            "source": "ml.rs run_ml default",
+                        }),
+                    );
+                }
+            }
+            // What gets PERSISTED is the effective set, not the supplied one — a re-run cannot be
+            // built from a record that omits the values nobody typed.
+            let params_record = metrics
+                .get("effective_params")
+                .cloned()
+                .unwrap_or_else(|| serde_json::Value::Object(req.params.clone()));
+            let params_json = serde_json::to_string(&params_record).unwrap_or_default();
             let out_names: Vec<String> = outs.iter().map(|(s, _)| format!("{base}{s}")).collect();
             let mut wells = Vec::new();
             let conn = db.lock().unwrap();
@@ -919,7 +972,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 let spec = crate::equations::LogSetSpec {
                     set_name: out_set.clone(),
                     module: format!("ml:{}:{}", req.task, req.algorithm),
-                    params_json: serde_json::to_string(&req.params).unwrap_or_default(),
+                    params_json: params_json.clone(),
                     inputs_json: serde_json::to_string(&req.feature_curves).unwrap_or_default(),
                 };
                 let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec)
@@ -981,7 +1034,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                         &req.algorithm,
                         &features,
                         target.as_deref(),
-                        &serde_json::to_string(&req.params).unwrap_or_default(),
+                        &params_json,
                         &serde_json::to_string(&metrics).unwrap_or_default(),
                         &trained_on,
                         n_train,
@@ -1875,6 +1928,18 @@ mod tests {
         assert!((pred[2] - 199.0).abs() < 1e-3, "got {}", pred[2]);
         let r2 = metrics["r2_train"].as_f64().unwrap();
         assert!(r2 > 0.999, "r2_train = {r2}");
+
+        // SB-MLA-001, from both sides on a real run. `standardize` was supplied and must be
+        // recorded as supplied; `seed` and `degree` were never sent and must be recorded WITH the
+        // fact that they were defaulted — a re-run cannot be built from a record that omits the
+        // values nobody typed, and `seed` is the one with the largest effect on the answer.
+        let eff = metrics["effective_params"].as_object().expect("effective params are reported");
+        assert_eq!(eff["standardize"]["defaulted"], serde_json::json!(false));
+        assert_eq!(eff["standardize"]["value"], serde_json::json!(false));
+        assert_eq!(eff["seed"]["defaulted"], serde_json::json!(true), "seed was never supplied");
+        assert_eq!(eff["seed"]["value"], serde_json::json!(42));
+        assert!(eff["seed"]["source"].is_string(), "a defaulted value names where the default came from");
+        assert_eq!(eff["degree"]["defaulted"], serde_json::json!(true), "the algorithm's own default counts too");
     }
 
     fn mk_req(task: &str, features: &[&str], target: Option<&str>, train: &[String], apply: &[String]) -> MlRequest {
@@ -2015,6 +2080,36 @@ mod tests {
             "without a mask the well has complete samples, got {:?}",
             ctrl.error,
         );
+    }
+
+    /// SB-MLA-001. Every parameter the runner reads must go through `P`, which records what was
+    /// actually used and whether it was a default. A stray `p.get` is the whole defect — it reads
+    /// a value, changes the answer with it, and leaves nothing in the record — and `cargo check`
+    /// cannot see it, because the runner is a string.
+    ///
+    /// The second assertion is the one that would have caught a real mistake made writing this:
+    /// a blanket rewrite of `p.get(` also rewrites the one inside `P` itself, and `P` calling `P`
+    /// is a stack overflow at RUN time, in a subprocess, on a machine with scikit-learn — which
+    /// the green gate would never reach.
+    #[test]
+    fn every_parameter_the_runner_reads_is_recorded_as_supplied_or_defaulted() {
+        for (name, src) in [("run", ml_runner()), ("eval", ml_eval_runner())] {
+            assert!(
+                !src.contains("p.get("),
+                "{name} runner reads a parameter without recording it - use P(p, key, default)",
+            );
+            assert!(src.contains("def P(p, key, default):"), "{name} runner is missing the recorder");
+        }
+        // P must not call itself. `dict.get(p, key)` is the un-rewritable spelling.
+        let body = ml_runner();
+        let start = body.find("def P(p, key, default):").expect("recorder present");
+        let end = body[start..].find("def P_used").expect("P_used follows P") + start;
+        assert!(
+            body[start..end].contains("dict.get(p, key)"),
+            "the recorder must read the dict directly, or a rewrite of p.get turns it into infinite recursion",
+        );
+        // And the record has to reach the caller, or none of the above is observable.
+        assert!(body.contains(r#"metrics["effective_params"] = EFFECTIVE"#), "the record is never emitted");
     }
 
     /// The unit of a train/test split is the WELL. Five wells at 30% is 1.5 wells, which does not

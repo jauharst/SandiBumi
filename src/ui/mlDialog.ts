@@ -799,6 +799,73 @@ function fmtMetric(v: unknown): string {
   return String(v);
 }
 
+interface EffectiveParam {
+  value: unknown;
+  defaulted?: boolean;
+  source?: string;
+  used?: unknown;
+}
+
+/**
+ * What the run actually used — every parameter, defaults included and marked as defaults.
+ *
+ * `SB-MLA-001`. The panel used to show the settings you typed, which is the one set of numbers
+ * that needs no reporting: you have them. The values that decide a result and are NOT on screen
+ * anywhere are the ones nobody supplied — `seed` above all, which chooses the clustering you got
+ * out of the several the data supports. A record you cannot re-run from is not a record.
+ *
+ * Defaulted rows are marked rather than hidden: the difference between "I chose 200 trees" and
+ * "something chose 200 trees for me" is the difference between a decision and an accident, and
+ * six months later they look identical in a report.
+ */
+function renderEffectiveParams(host: HTMLElement, metrics: Record<string, unknown>): void {
+  const eff = metrics["effective_params"];
+  if (!eff || typeof eff !== "object") return;
+  const entries = Object.entries(eff as Record<string, EffectiveParam>).filter(
+    ([, v]) => v && typeof v === "object" && "value" in v,
+  );
+  if (!entries.length) return;
+
+  const box = document.createElement("details");
+  box.className = "ml-eff";
+  const sum = document.createElement("summary");
+  const nDef = entries.filter(([, v]) => v.defaulted).length;
+  sum.textContent = nDef
+    ? `Settings this run actually used — ${entries.length} parameter(s), ${nDef} defaulted`
+    : `Settings this run actually used — ${entries.length} parameter(s), all supplied`;
+  box.appendChild(sum);
+
+  const t = document.createElement("table");
+  t.className = "mc-table ml-eff-table";
+  const head = document.createElement("tr");
+  for (const h of ["Parameter", "Value", "Where it came from"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    head.appendChild(th);
+  }
+  t.appendChild(head);
+  // Defaulted first: they are the rows the user has not seen anywhere else.
+  const sorted = [...entries].sort((a, b) => Number(!!b[1].defaulted) - Number(!!a[1].defaulted));
+  for (const [key, v] of sorted) {
+    const tr = document.createElement("tr");
+    if (v.defaulted) tr.classList.add("ml-eff-defaulted");
+    const kd = document.createElement("td");
+    kd.textContent = key;
+    const vd = document.createElement("td");
+    // A clamped value states both numbers: a request the code narrowed is a parameter the
+    // record would otherwise misstate (t-SNE perplexity against a small sample count).
+    vd.textContent =
+      v.used !== undefined && v.used !== v.value ? `${String(v.used)} (asked for ${String(v.value)})` : String(v.value);
+    const sd = document.createElement("td");
+    sd.className = "ml-eff-src";
+    sd.textContent = v.defaulted ? `default — ${v.source ?? "unrecorded"}` : "you set this";
+    tr.append(kd, vd, sd);
+    t.appendChild(tr);
+  }
+  box.appendChild(t);
+  host.appendChild(box);
+}
+
 /**
  * The blind split, and the three scores side by side.
  *
@@ -921,9 +988,11 @@ export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: st
   if (res.split) renderSplit(host, res, nameOf);
 
   if (res.metrics && typeof res.metrics === "object") {
+    renderEffectiveParams(host, res.metrics as Record<string, unknown>);
     const table = document.createElement("table");
     table.className = "mc-table";
     for (const [key, value] of Object.entries(res.metrics)) {
+      if (key === "effective_params") continue; // shown as its own table above
       const tr = document.createElement("tr");
       const th = document.createElement("th");
       th.textContent = key;

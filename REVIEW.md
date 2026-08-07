@@ -8728,3 +8728,24 @@ on both sides of the fold. The model was being scored on rock it had already see
       score" instead of printing a number that looks like validation.
 - [ ] Clustering and reduction do not offer the control: they are fitted on the very wells they are
       applied to, so "held out" could not mean anything there.
+
+## ML — the run records what it actually used, defaults included (2026-08-07)
+
+`SB-MLA-001`. The record kept against every run was the settings you *typed*, which is the one set
+of numbers that needs no reporting — you have them. The values that decide a result and appear
+nowhere on screen are the ones nobody supplied: `seed` above all, which chooses which of the several
+clusterings the data supports is the one you got. A record you cannot re-run from is not a record.
+
+- [ ] **Run any model and open "Settings this run actually used"** under the results. Every
+      parameter the run read is there, defaulted rows marked and sorted first — they are the only
+      rows you have not already seen.
+- [ ] **A defaulted value names where the default came from**, so "who chose 200 trees" has an
+      answer. The difference between deciding 200 and having 200 decided for you is invisible in a
+      report six months later.
+- [ ] **A clamped value states both numbers** — t-SNE perplexity narrowed against a small sample
+      count reads "12.3 (asked for 30)". A request the code quietly narrowed would otherwise be
+      recorded as the number you typed.
+- [ ] **This is what gets persisted**, not the supplied set: check the log set's parameters and a
+      saved model's record. That is the half that makes a re-run reconstructable.
+- [ ] Native electrofacies/GMM are NOT covered yet — they report through the module framework,
+      which has no parameter record. Their `SEED` fallback is still silent. Separate increment.

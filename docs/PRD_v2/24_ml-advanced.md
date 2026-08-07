@@ -899,7 +899,7 @@ RFC-2119 verbs are used strictly per CONTRACT §1.4.
 
 ### Group A — Provenance and reproducibility of a trained model
 
-#### SB-MLA-001 — Record the effective parameter set, not the supplied one          [P0] [status: PARTIAL]
+#### SB-MLA-001 — Record the effective parameter set, not the supplied one          [P0] [status: PRESENT-OK]
 
 **Requirement.** Every ML run MUST persist the **effective** value of every parameter that
 influenced the result, including values that were defaulted rather than supplied by the caller.
@@ -913,14 +913,28 @@ effect on a clustering result. Against the corpus this is also where the differe
 dossier §3.7 finds IP ships no seed control anywhere, Techlog states K.mod "does not display the
 same results twice", and Geolog's random-kernel branch is undocumented as to seeding (T2/T3).
 
-**As-built.** `PARTIAL` — `ml.rs:64` defaults `seed` to 42 and `ml.rs:67` defaults `standardize`
-to `True`; `standardize` is captured into its own column (`ml.rs:744`) but the seed reaches
-`params_json` only if the caller supplied it. The shipped dialog always supplies it
-(`src/ui/mlDialog.ts:469`, `:633`), so the hole is latent, but `run_ml` is a public Tauri command
-(`lib.rs:1779`). `facies.rs:80` has the mirror-image case: a non-finite `SEED` falls back to 7 with
-nothing recorded.
+**As-built.** `PRESENT-OK` as of 2026-08-07 for the python path. Every parameter read in the
+runner now goes through `P(p, key, default)`, which records the value AND whether it was
+defaulted AND the identifier of the default's source; `P_used` records the value a request was
+clamped to beside the one asked for, so a narrowed t-SNE perplexity is not misstated as the
+number the user typed. The record is emitted as `metrics["effective_params"]`, and it is that
+record — not `req.params` — which is persisted into the log set's `params_json` and into the saved
+model's params column. The runner has to be the author: Rust does not know which of the caller's
+keys a given algorithm actually read, nor what was substituted for the ones it did not send. The
+one parameter Rust chooses, the blind-split seed, Rust adds to the same record.
 
-**Verified by.** SB-MLA-T01, SB-MLA-T08
+> The dialog now shows this back as a collapsible **"Settings this run actually used"** table with
+> defaulted rows marked and sorted first — they are the only rows the user has not seen elsewhere.
+
+`facies.rs:80`'s mirror-image case (a non-finite `SEED` falling back to 7 with nothing recorded)
+is NOT closed by this: the native modules report through `ModuleOutputs`, which has no parameter
+record, and giving them one is its own increment.
+
+**Verified by.** SB-MLA-T01, SB-MLA-T08 — python path closed by
+`every_parameter_the_runner_reads_is_recorded_as_supplied_or_defaulted` (no `p.get` survives in
+either runner; the recorder cannot recurse) and by the assertions added to
+`regression_linear_recovers_line`, which check against a REAL runner that a supplied value reads
+as supplied and an unsupplied one reads as defaulted with its source named. Native path open.
 
 #### SB-MLA-002 — A saved model records the input log set it was trained from          [P1] [status: ABSENT]
 
