@@ -1126,8 +1126,9 @@ from sklearn.model_selection import GroupKFold, KFold
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import r2_score, accuracy_score, f1_score, confusion_matrix
 
-# StandardScaler is per-column, so subselecting standardized columns == standardizing the subset.
-Xs = StandardScaler().fit_transform(X) if standardize else X
+# Nothing is standardized here. A transform fitted before the split has seen the held-out well,
+# so every score reported as blind is optimistic by construction (SB-MLA-028). The scalers are
+# fitted per fold, on the fold's training rows only, further down.
 
 def make_model(algo):
     if task == "regression":
@@ -1173,7 +1174,29 @@ use_group = ng >= 2
 nsplits = min(folds, ng) if use_group else min(folds, n)
 nsplits = max(2, nsplits)
 splitter = GroupKFold(n_splits=nsplits) if use_group else KFold(n_splits=nsplits, shuffle=True, random_state=seed)
-SP = list(splitter.split(Xs, y, groups)) if use_group else list(splitter.split(Xs, y))
+SP = list(splitter.split(X, y, groups)) if use_group else list(splitter.split(X, y))
+
+# One scaler per fold, fitted on that fold's TRAINING rows and on nothing else.
+# StandardScaler is per-column, so a single fit over every column serves every feature subset:
+# subselecting standardized columns == standardizing the subset. That commutation is why this is
+# one fit per fold rather than one per (fold x subset). It is not a licence to fit outside the
+# fold - the rows are what must not leak, and the rows are what this restricts.
+SC = []
+for tr, te in SP:
+    if standardize:
+        s = StandardScaler().fit(X[tr])
+        SC.append((s.mean_, s.scale_))
+    else:
+        SC.append((None, None))
+
+def fold_xy(k, fidx):
+    tr, te = SP[k]
+    a = X[tr][:, fidx]; b = X[te][:, fidx]
+    mu, sd = SC[k]
+    if mu is not None:
+        a = (a - mu[fidx]) / sd[fidx]
+        b = (b - mu[fidx]) / sd[fidx]
+    return tr, te, a, b
 
 clf = task == "classification"
 yt = y.astype(int) if clf else y
@@ -1183,19 +1206,30 @@ scoring = "accuracy" if clf else "r2"
 rows = []
 for combo in combos:
     algo = combo["algorithm"]; fidx = combo["feat_idx"]
-    Xc = Xs[:, fidx]
     oof = np.full(n, np.nan)
     fold_scores = []
+    fold_imps = []
     err = None
     try:
-        for tr, te in SP:
+        for k in range(len(SP)):
             m = make_model(algo)
             if m is None:
                 err = "unknown algorithm '" + str(algo) + "'"; break
-            m.fit(Xc[tr], yt[tr])
-            pred = m.predict(Xc[te])
+            tr, te, Xtr, Xte = fold_xy(k, fidx)
+            m.fit(Xtr, yt[tr])
+            pred = m.predict(Xte)
             oof[te] = pred
             fold_scores.append(accuracy_score(yt[te], pred.astype(int)) if clf else r2_score(y[te], pred))
+            # Importance is measured on the SAME held-out rows the score is, by the SAME model.
+            # Permuting a column of the training data would report how much the model leaned on a
+            # feature to memorize, not how much that feature carried to a well it had never seen -
+            # and the two numbers sit in one leaderboard row, so they must answer one question.
+            try:
+                pi = permutation_importance(m, Xte, yt[te], n_repeats=5,
+                                            random_state=seed, scoring=scoring)
+                fold_imps.append(np.asarray(pi.importances_mean, dtype=np.float64))
+            except Exception:
+                pass
     except Exception as e:
         err = str(e)
     if err is not None:
@@ -1213,16 +1247,18 @@ for combo in combos:
         metrics["rmse"] = float(np.sqrt(np.mean((y - oof) ** 2)))
         conf = None; labs = None
     imp = [float("nan")] * len(fidx)
-    try:
-        mfull = make_model(algo)
-        mfull.fit(Xc, yt)
-        pi = permutation_importance(mfull, Xc, yt, n_repeats=5, random_state=seed, scoring=scoring)
-        imp = [float(v) for v in pi.importances_mean]
-    except Exception:
-        pass
+    imp_std = [float("nan")] * len(fidx)
+    if fold_imps:
+        M = np.vstack(fold_imps)
+        imp = [float(v) for v in M.mean(axis=0)]
+        # Spread ACROSS FOLDS, not across permutation repeats: it says whether a feature carried
+        # to every held-out well or only to one. A mean of 0.30 +/- 0.28 is a different finding
+        # from 0.30 +/- 0.02, and only the second one names a predictor.
+        imp_std = [float(v) for v in M.std(axis=0)] if M.shape[0] > 1 else [0.0] * len(fidx)
     rows.append({"algorithm": algo, "feat_idx": fidx, "score": score,
                  "score_std": float(np.std(fold_scores)), "metrics": metrics,
-                 "importances": imp, "confusion": conf, "labels": labs})
+                 "importances": imp, "importances_std": imp_std,
+                 "n_imp_folds": int(len(fold_imps)), "confusion": conf, "labels": labs})
 
 out = {"rows": rows, "n_groups": ng, "n_splits": int(nsplits),
        "cv": "blind-well GroupKFold" if use_group else "random KFold"}
@@ -1265,7 +1301,17 @@ pub struct MlEvalRow {
     pub score: Option<f64>,
     pub score_std: Option<f64>,
     pub metrics: serde_json::Value,
+    /// Permutation importance, measured on each fold's HELD-OUT rows by the model that fold fitted,
+    /// then averaged. It answers the same question `score` does — what carried to a well the model
+    /// had not seen — so the two can be read in one row.
     pub importances: Vec<f64>,
+    /// Spread of `importances` ACROSS FOLDS. A feature that matters in one well and nowhere else
+    /// has a large one, and is not a predictor however high its mean.
+    pub importances_std: Vec<f64>,
+    /// How many folds contributed an importance measurement. Below `n_splits`, some fold could not
+    /// be permuted (a single-class or single-sample held-out partition), and the mean is over fewer
+    /// wells than the score is.
+    pub n_imp_folds: usize,
     pub confusion: Option<Vec<Vec<i64>>>,
     pub labels: Option<Vec<i64>>,
     pub error: Option<String>,
@@ -1437,6 +1483,8 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                     score_std: r.score_std,
                     metrics: r.metrics,
                     importances: r.importances,
+                    importances_std: r.importances_std,
+                    n_imp_folds: r.n_imp_folds,
                     confusion: r.confusion,
                     labels: r.labels,
                     error: r.error,
@@ -1466,6 +1514,10 @@ struct PyEvalRow {
     metrics: serde_json::Value,
     #[serde(default)]
     importances: Vec<f64>,
+    #[serde(default)]
+    importances_std: Vec<f64>,
+    #[serde(default)]
+    n_imp_folds: usize,
     #[serde(default)]
     confusion: Option<Vec<Vec<i64>>>,
     #[serde(default)]
@@ -2170,5 +2222,97 @@ mod tests {
         let conf = row.confusion.as_ref().expect("confusion matrix");
         assert_eq!(conf.len(), 2);
         assert_eq!(row.labels.as_ref().unwrap(), &vec![0i64, 1]);
+    }
+
+    /// SB-MLA-028 / SB-MLA-T29. The spec asks for a direct structural assertion — that no transform
+    /// is fitted on data outside the fold's training partition — and deliberately does not assert a
+    /// magnitude, because the size of the leak is fixture-dependent while the pipeline order is not.
+    ///
+    /// Pinned from BOTH sides on purpose. Asserting only "a scaler is fitted per fold" would pass on
+    /// an implementation that ALSO standardized globally and then re-standardized inside the fold;
+    /// asserting only "nothing is fitted before the split" would pass on one that never standardized
+    /// at all. The two halves together admit one arrangement.
+    #[test]
+    fn no_transform_is_fitted_outside_the_folds_training_rows() {
+        let src = ML_EVAL_RUNNER;
+
+        // Side one: nothing is fitted before the split, and the split sees the RAW matrix.
+        assert!(
+            !src.contains("fit_transform"),
+            "a fit_transform survives in the leaderboard runner; a transform fitted over the whole \
+             matrix has seen the held-out well"
+        );
+        assert!(
+            src.contains("splitter.split(X, y, groups)") && src.contains("splitter.split(X, y)"),
+            "the splitter must partition the raw matrix - splitting a pre-transformed one is the \
+             leak with an extra step"
+        );
+
+        // Side two: the scaler that does exist is fitted on the fold's TRAINING rows, and does so
+        // after the folds are known.
+        let fit = src.find("StandardScaler().fit(X[tr])").expect(
+            "the per-fold scaler must be fitted on the fold's training rows, X[tr], and nothing else",
+        );
+        let split = src.find("splitter.split(").expect("splitter");
+        assert!(
+            fit > split,
+            "the scaler is fitted at byte {fit}, before the folds exist at byte {split}"
+        );
+
+        // And the importance is measured on the held-out rows, by the fold's own model - not on a
+        // second model refitted over everything, which is what this file did until 2026-08-07.
+        assert!(
+            src.contains("permutation_importance(m, Xte, yt[te]"),
+            "permutation importance must be measured on the held-out partition, so it answers the \
+             same question the blind score does"
+        );
+    }
+
+    /// The other half of SB-MLA-T29, and the one that needs the optional package. A fixture where
+    /// one well sits far from the other two is the case the leak flatters: pooled centring drags the
+    /// outlier toward the middle before the model is asked to be blind to it.
+    #[test]
+    fn a_shifted_well_is_standardized_by_the_wells_that_trained_on_it() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // Three wells on one line, y = 2x + 1, but well 2's feature range is a thousand-fold away.
+        // The relationship is identical, so a correctly-standardized blind fold still recovers it;
+        // what changes is which rows supplied the centring.
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        let mut g = Vec::new();
+        for well in 0..3 {
+            let scale = if well == 2 { 1000.0f32 } else { 1.0 };
+            for i in 0..40 {
+                let xv = (i as f32 * 0.5 + 1.0) * scale;
+                x.push(xv);
+                y.push(2.0 * xv + 1.0);
+                g.push(well as f32);
+            }
+        }
+        let combos = vec![("linear".to_string(), vec![0usize])];
+        let out = exec_ml_eval(&py, "regression", 1, y.len(), &x, &y, &g, &combos, true, 42, 3)
+            .expect("eval run failed");
+        assert_eq!(out.cv, "blind-well GroupKFold");
+        let row = &out.rows[0];
+        assert!(row.error.is_none(), "linear errored: {:?}", row.error);
+
+        // Every fold contributed an importance, which is only possible if importance is measured
+        // per fold. A single refit over everything could contribute exactly one.
+        assert_eq!(
+            row.n_imp_folds, out.n_splits,
+            "importance came from {} folds but the score came from {}",
+            row.n_imp_folds, out.n_splits
+        );
+        assert_eq!(row.importances.len(), 1);
+        assert_eq!(row.importances_std.len(), 1);
+        assert!(
+            row.importances[0].is_finite() && row.importances_std[0].is_finite(),
+            "importance {:?} +/- {:?}",
+            row.importances[0],
+            row.importances_std[0]
+        );
     }
 }

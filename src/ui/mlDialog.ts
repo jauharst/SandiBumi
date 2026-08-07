@@ -754,9 +754,40 @@ function renderResults(host: HTMLElement, res: MlResult): void {
   host.appendChild(wellsTable);
 }
 
+/**
+ * How many leading rows are statistically indistinguishable from the top one.
+ *
+ * A leaderboard sorted by score always has a first row, which is not the same as having a winner.
+ * Each score is a mean over folds and carries `score_std` across those folds, so two rows separated
+ * by less than their combined spread are one result reported twice. Crowning the first of them is
+ * SB-CORE-002 in a table: a degraded answer presented as a clean one.
+ *
+ * The test is deliberately the crude one — a gap smaller than the sum of the two spreads — rather
+ * than a paired t-test. Folds are wells, there are rarely more than a handful, and a test that
+ * needs assumptions the data cannot support would be a second false precision on top of the first.
+ * Returns 1 when the lead is real.
+ */
+function tiedAtTheTop(rows: MlEvalRow[]): number {
+  const ok = rows.filter((r) => !r.error && r.score != null);
+  if (ok.length < 2) return ok.length;
+  const lead = ok[0];
+  let n = 1;
+  for (let i = 1; i < ok.length; i++) {
+    const gap = (lead.score as number) - (ok[i].score as number);
+    const spread = (lead.score_std ?? 0) + (ok[i].score_std ?? 0);
+    if (gap > spread) break;
+    n++;
+  }
+  return n;
+}
+
 /** Leaderboard table (best first) + a details panel (permutation importance + confusion matrix)
- *  for the selected row. Backend already sorts rows by blind-well score descending. */
-function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean): void {
+ *  for the selected row. Backend already sorts rows by blind-well score descending.
+ *
+ *  Exported so it can be driven with synthetic rows over the vite dev server, which is this repo's
+ *  only route to exercising frontend logic — there is no TS test runner, and the tie rule and the
+ *  whisker geometry are both wrong in ways a screenshot shows and a type check does not. */
+export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean): void {
   host.innerHTML = "";
   if (res.error || !res.rows.length) return;
   const scoreLabel = isClf ? "Accuracy" : "R²";
@@ -776,6 +807,7 @@ function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean)
   detail.className = "ml-detail";
 
   const firstOkRow = res.rows.find((r) => !r.error) ?? null;
+  const tied = tiedAtTheTop(res.rows);
   res.rows.forEach((row, i) => {
     const tr = document.createElement("tr");
     const sec = isClf ? row.metrics?.["macro_f1"] : row.metrics?.["rmse"];
@@ -794,7 +826,9 @@ function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean)
       td.textContent = c;
       tr.appendChild(td);
     }
-    if (!row.error && i === 0) tr.classList.add("mc-best");
+    // Only mark a winner the fold spread can actually separate. Where it cannot, every row in the
+    // tie is marked instead of the first one, so the table stops answering a question it can't.
+    if (!row.error && i < tied) tr.classList.add(tied === 1 ? "mc-best" : "ml-lb-tied");
     if (!row.error) {
       tr.classList.add("ml-lb-row");
       if (row === firstOkRow) tr.classList.add("ml-sel");
@@ -808,6 +842,15 @@ function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean)
   });
 
   host.appendChild(table);
+  if (tied > 1) {
+    const note = document.createElement("div");
+    note.className = "mc-chain-note ml-tie-note";
+    note.textContent =
+      `Top ${tied} are within their own fold-to-fold spread — this run does not separate them. ` +
+      `Choose on grounds it can support: fewer curves, a cheaper model, or one whose ` +
+      `importances hold across wells.`;
+    host.appendChild(note);
+  }
   host.appendChild(detail);
   if (firstOkRow) renderEvalDetail(detail, firstOkRow, isClf);
 }
@@ -819,9 +862,27 @@ function renderEvalDetail(host: HTMLElement, row: MlEvalRow, isClf: boolean): vo
     title.className = "mc-chain-note";
     title.textContent = `Permutation importance — ${row.algorithm} (${row.features.join(", ")})`;
     host.appendChild(title);
-    const maxAbs = Math.max(1e-9, ...row.importances.map((v) => Math.abs(v)));
+
+    // Say where the number came from. Measured on held-out rows it answers the same question the
+    // blind score does; measured on fewer folds than the score, it answers it over fewer wells.
+    const prov = document.createElement("div");
+    prov.className = "ml-imp-prov";
+    prov.textContent =
+      row.n_imp_folds > 0
+        ? `Measured on held-out wells, ${row.n_imp_folds} fold${row.n_imp_folds === 1 ? "" : "s"}` +
+          ` — the same rows the score above is measured on. The bar is the mean; the whisker is` +
+          ` the spread between wells.`
+        : "No fold could be permuted, so no importance was measured.";
+    host.appendChild(prov);
+
+    // Scale to mean + spread so a whisker cannot run off the end of its own track.
+    const reach = row.features.map(
+      (_, i) => Math.abs(row.importances[i] ?? 0) + Math.abs(row.importances_std?.[i] ?? 0),
+    );
+    const maxAbs = Math.max(1e-9, ...reach);
     row.features.forEach((f, i) => {
       const v = row.importances[i] ?? 0;
+      const sd = row.importances_std?.[i] ?? Number.NaN;
       const line = document.createElement("div");
       line.className = "ml-imp-row";
       const name = document.createElement("span");
@@ -831,11 +892,30 @@ function renderEvalDetail(host: HTMLElement, row: MlEvalRow, isClf: boolean): vo
       barWrap.className = "ml-imp-bar-wrap";
       const bar = document.createElement("div");
       bar.className = "ml-imp-bar";
-      bar.style.width = `${(Math.max(0, v) / maxAbs) * 100}%`;
+      const pct = (x: number) => `${(Math.max(0, x) / maxAbs) * 100}%`;
+      bar.style.width = pct(v);
+      barWrap.appendChild(bar);
+      if (Number.isFinite(sd) && sd > 0) {
+        // A whisker that reaches back past zero is the whole point: this feature carried in some
+        // wells and not others, and its mean is not evidence of a predictor.
+        const wh = document.createElement("div");
+        wh.className = "ml-imp-whisker";
+        wh.style.left = pct(Math.max(0, v - sd));
+        wh.style.width = pct(Math.min(v, sd) + sd);
+        barWrap.appendChild(wh);
+      }
       const val = document.createElement("span");
       val.className = "ml-imp-val";
-      val.textContent = Number.isFinite(v) ? v.toFixed(4) : "—";
-      barWrap.appendChild(bar);
+      val.textContent = Number.isFinite(v)
+        ? Number.isFinite(sd)
+          ? `${v.toFixed(4)} ±${sd.toFixed(4)}`
+          : v.toFixed(4)
+        : "—";
+      // Inside its own spread of zero, a feature has not been shown to carry anything.
+      if (Number.isFinite(v) && Number.isFinite(sd) && v <= sd) {
+        line.classList.add("ml-imp-unclear");
+        line.title = "Mean is within its own spread across wells — not separated from no effect.";
+      }
       line.append(name, barWrap, val);
       host.appendChild(line);
     });

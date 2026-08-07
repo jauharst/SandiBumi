@@ -8616,3 +8616,32 @@ why `block` upscales by replacing values at the well's own depths.
       State the step and it proceeds.
 - [ ] `match_well` and `match_set` ignore the Align tick, because they are already aligned by
       construction — the frame is borrowed whole from one place.
+
+### ML: the blind-well score was not blind
+
+The leaderboard's headline number — the blind-well score, the one honest figure this product offers
+where three vendors offer none — was optimistic by construction. Two separate leaks, both fixed.
+
+- [ ] **The scaler had seen the held-out well.** `StandardScaler` was fitted over the whole pooled
+      matrix and the folds were cut afterwards, so on a three-well run the well being held out
+      contributed roughly a third of the centring it was supposed to be blind to. There is now one
+      scaler per fold, fitted on that fold's training rows and nothing else. Re-run a leaderboard
+      you have run before: **the scores will move, and downward is the correct direction.**
+- [ ] **Feature importance was measured on the training data.** A second model was fitted over
+      everything and permuted against everything — no split at all — and its result was printed in
+      the same table row as the blind score. Importance is now measured on each fold's held-out
+      rows by that fold's own model.
+- [ ] **Importance bars carry a whisker now**, the spread between wells. This is the one to look at
+      on real data: a feature can have the second-highest mean and a whisker reaching back to zero,
+      which means it carried in one well and nowhere else. That is not a predictor, and the old bare
+      bar said it was. Features whose mean sits inside their own spread are dimmed.
+- [ ] **The leaderboard no longer crowns a winner it cannot separate.** Where the top rows are
+      within their combined fold-to-fold spread, they are marked as a group and a line says the run
+      does not separate them, instead of bolding whichever sorted first. Check this against a run
+      where two algorithms are genuinely close — it should refuse to pick.
+- [ ] The tie test is a plain "gap wider than the summed spreads", not a t-test. Folds are wells and
+      there are rarely more than a handful, so a test needing assumptions the data cannot support
+      would be a second false precision on top of the first. Tell me if you want it stricter.
+- [ ] `docs/PRD_v2/24_ml-advanced.md` had recorded that this importance "is correctly cross-validated
+      at the group level". It never was. The document is corrected in place and says what it used to
+      claim, so the correction is auditable rather than quietly overwritten.

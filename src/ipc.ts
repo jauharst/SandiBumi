@@ -1236,7 +1236,18 @@ export interface MlEvalRow {
   score: number | null;
   score_std: number | null;
   metrics: Record<string, unknown>;
+  /**
+   * Permutation importance measured on each fold's HELD-OUT rows, then averaged — the same
+   * population `score` is measured on, so the two can be read in one row.
+   */
   importances: number[];
+  /**
+   * Spread of `importances` across folds. A feature that carried in one well and nowhere else has
+   * a large one, and is not a predictor however high its mean.
+   */
+  importances_std: number[];
+  /** Folds that contributed an importance. Below `n_splits`, some fold could not be permuted. */
+  n_imp_folds: number;
   confusion: number[][] | null;
   labels: number[] | null;
   error: string | null;
