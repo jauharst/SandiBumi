@@ -137,10 +137,12 @@ Those guards are weaker than they look:
 
 - **The note lives in the run result, not on the curve.** Close the pane and the warning is gone. The
   curve remains, named `PERM_SIM`, and `_SIM` means nothing to a reader who was not there.
-- **Nothing stops it entering a downstream fit.** `SIM_SUFFIX` appears 12 times in `ml.rs` and not
-  once as an exclusion. A `_SIM` curve can be ticked as an input feature to the next model, at which
-  point simulated detail is being learned from as though measured, and the provenance chain says
-  nothing about it. **This is the one I would fix first.**
+- ~~**Nothing stops it entering a downstream fit.**~~ **Fixed the same day this was written**, since
+  it was the first item on the list below and cheap. `refuse_simulated_inputs` refuses any fit whose
+  features or target end in `_SIM`, names them, and says which curve to use instead. It is a refusal
+  rather than a warning because there is nothing for the user to weigh, and it sits in `run_ml` above
+  the coverage branch so both routes into a fit are guarded rather than one. **The rest of this
+  section still stands.**
 - **It can be exported to LAS and handed to a client**, where the suffix is the only surviving
   warning.
 - **It looks better than the honest curve.** That is the whole problem. Given two logs, one smooth
@@ -261,8 +263,10 @@ about knowing whether the model is any good is thin.**
 
 1. **Extrapolation detection.** A per-sample distance to the training cloud, written as a companion
    curve. Nothing else in this list changes as many wrong numbers into visibly-uncertain ones.
-2. **Exclude `_SIM` curves from being model inputs**, and carry the "simulated" fact on the curve
-   rather than in a run note that disappears.
+2. ~~**Exclude `_SIM` curves from being model inputs**~~ — **done 2026-08-07**, see §5. What remains
+   of this one is the harder half: carry the "simulated" fact **on the curve**, not in a run note
+   that disappears when the pane closes. A LAS export hands a client `PERM_SIM` with the suffix as
+   its only surviving warning.
 3. **Move the runner into a real `.py` file** behind `include_str!`, and give it a Python test
    harness. Everything in §1 and §2 follows from that one change.
 

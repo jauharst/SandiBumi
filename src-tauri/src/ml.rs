@@ -2934,6 +2934,41 @@ pub struct CoverageSegment {
     pub skipped: Option<String>,
 }
 
+/// Refuses a fit that would LEARN FROM manufactured detail.
+///
+/// A `_SIM` curve carries a spectrally simulated high-frequency component: right in its statistics,
+/// arbitrary in its placement. Reading it back in as a feature or a target launders that into
+/// something a model treats as measurement, and the provenance chain records only that a curve named
+/// `X_SIM` was an input — which is true and tells the reader nothing about what happened.
+///
+/// This is the failure this whole two-curve design exists to prevent, and a naming convention alone
+/// does not prevent it: the checkbox list offers every curve in the well, and `PERM_SIM` sorts
+/// directly beside `PERM`. The refusal is here rather than only in the pane because the pane is one
+/// caller — a workflow chain or a future batch route would otherwise walk straight past it.
+///
+/// Deliberately a REFUSAL and not a warning. There is no defensible reason to fit against invented
+/// detail, so there is nothing for the user to weigh, and a warning would simply be clicked through.
+fn refuse_simulated_inputs(features: &[String], target: Option<&str>) -> Option<String> {
+    let is_sim = |c: &str| c.trim().to_uppercase().ends_with(SIM_SUFFIX);
+    let mut named: Vec<String> =
+        features.iter().filter(|c| is_sim(c)).map(|c| c.trim().to_uppercase()).collect();
+    if target.is_some_and(is_sim) {
+        named.push(target.unwrap_or_default().trim().to_uppercase());
+    }
+    if named.is_empty() {
+        return None;
+    }
+    named.sort();
+    named.dedup();
+    Some(format!(
+        "{} carries simulated detail, not measurement - it is a prediction with high-frequency \
+         content added to match a target's spectrum, correct in its statistics and arbitrary in its \
+         placement. A model fitted against it would learn that invented detail and report the usual \
+         scores for it. Use the plain curve (the same name without {SIM_SUFFIX}) instead.",
+        named.join(" and ")
+    ))
+}
+
 pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::jobs::JobHandle>) -> MlResult {
     let supervised = matches!(req.task.as_str(), "regression" | "classification");
     // Jauhar, 2026-08-07: *"model should still run even 1 curves only half depth coverage, (model
@@ -2942,6 +2977,11 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     // model, and threading a second set through the transform, the split, the fingerprint, the model
     // save and the provenance would leave five places where a segment could silently inherit
     // another's record.
+    // Checked BEFORE the coverage path branches away, or one of the two routes into a fit would not
+    // be guarded at all.
+    if let Some(refusal) = refuse_simulated_inputs(&req.feature_curves, req.target_curve.as_deref()) {
+        return fail(&refusal);
+    }
     if req.coverage_segments && supervised {
         return run_ml_coverage(db, req, progress);
     }
@@ -7041,6 +7081,40 @@ mod tests {
             ML_RUNNER_BODY.contains("smooth_band(np.abs(np.fft.rfft(centred)) ** 2, SPEC_SMOOTH)"),
             "the segment's spectrum must be smoothed, or the deficit is measured against noise"
         );
+    }
+
+    /// **A model may not be fitted against a curve carrying simulated detail.**
+    ///
+    /// This is the failure the two-curve design exists to prevent, and it is the one a naming
+    /// convention does NOT prevent on its own: the input list offers every curve in the well, and
+    /// `PERM_SIM` sorts directly beside `PERM`. Tick the wrong one and the model learns invented
+    /// high-frequency detail, reports the usual scores for it, and the provenance records only that
+    /// a curve named `PERM_SIM` was an input — true, and silent about what it means.
+    ///
+    /// Pinned from both sides. A refusal that also caught ordinary curves would be one people route
+    /// around, and `SIMPSON` or `MAX_SIM_1` must go through: the rule is a SUFFIX, not a substring.
+    #[test]
+    fn a_model_may_not_be_fitted_against_a_curve_carrying_simulated_detail() {
+        let sim = |v: &[&str], t: Option<&str>| {
+            refuse_simulated_inputs(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>(), t)
+        };
+
+        // As a feature, as a target, and named in the refusal so the user knows which to swap.
+        let f = sim(&["GR", "perm_sim"], None).expect("a simulated feature is refused");
+        assert!(f.contains("PERM_SIM"), "the refusal must name the offender: {f}");
+        assert!(f.contains("without _SIM"), "and must say what to use instead: {f}");
+        assert!(sim(&["GR"], Some("PHIE_SIM")).is_some(), "a simulated TARGET is refused too");
+
+        // Both offenders named, once each, rather than only the first.
+        let both = sim(&["A_SIM", "GR", "A_SIM", "B_SIM"], None).unwrap();
+        assert!(both.contains("A_SIM") && both.contains("B_SIM"), "{both}");
+        assert_eq!(both.matches("A_SIM").count(), 1, "deduped: {both}");
+
+        // The other side. A refusal that fired on ordinary curves would be routed around, and the
+        // rule is a suffix — a curve that merely CONTAINS the letters must run.
+        assert!(sim(&["GR", "RHOB", "NPHI"], Some("PERM")).is_none());
+        assert!(sim(&["SIMPSON", "MAX_SIM_1", "SIMILARITY"], Some("PERM")).is_none());
+        assert!(sim(&[], None).is_none());
     }
 
     #[test]
