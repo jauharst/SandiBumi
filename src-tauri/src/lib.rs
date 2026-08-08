@@ -385,6 +385,7 @@ async fn import_las_files(
     attach: Option<bool>,
     file_depth_unit: Option<String>,
     channel_nulls: Option<parsers::ChannelNullValues>,
+    null_rules: Option<Vec<parsers::NullExceptionRule>>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
     // Import-sets options (T-IMP-02): one set name per batch; attach-by-name defaults ON
     // when the frontend doesn't say otherwise (the dialog always sends it explicitly).
@@ -393,6 +394,7 @@ async fn import_las_files(
         attach: attach.unwrap_or(true),
         file_depth_unit,
         channel_nulls: channel_nulls.unwrap_or_default(),
+        null_rules: null_rules.unwrap_or_default(),
     };
     // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
     let items: Vec<(String, String)> = paths

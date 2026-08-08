@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-006: null exceptions are many-to-many
+
+- [ ] Load one null-exception entry carrying several channel-name patterns. Are all patterns
+      active? For an entry declared `NoNull`, does a genuine `-999.25` amplitude survive while
+      the same value on an unset channel is screened normally?
+
 ## 2026-08-09 — SB-DIO-005: null conventions are plural and per channel
 
 - [ ] Import a file with two channels whose declared null lists differ. Does each channel lose

@@ -135,7 +135,9 @@ export interface LasImportOptions {
   /** Explicit unit for files whose index has no usable declaration. Omit to refuse them. */
   fileDepthUnit?: "M" | "FT" | null;
   /** Resolved per-channel plural nulls. A named channel is screened only against its own list. */
-  channelNulls?: Record<string, number[]>;
+  channelNulls?: Record<string, number[] | "NoNull">;
+  /** One vendor exception entry may own many regex names and plural nulls, or explicit NoNull. */
+  nullRules?: Array<{ names: string[]; nulls: number[] | "NoNull" }>;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -145,6 +147,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     attach: opts?.attach ?? null,
     fileDepthUnit: opts?.fileDepthUnit ?? null,
     channelNulls: opts?.channelNulls ?? null,
+    nullRules: opts?.nullRules ?? null,
   });
 }
 

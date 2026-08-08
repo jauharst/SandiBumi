@@ -37,6 +37,9 @@ pub struct LasImportOptions {
     /// convention; a present mnemonic is screened only against its own plural list.
     #[serde(default)]
     pub channel_nulls: parsers::ChannelNullValues,
+    /// Many-to-many vendor exception rules, resolved against the file's actual channel names.
+    #[serde(default)]
+    pub null_rules: Vec<parsers::NullExceptionRule>,
 }
 
 /// Normalizes a user/derived set name to the store's convention: trimmed, upper-cased,
@@ -98,7 +101,11 @@ pub fn import_las_files_with(
         .map(|path| {
             let result = (|| {
                 let well_name = parsers::extract_well_name(path)?;
-                let columns = parsers::parse_las_2_with_channel_nulls(path, &opts.channel_nulls)?;
+                let columns = parsers::parse_las_2_with_null_rules(
+                    path,
+                    &opts.channel_nulls,
+                    &opts.null_rules,
+                )?;
                 Ok::<_, ParseError>((well_name, columns))
             })();
             (path.clone(), result)
@@ -351,6 +358,7 @@ fn insert_parsed_well(
                 &set,
                 confirmed_file_unit,
                 &opts.channel_nulls,
+                &opts.null_rules,
             ) {
                 eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
                 // stderr alone is invisible in a release build, so the import used to report a
@@ -389,6 +397,7 @@ fn attach_curves_to_existing_well(
         &set,
         opts.file_depth_unit.as_deref().and_then(crate::units::DepthUnit::parse),
         &opts.channel_nulls,
+        &opts.null_rules,
     ) {
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
         // and the frontend reports it separately. Only genuine notes (unit reconciliation,
@@ -429,6 +438,7 @@ pub fn import_all_curves_into_generic_store(
         set_name,
         confirmed_file_unit,
         &parsers::ChannelNullValues::new(),
+        &[],
     )
 }
 
@@ -439,8 +449,9 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
     set_name: &str,
     confirmed_file_unit: Option<crate::units::DepthUnit>,
     channel_nulls: &parsers::ChannelNullValues,
+    null_rules: &[parsers::NullExceptionRule],
 ) -> db::DbResult<(usize, usize)> {
-    let mut frame = match parsers::parse_las_2_all_with_channel_nulls(path, channel_nulls) {
+    let mut frame = match parsers::parse_las_2_all_with_null_rules(path, channel_nulls, null_rules) {
         Ok(f) => f,
         Err(e) => return Err(db::DbError::LengthMismatch(format!("parse_las_2_all: {e}"))),
     };

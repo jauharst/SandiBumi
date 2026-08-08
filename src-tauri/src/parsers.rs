@@ -145,11 +145,87 @@ fn is_null_value(v: f32, declared: Option<f32>) -> bool {
     is_las_null(v) || declared.is_some_and(|null| matches_null(v, null))
 }
 
-/// Resolved per-channel null conventions supplied by an import rule set. Keys are incoming
-/// channel mnemonics; every vector may carry more than one declared value. An absent key means
-/// the normal LAS file/global convention applies. Empty vectors are deliberately treated as
-/// unset here: the distinct `NoNull` state belongs to SB-DIO-006's rule shape.
-pub type ChannelNullValues = std::collections::HashMap<String, Vec<f64>>;
+/// The right-hand side of a null-exception rule: plural values, or the explicit statement
+/// that a channel has no absent-value convention. The untagged representation is either a
+/// JSON number array or the literal `"NoNull"`, matching the chapter's `[f64] | NoNull` shape.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChannelNullMode {
+    Values(Vec<f64>),
+    NoNull(NoNullMarker),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NoNullMarker {
+    NoNull,
+}
+
+/// The vendor-rule shape specified by SB-DIO-006. One entry owns every regex in `names`;
+/// flattening this into one-name rules would recreate the Weatherford six-name loss.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NullExceptionRule {
+    pub names: Vec<String>,
+    pub nulls: ChannelNullMode,
+}
+
+/// Resolved per-channel null conventions supplied by an import rule set. An absent key means
+/// the normal LAS file/global convention applies.
+pub type ChannelNullValues = std::collections::HashMap<String, ChannelNullMode>;
+
+pub fn resolve_null_exception_rules(
+    channel_names: &[String],
+    rules: &[NullExceptionRule],
+) -> Result<ChannelNullValues, String> {
+    let mut resolved = ChannelNullValues::new();
+    for (rule_index, rule) in rules.iter().enumerate() {
+        if rule.names.is_empty() {
+            return Err(format!("null-exception rule {} has no name patterns", rule_index + 1));
+        }
+        if matches!(&rule.nulls, ChannelNullMode::Values(values) if values.is_empty()) {
+            return Err(format!(
+                "null-exception rule {} has an empty value list; use NoNull when the channel has no null convention",
+                rule_index + 1
+            ));
+        }
+        let patterns: Vec<regex::Regex> = rule
+            .names
+            .iter()
+            .map(|pattern| {
+                regex::RegexBuilder::new(pattern)
+                    .case_insensitive(true)
+                    .build()
+                    .map_err(|e| format!("null-exception rule {} pattern '{pattern}' is invalid: {e}", rule_index + 1))
+            })
+            .collect::<Result<_, _>>()?;
+        for channel in channel_names {
+            if patterns.iter().any(|pattern| pattern.is_match(channel)) {
+                if resolved.insert(channel.clone(), rule.nulls.clone()).is_some() {
+                    return Err(format!(
+                        "channel '{channel}' matches more than one null-exception rule"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(resolved)
+}
+
+fn merge_null_configuration(
+    explicit: &ChannelNullValues,
+    channel_names: &[String],
+    rules: &[NullExceptionRule],
+) -> Result<ChannelNullValues, String> {
+    let mut resolved = explicit.clone();
+    for (channel, mode) in resolve_null_exception_rules(channel_names, rules)? {
+        if resolved.keys().any(|key| key.eq_ignore_ascii_case(&channel)) {
+            return Err(format!(
+                "channel '{channel}' has both an explicit null list and a matching null-exception rule"
+            ));
+        }
+        resolved.insert(channel, mode);
+    }
+    Ok(resolved)
+}
 
 fn is_null_value_for_channel(
     v: f32,
@@ -160,12 +236,15 @@ fn is_null_value_for_channel(
     let configured = channel.and_then(|name| {
         channel_nulls
             .get(name)
-            .or_else(|| channel_nulls.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, values)| values))
-            .filter(|values| !values.is_empty())
+            .or_else(|| channel_nulls.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, mode)| mode))
     });
     match configured {
-        Some(values) => values.iter().any(|null| matches_null(v, *null as f32)),
+        Some(ChannelNullMode::Values(values)) if !values.is_empty() => {
+            values.iter().any(|null| matches_null(v, *null as f32))
+        }
+        Some(ChannelNullMode::NoNull(_)) => false,
         None => is_null_value(v, declared),
+        Some(ChannelNullMode::Values(_)) => is_null_value(v, declared),
     }
 }
 
@@ -234,6 +313,14 @@ pub fn parse_las_2_with_channel_nulls<P: AsRef<Path>>(
     path: P,
     channel_nulls: &ChannelNullValues,
 ) -> ParseResult<CurveColumns> {
+    parse_las_2_with_null_rules(path, channel_nulls, &[])
+}
+
+pub fn parse_las_2_with_null_rules<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+    null_rules: &[NullExceptionRule],
+) -> ParseResult<CurveColumns> {
     let source = path.as_ref().display().to_string();
     let text = read_text_file(path.as_ref())?;
 
@@ -261,6 +348,7 @@ pub fn parse_las_2_with_channel_nulls<P: AsRef<Path>>(
     let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
     let mut wrapped = false;
+    let mut resolved_channel_nulls = channel_nulls.clone();
 
     for (line_index, line) in text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -315,6 +403,12 @@ pub fn parse_las_2_with_channel_nulls<P: AsRef<Path>>(
                     continue;
                 }
                 if !indices_resolved {
+                    resolved_channel_nulls = merge_null_configuration(
+                        channel_nulls,
+                        &curve_names,
+                        null_rules,
+                    )
+                    .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
                     // Fall back to column 0 (the LAS index column) when no mnemonic matches,
                     // matching parse_las_2_all — a TDEP/MD/other-indexed file must not produce
                     // an all-NaN depth column.
@@ -361,7 +455,7 @@ pub fn parse_las_2_with_channel_nulls<P: AsRef<Path>>(
                         idx.and_then(|i| row.get(i).copied())
                             .map(|v| {
                                 let channel = idx.and_then(|i| curve_names.get(i)).map(String::as_str);
-                                if is_null_value_for_channel(v, declared_null, channel, channel_nulls) {
+                                if is_null_value_for_channel(v, declared_null, channel, &resolved_channel_nulls) {
                                     f32::NAN
                                 } else {
                                     v
@@ -558,6 +652,14 @@ pub fn parse_las_2_all_with_channel_nulls<P: AsRef<Path>>(
     path: P,
     channel_nulls: &ChannelNullValues,
 ) -> ParseResult<LasFrame> {
+    parse_las_2_all_with_null_rules(path, channel_nulls, &[])
+}
+
+pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+    null_rules: &[NullExceptionRule],
+) -> ParseResult<LasFrame> {
     let source = path.as_ref().display().to_string();
     let text = read_text_file(path.as_ref())?;
 
@@ -572,6 +674,7 @@ pub fn parse_las_2_all_with_channel_nulls<P: AsRef<Path>>(
     let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
     let mut wrapped = false;
+    let mut resolved_channel_nulls = channel_nulls.clone();
 
     for (line_index, line) in text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -625,6 +728,12 @@ pub fn parse_las_2_all_with_channel_nulls<P: AsRef<Path>>(
                     continue;
                 }
                 if !indices_resolved {
+                    resolved_channel_nulls = merge_null_configuration(
+                        channel_nulls,
+                        &curve_names,
+                        null_rules,
+                    )
+                    .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
                     idx_depth = resolve_curve_index(&curve_names, &DEPTH_ALIASES).or(Some(0));
                     columns = vec![Vec::new(); curve_names.len()];
                     indices_resolved = true;
@@ -656,7 +765,7 @@ pub fn parse_las_2_all_with_channel_nulls<P: AsRef<Path>>(
                             *raw,
                             declared_null,
                             channel,
-                            channel_nulls,
+                            &resolved_channel_nulls,
                         ) {
                             f32::NAN
                         } else {
@@ -2531,8 +2640,8 @@ mod las_depth_tests {
                     1000.0 -999 -999\n1000.5 -999.25 -999.25\n1001.0 -32767 -32767\n";
         let path = temp("sandibumi_per_channel_plural_nulls.las", body);
         let channel_nulls = ChannelNullValues::from([
-            ("A".into(), vec![-999.0, -999.25]),
-            ("B".into(), vec![-32767.0]),
+            ("A".into(), ChannelNullMode::Values(vec![-999.0, -999.25])),
+            ("B".into(), ChannelNullMode::Values(vec![-32767.0])),
         ]);
         let frame = parse_las_2_all_with_channel_nulls(&path, &channel_nulls).unwrap();
         std::fs::remove_file(&path).ok();
@@ -2544,6 +2653,42 @@ mod las_depth_tests {
         assert_eq!(b[0], -999.0, "A's first null remains a real value on B");
         assert_eq!(b[1], -999.25, "A's second and the LAS-global null remain real on overridden B");
         assert!(b[2].is_nan(), "B's own null is screened");
+    }
+
+    /// SB-DIO-006 / SB-DIO-T10. The six-name Weatherford CXD shape and its explicit
+    /// no-null declaration are cited in `docs/PRD_v2/21_data-io.md` §5.2.
+    #[test]
+    fn one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset() {
+        let names: Vec<String> = ["WF1I", "WF2I", "WF3T", "WF4T", "WF5R", "WF6R"]
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+        let rule = NullExceptionRule {
+            names: names.iter().map(|name| format!("^{name}$")).collect(),
+            nulls: ChannelNullMode::NoNull(NoNullMarker::NoNull),
+        };
+        let mut channels = names.clone();
+        channels.push("OTHER".into());
+        let resolved = resolve_null_exception_rules(&channels, &[rule.clone()]).unwrap();
+        assert_eq!(resolved.len(), 6, "none of the six patterns may be dropped");
+        assert!(names.iter().all(|name| matches!(
+            resolved.get(name),
+            Some(ChannelNullMode::NoNull(NoNullMarker::NoNull))
+        )));
+        assert!(!resolved.contains_key("OTHER"));
+
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. NO-NULL :\n\
+                    ~CURVE\nDEPT.M :\nWF1I.UNIT :\n~ASCII\n1000.0 -999.25\n";
+        let path = temp("sandibumi_many_to_many_no_null.las", body);
+        let screened = parse_las_2_all(&path).unwrap();
+        assert!(screened.curves[0].values[0].is_nan(), "unset uses normal LAS screening");
+        let excepted = parse_las_2_all_with_null_rules(&path, &ChannelNullValues::new(), &[rule]).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(
+            excepted.curves[0].values[0],
+            -999.25,
+            "NoNull is explicit and preserves the genuine amplitude"
+        );
     }
 
     #[test]
