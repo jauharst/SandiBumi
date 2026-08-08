@@ -144,6 +144,8 @@ Consolidated from every part of this PRD so they sit in one place. Each names wh
 | Positioning is a **commercial product**, not an internal tool | 2026-08-06 | `01_PRODUCT.md` §8 |
 | The compute DAG and content-hash cache is **parked** | 2026-07-29 | `SB-CORE-033` |
 | QC fixes go serially in the main working tree — no branches, no worktree isolation | earlier | project convention |
+| PRD v1's three written-but-unmerged follow-ons — `V1_SCOPE.md`, `RELEASE.md`, `TARGET_ARCHITECTURE.md` (branch `docs/prd-and-security-hardening`, commit `18da8b0`) — are **discarded as superseded by PRD v2**, not absorbed. §0.1's "none of the four was ever written" holds for `master` only: they exist on that branch, predate PRD v2, and are deliberately not merged. Gate item 7 therefore stays **fully open** — no architecture document exists in the tree | 2026-08-08 | this table |
+| The **Kimi K3 delegation tier is dropped** (branch `claude/kimi-k3-sandibumi-subagents-7grc3b`, commit `82e56c9` — `docs/delegation_kimi.md`, `tools/kimi.ps1`, a `CLAUDE.md` delegation block). Unmerged and not to be merged; the ladder stays as `CLAUDE.md` describes it | 2026-08-08 | this table |
 
 ---
 

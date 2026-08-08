@@ -825,6 +825,34 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
   their own.** The family is non-monotone below ~11% porosity and that is the paper's own
   arithmetic, not something to correct.
 
+### `docs/record_parallel_lanes.md` — running a second agent beside Claude Code
+
+Worktree lanes, proven 2026-08-08 on the seven remaining PRD v2 chapters (7,355 lines, one PR,
+nothing touched outside the agreed list). Read it before pointing any second assistant at this repo.
+
+- **A lane is a folder, a branch and ONE agent**, and the agent sees only that folder — a boundary
+  the tool cannot cross beats one it is asked to respect. Never add the main tree as a second
+  source folder, and never put two jobs on one branch.
+- **Tracked files travel through git; untracked files must be copied per worktree.** The cross-tool
+  corpus is the only exception and it is a `cp -r` into every DOCS lane. **A lane must never
+  `git add` it** — committing is not cleanly reversible, and an agent seeing 36 uncommitted files
+  will offer to tidy them.
+- **Ownership is stated as two explicit PATH lists**, may-edit and may-not, plus *stay on this
+  branch*: the folder boundary stops another directory, never another branch. `REVIEW.md` is the
+  standing conflict magnet — while a lane is open, only that lane writes it.
+- **A lane never edits the spine; it logs to `_SPINE_PENDING.md`** with the source's `file:line` and
+  which direction was wrong. Across batch 2 the spine was stale 4 times and the chapter wrong 2 —
+  and two agents amending one cross-cutting file merge cleanly into a contradiction.
+- **A spine-touching lane does not push — that keystroke is Jauhar's.** Always
+  `git push -u origin <branch>` in full: a worktree cut from `origin/master` tracks `origin/master`.
+- **A lane implements a specification that already carries its citations; it never derives one.**
+  Its correct output where it cannot source something is a NAMED GAP, and **every `CONTRACT.md`
+  §2.2 C-1 (patent-claimed) call is a draft opinion** for the lawyer, never a basis for code.
+- **One lane runs the app** (`strictPort` 1420), a docs lane costs nothing, a code lane costs its
+  own `target/` — so prove `tools\check.ps1` passes in a fresh worktree (`SB-CORE-041`) before
+  opening code lanes. **The real ceiling is the human**, not tokens: every lane returns a PR to read
+  and a `REVIEW.md` entry to field-verify.
+
 ## Refusing a click that needs a well (2026-07-31)
 
 `src/ui/needWell.ts` `requireWell(action)` is the ONE refusal for an action that works on the
@@ -1172,7 +1200,7 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 - `src-tauri/` — Rust backend: DuckDB access, parsers, IPC commands, petrophysics engine.
 - `src/` — TypeScript frontend: WebGPU log canvas renderer, Tauri IPC calls.
 - `src-tauri/icons/` — app icon set + brand assets: `logo.png` (master), `logo-mark.svg`/`logo-mark.png` (square monogram), `logo-full.svg`/`logo-full.png` (full lockup). Frontend favicon/ribbon assets in `public/`.
-- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction), the six `record_*.md` build records indexed under **The build record** above (what each increment settled and why — read the one covering the code you are changing), plus five reusable prompts, boundaries kept sharp (the table in `stewardship_prompt.md` is authoritative): `maintenance_scaling_prompt.md` (one increment — expand / debug / maintain), `engineering_review_prompt.md` (whole-app behaviour sweeps F1–F5), `qc_audit_prompt_template.md` (one tool end-to-end), `stewardship_prompt.md` (whole-repo structure + onboarding), `product_definition_prompt.md` (what the product IS — PRD, target architecture, v1.0 gate; licensed-product posture). Portable knowledge lives here, not in machine-local memory. Separate family, not in that table: the one-shot vendor-intelligence prompts (`sandibumi_maturation_prompt.md`, `techlog_ingest_prompt.md`, `sonar_ingest_adopt_prompt.md`). **`docs/FUTURE_PLAN.md` (2026-07-31) is the cross-product strategic layer above `ROADMAP.md`** — competitive scan vs Geolog/Techlog/IP, the three positioning axes, credibility floor, OSDU, and the tier sequencing across SandiBumi *and* SegaraBumi (`D:\XX. SegaraBumi`, P6 gate closed, its own PRD/ARCHITECTURE/SEGARA-CONTRACT). **`docs/plan_image_analysis.md` (2026-07-31) is the phase plan for core depth registration + plate digitizing** (ROADMAP C2 item 8) — read it before touching `images.rs`, `shift_core_depths` or anything that pairs a core sample with a log depth; its §4 lists the four decisions still open, of which only D1 (does he receive core gamma?) blocks the first increment.
+- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction), the seven `record_*.md` build records indexed under **The build record** above (what each increment settled and why — read the one covering the code you are changing), plus five reusable prompts, boundaries kept sharp (the table in `stewardship_prompt.md` is authoritative): `maintenance_scaling_prompt.md` (one increment — expand / debug / maintain), `engineering_review_prompt.md` (whole-app behaviour sweeps F1–F5), `qc_audit_prompt_template.md` (one tool end-to-end), `stewardship_prompt.md` (whole-repo structure + onboarding), `product_definition_prompt.md` (what the product IS — PRD, target architecture, v1.0 gate; licensed-product posture). Portable knowledge lives here, not in machine-local memory. Separate family, not in that table: the one-shot vendor-intelligence prompts (`sandibumi_maturation_prompt.md`, `techlog_ingest_prompt.md`, `sonar_ingest_adopt_prompt.md`). **`docs/FUTURE_PLAN.md` (2026-07-31) is the cross-product strategic layer above `ROADMAP.md`** — competitive scan vs Geolog/Techlog/IP, the three positioning axes, credibility floor, OSDU, and the tier sequencing across SandiBumi *and* SegaraBumi (`D:\XX. SegaraBumi`, P6 gate closed, its own PRD/ARCHITECTURE/SEGARA-CONTRACT). **`docs/plan_image_analysis.md` (2026-07-31) is the phase plan for core depth registration + plate digitizing** (ROADMAP C2 item 8) — read it before touching `images.rs`, `shift_core_depths` or anything that pairs a core sample with a log depth; its §4 lists the four decisions still open, of which only D1 (does he receive core gamma?) blocks the first increment.
 - `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
 - `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). Listed in `.gitignore`, but the PDF was **committed before that rule was added and is still tracked** — a gitignore entry never untracks a file that is already in. It DOES exist on a fresh clone. Untracking it is an open decision (provenance sweep 2026-07-31, finding 3).
 
