@@ -1401,6 +1401,10 @@ the dossier could not know about.
 9. **`BK_CONSTANTS` as shipping defaults** until the 1977 paper is held (ESC-POR-8). This is the one
    place this chapter deliberately diverges from the dossier's adoption spec.
 
+### 7.4 Independent-derivation requirements
+
+No Tier-C item falls in this domain.
+
 ---
 
 ## 8. Traceability — dossier disposition
