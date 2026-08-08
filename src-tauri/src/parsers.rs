@@ -1019,6 +1019,7 @@ pub struct CoreColumns {
     pub cperm: Vec<f32>,
     pub cgd: Vec<f32>,
     pub csw: Vec<f32>,
+    pub index_resolution: Option<IndexResolution>,
 }
 
 // Source: `docs/PRD_v2/21_data-io.md` §5.3, core-table path. Unlike LAS, a
@@ -1066,19 +1067,34 @@ fn percent_to_fraction(vals: &mut [f32]) {
 /// don't line up with the log's standard depth grid are expected and fine: core data is
 /// stored and fetched independently, not aligned onto `standard_curves`.
 pub fn parse_core_csv<P: AsRef<Path>>(path: P) -> ParseResult<CoreColumns> {
+    parse_core_csv_with_depth_column(path, None)
+}
+
+pub fn parse_core_csv_with_depth_column<P: AsRef<Path>>(
+    path: P,
+    designated_depth_column: Option<usize>,
+) -> ParseResult<CoreColumns> {
     let text = read_text_file(path)?;
     let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(text.as_bytes());
 
     let headers: Vec<String> =
         rdr.headers()?.iter().map(|h| h.trim().to_uppercase()).collect();
-    let idx_depth = resolve_header_index(&headers, &CORE_DEPTH_ALIASES)
-        .ok_or_else(|| ParseError::Las("core CSV has no recognizable DEPTH column".into()))?;
+    let index_resolution = resolve_index_column(
+        &headers,
+        None,
+        &CORE_DEPTH_ALIASES,
+        None,
+        designated_depth_column,
+    )
+    .map_err(|error| ParseError::Las(format!("core CSV: {error}")))?;
+    let idx_depth = index_resolution.column;
     let idx_cpor = resolve_header_index(&headers, &CORE_CPOR_ALIASES);
     let idx_cperm = resolve_header_index(&headers, &CORE_CPERM_ALIASES);
     let idx_cgd = resolve_header_index(&headers, &CORE_CGD_ALIASES);
     let idx_csw = resolve_header_index(&headers, &CORE_CSW_ALIASES);
 
     let mut cols = CoreColumns::default();
+    cols.index_resolution = Some(index_resolution);
     for result in rdr.records() {
         let record = result?;
         let get = |idx: Option<usize>| -> f32 {

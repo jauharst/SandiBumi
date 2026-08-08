@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-013: unknown table indexes are designated
+
+- [ ] Open a delimited/core table whose depth column has an unfamiliar header. Does it refuse to
+      pick column 0, commit nothing, and require you to mark the index? After designation, does the
+      result record the selected column and `user_designation` mechanism?
+
 ## 2026-08-09 — SB-DIO-012: descending indexes require a decision
 
 - [ ] Import a LAS whose index first decreases late in the file. Is the import blocked before any

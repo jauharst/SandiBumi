@@ -421,12 +421,13 @@ async fn import_core_csv(
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     well_id: String,
     path: String,
+    depth_column: Option<usize>,
 ) -> Result<ingest::CoreImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import core", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_core_csv(&c, &well_id, &path))
+        Ok(ingest::import_core_csv_with_depth_column(&c, &well_id, &path, depth_column))
     })
     .await
 }

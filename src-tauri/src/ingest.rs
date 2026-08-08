@@ -594,15 +594,15 @@ pub fn import_deviation_csv(
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
         .unwrap_or(false);
     if !exists {
-        return CoreImportResult { path: path.to_string(), rows: 0, error: Some(format!("unknown well '{well_id}'")) };
+        return CoreImportResult { path: path.to_string(), rows: 0, error: Some(format!("unknown well '{well_id}'")), index_resolution: None };
     }
 
     let survey = match parsers::parse_deviation_csv(path) {
         Ok(s) => s,
-        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None },
     };
     if survey.md.is_empty() {
-        return CoreImportResult { path: path.to_string(), rows: 0, error: Some("no survey stations found".into()) };
+        return CoreImportResult { path: path.to_string(), rows: 0, error: Some("no survey stations found".into()), index_resolution: None };
     }
 
     let datum = datum_elevation.unwrap_or_else(|| {
@@ -619,7 +619,7 @@ pub fn import_deviation_csv(
         .unwrap_or_else(|| "SURVEY".to_string());
     let name = match db::resolve_survey_name(conn, well_id, &desired) {
         Ok(n) => n,
-        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None },
     };
     match db::insert_well_path(conn, well_id, &name, Some(path), Some(datum), &stations) {
         Ok(()) => {
@@ -628,9 +628,9 @@ pub fn import_deviation_csv(
             // survey itself is already saved; a well with no logs yet is a no-op (0 samples)
             // and the user can recompute via `materialize_tvd` after importing logs.
             let _ = materialize_tvd_curves(conn, well_id);
-            CoreImportResult { path: path.to_string(), rows, error: None }
+            CoreImportResult { path: path.to_string(), rows, error: None, index_resolution: None }
         }
-        Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+        Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None },
     }
 }
 
@@ -695,6 +695,7 @@ pub struct CoreImportResult {
     pub path: String,
     pub rows: usize,
     pub error: Option<String>,
+    pub index_resolution: Option<parsers::IndexResolution>,
 }
 
 /// Parses a routine-core-analysis CSV into a NEW core set on the given well (legacy
@@ -702,21 +703,31 @@ pub struct CoreImportResult {
 /// named CORE, auto-suffixed if that name is taken — an import never overwrites an earlier
 /// delivery. Unlike LAS import, this attaches to an existing well rather than creating one.
 pub fn import_core_csv(conn: &Connection, well_id: &str, path: &str) -> CoreImportResult {
+    import_core_csv_with_depth_column(conn, well_id, path, None)
+}
+
+pub fn import_core_csv_with_depth_column(
+    conn: &Connection,
+    well_id: &str,
+    path: &str,
+    designated_depth_column: Option<usize>,
+) -> CoreImportResult {
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
         .unwrap_or(false);
     if !exists {
-        return CoreImportResult { path: path.to_string(), rows: 0, error: Some(format!("unknown well '{well_id}'")) };
+        return CoreImportResult { path: path.to_string(), rows: 0, error: Some(format!("unknown well '{well_id}'")), index_resolution: None };
     }
 
-    let columns = match parsers::parse_core_csv(path) {
+    let columns = match parsers::parse_core_csv_with_depth_column(path, designated_depth_column) {
         Ok(c) => c,
-        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None },
     };
     let rows = columns.depth.len();
+    let index_resolution = columns.index_resolution.clone();
     let set = match db::resolve_core_set_name(conn, well_id, "CORE") {
         Ok(s) => s,
-        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution },
     };
     match db::insert_core_data(
         conn,
@@ -729,8 +740,8 @@ pub fn import_core_csv(conn: &Connection, well_id: &str, path: &str) -> CoreImpo
         &columns.cgd,
         &columns.csw,
     ) {
-        Ok(()) => CoreImportResult { path: path.to_string(), rows, error: None },
-        Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+        Ok(()) => CoreImportResult { path: path.to_string(), rows, error: None, index_resolution },
+        Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution },
     }
 }
 
@@ -2011,6 +2022,49 @@ mod tests {
             accepted.warning.as_deref().is_some_and(|warning| warning.contains("data row 400")),
             "the accepted conflict remains in the audit result: {:?}",
             accepted.warning
+        );
+    }
+
+    /// SB-DIO-013 / SB-DIO-T19. Techlog's mandatory reference designation for
+    /// a table with no structural or name resolution is cited in chapter §5.3.
+    #[test]
+    fn a_delimited_table_without_an_index_name_commits_nothing_until_the_user_designates_one() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "DESIGNATE", None, None, None).unwrap();
+        let well_id = well.to_string();
+        let path = std::env::temp_dir().join("sandibumi_designated_core_index.csv");
+        std::fs::write(&path, "SAMPLE,CPOR\n1000.0,18.0\n1000.5,19.0\n").unwrap();
+
+        let blocked = import_core_csv(&conn, &well_id, path.to_str().unwrap());
+        assert!(
+            blocked.error.as_deref().is_some_and(|error| {
+                error.contains("user designation is required")
+            }),
+            "no positional column may be guessed: {:?}",
+            blocked.error
+        );
+        let before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM core_data WHERE well_id = ?1", params![well_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(before, 0, "the undecided table commits no rows");
+
+        let imported = import_core_csv_with_depth_column(
+            &conn,
+            &well_id,
+            path.to_str().unwrap(),
+            Some(0),
+        );
+        std::fs::remove_file(&path).ok();
+        assert!(imported.error.is_none(), "the explicit designation imports: {:?}", imported.error);
+        assert_eq!(imported.rows, 2);
+        let resolution = imported.index_resolution.expect("the designation is recorded");
+        assert_eq!(resolution.column, 0);
+        assert_eq!(resolution.mnemonic, "SAMPLE");
+        assert_eq!(
+            resolution.mechanism,
+            parsers::IndexResolutionMechanism::UserDesignation
         );
     }
 

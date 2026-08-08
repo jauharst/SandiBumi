@@ -2483,12 +2483,13 @@ export interface CoreImportResult {
   path: string;
   rows: number;
   error: string | null;
+  index_resolution: ImportResult["index_resolution"];
 }
 
 /** Parses a core CSV (alias-resolved headers: DEPTH, CPOR/POR, CPERM/PERM, CGD, CSW)
  *  and replaces the given well's core plug data. */
-export function importCoreCsv(wellId: string, path: string): Promise<CoreImportResult> {
-  return invoke<CoreImportResult>("import_core_csv", { wellId, path });
+export function importCoreCsv(wellId: string, path: string, depthColumn?: number | null): Promise<CoreImportResult> {
+  return invoke<CoreImportResult>("import_core_csv", { wellId, path, depthColumn: depthColumn ?? null });
 }
 
 // --- Core import v2 (T-IMP-07): probe → confirm mapping → commit -------------
