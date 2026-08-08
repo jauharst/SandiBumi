@@ -146,60 +146,17 @@ fn local_thickness(depth: &[f32]) -> Vec<f64> {
     h
 }
 
-/// Exact contiguous K-segmentation dp of `vals` (kept in the given order) minimizing total
-/// within-segment sum of squares. Returns (`sse_by_k`, `arg`) where `sse_by_k[j]` is the optimal
-/// total SSE using j segments (index 0 unused) and `arg` is the backtracking table. O(kmax·m²).
-fn segment_dp(vals: &[f64], kmax: usize) -> (Vec<f64>, Vec<Vec<usize>>) {
-    let m = vals.len();
-    let k = kmax.clamp(1, m.max(1));
-    // Prefix sums for O(1) segment SS: cost[a,b) = Σx² − (Σx)²/(b−a).
-    let mut ps = vec![0.0f64; m + 1];
-    let mut ps2 = vec![0.0f64; m + 1];
-    for i in 0..m {
-        ps[i + 1] = ps[i] + vals[i];
-        ps2[i + 1] = ps2[i] + vals[i] * vals[i];
-    }
-    let cost = |a: usize, b: usize| -> f64 {
-        let cnt = (b - a) as f64;
-        if cnt <= 0.0 {
-            return 0.0;
-        }
-        let s = ps[b] - ps[a];
-        (ps2[b] - ps2[a] - s * s / cnt).max(0.0)
-    };
-    let inf = f64::INFINITY;
-    // dp[j][i] = min WCSS of the first i elements split into j contiguous segments.
-    let mut dp = vec![vec![inf; m + 1]; k + 1];
-    let mut arg = vec![vec![0usize; m + 1]; k + 1];
-    dp[0][0] = 0.0;
-    for j in 1..=k {
-        for i in j..=m {
-            for t in (j - 1)..i {
-                let c = dp[j - 1][t] + cost(t, i);
-                if c < dp[j][i] {
-                    dp[j][i] = c;
-                    arg[j][i] = t;
-                }
-            }
-        }
-    }
-    let sse_by_k: Vec<f64> = (0..=k).map(|j| dp[j][m]).collect();
-    (sse_by_k, arg)
+/// The Ward criterion over the **depth-ordered** slope profile — one implementation, shared with
+/// `hfu.rs` (`SB-MLA-025`). This used to be a local copy of the same dynamic program; depth
+/// ordering is what makes a segment a flow UNIT here rather than a rock type.
+///
+/// Returns (`sse_by_k`, dp) so the caller can pick k from the elbow before backtracking.
+fn segment_dp(vals: &[f64], kmax: usize) -> (Vec<f64>, crate::distribution::WardDp) {
+    let dp = crate::distribution::WardDp::new(vals, kmax, crate::distribution::WardOrder::Depth);
+    (dp.sse_by_k().to_vec(), dp)
 }
 
 /// Backtrack the segment id (0-based, ascending position) of each element for a K-segmentation.
-fn backtrack(arg: &[Vec<usize>], k: usize, m: usize) -> Vec<usize> {
-    let mut assign = vec![0usize; m];
-    let mut i = m;
-    for j in (1..=k).rev() {
-        let t = arg[j][i];
-        for a in assign.iter_mut().take(i).skip(t) {
-            *a = j - 1;
-        }
-        i = t;
-    }
-    assign
-}
 
 /// Lorenz heterogeneity coefficient from flow/storage pairs: sort by descending k/φ, accumulate
 /// normalized (Σφh, Σkh) into a convex curve, and return 2·(area under it − ½), clamped to [0,1].
@@ -270,7 +227,7 @@ pub fn compute_lorenz(depth: &[f32], phi: &[f32], perm: &[f32], n_units: u32) ->
 
     // Flow-unit segmentation on the depth-ordered log10(k/φ) profile.
     let kmax = if n_units == 0 { AUTO_K_MAX.min(m) } else { (n_units as usize).min(m) };
-    let (sse_by_k, arg) = segment_dp(&m_slope, kmax);
+    let (sse_by_k, dp) = segment_dp(&m_slope, kmax);
     let total_sse = sse_by_k.get(1).copied().unwrap_or(0.0);
     let eff_k = if n_units >= 1 {
         (n_units as usize).min(m)
@@ -288,7 +245,7 @@ pub fn compute_lorenz(depth: &[f32], phi: &[f32], perm: &[f32], n_units: u32) ->
         }
         kk
     };
-    let assign = backtrack(&arg, eff_k, m);
+    let assign = dp.assign(eff_k);
 
     // Cumulative curve + per-sample slope, in depth order.
     let scale = total_phih / total_kh; // normalizes local slope so the 45° line is slope 1
@@ -592,12 +549,12 @@ mod tests {
     #[test]
     fn segment_dp_matches_known_best_split() {
         // Values 3,3,1,1,2,2: the best 2-split is {3,3}{1,1,2,2} (SSE 0+2 = 2), not {3,3,1,1}{2,2}.
-        let (sse, arg) = segment_dp(&[3.0, 3.0, 1.0, 1.0, 2.0, 2.0], 3);
-        let a2 = backtrack(&arg, 2, 6);
+        let (sse, dp) = segment_dp(&[3.0, 3.0, 1.0, 1.0, 2.0, 2.0], 3);
+        let a2 = dp.assign(2);
         assert_eq!(a2, vec![0, 0, 1, 1, 1, 1], "assign={a2:?}");
         // The 3-split recovers the three runs exactly (SSE 0).
         assert!(sse[3] < 1e-9, "sse3={}", sse[3]);
-        let a3 = backtrack(&arg, 3, 6);
+        let a3 = dp.assign(3);
         assert_eq!(a3, vec![0, 0, 1, 1, 2, 2], "assign={a3:?}");
     }
 

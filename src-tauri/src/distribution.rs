@@ -47,6 +47,139 @@ pub struct BoxStats {
     pub outliers: Vec<f32>,
 }
 
+/// What a Ward partition was run OVER — the thing that makes one application different from
+/// another, and the only part of `SB-MLA-025` that is not shared code.
+///
+/// The criterion is one criterion. What differs between its uses is the ORDER the values were put
+/// in before it ran, and that changes the geological question completely: an optimal split of
+/// FZI sorted by value answers "how many rock types are in this core", while the same arithmetic
+/// over the depth-ordered profile answers "where are the flow-unit boundaries in this well". A
+/// user must be able to tell which they ran, so the caller DECLARES it and it travels with the
+/// result rather than being inferred from which module happened to call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WardOrder {
+    /// Values sorted ascending; clusters are intervals of the VALUE. `hfu.rs`.
+    SortedValue,
+    /// Values left in depth order; clusters are intervals of DEPTH. `lorenz.rs`.
+    Depth,
+    /// No ordering constraint — any point may join any cluster. Agglomerative Ward in the ML pane
+    /// (`ml.rs`), which is scikit-learn's implementation and not this DP. Listed here because this
+    /// enum is the one place the three applications are named, and a variant missing from the list
+    /// is how a fourth one gets added without anybody noticing there were already three.
+    Free,
+}
+
+impl WardOrder {
+    /// The name that goes in provenance. Prefixed so the three read as variants of one criterion
+    /// rather than as three unrelated methods.
+    pub fn name(self) -> &'static str {
+        match self {
+            WardOrder::SortedValue => "ward:sorted-value",
+            WardOrder::Depth => "ward:depth-contiguous",
+            WardOrder::Free => "ward:free",
+        }
+    }
+}
+
+/// The exact optimal K-partition of a sequence minimising total within-cluster sum of squares —
+/// the Ward criterion — as ONE implementation (`SB-MLA-025`, `SB-CORE-006`).
+///
+/// This lived twice: `hfu::ward_partition` over sorted FZI and `lorenz::segment_dp` over the
+/// depth-ordered slope profile. The two were byte-for-byte the same dynamic program with different
+/// return shapes — one backtracked internally for a single k, the other returned the table so the
+/// caller could choose k first. Two copies of one criterion is two places for it to drift, and the
+/// drift would be silent: both would still produce a plausible partition.
+///
+/// Kept as a struct rather than a function because the two uses genuinely need different things
+/// from the same table. Building it is the expensive part (O(k·m²)); reading an assignment out of
+/// it afterwards is free, so a caller that wants to compare several k values pays once.
+///
+/// The partition is always CONTIGUOUS in the order supplied — that is what makes the exact DP
+/// possible at all. Free-ordering Ward is a different algorithm (agglomerative), which is why
+/// [`WardOrder::Free`] is a name here and not a code path.
+pub struct WardDp {
+    /// `sse_by_k[j]` = minimum total within-cluster sum of squares using j clusters. Index 0 unused.
+    sse_by_k: Vec<f64>,
+    /// Backtracking table: `arg[j][i]` is where the j-th cluster starts when the first i elements
+    /// are split into j.
+    arg: Vec<Vec<usize>>,
+    m: usize,
+    order: WardOrder,
+}
+
+impl WardDp {
+    /// Builds the table for every k up to `kmax`. O(kmax·m²).
+    pub fn new(vals: &[f64], kmax: usize, order: WardOrder) -> Self {
+        let m = vals.len();
+        let k = kmax.clamp(1, m.max(1));
+        // Prefix sums for O(1) segment SS: cost[a,b) = Σx² − (Σx)²/(b−a).
+        let mut ps = vec![0.0f64; m + 1];
+        let mut ps2 = vec![0.0f64; m + 1];
+        for i in 0..m {
+            ps[i + 1] = ps[i] + vals[i];
+            ps2[i + 1] = ps2[i] + vals[i] * vals[i];
+        }
+        let cost = |a: usize, b: usize| -> f64 {
+            let cnt = (b - a) as f64;
+            if cnt <= 0.0 {
+                return 0.0;
+            }
+            let s = ps[b] - ps[a];
+            // Clamped at zero: the identity is exact in real arithmetic, and in floating point a
+            // segment of identical values can land a few ulps below it.
+            (ps2[b] - ps2[a] - s * s / cnt).max(0.0)
+        };
+        let inf = f64::INFINITY;
+        let mut dp = vec![vec![inf; m + 1]; k + 1];
+        let mut arg = vec![vec![0usize; m + 1]; k + 1];
+        dp[0][0] = 0.0;
+        for j in 1..=k {
+            for i in j..=m {
+                for t in (j - 1)..i {
+                    let c = dp[j - 1][t] + cost(t, i);
+                    if c < dp[j][i] {
+                        dp[j][i] = c;
+                        arg[j][i] = t;
+                    }
+                }
+            }
+        }
+        let sse_by_k = (0..=k).map(|j| dp[j][m]).collect();
+        WardDp { sse_by_k, arg, m, order }
+    }
+
+    /// Minimum total within-cluster sum of squares for each k. Index 0 is unused; index 1 is the
+    /// one-cluster total, which is what an elbow rule normalises against.
+    pub fn sse_by_k(&self) -> &[f64] {
+        &self.sse_by_k
+    }
+
+    /// The 0-based cluster id of each element, in the order supplied. Clusters are numbered in that
+    /// same order, so with [`WardOrder::SortedValue`] the ids ascend with the value and with
+    /// [`WardOrder::Depth`] they ascend with depth.
+    pub fn assign(&self, k: usize) -> Vec<usize> {
+        let mut assign = vec![0usize; self.m];
+        let k = k.clamp(1, self.sse_by_k.len().saturating_sub(1));
+        if k <= 1 || self.m == 0 {
+            return assign;
+        }
+        let mut i = self.m;
+        for j in (1..=k).rev() {
+            let t = self.arg[j][i];
+            for a in assign.iter_mut().take(i).skip(t) {
+                *a = j - 1;
+            }
+            i = t;
+        }
+        assign
+    }
+
+    /// The variant name for provenance — see [`WardOrder`].
+    pub fn variant(&self) -> &'static str {
+        self.order.name()
+    }
+}
+
 /// Linear-interpolated percentile of an ASCENDING-sorted slice (the R type-7 / NumPy
 /// `percentile` default, and what Excel's PERCENTILE returns). `p` is 0–100 and is clamped.
 /// Chosen because it is what every reference a petrophysicist would check against uses — a
@@ -203,6 +336,81 @@ pub fn even_indices(total: usize, want: usize) -> Vec<usize> {
     }
     // Mid-point sampling of `want` equal strata: symmetric, and never returns index `total`.
     (0..want).map(|k| ((k as f64 + 0.5) * total as f64 / want as f64) as usize).map(|i| i.min(total - 1)).collect()
+}
+
+#[cfg(test)]
+mod ward_tests {
+    use super::*;
+
+    /// One criterion, and the ORDER is what makes an application different.
+    ///
+    /// `SB-MLA-025`. The same dynamic program lived twice — over FZI sorted by value in `hfu.rs`
+    /// and over the depth-ordered slope profile in `lorenz.rs` — so this pins that the shared
+    /// implementation still finds the known optimum, and that the two orderings genuinely disagree
+    /// on the same numbers. If they agreed, merging them would have been the whole story; they do
+    /// not, which is why the variant has to reach the user.
+    #[test]
+    fn one_ward_criterion_gives_different_answers_under_different_orderings_and_names_which() {
+        // Deliberately NOT sorted: two low values sit between the highs. Read in the order given
+        // (depth), the optimal 2-split is a contiguous run; read sorted by value it is not.
+        let raw = [10.0, 10.2, 1.0, 1.1, 9.8, 10.1];
+        let depth = WardDp::new(&raw, 3, WardOrder::Depth);
+        assert_eq!(
+            depth.assign(2),
+            vec![0, 0, 1, 1, 1, 1],
+            "in depth order the split has to be one contiguous cut, wherever the values sit",
+        );
+
+        let mut sorted = raw;
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let byval = WardDp::new(&sorted, 3, WardOrder::SortedValue);
+        assert_eq!(
+            byval.assign(2),
+            vec![0, 0, 1, 1, 1, 1],
+            "sorted by value the two low samples group together however far apart in depth",
+        );
+        // The same two samples, opposite conclusions: in depth order sample 4 (9.8) joins the LOW
+        // group because it is contiguous with it; sorted by value it joins the high group.
+        assert!(
+            depth.sse_by_k()[2] > byval.sse_by_k()[2],
+            "the value-sorted split must fit better, or the fixture does not separate the two \
+             questions: depth {:?} vs sorted {:?}",
+            depth.sse_by_k()[2],
+            byval.sse_by_k()[2],
+        );
+
+        // Each carries the name that goes into provenance, and the three are distinct.
+        assert_eq!(depth.variant(), "ward:depth-contiguous");
+        assert_eq!(byval.variant(), "ward:sorted-value");
+        assert_eq!(WardOrder::Free.name(), "ward:free");
+        let names = [WardOrder::SortedValue, WardOrder::Depth, WardOrder::Free].map(WardOrder::name);
+        let mut uniq = names.to_vec();
+        uniq.sort_unstable();
+        uniq.dedup();
+        assert_eq!(uniq.len(), 3, "three applications, three names: {names:?}");
+    }
+
+    /// The table is built once and read many times, so a k read out of it must equal what a table
+    /// built for that k alone would give. Without this, the shared struct could return a partition
+    /// for the wrong k and every caller would still get a plausible-looking answer.
+    #[test]
+    fn an_assignment_read_from_a_larger_table_matches_one_built_for_that_k_alone() {
+        let vals = [1.0, 1.2, 5.0, 5.1, 5.2, 9.0, 9.4, 9.5];
+        let big = WardDp::new(&vals, 5, WardOrder::SortedValue);
+        for k in 1..=5 {
+            let alone = WardDp::new(&vals, k, WardOrder::SortedValue);
+            assert_eq!(big.assign(k), alone.assign(k), "k={k}");
+            assert!(
+                (big.sse_by_k()[k] - alone.sse_by_k()[k]).abs() < 1e-12,
+                "k={k} SSE differs",
+            );
+        }
+        assert_eq!(big.assign(3), vec![0, 0, 1, 1, 1, 2, 2, 2], "three obvious groups");
+        // k above the sample count, and k below 1, are clamped rather than panicking.
+        assert_eq!(WardDp::new(&vals, 99, WardOrder::Depth).assign(99).len(), vals.len());
+        assert_eq!(WardDp::new(&vals, 3, WardOrder::Depth).assign(0), vec![0; vals.len()]);
+        assert!(WardDp::new(&[], 3, WardOrder::Depth).assign(2).is_empty());
+    }
 }
 
 #[cfg(test)]

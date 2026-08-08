@@ -9732,3 +9732,143 @@ they picked the wrong *kind* of set would be a confident wrong answer.
 
 Covered in the section above; it was the same root cause — the runner is only told the feature
 names when it is saving a model.
+
+## An input curve can be logged before the fit, and the model remembers (2026-08-08)
+
+Deep resistivity spans decades. A fit on the raw column is carried by its largest few values, and
+standardising does **not** fix that — a z-score recentres a skewed variable, it does not unskew it.
+Both incumbents let you log an input before a fit; SandiBumi could not. Now it can, per input curve,
+in the Model section under **Input transform**: as measured / log₁₀ / ln / √.
+
+**The important part is not the log. It is that the model remembers it.** A model fitted on
+log₁₀(RT) and later applied to raw RT returns numbers that are in range, confident and wrong — the
+scaler absorbs none of it, and there is nothing downstream that could catch it. So the transform
+rides inside the saved model file alongside the scaler, exactly as the curve ORDER already does. On
+apply it is read from the model and applied by the model; a caller that states a different one is
+refused by name rather than quietly overridden.
+
+Three decisions worth knowing:
+
+**A value the transform cannot represent becomes missing.** A zero or negative resistivity under a
+log is dropped, never nudged by a small number nobody chose and never clamped to a floor. Those are
+already invalid measurements, and inventing a value for them would put a fabricated number into the
+fit. The count is reported per curve, because losing rows silently is how a training set shrinks
+without anyone noticing.
+
+**Nothing is ever suggested.** Every curve defaults to *as measured*. Whether a resistivity should
+be logged is your call about your own data, and a default log would change every existing run's
+answer without saying so.
+
+**The list is deliberately short.** Each of the four is a transform a petrophysicist already applies
+by hand to these curves. A free-text expression box here would be a second equation engine sitting
+where the real one already lives — and a curve transformed by an arbitrary expression could not be
+re-applied from a saved model with any confidence.
+
+- [ ] **Set log₁₀ on a deep resistivity and run a regression.** Compare the blind score against the
+      same run with everything *as measured*. On the wells I tested log₁₀ actually scored **worse**,
+      which is a real answer about that data — the point is that you can now find out.
+- [ ] **Check the run notes** for how many samples the transform dropped, if any. Zero or negative
+      resistivities are the usual cause.
+- [ ] **Save a model fitted with a transform**, then apply it to other wells. It must use the same
+      transform without being told — you should not have to set anything on the apply.
+- [ ] **The one that matters:** confirm the applied curve is sensible on a well that was not in
+      training. A model that had silently dropped its log would still produce a smooth, plausible
+      curve — which is exactly why this is enforced inside the model file rather than around it.
+- [ ] **Try a transform on a curve, then untick that curve from the inputs and run.** It should
+      refuse and name the curve rather than quietly ignoring the setting.
+- [ ] **Leave everything as measured and run.** The result must be identical to before this existed.
+
+## A run that covered part of the field now says so, and the fit has a ceiling (2026-08-08)
+
+Two halves of SB-MLA-065, both about the same thing: a batch run reports its outcome in a panel
+that is closed by Monday, while the curve it wrote is still there.
+
+### The fit could run forever, and now you set the limit
+
+`SVR` and `SVC` were built without `max_iter`, and scikit-learn's default there is **-1 — no
+limit**. Those two get slow very fast as the pooled sample count grows, and the fit is the one
+phase of a run with no progress and no working Cancel: the app just looks frozen, and you cannot
+tell "working hard" from "stuck". Both now take a **max iterations** setting.
+
+**It is an iteration count, not a stopwatch, and that was your call** — *"everything we can do and
+report in sandibumi, it should be re-producible"*. Stopping after 500 iterations gives the same
+model on every machine. Stopping after ten minutes gives a different model on a faster laptop, and
+a curve nobody else could reproduce.
+
+**The default stays -1, so nothing you have run before changes its answer.** What changes is that
+the setting exists, says what -1 costs, and is recorded with the run. When a finite limit is hit,
+scikit-learn raises the same `ConvergenceWarning` that now produces the *"this fit did not
+converge"* message — so the reporting was already built.
+
+- [ ] **Set max iterations on Support Vector Regression** — try something small like 200 on a
+      decent-sized run. You should get the "did not converge" message, naming the limit.
+- [ ] **Leave it at -1 and confirm nothing changed** versus a run you made before today.
+- [ ] **Check the run's recorded parameters** show the value you set, so the run can be repeated.
+
+### A run that skipped wells no longer looks complete
+
+A cancelled run was already marked. The gap was the run that **finishes normally**: you run 80
+wells, 12 have no usable samples, the run succeeds and tells you so — and leaves 68 log sets that
+are indistinguishable from a complete run over a smaller well selection, because the set name and
+the module string are the ones a complete run writes.
+
+Those sets are now stamped as covering part of the field, with the counts and a plain-language
+note, in the same place the cancelled mark lives — **not** a second mechanism, because two places
+recording "this set does not cover the field" is one place that eventually stops being updated.
+
+The two marks stay distinguishable on purpose: *cancelled* and *some wells had no data* call for
+opposite responses — re-run it, versus go and look at those wells.
+
+- [ ] **Run ML over a well selection where some wells lack an input curve.** The run should succeed,
+      and the note should say how many wells produced nothing.
+- [ ] **Open the Curve Catalog on a well that DID get the curve.** Its set should carry the mark
+      saying the field is covered in part.
+- [ ] **Run over wells that all have the inputs.** No mark at all — if a complete run got stamped,
+      the mark would stop meaning anything.
+- [ ] **Cancel a run part-way** and confirm you get the *cancelled* wording, not this one.
+
+### Not done
+
+SB-MLA-065 also mentioned a wall-clock backstop for algorithms with no iteration count. Deferred
+deliberately: a default that refuses would change what your existing runs do, and a default that
+does not refuse adds nothing — so the cap would have to be a number you choose, which is its own
+decision.
+
+## One Ward criterion instead of two copies of it (2026-08-08)
+
+The Ward minimum-variance criterion — the thing that decides where one flow unit ends and the next
+begins — existed **twice**, once in the HFU tool and once in the Lorenz tool. Not two similar
+routines: the same dynamic program, line for line, differing only in what each handed back. Each
+also carried its own copy of the backtracking step that turns the table into cluster numbers.
+
+Two copies of one criterion is two places for it to drift, and the drift would be **silent** — both
+would go on producing a plausible-looking partition, and nothing would report that the two tools had
+started disagreeing about the same arithmetic.
+
+There is now one implementation, in the shared statistics core beside the percentiles and the
+histogram, and both tools call it.
+
+### The part that is not shared, and should not be
+
+What genuinely differs between the two is **the order the values are put in before the criterion
+runs**, and that changes the geological question completely:
+
+- **HFU** sorts FZI **by value**. A cluster is then a rock TYPE — plugs from anywhere in the well
+  with similar flow character group together.
+- **Lorenz** keeps **depth order**. A cluster is then an interval of HOLE — a flow unit with a top
+  and a base.
+- The ML pane's agglomerative clustering has **no ordering constraint** at all.
+
+Same criterion, three questions. So the ordering is now *declared* by whichever tool is calling,
+travels with the result, and is named — `ward:sorted-value`, `ward:depth-contiguous`, `ward:free`.
+The HFU result says which one produced it, in words.
+
+- [ ] **Run HFU with the Ward method** on a core set you have run before, and confirm the units come
+      out the same as they used to. This was a refactor — the numbers must not have moved.
+- [ ] **Read the note on that result.** It should name `ward:sorted-value` and say that a unit here
+      is a rock type, not an interval of hole.
+- [ ] **Run the Lorenz flow-unit segmentation** on a well you have run before. Same check: the unit
+      boundaries must be identical to what you had.
+- [ ] **The thing worth understanding rather than clicking:** the two tools now share the same
+      arithmetic and still give different answers on the same well, because one sorts by value and
+      the other keeps depth order. That difference is real and intended.
