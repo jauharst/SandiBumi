@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-028: every unit factor carries its arithmetic
+
+- [ ] Inspect the unit-rule query/code table. Does every factor carry a reproducible derivation,
+      including corrected `MEQ/L -> meq/mL ×10^-3` from `1 L = 10^3 mL`? Does that corrected row
+      remain confirmation-only because §7.1 O-2 says affected files may already contain meq/mL?
+
 ## 2026-08-09 — SB-DIO-027: the vendor PPG-to-density alias is rejected
 
 - [ ] Import a `RHOZ.PPG` column. Is it retained verbatim but excluded from both standard RHOB

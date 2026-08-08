@@ -41,6 +41,117 @@ pub const FAMILIES: &[FamilySpec] = &[
 /// This is a capability list, not a claim that every spelling within the family converts.
 pub const CONVERTIBLE_FAMILIES: &[&str] = &["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS", "TEMP"];
 
+/// One independently checkable affine conversion rule. `derivation` is mandatory data,
+/// not a nearby comment: a factor cannot enter the table without carrying the arithmetic
+/// a reviewer needs to reproduce it. Values use `(source + offset) × factor`.
+pub struct UnitRule {
+    pub families: &'static [&'static str],
+    pub from_unit: &'static str,
+    pub to_unit: &'static str,
+    pub factor: f32,
+    pub offset: f32,
+    pub derivation: &'static str,
+    /// False where the arithmetic is known but the incoming label is not trustworthy
+    /// enough to apply without a per-file user confirmation.
+    pub automatic: bool,
+}
+
+pub const UNIT_RULES: &[UnitRule] = &[
+    UnitRule {
+        families: &["CALI", "BS"],
+        from_unit: "mm",
+        to_unit: "in",
+        factor: 1.0 / 25.4,
+        offset: 0.0,
+        derivation: "1 in = 25.4 mm exactly; mm -> in divides by 25.4",
+        automatic: true,
+    },
+    UnitRule {
+        families: &["CALI", "BS"],
+        from_unit: "cm",
+        to_unit: "in",
+        factor: 1.0 / 2.54,
+        offset: 0.0,
+        derivation: "1 in = 2.54 cm exactly; cm -> in divides by 2.54",
+        automatic: true,
+    },
+    UnitRule {
+        families: &["DT", "DTS"],
+        from_unit: "us/m",
+        to_unit: "us/ft",
+        factor: 0.3048,
+        offset: 0.0,
+        derivation: "1 international ft = 0.3048 m; (us/m) x (m/ft) = us/ft",
+        automatic: true,
+    },
+    UnitRule {
+        families: &["DT", "DTS"],
+        from_unit: "usec/m",
+        to_unit: "us/ft",
+        factor: 0.3048,
+        offset: 0.0,
+        derivation: "1 usec = 1 us and 1 international ft = 0.3048 m; factor = 0.3048",
+        automatic: true,
+    },
+    UnitRule {
+        families: &["RHOB", "DRHO"],
+        from_unit: "kg/m3",
+        to_unit: "g/cc",
+        factor: 0.001,
+        offset: 0.0,
+        derivation: "1 g/cc = 1000 kg/m3; kg/m3 -> g/cc divides by 1000",
+        automatic: true,
+    },
+    UnitRule {
+        families: &["NPHI"],
+        from_unit: "pu",
+        to_unit: "v/v",
+        factor: 0.01,
+        offset: 0.0,
+        derivation: "1 porosity unit = 1 percent = 0.01 v/v",
+        automatic: true,
+    },
+    UnitRule {
+        families: &["NPHI"],
+        from_unit: "%",
+        to_unit: "v/v",
+        factor: 0.01,
+        offset: 0.0,
+        derivation: "1 percent = 1/100 = 0.01 v/v",
+        automatic: true,
+    },
+    UnitRule {
+        families: &["NPHI"],
+        from_unit: "p.u.",
+        to_unit: "v/v",
+        factor: 0.01,
+        offset: 0.0,
+        derivation: "p.u. denotes porosity percent; 1 percent = 0.01 v/v",
+        automatic: true,
+    },
+    UnitRule {
+        families: &["TEMP"],
+        from_unit: "DEGF",
+        to_unit: "DEGC",
+        factor: 1.0 / 1.8,
+        offset: -32.0,
+        derivation: "T42 fixes degC = (degF - 32) / 1.8; factor = 1/1.8 and offset = -32 degF",
+        automatic: true,
+    },
+    UnitRule {
+        families: &["QV"],
+        from_unit: "MEQ/L",
+        to_unit: "meq/mL",
+        factor: 1.0e-3,
+        offset: 0.0,
+        derivation: "1 L = 10^3 mL; meq/L -> meq/mL therefore multiplies by 10^-3",
+        // Chapter §7.1 O-2: files affected by the vendor defect may already hold
+        // meq/mL values under the wrong MEQ/L label, so the correct arithmetic still
+        // requires per-file confirmation before it may touch values.
+        automatic: false,
+    },
+];
+
 pub fn convertible_unit_families() -> Vec<String> {
     CONVERTIBLE_FAMILIES.iter().map(|family| (*family).to_string()).collect()
 }
@@ -68,6 +179,7 @@ pub struct UnitConversion {
     pub factor: f32,
     /// Source-space offset: canonical = (source + offset) × factor.
     pub offset: f32,
+    pub derivation: String,
 }
 
 impl UnitConversion {
@@ -147,6 +259,20 @@ pub fn family_for_import(
 ) -> (Option<&'static FamilySpec>, Option<UnconvertedUnit>) {
     let inferred = family_for(curve);
     let declared = src_unit.map(str::trim).unwrap_or_default();
+    if normalize_unit(declared) == "meq/l" {
+        return (
+            None,
+            Some(UnconvertedUnit {
+                curve: curve.to_string(),
+                declared_unit: declared.to_string(),
+                family: None,
+                reason: "the corrected MEQ/L factor is 10^-3, but §7.1 O-2 records that affected files may already contain meq/mL values; per-file confirmation is required"
+                    .to_string(),
+                designation_required: true,
+                rejected_entry: Some("elec_charge_per_vol.units: MEQ/L -> 1.0".to_string()),
+            }),
+        );
+    }
     if normalize_unit(declared) != "ppg" {
         return (inferred, None);
     }
@@ -181,29 +307,13 @@ pub fn convert_to_canonical(
         return None;
     }
 
-    // Source-space affine transform: canonical = (source + offset) × factor.
-    let transform: Option<(f32, f32)> = match (src.as_str(), tgt.as_str()) {
-        // Length: feet → metres and back (depth/CALI/BS live in inches or metres; keep
-        // CALI in inches, only convert obvious metric mismatches).
-        ("in", "in") => None,
-        ("mm", "in") => Some((1.0 / 25.4, 0.0)),
-        ("cm", "in") => Some((1.0 / 2.54, 0.0)),
-        // Sonic slowness: us/m → us/ft.
-        ("us/m", "us/ft") => Some((0.3048, 0.0)),
-        ("usec/m", "us/ft") => Some((0.3048, 0.0)),
-        // Bulk density: kg/m3 → g/cc.
-        ("kg/m3", "g/cc") => Some((0.001, 0.0)),
-        // Neutron porosity given in percent → v/v.
-        ("pu", "v/v") => Some((0.01, 0.0)),
-        ("%", "v/v") => Some((0.01, 0.0)),
-        ("p.u.", "v/v") => Some((0.01, 0.0)),
-        // T42 fixes the full transform: 200 °F becomes 93.33 °C. Chapter §5.1
-        // cites the 32 °F offset; 1/1.8 is the scale required by that expected value.
-        ("degf", "degc") => Some((1.0 / 1.8, -32.0)),
-        _ => None,
-    };
-
-    let (factor, offset) = transform?;
+    let rule = UNIT_RULES.iter().find(|rule| {
+        rule.automatic
+            && rule.families.contains(&family)
+            && normalize_unit(rule.from_unit) == src
+            && normalize_unit(rule.to_unit) == tgt
+    })?;
+    let (factor, offset) = (rule.factor, rule.offset);
     for v in values.iter_mut() {
         if v.is_finite() {
             *v = (*v + offset) * factor;
@@ -215,6 +325,7 @@ pub fn convert_to_canonical(
         to_unit: target.to_string(),
         factor,
         offset,
+        derivation: rule.derivation.to_string(),
     })
 }
 
@@ -257,6 +368,36 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(convertible_unit_families().len(), CONVERTIBLE_FAMILIES.len());
+    }
+
+    /// SB-DIO-028 / SB-DIO-T44. Chapter §5.1 independently derives the corrected
+    /// MEQ/L factor from 1 L = 10^3 mL. Every other numeric rule must meet the same
+    /// standard: arithmetic lives in the row, not only in a vendor citation or comment.
+    #[test]
+    fn every_conversion_factor_carries_an_independent_arithmetic_derivation() {
+        assert!(!UNIT_RULES.is_empty());
+        for rule in UNIT_RULES {
+            assert!(rule.factor.is_finite() && rule.factor != 0.0, "invalid factor for {} -> {}", rule.from_unit, rule.to_unit);
+            assert!(rule.offset.is_finite(), "invalid offset for {} -> {}", rule.from_unit, rule.to_unit);
+            assert!(!rule.derivation.trim().is_empty(), "missing derivation for {} -> {}", rule.from_unit, rule.to_unit);
+            assert!(rule.derivation.contains('='), "derivation must show its arithmetic: {}", rule.derivation);
+            assert!(
+                !rule.derivation.to_ascii_lowercase().contains("copied from")
+                    && !rule.derivation.to_ascii_lowercase().contains("vendor factor"),
+                "a vendor table alone is not an arithmetic source: {}",
+                rule.derivation
+            );
+        }
+
+        let qv = UNIT_RULES
+            .iter()
+            .find(|rule| rule.from_unit == "MEQ/L" && rule.to_unit == "meq/mL")
+            .expect("the corrected G-D-1 row");
+        assert_eq!(qv.factor, 1.0e-3, "1 L = 10^3 mL, so meq/L -> meq/mL is x10^-3");
+        assert!(!qv.automatic, "§7.1 O-2 requires per-file confirmation despite the known arithmetic");
+        let (family, issue) = family_for_import("QV", Some("MEQ/L"));
+        assert!(family.is_none(), "the unconfirmed label must not bind or convert");
+        assert!(issue.is_some_and(|item| item.designation_required && item.reason.contains("10^-3")));
     }
 
     #[test]
