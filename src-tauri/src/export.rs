@@ -27,6 +27,7 @@ struct WriterSettings {
 }
 
 type WriterFn = fn(&Connection, &str, &str, WriterSettings) -> Result<LasExportResult, String>;
+type SelfReaderFn = fn(&Connection, &str, &LasExportResult) -> Result<(), String>;
 
 #[derive(Debug, Clone, Copy)]
 enum SentinelSupport {
@@ -42,6 +43,7 @@ struct RegisteredWriter {
     is_default: bool,
     sentinel_support: SentinelSupport,
     write: WriterFn,
+    self_read: SelfReaderFn,
 }
 
 const REGISTERED_WRITERS: &[RegisteredWriter] = &[RegisteredWriter {
@@ -51,6 +53,7 @@ const REGISTERED_WRITERS: &[RegisteredWriter] = &[RegisteredWriter {
     is_default: true,
     sentinel_support: SentinelSupport::Honours,
     write: write_las,
+    self_read: validate_las_output,
 }];
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -148,6 +151,9 @@ pub struct LasExportResult {
     /// LAS text is currently written at four decimal places. This report declares that
     /// boundary and counts the stored f32 values whose written representation changes.
     pub precision: crate::parsers::SamplePrecisionReport,
+    /// True only after the registered reader accepted the completed file and its declared
+    /// depth unit, row count, and curve count matched what the writer says it emitted.
+    pub self_checked: bool,
 }
 
 fn fixed_decimal_4_reduces(value: f32) -> bool {
@@ -382,7 +388,73 @@ fn add_generic_curves(
 pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
     let settings = WriterSettings { null_sentinel: project_null_sentinel(conn)? };
     let writer = default_writer()?;
-    (writer.write)(conn, well_id, dest_path, settings)
+    export_with_writer(conn, well_id, dest_path, settings, writer)
+}
+
+fn export_with_writer(
+    conn: &Connection,
+    well_id: &str,
+    dest_path: &str,
+    settings: WriterSettings,
+    writer: &RegisteredWriter,
+) -> Result<LasExportResult, String> {
+    let mut result = (writer.write)(conn, well_id, dest_path, settings)?;
+    (writer.self_read)(conn, dest_path, &result)?;
+    result.self_checked = true;
+    Ok(result)
+}
+
+/// Reads a completed LAS with the same full-curve reader used by import, then verifies
+/// the semantic declarations that a syntax-only parse cannot: a feet project labelled
+/// as metres is readable but still wrong by 3.28×.
+fn validate_las_output(
+    conn: &Connection,
+    dest_path: &str,
+    result: &LasExportResult,
+) -> Result<(), String> {
+    let frame = crate::parsers::parse_las_2_all(dest_path)
+        .map_err(|error| format!("LAS self-check failed: SandiBumi's LAS reader rejected the output: {error}"))?;
+    let expected_unit = crate::units::project_depth_unit_or_default(conn);
+    let written_unit = frame
+        .depth_unit
+        .as_deref()
+        .and_then(crate::units::DepthUnit::parse)
+        .ok_or_else(|| {
+            format!(
+                "LAS self-check failed: the written depth unit {:?} is missing or unrecognized",
+                frame.depth_unit
+            )
+        })?;
+    if written_unit != expected_unit {
+        return Err(format!(
+            "LAS self-check failed: project depths are {}, but the written DEPT curve declares {}",
+            expected_unit.code(),
+            written_unit.code()
+        ));
+    }
+    if frame.depth.len() != result.rows {
+        return Err(format!(
+            "LAS self-check failed: writer reported {} row(s), but its reader found {}",
+            result.rows,
+            frame.depth.len()
+        ));
+    }
+    if frame.curves.len() != result.curves_written {
+        return Err(format!(
+            "LAS self-check failed: writer reported {} curve(s), but its reader found {}",
+            result.curves_written,
+            frame.curves.len()
+        ));
+    }
+    if let Some(curve) = frame.curves.iter().find(|curve| curve.values.len() != result.rows) {
+        return Err(format!(
+            "LAS self-check failed: curve {} has {} value(s), expected {}",
+            curve.mnemonic,
+            curve.values.len(),
+            result.rows
+        ));
+    }
+    Ok(())
 }
 
 fn write_las(
@@ -527,6 +599,7 @@ fn write_las(
         curves_held,
         omitted,
         precision,
+        self_checked: false,
     })
 }
 
@@ -834,6 +907,7 @@ mod tests {
             is_default: false,
             sentinel_support: SentinelSupport::Incapable("fixed null convention"),
             write: cannot_write,
+            self_read: validate_las_output,
         };
         let shown = format_info(&incapable);
         assert!(!shown.honours_project_sentinel);
@@ -900,6 +974,132 @@ mod tests {
                 assert!((back[i] - expect).abs() < 5e-4, "row {i}: {} != {expect}", back[i]);
             }
         }
+    }
+
+    /// SB-DIO-049 / T68. Registration requires a format's own reader, and the shared
+    /// export wrapper is the only route to success. The corrupt control returns a normal
+    /// writer result after emitting half an ASCII row; only the mandatory read-back can
+    /// turn that apparent success into the required error.
+    #[test]
+    fn every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        let settings = WriterSettings { null_sentinel: project_null_sentinel(&conn).unwrap() };
+        for writer in REGISTERED_WRITERS {
+            let dest = tmp_path(&format!("{}-self-read", writer.id));
+            let result = export_with_writer(
+                &conn,
+                &id.to_string(),
+                dest.to_str().unwrap(),
+                settings,
+                writer,
+            )
+            .unwrap();
+            assert!(result.self_checked, "{} must not report success before its reader passes", writer.id);
+            let _ = std::fs::remove_file(&dest);
+        }
+
+        fn write_corrupt(
+            _: &Connection,
+            _: &str,
+            dest_path: &str,
+            _: WriterSettings,
+        ) -> Result<LasExportResult, String> {
+            std::fs::write(
+                dest_path,
+                "~Version\nVERS. 2.0\nWRAP. NO\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000\n",
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(LasExportResult {
+                rows: 1,
+                curves_written: 1,
+                curves_held: 1,
+                omitted: Vec::new(),
+                precision: crate::parsers::SamplePrecisionReport::new(
+                    "f32 storage",
+                    "fixed-decimal-4 LAS text",
+                    0,
+                ),
+                self_checked: false,
+            })
+        }
+        let corrupt = RegisteredWriter {
+            id: "corrupt-test",
+            label: "Corrupt test writer",
+            extension: "las",
+            is_default: false,
+            sentinel_support: SentinelSupport::Honours,
+            write: write_corrupt,
+            self_read: validate_las_output,
+        };
+        let dest = tmp_path("self-read-corrupt");
+        let error = export_with_writer(
+            &conn,
+            &id.to_string(),
+            dest.to_str().unwrap(),
+            settings,
+            &corrupt,
+        )
+        .unwrap_err();
+        let _ = std::fs::remove_file(&dest);
+        assert!(error.contains("LAS self-check failed"), "reader rejection must be the export error: {error}");
+        assert!(error.contains("ASCII row has 1 value(s)"), "the reader's exact rejection must remain actionable: {error}");
+    }
+
+    /// SB-DIO-049 / T69. A unit lie is syntactically valid LAS, so parse success alone is
+    /// insufficient: the self-reader must compare the DEPT declaration with the depth
+    /// unit of the samples the writer was asked to deliver.
+    #[test]
+    fn a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success() {
+        fn write_metres_label(
+            _: &Connection,
+            _: &str,
+            dest_path: &str,
+            _: WriterSettings,
+        ) -> Result<LasExportResult, String> {
+            std::fs::write(
+                dest_path,
+                "~Version\nVERS. 2.0\nWRAP. NO\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000 50\n",
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(LasExportResult {
+                rows: 1,
+                curves_written: 1,
+                curves_held: 1,
+                omitted: Vec::new(),
+                precision: crate::parsers::SamplePrecisionReport::new(
+                    "f32 storage",
+                    "fixed-decimal-4 LAS text",
+                    0,
+                ),
+                self_checked: false,
+            })
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Feet).unwrap();
+        let writer = RegisteredWriter {
+            id: "wrong-unit-test",
+            label: "Wrong-unit test writer",
+            extension: "las",
+            is_default: false,
+            sentinel_support: SentinelSupport::Honours,
+            write: write_metres_label,
+            self_read: validate_las_output,
+        };
+        let dest = tmp_path("feet-misdeclared-metres");
+        let error = export_with_writer(
+            &conn,
+            &id.to_string(),
+            dest.to_str().unwrap(),
+            WriterSettings { null_sentinel: project_null_sentinel(&conn).unwrap() },
+            &writer,
+        )
+        .unwrap_err();
+        let _ = std::fs::remove_file(&dest);
+        assert!(error.contains("project depths are FT"), "the expected unit must be named: {error}");
+        assert!(error.contains("declares M"), "the false declaration must be named: {error}");
     }
 
     /// SB-DIO-017 / SB-DIO-T27..T28. The LAS unit spellings and the project-unit

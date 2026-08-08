@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-049: every writer must pass its own reader
+
+- [ ] Export LAS from a feet project. Does success explicitly state that the SandiBumi reader
+      self-check passed? In a debugger or focused test, corrupt one ASCII row or falsely label the
+      feet index as metres: does export return **LAS self-check failed** instead of success or a
+      warning?
+
 ## 2026-08-09 — SB-DIO-047: precision reductions are declared
 
 - [ ] Import a core-analysis table containing more numeric precision than `f32` can retain. Does

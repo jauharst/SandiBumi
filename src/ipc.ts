@@ -3985,6 +3985,8 @@ export interface LasExportResult {
   curves_held: number;
   omitted: LasOmission[];
   precision: SamplePrecisionReport;
+  /** Set only after SandiBumi's own LAS reader accepts the completed file. */
+  self_checked: boolean;
 }
 
 export interface DataExportFormat {
