@@ -159,13 +159,45 @@ pub struct DlisIntervalConflict {
     pub incoming_base: f32,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DlisDuplicateAction {
+    KeepSeparate,
+    SkipIncoming,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DlisDuplicateDecision {
+    pub mnemonic: String,
+    pub run: i32,
+    pub action: DlisDuplicateAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DlisDuplicateConflict {
+    pub mnemonic: String,
+    pub run: i32,
+    /// Existing identities are stated as `SET/run N` (or `SET/run none`); no existing curve is
+    /// silently elected as the one an incoming channel would modify.
+    pub existing: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DlisDuplicateDecisionRecord {
+    pub mnemonic: String,
+    pub run: i32,
+    pub action: DlisDuplicateAction,
+    pub existing: Vec<String>,
+    pub target_set: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DlisImportResult {
     pub path: String,
     pub curves_imported: usize,
     pub rows: usize,
-    /// Existing RAW curves at the same (mnemonic, run) that this import overwrote — surfaced
-    /// so a re-import (or any provenance collision) is never silent.
+    /// Legacy result field, now always zero: duplicate mnemonics require keep-separate or skip,
+    /// and no DLIS path merges/replaces an existing curve by default.
     pub replaced: usize,
     /// Unit reconciliation and explicit-confirmation record.
     pub notes: Vec<String>,
@@ -180,6 +212,9 @@ pub struct DlisImportResult {
     /// Incoming extents outside an existing well/set extent. Empty means there was no conflict;
     /// populated beside an error means the required decision was absent.
     pub interval_conflicts: Vec<DlisIntervalConflict>,
+    /// Duplicate mnemonic questions found before commit and the explicit per-curve answers used.
+    pub duplicate_conflicts: Vec<DlisDuplicateConflict>,
+    pub duplicate_decisions: Vec<DlisDuplicateDecisionRecord>,
     pub error: Option<String>,
 }
 
@@ -203,6 +238,8 @@ fn failed(path: &str, error: String, skipped: Vec<DlisSkip>) -> DlisImportResult
         unit_designations: Vec::new(),
         skipped,
         interval_conflicts: Vec::new(),
+        duplicate_conflicts: Vec::new(),
+        duplicate_decisions: Vec::new(),
         error: Some(error),
     }
 }
@@ -235,6 +272,34 @@ fn failed_interval(
         skipped,
     );
     result.interval_conflicts = conflicts;
+    result
+}
+
+fn failed_duplicates(
+    path: &str,
+    conflicts: Vec<DlisDuplicateConflict>,
+    skipped: Vec<DlisSkip>,
+) -> DlisImportResult {
+    let detail = conflicts
+        .iter()
+        .map(|conflict| {
+            format!(
+                "{} frame {} already exists as {}",
+                conflict.mnemonic,
+                conflict.run,
+                conflict.existing.join(", ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let mut result = failed(
+        path,
+        format!(
+            "incoming DLIS repeats mnemonic(s) already held by this well ({detail}); a per-curve keep-separate or skip decision is required before commit"
+        ),
+        skipped,
+    );
+    result.duplicate_conflicts = conflicts;
     result
 }
 
@@ -320,6 +385,7 @@ fn incoming_interval(
     header: &DlisHeader,
     payload: &[u8],
     index_actions: &[crate::units::IndexUnitAction],
+    duplicate_decisions: &[DlisDuplicateDecisionRecord],
 ) -> Result<Option<(f32, f32)>, String> {
     let mut offset = 0usize;
     let mut top = f32::INFINITY;
@@ -329,6 +395,15 @@ fn incoming_interval(
         let end = offset + 2 * bytes;
         if end > payload.len() {
             return Err(format!("dlis payload truncated at curve '{}'", meta.mnemonic));
+        }
+        let skipped = duplicate_decisions.iter().any(|decision| {
+            decision.mnemonic.eq_ignore_ascii_case(&meta.mnemonic)
+                && decision.run == meta.run
+                && decision.action == DlisDuplicateAction::SkipIncoming
+        });
+        if skipped {
+            offset = end;
+            continue;
         }
         let mut depth = read_f32(&payload[offset..offset + bytes]);
         apply_index_action(&mut depth, index_action);
@@ -357,12 +432,121 @@ fn interval_preflight(
     }
 }
 
+fn duplicate_conflicts(
+    conn: &Connection,
+    well_id: &str,
+    curves: &[DlisCurveMeta],
+) -> Vec<DlisDuplicateConflict> {
+    let mut conflicts = Vec::new();
+    for meta in curves {
+        let mut stmt = match conn.prepare(
+            "SELECT set_name, run_no FROM curve_meta
+             WHERE well_id = ?1 AND upper(mnemonic) = upper(?2)
+             ORDER BY set_name, run_no NULLS FIRST, curve_id",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => continue,
+        };
+        let existing: Vec<String> = match stmt.query_map(params![well_id, &meta.mnemonic], |r| {
+            let set: String = r.get(0)?;
+            let run: Option<i32> = r.get(1)?;
+            Ok(format!("{set}/run {}", run.map(|n| n.to_string()).unwrap_or_else(|| "none".into())))
+        }) {
+            Ok(rows) => rows.flatten().collect(),
+            Err(_) => Vec::new(),
+        };
+        if !existing.is_empty() {
+            conflicts.push(DlisDuplicateConflict {
+                mnemonic: meta.mnemonic.trim().to_uppercase(),
+                run: meta.run,
+                existing,
+            });
+        }
+    }
+    conflicts
+}
+
+fn duplicate_preflight(
+    conn: &Connection,
+    well_id: &str,
+    desired_set: &str,
+    initial_target_set: &str,
+    curves: &[DlisCurveMeta],
+    decisions: &[DlisDuplicateDecision],
+) -> Result<(String, Vec<DlisDuplicateDecisionRecord>), Vec<DlisDuplicateConflict>> {
+    let conflicts = duplicate_conflicts(conn, well_id, curves);
+    let unresolved: Vec<DlisDuplicateConflict> = conflicts
+        .iter()
+        .filter(|conflict| {
+            decisions
+                .iter()
+                .filter(|decision| {
+                    decision.mnemonic.trim().eq_ignore_ascii_case(&conflict.mnemonic)
+                        && decision.run == conflict.run
+                })
+                .count()
+                != 1
+        })
+        .cloned()
+        .collect();
+    if !unresolved.is_empty() {
+        return Err(unresolved);
+    }
+
+    let needs_fresh_set = conflicts.iter().any(|conflict| {
+        let action = decisions
+            .iter()
+            .find(|decision| {
+                decision.mnemonic.trim().eq_ignore_ascii_case(&conflict.mnemonic)
+                    && decision.run == conflict.run
+            })
+            .map(|decision| decision.action);
+        action == Some(DlisDuplicateAction::KeepSeparate)
+            && conn
+                .query_row(
+                    "SELECT 1 FROM curve_meta
+                     WHERE well_id = ?1 AND upper(set_name) = upper(?2)
+                       AND upper(mnemonic) = upper(?3) AND run_no IS NOT DISTINCT FROM ?4",
+                    params![well_id, desired_set, &conflict.mnemonic, Some(conflict.run)],
+                    |_| Ok(()),
+                )
+                .is_ok()
+    });
+    let target_set = if needs_fresh_set {
+        crate::ingest::resolve_set_name(conn, well_id, desired_set)
+    } else {
+        initial_target_set.to_string()
+    };
+
+    let records = conflicts
+        .into_iter()
+        .map(|conflict| {
+            let action = decisions
+                .iter()
+                .find(|decision| {
+                    decision.mnemonic.trim().eq_ignore_ascii_case(&conflict.mnemonic)
+                        && decision.run == conflict.run
+                })
+                .expect("unresolved decisions returned above")
+                .action;
+            DlisDuplicateDecisionRecord {
+                mnemonic: conflict.mnemonic,
+                run: conflict.run,
+                action,
+                existing: conflict.existing,
+                target_set: (action == DlisDuplicateAction::KeepSeparate).then(|| target_set.clone()),
+            }
+        })
+        .collect();
+    Ok((target_set, records))
+}
+
 /// Imports every scalar channel of a DLIS file into one existing well's generic curve store.
 ///
-/// `set_name` (import-sets, T-IMP-02/06): None/"RAW" keeps the established behavior — set
-/// RAW with per-frame run numbers, same-(mnemonic, run) re-imports REPLACE and are counted
-/// in `replaced`. Any other name is auto-suffixed per well (`WIRE` taken → `WIRE_1`,
-/// Geolog-style), so duplicates are always KEPT and `replaced` stays 0.
+/// `set_name` (import-sets, T-IMP-02/06): named sets are auto-suffixed per well (`WIRE` taken
+/// -> `WIRE_1`, Geolog-style). A mnemonic already held anywhere on the well stops before commit
+/// until every incoming `(mnemonic, frame)` has a keep-separate or skip decision; no merge action
+/// exists on this path.
 #[allow(dead_code)] // compatibility entry point; the command supplies an explicit ambiguity answer
 pub fn import_dlis_file(
     conn: &Connection,
@@ -379,6 +563,7 @@ pub fn import_dlis_file(
         confirmed_file_unit,
         None,
         None,
+        &[],
     )
 }
 
@@ -390,6 +575,7 @@ pub fn import_dlis_file_with_unit_designation(
     confirmed_file_unit: Option<&str>,
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
     outside_interval_decision: Option<DlisOutsideIntervalDecision>,
+    duplicate_decisions: &[DlisDuplicateDecision],
 ) -> DlisImportResult {
     let fail = |e: String| failed(path, e, Vec::new());
 
@@ -400,8 +586,11 @@ pub fn import_dlis_file_with_unit_designation(
         return fail(format!("unknown well '{well_id}'"));
     }
     let desired = crate::ingest::canonical_set_name(set_name);
-    let target_set =
-        if desired == "RAW" { desired } else { crate::ingest::resolve_set_name(conn, well_id, &desired) };
+    let initial_target_set = if desired == "RAW" {
+        desired.clone()
+    } else {
+        crate::ingest::resolve_set_name(conn, well_id, &desired)
+    };
 
     let Some(python) = find_python() else {
         return fail("no Python with numpy found — install Python 3.10+ with numpy and dlisio, or set SANDIBUMI_PYTHON".into());
@@ -455,6 +644,17 @@ pub fn import_dlis_file_with_unit_designation(
         let _ = meaning;
     }
     let mut skipped = header.skips.clone();
+    let (target_set, duplicate_decision_records) = match duplicate_preflight(
+        conn,
+        well_id,
+        &desired,
+        &initial_target_set,
+        &header.curves,
+        duplicate_decisions,
+    ) {
+        Ok(resolved) => resolved,
+        Err(conflicts) => return failed_duplicates(path, conflicts, skipped),
+    };
     let payload = &stdout[nl + 1..];
 
     let confirmed = match confirmed_file_unit {
@@ -479,7 +679,12 @@ pub fn import_dlis_file_with_unit_designation(
             Ok(resolved) => resolved,
             Err(e) => return failed(path, e, skipped),
         };
-    let interval_conflicts = match incoming_interval(&header, payload, &index_actions) {
+    let interval_conflicts = match incoming_interval(
+        &header,
+        payload,
+        &index_actions,
+        &duplicate_decision_records,
+    ) {
         Ok(Some((top, base))) => match interval_preflight(
             conn,
             well_id,
@@ -505,6 +710,21 @@ pub fn import_dlis_file_with_unit_designation(
             conflict.incoming_base
         )
     }));
+    notes.extend(duplicate_decision_records.iter().map(|record| match record.action {
+        DlisDuplicateAction::KeepSeparate => format!(
+            "Duplicate {} frame {} kept separate in set {} (existing: {})",
+            record.mnemonic,
+            record.run,
+            record.target_set.as_deref().unwrap_or(""),
+            record.existing.join(", ")
+        ),
+        DlisDuplicateAction::SkipIncoming => format!(
+            "Duplicate {} frame {} skipped by explicit choice (existing: {})",
+            record.mnemonic,
+            record.run,
+            record.existing.join(", ")
+        ),
+    }));
     let unit_designations: Vec<crate::curves::UnitDesignation> = ms_per_ft_meaning
         .map(|meaning| {
             ambiguous
@@ -519,7 +739,7 @@ pub fn import_dlis_file_with_unit_designation(
     let mut offset = 0usize;
     let mut curves_imported = 0usize;
     let mut total_rows = 0usize;
-    let mut replaced = 0usize;
+    let replaced = 0usize;
     let mut unit_conversions = Vec::new();
     let mut unconverted_units = Vec::new();
     for (meta, index_action) in header.curves.iter().zip(index_actions.iter()) {
@@ -532,6 +752,20 @@ pub fn import_dlis_file_with_unit_designation(
         let mut values = read_f32(&payload[offset + bytes..end]);
         offset = end;
         apply_index_action(&mut depth, index_action);
+
+        if duplicate_decision_records.iter().any(|record| {
+            record.mnemonic.eq_ignore_ascii_case(&meta.mnemonic)
+                && record.run == meta.run
+                && record.action == DlisDuplicateAction::SkipIncoming
+        }) {
+            skipped.push(DlisSkip {
+                kind: "curve".into(),
+                name: format!("frame {} curve {}", meta.run, meta.mnemonic),
+                count: 1,
+                rule: "incoming duplicate skipped by explicit per-curve choice".into(),
+            });
+            continue;
+        }
 
         // DLIS absent/sentinel values arrive as non-finite or huge magnitudes; normalize to
         // NaN (the project-wide missing convention). Producers also embed LAS-style
@@ -603,20 +837,6 @@ pub fn import_dlis_file_with_unit_designation(
         // mapping collided with LAS RAW curves (also run_no NULL), so a DLIS silently
         // overwrote same-mnemonic LAS curves. Using Some(run) keeps both, preserving provenance.
         let run_no = Some(meta.run);
-
-        // Report (don't hide) any genuine overwrite — e.g. re-importing the same DLIS.
-        // Only possible in set RAW: a named set was auto-suffixed to a fresh name above.
-        let collides: bool = conn
-            .query_row(
-                "SELECT 1 FROM curve_meta WHERE well_id = ?1 AND set_name = ?4 AND mnemonic = ?2
-                 AND run_no IS NOT DISTINCT FROM ?3",
-                params![well_id, &meta.mnemonic, run_no, &target_set],
-                |_| Ok(true),
-            )
-            .unwrap_or(false);
-        if collides {
-            replaced += 1;
-        }
 
         // Sanitize the frame's depth column (drop non-finite + first-occurrence-wins dedup) the
         // same way the LAS paths do, so one bad/duplicate depth sample can't abort the whole DLIS
@@ -699,6 +919,8 @@ pub fn import_dlis_file_with_unit_designation(
         unit_designations,
         skipped,
         interval_conflicts,
+        duplicate_conflicts: Vec::new(),
+        duplicate_decisions: duplicate_decision_records,
         error: None,
     }
 }
@@ -830,6 +1052,66 @@ mod tests {
         )
         .unwrap();
         assert_eq!(accepted, conflict, "the accepted run retains the exact conflict as its audit record");
+    }
+
+    /// **An incoming DLIS mnemonic requires a recorded per-curve choice and never defaults to
+    /// merge.** `SB-DIO-036` / T52, sourced to data-I/O finding D-34. The undecided preflight is a
+    /// refusal with the old samples intact; `keep_separate` resolves an exact RAW collision to a
+    /// fresh set, while `skip_incoming` is recorded against that exact mnemonic and frame.
+    #[test]
+    fn an_incoming_dlis_mnemonic_requires_a_recorded_per_curve_choice_and_never_defaults_to_merge() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = Uuid::new_v4();
+        db::insert_well(&conn, well_id, "DLIS-DUP", None, None, None).unwrap();
+        let well = well_id.to_string();
+        let existing = db::upsert_curve_meta(
+            &conn,
+            &well,
+            "RAW",
+            "GR",
+            Some("GAPI"),
+            Some("GR"),
+            Some("earlier delivery"),
+            Some(0),
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &existing, &[1000.0, 1001.0], &[41.0, 42.0]).unwrap();
+        let incoming = vec![DlisCurveMeta {
+            mnemonic: "GR".into(),
+            unit: "GAPI".into(),
+            index_unit: "M".into(),
+            n: 2,
+            run: 0,
+        }];
+
+        let unresolved = duplicate_preflight(&conn, &well, "RAW", "RAW", &incoming, &[]).unwrap_err();
+        assert_eq!(unresolved.len(), 1);
+        assert_eq!((unresolved[0].mnemonic.as_str(), unresolved[0].run), ("GR", 0));
+        assert_eq!(unresolved[0].existing, vec!["RAW/run 0"]);
+        let old = db::get_curve_samples(&conn, &existing).unwrap();
+        assert_eq!(old.iter().map(|sample| sample.value).collect::<Vec<_>>(), vec![41.0, 42.0]);
+
+        let keep = [DlisDuplicateDecision {
+            mnemonic: "GR".into(),
+            run: 0,
+            action: DlisDuplicateAction::KeepSeparate,
+        }];
+        let (target, records) = duplicate_preflight(&conn, &well, "RAW", "RAW", &incoming, &keep).unwrap();
+        assert_eq!(target, "RAW_1", "keep-separate must not reuse the colliding identity");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].action, DlisDuplicateAction::KeepSeparate);
+        assert_eq!(records[0].target_set.as_deref(), Some("RAW_1"));
+
+        let skip = [DlisDuplicateDecision {
+            mnemonic: "GR".into(),
+            run: 0,
+            action: DlisDuplicateAction::SkipIncoming,
+        }];
+        let (target, records) = duplicate_preflight(&conn, &well, "RAW", "RAW", &incoming, &skip).unwrap();
+        assert_eq!(target, "RAW");
+        assert_eq!(records[0].action, DlisDuplicateAction::SkipIncoming);
+        assert!(records[0].target_set.is_none(), "a skipped curve has no invented destination");
     }
 
     /// Full DLIS import path, gated on a real DLIS file being present (ignored by default —

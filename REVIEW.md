@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-036: duplicate DLIS mnemonics never default to merge
+
+- [ ] Import a DLIS whose mnemonic/frame already exists anywhere on the selected well. Does the
+      preflight name every existing set/run and write nothing until you answer? Does **Keep
+      separate** place an exact RAW collision in a fresh set and record that choice per curve?
+      Is there no merge-into-existing default or action?
+
 ## 2026-08-09 — SB-DIO-035: DLIS interval extension needs confirmation
 
 - [ ] Import a DLIS whose converted index extends above or below the selected well's existing

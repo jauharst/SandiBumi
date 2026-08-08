@@ -1404,32 +1404,68 @@ export class Ribbon {
 
     setStatus(`Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`);
     try {
-      let result = await importDlisFile(well.well_id, path, setName, choice.fileDepthUnit, null, null);
-      if (result.error && result.interval_conflicts.length > 0) {
-        const detail = result.interval_conflicts
-          .map(
-            (conflict) =>
-              `${conflict.scope} ${conflict.name}: ${conflict.declared_top}-${conflict.declared_base}; ` +
-              `incoming ${conflict.incoming_top}-${conflict.incoming_base}`,
-          )
-          .join("\n");
-        const accepted = window.confirm(
-          `This DLIS falls outside an existing declared interval:\n\n${detail}\n\n` +
-            "Import those outside samples anyway? Nothing has been written yet.",
-        );
-        if (!accepted) {
-          setStatus("DLIS import stopped at the interval conflict; the existing range is unchanged.");
-          return;
-        }
-        setStatus(`Interval conflict accepted; importing DLIS into ${well.well_name}…`);
+      let intervalDecision: "accept_outside_declared_interval" | null = null;
+      let duplicateDecisions: Array<{
+        mnemonic: string;
+        run: number;
+        action: "keep_separate" | "skip_incoming";
+      }> | null = null;
+      let result: Awaited<ReturnType<typeof importDlisFile>>;
+      for (;;) {
         result = await importDlisFile(
           well.well_id,
           path,
           setName,
           choice.fileDepthUnit,
           null,
-          "accept_outside_declared_interval",
+          intervalDecision,
+          duplicateDecisions,
         );
+        if (result.error && result.duplicate_conflicts.length > 0 && duplicateDecisions === null) {
+          const detail = result.duplicate_conflicts
+            .map(
+              (conflict) =>
+                `${conflict.mnemonic} frame ${conflict.run}: ${conflict.existing.join(", ")}`,
+            )
+            .join("\n");
+          const keep = window.confirm(
+            `This well already holds the following DLIS mnemonic(s):\n\n${detail}\n\n` +
+              "Keep every incoming curve separate in this delivery? Cancel writes nothing. " +
+              "No merge-into-existing action is available.",
+          );
+          if (!keep) {
+            setStatus("DLIS import stopped at duplicate mnemonics; no existing curve was changed.");
+            return;
+          }
+          duplicateDecisions = result.duplicate_conflicts.map((conflict) => ({
+            mnemonic: conflict.mnemonic,
+            run: conflict.run,
+            action: "keep_separate",
+          }));
+          setStatus(`Duplicate choices recorded; checking DLIS intervals for ${well.well_name}…`);
+          continue;
+        }
+        if (result.error && result.interval_conflicts.length > 0 && intervalDecision === null) {
+          const detail = result.interval_conflicts
+            .map(
+              (conflict) =>
+                `${conflict.scope} ${conflict.name}: ${conflict.declared_top}-${conflict.declared_base}; ` +
+                `incoming ${conflict.incoming_top}-${conflict.incoming_base}`,
+            )
+            .join("\n");
+          const accepted = window.confirm(
+            `This DLIS falls outside an existing declared interval:\n\n${detail}\n\n` +
+              "Import those outside samples anyway? Nothing has been written yet.",
+          );
+          if (!accepted) {
+            setStatus("DLIS import stopped at the interval conflict; the existing range is unchanged.");
+            return;
+          }
+          intervalDecision = "accept_outside_declared_interval";
+          setStatus(`Interval conflict accepted; importing DLIS into ${well.well_name}…`);
+          continue;
+        }
+        break;
       }
       const skippedNote = result.skipped.length
         ? ` Skipped ${result.skipped.map((item) => `${item.kind} ${item.name} ×${item.count}: ${item.rule}`).join("; ")}.`
@@ -1437,16 +1473,13 @@ export class Ribbon {
       if (result.error) {
         setStatus(`DLIS import failed: ${result.error}.${skippedNote}`);
       } else {
-        // `replaced` can only be non-zero in RAW: a named set was auto-suffixed to a free
-        // name, so nothing of the earlier import was touched.
-        const replacedNote = result.replaced > 0 ? ` (replaced ${result.replaced} existing curve(s))` : "";
         const unitNote = result.notes.length ? ` ${result.notes.join("; ")}` : "";
         setStatus(
-          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${replacedNote}${unitNote}${skippedNote}`,
+          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${unitNote}${skippedNote}`,
         );
         recordProcess(
           "Import",
-          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${replacedNote}${unitNote}${skippedNote} ← ${path}`,
+          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${unitNote}${skippedNote} ← ${path}`,
           well.well_name,
         );
         this.workspace.notifyDataChanged();
@@ -1478,8 +1511,8 @@ export class Ribbon {
       hint.className = "form-hint";
       hint.textContent =
         "A name already used on this well is auto-suffixed (WIRE → WIRE_1), so a second tape " +
-        "never overwrites the first — import it, then compare. Leaving this as RAW keeps the " +
-        "old behaviour, where same-mnemonic channels of the same run are replaced.";
+        "never overwrites the first — import it, then compare. RAW duplicates also stop for a " +
+        "per-curve keep-separate or skip decision; merge-into-existing is never the default.";
       wrap.appendChild(hint);
 
       const undeclaredUnit = document.createElement("select");

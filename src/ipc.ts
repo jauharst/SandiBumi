@@ -4297,7 +4297,7 @@ export interface DlisImportResult {
   path: string;
   curves_imported: number;
   rows: number;
-  /** Existing RAW curves at the same (mnemonic, run) that this import overwrote. */
+  /** Legacy field; always zero now that duplicate curves require keep-separate or skip. */
   replaced: number;
   notes: string[];
   /** Every automatic value conversion performed by the importer. */
@@ -4313,7 +4313,28 @@ export interface DlisImportResult {
     incoming_top: number;
     incoming_base: number;
   }>;
+  duplicate_conflicts: DlisDuplicateConflict[];
+  duplicate_decisions: DlisDuplicateDecisionRecord[];
   error: string | null;
+}
+
+export type DlisDuplicateAction = "keep_separate" | "skip_incoming";
+
+export interface DlisDuplicateDecision {
+  mnemonic: string;
+  run: number;
+  action: DlisDuplicateAction;
+}
+
+export interface DlisDuplicateConflict {
+  mnemonic: string;
+  run: number;
+  existing: string[];
+}
+
+export interface DlisDuplicateDecisionRecord extends DlisDuplicateDecision {
+  existing: string[];
+  target_set: string | null;
 }
 
 /** Imports every scalar channel of a DLIS file into the selected well's generic store
@@ -4325,6 +4346,7 @@ export function importDlisFile(
   fileDepthUnit?: "M" | "FT" | null,
   msPerFtMeaning?: "microseconds_per_foot" | "millisiemens_per_foot" | null,
   outsideIntervalDecision?: "accept_outside_declared_interval" | null,
+  duplicateDecisions?: DlisDuplicateDecision[] | null,
 ): Promise<DlisImportResult> {
   return invoke<DlisImportResult>("import_dlis_file", {
     wellId,
@@ -4333,6 +4355,7 @@ export function importDlisFile(
     fileDepthUnit: fileDepthUnit ?? null,
     msPerFtMeaning: msPerFtMeaning ?? null,
     outsideIntervalDecision: outsideIntervalDecision ?? null,
+    duplicateDecisions: duplicateDecisions ?? null,
   });
 }
 
