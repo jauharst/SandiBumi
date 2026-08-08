@@ -153,6 +153,19 @@ fn parse_null_line(trimmed: &str) -> Option<f32> {
     trimmed.split(':').next()?.split_whitespace().last()?.parse::<f32>().ok()
 }
 
+fn parse_wrap_line(trimmed: &str) -> Option<bool> {
+    let declaration = trimmed.split(':').next().unwrap_or(trimmed);
+    let (mnemonic, rest) = declaration.split_once('.')?;
+    if !mnemonic.trim().eq_ignore_ascii_case("WRAP") {
+        return None;
+    }
+    match rest.split_whitespace().next()?.to_ascii_uppercase().as_str() {
+        "YES" => Some(true),
+        "NO" => Some(false),
+        _ => None,
+    }
+}
+
 enum LasSection {
     Header,
     WellBlock,
@@ -213,9 +226,12 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     // across multiple physical lines rather than one line per row. Accumulate tokens and
     // drain a full row's worth at a time instead of assuming line == row.
     let mut token_buffer: Vec<f32> = Vec::new();
+    let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
+    let mut wrapped = false;
 
-    for line in text.lines() {
+    for (line_index, line) in text.lines().enumerate() {
+        let line_number = line_index + 1;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -232,7 +248,12 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
         }
 
         match section {
-            LasSection::Header => continue,
+            LasSection::Header => {
+                if let Some(value) = parse_wrap_line(trimmed) {
+                    wrapped = value;
+                }
+                continue;
+            }
             LasSection::WellBlock => {
                 if let Some(n) = parse_null_line(trimmed) {
                     declared_null = Some(n);
@@ -280,10 +301,20 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                     continue;
                 }
 
-                for tok in trimmed.split_whitespace() {
+                let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+                if !wrapped && tokens.len() != expected_per_row {
+                    return Err(ParseError::Las(format!(
+                        "line {line_number}: ASCII row has {} value(s), but ~C declares {expected_per_row} columns (truncated or corrupt LAS)",
+                        tokens.len()
+                    )));
+                }
+                if token_buffer.is_empty() && !tokens.is_empty() {
+                    buffer_start_line = Some(line_number);
+                }
+                for tok in tokens {
                     let v: f32 = tok
                         .parse()
-                        .map_err(|e| ParseError::Las(format!("bad numeric token '{tok}': {e}")))?;
+                        .map_err(|e| ParseError::Las(format!("line {line_number}: bad numeric token '{tok}': {e}")))?;
                     // `f32::from_str` accepts "inf"/"-inf" and overflows a cell like `1.0E+40` to
                     // infinity. Everything downstream screens for missing with `is_nan()` only
                     // (modules::is_missing), so an infinity survives into the compute cores and
@@ -306,6 +337,9 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                             cand_buf[k][j].push(get(Some(ci)));
                         }
                     }
+                    if token_buffer.is_empty() {
+                        buffer_start_line = None;
+                    }
                 }
             }
         }
@@ -316,7 +350,8 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     // loudly rather than silently mis-columning the rest of the file.
     if !token_buffer.is_empty() {
         return Err(ParseError::Las(format!(
-            "ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            "line {}: ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            buffer_start_line.unwrap_or(0),
             token_buffer.len(),
             curve_names.len()
         )));
@@ -486,9 +521,12 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     let mut idx_depth: Option<usize> = None;
     let mut indices_resolved = false;
     let mut token_buffer: Vec<f32> = Vec::new();
+    let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
+    let mut wrapped = false;
 
-    for line in text.lines() {
+    for (line_index, line) in text.lines().enumerate() {
+        let line_number = line_index + 1;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -504,7 +542,12 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
         }
 
         match section {
-            LasSection::Header => continue,
+            LasSection::Header => {
+                if let Some(value) = parse_wrap_line(trimmed) {
+                    wrapped = value;
+                }
+                continue;
+            }
             LasSection::WellBlock => {
                 if let Some(n) = parse_null_line(trimmed) {
                     declared_null = Some(n);
@@ -542,9 +585,19 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                 if expected_per_row == 0 {
                     continue;
                 }
-                for tok in trimmed.split_whitespace() {
+                let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+                if !wrapped && tokens.len() != expected_per_row {
+                    return Err(ParseError::Las(format!(
+                        "line {line_number}: ASCII row has {} value(s), but ~C declares {expected_per_row} columns (truncated or corrupt LAS)",
+                        tokens.len()
+                    )));
+                }
+                if token_buffer.is_empty() && !tokens.is_empty() {
+                    buffer_start_line = Some(line_number);
+                }
+                for tok in tokens {
                     let v: f32 =
-                        tok.parse().map_err(|e| ParseError::Las(format!("bad numeric token '{tok}': {e}")))?;
+                        tok.parse().map_err(|e| ParseError::Las(format!("line {line_number}: bad numeric token '{tok}': {e}")))?;
                     token_buffer.push(v);
                 }
                 while token_buffer.len() >= expected_per_row {
@@ -552,6 +605,9 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                     for (i, raw) in row.iter().enumerate() {
                         let v = if is_null_value(*raw, declared_null) { f32::NAN } else { *raw };
                         columns[i].push(v);
+                    }
+                    if token_buffer.is_empty() {
+                        buffer_start_line = None;
                     }
                 }
             }
@@ -563,7 +619,8 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     // mis-columning the rest of the file.
     if !token_buffer.is_empty() {
         return Err(ParseError::Las(format!(
-            "ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            "line {}: ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            buffer_start_line.unwrap_or(0),
             token_buffer.len(),
             curve_names.len()
         )));

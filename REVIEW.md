@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-054: every discarded DLIS item is reported
+
+- [ ] Import a DLIS with one unreadable frame and one readable frame. Is the good frame imported
+      while every skipped frame/channel/row is named with a count and rule? Does an all-skipped
+      file fail instead of reporting an empty success?
+
 ## 2026-08-09 — SB-DIO-055: LAS export omissions are explicit
 
 - [ ] Export a well with many imported curves, including one duplicate mnemonic and one curve on

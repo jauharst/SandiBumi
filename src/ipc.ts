@@ -4215,6 +4215,7 @@ export interface DlisImportResult {
   /** Existing RAW curves at the same (mnemonic, run) that this import overwrote. */
   replaced: number;
   notes: string[];
+  skipped: Array<{ kind: string; name: string; count: number; rule: string }>;
   error: string | null;
 }
 

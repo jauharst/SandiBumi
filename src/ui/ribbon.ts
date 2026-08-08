@@ -1405,19 +1405,22 @@ export class Ribbon {
     setStatus(`Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`);
     try {
       const result = await importDlisFile(well.well_id, path, setName, choice.fileDepthUnit);
+      const skippedNote = result.skipped.length
+        ? ` Skipped ${result.skipped.map((item) => `${item.kind} ${item.name} ×${item.count}: ${item.rule}`).join("; ")}.`
+        : "";
       if (result.error) {
-        setStatus(`DLIS import failed: ${result.error}`);
+        setStatus(`DLIS import failed: ${result.error}.${skippedNote}`);
       } else {
         // `replaced` can only be non-zero in RAW: a named set was auto-suffixed to a free
         // name, so nothing of the earlier import was touched.
         const replacedNote = result.replaced > 0 ? ` (replaced ${result.replaced} existing curve(s))` : "";
         const unitNote = result.notes.length ? ` ${result.notes.join("; ")}` : "";
         setStatus(
-          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${replacedNote}${unitNote}`,
+          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${replacedNote}${unitNote}${skippedNote}`,
         );
         recordProcess(
           "Import",
-          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${replacedNote}${unitNote} ← ${path}`,
+          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${replacedNote}${unitNote}${skippedNote} ← ${path}`,
           well.well_name,
         );
         this.workspace.notifyDataChanged();
