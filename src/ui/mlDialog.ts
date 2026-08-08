@@ -233,7 +233,10 @@ const TASKS: TaskSpec[] = [
         params: [num("n_estimators", "trees", 300), num("learning_rate", "learning rate", 0.1), num("max_depth", "max depth", 4)] },
       { id: "svr", label: "Support Vector Regression", family: "svec", familyLabel: "Support Vector",
         desc: "Margin-of-tolerance hyperplane — performs well on smaller, localized datasets.",
-        params: [num("C", "C", 10), num("epsilon", "epsilon", 0.1)] },
+        // max_iter is the only bound on this fit — scikit-learn's default is -1, unlimited, and
+        // this is the one phase of a portfolio run that cannot be cancelled once it starts.
+        params: [num("C", "C", 10), num("epsilon", "epsilon", 0.1),
+                 num("max_iter", "max iterations (-1 = no limit)", -1)] },
       { id: "ann", label: "Neural Network (MLP)",
         desc: "Multi-layer perceptron for complex multi-curve patterns; needs plenty of data.",
         params: [txt("hidden", "hidden layers", "64,32"), num("max_iter", "max iterations", 500)] },
@@ -251,7 +254,8 @@ const TASKS: TaskSpec[] = [
     algos: [
       { id: "svm", label: "Support Vector Machine", family: "svec",
         desc: "Non-linear separator for distinct rock types via high-dimensional mapping.",
-        params: [num("C", "C", 10)] },
+        // As SVR, and slower still: probability outputs add an internal cross-validation on top.
+        params: [num("C", "C", 10), num("max_iter", "max iterations (-1 = no limit)", -1)] },
       { id: "knn", label: "K-Nearest Neighbors",
         desc: "Labels each sample by the most common class among its nearest neighbours.",
         params: [num("n_neighbors", "neighbours", 7)] },

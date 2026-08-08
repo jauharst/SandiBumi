@@ -144,7 +144,19 @@ def build_model(task, algo, p, seed):
                     "xgboost not installed - used sklearn HistGradientBoosting (pip install xgboost)"
         if algo == "svr":
             from sklearn.svm import SVR
-            return SVR(C=float(P(p, "C", 10.0)), epsilon=float(P(p, "epsilon", 0.1))), None
+            # `max_iter` is the ONLY bound on this fit. scikit-learn's own default is -1, meaning
+            # unlimited, and SVR gets slow superlinearly with sample count - on a pooled field-scale
+            # set it is the one phase that can run for an hour with no progress and no working
+            # Cancel. The default stays -1 so no existing run changes its answer; what changes is
+            # that the user can now set it, and that the dialog says what -1 costs.
+            #
+            # An ITERATION bound rather than a stopwatch, deliberately (Jauhar, 2026-08-08:
+            # "everything we can do and report in sandibumi, it should be re-producible"). Stopping
+            # after 500 iterations gives the same model on every machine; stopping after ten minutes
+            # gives a different one on a faster laptop, and a curve nobody else can reproduce.
+            # Hitting it raises ConvergenceWarning, which `fit_model` already reports.
+            return SVR(C=float(P(p, "C", 10.0)), epsilon=float(P(p, "epsilon", 0.1)),
+                       max_iter=int(P(p, "max_iter", -1))), None
         if algo == "ann":
             from sklearn.neural_network import MLPRegressor
             hidden = tuple(int(t) for t in str(P(p, "hidden", "64,32")).replace(" ", "").split(",") if t)
@@ -161,7 +173,10 @@ def build_model(task, algo, p, seed):
     elif task == "classification":
         if algo == "svm":
             from sklearn.svm import SVC
-            return SVC(C=float(P(p, "C", 10.0)), probability=True, random_state=seed), None
+            # Same unbounded fit as SVR above, and worse: `probability=True` fits an internal
+            # Platt-scaling cross-validation on top, so the work is several times the plain fit.
+            return SVC(C=float(P(p, "C", 10.0)), probability=True, random_state=seed,
+                       max_iter=int(P(p, "max_iter", -1))), None
         if algo == "knn":
             from sklearn.neighbors import KNeighborsClassifier
             return KNeighborsClassifier(n_neighbors=int(P(p, "n_neighbors", 7))), None
@@ -4613,6 +4628,35 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 });
             }
 
+            // SB-MLA-065. The other way a set ends up covering part of a field: the run FINISHED,
+            // and some wells produced nothing. That is a data finding rather than a failure and it
+            // is already reported per well — but only in this result panel, which is closed by the
+            // time anybody reads the curve. Stamped only when the run was NOT cancelled, or the two
+            // marks would both describe the same partial coverage and disagree about the reason.
+            if cancelled_wells == 0 && !written_sets.is_empty() && written_sets.len() < apply.len() {
+                let missing = apply.len() - written_sets.len();
+                let conn = db.lock().unwrap();
+                let n = mark_incomplete_sets(
+                    &conn,
+                    &written_sets,
+                    "partial",
+                    written_sets.len(),
+                    apply.len(),
+                    format!(
+                        "this run completed but wrote {} of {} well(s); the other {missing} produced \
+                         nothing - they had no usable samples or failed, and are listed by name in \
+                         the run's own result. The field is covered in part",
+                        written_sets.len(),
+                        apply.len()
+                    ),
+                );
+                notes.push(format!(
+                    "{n} log set(s) are marked as covering part of the field: this run wrote {} of {} well(s), and the other {missing} produced nothing. Without the mark those sets read as a complete run over a smaller well selection",
+                    written_sets.len(),
+                    apply.len()
+                ));
+            }
+
             if let Some(step) = out_step {
                 // Stated whether or not it changed anything, and the "no blocks" case is stated too:
                 // a resolution setting that silently did nothing is the one a reader would go on
@@ -4647,6 +4691,39 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
 /// cancellation is not a separate event: it is how THIS run ended, and the run record is not complete
 /// until the run is. Stamping it here finishes the record rather than revising it.
 fn mark_cancelled_sets(conn: &Connection, set_ids: &[String], written: usize, in_scope: usize) -> usize {
+    mark_incomplete_sets(
+        conn,
+        set_ids,
+        "cancelled",
+        written,
+        in_scope,
+        format!(
+            "this run was cancelled after {written} of {in_scope} well(s); the field is covered in \
+             part, and the wells missing this set were cut, not excluded"
+        ),
+    )
+}
+
+/// SB-MLA-065 — the same stamp for a run that FINISHED without covering every well.
+///
+/// Cancellation was already recorded (`SB-MLA-017`); this is the other way a set ends up on part of
+/// a field. A run over eighty wells where twelve carried no usable samples completes normally, says
+/// so in the result panel, and leaves sixty-eight sets that are indistinguishable from a complete
+/// run over a smaller selection — because the set name and module string are the ones a complete
+/// run writes. The panel is closed by the time anyone reads the curve; the curve outlives the
+/// report of how it was made.
+///
+/// Deliberately the SAME carrier as the cancelled mark rather than a new column. Two mechanisms
+/// recording "this set does not cover the field" is two places for a reader to have to look, and
+/// one of them will eventually not be updated.
+fn mark_incomplete_sets(
+    conn: &Connection,
+    set_ids: &[String],
+    key: &str,
+    written: usize,
+    in_scope: usize,
+    note: String,
+) -> usize {
     let mut done = 0usize;
     for set_id in set_ids {
         let current: Option<String> = conn
@@ -4662,14 +4739,12 @@ fn mark_cancelled_sets(conn: &Connection, set_ids: &[String], written: usize, in
             // throw away whatever it was. Leave it and let the count say fewer were marked.
             continue;
         }
-        rec["cancelled"] = serde_json::json!({
+        rec[key] = serde_json::json!({
             "wells_written": written,
             "wells_in_scope": in_scope,
             // In words, because this object is read by a person deciding whether to deliver the
             // curve, not only by code deciding whether to show a badge.
-            "note": format!(
-                "this run was cancelled after {written} of {in_scope} well(s); the field is covered in part, and the wells missing this set were cut, not excluded"
-            ),
+            "note": note,
         });
         let Ok(text) = serde_json::to_string(&rec) else { continue };
         if conn
@@ -9342,6 +9417,65 @@ mod tests {
         let ev = metrics["explained_variance_pct"].as_array().unwrap();
         let total: f64 = ev.iter().map(|v| v.as_f64().unwrap()).sum();
         assert!(total > 99.0, "explained variance = {total}%");
+    }
+
+    /// A run that FINISHED without covering every well leaves sets that read exactly like a
+    /// complete run over a smaller selection — same set name, same module string.
+    ///
+    /// Cancellation was already marked (`SB-MLA-017`). This is the other route to partial coverage,
+    /// and the one that looks normal: twelve wells with no usable samples is a data finding, the run
+    /// succeeds, and the only place it is said is a result panel that is closed by the time anybody
+    /// reads the curve.
+    ///
+    /// Pinned from both sides. A run that covered every well must stamp NOTHING, or the mark stops
+    /// meaning anything; and the two marks must stay distinguishable, because "cancelled" and "some
+    /// wells had no data" call for opposite responses — re-run it, versus go and look at the wells.
+    #[test]
+    fn a_run_that_finished_without_covering_every_well_says_so_and_a_complete_one_stays_silent() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-1", None, None, Some(0.0)).unwrap();
+        let well = wid.to_string();
+        let spec = crate::equations::LogSetSpec {
+            set_name: "ML".into(),
+            module: "ml:regression:rf".into(),
+            params_json: serde_json::json!({ "algorithm": "rf" }).to_string(),
+            inputs_json: "[]".into(),
+        };
+        let mk = || crate::equations::create_log_set(&conn, &well, &spec).unwrap().0;
+        let read = |id: &str| -> serde_json::Value {
+            let s: Option<String> = conn
+                .query_row("SELECT params_json FROM log_sets WHERE set_id = ?1", duckdb::params![id], |r| r.get(0))
+                .unwrap();
+            serde_json::from_str(&s.unwrap_or_default()).unwrap_or(serde_json::json!({}))
+        };
+
+        // 68 of 80 wells: marked, and the ORIGINAL params survive the stamp.
+        let partial = mk();
+        assert_eq!(mark_incomplete_sets(&conn, &[partial.clone()], "partial", 68, 80, "n".into()), 1);
+        let rec = read(&partial);
+        assert_eq!(rec["partial"]["wells_written"].as_u64(), Some(68));
+        assert_eq!(rec["partial"]["wells_in_scope"].as_u64(), Some(80));
+        assert_eq!(rec["algorithm"], "rf", "the stamp must not throw away the run's own parameters");
+        assert!(rec.get("cancelled").is_none(), "a finished run is not a cancelled one");
+
+        // A cancelled run keeps its own distinct key — the two reasons are not interchangeable.
+        let cancelled = mk();
+        assert_eq!(mark_cancelled_sets(&conn, &[cancelled.clone()], 68, 80), 1);
+        let rec = read(&cancelled);
+        assert!(rec["cancelled"]["note"].as_str().is_some_and(|s| s.contains("cancelled")));
+        assert!(rec.get("partial").is_none(), "a cancelled run is not a merely-incomplete one");
+
+        // The other side: a set from a run that covered everything carries neither mark. Nothing
+        // stamps it, so this asserts the CALLER's guard is what it is — see run_ml, where the mark
+        // is only reached when written_sets.len() < apply.len().
+        let complete = mk();
+        let rec = read(&complete);
+        assert!(
+            rec.get("partial").is_none() && rec.get("cancelled").is_none(),
+            "an unmarked set must stay unmarked, or the mark means nothing: {rec}",
+        );
     }
 
     /// A transform is declared by NAME and resolved to the feature ORDER, and both ways of getting

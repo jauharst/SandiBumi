@@ -9777,3 +9777,59 @@ re-applied from a saved model with any confidence.
 - [ ] **Try a transform on a curve, then untick that curve from the inputs and run.** It should
       refuse and name the curve rather than quietly ignoring the setting.
 - [ ] **Leave everything as measured and run.** The result must be identical to before this existed.
+
+## A run that covered part of the field now says so, and the fit has a ceiling (2026-08-08)
+
+Two halves of SB-MLA-065, both about the same thing: a batch run reports its outcome in a panel
+that is closed by Monday, while the curve it wrote is still there.
+
+### The fit could run forever, and now you set the limit
+
+`SVR` and `SVC` were built without `max_iter`, and scikit-learn's default there is **-1 — no
+limit**. Those two get slow very fast as the pooled sample count grows, and the fit is the one
+phase of a run with no progress and no working Cancel: the app just looks frozen, and you cannot
+tell "working hard" from "stuck". Both now take a **max iterations** setting.
+
+**It is an iteration count, not a stopwatch, and that was your call** — *"everything we can do and
+report in sandibumi, it should be re-producible"*. Stopping after 500 iterations gives the same
+model on every machine. Stopping after ten minutes gives a different model on a faster laptop, and
+a curve nobody else could reproduce.
+
+**The default stays -1, so nothing you have run before changes its answer.** What changes is that
+the setting exists, says what -1 costs, and is recorded with the run. When a finite limit is hit,
+scikit-learn raises the same `ConvergenceWarning` that now produces the *"this fit did not
+converge"* message — so the reporting was already built.
+
+- [ ] **Set max iterations on Support Vector Regression** — try something small like 200 on a
+      decent-sized run. You should get the "did not converge" message, naming the limit.
+- [ ] **Leave it at -1 and confirm nothing changed** versus a run you made before today.
+- [ ] **Check the run's recorded parameters** show the value you set, so the run can be repeated.
+
+### A run that skipped wells no longer looks complete
+
+A cancelled run was already marked. The gap was the run that **finishes normally**: you run 80
+wells, 12 have no usable samples, the run succeeds and tells you so — and leaves 68 log sets that
+are indistinguishable from a complete run over a smaller well selection, because the set name and
+the module string are the ones a complete run writes.
+
+Those sets are now stamped as covering part of the field, with the counts and a plain-language
+note, in the same place the cancelled mark lives — **not** a second mechanism, because two places
+recording "this set does not cover the field" is one place that eventually stops being updated.
+
+The two marks stay distinguishable on purpose: *cancelled* and *some wells had no data* call for
+opposite responses — re-run it, versus go and look at those wells.
+
+- [ ] **Run ML over a well selection where some wells lack an input curve.** The run should succeed,
+      and the note should say how many wells produced nothing.
+- [ ] **Open the Curve Catalog on a well that DID get the curve.** Its set should carry the mark
+      saying the field is covered in part.
+- [ ] **Run over wells that all have the inputs.** No mark at all — if a complete run got stamped,
+      the mark would stop meaning anything.
+- [ ] **Cancel a run part-way** and confirm you get the *cancelled* wording, not this one.
+
+### Not done
+
+SB-MLA-065 also mentioned a wall-clock backstop for algorithms with no iteration count. Deferred
+deliberately: a default that refuses would change what your existing runs do, and a default that
+does not refuse adds nothing — so the cap would have to be a number you choose, which is its own
+decision.
