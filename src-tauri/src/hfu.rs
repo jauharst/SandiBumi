@@ -98,55 +98,11 @@ struct Plug {
     x: f64, // log10(fzi)
 }
 
-/// Exact optimal K-partition of a SORTED slice minimizing total within-cluster sum of squares
-/// (the Ward criterion). Returns the 0-based cluster id of each element in sorted order.
+/// The Ward criterion over FZI **sorted by value** — one implementation, shared with
+/// `lorenz.rs` (`SB-MLA-025`). This used to be a local copy of the same dynamic program.
+/// Sorted-value ordering is what makes a cluster a rock TYPE here rather than an interval of hole.
 fn ward_partition(sorted: &[f64], k: usize) -> Vec<usize> {
-    let m = sorted.len();
-    if k <= 1 || m == 0 {
-        return vec![0; m];
-    }
-    // Prefix sums for O(1) segment SS: cost[a,b) = Σx² − (Σx)²/(b−a).
-    let mut ps = vec![0.0f64; m + 1];
-    let mut ps2 = vec![0.0f64; m + 1];
-    for i in 0..m {
-        ps[i + 1] = ps[i] + sorted[i];
-        ps2[i + 1] = ps2[i] + sorted[i] * sorted[i];
-    }
-    let cost = |a: usize, b: usize| -> f64 {
-        let cnt = (b - a) as f64;
-        if cnt <= 0.0 {
-            return 0.0;
-        }
-        let s = ps[b] - ps[a];
-        (ps2[b] - ps2[a] - s * s / cnt).max(0.0)
-    };
-    let k = k.min(m);
-    let inf = f64::INFINITY;
-    // dp[j][i] = min WCSS of the first i elements split into j clusters.
-    let mut dp = vec![vec![inf; m + 1]; k + 1];
-    let mut arg = vec![vec![0usize; m + 1]; k + 1];
-    dp[0][0] = 0.0;
-    for j in 1..=k {
-        for i in j..=m {
-            for t in (j - 1)..i {
-                let c = dp[j - 1][t] + cost(t, i);
-                if c < dp[j][i] {
-                    dp[j][i] = c;
-                    arg[j][i] = t;
-                }
-            }
-        }
-    }
-    let mut assign = vec![0usize; m];
-    let mut i = m;
-    for j in (1..=k).rev() {
-        let t = arg[j][i];
-        for a in assign.iter_mut().take(i).skip(t) {
-            *a = j - 1;
-        }
-        i = t;
-    }
-    assign
+    crate::distribution::WardDp::new(sorted, k, crate::distribution::WardOrder::SortedValue).assign(k)
 }
 
 /// Boundaries (in x = log10 FZI) at up to K−1 deepest interior antimodes of the histogram of
@@ -321,6 +277,15 @@ pub fn run_hfu_cluster(db: &Mutex<Connection>, req: &HfuRequest) -> HfuResult {
                 "using {n_clusters_actual} HFU(s) — the data has only {distinct} distinct FZI level(s) (requested {requested})"
             ))
         }
+    } else if method == "ward" {
+        // SB-MLA-025. The Ward criterion has one implementation and three applications, and the
+        // ordering is what distinguishes them — so the variant travels with the result rather than
+        // being inferred from which module produced it. In the NOTE and not in `method`, because
+        // `method` is a typed request/response enum (`HfuMethod`) that a caller matches on.
+        Some(format!(
+            "clustered by {} — the Ward criterion applied to FZI sorted by VALUE, so a unit is a rock type. The same criterion over depth order (flow-unit segmentation) answers a different question",
+            crate::distribution::WardOrder::SortedValue.name()
+        ))
     } else {
         None
     };

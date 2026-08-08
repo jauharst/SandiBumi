@@ -9833,3 +9833,42 @@ SB-MLA-065 also mentioned a wall-clock backstop for algorithms with no iteration
 deliberately: a default that refuses would change what your existing runs do, and a default that
 does not refuse adds nothing — so the cap would have to be a number you choose, which is its own
 decision.
+
+## One Ward criterion instead of two copies of it (2026-08-08)
+
+The Ward minimum-variance criterion — the thing that decides where one flow unit ends and the next
+begins — existed **twice**, once in the HFU tool and once in the Lorenz tool. Not two similar
+routines: the same dynamic program, line for line, differing only in what each handed back. Each
+also carried its own copy of the backtracking step that turns the table into cluster numbers.
+
+Two copies of one criterion is two places for it to drift, and the drift would be **silent** — both
+would go on producing a plausible-looking partition, and nothing would report that the two tools had
+started disagreeing about the same arithmetic.
+
+There is now one implementation, in the shared statistics core beside the percentiles and the
+histogram, and both tools call it.
+
+### The part that is not shared, and should not be
+
+What genuinely differs between the two is **the order the values are put in before the criterion
+runs**, and that changes the geological question completely:
+
+- **HFU** sorts FZI **by value**. A cluster is then a rock TYPE — plugs from anywhere in the well
+  with similar flow character group together.
+- **Lorenz** keeps **depth order**. A cluster is then an interval of HOLE — a flow unit with a top
+  and a base.
+- The ML pane's agglomerative clustering has **no ordering constraint** at all.
+
+Same criterion, three questions. So the ordering is now *declared* by whichever tool is calling,
+travels with the result, and is named — `ward:sorted-value`, `ward:depth-contiguous`, `ward:free`.
+The HFU result says which one produced it, in words.
+
+- [ ] **Run HFU with the Ward method** on a core set you have run before, and confirm the units come
+      out the same as they used to. This was a refactor — the numbers must not have moved.
+- [ ] **Read the note on that result.** It should name `ward:sorted-value` and say that a unit here
+      is a rock type, not an interval of hole.
+- [ ] **Run the Lorenz flow-unit segmentation** on a well you have run before. Same check: the unit
+      boundaries must be identical to what you had.
+- [ ] **The thing worth understanding rather than clicking:** the two tools now share the same
+      arithmetic and still give different answers on the same well, because one sorts by value and
+      the other keeps depth order. That difference is real and intended.
