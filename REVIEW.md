@@ -9999,3 +9999,45 @@ only told those when a model is being saved, which for clustering never happens.
       rejected samples are excluded from every column rather than dragging a cluster's mean.
 - [ ] **Compare a swatch colour against the FACIES track** in a log view — they should be the same
       colour for the same id.
+
+## What is each curve worth? (ranked predictor combinations)
+
+Compare ▸ **Every combination (what is each curve worth?)**. The leaderboard already scored
+algorithm × curve-subset combinations; what it never did was enumerate them, or answer the question
+you would actually ask before the next well: **which logs do I need to run?**
+
+**The answer is best-with minus best-without.** For each curve: the best score reachable by any
+combination that includes it, minus the best reachable by any combination without it. A curve near
+zero is one the others already cover for — you can stop running that tool.
+
+**This is deliberately not permutation importance**, which is what the leaderboard already showed.
+Importance asks how much *one model* leans on a curve, and that understates any curve with a
+stand-in: drop RHOB from a run that also has DT and a tree ensemble simply leans on DT, so RHOB
+reads unimportant while the field would genuinely lose nothing by not logging it. Same conclusion,
+but arrived at by re-fitting without the curve rather than by shuffling it inside one model.
+
+**Two readings that are easy to confuse and must not be.** A curve showing `+0.000` was scored
+without and added nothing. A curve showing `—` was in *every* combination scored, so its value was
+never measured at all. Those are opposite findings and they would send a logging decision in
+opposite directions, so the second is never printed as a zero.
+
+Scored on the same whole-well GroupKFold as the rest of the leaderboard — held-out **wells**, not
+held-out rows — so the number answers "what will the next well score", which is the question a
+logging decision turns on.
+
+There are 2^n − 1 combinations, so a cap is unavoidable. They are enumerated **largest first**, so
+what a cap drops is always the smallest combinations, and the full set plus every drop-one set are
+always scored first. The run says how many it reached and whether the per-curve answer is complete.
+
+- [ ] **Run it on a target you already understand** (say PEF from GR/RHOB/NPHI/DT). Check the
+      ranking against your own expectation before trusting it on something you don't.
+- [ ] **Find a curve worth ~0.00** and confirm from the leaderboard that dropping it really does
+      leave the top score unchanged.
+- [ ] **Watch for a negative worth.** A curve that makes the best model *worse* is a real result —
+      usually noise, a bad splice, or a curve that is missing over half the interval.
+- [ ] **Check the `—` rows.** With few curves everything gets dropped at least once; with many, the
+      cap may not reach that far, and the note says so.
+- [ ] **Compare the ranking against the importance column** in the leaderboard below. Where they
+      disagree, the disagreement is the interesting part — that is a curve with a stand-in.
+- [ ] **Re-run with a different seed.** The ranking should be stable; if it is not, the differences
+      between those curves are inside the noise and none of them is worth much.

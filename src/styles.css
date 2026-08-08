@@ -5649,6 +5649,31 @@ textarea {
   line-height: 1.45;
 }
 
+/* What each curve is worth. Sits above the model leaderboard, so it needs to read as its own
+   answer rather than as a header for the table below it. */
+.ml-curve-value {
+  margin: 10px 0 14px;
+}
+.ml-curve-value-table td {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* A curve that carries real score, and one the others already cover for. Colour is the fast read
+   and the number is the actual answer — never colour alone, and the accent pair is the same one
+   the client skins re-roll, so this follows a theme rather than pinning green/red into it. */
+.ml-cv-worth {
+  color: var(--accent-dim, #a4551f);
+  font-weight: 600;
+}
+.ml-cv-spare {
+  color: color-mix(in srgb, var(--text-dim, #6f6857) 50%, var(--text, #241d15));
+}
+/* Never measured. Deliberately NOT styled like a zero — it is the absence of an answer. */
+.ml-cv-unknown {
+  color: var(--text-dim, #6f6857);
+  font-style: italic;
+}
+
 /* The cluster fingerprint table. Data UI, so it stays DENSE — the Organic split is chrome goes
    warm and rounded, grids and tables keep their professional density. A field with forty-six
    clusters has to fit on a laptop. */

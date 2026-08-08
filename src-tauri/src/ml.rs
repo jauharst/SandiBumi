@@ -5930,6 +5930,13 @@ pub struct MlEvalRequest {
     /// Feature subsets to try (each a subset of feature_curves by name); empty → the full set only.
     #[serde(default)]
     pub subsets: Vec<Vec<String>>,
+    /// Score EVERY non-empty combination of `feature_curves` instead of the listed `subsets`.
+    ///
+    /// The question this answers is not "which model is best" but "which curves do I actually need",
+    /// which is what decides whether the next well runs a tool. Overrides `subsets` when set —
+    /// enumerating and then intersecting with a hand-written list would answer neither question.
+    #[serde(default)]
+    pub enumerate_subsets: bool,
     #[serde(default)]
     pub standardize: bool,
     #[serde(default)]
@@ -6044,6 +6051,10 @@ pub struct MlEvalResult {
     /// and density is the first thing anybody judges from a crossplot.
     pub blind_sampled: usize,
     pub blind_total: usize,
+    /// What each input curve is worth, measured by dropping it — see [`CurveValue`]. Empty unless
+    /// at least two curve combinations were scored, because with one there is nothing to compare.
+    #[serde(default)]
+    pub curve_value: Vec<CurveValue>,
     pub error: Option<String>,
 }
 
@@ -6061,6 +6072,7 @@ fn eval_fail(msg: &str) -> MlEvalResult {
         blind_well: vec![],
         blind_sampled: 0,
         blind_total: 0,
+        curve_value: vec![],
         error: Some(msg.to_string()),
     }
 }
@@ -6068,6 +6080,125 @@ fn eval_fail(msg: &str) -> MlEvalResult {
 /// Cap on total (algorithm x subset) combos evaluated in one leaderboard run — a full-subset
 /// sweep over many curves would otherwise fit thousands of models. Excess is dropped with a note.
 const MAX_COMBOS: usize = 80;
+
+/// Every non-empty subset of `d` features, LARGEST FIRST, stopping at `cap`.
+///
+/// **Order is the whole design.** There are 2^d − 1 of these and a cap is unavoidable, so what
+/// matters is which ones a cap drops. Largest-first means it drops the smallest — and it guarantees
+/// that the full set and every drop-one set come first, which are exactly the runs
+/// [`curve_values`] needs to say what each curve is worth. Enumerated in bit order instead, a cap
+/// would drop an arbitrary scatter and leave some curve never scored against a run without it,
+/// with nothing in the table showing which.
+fn subsets_largest_first(d: usize, cap: usize) -> Vec<Vec<usize>> {
+    let mut out: Vec<Vec<usize>> = Vec::new();
+    if d == 0 || cap == 0 {
+        return out;
+    }
+    for size in (1..=d).rev() {
+        let mut idx: Vec<usize> = (0..size).collect();
+        loop {
+            out.push(idx.clone());
+            if out.len() >= cap {
+                return out;
+            }
+            // Next combination in lexicographic order: advance the rightmost index that still has
+            // room, then repack everything after it tight against it.
+            let mut i = size;
+            let mut advanced = false;
+            while i > 0 {
+                i -= 1;
+                if idx[i] < d - size + i {
+                    idx[i] += 1;
+                    for j in (i + 1)..size {
+                        idx[j] = idx[j - 1] + 1;
+                    }
+                    advanced = true;
+                    break;
+                }
+            }
+            if !advanced {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// What one input curve is WORTH, measured by dropping it.
+///
+/// A leaderboard ranks models. This ranks CURVES, which is the question that decides whether the
+/// next well runs a tool — and it is a different question: a curve can be in the winning model and
+/// still be worth nothing, because the model would have scored the same without it.
+#[derive(Debug, Clone, Serialize)]
+pub struct CurveValue {
+    pub curve: String,
+    /// Best blind score among scored combinations that INCLUDE this curve.
+    pub best_with: Option<f64>,
+    /// Best among those that EXCLUDE it. `None` where every scored combination carried it — the
+    /// question was never asked, which is not the same as the answer being zero.
+    pub best_without: Option<f64>,
+    /// `best_with − best_without`: what having this curve buys, in the score's own units.
+    pub gain: Option<f64>,
+    /// Whether the single best-scoring combination overall uses it.
+    pub in_best: bool,
+}
+
+/// Rank the input curves by what dropping each one costs.
+///
+/// **Best-with minus best-without, not the winning model's own importance.** Permutation importance
+/// answers "how much does THIS model lean on this curve", which understates a curve that has a
+/// stand-in: drop RHOB from a run that also has DT and a tree ensemble leans on DT instead, so
+/// RHOB's importance reads low while the field would still lose nothing by not logging it. The
+/// question here is what the BEST ACHIEVABLE answer loses, which is what a logging decision turns
+/// on, so it is measured across whole re-fits rather than inside one.
+fn curve_values(rows: &[MlEvalRow], features: &[String]) -> Vec<CurveValue> {
+    let scored: Vec<(&Vec<String>, f64)> =
+        rows.iter().filter_map(|r| r.score.map(|s| (&r.features, s))).collect();
+    // Two combinations at minimum, or there is nothing to compare and every "value" would be an
+    // artefact of having asked once.
+    if scored.len() < 2 {
+        return Vec::new();
+    }
+    let best_set: Vec<String> = scored
+        .iter()
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(f, _)| (*f).clone())
+        .unwrap_or_default();
+
+    let best_of = |keep: bool, c: &String| -> Option<f64> {
+        scored
+            .iter()
+            .filter(|(f, _)| f.contains(c) == keep)
+            .map(|(_, s)| *s)
+            .max_by(f64::total_cmp)
+    };
+
+    let mut out: Vec<CurveValue> = features
+        .iter()
+        .map(|c| {
+            let (w, wo) = (best_of(true, c), best_of(false, c));
+            CurveValue {
+                curve: c.clone(),
+                best_with: w,
+                best_without: wo,
+                gain: match (w, wo) {
+                    (Some(a), Some(b)) => Some(a - b),
+                    _ => None,
+                },
+                in_best: best_set.contains(c),
+            }
+        })
+        .collect();
+    // Most valuable first — the reading is "run these, and these buy you nothing". A curve whose
+    // value could not be measured sorts last rather than as if it were worth zero.
+    out.sort_by(|a, b| match (a.gain, b.gain) {
+        (Some(x), Some(y)) => y.total_cmp(&x),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+    out
+}
 
 /// The one place the two leaderboard scores are described, shipped to the renderer so the table
 /// cannot word them differently from the code that computes them.
@@ -6185,7 +6316,36 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
     // Build the (algorithm x subset) combos as feature-index lists into `features`.
     let idx_of = |name: &str| features.iter().position(|f| f == name);
     let mut subset_idx: Vec<Vec<usize>> = Vec::new();
-    if req.subsets.is_empty() {
+    let mut enum_note: Option<String> = None;
+    if req.enumerate_subsets {
+        // The budget is per ALGORITHM, so a two-algorithm ablation does not get half its curve
+        // combinations silently chopped by the shared combo cap below — which truncates the
+        // algorithm×subset list in order and would take every subset from the first algorithm and
+        // almost none from the second, producing a table that looks like a comparison and is not.
+        let per_algo = (MAX_COMBOS / algos.len().max(1)).max(1);
+        subset_idx = subsets_largest_first(d, per_algo);
+        let full = (1u64 << d.min(63)) - 1;
+        if (subset_idx.len() as u64) < full {
+            // Largest-first, so what a cap drops is always the SMALLEST combinations. Whether the
+            // per-curve value below is still complete depends on whether the drop-one sets survived
+            // — with those, every curve has been both included and excluded at least once, which is
+            // exactly what the comparison needs. Said only when true: a note claiming completeness
+            // it does not have is worse than the cap it is explaining.
+            let complete = subset_idx.len() >= 1 + d;
+            enum_note = Some(format!(
+                "scored the {} largest of {full} curve combinations (cap) — the ones left out are \
+                 the smallest. {}",
+                subset_idx.len(),
+                if complete {
+                    "The full set and every drop-one set were scored, so the per-curve value is a \
+                     complete comparison."
+                } else {
+                    "Not every drop-one set was reached, so a curve shown without a value was never \
+                     scored against a run lacking it — narrow the curve list to get a full answer."
+                },
+            ));
+        }
+    } else if req.subsets.is_empty() {
         subset_idx.push((0..d).collect());
     } else {
         let mut seen: std::collections::HashSet<Vec<usize>> = std::collections::HashSet::new();
@@ -6211,6 +6371,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
     // Both notes matter and neither may silently replace the other: a truncated leaderboard reads
     // as "all of them", and a log-space score reads as a linear-space one.
     let mut notes: Vec<String> = eval_note.into_iter().collect();
+    notes.extend(enum_note);
     if combos.len() > MAX_COMBOS {
         notes.push(format!(
             "evaluated the first {MAX_COMBOS} of {} algorithm×subset combos (cap) — narrow the algorithms or subsets",
@@ -6284,6 +6445,8 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                 .iter()
                 .map(|&g| train_names.get(g).cloned().unwrap_or_else(|| "?".to_string()))
                 .collect();
+            // After the sort, so `in_best` reads the same winner the table shows.
+            let curve_value = curve_values(&rows, &features);
             MlEvalResult {
                 rows,
                 n_train,
@@ -6297,6 +6460,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                 blind_well,
                 blind_sampled: py.blind_sampled,
                 blind_total: py.blind_total,
+                curve_value,
                 error: None,
             }
         }
@@ -9611,6 +9775,7 @@ mod tests {
             params: Default::default(),
             params_for: None,
             subsets: vec![],
+            enumerate_subsets: false,
             standardize: false,
             seed: Some(42),
             folds: Some(5),
@@ -10252,6 +10417,100 @@ mod tests {
 
         let total: i64 = stats.iter().map(|s| s["n"].as_i64().unwrap_or(0)).sum();
         assert_eq!(total, 300, "every clustered sample belongs to exactly one row: {stats:?}");
+    }
+
+    /// There are 2^n − 1 curve combinations and a cap is unavoidable, so the contract is not that
+    /// everything is scored — it is WHICH ones a cap gives up.
+    ///
+    /// Largest-first means the full set and every drop-one set are scored before anything else, and
+    /// those are exactly the runs the per-curve comparison needs: each curve both included and
+    /// excluded at least once. A bit-order enumeration would keep an arbitrary scatter and leave
+    /// some curve never scored against a run lacking it, with nothing in the table showing which.
+    #[test]
+    fn a_capped_curve_sweep_drops_the_smallest_combinations_and_keeps_every_drop_one_set() {
+        let all = subsets_largest_first(4, usize::MAX);
+        assert_eq!(all.len(), 15, "every non-empty subset of four, once: {all:?}");
+        let mut seen = std::collections::HashSet::new();
+        assert!(all.iter().all(|s| seen.insert(s.clone())), "no combination twice: {all:?}");
+        assert!(
+            all.windows(2).all(|w| w[0].len() >= w[1].len()),
+            "largest first, or a cap drops the wrong ones: {all:?}",
+        );
+
+        let capped = subsets_largest_first(4, 5);
+        assert_eq!(capped.len(), 5, "a cap is a cap: {capped:?}");
+        assert_eq!(capped[0], vec![0, 1, 2, 3], "the full set is scored first: {capped:?}");
+        for drop in 0..4 {
+            let want: Vec<usize> = (0..4).filter(|&i| i != drop).collect();
+            assert!(
+                capped.contains(&want),
+                "the run without curve {drop} must survive a cap, or that curve's value cannot be \
+                 measured at all: {capped:?}",
+            );
+        }
+    }
+
+    /// The question is what a curve is WORTH, and the two ways of getting it wrong are opposite.
+    ///
+    /// A curve the best model would score identically without is worth ZERO, however prominent it
+    /// looks in the winning combination — that is the whole reason this is measured across re-fits
+    /// rather than read off permutation importance, which would credit a curve for work a stand-in
+    /// would have done. And a curve that was never dropped has NO measured value, which must not be
+    /// reported as zero: "we asked and it added nothing" and "we never asked" are opposite findings
+    /// and would send a logging decision in opposite directions.
+    #[test]
+    fn a_curve_that_changes_nothing_is_worth_zero_and_one_never_dropped_is_worth_unknown() {
+        let row = |feats: &[&str], score: f64| MlEvalRow {
+            algorithm: "rf".into(),
+            features: feats.iter().map(|s| s.to_string()).collect(),
+            score: Some(score),
+            score_std: None,
+            score_pooled: None,
+            n_score_folds: 5,
+            n_unconverged: 0,
+            converge_note: String::new(),
+            metrics: serde_json::Value::Null,
+            importances: vec![],
+            importances_std: vec![],
+            n_imp_folds: 0,
+            confusion: None,
+            labels: None,
+            blind_pred: vec![],
+            error: None,
+        };
+
+        // GR carries the model; DT rides along and changes nothing; RHOB is in every scored
+        // combination, so nothing here can say what it is worth.
+        let feats = vec!["GR".to_string(), "DT".to_string(), "RHOB".to_string()];
+        let rows =
+            vec![row(&["GR", "DT", "RHOB"], 0.81), row(&["GR", "RHOB"], 0.81), row(&["DT", "RHOB"], 0.32)];
+
+        let v = curve_values(&rows, &feats);
+        let get = |c: &str| v.iter().find(|x| x.curve == c).expect("every input curve is reported");
+
+        assert!(
+            (get("GR").gain.expect("GR was both kept and dropped") - 0.49).abs() < 1e-9,
+            "GR is the difference between 0.81 and 0.32: {:?}",
+            get("GR"),
+        );
+        assert!(get("GR").in_best, "every top-scoring combination uses GR: {:?}", get("GR"));
+        assert!(
+            get("DT").gain.expect("DT was both kept and dropped").abs() < 1e-9,
+            "DT is in the winning combination and buys nothing - that is the finding: {:?}",
+            get("DT"),
+        );
+        assert!(
+            get("RHOB").best_without.is_none() && get("RHOB").gain.is_none(),
+            "a curve never dropped has an UNKNOWN value, never zero: {:?}",
+            get("RHOB"),
+        );
+
+        assert_eq!(v[0].curve, "GR", "most valuable first: {v:?}");
+        assert_eq!(
+            v.last().expect("three curves").curve,
+            "RHOB",
+            "an unmeasured curve sorts last rather than among the worthless ones: {v:?}",
+        );
     }
 
     /// Two sides of a split can agree exactly on mean and standard deviation and still be different

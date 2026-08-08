@@ -15,6 +15,7 @@ import {
   type CoverageSegment,
   type CurveSampling,
   type CurveStatsRow,
+  type CurveValue,
   type MlEvalResult,
   type MlEvalRow,
   type MlModelInfo,
@@ -1740,6 +1741,9 @@ export async function buildMlContent(
     ["full", "Full set only"],
     ["loco", "Leave-one-curve-out"],
     ["singles", "Full + each single curve"],
+    // Answers a different question from the three above: not "which model", but "which curves do I
+    // need in the next well". Enumeration and the per-curve value table are done in Rust.
+    ["every", "Every combination (what is each curve worth?)"],
   ] as const) {
     const o = document.createElement("option");
     o.value = val;
@@ -1805,6 +1809,7 @@ export async function buildMlContent(
         params: Object.fromEntries(paramInputs.map(({ spec, get }) => [spec.key, get()])),
         params_for: algo.id,
         subsets: buildSubsets(features, subsetSel.value),
+        enumerate_subsets: subsetSel.value === "every",
         standardize: stdCb.checked,
         seed: Math.round(parseFloat(seedInput.value) || 42),
         folds: 5,
@@ -3224,9 +3229,79 @@ function tiedAtTheTop(rows: MlEvalRow[]): number {
  *  Exported so it can be driven with synthetic rows over the vite dev server, which is this repo's
  *  only route to exercising frontend logic — there is no TS test runner, and the tie rule and the
  *  whisker geometry are both wrong in ways a screenshot shows and a type check does not. */
+/**
+ * What each input curve is worth — the leaderboard's answer to a different question.
+ *
+ * The table above ranks MODELS. This ranks CURVES, and the difference is the point: a curve can sit
+ * in the winning combination and be worth nothing, because the best model would have scored the same
+ * without it. That is what decides whether the next well runs a tool, and it is not readable from a
+ * leaderboard however carefully you stare at it.
+ *
+ * Measured as best-with minus best-without across whole re-fits, deliberately not from permutation
+ * importance: importance asks how much ONE model leans on a curve, which understates any curve that
+ * has a stand-in. Drop RHOB from a run that also has DT and a tree ensemble leans on DT instead — so
+ * RHOB reads unimportant while the field would in fact lose nothing by not logging it. Same
+ * conclusion, arrived at honestly.
+ */
+function renderCurveValue(host: HTMLElement, vals: CurveValue[], isClf: boolean): void {
+  if (!vals.length) return;
+  const box = document.createElement("div");
+  box.className = "ml-curve-value";
+  const cap = document.createElement("div");
+  cap.className = "ml-seg-cap";
+  cap.textContent =
+    `What each curve is worth: the best ${isClf ? "accuracy" : "R²"} reachable WITH it, minus the best reachable WITHOUT it, ` +
+    `across every combination scored. A curve near zero is one the next well does not need — the others cover for it. ` +
+    `This is not the same as importance, which only says how much the winning model happened to lean on it.`;
+  box.appendChild(cap);
+
+  const table = document.createElement("table");
+  table.className = "mc-table ml-curve-value-table";
+  const head = document.createElement("tr");
+  for (const h of ["Curve", "Worth", "Best with", "Best without", "In winner"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    head.appendChild(th);
+  }
+  table.appendChild(head);
+
+  const n3 = (v: number | null) => (v == null || !Number.isFinite(v) ? "—" : v.toFixed(3));
+  for (const v of vals) {
+    const tr = document.createElement("tr");
+    const cells: (string | HTMLElement)[] = [v.curve];
+
+    const gain = document.createElement("span");
+    if (v.gain == null) {
+      // Never dropped, so nothing here measured it. "—" and not 0.000: "we asked and it added
+      // nothing" and "we never asked" are opposite findings that would send a logging decision in
+      // opposite directions.
+      gain.textContent = "—";
+      gain.title = "every scored combination included this curve, so its value was never measured";
+      gain.className = "ml-cv-unknown";
+    } else {
+      gain.textContent = (v.gain >= 0 ? "+" : "") + v.gain.toFixed(3);
+      gain.className = v.gain >= 0.02 ? "ml-cv-worth" : "ml-cv-spare";
+    }
+    cells.push(gain, n3(v.best_with), n3(v.best_without), v.in_best ? "yes" : "no");
+
+    for (const c of cells) {
+      const td = document.createElement("td");
+      if (typeof c === "string") td.textContent = c;
+      else td.appendChild(c);
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  box.appendChild(table);
+  host.appendChild(box);
+}
+
 export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean): void {
   host.innerHTML = "";
   if (res.error || !res.rows.length) return;
+  // Above the model table on purpose. When somebody asked for every combination they asked a
+  // question about CURVES, and the answer should not be below eighty rows about algorithms.
+  renderCurveValue(host, res.curve_value ?? [], isClf);
   // Two columns because they are two estimators, and this table used to show one's centre under
   // the other's spread. "per well" is the mean of the fold scores and is what the ± describes and
   // what the ranking uses; "pooled" is one score over every out-of-fold row at once. Naming both
