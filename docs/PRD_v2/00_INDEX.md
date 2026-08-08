@@ -24,9 +24,11 @@ PRD v1 answered *what SandiBumi is*. It was deliberately not a plan, and it name
 that were supposed to follow it: `RELEASE.md` (the quality bar), `V1_SCOPE.md` (what 1.0 contains),
 `TARGET_ARCHITECTURE.md`, and `ARCHITECTURE.md` + ADRs for the bus-factor risk.
 
-**None of the four was ever written.** Verified 2026-08-07: no `docs/V1_SCOPE.md`, no
-`docs/RELEASE.md`, no `docs/TARGET_ARCHITECTURE.md`, no `ARCHITECTURE.md`. The sequence PRD v1 set
-up did not run.
+Three of the four **were written but never merged**: `docs/V1_SCOPE.md`, `docs/RELEASE.md` and
+`docs/TARGET_ARCHITECTURE.md` exist on branch `docs/prd-and-security-hardening` at commit
+`18da8b0`; `ARCHITECTURE.md` + ADRs was not written. Jauhar decided on 2026-08-08 not to merge the
+three branch documents because PRD v2 supersedes them. The sequence PRD v1 set up therefore did
+not land in the product's authoritative documentation.
 
 PRD v2 therefore does the job of all of them. It is simultaneously:
 
@@ -99,9 +101,13 @@ executable source. Chapters cite dossier sections; they do not restate them.
    are shown with their sources. See `CONTRACT.md` §2 — this is the rule that outranks everything
    else, because a wrong endpoint computes, plots and ships into a client deliverable without ever
    failing loudly.
-3. **Tier C is never implemented, approximated or reverse-engineered.** The register is in
-   `CONTRACT.md` §2.2. Capability-level description is competitive intelligence and is allowed;
-   algorithm reconstruction is not, under any framing.
+3. **Tier C prohibits reconstruction and requires independent derivation.** The register and the
+   C-1 / C-2 / C-3 terms are in `CONTRACT.md` §2.2. Vendor internals, proprietary encodings and
+   observed input/output behaviour are never a derivation path, even under a new name. Where a
+   Tier-C item serves a real user need, its chapter instead specifies a capability derived from
+   published literature, primary sources and first principles, with its own name, method, cited
+   defaults, tests and a supported `Betters:` line. A missing source is named and escalated; it is
+   not converted into a blanket refusal of the capability.
 4. **No overclaim.** PRD v1 §6's rule stands and is not negotiable: *an admitted gap costs a
    feature; a discovered overclaim costs the deal.* The asymmetry is severe, and it is the reason
    several numbers in `01_PRODUCT.md` are less flattering than the ones they replace.

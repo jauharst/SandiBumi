@@ -2151,6 +2151,10 @@ correct internal error that never reached a surface a user reads.
 | **R-12** | **Use IP's multi-well worked report as a test fixture (D-5.11).** | Its arithmetic does not reconcile. `SB-CUT-T08` uses the two-well roll-up, which does |
 | **R-13** | **Convert an `HCPV` thickness to a volume inside the summation module.** | The fluid-gradient conversion belongs to `SHR`; doing it here would silently bind a summation to a saturation-height assumption |
 
+### 7.4 Independent-derivation requirements
+
+No Tier-C item falls in this domain.
+
 ---
 
 ## 8. Traceability — dossier disposition
