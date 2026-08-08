@@ -11,6 +11,8 @@ pub struct ImportResult {
     pub well_id: Option<String>,
     pub well_name: Option<String>,
     pub rows: usize,
+    /// Encoding selected by the mandatory byte-tolerant text reader.
+    pub text_encoding: Option<String>,
     /// Non-fatal note for a successful import, e.g. rows dropped for a bad/duplicate depth.
     pub warning: Option<String>,
     pub error: Option<String>,
@@ -156,6 +158,7 @@ pub fn import_las_files_with(
                     well_id: None,
                     well_name: None,
                     rows: 0,
+                    text_encoding: None,
                     warning: Some("cancelled before import".into()),
                     error: None,
                     attached_set: None,
@@ -173,7 +176,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new() },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new() },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -203,6 +206,7 @@ fn insert_parsed_well(
     let unit_designations = columns.unit_designations.clone();
     let las_version = columns.las_version.clone();
     let unread_sections = columns.unread_sections.clone();
+    let text_encoding = columns.text_encoding.clone();
     let declared_step_note = parsers::declared_step_mismatch_note(
         columns.declared_step.as_deref(),
         &columns.depth,
@@ -224,6 +228,7 @@ fn insert_parsed_well(
                     well_id: None,
                     well_name: None,
                     rows: 0,
+                    text_encoding: Some(text_encoding.clone()),
                     warning: None,
                     error: Some(format!("unrecognized confirmed file depth unit '{raw}'")),
                     attached_set: None,
@@ -246,6 +251,7 @@ fn insert_parsed_well(
                 well_id: None,
                 well_name: None,
                 rows: 0,
+                text_encoding: Some(text_encoding.clone()),
                 warning: None,
                 error: Some(error),
                 attached_set: None,
@@ -282,6 +288,7 @@ fn insert_parsed_well(
                     well_id: None,
                     well_name: None,
                     rows: 0,
+                    text_encoding: Some(text_encoding.clone()),
                     warning: None,
                     error: Some(format!(
                         "non-increasing index at data row {row}; a user decision is required before commit"
@@ -308,6 +315,7 @@ fn insert_parsed_well(
                     well_id: None,
                     well_name: None,
                     rows: 0,
+                    text_encoding: Some(text_encoding.clone()),
                     warning: None,
                     error: Some(format!(
                         "{duplicate_count} repeated depth row(s) require a declared duplicate policy before commit"
@@ -326,6 +334,7 @@ fn insert_parsed_well(
                     well_id: None,
                     well_name: None,
                     rows: 0,
+                    text_encoding: Some(text_encoding.clone()),
                     warning: None,
                     error: Some(format!(
                         "duplicate-depth policy refuse blocked {duplicate_count} repeated row(s)"
@@ -364,6 +373,7 @@ fn insert_parsed_well(
             well_id: None,
             well_name: None,
             rows: 0,
+            text_encoding: Some(text_encoding.clone()),
             warning: None,
             error: Some(format!(
                 "no importable rows: {} had missing depth, {} duplicated an earlier depth",
@@ -442,7 +452,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone() }
             }
         };
         match stmt
@@ -451,7 +461,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone() }
             }
         }
     };
@@ -466,6 +476,7 @@ fn insert_parsed_well(
             alias_decisions.clone(),
             index_resolution.clone(),
             unit_designations.clone(),
+            text_encoding.clone(),
         );
         if out.error.is_none() {
             if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
@@ -561,9 +572,9 @@ fn insert_parsed_well(
                 }
             }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions, unconverted_units, unit_designations }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions, unconverted_units, unit_designations }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations },
     }
 }
 
@@ -582,6 +593,7 @@ fn attach_curves_to_existing_well(
     alias_decisions: Vec<parsers::AliasDecision>,
     index_resolution: Option<parsers::IndexResolution>,
     unit_designations: Vec<crate::curves::UnitDesignation>,
+    text_encoding: String,
 ) -> ImportResult {
     let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
     match import_all_curves_into_generic_store_with_channel_nulls(
@@ -607,6 +619,7 @@ fn attach_curves_to_existing_well(
                 well_id: Some(well_id.to_string()),
                 well_name: Some(well_name),
                 rows: report.rows,
+                text_encoding: Some(text_encoding),
                 warning: (!notes.is_empty()).then(|| notes.join("; ")),
                 error: None,
                 attached_set: Some(set),
@@ -619,7 +632,7 @@ fn attach_curves_to_existing_well(
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations },
     }
 }
 
@@ -2068,6 +2081,7 @@ mod tests {
         let cols = || CurveColumns {
             las_version: None,
             unread_sections: Vec::new(),
+            text_encoding: "test fixture".into(),
             depth_unit: Some("M".into()),
             declared_step: None,
             depth: vec![1000.0, 1000.5, 1001.0],
@@ -2472,6 +2486,7 @@ mod tests {
         let make_columns = || CurveColumns {
             las_version: None,
             unread_sections: Vec::new(),
+            text_encoding: "test fixture".into(),
             depth_unit: Some("M".into()),
             declared_step: None,
             depth: vec![1000.0, 1000.0, 1000.0, 1000.0, 1001.0],
@@ -4228,6 +4243,70 @@ mod tests {
             "asking to follow a core that is not there must be said out loud"
         );
         std::fs::remove_file(&xrd).ok();
+    }
+
+    /// SB-DIO-062 / SB-DIO-T95. The required encodings and reported choice are specified
+    /// in `docs/PRD_v2/21_data-io.md` §§4 and 6.
+    #[test]
+    fn utf8_utf16_in_both_byte_orders_with_and_without_boms_and_windows_1252_are_imported_and_reported() {
+        // SB-DIO-062 and SB-DIO-T95, 21_data-io.md §4 and §6: the UTF-16LE BOM
+        // pair is the named acceptance fixture; the other required decoder branches are
+        // pinned in the same import-level contract so a byte-order branch cannot regress
+        // while the mandatory reader still compiles.
+        let body = "~VERSION\nVERS. 2.0\nWRAP. NO\n~WELL\nNULL. -999.25\nWELL. ENCODING-ρ\n~CURVE\nDEPT.M\nGR.GAPI\n~ASCII\n1000 50\n1001 51\n";
+        let utf16 = |big_endian: bool, bom: bool| {
+            let mut bytes = if bom {
+                if big_endian { vec![0xFE, 0xFF] } else { vec![0xFF, 0xFE] }
+            } else {
+                Vec::new()
+            };
+            for unit in body.encode_utf16() {
+                let encoded = if big_endian { unit.to_be_bytes() } else { unit.to_le_bytes() };
+                bytes.extend_from_slice(&encoded);
+            }
+            bytes
+        };
+        let mut utf8_bom = vec![0xEF, 0xBB, 0xBF];
+        utf8_bom.extend_from_slice(body.as_bytes());
+        let windows_body = body.replace("ENCODING-ρ", "ENCODING");
+        let mut windows_1252 = windows_body.as_bytes().to_vec();
+        let name_start = windows_body.find("ENCODING").unwrap();
+        windows_1252.splice(name_start..name_start + "ENCODING".len(), [b'E', b'N', b'C', b'-', 0x95]);
+
+        let cases = [
+            ("utf8", body.as_bytes().to_vec(), "UTF-8"),
+            ("utf8_bom", utf8_bom, "UTF-8 with BOM"),
+            ("utf16le_bom", utf16(false, true), "UTF-16LE with BOM"),
+            ("utf16le_no_bom", utf16(false, false), "UTF-16LE without BOM"),
+            ("utf16be_bom", utf16(true, true), "UTF-16BE with BOM"),
+            ("utf16be_no_bom", utf16(true, false), "UTF-16BE without BOM"),
+            ("windows_1252", windows_1252, "Windows-1252"),
+        ];
+
+        for (label, bytes, expected) in cases {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            let path = std::env::temp_dir().join(format!(
+                "sandibumi_dio_062_{label}_{}.las",
+                Uuid::new_v4()
+            ));
+            std::fs::write(&path, bytes).unwrap();
+            let result = import_las_files(
+                &conn,
+                &[path.to_string_lossy().into_owned()],
+                None,
+            )
+            .remove(0);
+            assert!(result.error.is_none(), "{label} import failed: {:?}", result.error);
+            assert_eq!(result.rows, 2, "{label} must import both rows");
+            assert_eq!(result.text_encoding.as_deref(), Some(expected), "{label}");
+            assert!(
+                !result.warning.as_deref().unwrap_or("").contains("encoding"),
+                "the encoding report is structured data, not a warning: {:?}",
+                result.warning
+            );
+            std::fs::remove_file(path).ok();
+        }
     }
 
     /// SB-DIO-041 / SB-DIO-T59. LAS 3.0 recognition and named unread sections are specified

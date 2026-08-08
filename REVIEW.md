@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-062: text encoding is detected and reported
+
+- [ ] Import the same ASCII LAS encoded as UTF-16LE once with a BOM and once without. Do both
+      import with the same rows, and does each result explicitly name `UTF-16LE with BOM` or
+      `UTF-16LE without BOM`? Do UTF-16BE, UTF-8 and a Windows-1252 description likewise name the
+      decoder actually chosen?
+
 ## 2026-08-09 — SB-DIO-060: format recognition follows content
 
 - [ ] Open a comma-delimited table deliberately named `.las` through Intake. Is it read as a

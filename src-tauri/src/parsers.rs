@@ -39,9 +39,17 @@ const CP1252_HIGH: [char; 32] = [
 /// export is UTF-16LE, which decoded as cp1252 would silently yield NUL-riddled nonsense
 /// rather than an error). Only when there is no BOM and the bytes are not valid UTF-8 do we
 /// fall back to cp1252 — which cannot itself fail, so an import is never refused over encoding
-/// again. Bytes are never rejected, only interpreted; the worst case is a mangled character
+/// again. A BOM-less UTF-16 table is recognised without a guessed percentage threshold: its
+/// two-byte code units contain the file's actual CR/LF record separators in exactly one byte
+/// order. Bytes are never rejected, only interpreted; the worst case is a mangled character
 /// inside a description, not a lost delivery.
-fn decode_text(bytes: &[u8]) -> String {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodedTextFile {
+    pub text: String,
+    pub encoding: String,
+}
+
+fn decode_text(bytes: &[u8]) -> DecodedTextFile {
     let utf16 = |chunks: &[u8], be: bool| -> String {
         let units: Vec<u16> = chunks
             .chunks_exact(2)
@@ -49,19 +57,36 @@ fn decode_text(bytes: &[u8]) -> String {
             .collect();
         String::from_utf16_lossy(&units)
     };
+    let decoded = |text: String, encoding: &str| DecodedTextFile {
+        text,
+        encoding: encoding.to_string(),
+    };
     match bytes {
-        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
-        [0xFF, 0xFE, rest @ ..] => utf16(rest, false),
-        [0xFE, 0xFF, rest @ ..] => utf16(rest, true),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => decoded(String::from_utf8_lossy(rest).into_owned(), "UTF-8 with BOM"),
+        [0xFF, 0xFE, rest @ ..] => decoded(utf16(rest, false), "UTF-16LE with BOM"),
+        [0xFE, 0xFF, rest @ ..] => decoded(utf16(rest, true), "UTF-16BE with BOM"),
+        _ if bytes.len() >= 4 && bytes.len() % 2 == 0
+            && bytes.chunks_exact(2).any(|pair| matches!(pair, [0x0A | 0x0D, 0x00])) =>
+        {
+            decoded(utf16(bytes, false), "UTF-16LE without BOM")
+        }
+        _ if bytes.len() >= 4 && bytes.len() % 2 == 0
+            && bytes.chunks_exact(2).any(|pair| matches!(pair, [0x00, 0x0A | 0x0D])) =>
+        {
+            decoded(utf16(bytes, true), "UTF-16BE without BOM")
+        }
         _ => match std::str::from_utf8(bytes) {
-            Ok(s) => s.to_string(),
-            Err(_) => bytes
+            Ok(s) => decoded(s.to_string(), "UTF-8"),
+            Err(_) => decoded(
+                bytes
                 .iter()
                 .map(|&b| match b {
                     0x80..=0x9F => CP1252_HIGH[(b - 0x80) as usize],
                     _ => b as char, // ASCII and, above 0x9F, Latin-1 == Unicode
                 })
                 .collect(),
+                "Windows-1252",
+            ),
         },
     }
 }
@@ -71,6 +96,12 @@ fn decode_text(bytes: &[u8]) -> String {
 /// outright on one stray byte. Files here are per-well or per-delivery (single-digit MB), so
 /// reading whole is the right trade for never refusing a real delivery.
 pub fn read_text_file<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
+    Ok(read_text_file_with_encoding(path)?.text)
+}
+
+/// The same mandatory decoder as [`read_text_file`], with the chosen encoding retained
+/// for an import result or preview. Callers must not re-decode bytes to obtain this report.
+pub fn read_text_file_with_encoding<P: AsRef<Path>>(path: P) -> std::io::Result<DecodedTextFile> {
     Ok(decode_text(&std::fs::read(path)?))
 }
 
@@ -130,6 +161,8 @@ pub struct CurveColumns {
     pub las_version: Option<String>,
     /// Section headers present in a LAS 3.0 delivery that this release did not consume.
     pub unread_sections: Vec<String>,
+    /// Encoding chosen by the mandatory text reader, always reported by LAS import.
+    pub text_encoding: String,
     /// The index column's declared unit, verbatim from the ~C block (e.g. "M", "FT").
     /// `None` when the file declares none. Resolved against the project's depth unit at
     /// ingest — see `units::resolve_index_unit`; storing a foot index in a metric project
@@ -517,12 +550,14 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
 ) -> ParseResult<CurveColumns> {
     let source = path.as_ref().display().to_string();
-    let text = read_text_file(path.as_ref())?;
+    let decoded = read_text_file_with_encoding(path.as_ref())?;
+    let text = decoded.text;
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
     let mut curve_units: Vec<Option<String>> = Vec::new();
     let mut cols = CurveColumns::default();
+    cols.text_encoding = decoded.encoding;
 
     // Index lookup into curve_names for the columns we care about, resolved once the
     // ~C block is fully parsed and the first ~A line arrives. For the six standard curves
@@ -3125,6 +3160,7 @@ mod las_depth_tests {
         CurveColumns {
             las_version: None,
             unread_sections: Vec::new(),
+            text_encoding: "test fixture".into(),
             depth_unit: None,
             declared_step: None,
             depth,

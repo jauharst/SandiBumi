@@ -121,6 +121,8 @@ export interface ImportResult {
   well_id: string | null;
   well_name: string | null;
   rows: number;
+  /** Encoding selected by the mandatory byte-tolerant text reader. */
+  text_encoding: string | null;
   /** Non-fatal note for a successful import (e.g. rows dropped for a bad/duplicate depth). */
   warning: string | null;
   error: string | null;
@@ -4960,6 +4962,7 @@ export interface FormatDetection {
 export interface IntakeProbe {
   path: string;
   format: FormatDetection;
+  text_encoding: string;
   columns: IntakeColumn[];
   n_rows: number;
   preview: string[][];

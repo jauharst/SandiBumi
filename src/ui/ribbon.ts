@@ -1216,6 +1216,15 @@ export class Ribbon {
       const warned = imported.filter((r) => r.warning);
       const warnNote = warned.length ? ` ${warned.length} well(s) imported with warnings.` : "";
       const cancelNote = cancelled > 0 ? ` ${cancelled} cancelled before import.` : "";
+      const encodingCounts = new Map<string, number>();
+      for (const result of imported) {
+        if (result.text_encoding) {
+          encodingCounts.set(result.text_encoding, (encodingCounts.get(result.text_encoding) ?? 0) + 1);
+        }
+      }
+      const encodingSummary = [...encodingCounts]
+        .map(([encoding, count]) => `${encoding} (${count})`)
+        .join(", ");
       setStatus(
         `Imported ${imported.length}/${results.length} file(s) as set ${setLabel}` +
           ` — ${created} new well(s).${attachNote}${warnNote}${cancelNote}`,
@@ -1226,6 +1235,9 @@ export class Ribbon {
           `${created} new well(s), ${attached.length} attached` +
           (cancelled > 0 ? ` — ${cancelled} cancelled` : ""),
       );
+      if (encodingSummary) {
+        recordProcess("Import", `Text encodings detected: ${encodingSummary}`);
+      }
       for (const w of warned) {
         recordProcess("Import", `${w.well_name ?? w.path}: ${w.warning}`, w.well_name ?? undefined);
       }

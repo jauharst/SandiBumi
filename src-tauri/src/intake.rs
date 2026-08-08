@@ -94,6 +94,7 @@ pub struct IntakeColumn {
 pub struct IntakeProbe {
     pub path: String,
     pub format: FormatDetection,
+    pub text_encoding: String,
     pub columns: Vec<IntakeColumn>,
     /// Data rows after the header (and the units row, when one was detected).
     pub n_rows: usize,
@@ -372,7 +373,9 @@ fn guess_role(header: &str, kind: &str, taken: &[String]) -> (String, String) {
 /// Reads a table and reports everything the pane needs to confirm the mapping. Writes nothing.
 pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
     let format = detect_format(path)?;
-    let text = parsers::read_text_file(path)?;
+    let decoded = parsers::read_text_file_with_encoding(path)?;
+    let text_encoding = decoded.encoding;
+    let text = decoded.text;
     let mut lines: Vec<&str> = text
         .lines()
         .map(str::trim_end)
@@ -385,6 +388,7 @@ pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
         return Ok(IntakeProbe {
             path: path.into(),
             format,
+            text_encoding,
             columns: vec![],
             n_rows: 0,
             preview: vec![],
@@ -448,7 +452,10 @@ pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
     let headers: Vec<String> = table.remove(0).iter().map(|h| h.trim().to_uppercase()).collect();
     let ncol = headers.len();
 
-    let mut notes = vec![format.choice_report.clone()];
+    let mut notes = vec![
+        format.choice_report.clone(),
+        format!("Text encoding detected: {text_encoding}."),
+    ];
     if let Some(disagreement) = &format.extension_disagreement {
         notes.push(disagreement.clone());
     }
@@ -563,6 +570,7 @@ pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
     Ok(IntakeProbe {
         path: path.into(),
         format,
+        text_encoding,
         columns,
         n_rows: table.len(),
         preview,
