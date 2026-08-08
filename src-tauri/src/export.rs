@@ -131,6 +131,7 @@ pub fn set_project_null_sentinel(conn: &Connection, null_sentinel: f32) -> Resul
 const PROVENANCE_PREFIX: &str = "SANDIBUMI_PROVENANCE_V1 ";
 const MODEL_PROVENANCE_PREFIX: &str = "SANDIBUMI_MODEL_PROVENANCE_V1 ";
 const OMISSION_PREFIX: &str = "SANDIBUMI_OMISSION_V1 ";
+const PRECISION_PREFIX: &str = "SANDIBUMI_PRECISION_V1 ";
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LasOmission {
@@ -144,6 +145,16 @@ pub struct LasExportResult {
     pub curves_written: usize,
     pub curves_held: usize,
     pub omitted: Vec<LasOmission>,
+    /// LAS text is currently written at four decimal places. This report declares that
+    /// boundary and counts the stored f32 values whose written representation changes.
+    pub precision: crate::parsers::SamplePrecisionReport,
+}
+
+fn fixed_decimal_4_reduces(value: f32) -> bool {
+    value.is_finite()
+        && format!("{value:.4}")
+            .parse::<f32>()
+            .is_ok_and(|written| written != value)
 }
 
 fn collect_model_ids(value: &serde_json::Value, out: &mut Vec<String>) {
@@ -437,6 +448,18 @@ fn write_las(
     let depth_unit = crate::units::project_depth_unit_or_default(conn).code();
     let provenance = provenance_lines(conn, well_id, &curve_names)?;
     let step = if depth.len() > 1 { depth[1] - depth[0] } else { 0.0 };
+    let mut values_reduced = depth.iter().filter(|&&value| fixed_decimal_4_reduces(value)).count();
+    for name in &curve_names {
+        let key = name.trim().to_uppercase();
+        if let Some(values) = columns.get(&key) {
+            values_reduced += values.iter().filter(|&&value| fixed_decimal_4_reduces(value)).count();
+        }
+    }
+    let precision = crate::parsers::SamplePrecisionReport::new(
+        "f32 storage",
+        "fixed-decimal-4 LAS text",
+        values_reduced,
+    );
 
     let file = std::fs::File::create(dest_path).map_err(|e| e.to_string())?;
     let mut w = BufWriter::new(file);
@@ -468,6 +491,11 @@ fn write_las(
         }
         writeln!(w, "~Other Information")?;
         writeln!(w, "# SandiBumi provenance: prefixed JSON Lines; convention version 1")?;
+        writeln!(
+            w,
+            " {PRECISION_PREFIX}{}",
+            serde_json::to_string(&precision).expect("serializing a precision report cannot fail")
+        )?;
         for line in &provenance {
             writeln!(w, " {line}")?;
         }
@@ -498,6 +526,7 @@ fn write_las(
         curves_written: curve_names.len(),
         curves_held,
         omitted,
+        precision,
     })
 }
 

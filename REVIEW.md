@@ -7,6 +7,14 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-047: precision reductions are declared
+
+- [ ] Import a core-analysis table containing more numeric precision than `f32` can retain. Does
+      the result and History state `f64 numeric parse → f32 storage` and count only the values that
+      changed? Export a LAS containing a value beyond four decimal places: does the result state
+      `f32 storage → fixed-decimal-4 LAS text`, count the reduction, and carry the same declaration
+      in `~Other`?
+
 ## 2026-08-09 — SB-DIO-045: multi-well DLIS containers stay separated
 
 - [ ] Import a DLIS whose logical files name three different source wells. Before any write, does

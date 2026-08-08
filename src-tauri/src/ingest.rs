@@ -982,6 +982,9 @@ pub struct CoreTableImportResult {
     /// what landed beside the four core measurements.
     pub extra_rows: usize,
     pub extra_items: Vec<String>,
+    /// Numeric text is parsed at f64 precision before the deliberate f32 storage cast.
+    /// The report names that boundary and counts only values that actually changed.
+    pub precision: parsers::SamplePrecisionReport,
     pub error: Option<String>,
 }
 
@@ -1024,6 +1027,7 @@ pub fn import_core_table(
         skipped_blank_well: 0,
         extra_rows: 0,
         extra_items: Vec::new(),
+        precision: parsers::SamplePrecisionReport::new("f64 numeric parse", "f32 storage", 0),
         error: Some(e),
     };
 
@@ -1031,6 +1035,11 @@ pub fn import_core_table(
         Ok(r) => r,
         Err(e) => return fail(e.to_string()),
     };
+    let precision = parsers::SamplePrecisionReport::new(
+        "f64 numeric parse",
+        "f32 storage",
+        table.precision_reduced_values,
+    );
     let rows = table.rows;
     let extra_names = table.extra_names;
     let extras_dataset = extras_dataset
@@ -1170,7 +1179,7 @@ pub fn import_core_table(
                     for (d, cells) in depth.iter().zip(&extras) {
                         for (item, raw) in extra_names.iter().zip(cells.iter()) {
                             let Some(raw) = raw else { continue };
-                            let num = raw.replace(',', ".").parse::<f32>().ok();
+                            let num = parsers::parse_numeric_text_to_f32(raw).map(|(stored, _)| stored);
                             aux.push(db::AuxRow {
                                 dataset: extras_dataset.clone(),
                                 depth_top: *d,
@@ -1277,6 +1286,7 @@ pub fn import_core_table(
         skipped_blank_well,
         extra_rows,
         extra_items: if extra_rows > 0 { extra_names } else { Vec::new() },
+        precision,
         error: None,
     }
 }
@@ -3281,6 +3291,100 @@ mod tests {
         assert_eq!(aux_b.len(), 3, "2 x CSO_1 + 1 x LITH (the blank one skipped): {aux_b:?}");
 
         std::fs::remove_file(&path).ok();
+    }
+
+    /// SB-DIO-047 / T66. §5.4 cites f32 as SandiBumi's sample storage; the LAS writer's
+    /// existing format is four decimal places. The deliberately long CPERM decimal loses
+    /// one f64-to-f32 value while 0.125 and 1000 remain exact, so a blanket "all values
+    /// reduced" implementation fails the first half. The LAS fixture likewise has one
+    /// value beyond four decimal places and otherwise exactly writable values.
+    #[test]
+    fn a_float64_core_import_and_a_four_decimal_las_export_state_their_precision_reductions() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = Uuid::new_v4();
+        db::insert_well(&conn, well_id, "SANDI-PRECISION", None, None, None).unwrap();
+        let well = well_id.to_string();
+
+        let source_cperm = 123.12345678901234_f64;
+        let core_path = std::env::temp_dir().join(format!(
+            "sandibumi-float64-core-{}.csv",
+            std::process::id()
+        ));
+        std::fs::write(
+            &core_path,
+            format!("DEPTH,CPOR,CPERM\n1000,0.125,{source_cperm:.14}\n"),
+        )
+        .unwrap();
+        let mapping = parsers::CoreMapping {
+            well: None,
+            depth: 0,
+            cpor: Some(1),
+            cperm: Some(2),
+            cgd: None,
+            csw: None,
+            extras: Vec::new(),
+        };
+        let imported = import_core_table(
+            &conn,
+            core_path.to_str().unwrap(),
+            &mapping,
+            None,
+            Some(&well),
+            None,
+            Some("PRECISION"),
+            false,
+        );
+        assert!(imported.error.is_none(), "{:?}", imported.error);
+        assert_eq!(imported.precision.source_precision, "f64 numeric parse");
+        assert_eq!(imported.precision.destination_precision, "f32 storage");
+        assert!(imported.precision.reduced, "the long CPERM value must be declared as narrowed");
+        assert_eq!(
+            imported.precision.values_reduced, 1,
+            "the exact depth and porosity must not be falsely counted as reduced"
+        );
+        let stored_cperm: f32 = conn
+            .query_row(
+                "SELECT cperm FROM core_data WHERE well_id = ?1",
+                params![well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored_cperm, source_cperm as f32, "the declared f32 cast is the value stored");
+        assert_ne!(stored_cperm as f64, source_cperm, "the fixture must genuinely exceed f32 precision");
+
+        let depth = vec![1000.0f32, 1000.5];
+        let exact = vec![2.0f32, 2.5];
+        db::insert_standard_curves(
+            &conn,
+            well_id,
+            depth,
+            vec![12.34567f32, 12.5],
+            exact.clone(),
+            vec![0.25f32, 0.5],
+            exact.clone(),
+            vec![80.0f32, 81.0],
+            vec![0.0f32, 0.5],
+        )
+        .unwrap();
+        let las_path = std::env::temp_dir().join(format!(
+            "sandibumi-precision-export-{}.las",
+            std::process::id()
+        ));
+        let exported = crate::export::export_las(&conn, &well_id.to_string(), las_path.to_str().unwrap()).unwrap();
+        assert_eq!(exported.precision.source_precision, "f32 storage");
+        assert_eq!(exported.precision.destination_precision, "fixed-decimal-4 LAS text");
+        assert!(exported.precision.reduced, "12.34567 must be declared as rounded on write");
+        assert_eq!(
+            exported.precision.values_reduced, 1,
+            "exactly writable depths and samples must not be falsely counted"
+        );
+        let las = parsers::read_text_file(&las_path).unwrap();
+        assert!(las.contains("SANDIBUMI_PRECISION_V1"), "the file itself must carry the declaration");
+        assert!(las.contains("\"values_reduced\":1"), "the deliverable must state the actual loss count");
+
+        std::fs::remove_file(&core_path).ok();
+        std::fs::remove_file(&las_path).ok();
     }
 
     /// Aux import v2 (T-IMP-11): a WELL-columned petrography file routes rows by name;

@@ -2580,6 +2580,14 @@ export interface CoreWellOutcome {
   problem: string | null;
 }
 
+/** Declares a numeric write boundary and counts only values that actually changed. */
+export interface SamplePrecisionReport {
+  source_precision: string;
+  destination_precision: string;
+  reduced: boolean;
+  values_reduced: number;
+}
+
 export interface CoreTableImportResult {
   path: string;
   rows_imported: number;
@@ -2590,6 +2598,7 @@ export interface CoreTableImportResult {
    *  came from (empty when no extras were mapped). */
   extra_rows: number;
   extra_items: string[];
+  precision: SamplePrecisionReport;
   error: string | null;
 }
 
@@ -3975,6 +3984,7 @@ export interface LasExportResult {
   curves_written: number;
   curves_held: number;
   omitted: LasOmission[];
+  precision: SamplePrecisionReport;
 }
 
 export interface DataExportFormat {

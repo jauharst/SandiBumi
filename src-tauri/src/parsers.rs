@@ -2571,6 +2571,49 @@ pub struct WellRowCount {
     pub rows: usize,
 }
 
+/// A write-boundary precision declaration. `values_reduced` counts only finite numeric
+/// values whose destination representation differs from the source representation; an
+/// exactly representable value must not be reported as truncated merely because the two
+/// sides use different types or formats.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SamplePrecisionReport {
+    pub source_precision: String,
+    pub destination_precision: String,
+    pub reduced: bool,
+    pub values_reduced: usize,
+}
+
+impl SamplePrecisionReport {
+    pub fn new(source_precision: &str, destination_precision: &str, values_reduced: usize) -> Self {
+        Self {
+            source_precision: source_precision.to_string(),
+            destination_precision: destination_precision.to_string(),
+            reduced: values_reduced > 0,
+            values_reduced,
+        }
+    }
+}
+
+/// Core-table numeric text is first interpreted as f64, then deliberately narrowed to
+/// the repository's cited f32 sample storage. Returning the comparison beside the value
+/// makes the narrowing inspectable instead of letting `parse::<f32>()` hide it.
+pub(crate) fn parse_numeric_text_to_f32(raw: &str) -> Option<(f32, bool)> {
+    let source = raw.trim().replace(',', ".").parse::<f64>().ok()?;
+    let stored = source as f32;
+    Some((stored, source.is_finite() && stored as f64 != source))
+}
+
+fn mapped_numeric_cell(row: &[String], col: Option<usize>, reduced_values: &mut usize) -> f32 {
+    col.and_then(|c| row.get(c))
+        .filter(|c| !c.trim().is_empty())
+        .and_then(|c| parse_numeric_text_to_f32(c))
+        .map(|(stored, reduced)| {
+            *reduced_values += usize::from(reduced);
+            stored
+        })
+        .unwrap_or(f32::NAN)
+}
+
 /// Everything the import dialog shows before anything is written.
 #[derive(Debug, Clone, Serialize)]
 pub struct TableProbe {
@@ -2752,6 +2795,7 @@ pub struct MappedCoreRow {
 pub struct MappedCoreTable {
     pub rows: Vec<MappedCoreRow>,
     pub extra_names: Vec<String>,
+    pub precision_reduced_values: usize,
 }
 
 /// Extracts core rows under the dialog-confirmed `mapping`. The units row (when present)
@@ -2775,13 +2819,7 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
         rows.remove(0);
     }
 
-    let cell = |row: &Vec<String>, col: Option<usize>| -> f32 {
-        col.and_then(|c| row.get(c))
-            .map(|c| c.trim().replace(',', "."))
-            .filter(|c| !c.is_empty())
-            .and_then(|c| c.parse::<f32>().ok())
-            .unwrap_or(f32::NAN)
-    };
+    let mut precision_reduced_values = 0usize;
     // Extra columns out of range for THIS file are dropped (multi-file imports confirm the
     // mapping by header name, so a file that simply lacks a column must not abort).
     let extras: Vec<usize> = mapping.extras.iter().copied().filter(|&c| c < headers.len()).collect();
@@ -2789,10 +2827,24 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
 
     let mut out: Vec<MappedCoreRow> = Vec::new();
     for row in &rows {
-        let depth = cell(row, Some(mapping.depth));
+        let depth = mapped_numeric_cell(row, Some(mapping.depth), &mut precision_reduced_values);
         if !depth.is_finite() {
             continue;
         }
+        let cpor = mapped_numeric_cell(row, mapping.cpor, &mut precision_reduced_values);
+        let cperm = mapped_numeric_cell(row, mapping.cperm, &mut precision_reduced_values);
+        let cgd = mapped_numeric_cell(row, mapping.cgd, &mut precision_reduced_values);
+        let csw = mapped_numeric_cell(row, mapping.csw, &mut precision_reduced_values);
+        let extra_cells = extras
+            .iter()
+            .map(|&c| {
+                row.get(c).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).inspect(|raw| {
+                    if parse_numeric_text_to_f32(raw).is_some_and(|(_, reduced)| reduced) {
+                        precision_reduced_values += 1;
+                    }
+                })
+            })
+            .collect();
         let well = mapping
             .well
             .and_then(|c| row.get(c))
@@ -2801,14 +2853,11 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
         out.push(MappedCoreRow {
             well,
             depth,
-            cpor: cell(row, mapping.cpor),
-            cperm: cell(row, mapping.cperm),
-            cgd: cell(row, mapping.cgd),
-            csw: cell(row, mapping.csw),
-            extras: extras
-                .iter()
-                .map(|&c| row.get(c).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
-                .collect(),
+            cpor,
+            cperm,
+            cgd,
+            csw,
+            extras: extra_cells,
         });
     }
     // File-wide percent→fraction on porosity and saturation (same heuristic and scope as
@@ -2822,7 +2871,7 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
         r.cpor = p;
         r.csw = s;
     }
-    Ok(MappedCoreTable { rows: out, extra_names })
+    Ok(MappedCoreTable { rows: out, extra_names, precision_reduced_values })
 }
 
 #[cfg(test)]

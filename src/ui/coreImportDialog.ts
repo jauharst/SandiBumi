@@ -120,6 +120,8 @@ function report(
   const setsUsed = new Set<string>();
   let wells = new Set<string>();
   const problems: string[] = [];
+  const storagePrecisions = new Set<string>();
+  let precisionReduced = 0;
   for (const { path, res, skipped } of results) {
     const base = path.replace(/\\/g, "/").split("/").pop() ?? path;
     if (skipped) {
@@ -133,6 +135,8 @@ function report(
     }
     rows += res.rows_imported;
     extraRows += res.extra_rows;
+    storagePrecisions.add(res.precision.destination_precision);
+    precisionReduced += res.precision.values_reduced;
     for (const i of res.extra_items) extraItems.add(i);
     for (const o of res.outcomes) {
       if (o.imported > 0) {
@@ -141,7 +145,13 @@ function report(
       } else if (o.problem) problems.push(`${o.well_name}: ${o.problem}`);
     }
     if (res.skipped_blank_well > 0) problems.push(`${base}: ${res.skipped_blank_well} blank-well row(s) skipped`);
-    recordProcess("Import", `Imported ${res.rows_imported} core sample(s) into ${res.wells_imported} well(s) ← ${path}`);
+    const precisionResult = res.precision.reduced
+      ? `${res.precision.values_reduced} value(s) reduced: ${res.precision.source_precision} → ${res.precision.destination_precision}`
+      : `no values reduced: ${res.precision.source_precision} → ${res.precision.destination_precision}`;
+    recordProcess(
+      "Import",
+      `Imported ${res.rows_imported} core sample(s) into ${res.wells_imported} well(s); precision ${precisionResult} ← ${path}`,
+    );
   }
   const probNote = problems.length ? ` ${problems.length} issue(s): ${problems.slice(0, 3).join("; ")}${problems.length > 3 ? "; …" : ""}` : "";
   const items = [...extraItems];
@@ -161,10 +171,13 @@ function report(
         suffixed.length ? ` — ${suffixed.length} well(s) already had a '${want}' set, so theirs was suffixed` : ""
       }.`
     : "";
+  const precisionNote = storagePrecisions.size
+    ? ` Sample storage: ${[...storagePrecisions].join(", ")}; ${precisionReduced} value(s) reduced from the f64 parse.`
+    : "";
   if (rows === 0) {
-    setStatus(`Core import: nothing imported.${probNote || " (no matching wells?)"}`);
+    setStatus(`Core import: nothing imported.${precisionNote}${probNote || " (no matching wells?)"}`);
   } else {
-    setStatus(`Imported ${rows} core sample(s) into ${wells.size} well(s).${setNote}${extraNote}${probNote}`);
+    setStatus(`Imported ${rows} core sample(s) into ${wells.size} well(s).${setNote}${extraNote}${precisionNote}${probNote}`);
   }
   if (problems.length) {
     for (const p of problems) recordProcess("Import", `Core import issue — ${p}`, well?.well_name);
