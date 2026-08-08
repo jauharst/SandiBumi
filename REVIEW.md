@@ -7,6 +7,11 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-018: canonical units have one owner
+
+- [ ] Export a well carrying one curve from every family. Does each LAS curve unit exactly match
+      `curves::FAMILIES`, including spelling and case, with no writer-owned standard-unit table?
+
 ## 2026-08-09 — SB-DIO-013: unknown table indexes are designated
 
 - [ ] Open a delimited/core table whose depth column has an unfamiliar header. Does it refuse to

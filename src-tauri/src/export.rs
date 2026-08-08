@@ -128,20 +128,6 @@ pub fn set_project_null_sentinel(conn: &Connection, null_sentinel: f32) -> Resul
         .map_err(|e| e.to_string())
 }
 
-/// Standard curve units, mirroring the catalog; computed curves pull units from the
-/// equation that produced them (blank when unknown).
-fn standard_units(name: &str) -> &'static str {
-    match name {
-        "GR" => "GAPI",
-        "RES_DEEP" => "OHMM",
-        "NPHI" => "V/V",
-        "RHOB" => "G/C3",
-        "DT" => "US/F",
-        "SP" => "MV",
-        _ => "",
-    }
-}
-
 const PROVENANCE_PREFIX: &str = "SANDIBUMI_PROVENANCE_V1 ";
 const MODEL_PROVENANCE_PREFIX: &str = "SANDIBUMI_MODEL_PROVENANCE_V1 ";
 const OMISSION_PREFIX: &str = "SANDIBUMI_OMISSION_V1 ";
@@ -405,7 +391,10 @@ fn write_las(
     // Every curve this well actually has: the six standard ones + its computed curves.
     let mut curve_names: Vec<String> =
         ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"].iter().map(|s| s.to_string()).collect();
-    let mut units: Vec<String> = curve_names.iter().map(|n| standard_units(n).to_string()).collect();
+    let mut units: Vec<String> = curve_names
+        .iter()
+        .map(|name| crate::curves::canonical_unit(name).unwrap_or("").to_string())
+        .collect();
     {
         let mut stmt = conn
             .prepare(
@@ -570,6 +559,80 @@ mod tests {
         .unwrap();
 
         (id, gr, vsh)
+    }
+
+    /// SB-DIO-018 / SB-DIO-T29..T30. The fourteen canonical family units are
+    /// the code-resident T1 table cited in chapter §5.1.
+    #[test]
+    fn every_exported_family_unit_comes_from_the_one_canonical_table() {
+        let source = include_str!("export.rs");
+        let duplicate_definition = ["fn standard", "_units"].concat();
+        assert!(!source.contains(&duplicate_definition), "the duplicate writer table must stay deleted");
+        assert!(
+            source.contains("crate::curves::canonical_unit"),
+            "the writer must consult curves::canonical_unit"
+        );
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        let well_id = id.to_string();
+        db::insert_well(&conn, id, "CANONICAL-UNITS", None, None, None).unwrap();
+        let depth = vec![1000.0_f32, 1000.5, 1001.0];
+        db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![50.0; 3],
+            vec![2.0; 3],
+            vec![0.2; 3],
+            vec![2.4; 3],
+            vec![80.0; 3],
+            vec![10.0; 3],
+        )
+        .unwrap();
+        let standard = ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
+        for family in crate::curves::FAMILIES {
+            if standard.contains(&family.family) {
+                continue;
+            }
+            let curve_id = db::upsert_curve_meta(
+                &conn,
+                &well_id,
+                "RAW",
+                family.family,
+                Some(family.canonical_unit),
+                Some(family.family),
+                Some("synthetic canonical-unit fixture"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve_id, &depth, &[1.0, 1.0, 1.0]).unwrap();
+        }
+
+        let dest = tmp_path("canonical-units");
+        export_las(&conn, &well_id, dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        std::fs::remove_file(&dest).ok();
+        let curve_block = text
+            .split("~Curve Information")
+            .nth(1)
+            .and_then(|tail| tail.split("~Other Information").next())
+            .unwrap();
+        for family in crate::curves::FAMILIES {
+            let declared = curve_block.lines().find_map(|line| {
+                let entry = line.trim().split(':').next()?;
+                let (mnemonic, unit) = entry.split_once('.')?;
+                mnemonic.trim().eq(family.family).then_some(unit.trim())
+            })
+            .unwrap_or_else(|| panic!("{} was not exported", family.family));
+            assert_eq!(
+                declared,
+                family.canonical_unit,
+                "{} must retain the table's exact unit spelling and case",
+                family.family
+            );
+        }
     }
 
     /// `export.rs` shipped with no tests at all. Three claims matter and none was pinned.
