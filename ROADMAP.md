@@ -741,12 +741,53 @@ it). One lane at a time, finished and merged before the next starts.
 | 1 | `feat/dio-p1` | `SB-DIO` **P1**s | `21_data-io.md` | — | running |
 | 2 | `feat/ins-p0` | `SB-INS` | `27_ip-install-blockers.md` | 10 | queued |
 | 3 | `feat/plt-p0` | `SB-PLT` | `23_plotting-interactivity.md` | 16 | queued |
+| 4 | `feat/ignored-tests` | *(none — see below)* | — | — | queued |
+| 5 | `feat/core-040-matrix` | `SB-CORE-040` | `04_CORE_REQUIREMENTS.md` | 1 | queued |
+| 6 | `feat/missing-tests` | *(the 137 no-test list)* | every chapter's §6 | — | queued |
+| 7 | `feat/ins-p1`, then `feat/plt-p1` | `SB-INS`, `SB-PLT` **P1**s | as above | — | queued |
 
 `SB-DIO` P0s shipped in PR #29 (eight requirements). Lanes 2 and 3 are Tier 0 — *"It is a
-product"*: installer, in-app method help, command palette, then plotting. **Both are safe
-without the Tier −1 triage because neither contains physics.**
+product"*: installer, in-app method help, command palette, then plotting. **Neither contains
+physics, which is why both are safe without the Tier −1 triage.**
 
-**STOP after lane 3.** Everything remaining — `SB-ENV` (18), `SB-POR` (17), `SB-SAT` (13),
+Lanes 4–6 are the verification tier, and all three are safe for the same reason — none of them
+chooses a petrophysical value:
+
+- **Lane 4 — the ignored set.** `cargo test -- --ignored` runs the 36 tests the green gate
+  deliberately excludes: the Excel/Word/PowerPoint round-trips, the ML subprocess, the Pillow
+  image path, and the real-field LAS and core fixtures. All six optional packages are installed
+  in the Python 3.12 environment and `SANDIBUMI_FIELD_FIXTURES` is set (2026-08-08), so these can
+  finally run. **Nobody has ever run them all.** Whatever fails is a real finding.
+- **Lane 5 — `SB-CORE-040`, verification indexed by capability.** A Tier −1 item, and the one
+  Tier −1 item that is pure bookkeeping rather than physics. It is also gate item 5: *"a
+  verification matrix a buyer can be shown, and a stated ratio that is not 6.7 %."*
+  `91_REQUIREMENTS_INDEX.md` supplies the requirement-to-test mapping this needs.
+- **Lane 6 — the 137 requirements with no owned acceptance test** (`91_REQUIREMENTS_INDEX.md`).
+  6 are `PRESENT-OK` — pin the shipped behaviour. The rest are `PARTIAL` / `PRESENT-DIVERGENT` /
+  `ABSENT`, where the honest test is `#[ignore]`d with the gap named in its own name, never a
+  green assertion over a known divergence. **`CONTRACT.md` §6 requires a characterization test to
+  say that it is one** — *a snapshot test wearing the costume of a correctness test is worse than
+  no test, because it converts a bug into a defended invariant.*
+
+### Docs lanes — run these in PARALLEL, in a second worktree
+
+A docs lane compiles nothing: no `npm install`, no `target/`, no competition for port 1420. So one
+docs lane and one code lane can run at the same time on the same machine. Each needs
+`cp -r docs/research_2026-08` into its worktree — the corpus is untracked by decision, and a lane
+must never `git add` it.
+
+| Branch | Job |
+|---|---|
+| `docs/prd-v2-gap-analysis` | **`90_GAP_ANALYSIS.md`** — the last missing PRD v2 file. Rolled-up capability gap against IP 2025, Techlog 2018.2, Geolog V14, computed from all 18 chapters now that `91` exists |
+| `docs/prd-v2-task9-ml` | **Task 9 for `24_ml-advanced.md`** — the sixth batch-1 chapter, excluded from PR #25 while the ML lane held it. That lane merged (#24), so it is unblocked. `RESUME.md` §6 |
+| `docs/spine-fold` | Fold `_SPINE_PENDING.md` into the spine. SP-001 and SP-005 are resolved; SP-006 through SP-011 are chapter-quality gaps. **Leave SP-002's `GIP_*` half alone** — renaming a shipped curve is Jauhar's call. Also update `RESUME.md` §6, which still reads "queued" |
+
+**The real ceiling is not the lane list.** Ten lanes is ten PRs to read and ten `REVIEW.md` entries
+to field-verify against real wells, and only Jauhar can do either. Field-verify as each lane merges,
+never in a batch at the end: PR #29 changed the LAS import path — null recognition, index units,
+export provenance — and no gate can tell you whether a real delivery still reads correctly.
+
+**STOP after lane 7 and the three docs lanes.** Everything remaining — `SB-ENV` (18), `SB-POR` (17), `SB-SAT` (13),
 `SB-CLY` (14), `SB-MIN` (7), `SB-CUT` (5), `SB-SHR` (13), `SB-TBD` (4) — is physics, and much
 of it sits in the 34 Tier −1 candidates the index flagged. Those need Jauhar's judgement, not
 an agent's. `SB-DBM` (16) is `db.rs` and is never delegated. `SB-GEO` (33) and `SB-PLG` (24) are
