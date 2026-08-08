@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-037: partial DLIS loads are explicit and named
+
+- [ ] Import a DLIS with one readable scalar channel and one encrypted, unsupported, or otherwise
+      unreadable channel. Does the result say **Partially imported**, show the loaded-versus-declared
+      count, and name the omitted channel with its reason instead of reporting ordinary success?
+
 ## 2026-08-09 — SB-DIO-036: duplicate DLIS mnemonics never default to merge
 
 - [ ] Import a DLIS whose mnemonic/frame already exists anywhere on the selected well. Does the

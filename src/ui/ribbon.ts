@@ -1474,12 +1474,16 @@ export class Ribbon {
         setStatus(`DLIS import failed: ${result.error}.${skippedNote}`);
       } else {
         const unitNote = result.notes.length ? ` ${result.notes.join("; ")}` : "";
+        const outcome = result.status === "partial" ? "Partially imported" : "Imported";
+        const channelCount = result.channels_declared > 0
+          ? ` of ${result.channels_declared} declared channel(s)`
+          : "";
         setStatus(
-          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${unitNote}${skippedNote}`,
+          `${outcome} ${result.curves_imported}${channelCount}, ${result.rows} samples into ${well.well_name} as set ${setLabel}.${unitNote}${skippedNote}`,
         );
         recordProcess(
           "Import",
-          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${unitNote}${skippedNote} ← ${path}`,
+          `${outcome} DLIS as set ${setLabel} (${result.curves_imported}${channelCount}, ${result.rows} samples)${unitNote}${skippedNote} ← ${path}`,
           well.well_name,
         );
         this.workspace.notifyDataChanged();

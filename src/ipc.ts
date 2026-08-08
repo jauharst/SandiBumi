@@ -4295,6 +4295,9 @@ export function materializeTvd(wellIds: string[]): Promise<TvdMaterializeResult[
 
 export interface DlisImportResult {
   path: string;
+  status: "complete" | "partial" | "failed";
+  /** Payload channels named by the file, excluding frame index channels. */
+  channels_declared: number;
   curves_imported: number;
   rows: number;
   /** Legacy field; always zero now that duplicate curves require keep-separate or skip. */
@@ -4304,7 +4307,7 @@ export interface DlisImportResult {
   unit_conversions: ImportResult["unit_conversions"];
   unconverted_units: ImportResult["unconverted_units"];
   unit_designations: ImportResult["unit_designations"];
-  skipped: Array<{ kind: string; name: string; count: number; rule: string }>;
+  skipped: Array<{ kind: string; name: string; count: number; rule: string; omitted: boolean }>;
   interval_conflicts: Array<{
     scope: "well" | "set";
     name: string;

@@ -33,9 +33,10 @@ out_curves = []
 buffers = []
 skips = []
 frame_ord = 0
+channels_declared = 0
 
-def skip(kind, name, count, rule):
-    skips.append({"kind": kind, "name": str(name), "count": int(count), "rule": str(rule)})
+def skip(kind, name, count, rule, omitted=True):
+    skips.append({"kind": kind, "name": str(name), "count": int(count), "rule": str(rule), "omitted": bool(omitted)})
 
 def object_name(obj, fallback):
     try:
@@ -57,15 +58,38 @@ with batch:
             frame_ord += 1
             frame_name = object_name(frame, f"logical-file-{logical_ord}/frame-{run}")
             try:
+                frame_channels = list(frame.channels)
+            except Exception as e:
+                frame_channels = []
+                skip("frame", frame_name, 1, f"channel directory unreadable; frame data will still be attempted: {type(e).__name__}: {e}", omitted=False)
+            frame_channel_names = [object_name(ch, "unnamed-channel") for ch in frame_channels]
+            try:
+                index_hint = str(frame.index)
+            except Exception:
+                index_hint = ""
+            try:
                 data = frame.curves()
             except Exception as e:
-                skip("frame", frame_name, 1, f"frame.curves failed: {type(e).__name__}: {e}")
+                payload_names = [name for name in frame_channel_names if name != index_hint]
+                channels_declared += len(payload_names)
+                if payload_names:
+                    for name in payload_names:
+                        skip("channel", name, 1, f"frame {frame_name} unreadable: {type(e).__name__}: {e}")
+                else:
+                    skip("frame", frame_name, 1, f"frame.curves failed: {type(e).__name__}: {e}")
                 continue
             names = list(data.dtype.names or [])
             if not names:
                 skip("frame", frame_name, 1, "frame has no named channels")
                 continue
             index_name = frame.index if frame.index in names else names[0]
+            declared_payload_names = [name for name in frame_channel_names if name != str(index_name)]
+            if not declared_payload_names:
+                declared_payload_names = [str(name) for name in names if name != index_name]
+            channels_declared += len(declared_payload_names)
+            for declared in declared_payload_names:
+                if declared not in names:
+                    skip("channel", declared, 1, f"channel declared in {frame_name} but absent from frame.curves output")
             try:
                 depth = np.asarray(data[index_name], dtype=np.float32)
             except Exception as e:
@@ -79,12 +103,12 @@ with batch:
                 skip("frame", frame_name, 1, f"index channel {index_name} has zero rows")
                 continue
             unit_by_name = {}
-            for ch in frame.channels:
+            for ch in frame_channels:
                 channel_name = object_name(ch, "unnamed-channel")
                 try:
                     unit_by_name[ch.name] = ch.units or ""
                 except Exception as e:
-                    skip("channel", channel_name, 1, f"UNITS attribute unreadable; channel retained with no unit: {type(e).__name__}: {e}")
+                    skip("channel", channel_name, 1, f"UNITS attribute unreadable; channel retained with no unit: {type(e).__name__}: {e}", omitted=False)
             for name in names:
                 if name == index_name:
                     continue
@@ -111,7 +135,7 @@ with batch:
                 buffers.append(depth.tobytes())
                 buffers.append(vals.tobytes())
 
-sys.stdout.write(json.dumps({"curves": out_curves, "skips": skips}))
+sys.stdout.write(json.dumps({"curves": out_curves, "skips": skips, "channels_declared": channels_declared}))
 sys.stdout.write("\n")
 sys.stdout.flush()
 sys.stdout.buffer.write(b"".join(buffers))
@@ -131,6 +155,8 @@ struct DlisHeader {
     curves: Vec<DlisCurveMeta>,
     #[serde(default)]
     skips: Vec<DlisSkip>,
+    #[serde(default)]
+    channels_declared: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -139,6 +165,18 @@ pub struct DlisSkip {
     pub name: String,
     pub count: usize,
     pub rule: String,
+    /// True when the named frame/channel/curve was not loaded. False for a row-level screen or an
+    /// attribute warning on a channel that was retained.
+    #[serde(default)]
+    pub omitted: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DlisImportStatus {
+    Complete,
+    Partial,
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -194,6 +232,8 @@ pub struct DlisDuplicateDecisionRecord {
 #[derive(Debug, Clone, Serialize)]
 pub struct DlisImportResult {
     pub path: String,
+    pub status: DlisImportStatus,
+    pub channels_declared: usize,
     pub curves_imported: usize,
     pub rows: usize,
     /// Legacy result field, now always zero: duplicate mnemonics require keep-separate or skip,
@@ -229,6 +269,8 @@ fn skip_summary(skipped: &[DlisSkip]) -> String {
 fn failed(path: &str, error: String, skipped: Vec<DlisSkip>) -> DlisImportResult {
     DlisImportResult {
         path: path.to_string(),
+        status: DlisImportStatus::Failed,
+        channels_declared: 0,
         curves_imported: 0,
         rows: 0,
         replaced: 0,
@@ -313,6 +355,22 @@ fn validate_header(header: &DlisHeader) -> Result<(), String> {
     } else {
         format!("DLIS import produced no scalar curves; every candidate was skipped: {detail}")
     })
+}
+
+fn import_status(
+    header: &DlisHeader,
+    curves_imported: usize,
+    skipped: &[DlisSkip],
+) -> DlisImportStatus {
+    if curves_imported == 0 {
+        DlisImportStatus::Failed
+    } else if curves_imported < header.channels_declared
+        || skipped.iter().any(|item| item.omitted)
+    {
+        DlisImportStatus::Partial
+    } else {
+        DlisImportStatus::Complete
+    }
 }
 
 fn stored_interval(conn: &Connection, well_id: &str, set_name: Option<&str>) -> Option<(f32, f32)> {
@@ -763,6 +821,7 @@ pub fn import_dlis_file_with_unit_designation(
                 name: format!("frame {} curve {}", meta.run, meta.mnemonic),
                 count: 1,
                 rule: "incoming duplicate skipped by explicit per-curve choice".into(),
+                omitted: true,
             });
             continue;
         }
@@ -785,6 +844,7 @@ pub fn import_dlis_file_with_unit_designation(
                 name: format!("frame {} curve {}", meta.run, meta.mnemonic),
                 count: nulled,
                 rule: "non-finite, magnitude above 1e30, or recognized null sentinel; value stored as missing".into(),
+                omitted: false,
             });
         }
 
@@ -848,6 +908,7 @@ pub fn import_dlis_file_with_unit_designation(
                 name: format!("frame {} curve {}", meta.run, meta.mnemonic),
                 count: dreport.nonfinite,
                 rule: "non-finite depth index".into(),
+                omitted: false,
             });
         }
         if dreport.duplicate > 0 {
@@ -856,6 +917,7 @@ pub fn import_dlis_file_with_unit_designation(
                 name: format!("frame {} curve {}", meta.run, meta.mnemonic),
                 count: dreport.duplicate,
                 rule: "duplicate depth index; first occurrence kept".into(),
+                omitted: false,
             });
         }
         let (depth, values) = if dreport.is_clean() {
@@ -872,6 +934,7 @@ pub fn import_dlis_file_with_unit_designation(
                 name: format!("frame {} curve {}", meta.run, meta.mnemonic),
                 count: 1,
                 rule: "no rows survived depth-index validation".into(),
+                omitted: true,
             });
             continue;
         }
@@ -910,6 +973,8 @@ pub fn import_dlis_file_with_unit_designation(
 
     DlisImportResult {
         path: path.to_string(),
+        status: import_status(&header, curves_imported, &skipped),
+        channels_declared: header.channels_declared,
         curves_imported,
         rows: total_rows,
         replaced,
@@ -1207,10 +1272,16 @@ mod tests {
                 name: "FRAME-BAD".into(),
                 count: 1,
                 rule: "frame.curves failed: RuntimeError: encrypted".into(),
+                omitted: true,
             }],
+            channels_declared: 2,
         };
         assert!(validate_header(&one_bad_one_good).is_ok(), "one good frame must survive a bad one");
-        let all_bad = DlisHeader { curves: vec![], skips: one_bad_one_good.skips.clone() };
+        let all_bad = DlisHeader {
+            curves: vec![],
+            skips: one_bad_one_good.skips.clone(),
+            channels_declared: 1,
+        };
         let error = validate_header(&all_bad).unwrap_err();
         assert!(error.contains("FRAME-BAD") && error.contains("x1") && error.contains("encrypted"));
 
@@ -1242,5 +1313,50 @@ mod tests {
         assert_eq!(crate::parsers::parse_las_2(&las).unwrap().depth.len(), 2);
         assert_eq!(crate::parsers::parse_las_2_all(&las).unwrap().depth.len(), 2);
         let _ = std::fs::remove_file(&las);
+    }
+
+    /// SB-DIO-037 / SB-DIO-T53. Partial-file status and named unreadable channels are
+    /// specified in `docs/PRD_v2/21_data-io.md` §§4.7 and 6.7 (DLIS D-34).
+    #[test]
+    fn a_dlis_with_one_unreadable_and_one_readable_channel_is_partial_and_names_the_unreadable_channel() {
+        let readable = DlisCurveMeta {
+            mnemonic: "GR".into(),
+            unit: "GAPI".into(),
+            index_unit: "M".into(),
+            n: 2,
+            run: 0,
+        };
+        let unreadable = DlisSkip {
+            kind: "channel".into(),
+            name: "LOCKED_RES".into(),
+            count: 1,
+            rule: "frame MAIN unreadable: RuntimeError: encrypted".into(),
+            omitted: true,
+        };
+        let partial = DlisHeader {
+            curves: vec![readable],
+            skips: vec![unreadable],
+            channels_declared: 2,
+        };
+        assert_eq!(import_status(&partial, 1, &partial.skips), DlisImportStatus::Partial);
+        assert_eq!(partial.skips[0].name, "LOCKED_RES");
+
+        // The opposite side: a retained channel's attribute warning is reported, but it does
+        // not turn a fully loaded delivery into a partial load.
+        let retained_warning = DlisSkip {
+            kind: "channel".into(),
+            name: "GR".into(),
+            count: 1,
+            rule: "UNITS attribute unreadable; channel retained with no unit".into(),
+            omitted: false,
+        };
+        let complete = DlisHeader {
+            curves: partial.curves,
+            skips: vec![retained_warning],
+            channels_declared: 1,
+        };
+        assert_eq!(import_status(&complete, 1, &complete.skips), DlisImportStatus::Complete);
+        assert!(DLIS_RUNNER.contains("for name in payload_names"));
+        assert!(DLIS_RUNNER.contains("\"omitted\": bool(omitted)"));
     }
 }
