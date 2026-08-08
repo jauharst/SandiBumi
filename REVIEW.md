@@ -7,6 +7,11 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-017: LAS exports declare their actual depth unit
+
+- [ ] Export and re-import one feet project and one metre project. Do `STRT`, `STOP`, `STEP`
+      and `DEPT` all carry the project unit, with the depth numbers surviving unchanged?
+
 ## 2026-08-09 — SB-DIO-016: DLIS index units are reconciled
 
 - [ ] Import a feet-indexed DLIS into a metre project. Are depths converted, with the index

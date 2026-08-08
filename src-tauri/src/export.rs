@@ -63,6 +63,7 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<u
     if depth.is_empty() {
         return Err("well has no curve data".into());
     }
+    let depth_unit = crate::units::project_depth_unit_or_default(conn).code();
     let step = if depth.len() > 1 { depth[1] - depth[0] } else { 0.0 };
 
     let file = std::fs::File::create(dest_path).map_err(|e| e.to_string())?;
@@ -80,15 +81,15 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<u
         writeln!(w, " VERS.                 2.0 : CWLS log ASCII Standard - VERSION 2.0")?;
         writeln!(w, " WRAP.                  NO : One line per depth step")?;
         writeln!(w, "~Well Information")?;
-        writeln!(w, " STRT.M   {:>12.4} : START DEPTH", depth[0])?;
-        writeln!(w, " STOP.M   {:>12.4} : STOP DEPTH", depth[depth.len() - 1])?;
-        writeln!(w, " STEP.M   {:>12.4} : STEP", step)?;
+        writeln!(w, " STRT.{depth_unit}   {:>12.4} : START DEPTH", depth[0])?;
+        writeln!(w, " STOP.{depth_unit}   {:>12.4} : STOP DEPTH", depth[depth.len() - 1])?;
+        writeln!(w, " STEP.{depth_unit}   {:>12.4} : STEP", step)?;
         writeln!(w, " NULL.    {:>12.4} : NULL VALUE", NULL_VALUE)?;
         writeln!(w, " WELL.    {} : WELL NAME", well_name)?;
         writeln!(w, " FLD .    {} : FIELD", field_name.unwrap_or_default())?;
         writeln!(w, " SRVC.    SandiBumi : EXPORTED BY")?;
         writeln!(w, "~Curve Information")?;
-        writeln!(w, " DEPT.M                     : Depth")?;
+        writeln!(w, " DEPT.{depth_unit}                     : Depth")?;
         for (name, unit) in curve_names.iter().zip(units.iter()) {
             writeln!(w, " {:<8}.{:<8}          : {}", name, unit, name)?;
         }
@@ -271,6 +272,55 @@ mod tests {
             } else {
                 assert!((back[i] - expect).abs() < 5e-4, "row {i}: {} != {expect}", back[i]);
             }
+        }
+    }
+
+    /// SB-DIO-017 / SB-DIO-T27..T28. The LAS unit spellings and the project-unit
+    /// source are specified in `docs/PRD_v2/21_data-io.md` §§4 and 5.1.
+    #[test]
+    fn the_las_writer_declares_the_unit_it_wrote_for_both_feet_and_metres() {
+        for (unit, code, tag) in [
+            (crate::units::DepthUnit::Feet, "FT", "feet-unit"),
+            (crate::units::DepthUnit::Metres, "M", "metre-unit"),
+        ] {
+            let src = Connection::open_in_memory().unwrap();
+            let (id, _, _) = seed(&src);
+            crate::units::set_project_depth_unit(&src, unit).unwrap();
+            let dest = tmp_path(tag);
+            export_las(&src, &id.to_string(), dest.to_str().unwrap()).unwrap();
+
+            let text = crate::parsers::read_text_file(&dest).unwrap();
+            for mnemonic in ["STRT", "STOP", "STEP", "DEPT"] {
+                assert!(
+                    text.lines().any(|line| line.trim_start().starts_with(&format!("{mnemonic}.{code}"))),
+                    "{mnemonic} must declare {code} when those are the depths written"
+                );
+            }
+            let other = if code == "FT" { "M" } else { "FT" };
+            assert!(
+                !text.lines().any(|line| {
+                    ["STRT", "STOP", "STEP", "DEPT"]
+                        .iter()
+                        .any(|mnemonic| line.trim_start().starts_with(&format!("{mnemonic}.{other}")))
+                }),
+                "the opposite unit must not remain on any depth declaration"
+            );
+
+            let dst = Connection::open_in_memory().unwrap();
+            db::create_schema(&dst).unwrap();
+            let imported = crate::ingest::import_las_files(
+                &dst,
+                &[dest.to_str().unwrap().to_string()],
+                None,
+            );
+            let _ = std::fs::remove_file(&dest);
+            assert!(imported[0].error.is_none(), "{code} round trip failed: {:?}", imported[0].error);
+            let imported_unit = crate::units::project_depth_unit(&dst).unwrap();
+            assert_eq!(imported_unit, Some(unit));
+            let first_depth: f32 = dst
+                .query_row("SELECT depth FROM standard_curves ORDER BY depth LIMIT 1", [], |row| row.get(0))
+                .unwrap();
+            assert!((first_depth - 2000.0).abs() < 1e-4, "{code} depths must survive unchanged");
         }
     }
 }
