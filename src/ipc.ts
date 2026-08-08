@@ -149,6 +149,8 @@ export interface LasImportOptions {
   channelNulls?: Record<string, number[] | "NoNull">;
   /** One vendor exception entry may own many regex names and plural nulls, or explicit NoNull. */
   nullRules?: Array<{ names: string[]; nulls: number[] | "NoNull" }>;
+  /** Required only when the index descends; absent means block before commit. */
+  nonMonotonicIndex?: "accept_as_delivered" | null;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -159,6 +161,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     fileDepthUnit: opts?.fileDepthUnit ?? null,
     channelNulls: opts?.channelNulls ?? null,
     nullRules: opts?.nullRules ?? null,
+    nonMonotonicIndex: opts?.nonMonotonicIndex ?? null,
   });
 }
 

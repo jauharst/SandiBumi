@@ -22,6 +22,12 @@ pub struct ImportResult {
     pub index_resolution: Option<parsers::IndexResolution>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NonMonotonicIndexDecision {
+    AcceptAsDelivered,
+}
+
 /// Options for a LAS import batch (the Import LAS dialog's choices).
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct LasImportOptions {
@@ -43,6 +49,10 @@ pub struct LasImportOptions {
     /// Many-to-many vendor exception rules, resolved against the file's actual channel names.
     #[serde(default)]
     pub null_rules: Vec<parsers::NullExceptionRule>,
+    /// Absent by default. A descending index is a splice, wrap or wrong column until
+    /// the user explicitly decides to accept the file's order as delivered.
+    #[serde(default, alias = "nonMonotonicIndex")]
+    pub non_monotonic_index: Option<NonMonotonicIndexDecision>,
 }
 
 /// Normalizes a user/derived set name to the store's convention: trimmed, upper-cased,
@@ -226,6 +236,36 @@ fn insert_parsed_well(
         crate::units::IndexUnitAction::Matches(u) => u,
     };
 
+    let descending_row = columns
+        .depth
+        .windows(2)
+        .position(|pair| pair[1].is_finite() && pair[0].is_finite() && pair[1] < pair[0])
+        .map(|previous| previous + 2);
+    let non_monotonic_note = if let Some(row) = descending_row {
+        match opts.non_monotonic_index {
+            Some(NonMonotonicIndexDecision::AcceptAsDelivered) => Some(format!(
+                "non-increasing index accepted as delivered; first decrease is at data row {row}"
+            )),
+            None => {
+                return ImportResult {
+                    path,
+                    well_id: None,
+                    well_name: None,
+                    rows: 0,
+                    warning: None,
+                    error: Some(format!(
+                        "non-increasing index at data row {row}; a user decision is required before commit"
+                    )),
+                    attached_set: None,
+                    alias_decisions,
+                    index_resolution,
+                }
+            }
+        }
+    } else {
+        None
+    };
+
     // Drop non-finite / duplicate depths so the (well_id, depth) PK can't trip and abort the
     // whole file (which would also orphan the well row); report what was removed.
     let report = parsers::sanitize_curve_columns(&mut columns);
@@ -256,6 +296,9 @@ fn insert_parsed_well(
     let non_monotonic = columns.depth.windows(2).any(|w| w[0] < w[1])
         && columns.depth.windows(2).any(|w| w[0] > w[1]);
     let mut notes: Vec<String> = Vec::new();
+    if let Some(note) = non_monotonic_note {
+        notes.push(note);
+    }
     if let Some(n) = unit_action.note() {
         notes.push(n);
     }
@@ -1911,6 +1954,63 @@ mod tests {
         assert_eq!(
             positional.mechanism,
             parsers::IndexResolutionMechanism::PositionalGuarantee
+        );
+    }
+
+    /// SB-DIO-012 / SB-DIO-T18. The mandatory strictly-increasing constraint is
+    /// cited from Techlog's ASCII reference control in chapter §5.3.
+    #[test]
+    fn a_non_increasing_index_is_blocked_at_the_reported_row_until_the_user_accepts_it() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join("sandibumi_non_increasing_row_400.las");
+        let mut samples = String::new();
+        for row in 1..=400 {
+            let depth = if row == 400 { 1300.0 } else { 1000.0 + (row - 1) as f32 };
+            samples.push_str(&format!("{depth:.1} {row}.0\n"));
+        }
+        std::fs::write(
+            &path,
+            format!(
+                "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. ORDER :\n\
+                 ~CURVE\nDEPT.M :\nGR.API :\n~ASCII\n{samples}"
+            ),
+        )
+        .unwrap();
+
+        let blocked = import_las_files_with(
+            &conn,
+            &[path.to_str().unwrap().to_string()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        assert!(
+            blocked.error.as_deref().is_some_and(|error| {
+                error.contains("data row 400") && error.contains("user decision")
+            }),
+            "the first decrease and required decision must be named: {:?}",
+            blocked.error
+        );
+        let before: i64 = conn.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get(0)).unwrap();
+        assert_eq!(before, 0, "a blocked index cannot commit a well");
+
+        let accepted = import_las_files_with(
+            &conn,
+            &[path.to_str().unwrap().to_string()],
+            None,
+            &LasImportOptions {
+                non_monotonic_index: Some(NonMonotonicIndexDecision::AcceptAsDelivered),
+                ..LasImportOptions::default()
+            },
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+        assert!(accepted.error.is_none(), "the explicit decision permits commit: {:?}", accepted.error);
+        assert!(
+            accepted.warning.as_deref().is_some_and(|warning| warning.contains("data row 400")),
+            "the accepted conflict remains in the audit result: {:?}",
+            accepted.warning
         );
     }
 

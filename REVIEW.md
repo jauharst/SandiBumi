@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-012: descending indexes require a decision
+
+- [ ] Import a LAS whose index first decreases late in the file. Is the import blocked before any
+      well commits, with the exact data row named? After explicitly accepting the delivered order,
+      does it commit while retaining that row in the result audit?
+
 ## 2026-08-09 — SB-DIO-011: index aliases keep their namespaces
 
 - [ ] Inspect the LAS, core-table and tops index aliases. Does each path cite its source? Is `TVD`
