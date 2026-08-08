@@ -1313,7 +1313,9 @@ elif task == "clustering":
     # would raise rather than explain. Reported as a CLAMP, not silently substituted: "you asked
     # for 12 and got 4" is a fact about the data the user needs, and a run that quietly returned
     # 4 clusters under a request for 12 would be read as 12 clusters that happened to merge.
-    if n_apply and k > n_apply:
+    # Not for HDBSCAN, which does not take a cluster count at all — clamping a number it never reads
+    # would report a correction that changed nothing about the answer.
+    if n_apply and k > n_apply and algo != "hdbscan":
         k = max(1, int(n_apply))
         P_used("k", k)
         metrics["k_clamped"] = "k was reduced to %d: there are only %d samples to cluster" % (k, n_apply)
@@ -1382,6 +1384,51 @@ elif task == "clustering":
                 "of your largest-range curve deliberately." % eps
             )
         labels = DBSCAN(eps=eps, min_samples=int(P(p, "min_samples", 10))).fit_predict(As)
+    elif algo == "hdbscan":
+        try:
+            from sklearn.cluster import HDBSCAN
+        except ImportError:
+            import sklearn as _sk
+            fail("HDBSCAN needs scikit-learn 1.3 or newer; this Python has " + _sk.__version__
+                 + ". Run: pip install -U scikit-learn")
+        # The one clustering method here that CHOOSES its own cluster count rather than being told
+        # one, and that tolerates clusters of very different size and density. That combination is
+        # what a thin coal bed against a thick sand needs: k-means splits the sand to balance the
+        # count, and DBSCAN needs one `eps` to suit both densities at once, which no single value
+        # does. `k` is deliberately ignored for this algorithm - see the note below, which says so
+        # rather than letting a k the user typed sit there looking honoured.
+        #
+        # `min_cluster_size` is in SAMPLES, and that makes it a thickness question in disguise: at a
+        # half-foot sampling, 20 samples is ten feet of hole. The smallest facies unit worth naming
+        # is the analyst's call about their field, so it is stated in the dialog in those terms and
+        # never inferred from the data.
+        mcs = int(P(p, "min_cluster_size", 25))
+        if mcs < 2:
+            fail("min_cluster_size must be at least 2 - a single sample is not a cluster")
+        # min_samples defaults to min_cluster_size in scikit-learn; 0 here means "leave it there"
+        # rather than a value nobody chose.
+        ms = int(P(p, "min_samples", 0))
+        hd = HDBSCAN(min_cluster_size=mcs, min_samples=(ms if ms > 0 else None))
+        labels = hd.fit_predict(As)
+        # Membership STRENGTH, not a posterior - see the prob block below. Carried because it is the
+        # honest way to read an HDBSCAN facies track: the core of a unit and its fuzzy edge are both
+        # labelled, and only this says which is which.
+        prob = np.asarray(hd.probabilities_, dtype=float)
+        metrics["chosen_k"] = int(len([c for c in np.unique(labels) if c >= 0]))
+        metrics["k_ignored"] = (
+            "HDBSCAN chooses its own cluster count from the data; it found %d. The K setting is not "
+            "used by this algorithm - min_cluster_size is what decides how fine the answer is."
+            % metrics["chosen_k"]
+        )
+        if scaler is None:
+            # Not the `eps` unit trap (min_cluster_size is a count), but the same underlying cause:
+            # the mutual-reachability distances this builds its tree from are computed in whatever
+            # units the curves arrived in.
+            metrics["metric_warning"] = (
+                "standardisation is off, so the density estimate is computed in the curves' own "
+                "mixed units and whichever input has the largest numeric range dominates every "
+                "distance. The cluster count will reflect that curve more than the rock."
+            )
     else:
         fail("unknown clustering algorithm '" + algo + "'")
     # SB-MLA-021. Real clusters get ids ordered by first-feature mean; a sample the algorithm
@@ -1408,7 +1455,11 @@ elif task == "clustering":
     if n_reject:
         out[labels < 0] = CLUSTER_REJECT
     metrics["cluster_sizes"] = {str(remap[c]): int(np.sum(labels == c)) for c in order}
-    if algo == "dbscan":
+    # Both density methods REJECT samples rather than forcing every one into a cluster, so both owe
+    # the reader the count. Leaving HDBSCAN out of this would have been the easy miss: its curve
+    # would carry CLUSTER_REJECT values with nothing anywhere saying how many, and a facies track
+    # that is 40% rejected is a different finding from one that is 2%.
+    if algo in ("dbscan", "hdbscan"):
         metrics["noise_pct"] = round(float(np.mean(labels < 0) * 100), 2)
         metrics["n_rejected"] = n_reject
         metrics["reject_code"] = CLUSTER_REJECT
@@ -1439,13 +1490,26 @@ elif task == "clustering":
             metrics["silhouette_error"] = str(e)
     outs.append(("", out))
     if prob is not None:
-        # SB-MLA-030. GMM's is the one genuinely calibrated posterior here, and it deserves to be
-        # distinguished from the classifier scores rather than sharing an undifferentiated name.
-        metrics["prob_definition"] = (
-            "the winning mixture component's RESPONSIBILITY - a true posterior over the components. "
-            "1.0 is unambiguous; about 1/K means the sample sits on a boundary between components"
-        )
-        metrics["prob_normalisation"] = "across the K mixture components at each depth, summing to 1"
+        # SB-MLA-030. Two algorithms produce a `_PROB` curve here and they are NOT the same quantity.
+        # GMM's is a posterior over the components, summing to 1 across them. HDBSCAN's is a
+        # membership STRENGTH within the one cluster the sample was assigned to - it does not sum to
+        # anything, and a 0.4 means "this sample sits at the fuzzy edge of its own cluster", not
+        # "it might belong to another one". Read the second as the first and a facies track's
+        # boundaries look uncertain in exactly the places they are most certain.
+        if algo == "hdbscan":
+            metrics["prob_definition"] = (
+                "the STRENGTH with which this sample belongs to the cluster it was given - 1.0 at "
+                "the dense core of a unit, falling toward 0 at its edge. NOT a posterior: it says "
+                "nothing about which other cluster the sample might belong to, and it does not sum "
+                "to 1 across clusters"
+            )
+            metrics["prob_normalisation"] = "none - it is a per-sample strength, not a distribution"
+        else:
+            metrics["prob_definition"] = (
+                "the winning mixture component's RESPONSIBILITY - a true posterior over the components. "
+                "1.0 is unambiguous; about 1/K means the sample sits on a boundary between components"
+            )
+            metrics["prob_normalisation"] = "across the K mixture components at each depth, summing to 1"
         outs.append(("_PROB", prob.astype(np.float32)))
 
 elif task == "reduction":
@@ -9417,6 +9481,92 @@ mod tests {
         let ev = metrics["explained_variance_pct"].as_array().unwrap();
         let total: f64 = ev.iter().map(|v| v.as_f64().unwrap()).sum();
         assert!(total > 99.0, "explained variance = {total}%");
+    }
+
+    /// HDBSCAN is here for the one thing the other clustering methods cannot do: find a thin unit
+    /// beside a thick one without being told how many units there are.
+    ///
+    /// k-means splits the thick group to balance its counts; DBSCAN needs a single `eps` that suits
+    /// both densities at once, and no value does. So the fixture is deliberately lopsided — a large
+    /// loose group and a small tight one — and the test asserts the small one survives as its own
+    /// cluster rather than being absorbed or written off as noise.
+    ///
+    /// The second half is the part that would go wrong silently: HDBSCAN's `_PROB` is a membership
+    /// STRENGTH within one cluster, and GMM's is a posterior ACROSS components. They are read off a
+    /// track identically and mean different things, so the run must declare which it produced.
+    #[test]
+    fn hdbscan_keeps_a_thin_unit_beside_a_thick_one_and_says_its_prob_is_not_a_posterior() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // 300 samples spread wide, then 40 packed tight a long way off — a thick sand and a thin
+        // coal. Deterministic, so the assertions below mean the same thing on every machine.
+        let mut x: Vec<f32> = Vec::new();
+        for i in 0..300 {
+            x.push((i % 60) as f32 * 0.20 - 6.0);
+        }
+        for i in 0..40 {
+            x.push(40.0 + (i % 4) as f32 * 0.02);
+        }
+        let n = x.len();
+
+        let (metrics, outs) = exec_ml(
+            &py,
+            "clustering",
+            "hdbscan",
+            &params(&[("min_cluster_size", serde_json::json!(15))]),
+            1,
+            &x,
+            None,
+            &x,
+            n,
+        )
+        .expect("hdbscan run failed");
+
+        let chosen = metrics["chosen_k"].as_u64().unwrap_or(0);
+        assert!(
+            chosen >= 2,
+            "the thin group must survive as its own cluster, not be absorbed: {metrics}",
+        );
+        assert!(
+            metrics.get("k_ignored").and_then(|v| v.as_str()).is_some_and(|s| s.contains("chooses its own")),
+            "a K the user typed must be said to be unused, not left looking honoured: {metrics}",
+        );
+
+        // The thin group's samples must not all be rejected — being outnumbered 300 to 40 is exactly
+        // the case where a density method can write a real unit off as noise.
+        let labels = &outs.iter().find(|(s, _)| s.is_empty()).expect("a label curve").1;
+        let thin: Vec<f32> = labels[300..].to_vec();
+        let assigned = thin.iter().filter(|v| v.is_finite() && **v >= 0.0).count();
+        assert!(
+            assigned >= 30,
+            "{assigned} of 40 thin-unit samples were assigned; the rest were rejected as noise",
+        );
+        // ...and they are ONE cluster, distinct from the thick group's.
+        let thin_id = thin.iter().find(|v| v.is_finite() && **v >= 0.0).copied().unwrap();
+        assert!(
+            labels[..300].iter().filter(|v| v.is_finite()).all(|v| *v != thin_id),
+            "the thin unit shares a cluster id with the thick one",
+        );
+
+        // SB-MLA-030: a strength is not a posterior, and the run has to say so.
+        assert!(
+            outs.iter().any(|(s, _)| s == "_PROB"),
+            "membership strength is what distinguishes a unit's core from its edge, and is carried",
+        );
+        let def = metrics["prob_definition"].as_str().unwrap_or("");
+        assert!(
+            def.contains("STRENGTH") && def.contains("NOT a posterior"),
+            "HDBSCAN's _PROB must not be described as GMM's posterior: {def}",
+        );
+        assert_eq!(
+            metrics["prob_normalisation"].as_str(),
+            Some("none - it is a per-sample strength, not a distribution"),
+        );
+        // Both density methods reject samples, so both must report how many.
+        assert!(metrics.get("n_rejected").is_some(), "the reject count is owed: {metrics}");
+        assert!(metrics.get("noise_pct").is_some());
     }
 
     /// A run that FINISHED without covering every well leaves sets that read exactly like a

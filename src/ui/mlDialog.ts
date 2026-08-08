@@ -289,6 +289,15 @@ const TASKS: TaskSpec[] = [
       { id: "dbscan", label: "DBSCAN (density)",
         desc: "Density-based groups — isolates rare anomalies; noise samples stay empty (NaN).",
         params: [num("eps", "eps (std-dev units)", 0.5), num("min_samples", "min samples", 10)] },
+      // The only clustering method here that decides its own cluster count, and the only one that
+      // tolerates clusters of very different size and density in one pass — a thin coal against a
+      // thick sand. `min_cluster_size` is in SAMPLES, which at a half-foot sampling makes it a
+      // thickness: 25 samples is about twelve feet. Labelled that way because that is the question
+      // the analyst is actually answering.
+      { id: "hdbscan", label: "HDBSCAN (density, auto-K)",
+        desc: "Finds its own number of facies and copes with thin units beside thick ones. Ignores K. Samples it will not assign stay rejected, not guessed.",
+        params: [num("min_cluster_size", "min samples per facies", 25),
+                 num("min_samples", "neighbourhood size (0 = same as above)", 0)] },
     ],
   },
   {

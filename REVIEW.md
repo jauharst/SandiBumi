@@ -9872,3 +9872,45 @@ The HFU result says which one produced it, in words.
 - [ ] **The thing worth understanding rather than clicking:** the two tools now share the same
       arithmetic and still give different answers on the same well, because one sorts by value and
       the other keeps depth order. That difference is real and intended.
+
+## A clustering method that picks its own number of facies (2026-08-08)
+
+This is the answer to the MRGC question rather than a new idea. MRGC's real selling point is that it
+finds the natural number of electrofacies and copes with clusters of very different size and
+density — a thin coal beside a thick sand. Everything else about it we already had, and its
+published description is not complete enough to implement without guessing.
+
+**HDBSCAN does the same job from a fully public method**, ships inside scikit-learn, and can be
+named in a report with no argument about where it came from. It is now in the Clustering list.
+
+What it does differently from the three already there:
+
+- **It is not told how many facies to find.** K-means, GMM and hierarchical all need K up front, and
+  the answer changes with it. HDBSCAN reads it off the data and tells you what it found. **The K
+  setting is ignored, and the run says so** rather than leaving a number you typed sitting there
+  looking honoured.
+- **It tolerates thin units beside thick ones.** K-means minimises within-cluster spread, so given
+  one more cluster than the rock has it splits the big group rather than finding the small one.
+  DBSCAN needs a single density setting to suit both at once, and no value does.
+- **It refuses samples rather than forcing them.** Like DBSCAN, a sample it will not assign is
+  written as rejected — a finding about that rock, distinct from "never evaluated".
+
+The setting that does the work is **min samples per facies**. It is a sample count, which at a
+half-foot sampling makes it a thickness question: 25 samples is about twelve feet. The smallest unit
+worth naming in your field is your call, so nothing infers it.
+
+**One thing to read carefully.** HDBSCAN also writes a `_PROB` curve, and it is **not** the same
+quantity as the GMM one. GMM's is a posterior across components — "how sure am I this is component
+3 rather than 4". HDBSCAN's is a membership **strength** within the cluster it already chose — 1.0
+at the dense core of a unit, falling toward 0 at its edge, and it says nothing about which other
+cluster the sample might belong to. Read the second as the first and a facies track looks uncertain
+exactly where it is most certain. The run states which one it produced.
+
+- [ ] **Run Clustering → HDBSCAN** on a well with an obvious thin bed. Check the reported cluster
+      count against what you would have picked, and whether the thin bed came out as its own facies.
+- [ ] **Compare against k-means at the same K** it chose. The interesting case is where they differ.
+- [ ] **Check the rejected percentage.** A track that is 40% rejected is telling you the min-samples
+      setting is too high for this well, or that standardisation is off.
+- [ ] **Turn standardisation off and re-run.** You should get a warning that the density estimate is
+      then in the curves' own mixed units and the largest-range curve dominates.
+- [ ] **Read the `_PROB` curve's stated meaning** in the run result before using it.
