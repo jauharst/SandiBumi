@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-022: export re-sampling defaults off
+
+- [ ] Export a well whose stored depths are irregular. Does the LAS `~ASCII` block retain every
+      stored depth and its paired value exactly, with no regular grid or interpolated samples
+      introduced at the default settings?
+
 ## 2026-08-09 — SB-DIO-020: duplicate depths have a declared policy
 
 - [ ] Import a LAS with repeated depths. Does it commit nothing until you choose keep-first,

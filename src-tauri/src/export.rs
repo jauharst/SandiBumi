@@ -635,6 +635,58 @@ mod tests {
         }
     }
 
+    /// SB-DIO-022 / SB-DIO-T35. D-22 and D-23 require writer-side re-gridding to be
+    /// an explicit resample and to default OFF. The synthetic values are deliberately
+    /// non-linear as well as irregularly spaced: a writer that silently regularized the
+    /// depths or interpolated the curve would fail one side of the assertion even if it
+    /// happened to preserve the other.
+    #[test]
+    fn an_export_at_defaults_writes_the_irregular_stored_samples_without_regridding() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        db::insert_well(&conn, id, "IRREGULAR-EXPORT", None, None, None).unwrap();
+        let stored_depth = vec![1000.0_f32, 1000.1, 1000.35, 1001.0];
+        let stored_gr = vec![10.0_f32, 40.0, 15.0, 90.0];
+        let missing = vec![f32::NAN; stored_depth.len()];
+        db::insert_standard_curves(
+            &conn,
+            id,
+            stored_depth.clone(),
+            stored_gr.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing,
+        )
+        .unwrap();
+
+        let dest = tmp_path("irregular-default");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        std::fs::remove_file(&dest).ok();
+        let rows: Vec<Vec<f32>> = text
+            .split("~ASCII")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| line.split_whitespace().map(|field| field.parse::<f32>().unwrap()).collect())
+            .collect();
+
+        assert_eq!(
+            rows.iter().map(|row| row[0]).collect::<Vec<_>>(),
+            stored_depth,
+            "the default writer must not replace an irregular stored index with a regular grid"
+        );
+        assert_eq!(
+            rows.iter().map(|row| row[1]).collect::<Vec<_>>(),
+            stored_gr,
+            "the default writer must not interpolate stored values onto different samples"
+        );
+    }
+
     /// `export.rs` shipped with no tests at all. Three claims matter and none was pinned.
     ///
     /// **Missing writes as the null value, never as a blank or a zero.** A 0.0 where a sample was
