@@ -10091,3 +10091,37 @@ will think about.
 - [ ] **Check the dock tabs** (Database Inspector / Machine Learning) switch again. With five
       sections stacked the pane was enormously tall, which is the likely cause — but that is a
       hypothesis, so if they still misbehave say so and it gets its own look.
+
+## One well picker, and the Input tab in reading order
+
+**The Train wells grid is gone.** RUN ON is now the only well selector, and the run both fits and
+predicts on it. On a sixteen-well field the two lists were the same names twice with no visible rule
+for which governed what.
+
+It was also almost never a real choice. A well contributes training rows only where the **target
+curve exists**, so listing a well with no target as a training well already did nothing; and
+listing one with a target but leaving it out of RUN ON meant fitting on rock you then refused to
+predict. The genuine "fit here, predict there" case is the **saved model** — fit on the wells that
+carry the curve, then propagate that artifact from Model Distribution, which is the route you
+described.
+
+The one thing this gives up: holding back a well that *has* the target without also giving up its
+prediction. That is what the blind split is for, and it already holds out whole wells.
+
+**The Input tab now reads in the order you asked:**
+
+`Input log set → Input curves → Output log set → Output curve → Target curve → Mask → Interval → RUN ON`
+
+The log-set pickers used to sit at the bottom of the tab, a screen away from the curves they govern
+— which is the "set and curve feel disconnected" complaint. Which set you read from decides which
+version of PHIE the model sees, so it belongs directly above the curve list. Output curve moved over
+from the Model tab to sit beside the output set: where it lands and what it is called are one step.
+
+- [ ] **Run a supervised fit** with wells in scope that have no target curve. Confirm it trains on
+      the ones that do and still predicts for all of them.
+- [ ] **Check the blind-split wording** follows the RUN ON count as you change scope.
+- [ ] **Run a clustering.** RUN ON must still be visible — only Target curve hides for an
+      unsupervised task.
+- [ ] **Check the Model tab** no longer has Output curve, and does not look gappy without it.
+- [ ] **Confirm the reading order** matches the list above on a narrow pane and on a wide one (the
+      Input tab goes two-column past ~1060px).
