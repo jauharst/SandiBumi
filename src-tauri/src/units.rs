@@ -189,8 +189,6 @@ pub enum IndexUnitAction {
     Matches(DepthUnit),
     /// File differs — convert the index into the project unit before storing.
     Convert { from: DepthUnit, to: DepthUnit },
-    /// The file declared no usable index unit; it is ASSUMED to be the project's.
-    Assumed(DepthUnit),
 }
 
 impl IndexUnitAction {
@@ -207,25 +205,28 @@ impl IndexUnitAction {
                 from.label(),
                 to.label()
             )),
-            IndexUnitAction::Assumed(u) => Some(format!(
-                "this file declares no index unit — depths assumed to be {}",
-                u.label()
-            )),
         }
     }
 }
 
 /// Decides the action for one file. `declared` is the project's unit (None = undeclared),
 /// `file` is what the file's index unit parsed to (None = absent/unrecognized).
-pub fn resolve_index_unit(declared: Option<DepthUnit>, file: Option<DepthUnit>) -> IndexUnitAction {
+pub fn resolve_index_unit(
+    declared: Option<DepthUnit>,
+    file: Option<DepthUnit>,
+) -> Result<IndexUnitAction, String> {
     match (declared, file) {
-        (None, Some(f)) => IndexUnitAction::Adopted(f),
-        // A fresh project and a file that says nothing: metres, the documented default
-        // for kb/td/UTM. Flagged, so it is never a silent choice.
-        (None, None) => IndexUnitAction::Assumed(DepthUnit::Metres),
-        (Some(p), None) => IndexUnitAction::Assumed(p),
-        (Some(p), Some(f)) if p == f => IndexUnitAction::Matches(p),
-        (Some(p), Some(f)) => IndexUnitAction::Convert { from: f, to: p },
+        (None, Some(f)) => Ok(IndexUnitAction::Adopted(f)),
+        (None, None) => Err(
+            "depth index unit is undeclared: the file index has no usable unit and the project has no declared depth unit; confirm the file's unit before import"
+                .to_string(),
+        ),
+        (Some(p), None) => Err(format!(
+            "the file index has no usable depth unit; the project is {}, but the project setting is not a file declaration — confirm the file's unit before import",
+            p.code()
+        )),
+        (Some(p), Some(f)) if p == f => Ok(IndexUnitAction::Matches(p)),
+        (Some(p), Some(f)) => Ok(IndexUnitAction::Convert { from: f, to: p }),
     }
 }
 
@@ -283,19 +284,17 @@ mod tests {
     fn resolves_every_project_file_unit_combination() {
         use DepthUnit::{Feet, Metres};
         // Fresh project adopts the file's unit — the common case, no user decision.
-        assert_eq!(resolve_index_unit(None, Some(Feet)), IndexUnitAction::Adopted(Feet));
+        assert_eq!(resolve_index_unit(None, Some(Feet)).unwrap(), IndexUnitAction::Adopted(Feet));
         // Matching file: stored as-is, and nothing to tell the user.
-        assert_eq!(resolve_index_unit(Some(Metres), Some(Metres)), IndexUnitAction::Matches(Metres));
-        assert!(resolve_index_unit(Some(Metres), Some(Metres)).note().is_none());
+        assert_eq!(resolve_index_unit(Some(Metres), Some(Metres)).unwrap(), IndexUnitAction::Matches(Metres));
+        assert!(resolve_index_unit(Some(Metres), Some(Metres)).unwrap().note().is_none());
         // The case that used to corrupt a project silently.
         assert_eq!(
-            resolve_index_unit(Some(Metres), Some(Feet)),
+            resolve_index_unit(Some(Metres), Some(Feet)).unwrap(),
             IndexUnitAction::Convert { from: Feet, to: Metres }
         );
-        assert!(resolve_index_unit(Some(Metres), Some(Feet)).note().is_some());
-        // No declared unit in the file: assumed, but always flagged.
-        assert_eq!(resolve_index_unit(Some(Feet), None), IndexUnitAction::Assumed(Feet));
-        assert_eq!(resolve_index_unit(None, None), IndexUnitAction::Assumed(Metres));
-        assert!(resolve_index_unit(Some(Feet), None).note().is_some());
+        assert!(resolve_index_unit(Some(Metres), Some(Feet)).unwrap().note().is_some());
+        assert!(resolve_index_unit(Some(Feet), None).is_err());
+        assert!(resolve_index_unit(None, None).is_err());
     }
 }

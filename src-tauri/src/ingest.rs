@@ -30,6 +30,9 @@ pub struct LasImportOptions {
     /// existing well ATTACHES its curves to that well as a new set instead of creating
     /// a duplicate well record. False = always create records (the legacy behavior).
     pub attach: bool,
+    /// Explicit unit for files whose index declares none. None means no confirmation:
+    /// such a file is refused even when the project already has a unit.
+    pub file_depth_unit: Option<String>,
 }
 
 /// Normalizes a user/derived set name to the store's convention: trimmed, upper-cased,
@@ -159,15 +162,46 @@ fn insert_parsed_well(
     // reported as a clean import while every cross-well comparison silently put 8,000
     // against 2,438 for the same formation.
     let declared = crate::units::project_depth_unit(conn).ok().flatten();
-    let file_unit = columns.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse);
-    let unit_action = crate::units::resolve_index_unit(declared, file_unit);
+    let declared_file_unit = columns.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse);
+    let confirmed_file_unit = match opts.file_depth_unit.as_deref() {
+        Some(raw) => match crate::units::DepthUnit::parse(raw) {
+            Some(unit) => Some(unit),
+            None => {
+                return ImportResult {
+                    path,
+                    well_id: None,
+                    well_name: None,
+                    rows: 0,
+                    warning: None,
+                    error: Some(format!("unrecognized confirmed file depth unit '{raw}'")),
+                    attached_set: None,
+                }
+            }
+        },
+        None => None,
+    };
+    let file_unit = declared_file_unit.or(confirmed_file_unit);
+    let unit_action = match crate::units::resolve_index_unit(declared, file_unit) {
+        Ok(action) => action,
+        Err(error) => {
+            return ImportResult {
+                path,
+                well_id: None,
+                well_name: None,
+                rows: 0,
+                warning: None,
+                error: Some(error),
+                attached_set: None,
+            }
+        }
+    };
     let stored_unit = match unit_action {
         crate::units::IndexUnitAction::Convert { from, to } => {
             crate::units::convert_depths(&mut columns.depth, from, to);
             to
         }
         crate::units::IndexUnitAction::Adopted(u) => u,
-        crate::units::IndexUnitAction::Matches(u) | crate::units::IndexUnitAction::Assumed(u) => u,
+        crate::units::IndexUnitAction::Matches(u) => u,
     };
 
     // Drop non-finite / duplicate depths so the (well_id, depth) PK can't trip and abort the
@@ -200,6 +234,11 @@ fn insert_parsed_well(
     let mut notes: Vec<String> = Vec::new();
     if let Some(n) = unit_action.note() {
         notes.push(n);
+    }
+    if declared_file_unit.is_none() {
+        if let Some(unit) = confirmed_file_unit {
+            notes.push(format!("file depth unit explicitly confirmed as {}", unit.code()));
+        }
     }
     if !report.is_clean() {
         notes.push(format!(
@@ -237,7 +276,15 @@ fn insert_parsed_well(
         }
     };
     if opts.attach && matches.len() == 1 {
-        return attach_curves_to_existing_well(conn, path, well_name, &matches[0], opts, notes);
+        let out = attach_curves_to_existing_well(conn, path, well_name, &matches[0], opts, notes);
+        if out.error.is_none() {
+            if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
+                if let Err(e) = crate::units::set_project_depth_unit(conn, unit) {
+                    eprintln!("warning: could not record the project depth unit: {e}");
+                }
+            }
+        }
+        return out;
     }
     if matches.len() > 1 {
         notes.push(format!(
@@ -293,7 +340,13 @@ fn insert_parsed_well(
             // not fail the whole import (the standard curves are already in), so it's
             // logged, not propagated.
             let set = resolve_set_name(conn, &well_id.to_string(), &canonical_set_name(opts.set_name.as_deref()));
-            if let Err(e) = import_all_curves_into_generic_store(conn, &well_id.to_string(), &path, &set) {
+            if let Err(e) = import_all_curves_into_generic_store(
+                conn,
+                &well_id.to_string(),
+                &path,
+                &set,
+                confirmed_file_unit,
+            ) {
                 eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
                 // stderr alone is invisible in a release build, so the import used to report a
                 // clean success while every curve beyond the fixed six — PEF, CALI, DTS, a second
@@ -324,7 +377,13 @@ fn attach_curves_to_existing_well(
     notes: Vec<String>,
 ) -> ImportResult {
     let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
-    match import_all_curves_into_generic_store(conn, well_id, &path, &set) {
+    match import_all_curves_into_generic_store(
+        conn,
+        well_id,
+        &path,
+        &set,
+        opts.file_depth_unit.as_deref().and_then(crate::units::DepthUnit::parse),
+    ) {
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
         // and the frontend reports it separately. Only genuine notes (unit reconciliation,
         // dropped rows) reach `warning`.
@@ -354,6 +413,7 @@ pub fn import_all_curves_into_generic_store(
     well_id: &str,
     path: &str,
     set_name: &str,
+    confirmed_file_unit: Option<crate::units::DepthUnit>,
 ) -> db::DbResult<(usize, usize)> {
     let mut frame = match parsers::parse_las_2_all(path) {
         Ok(f) => f,
@@ -362,9 +422,20 @@ pub fn import_all_curves_into_generic_store(
     // This re-reads the same file the standard-curve path already imported, so it MUST
     // apply the identical index conversion — otherwise the two stores would hold the same
     // curves at depths 3.28x apart and every generic-store lookup would miss.
-    let target = crate::units::project_depth_unit_or_default(conn);
-    if let Some(file_unit) = frame.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse) {
-        crate::units::convert_depths(&mut frame.depth, file_unit, target);
+    let declared = crate::units::project_depth_unit(conn)?;
+    let file_unit = frame
+        .depth_unit
+        .as_deref()
+        .and_then(crate::units::DepthUnit::parse)
+        .or(confirmed_file_unit);
+    let action = crate::units::resolve_index_unit(declared, file_unit)
+        .map_err(db::DbError::LengthMismatch)?;
+    match action {
+        crate::units::IndexUnitAction::Convert { from, to } => {
+            crate::units::convert_depths(&mut frame.depth, from, to);
+        }
+        crate::units::IndexUnitAction::Adopted(_)
+        | crate::units::IndexUnitAction::Matches(_) => {}
     }
     // curve_samples has PK (curve_id, depth) just like standard_curves, so the same non-finite
     // / duplicate depths the standard-curves path drops would otherwise abort each curve's
@@ -1657,7 +1728,7 @@ mod tests {
         db::create_schema(&conn).unwrap();
 
         let cols = || CurveColumns {
-            depth_unit: None,
+            depth_unit: Some("M".into()),
             depth: vec![1000.0, 1000.5, 1001.0],
             gr: vec![40.0, 45.0, 50.0],
             res: vec![f32::NAN; 3],
@@ -1688,6 +1759,96 @@ mod tests {
         assert_ne!(r1.well_id, r2.well_id, "still two distinct records (no auto-merge)");
     }
 
+    /// SB-DIO-015 / SB-DIO-T22..T24. The accepted depth-unit spellings and the
+    /// international-foot factor are cited in `docs/PRD_v2/21_data-io.md` §5.1.
+    /// A project declaration is deliberately not used as evidence for an undeclared file.
+    #[test]
+    fn an_undeclared_index_unit_refuses_until_the_files_unit_is_explicitly_confirmed() {
+        let make = |name: &str, unit: &str, well: &str| {
+            let path = std::env::temp_dir().join(name);
+            std::fs::write(
+                &path,
+                format!(
+                    "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. {well} :\n~CURVE\nDEPT.{unit} : depth\nGR.GAPI :\n~ASCII\n1000 50\n1001 55\n"
+                ),
+            )
+            .unwrap();
+            path
+        };
+
+        let fresh = Connection::open_in_memory().unwrap();
+        db::create_schema(&fresh).unwrap();
+        let no_unit = make("sandibumi_dio015_none.las", "", "SANDI-NONE");
+        let fresh_result = &import_las_files_with(
+            &fresh,
+            &[no_unit.to_str().unwrap().to_string()],
+            None,
+            &LasImportOptions::default(),
+        )[0];
+        assert!(
+            fresh_result.error.as_deref().is_some_and(|e| e.contains("file index") && e.contains("project")),
+            "the refusal must name both possible sources: {:?}",
+            fresh_result.error
+        );
+
+        let metric = Connection::open_in_memory().unwrap();
+        db::create_schema(&metric).unwrap();
+        crate::units::set_project_depth_unit(&metric, crate::units::DepthUnit::Metres).unwrap();
+        let still_refused = &import_las_files_with(
+            &metric,
+            &[no_unit.to_str().unwrap().to_string()],
+            None,
+            &LasImportOptions::default(),
+        )[0];
+        assert!(
+            still_refused.error.as_deref().is_some_and(|e| e.contains("project setting is not a file declaration")),
+            "a declared project must not silently lend its unit to the file: {:?}",
+            still_refused.error
+        );
+
+        let confirmed = LasImportOptions {
+            file_depth_unit: Some("FT".into()),
+            ..Default::default()
+        };
+        let accepted = &import_las_files_with(
+            &metric,
+            &[no_unit.to_str().unwrap().to_string()],
+            None,
+            &confirmed,
+        )[0];
+        assert!(accepted.error.is_none(), "explicit confirmation must unblock: {:?}", accepted.error);
+        assert!(
+            accepted.warning.as_deref().unwrap_or("").contains("explicitly confirmed as FT"),
+            "the confirmation is part of the import record: {:?}",
+            accepted.warning
+        );
+        let first_depth: f32 = metric
+            .query_row(
+                "SELECT MIN(depth) FROM standard_curves WHERE well_id = ?1",
+                params![accepted.well_id.as_deref().unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!((first_depth - 304.8).abs() < 1e-3, "confirmed feet convert by the cited 0.3048 factor");
+
+        let declared = make("sandibumi_dio015_declared.las", "FT", "SANDI-DECLARED");
+        let declared_result = &import_las_files_with(
+            &metric,
+            &[declared.to_str().unwrap().to_string()],
+            None,
+            &LasImportOptions::default(),
+        )[0];
+        assert!(declared_result.error.is_none(), "a declared file needs no confirmation");
+        assert!(
+            declared_result.warning.as_deref().unwrap_or("").contains("converted from ft"),
+            "the declared-unit conversion is still reported: {:?}",
+            declared_result.warning
+        );
+
+        std::fs::remove_file(no_unit).ok();
+        std::fs::remove_file(declared).ok();
+    }
+
     /// Phase 6b: a full LAS with curves beyond the fixed 6 (PEF, CALI, a metric-unit
     /// sonic) must import whole into the generic store, with families tagged and units
     /// canonicalized. Also exercises the deviation-survey → minimum-curvature → well_path
@@ -1716,7 +1877,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("arshilla_pef_test_{ids}.las"));
         std::fs::write(&path, las).unwrap();
 
-        import_all_curves_into_generic_store(&conn, &ids, path.to_str().unwrap(), "RAW").unwrap();
+        import_all_curves_into_generic_store(&conn, &ids, path.to_str().unwrap(), "RAW", None).unwrap();
         std::fs::remove_file(&path).ok();
 
         let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();
@@ -2123,7 +2284,11 @@ mod tests {
         let p2 = std::env::temp_dir().join("sandibumi_set_fprooh_test.las");
         std::fs::write(&p1, raw_las).unwrap();
         std::fs::write(&p2, fp_las).unwrap();
-        let attach = |set: &str| LasImportOptions { set_name: Some(set.into()), attach: true };
+        let attach = |set: &str| LasImportOptions {
+            set_name: Some(set.into()),
+            attach: true,
+            ..Default::default()
+        };
 
         // 1. First import creates the well (attach on, but nothing to attach to).
         let r1 = &import_las_files_with(&conn, &[p1.to_str().unwrap().into()], None, &attach("RAW"))[0];

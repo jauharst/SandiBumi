@@ -7,6 +7,11 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-015: an undeclared depth unit now refuses
+
+- [ ] Import a LAS with no unit on its depth curve. Does it refuse until **File depth unit when
+      undeclared** is explicitly set, even when the project already has a depth unit?
+
 ## 2026-08-09 — SB-DIO-004: one null-recognition rule
 
 - [ ] Import a LAS whose declared null differs slightly after decimal formatting. Is it missing,

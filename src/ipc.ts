@@ -122,6 +122,8 @@ export interface LasImportOptions {
   /** Attach a file whose well name already exists to that well as a new set, instead of
    *  creating a duplicate well record. Defaults to true backend-side. */
   attach?: boolean;
+  /** Explicit unit for files whose index has no usable declaration. Omit to refuse them. */
+  fileDepthUnit?: "M" | "FT" | null;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -129,6 +131,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     paths,
     setName: opts?.setName ?? null,
     attach: opts?.attach ?? null,
+    fileDepthUnit: opts?.fileDepthUnit ?? null,
   });
 }
 
