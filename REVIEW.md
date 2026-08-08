@@ -9914,3 +9914,130 @@ exactly where it is most certain. The run states which one it produced.
 - [ ] **Turn standardisation off and re-run.** You should get a warning that the density estimate is
       then in the curves' own mixed units and the largest-range curve dominates.
 - [ ] **Read the `_PROB` curve's stated meaning** in the run result before using it.
+
+## Predicting a missing log into wells that never had it (k-NN propagation)
+
+This is the leg you pointed at: PEF exists in a handful of wells, GR and RHOB exist everywhere,
+and you want a PEF in the wells that never ran the tool.
+
+**What was actually missing.** `log_predict` could never do this. It builds its training set from
+the *same well's* samples where the target is present, so it fills PEF gaps in a well that already
+has PEF — it cannot predict PEF in a well that has none. It is a gap-filler that reads as a
+predictor. The ML suite could do the cross-well job, but only with tree ensembles, and an ensemble
+predicts an average of averages: it regresses toward the mean and flattens exactly the contrast a
+synthetic curve is made to recover.
+
+**k-NN is now in the regression list.** It returns a blend of *measured* target values from rock
+with similar inputs, so the values it writes are values the rock actually had. Train it on the wells
+that have PEF, save the model, apply it to the wells that don't.
+
+**Three curves come with it, and they are the point.** Beside the prediction you get:
+
+- `_MIN` and `_MAX` — the smallest and largest **measured** target value among the k nearest rocks.
+  This is not a confidence interval and not the prediction plus-or-minus anything. It says "the
+  closest k rocks we have measured had PEF between 3.1 and 4.8", so it is lopsided wherever the
+  neighbourhood is lopsided, which is the honest picture.
+- `_DIST` — the mean distance to those neighbours in standardised space. **This is the one the
+  product never had.** Near zero means the training set contains rock like this and the value is an
+  interpolation between things somebody measured. Large means nothing in the training set looks like
+  this, and the prediction there is an extrapolation the model has no basis for. Every predicted
+  curve we have ever written was quotable with no such statement attached.
+
+The run also reports `knn_dist_train_p50` and `p90` — what the *fitted* rock's own neighbour
+distances looked like. That is the scale to read `_DIST` against, because 0.8 is unremarkable in one
+feature set and off the end of the world in another.
+
+- [ ] **Train on the wells that have PEF, apply to a well that doesn't.** Confirm a PEF curve
+      appears where there was none, and that it is not a flat line.
+- [ ] **Put `_DIST` on the log view beside the prediction.** Find an interval where it spikes and
+      check what that rock is — that is the model telling you it is guessing there.
+- [ ] **Compare `_DIST` against the reported p90.** Anything well above it should be treated as
+      uninterpreted rather than as a prediction.
+- [ ] **Shade between `_MIN` and `_MAX`** (crossover fill) and read the width. A wide band over a
+      zone means the neighbours disagreed, which is a different problem from being far away.
+- [ ] **Set neighbours to 1 and re-run.** The band should collapse onto the prediction exactly —
+      that is what proves the band is the neighbours' own values and not a fitted interval.
+- [ ] **Compare the k-NN curve against the same run with Random Forest.** The RF version should be
+      visibly smoother; decide for yourself which one you would defend in a report.
+- [ ] **Save the model and re-apply it in a later session.** The band and distance must come back
+      identically — the fitted targets travel inside the artifact.
+
+## The cluster table — reading what a clustering run actually found
+
+**"Cluster", not "facies", from here on.** A cluster becomes a facies only once you have merged and
+named it. Before that it is a group of samples, and the same model is as likely to be feeding a
+propagated curve as a lithology track — calling the object "facies" is what made this look like an
+electrofacies feature and kept it from being built.
+
+**The numbers already existed and none of them were readable.** `cluster_sizes` was emitted by the
+runner and rendered nowhere except as a JSON blob in the generic metrics rows; the per-cluster means
+were computed only to order the labels, then thrown away. So a clustering run told you how good the
+separation was (silhouette) without telling you what it had separated.
+
+A clustering run now shows one row per cluster: a colour swatch matching the log track and the
+crossplot, the sample count with a share bar behind it, and then one column per input curve. Each
+cell is the cluster's **mean**, with its **P10–P90** beneath.
+
+**The range is there because a column of means cannot support the decision you make from this
+table.** Two clusters with the same mean and no overlap are two rocks that happen to average alike.
+Two with the same mean and overlapping ranges are one rock split in half. A mean alone makes those
+identical, and merging is exactly the choice between them.
+
+Built in Rust rather than in the Python runner, so it uses the same percentile definition as every
+histogram and box plot in the product, and so the columns carry your curve names — the runner is
+only told those when a model is being saved, which for clustering never happens.
+
+- [ ] **Run any clustering and read the table.** The ids run from one end of the first curve to the
+      other; confirm that ordering makes sense for the curve you put first.
+- [ ] **Look for two clusters with similar means.** Check their P10–P90. Overlapping ranges are your
+      merge candidates; separated ranges are two real rocks that happen to average alike.
+- [ ] **Check the numbers are in the curve's own units** — GR should read like GR, not like a
+      z-score. Cross-check one against a histogram of the same interval.
+- [ ] **Deliberately over-cluster** (say k = 20 on a well you know) and see whether the table makes
+      the merge decisions obvious. That is the workflow this is meant to support.
+- [ ] **Run DBSCAN or HDBSCAN** and confirm the rejected count is stated below the caption and that
+      rejected samples are excluded from every column rather than dragging a cluster's mean.
+- [ ] **Compare a swatch colour against the FACIES track** in a log view — they should be the same
+      colour for the same id.
+
+## What is each curve worth? (ranked predictor combinations)
+
+Compare ▸ **Every combination (what is each curve worth?)**. The leaderboard already scored
+algorithm × curve-subset combinations; what it never did was enumerate them, or answer the question
+you would actually ask before the next well: **which logs do I need to run?**
+
+**The answer is best-with minus best-without.** For each curve: the best score reachable by any
+combination that includes it, minus the best reachable by any combination without it. A curve near
+zero is one the others already cover for — you can stop running that tool.
+
+**This is deliberately not permutation importance**, which is what the leaderboard already showed.
+Importance asks how much *one model* leans on a curve, and that understates any curve with a
+stand-in: drop RHOB from a run that also has DT and a tree ensemble simply leans on DT, so RHOB
+reads unimportant while the field would genuinely lose nothing by not logging it. Same conclusion,
+but arrived at by re-fitting without the curve rather than by shuffling it inside one model.
+
+**Two readings that are easy to confuse and must not be.** A curve showing `+0.000` was scored
+without and added nothing. A curve showing `—` was in *every* combination scored, so its value was
+never measured at all. Those are opposite findings and they would send a logging decision in
+opposite directions, so the second is never printed as a zero.
+
+Scored on the same whole-well GroupKFold as the rest of the leaderboard — held-out **wells**, not
+held-out rows — so the number answers "what will the next well score", which is the question a
+logging decision turns on.
+
+There are 2^n − 1 combinations, so a cap is unavoidable. They are enumerated **largest first**, so
+what a cap drops is always the smallest combinations, and the full set plus every drop-one set are
+always scored first. The run says how many it reached and whether the per-curve answer is complete.
+
+- [ ] **Run it on a target you already understand** (say PEF from GR/RHOB/NPHI/DT). Check the
+      ranking against your own expectation before trusting it on something you don't.
+- [ ] **Find a curve worth ~0.00** and confirm from the leaderboard that dropping it really does
+      leave the top score unchanged.
+- [ ] **Watch for a negative worth.** A curve that makes the best model *worse* is a real result —
+      usually noise, a bad splice, or a curve that is missing over half the interval.
+- [ ] **Check the `—` rows.** With few curves everything gets dropped at least once; with many, the
+      cap may not reach that far, and the note says so.
+- [ ] **Compare the ranking against the importance column** in the leaderboard below. Where they
+      disagree, the disagreement is the interesting part — that is a curve with a stand-in.
+- [ ] **Re-run with a different seed.** The ranking should be stable; if it is not, the differences
+      between those curves are inside the noise and none of them is worth much.

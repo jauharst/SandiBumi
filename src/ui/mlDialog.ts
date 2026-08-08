@@ -15,6 +15,7 @@ import {
   type CoverageSegment,
   type CurveSampling,
   type CurveStatsRow,
+  type CurveValue,
   type MlEvalResult,
   type MlEvalRow,
   type MlModelInfo,
@@ -26,7 +27,7 @@ import {
 } from "../ipc";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup, setStatus } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
-import { FACIES_PALETTE } from "./plotCanvas";
+import { FACIES_PALETTE, faciesColor } from "./plotCanvas";
 import { formRow } from "./modal";
 import { buildParamSources } from "./paramSources";
 import { recordProcess } from "../processLog";
@@ -240,6 +241,13 @@ const TASKS: TaskSpec[] = [
         // fails if these drift.
         params: [num("C", "C", 10), num("epsilon", "epsilon", 0.1),
                  num("max_iter", "max iterations (-1 = no limit)", 500)] },
+      { id: "knn", label: "K-Nearest Neighbors",
+        // The propagation algorithm. Unlike the ensembles it returns a blend of MEASURED target
+        // values from similar rock rather than a fitted surface, so it does not regress toward the
+        // mean — and it is the only one that can say how far the nearest real rock was.
+        desc: "Blends measured values from rock with similar inputs — the propagation choice. Also writes a neighbour range and a distance curve saying where the prediction is extrapolating.",
+        params: [num("k_neighbors", "neighbours", 5),
+                 sel("weights", "neighbour weighting", "uniform", ["uniform", "distance"])] },
       { id: "ann", label: "Neural Network (MLP)",
         desc: "Multi-layer perceptron for complex multi-curve patterns; needs plenty of data.",
         params: [txt("hidden", "hidden layers", "64,32"), num("max_iter", "max iterations", 500)] },
@@ -1733,6 +1741,9 @@ export async function buildMlContent(
     ["full", "Full set only"],
     ["loco", "Leave-one-curve-out"],
     ["singles", "Full + each single curve"],
+    // Answers a different question from the three above: not "which model", but "which curves do I
+    // need in the next well". Enumeration and the per-curve value table are done in Rust.
+    ["every", "Every combination (what is each curve worth?)"],
   ] as const) {
     const o = document.createElement("option");
     o.value = val;
@@ -1798,6 +1809,7 @@ export async function buildMlContent(
         params: Object.fromEntries(paramInputs.map(({ spec, get }) => [spec.key, get()])),
         params_for: algo.id,
         subsets: buildSubsets(features, subsetSel.value),
+        enumerate_subsets: subsetSel.value === "every",
         standardize: stdCb.checked,
         seed: Math.round(parseFloat(seedInput.value) || 42),
         folds: 5,
@@ -2772,6 +2784,11 @@ export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: st
   const segs = (res.metrics as Record<string, unknown> | null)?.["coverage_segments"];
   if (Array.isArray(segs)) renderCoverageSegments(host, segs as CoverageSegment[]);
 
+  const cstats = (res.metrics as Record<string, unknown> | null)?.["cluster_stats"];
+  if (Array.isArray(cstats)) {
+    renderClusterTable(host, cstats as ClusterStat[], (res.metrics as Record<string, unknown>) ?? {});
+  }
+
   if (res.metrics && typeof res.metrics === "object") {
     renderEffectiveParams(host, res.metrics as Record<string, unknown>);
     const table = document.createElement("table");
@@ -2779,6 +2796,11 @@ export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: st
     for (const [key, value] of Object.entries(res.metrics)) {
       if (key === "effective_params") continue; // shown as its own table above
       if (key === "coverage_segments") continue; // its own table above; `fmtMetric` would print JSON
+      // Both are rendered as the cluster table above. `cluster_sizes` in particular was ONLY ever
+      // visible here, as a JSON blob in a generic key/value row — the numbers were being emitted
+      // and shown, just not in a form anybody could act on.
+      if (key === "cluster_stats") continue;
+      if (key === "cluster_sizes") continue;
       const tr = document.createElement("tr");
       const th = document.createElement("th");
       th.textContent = key;
@@ -2948,6 +2970,145 @@ function renderMultiResults(
  * A segment that was NOT fitted keeps its card and states why in full. A skipped model that simply
  * vanished would leave blank rock with no visible cause.
  */
+/** One input curve's distribution inside one cluster, as the runner reports it. */
+interface ClusterCurveStat {
+  n: number;
+  mean: number;
+  sd: number;
+  p10: number;
+  p50: number;
+  p90: number;
+}
+/** One cluster's fingerprint: how many samples, and what each input curve looked like in it. */
+interface ClusterStat {
+  cluster: number;
+  n: number;
+  curves: Record<string, ClusterCurveStat>;
+}
+
+const fmtStat = (v: number): string =>
+  !Number.isFinite(v)
+    ? "—"
+    : Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3)
+      ? v.toExponential(2)
+      : v.toPrecision(4);
+
+/**
+ * What a clustering run actually found — one row per cluster, in the curves' own units.
+ *
+ * **"Cluster", not "facies"** (Jauhar, 2026-08-08: *"'facies' is just cluster … just say it
+ * cluster"*). A cluster becomes a facies only once somebody has merged and named it. Before that it
+ * is a group of samples, and the same model is as likely to be feeding a propagated curve as a
+ * lithology track — naming the object after one of its two uses is what made this table look like a
+ * facies feature and kept it from being built.
+ *
+ * Every number here already existed and none of it was readable. `cluster_sizes` was emitted by the
+ * runner and rendered nowhere; the per-cluster means were computed only to order the labels and then
+ * discarded. What was missing was somewhere to read them — without which the decision this table
+ * exists for, which clusters are the same rock, has to be made off a crossplot by eye.
+ *
+ * **Mean with the P10–P90 beneath it, not a mean alone.** A column of means cannot tell a tight
+ * cluster from a smeared one, and that is precisely the merge decision: two clusters with the same
+ * mean and no overlap are two rocks that happen to average alike, two with the same mean and
+ * overlapping ranges are one rock split in half. Techlog's equivalent shows the mean and puts the
+ * spread in a histogram thumbnail; the range is the same information in a cell that stays readable.
+ */
+export function renderClusterTable(
+  host: HTMLElement,
+  stats: ClusterStat[],
+  metrics: Record<string, unknown>,
+): void {
+  if (!stats.length) return;
+  const curveNames = [...new Set(stats.flatMap((s) => Object.keys(s.curves)))];
+  const total = stats.reduce((a, s) => a + s.n, 0);
+  const rejected = typeof metrics["n_rejected"] === "number" ? (metrics["n_rejected"] as number) : 0;
+
+  const box = document.createElement("div");
+  box.className = "ml-clusters";
+
+  const cap = document.createElement("div");
+  cap.className = "ml-seg-cap";
+  cap.textContent =
+    `${stats.length} cluster${stats.length === 1 ? "" : "s"} over ${total.toLocaleString()} samples, ` +
+    `numbered by ascending ${curveNames[0] ?? "first curve"} — so the ids run from one end of that curve to the other. ` +
+    `Each cell is the cluster's mean with its P10–P90 beneath. Two clusters with the same mean and no overlap are two rocks; ` +
+    `two with the same mean and overlapping ranges are one rock split in half.` +
+    (rejected
+      ? ` ${rejected.toLocaleString()} sample${rejected === 1 ? "" : "s"} belonged to no cluster and ${rejected === 1 ? "is" : "are"} excluded from every column.`
+      : "");
+  box.appendChild(cap);
+
+  const table = document.createElement("table");
+  table.className = "mc-table ml-cluster-table";
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  for (const label of ["Cluster", "Samples", ...curveNames]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const s of stats) {
+    const tr = document.createElement("tr");
+
+    const idCell = document.createElement("td");
+    idCell.className = "ml-cluster-id";
+    const sw = document.createElement("span");
+    sw.className = "ml-cluster-swatch";
+    // The same palette the log track and the crossplot use, so a row here and a band on the plot
+    // are recognisably the same cluster. A separate colour scheme would make this table something
+    // you have to translate before you can act on it.
+    sw.style.background = faciesColor(s.cluster);
+    idCell.append(sw, document.createTextNode(String(s.cluster)));
+    tr.appendChild(idCell);
+
+    const nCell = document.createElement("td");
+    nCell.className = "ml-cluster-n";
+    const pct = total ? (s.n / total) * 100 : 0;
+    const bar = document.createElement("span");
+    bar.className = "ml-cluster-bar";
+    bar.style.width = `${Math.max(1, Math.round(pct))}%`;
+    const nTxt = document.createElement("span");
+    nTxt.className = "ml-cluster-count";
+    // "<0.1%" rather than "0.0%". Over-clustering deliberately produces clusters of a handful of
+    // samples, and those are precisely the ones to look at before merging — a coal, a cemented
+    // stringer, a bad-hole artefact. Rounded to 0.0% they read as noise, which is the one reading
+    // that makes the table useless for the workflow it is for.
+    const pctTxt = pct === 0 || pct >= 0.05 ? `${pct.toFixed(1)}%` : "<0.1%";
+    nTxt.textContent = `${s.n.toLocaleString()} · ${pctTxt}`;
+    nCell.append(bar, nTxt);
+    tr.appendChild(nCell);
+
+    for (const c of curveNames) {
+      const td = document.createElement("td");
+      const st = s.curves[c];
+      if (!st) {
+        // The cluster exists but this curve was missing across all of its samples. A dash, never a
+        // zero — the workbook's blank-is-not-a-zero rule, and here a zero would be a real value
+        // for most of these curves.
+        td.textContent = "—";
+        tr.appendChild(td);
+        continue;
+      }
+      const mean = document.createElement("div");
+      mean.className = "ml-cluster-mean";
+      mean.textContent = fmtStat(st.mean);
+      const rng = document.createElement("div");
+      rng.className = "ml-cluster-range";
+      rng.textContent = `${fmtStat(st.p10)} – ${fmtStat(st.p90)}`;
+      td.append(mean, rng);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  box.appendChild(table);
+  host.appendChild(box);
+}
+
 function renderCoverageSegments(host: HTMLElement, segments: CoverageSegment[]): void {
   if (!segments.length) return;
   const fitted = segments.filter((s) => !s.skipped);
@@ -3068,9 +3229,79 @@ function tiedAtTheTop(rows: MlEvalRow[]): number {
  *  Exported so it can be driven with synthetic rows over the vite dev server, which is this repo's
  *  only route to exercising frontend logic — there is no TS test runner, and the tie rule and the
  *  whisker geometry are both wrong in ways a screenshot shows and a type check does not. */
+/**
+ * What each input curve is worth — the leaderboard's answer to a different question.
+ *
+ * The table above ranks MODELS. This ranks CURVES, and the difference is the point: a curve can sit
+ * in the winning combination and be worth nothing, because the best model would have scored the same
+ * without it. That is what decides whether the next well runs a tool, and it is not readable from a
+ * leaderboard however carefully you stare at it.
+ *
+ * Measured as best-with minus best-without across whole re-fits, deliberately not from permutation
+ * importance: importance asks how much ONE model leans on a curve, which understates any curve that
+ * has a stand-in. Drop RHOB from a run that also has DT and a tree ensemble leans on DT instead — so
+ * RHOB reads unimportant while the field would in fact lose nothing by not logging it. Same
+ * conclusion, arrived at honestly.
+ */
+function renderCurveValue(host: HTMLElement, vals: CurveValue[], isClf: boolean): void {
+  if (!vals.length) return;
+  const box = document.createElement("div");
+  box.className = "ml-curve-value";
+  const cap = document.createElement("div");
+  cap.className = "ml-seg-cap";
+  cap.textContent =
+    `What each curve is worth: the best ${isClf ? "accuracy" : "R²"} reachable WITH it, minus the best reachable WITHOUT it, ` +
+    `across every combination scored. A curve near zero is one the next well does not need — the others cover for it. ` +
+    `This is not the same as importance, which only says how much the winning model happened to lean on it.`;
+  box.appendChild(cap);
+
+  const table = document.createElement("table");
+  table.className = "mc-table ml-curve-value-table";
+  const head = document.createElement("tr");
+  for (const h of ["Curve", "Worth", "Best with", "Best without", "In winner"]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    head.appendChild(th);
+  }
+  table.appendChild(head);
+
+  const n3 = (v: number | null) => (v == null || !Number.isFinite(v) ? "—" : v.toFixed(3));
+  for (const v of vals) {
+    const tr = document.createElement("tr");
+    const cells: (string | HTMLElement)[] = [v.curve];
+
+    const gain = document.createElement("span");
+    if (v.gain == null) {
+      // Never dropped, so nothing here measured it. "—" and not 0.000: "we asked and it added
+      // nothing" and "we never asked" are opposite findings that would send a logging decision in
+      // opposite directions.
+      gain.textContent = "—";
+      gain.title = "every scored combination included this curve, so its value was never measured";
+      gain.className = "ml-cv-unknown";
+    } else {
+      gain.textContent = (v.gain >= 0 ? "+" : "") + v.gain.toFixed(3);
+      gain.className = v.gain >= 0.02 ? "ml-cv-worth" : "ml-cv-spare";
+    }
+    cells.push(gain, n3(v.best_with), n3(v.best_without), v.in_best ? "yes" : "no");
+
+    for (const c of cells) {
+      const td = document.createElement("td");
+      if (typeof c === "string") td.textContent = c;
+      else td.appendChild(c);
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  box.appendChild(table);
+  host.appendChild(box);
+}
+
 export function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean): void {
   host.innerHTML = "";
   if (res.error || !res.rows.length) return;
+  // Above the model table on purpose. When somebody asked for every combination they asked a
+  // question about CURVES, and the answer should not be below eighty rows about algorithms.
+  renderCurveValue(host, res.curve_value ?? [], isClf);
   // Two columns because they are two estimators, and this table used to show one's centre under
   // the other's spread. "per well" is the mean of the fold scores and is what the ± describes and
   // what the ranking uses; "pooled" is one score over every out-of-fold row at once. Naming both

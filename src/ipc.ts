@@ -1501,6 +1501,9 @@ export interface MlEvalRequest {
   params_for?: string | null;
   /** Feature subsets to try (each a subset of feature_curves); empty → full set only. */
   subsets: string[][];
+  /** Score EVERY non-empty combination of the curves instead of `subsets`. Answers "which curves
+   *  do I need" rather than "which model is best" — overrides `subsets` when set. */
+  enumerate_subsets?: boolean;
   standardize: boolean;
   seed: number;
   folds: number;
@@ -1588,7 +1591,25 @@ export interface MlEvalResult {
    *  2,000 of 60,000 would read as all of them — density is the first thing anybody judges. */
   blind_sampled: number;
   blind_total: number;
+  /** What each input curve is worth, measured by dropping it. Empty unless at least two curve
+   *  combinations were scored, because with one there is nothing to compare. */
+  curve_value?: CurveValue[];
   error: string | null;
+}
+
+/** What one input curve is WORTH, measured by dropping it — the question that decides whether the
+ *  next well runs a tool. A curve can be in the winning model and still be worth nothing. */
+export interface CurveValue {
+  curve: string;
+  /** Best blind score among scored combinations that INCLUDE this curve. */
+  best_with: number | null;
+  /** Best among those that EXCLUDE it. `null` where every scored combination carried it — the
+   *  question was never asked, which is not the same as the answer being zero. */
+  best_without: number | null;
+  /** `best_with − best_without`: what having this curve buys, in the score's own units. */
+  gain: number | null;
+  /** Whether the single best-scoring combination overall uses it. */
+  in_best: boolean;
 }
 
 /** Ranks algorithm × feature-subset combos by blind-well (GroupKFold) CV, with permutation

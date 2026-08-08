@@ -150,6 +150,24 @@ def build_model(task, algo, p, seed):
             # truncated fit is never quoted as a score.
             return SVR(C=float(P(p, "C", 10.0)), epsilon=float(P(p, "epsilon", 0.1)),
                        max_iter=int(P(p, "max_iter", SVM_DEFAULT_MAX_ITER))), None
+        if algo == "knn":
+            from sklearn.neighbors import KNeighborsRegressor
+            # Here beside the ensembles rather than instead of them, because it answers a different
+            # question. A tree ensemble predicts an average of averages: smooth, and it will never
+            # return a value the training data did not roughly contain but also never returns one it
+            # DID contain - it regresses toward the mean and flattens exactly the contrast a
+            # synthetic curve is made to recover. k-NN returns a blend of MEASURED target values
+            # from rock with similar inputs, which is what a propagated log is supposed to be.
+            #
+            # n_neighbors and weights are scikit-learn's OWN documented defaults (5, "uniform").
+            # These are algorithm settings and not petrophysical ones, so the library's default is
+            # the citable choice; "distance" is offered because in a standardised space an
+            # unweighted mean treats a near-identical rock and a marginal one alike.
+            w = str(P(p, "weights", "uniform")) or "uniform"
+            if w not in ("uniform", "distance"):
+                fail("unknown k-NN weighting '" + w + "' - use uniform or distance")
+            return KNeighborsRegressor(n_neighbors=max(1, int(P(p, "k_neighbors", 5))),
+                                       weights=w), None
         if algo == "ann":
             from sklearn.neural_network import MLPRegressor
             hidden = tuple(int(t) for t in str(P(p, "hidden", "64,32")).replace(" ", "").split(",") if t)
@@ -213,6 +231,23 @@ const BACK_SUFFIX: &str = "\u{1}BACK";
 /// prediction keeps the base name, so the defensible curve is the one you get by default and the
 /// textured one has to be asked for by name.
 pub(crate) const SIM_SUFFIX: &str = "_SIM";
+
+/// The k-NN neighbour BAND — the smallest and largest MEASURED target value among the k nearest
+/// rocks — and the mean distance to them.
+///
+/// Three curves rather than one summary number because they answer the reader's three questions in
+/// the order they get asked: what is the value, how tightly did the rock that supports it agree,
+/// and was there any such rock at all. `_DIST` is the one this product has never had — every
+/// predicted curve it writes has been quotable with no statement of whether the model had ever seen
+/// anything like the interval it was predicting, which is how a synthetic log gets read as a
+/// measured one.
+///
+/// **`_MIN`/`_MAX` are not a confidence interval.** They are the observed range of real values in
+/// the neighbourhood, so the band is lopsided wherever the neighbourhood is, and it must never be
+/// re-described as the prediction ± anything — that would claim a fitted distribution nobody fitted.
+pub(crate) const BAND_MIN_SUFFIX: &str = "_MIN";
+pub(crate) const BAND_MAX_SUFFIX: &str = "_MAX";
+pub(crate) const BAND_DIST_SUFFIX: &str = "_DIST";
 
 /// The unit a quantity is in, from wherever the catalog happens to record it.
 ///
@@ -794,6 +829,35 @@ def _runtime():
         except Exception:
             out[_n] = None
     return out
+
+
+def knn_band(model, As, y_train):
+    """The neighbours' own MEASURED target values, and how far away they were.
+
+    Shared by the fitting runner and the apply runner deliberately. A saved model exists to be
+    propagated to wells it has never seen, so the band written on apply has to be the same
+    quantity as the band written on the fitting wells - two implementations of "the neighbour
+    range" would let a curve mean one thing in the wells that trained it and another everywhere
+    else, with nothing on the plot to show which.
+
+    `_MIN` / `_MAX` are the SMALLEST and LARGEST real target value among the K nearest rocks.
+    That is not a confidence interval and not the prediction plus or minus anything: it says
+    "the closest K rocks we have measured had PEF between 3.1 and 4.8". A sigma would imply a
+    fitted distribution nobody fitted, and would be symmetric about the prediction, which this
+    deliberately is not - a lopsided band is the honest picture of a lopsided neighbourhood.
+
+    `_DIST` is the MEAN distance to those K neighbours in the STANDARDISED feature space, and it
+    is the curve that turns a prediction into something anyone can check. Near zero means the
+    training set contains rock like this and the value is an interpolation between things that
+    were measured; large means nothing in the training set looks like this and the value is an
+    extrapolation the model has no basis for. Every predicted curve in this product has been
+    quotable without that qualifier, which is how a synthetic log gets read as a measured one.
+    """
+    dist, idx = model.kneighbors(As)
+    nb = np.asarray(y_train, dtype=np.float64)[idx]
+    return [("_MIN", np.min(nb, axis=1).astype(np.float32)),
+            ("_MAX", np.max(nb, axis=1).astype(np.float32)),
+            ("_DIST", np.mean(dist, axis=1).astype(np.float32))]
 "#;
 
 /// The training runner: the shared constants, the runtime probe, the shared estimator definitions,
@@ -1282,6 +1346,28 @@ if task == "regression":
     blind_score(model, "r2")
     base_pred = model.predict(As).astype(np.float32)
     outs.append(("", base_pred))
+    if hasattr(model, "kneighbors"):
+        outs.extend(knn_band(model, As, yf))
+        # What "far" MEANS, in the same units as the _DIST curve. A distance with no reference is
+        # a number nobody can act on: 0.8 is unremarkable in one feature set and off the end of the
+        # world in another. These two are what the fitted rock itself looked like, so a _DIST well
+        # above them is the run saying it has left the data behind.
+        #
+        # k+1 neighbours with the first column dropped, because every fitting sample is in the
+        # index and would otherwise match ITSELF at distance zero - a reference that flattered
+        # every comparison made against it.
+        kq = int(getattr(model, "n_neighbors", 5))
+        if len(Xf) > kq:
+            dtr, _ = model.kneighbors(Xf, n_neighbors=kq + 1)
+            dtr = np.mean(dtr[:, 1:], axis=1)
+            metrics["knn_dist_train_p50"] = round(float(np.percentile(dtr, 50)), 4)
+            metrics["knn_dist_train_p90"] = round(float(np.percentile(dtr, 90)), 4)
+            name_protocol("knn_dist_train_p50",
+                          "the typical distance from a FITTING sample to its k nearest neighbours, "
+                          "excluding itself - the scale the _DIST curve should be read against")
+            name_protocol("knn_dist_train_p90",
+                          "the 90th percentile of that distance - a _DIST above this is rock the "
+                          "fitting set barely covered, and the prediction there is an extrapolation")
     # Round-3 item 5, second half. OFF by default: the plain prediction is the defensible curve,
     # and a textured one that arrived without being asked for would be quoted as a measurement.
     if bool(P(p, "spectral_texture", False)):
@@ -1471,6 +1557,11 @@ elif task == "clustering":
     if n_reject:
         out[labels < 0] = CLUSTER_REJECT
     metrics["cluster_sizes"] = {str(remap[c]): int(np.sum(labels == c)) for c in order}
+    # The per-cluster fingerprint is built on the RUST side (`cluster_table`), not here. The runner
+    # is only told the curve names when a model is being saved, which for an unsupervised task is
+    # never - which is why the balance table is built there too, and why it used to read x0, x1, x2.
+    # Rust has the names, the raw matrix and the labels this run just produced, and `distribution.rs`
+    # is the product's one percentile definition rather than a second one written in numpy.
     # Both density methods REJECT samples rather than forcing every one into a cluster, so both owe
     # the reader the count. Leaving HDBSCAN out of this would have been the easy miss: its curve
     # would carry CLUSTER_REJECT values with nothing anywhere saying how many, and a facies track
@@ -1606,9 +1697,15 @@ if save_model and supervised:
         # the scaler would absorb none of it, and the numbers stay in range and look plausible.
         # Storing it outside the artifact would let the two drift; storing it inside makes the
         # artifact self-describing, which is what the ordered-feature contract already relies on.
-        joblib.dump({"scaler": scaler, "model": model, "features": feature_names,
-                     "transforms": list(TRANSFORMS), "task": task, "algorithm": algo},
-                    buf, compress=3)
+        bundle_out = {"scaler": scaler, "model": model, "features": feature_names,
+                      "transforms": list(TRANSFORMS), "task": task, "algorithm": algo}
+        if hasattr(model, "kneighbors"):
+            # The fitted targets, stored EXPLICITLY rather than read back off the estimator's
+            # private `_y` on apply. A k-NN estimator does carry them, but under a private name that
+            # is scikit-learn's to rename between versions - and a saved model whose band silently
+            # stopped working after a library upgrade would fail in the one place nothing checks.
+            bundle_out["knn_y"] = np.asarray(yf, dtype=np.float64)
+        joblib.dump(bundle_out, buf, compress=3)
         model_blob = buf.getvalue()
         sklearn_version = _sk.__version__
     except Exception as e:
@@ -1722,6 +1819,15 @@ As = scaler.transform(A) if scaler is not None else A
 outs = [("", model.predict(As).astype(np.float32))]
 if task == "classification" and hasattr(model, "predict_proba"):
     outs.append(("_PROB", np.max(model.predict_proba(As), axis=1).astype(np.float32)))
+if task == "regression" and hasattr(model, "kneighbors"):
+    # The band is the whole reason a propagated curve can be audited, so a saved k-NN model that
+    # could not write it would be the version of this feature that matters least - the wells it is
+    # applied to are exactly the ones with no measured target to check against.
+    ky = bundle.get("knn_y")
+    if ky is None:
+        fail("this saved k-NN model carries no fitted targets, so it cannot report the neighbour "
+             "band or distance - refit and save it again with this build")
+    outs.extend(knn_band(model, As, ky))
 
 sys.stdout.buffer.write((json.dumps({"suffixes": [s for s, _ in outs],
                                      "metrics": {"n_apply": n_apply, "applied": True},
@@ -2631,6 +2737,16 @@ fn out_name_for(base: &str, suffix: &str, transform: &str) -> String {
         // named after the log-space curve it was made from — `PERM_LOG10_SIM`, never `PERM_SIM`,
         // which would read as millidarcies and be out by orders of magnitude on a plot.
         (false, SIM_SUFFIX) => format!("{base}{LOG10_SUFFIX}{SIM_SUFFIX}"),
+        // Same rule as the textured curve, and for the same reason: the band is the min and max of
+        // the neighbours' target values IN THE SPACE THE MODEL FITTED, so under a transform it is
+        // log-space and must be named beside the log-space curve. `PERM_MIN` sitting next to
+        // `PERM_LOG10` would read as millidarcies and be out by orders of magnitude on a plot.
+        // (Monotone transforms commute with min and max, so this is a naming question, not a
+        // arithmetic one - log10 of the smallest value IS the smallest log10.)
+        (false, BAND_MIN_SUFFIX | BAND_MAX_SUFFIX) => format!("{base}{LOG10_SUFFIX}{suffix}"),
+        // `_DIST` is deliberately NOT in that list. It measures separation in the standardised
+        // FEATURE space, which the target's transform does not touch, so it carries the plain base
+        // name whether the target was transformed or not.
         _ => format!("{base}{suffix}"),
     }
 }
@@ -2645,7 +2761,12 @@ fn unit_for_output(suffix: &str, transform: &str, target_unit: Option<&str>) -> 
     // The textured curve is the model's own output with detail added, so it is in whatever space
     // that output is in — the same unit as the base curve, transformed or not. Leaving it undeclared
     // would export a curve in log space with no unit beside one that has millidarcies.
-    let base_space = suffix.is_empty() || suffix == SIM_SUFFIX;
+    // The band is in the target's own space — the smallest and largest MEASURED target value among
+    // the neighbours — so it carries the target's unit. A band written without one would sit beside
+    // a curve in millidarcies with nothing to say it is the same quantity, and an export would ship
+    // three curves where only one declared what it was.
+    let base_space =
+        suffix.is_empty() || suffix == SIM_SUFFIX || suffix == BAND_MIN_SUFFIX || suffix == BAND_MAX_SUFFIX;
     let u = if base_space && !transform.is_empty() {
         transformed_unit(transform, Some(tu))
     } else if base_space || suffix == BACK_SUFFIX {
@@ -5295,6 +5416,86 @@ fn balance_shape(values: &[f32], lo: f32, hi: f32) -> serde_json::Value {
 /// the shared statistics core and a third implementation in Python is exactly the drift this repo
 /// keeps warning about. Doing it in Rust is also what lets the feature curves be NAMED: the runner
 /// only receives names when a model is being saved, so the old table read `x0`, `x1`, `x2`.
+/// What a clustering run actually found: one entry per cluster, in the curves' OWN units.
+///
+/// **In Rust, not the runner**, for the same reason `balance_table` below is: the subprocess is only
+/// told the curve names when a model is being saved, which for an unsupervised task never happens —
+/// so a table built there would be headed `x0`, `x1`, `x2`. Everything needed is on this side: the
+/// names, the raw apply matrix, and the labels the run just produced. It also keeps
+/// [`crate::distribution::percentile`] as the product's ONE percentile definition rather than
+/// growing a second one in numpy that agrees with it until somebody changes one of them.
+///
+/// **`x_apply`, so the numbers are in the curves' own units.** The run standardises before it
+/// clusters, and the standardised matrix is what is in hand at the moment the runner would report
+/// this. A table of z-scores looks like perfectly reasonable numbers and cannot be checked against a
+/// cutoff, a chartbook or another well — which is every use it has.
+///
+/// **Rejected and never-evaluated samples are both left out of every column.** A sample the
+/// algorithm refused is a finding about that rock and belongs in the reject count; averaged into a
+/// cluster it was refused from, it would move that cluster's mean toward rock that is not in it.
+fn cluster_table(
+    feature_names: &[String],
+    d: usize,
+    x_apply: &[f32],
+    labels: &[f32],
+) -> Vec<serde_json::Value> {
+    if d == 0 || feature_names.len() != d || labels.is_empty() {
+        return Vec::new();
+    }
+    let r4 = |x: f64| (x * 1e4).round() / 1e4;
+
+    let mut ids: Vec<i64> =
+        labels.iter().filter(|v| v.is_finite() && **v >= 0.0).map(|v| v.round() as i64).collect();
+    ids.sort_unstable();
+    ids.dedup();
+
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        let rows: Vec<usize> = labels
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_finite() && **v >= 0.0 && v.round() as i64 == id)
+            .map(|(i, _)| i)
+            .collect();
+        let mut curves = serde_json::Map::new();
+        for (j, name) in feature_names.iter().enumerate() {
+            let mut vals: Vec<f32> = rows
+                .iter()
+                .filter_map(|&i| x_apply.get(i * d + j).copied())
+                .filter(|v| v.is_finite())
+                .collect();
+            if vals.is_empty() {
+                continue;
+            }
+            let n = vals.len() as f64;
+            let mean = vals.iter().map(|v| *v as f64).sum::<f64>() / n;
+            let var = vals.iter().map(|v| (*v as f64 - mean).powi(2)).sum::<f64>() / n;
+            vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            curves.insert(
+                name.clone(),
+                serde_json::json!({
+                    "n": vals.len(),
+                    "mean": r4(mean),
+                    "sd": r4(var.sqrt()),
+                    // The spread, and it is not decoration: a mean alone cannot tell a tight cluster
+                    // from a smeared one, and that IS the merge decision. Two clusters with the same
+                    // mean and no overlap are two rocks that happen to average alike; two with the
+                    // same mean and overlapping ranges are one rock split in half.
+                    "p10": r4(crate::distribution::percentile(&vals, 10.0) as f64),
+                    "p50": r4(crate::distribution::percentile(&vals, 50.0) as f64),
+                    "p90": r4(crate::distribution::percentile(&vals, 90.0) as f64),
+                }),
+            );
+        }
+        out.push(serde_json::json!({
+            "cluster": id,
+            "n": rows.len(),
+            "curves": serde_json::Value::Object(curves),
+        }));
+    }
+    out
+}
+
 fn balance_table(
     names: &[String],
     d: usize,
@@ -5472,6 +5673,20 @@ pub(crate) fn exec_ml_full(
     if !balance.is_empty() {
         if let Some(obj) = metrics.as_object_mut() {
             obj.insert("split_balance".into(), serde_json::Value::Array(balance));
+        }
+    }
+    // Same argument as the balance table directly above, and the same place for it: the runner is
+    // told the curve names only when a model is being saved, which for an unsupervised task never
+    // happens. Everything needed is here — the names, the raw apply matrix, and the labels the run
+    // just produced.
+    if task == "clustering" {
+        if let Some(labels) = outs.first().map(|(_, v)| v.as_slice()) {
+            let table = cluster_table(feature_names, d, x_apply, labels);
+            if !table.is_empty() {
+                if let Some(obj) = metrics.as_object_mut() {
+                    obj.insert("cluster_stats".into(), serde_json::Value::Array(table));
+                }
+            }
         }
     }
     Ok(MlRun {
@@ -5715,6 +5930,13 @@ pub struct MlEvalRequest {
     /// Feature subsets to try (each a subset of feature_curves by name); empty → the full set only.
     #[serde(default)]
     pub subsets: Vec<Vec<String>>,
+    /// Score EVERY non-empty combination of `feature_curves` instead of the listed `subsets`.
+    ///
+    /// The question this answers is not "which model is best" but "which curves do I actually need",
+    /// which is what decides whether the next well runs a tool. Overrides `subsets` when set —
+    /// enumerating and then intersecting with a hand-written list would answer neither question.
+    #[serde(default)]
+    pub enumerate_subsets: bool,
     #[serde(default)]
     pub standardize: bool,
     #[serde(default)]
@@ -5829,6 +6051,10 @@ pub struct MlEvalResult {
     /// and density is the first thing anybody judges from a crossplot.
     pub blind_sampled: usize,
     pub blind_total: usize,
+    /// What each input curve is worth, measured by dropping it — see [`CurveValue`]. Empty unless
+    /// at least two curve combinations were scored, because with one there is nothing to compare.
+    #[serde(default)]
+    pub curve_value: Vec<CurveValue>,
     pub error: Option<String>,
 }
 
@@ -5846,6 +6072,7 @@ fn eval_fail(msg: &str) -> MlEvalResult {
         blind_well: vec![],
         blind_sampled: 0,
         blind_total: 0,
+        curve_value: vec![],
         error: Some(msg.to_string()),
     }
 }
@@ -5853,6 +6080,125 @@ fn eval_fail(msg: &str) -> MlEvalResult {
 /// Cap on total (algorithm x subset) combos evaluated in one leaderboard run — a full-subset
 /// sweep over many curves would otherwise fit thousands of models. Excess is dropped with a note.
 const MAX_COMBOS: usize = 80;
+
+/// Every non-empty subset of `d` features, LARGEST FIRST, stopping at `cap`.
+///
+/// **Order is the whole design.** There are 2^d − 1 of these and a cap is unavoidable, so what
+/// matters is which ones a cap drops. Largest-first means it drops the smallest — and it guarantees
+/// that the full set and every drop-one set come first, which are exactly the runs
+/// [`curve_values`] needs to say what each curve is worth. Enumerated in bit order instead, a cap
+/// would drop an arbitrary scatter and leave some curve never scored against a run without it,
+/// with nothing in the table showing which.
+fn subsets_largest_first(d: usize, cap: usize) -> Vec<Vec<usize>> {
+    let mut out: Vec<Vec<usize>> = Vec::new();
+    if d == 0 || cap == 0 {
+        return out;
+    }
+    for size in (1..=d).rev() {
+        let mut idx: Vec<usize> = (0..size).collect();
+        loop {
+            out.push(idx.clone());
+            if out.len() >= cap {
+                return out;
+            }
+            // Next combination in lexicographic order: advance the rightmost index that still has
+            // room, then repack everything after it tight against it.
+            let mut i = size;
+            let mut advanced = false;
+            while i > 0 {
+                i -= 1;
+                if idx[i] < d - size + i {
+                    idx[i] += 1;
+                    for j in (i + 1)..size {
+                        idx[j] = idx[j - 1] + 1;
+                    }
+                    advanced = true;
+                    break;
+                }
+            }
+            if !advanced {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// What one input curve is WORTH, measured by dropping it.
+///
+/// A leaderboard ranks models. This ranks CURVES, which is the question that decides whether the
+/// next well runs a tool — and it is a different question: a curve can be in the winning model and
+/// still be worth nothing, because the model would have scored the same without it.
+#[derive(Debug, Clone, Serialize)]
+pub struct CurveValue {
+    pub curve: String,
+    /// Best blind score among scored combinations that INCLUDE this curve.
+    pub best_with: Option<f64>,
+    /// Best among those that EXCLUDE it. `None` where every scored combination carried it — the
+    /// question was never asked, which is not the same as the answer being zero.
+    pub best_without: Option<f64>,
+    /// `best_with − best_without`: what having this curve buys, in the score's own units.
+    pub gain: Option<f64>,
+    /// Whether the single best-scoring combination overall uses it.
+    pub in_best: bool,
+}
+
+/// Rank the input curves by what dropping each one costs.
+///
+/// **Best-with minus best-without, not the winning model's own importance.** Permutation importance
+/// answers "how much does THIS model lean on this curve", which understates a curve that has a
+/// stand-in: drop RHOB from a run that also has DT and a tree ensemble leans on DT instead, so
+/// RHOB's importance reads low while the field would still lose nothing by not logging it. The
+/// question here is what the BEST ACHIEVABLE answer loses, which is what a logging decision turns
+/// on, so it is measured across whole re-fits rather than inside one.
+fn curve_values(rows: &[MlEvalRow], features: &[String]) -> Vec<CurveValue> {
+    let scored: Vec<(&Vec<String>, f64)> =
+        rows.iter().filter_map(|r| r.score.map(|s| (&r.features, s))).collect();
+    // Two combinations at minimum, or there is nothing to compare and every "value" would be an
+    // artefact of having asked once.
+    if scored.len() < 2 {
+        return Vec::new();
+    }
+    let best_set: Vec<String> = scored
+        .iter()
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(f, _)| (*f).clone())
+        .unwrap_or_default();
+
+    let best_of = |keep: bool, c: &String| -> Option<f64> {
+        scored
+            .iter()
+            .filter(|(f, _)| f.contains(c) == keep)
+            .map(|(_, s)| *s)
+            .max_by(f64::total_cmp)
+    };
+
+    let mut out: Vec<CurveValue> = features
+        .iter()
+        .map(|c| {
+            let (w, wo) = (best_of(true, c), best_of(false, c));
+            CurveValue {
+                curve: c.clone(),
+                best_with: w,
+                best_without: wo,
+                gain: match (w, wo) {
+                    (Some(a), Some(b)) => Some(a - b),
+                    _ => None,
+                },
+                in_best: best_set.contains(c),
+            }
+        })
+        .collect();
+    // Most valuable first — the reading is "run these, and these buy you nothing". A curve whose
+    // value could not be measured sorts last rather than as if it were worth zero.
+    out.sort_by(|a, b| match (a.gain, b.gain) {
+        (Some(x), Some(y)) => y.total_cmp(&x),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+    out
+}
 
 /// The one place the two leaderboard scores are described, shipped to the renderer so the table
 /// cannot word them differently from the code that computes them.
@@ -5970,7 +6316,36 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
     // Build the (algorithm x subset) combos as feature-index lists into `features`.
     let idx_of = |name: &str| features.iter().position(|f| f == name);
     let mut subset_idx: Vec<Vec<usize>> = Vec::new();
-    if req.subsets.is_empty() {
+    let mut enum_note: Option<String> = None;
+    if req.enumerate_subsets {
+        // The budget is per ALGORITHM, so a two-algorithm ablation does not get half its curve
+        // combinations silently chopped by the shared combo cap below — which truncates the
+        // algorithm×subset list in order and would take every subset from the first algorithm and
+        // almost none from the second, producing a table that looks like a comparison and is not.
+        let per_algo = (MAX_COMBOS / algos.len().max(1)).max(1);
+        subset_idx = subsets_largest_first(d, per_algo);
+        let full = (1u64 << d.min(63)) - 1;
+        if (subset_idx.len() as u64) < full {
+            // Largest-first, so what a cap drops is always the SMALLEST combinations. Whether the
+            // per-curve value below is still complete depends on whether the drop-one sets survived
+            // — with those, every curve has been both included and excluded at least once, which is
+            // exactly what the comparison needs. Said only when true: a note claiming completeness
+            // it does not have is worse than the cap it is explaining.
+            let complete = subset_idx.len() >= 1 + d;
+            enum_note = Some(format!(
+                "scored the {} largest of {full} curve combinations (cap) — the ones left out are \
+                 the smallest. {}",
+                subset_idx.len(),
+                if complete {
+                    "The full set and every drop-one set were scored, so the per-curve value is a \
+                     complete comparison."
+                } else {
+                    "Not every drop-one set was reached, so a curve shown without a value was never \
+                     scored against a run lacking it — narrow the curve list to get a full answer."
+                },
+            ));
+        }
+    } else if req.subsets.is_empty() {
         subset_idx.push((0..d).collect());
     } else {
         let mut seen: std::collections::HashSet<Vec<usize>> = std::collections::HashSet::new();
@@ -5996,6 +6371,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
     // Both notes matter and neither may silently replace the other: a truncated leaderboard reads
     // as "all of them", and a log-space score reads as a linear-space one.
     let mut notes: Vec<String> = eval_note.into_iter().collect();
+    notes.extend(enum_note);
     if combos.len() > MAX_COMBOS {
         notes.push(format!(
             "evaluated the first {MAX_COMBOS} of {} algorithm×subset combos (cap) — narrow the algorithms or subsets",
@@ -6069,6 +6445,8 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                 .iter()
                 .map(|&g| train_names.get(g).cloned().unwrap_or_else(|| "?".to_string()))
                 .collect();
+            // After the sort, so `in_best` reads the same winner the table shows.
+            let curve_value = curve_values(&rows, &features);
             MlEvalResult {
                 rows,
                 n_train,
@@ -6082,6 +6460,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                 blind_well,
                 blind_sampled: py.blind_sampled,
                 blind_total: py.blind_total,
+                curve_value,
                 error: None,
             }
         }
@@ -9396,6 +9775,7 @@ mod tests {
             params: Default::default(),
             params_for: None,
             subsets: vec![],
+            enumerate_subsets: false,
             standardize: false,
             seed: Some(42),
             folds: Some(5),
@@ -9832,6 +10212,304 @@ mod tests {
         assert!(
             finished.get("not_converged").is_none(),
             "a fit given room to finish must stay silent, or the flag says nothing: {finished}",
+        );
+    }
+
+    /// A propagated curve is quoted in exactly the wells that have no measured target to check it
+    /// against, so the three curves beside it ARE the check.
+    ///
+    /// Pinned from both sides, because either half alone passes while the feature is broken. With
+    /// ONE neighbour the band must COLLAPSE — the single nearest rock's measured value IS the
+    /// prediction, so `_MIN`, `_MAX` and the prediction are the same number. That is the sharpest
+    /// available statement that the band is the neighbours' own measured values and not a fitted
+    /// interval: a runner emitting prediction ± sigma, or a spread taken from anywhere else, cannot
+    /// reproduce it. And over rock that genuinely varies the band must have WIDTH, or a runner that
+    /// wrote MIN = MAX = prediction unconditionally would pass the first half and say nothing.
+    ///
+    /// `_DIST` is pinned separately and it is the one this product never had: a sample far outside
+    /// the fitted range must report a far LARGER distance than one inside it, or the curve cannot do
+    /// the only job it exists for — telling the reader the prediction there is an extrapolation.
+    #[test]
+    fn a_knn_band_is_the_neighbours_own_values_and_its_distance_warns_off_the_fitted_range() {
+        // The runner writes these three suffixes as Python string literals, while the naming and
+        // unit rules on this side match on constants. Same-string agreement is the whole basis for
+        // the band being nameable: a runner emitting "_LO" would produce three curves that
+        // `out_name_for` and `unit_for_output` have never heard of, and they would be written with
+        // no unit and no transform-aware name, silently. Checked before the interpreter guard below
+        // so this half runs on every machine, python or not.
+        let rt = ml_runner();
+        for s in [BAND_MIN_SUFFIX, BAND_MAX_SUFFIX, BAND_DIST_SUFFIX] {
+            assert!(
+                rt.contains(&format!("(\"{s}\",")),
+                "the runner must emit the {s} output under exactly that name",
+            );
+        }
+
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+
+        let n = 200usize;
+        let x: Vec<f32> = (0..n).map(|i| i as f32 / n as f32).collect();
+        // Alternating offset so ADJACENT samples carry genuinely different measured values. Without
+        // it a zero-width band would be the honest answer and the width half of this test would be
+        // measuring the fixture rather than the runner.
+        let y: Vec<f32> =
+            (0..n).map(|i| x[i] * 2.0 + if i % 2 == 0 { 0.5 } else { -0.5 }).collect();
+        // Three points well inside the fitted range, then one a long way outside it.
+        let ax: Vec<f32> = vec![0.25, 0.50, 0.75, 5.0];
+        let m = ax.len();
+
+        let run = |k: i64| {
+            exec_ml(
+                &py,
+                "regression",
+                "knn",
+                &params(&[("k_neighbors", serde_json::json!(k))]),
+                1,
+                &x,
+                Some(&y),
+                &ax,
+                m,
+            )
+            .expect("knn run failed")
+        };
+        let pick = |outs: &[(String, Vec<f32>)], s: &str| -> Vec<f32> {
+            outs.iter()
+                .find(|(sf, _)| sf == s)
+                .unwrap_or_else(|| panic!("the run wrote no '{s}' output"))
+                .1
+                .clone()
+        };
+
+        let (_, one) = run(1);
+        let (p1, lo1, hi1) =
+            (pick(&one, ""), pick(&one, BAND_MIN_SUFFIX), pick(&one, BAND_MAX_SUFFIX));
+        for i in 0..m {
+            assert!(
+                (p1[i] - lo1[i]).abs() < 1e-5 && (p1[i] - hi1[i]).abs() < 1e-5,
+                "with one neighbour the band is that neighbour's own value, so it must collapse \
+                 onto the prediction — got {} in [{}, {}] at sample {i}",
+                p1[i], lo1[i], hi1[i],
+            );
+        }
+
+        let (met, many) = run(8);
+        let (p8, lo8, hi8, d8) = (
+            pick(&many, ""),
+            pick(&many, BAND_MIN_SUFFIX),
+            pick(&many, BAND_MAX_SUFFIX),
+            pick(&many, BAND_DIST_SUFFIX),
+        );
+        for i in 0..m {
+            assert!(
+                lo8[i] <= p8[i] + 1e-5 && p8[i] <= hi8[i] + 1e-5,
+                "the prediction is a blend of the neighbours, so it cannot fall outside their own \
+                 range — got {} in [{}, {}] at sample {i}",
+                p8[i], lo8[i], hi8[i],
+            );
+        }
+        assert!(
+            (0..3).all(|i| hi8[i] - lo8[i] > 0.5),
+            "over rock whose neighbours genuinely disagree the band must have width, or MIN = MAX = \
+             prediction would pass the collapse test above and mean nothing: {lo8:?} {hi8:?}",
+        );
+
+        assert!(
+            d8[3] > d8[0] * 5.0,
+            "a sample far off the fitted range must report a far larger neighbour distance than one \
+             inside it, or the curve cannot say where a prediction is extrapolating: {d8:?}",
+        );
+        assert!(
+            met.get("knn_dist_train_p90").is_some(),
+            "the distance curve needs the fitted rock's own distance as a scale to be read \
+             against, or a reader has no way to tell 0.8 from far: {met}",
+        );
+    }
+
+    /// The cluster table is what the merge decision is made from, and both halves of a cell have to
+    /// be right or it cannot support one.
+    ///
+    /// **Own units, pinned by the value.** The run standardises before clustering, so the mean is
+    /// sitting in a standardised matrix at the moment it would be easiest to report — and a table of
+    /// z-scores reads as perfectly reasonable numbers. It just cannot be checked against a cutoff, a
+    /// chartbook or another well, which is every use it has. A cluster centred on 20 API must report
+    /// about 20, not about −1.
+    ///
+    /// **The range is real spread, pinned from both sides.** A tight cluster must report a narrow
+    /// P10–P90 and a smeared one a wide one. Without the first half a runner emitting a constant
+    /// passes; without the second, one emitting zero width passes. The distinction is the whole
+    /// point: two clusters with the same mean and no overlap are two rocks, two with the same mean
+    /// and overlapping ranges are one rock split in half, and a column of means makes them identical.
+    #[test]
+    fn a_cluster_table_reports_each_cluster_in_its_own_units_and_its_real_spread() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+
+        // Two groups far enough apart that the partition is not in question — this test is about
+        // what gets REPORTED about them, not about whether k-means can find them. The first group
+        // is deliberately tight and the second deliberately smeared, on the same curve.
+        let mut x: Vec<f32> = Vec::new();
+        for i in 0..150 {
+            x.push(19.5 + (i % 3) as f32 * 0.5);
+            x.push(2.20 + (i % 5) as f32 * 0.01);
+        }
+        for i in 0..150 {
+            x.push(100.0 + (i % 41) as f32);
+            x.push(2.60 + (i % 5) as f32 * 0.01);
+        }
+        let names = vec!["GR".to_string(), "RHOB".to_string()];
+
+        let run = exec_ml_full(
+            &py,
+            "clustering",
+            "kmeans",
+            &params(&[("k", serde_json::json!(2))]),
+            2,
+            &x,
+            None,
+            &x,
+            300,
+            &names,
+            &[],
+            None,
+            None,
+            &[],
+            &NormBasis::Data,
+        )
+        .expect("clustering ran");
+
+        let stats = run
+            .metrics
+            .get("cluster_stats")
+            .and_then(|v| v.as_array())
+            .expect("a clustering run must report its cluster table");
+        assert_eq!(stats.len(), 2, "two separated groups, two clusters: {stats:?}");
+
+        let gr = |i: usize, key: &str| {
+            stats[i]["curves"]["GR"][key]
+                .as_f64()
+                .unwrap_or_else(|| panic!("cluster {i} reports no GR {key}: {stats:?}"))
+        };
+
+        // Ids are ordered by ascending first-feature mean, so cluster 0 is the tight low-GR group.
+        assert!(
+            (gr(0, "mean") - 20.0).abs() < 2.0,
+            "the table must be in the CURVE'S OWN units - a standardised mean would be near -1 here \
+             and could not be read against a cutoff or another well: got {}",
+            gr(0, "mean"),
+        );
+
+        let tight = gr(0, "p90") - gr(0, "p10");
+        let smeared = gr(1, "p90") - gr(1, "p10");
+        assert!(
+            tight < 2.0,
+            "a tight cluster must report a narrow range, or the range says nothing: {tight}",
+        );
+        assert!(
+            smeared > 20.0,
+            "a smeared cluster must report a wide one, or a runner writing zero width would pass \
+             the half above and the table could not tell two rocks from one split in half: {smeared}",
+        );
+
+        let total: i64 = stats.iter().map(|s| s["n"].as_i64().unwrap_or(0)).sum();
+        assert_eq!(total, 300, "every clustered sample belongs to exactly one row: {stats:?}");
+    }
+
+    /// There are 2^n − 1 curve combinations and a cap is unavoidable, so the contract is not that
+    /// everything is scored — it is WHICH ones a cap gives up.
+    ///
+    /// Largest-first means the full set and every drop-one set are scored before anything else, and
+    /// those are exactly the runs the per-curve comparison needs: each curve both included and
+    /// excluded at least once. A bit-order enumeration would keep an arbitrary scatter and leave
+    /// some curve never scored against a run lacking it, with nothing in the table showing which.
+    #[test]
+    fn a_capped_curve_sweep_drops_the_smallest_combinations_and_keeps_every_drop_one_set() {
+        let all = subsets_largest_first(4, usize::MAX);
+        assert_eq!(all.len(), 15, "every non-empty subset of four, once: {all:?}");
+        let mut seen = std::collections::HashSet::new();
+        assert!(all.iter().all(|s| seen.insert(s.clone())), "no combination twice: {all:?}");
+        assert!(
+            all.windows(2).all(|w| w[0].len() >= w[1].len()),
+            "largest first, or a cap drops the wrong ones: {all:?}",
+        );
+
+        let capped = subsets_largest_first(4, 5);
+        assert_eq!(capped.len(), 5, "a cap is a cap: {capped:?}");
+        assert_eq!(capped[0], vec![0, 1, 2, 3], "the full set is scored first: {capped:?}");
+        for drop in 0..4 {
+            let want: Vec<usize> = (0..4).filter(|&i| i != drop).collect();
+            assert!(
+                capped.contains(&want),
+                "the run without curve {drop} must survive a cap, or that curve's value cannot be \
+                 measured at all: {capped:?}",
+            );
+        }
+    }
+
+    /// The question is what a curve is WORTH, and the two ways of getting it wrong are opposite.
+    ///
+    /// A curve the best model would score identically without is worth ZERO, however prominent it
+    /// looks in the winning combination — that is the whole reason this is measured across re-fits
+    /// rather than read off permutation importance, which would credit a curve for work a stand-in
+    /// would have done. And a curve that was never dropped has NO measured value, which must not be
+    /// reported as zero: "we asked and it added nothing" and "we never asked" are opposite findings
+    /// and would send a logging decision in opposite directions.
+    #[test]
+    fn a_curve_that_changes_nothing_is_worth_zero_and_one_never_dropped_is_worth_unknown() {
+        let row = |feats: &[&str], score: f64| MlEvalRow {
+            algorithm: "rf".into(),
+            features: feats.iter().map(|s| s.to_string()).collect(),
+            score: Some(score),
+            score_std: None,
+            score_pooled: None,
+            n_score_folds: 5,
+            n_unconverged: 0,
+            converge_note: String::new(),
+            metrics: serde_json::Value::Null,
+            importances: vec![],
+            importances_std: vec![],
+            n_imp_folds: 0,
+            confusion: None,
+            labels: None,
+            blind_pred: vec![],
+            error: None,
+        };
+
+        // GR carries the model; DT rides along and changes nothing; RHOB is in every scored
+        // combination, so nothing here can say what it is worth.
+        let feats = vec!["GR".to_string(), "DT".to_string(), "RHOB".to_string()];
+        let rows =
+            vec![row(&["GR", "DT", "RHOB"], 0.81), row(&["GR", "RHOB"], 0.81), row(&["DT", "RHOB"], 0.32)];
+
+        let v = curve_values(&rows, &feats);
+        let get = |c: &str| v.iter().find(|x| x.curve == c).expect("every input curve is reported");
+
+        assert!(
+            (get("GR").gain.expect("GR was both kept and dropped") - 0.49).abs() < 1e-9,
+            "GR is the difference between 0.81 and 0.32: {:?}",
+            get("GR"),
+        );
+        assert!(get("GR").in_best, "every top-scoring combination uses GR: {:?}", get("GR"));
+        assert!(
+            get("DT").gain.expect("DT was both kept and dropped").abs() < 1e-9,
+            "DT is in the winning combination and buys nothing - that is the finding: {:?}",
+            get("DT"),
+        );
+        assert!(
+            get("RHOB").best_without.is_none() && get("RHOB").gain.is_none(),
+            "a curve never dropped has an UNKNOWN value, never zero: {:?}",
+            get("RHOB"),
+        );
+
+        assert_eq!(v[0].curve, "GR", "most valuable first: {v:?}");
+        assert_eq!(
+            v.last().expect("three curves").curve,
+            "RHOB",
+            "an unmeasured curve sorts last rather than among the worthless ones: {v:?}",
         );
     }
 

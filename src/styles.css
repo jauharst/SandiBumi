@@ -5648,6 +5648,89 @@ textarea {
   margin-bottom: 8px;
   line-height: 1.45;
 }
+
+/* What each curve is worth. Sits above the model leaderboard, so it needs to read as its own
+   answer rather than as a header for the table below it. */
+.ml-curve-value {
+  margin: 10px 0 14px;
+}
+.ml-curve-value-table td {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* A curve that carries real score, and one the others already cover for. Colour is the fast read
+   and the number is the actual answer — never colour alone, and the accent pair is the same one
+   the client skins re-roll, so this follows a theme rather than pinning green/red into it. */
+.ml-cv-worth {
+  color: var(--accent-dim, #a4551f);
+  font-weight: 600;
+}
+.ml-cv-spare {
+  color: color-mix(in srgb, var(--text-dim, #6f6857) 50%, var(--text, #241d15));
+}
+/* Never measured. Deliberately NOT styled like a zero — it is the absence of an answer. */
+.ml-cv-unknown {
+  color: var(--text-dim, #6f6857);
+  font-style: italic;
+}
+
+/* The cluster fingerprint table. Data UI, so it stays DENSE — the Organic split is chrome goes
+   warm and rounded, grids and tables keep their professional density. A field with forty-six
+   clusters has to fit on a laptop. */
+.ml-clusters {
+  margin: 10px 0 6px;
+}
+.ml-cluster-table {
+  width: 100%;
+}
+.ml-cluster-table td {
+  vertical-align: top;
+  white-space: nowrap;
+}
+.ml-cluster-id {
+  font-variant-numeric: tabular-nums;
+}
+.ml-cluster-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-sm, 3px);
+  margin-right: 6px;
+  vertical-align: baseline;
+  border: 1px solid rgb(0 0 0 / 0.18);
+}
+/* The share bar sits BEHIND the count rather than beside it, so a forty-six-cluster table does not
+   pay a whole column for it and the eye still finds the two clusters carrying the field. */
+.ml-cluster-n {
+  position: relative;
+  min-width: 120px;
+  font-variant-numeric: tabular-nums;
+}
+.ml-cluster-bar {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  background: var(--accent-soft, #f4e3d5);
+  border-radius: var(--r-sm, 3px);
+  z-index: 0;
+}
+.ml-cluster-count {
+  position: relative;
+  z-index: 1;
+}
+.ml-cluster-mean {
+  font-variant-numeric: tabular-nums;
+}
+/* The range is subordinate to the mean but it is NOT a caption — it is the number the merge
+   decision is actually made from, set at 11px. Plain --text-dim measured 4.29:1 on the white panel,
+   under AA for small text, so it is mixed back toward --text: still visibly secondary to the mean,
+   still legible. Mixed rather than hard-coded so the five client skins and dark keep their own. */
+.ml-cluster-range {
+  font-size: var(--fs-xs, 11px);
+  color: color-mix(in srgb, var(--text-dim, #6f6857) 50%, var(--text, #241d15));
+  font-variant-numeric: tabular-nums;
+}
 .ml-seg-card {
   border: 1px solid var(--border, #e6ded0);
   border-radius: var(--r-lg, 12px);
