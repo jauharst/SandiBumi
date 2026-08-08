@@ -3917,6 +3917,21 @@ export interface LasExportResult {
   omitted: LasOmission[];
 }
 
+export interface DataExportFormat {
+  id: string;
+  label: string;
+  extension: string;
+  is_default: boolean;
+  honours_project_sentinel: boolean;
+  /** Why a fixed-null format cannot honour the project declaration; shown by a format picker. */
+  sentinel_limitation: string | null;
+}
+
+/** Lists export formats with their default and sentinel capability declared. */
+export function listDataExportFormats(): Promise<DataExportFormat[]> {
+  return invoke<DataExportFormat[]>("list_data_export_formats");
+}
+
 /** Exports one well as LAS 2.0, including exact held/written counts and named omissions. */
 export function exportLas(wellId: string, destPath: string): Promise<LasExportResult> {
   return invoke<LasExportResult>("export_las", { wellId, destPath });

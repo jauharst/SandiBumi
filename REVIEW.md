@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-002: the default export format honours the sentinel
+
+- [ ] Open the export format list. Is LAS 2.0 the single default and marked as honouring the
+      project sentinel? If a fixed-null format is added later, does the picker name that limitation
+      instead of presenting it as equivalent?
+
 ## 2026-08-09 — SB-DIO-001: one declared sentinel reaches every writer
 
 - [ ] Set the project's export sentinel to a non-default finite value, export a LAS with missing

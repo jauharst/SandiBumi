@@ -2906,6 +2906,12 @@ async fn run_query(
     .map_err(|e| e.to_string())?
 }
 
+/// Export formats and their sentinel capability, including the one unambiguous default.
+#[tauri::command]
+fn list_data_export_formats() -> Vec<export::ExportFormatInfo> {
+    export::export_formats()
+}
+
 /// Exports one well as LAS 2.0 and returns rows, held/written curve counts and named omissions.
 #[tauri::command]
 async fn export_las(
@@ -3408,6 +3414,7 @@ pub fn run() {
             apply_fwl_to_zone_params,
             sw_method_spread,
             run_query,
+            list_data_export_formats,
             export_las,
             python_status,
             run_ml,

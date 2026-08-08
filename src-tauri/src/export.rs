@@ -28,11 +28,75 @@ struct WriterSettings {
 
 type WriterFn = fn(&Connection, &str, &str, WriterSettings) -> Result<LasExportResult, String>;
 
+#[derive(Debug, Clone, Copy)]
+enum SentinelSupport {
+    Honours,
+    #[allow(dead_code)] // no incapable format ships yet; registration still has to declare the case
+    Incapable(&'static str),
+}
+
 struct RegisteredWriter {
+    id: &'static str,
+    label: &'static str,
+    extension: &'static str,
+    is_default: bool,
+    sentinel_support: SentinelSupport,
     write: WriterFn,
 }
 
-const LAS_WRITER: RegisteredWriter = RegisteredWriter { write: write_las };
+const REGISTERED_WRITERS: &[RegisteredWriter] = &[RegisteredWriter {
+    id: "las-2.0",
+    label: "LAS 2.0",
+    extension: "las",
+    is_default: true,
+    sentinel_support: SentinelSupport::Honours,
+    write: write_las,
+}];
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExportFormatInfo {
+    pub id: String,
+    pub label: String,
+    pub extension: String,
+    pub is_default: bool,
+    pub honours_project_sentinel: bool,
+    /// Present for a format that cannot honour the project sentinel. A format picker
+    /// displays this instead of presenting the format as equivalent to a capable one.
+    pub sentinel_limitation: Option<String>,
+}
+
+fn format_info(writer: &RegisteredWriter) -> ExportFormatInfo {
+    let (honours_project_sentinel, sentinel_limitation) = match writer.sentinel_support {
+        SentinelSupport::Honours => (true, None),
+        SentinelSupport::Incapable(reason) => (false, Some(reason.to_string())),
+    };
+    ExportFormatInfo {
+        id: writer.id.to_string(),
+        label: writer.label.to_string(),
+        extension: writer.extension.to_string(),
+        is_default: writer.is_default,
+        honours_project_sentinel,
+        sentinel_limitation,
+    }
+}
+
+pub fn export_formats() -> Vec<ExportFormatInfo> {
+    REGISTERED_WRITERS.iter().map(format_info).collect()
+}
+
+fn default_writer() -> Result<&'static RegisteredWriter, String> {
+    let writer = REGISTERED_WRITERS
+        .iter()
+        .find(|writer| writer.is_default)
+        .ok_or_else(|| "no default data export format is registered".to_string())?;
+    match writer.sentinel_support {
+        SentinelSupport::Honours => Ok(writer),
+        SentinelSupport::Incapable(reason) => Err(format!(
+            "the default export format '{}' cannot honour the project sentinel: {reason}",
+            writer.label
+        )),
+    }
+}
 
 /// The project's one declared export sentinel. Older projects have no data-I/O settings
 /// document and therefore resolve to the cited CWLS convention.
@@ -320,7 +384,8 @@ fn add_generic_curves(
 
 pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
     let settings = WriterSettings { null_sentinel: project_null_sentinel(conn)? };
-    (LAS_WRITER.write)(conn, well_id, dest_path, settings)
+    let writer = default_writer()?;
+    (writer.write)(conn, well_id, dest_path, settings)
 }
 
 fn write_las(
@@ -597,7 +662,48 @@ mod tests {
     #[test]
     fn a_registered_writer_cannot_omit_the_required_sentinel_argument() {
         let _: WriterFn = write_las;
-        let _: WriterFn = LAS_WRITER.write;
+        let _: WriterFn = REGISTERED_WRITERS[0].write;
+    }
+
+    /// SB-DIO-002 / SB-DIO-T03. `-32767` is the cited Baker waveform sentinel in
+    /// `docs/PRD_v2/21_data-io.md` §5.2; it is used only to prove the default path
+    /// honours a non-default declaration.
+    #[test]
+    fn the_default_export_format_honours_the_sentinel_and_an_incapable_format_is_marked() {
+        let defaults: Vec<&RegisteredWriter> =
+            REGISTERED_WRITERS.iter().filter(|writer| writer.is_default).collect();
+        assert_eq!(defaults.len(), 1, "the format picker must have one unambiguous default");
+        assert!(matches!(defaults[0].sentinel_support, SentinelSupport::Honours));
+
+        fn cannot_write(
+            _: &Connection,
+            _: &str,
+            _: &str,
+            _: WriterSettings,
+        ) -> Result<LasExportResult, String> {
+            Err("format cannot carry an arbitrary null sentinel".into())
+        }
+        let incapable = RegisteredWriter {
+            id: "incapable-test-format",
+            label: "Incapable test format",
+            extension: "test",
+            is_default: false,
+            sentinel_support: SentinelSupport::Incapable("fixed null convention"),
+            write: cannot_write,
+        };
+        let shown = format_info(&incapable);
+        assert!(!shown.honours_project_sentinel);
+        assert_eq!(shown.sentinel_limitation.as_deref(), Some("fixed null convention"));
+
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        set_project_null_sentinel(&conn, -32767.0).unwrap();
+        let dest = tmp_path("default-format-sentinel");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+        assert!(text.contains("-32767.0000"));
+        assert!(!text.contains("-999.2500"));
     }
 
     /// The round trip: export a well, import the file into a FRESH project, and the numbers must
