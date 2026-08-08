@@ -2573,7 +2573,7 @@ continues to pass.
 
 ### 7.1 Escalations — decisions this chapter cannot make
 
-Nine. Each is a conflict between cited sources, or a value with no source, where adjudicating
+Ten. Each is a conflict between cited sources, or a value with no source, where adjudicating
 from the corpus would mean inventing a parameter. None blocks a P0 requirement: every one is
 handled by shipping the parameter absent with both readings attached.
 
@@ -2647,6 +2647,15 @@ nomenclature scheme is pinned by SB-SAT-026. These are recommendations to the le
 `ip2025_chm_ingest\DISCREPANCIES.md` was **not modified by this chapter**.
 *Closes with:* Jauhar's sign-off. **Priority: high, and cheap.**
 
+**ESC-10 — Omovie Sonic Saturation patent claims and independent literature.**
+The dossier and its critique contain no capability-level evidence for Omovie beyond confirming that
+no Tier-C material entered the saturation research. `CONTRACT.md` §2.2 classifies Omovie Sonic
+Saturation (US 12,242,011 B2) as patent-claimed. **Draft classification opinion: C-1**, pending a
+claims read. *Closes with:* the granted claims themselves plus published sonic-saturation literature
+sufficient to establish the user need, a lawful design-around route, and a cited incumbent
+limitation for the mandatory `Betters:` line. Until then no method, default, requirement or test is
+specified. **Priority: blocked by acquisition, not by implementation.**
+
 ### 7.2 Open items — known, scoped, not yet requirements
 
 Eleven. Each is something this chapter deliberately did **not** turn into a requirement, because
@@ -2685,11 +2694,10 @@ the evidence to specify it is not held. They are listed so their absence is a re
 
 ### 7.3 Refusals — what was deliberately not done
 
-1. **Tier C was not implemented, approximated or reverse-engineered.** In this domain that is
-   **Omovie Sonic Saturation (US Patent 12,242,011 B2)**. This chapter describes it at
-   capability level only — that a sonic-based saturation route exists in a competitor and is
-   patent-encumbered — and specifies no algorithm, no parameter, and no reconstruction. It
-   contributes zero requirements, zero parameter rows and zero tests. See CONTRACT §2.2.
+Two kinds, listed separately per `CONTRACT.md` §2.2.1.
+
+#### 7.3.1 Transcription refusals — rule compliance
+
 2. **No vendor chart lookup-table data was transcribed.** The Techlog 1978 Waxman `B` chart, the
    1972 original and revised fits, and the Western Atlas Charts 1994 p. 27 `Rw` chart that Geolog
    cites are each referenced by existence, attribution and purpose only. Geolog's `WAX_THOM`
@@ -2721,6 +2729,31 @@ the evidence to specify it is not held. They are listed so their absence is a re
    weak requirement — see items 1, 2 and 7 in particular. The front matter's counts were amended
    to match the content twice during authoring (P0 12→13, tests 41→63, parameters 46→67) rather
    than the content being trimmed or padded to match a promised shape.
+
+#### 7.3.2 Defect refusals — vendor behaviour SandiBumi declines to reproduce
+
+No defect refusal is asserted from §7's evidence. The unresolved vendor disagreements remain named
+in §7.1 and ship with their disputed parameters absent; they are not silently converted into claims
+that one vendor is wrong.
+
+### 7.4 Independent-derivation requirements
+
+**Omovie Sonic Saturation — no owning requirement yet.**
+
+- **Class:** **Draft classification opinion: C-1 (patent-claimed)**, from `CONTRACT.md` §2.2's
+  register. The classification is not treated as final until the granted claims are read.
+- **User need:** **not established by the held dossier or critique.** They record no Omovie
+  capability detail beyond the boundary declaration, so this chapter does not invent a workflow or
+  claim that a specific saturation problem requires it.
+- **Primary sources and derivation route:** **named acquisition gap — ESC-10.** Read the granted
+  claims, then acquire published sonic-saturation literature from which an independent method could
+  be derived without vendor internals or input/output inference. Jauhar's C-1 decision remains:
+  read the claims, license, or drop.
+- **`Betters:`** **not written.** No cited incumbent limitation is held, and an unsupported line
+  would be a clone claim rather than a design-around.
+- **Owning requirement and tests:** **not minted.** A new `SB-SAT` requirement, cited defaults and
+  acceptance tests are blocked until ESC-10 closes. This is an acquisition gap, not a refusal of
+  the capability.
 
 ---
 
