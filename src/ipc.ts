@@ -3895,9 +3895,21 @@ export function runQuery(sql: string, limit = 1000): Promise<TablePage> {
   return invoke<TablePage>("run_query", { sql, limit });
 }
 
-/** Exports one well's standard + computed curves as LAS 2.0; returns row count. */
-export function exportLas(wellId: string, destPath: string): Promise<number> {
-  return invoke<number>("export_las", { wellId, destPath });
+export interface LasOmission {
+  curve: string;
+  reason: string;
+}
+
+export interface LasExportResult {
+  rows: number;
+  curves_written: number;
+  curves_held: number;
+  omitted: LasOmission[];
+}
+
+/** Exports one well as LAS 2.0, including exact held/written counts and named omissions. */
+export function exportLas(wellId: string, destPath: string): Promise<LasExportResult> {
+  return invoke<LasExportResult>("export_las", { wellId, destPath });
 }
 
 /** One water-zone sample that entered the RtC calibration fit. */

@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-055: LAS export omissions are explicit
+
+- [ ] Export a well with many imported curves, including one duplicate mnemonic and one curve on
+      another frame. Are aligned curves written, and are both omissions named with the same reason
+      in the completion message and the LAS `~O` section?
+
 ## 2026-08-09 — SB-DIO-051: provenance travels inside LAS deliverables
 
 - [ ] Open an exported LAS at `~O`. Is every curve labelled measured or computed, does each

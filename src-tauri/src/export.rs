@@ -24,6 +24,21 @@ fn standard_units(name: &str) -> &'static str {
 
 const PROVENANCE_PREFIX: &str = "SANDIBUMI_PROVENANCE_V1 ";
 const MODEL_PROVENANCE_PREFIX: &str = "SANDIBUMI_MODEL_PROVENANCE_V1 ";
+const OMISSION_PREFIX: &str = "SANDIBUMI_OMISSION_V1 ";
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LasOmission {
+    pub curve: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LasExportResult {
+    pub rows: usize,
+    pub curves_written: usize,
+    pub curves_held: usize,
+    pub omitted: Vec<LasOmission>,
+}
 
 fn collect_model_ids(value: &serde_json::Value, out: &mut Vec<String>) {
     match value {
@@ -169,7 +184,85 @@ fn provenance_lines(
     Ok(lines)
 }
 
-pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<usize, String> {
+/// Adds generic-store curves only when their exact samples fit the LAS frame. Resolution is by
+/// `curve_id`, never by family, so a duplicate mnemonic cannot cause another delivery's data to be
+/// written under this curve's label. Every curve not added becomes a named omission.
+fn add_generic_curves(
+    conn: &Connection,
+    well_id: &str,
+    depth: &[f32],
+    curve_names: &mut Vec<String>,
+    units: &mut Vec<String>,
+    columns: &mut std::collections::HashMap<String, Vec<f32>>,
+) -> Result<(usize, Vec<LasOmission>), String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT curve_id, upper(mnemonic), COALESCE(unit, ''), set_name, run_no
+             FROM curve_meta WHERE well_id = ?1
+             ORDER BY (set_name = 'RAW') DESC, upper(mnemonic), set_name,
+                      run_no NULLS FIRST, curve_id",
+        )
+        .map_err(|e| e.to_string())?;
+    let metas: Vec<(String, String, String, String, Option<i32>)> = stmt
+        .query_map(params![well_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<duckdb::Result<_>>()
+        .map_err(|e| e.to_string())?;
+    let held = metas.len();
+    let depth_index: std::collections::HashMap<u32, usize> =
+        depth.iter().enumerate().map(|(i, d)| (d.to_bits(), i)).collect();
+    let mut sample_stmt = conn
+        .prepare("SELECT depth, value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
+        .map_err(|e| e.to_string())?;
+    let mut omitted = Vec::new();
+
+    for (curve_id, mnemonic, unit, set_name, run_no) in metas {
+        let label = match run_no {
+            Some(run) => format!("{mnemonic} [set {set_name}, run {run}]"),
+            None => format!("{mnemonic} [set {set_name}]"),
+        };
+        let omit = |reason: &str| LasOmission { curve: label.clone(), reason: reason.to_string() };
+        if mnemonic == "DEPT" || mnemonic == "DEPTH" {
+            omitted.push(omit("the well index is already written as the LAS DEPT column"));
+            continue;
+        }
+        if curve_names.iter().any(|name| name.eq_ignore_ascii_case(&mnemonic)) {
+            omitted.push(omit(
+                "that LAS mnemonic is already written from another held standard, computed, set or run curve",
+            ));
+            continue;
+        }
+        let samples: Vec<(f32, f32)> = sample_stmt
+            .query_map(params![curve_id], |row| {
+                Ok((row.get::<_, f32>(0)?, row.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN)))
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<duckdb::Result<_>>()
+            .map_err(|e| e.to_string())?;
+        if samples.is_empty() {
+            omitted.push(omit("the held curve has no samples"));
+            continue;
+        }
+        if samples.iter().any(|(d, _)| !depth_index.contains_key(&d.to_bits())) {
+            omitted.push(omit(
+                "its samples are on a different depth frame; this LAS writes the well's standard frame without re-gridding",
+            ));
+            continue;
+        }
+        let mut values = vec![f32::NAN; depth.len()];
+        for (d, value) in samples {
+            values[depth_index[&d.to_bits()]] = value;
+        }
+        columns.insert(mnemonic.clone(), values);
+        curve_names.push(mnemonic);
+        units.push(unit);
+    }
+    Ok((held, omitted))
+}
+
+pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
     let (well_name, field_name): (String, Option<String>) = conn
         .query_row(
             "SELECT well_name, field_name FROM wells WHERE well_id = ?1",
@@ -207,10 +300,20 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<u
         }
     }
 
-    let (depth, columns) = fetch_curve_frame(conn, well_id, &curve_names).map_err(|e| e.to_string())?;
+    let (depth, mut columns) = fetch_curve_frame(conn, well_id, &curve_names).map_err(|e| e.to_string())?;
     if depth.is_empty() {
         return Err("well has no curve data".into());
     }
+    let initially_written = curve_names.len();
+    let (generic_held, omitted) = add_generic_curves(
+        conn,
+        well_id,
+        &depth,
+        &mut curve_names,
+        &mut units,
+        &mut columns,
+    )?;
+    let curves_held = initially_written + generic_held;
     let depth_unit = crate::units::project_depth_unit_or_default(conn).code();
     let provenance = provenance_lines(conn, well_id, &curve_names)?;
     let step = if depth.len() > 1 { depth[1] - depth[0] } else { 0.0 };
@@ -247,6 +350,13 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<u
         for line in &provenance {
             writeln!(w, " {line}")?;
         }
+        for omission in &omitted {
+            writeln!(
+                w,
+                " {OMISSION_PREFIX}{}",
+                serde_json::to_string(omission).expect("serializing two strings cannot fail")
+            )?;
+        }
         writeln!(w, "~ASCII")?;
         for i in 0..depth.len() {
             let mut line = format!("{:>12.4}", depth[i]);
@@ -262,7 +372,12 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<u
         w.flush()
     };
     write().map_err(|e| e.to_string())?;
-    Ok(depth.len())
+    Ok(LasExportResult {
+        rows: depth.len(),
+        curves_written: curve_names.len(),
+        curves_held,
+        omitted,
+    })
 }
 
 #[cfg(test)]
@@ -344,8 +459,8 @@ mod tests {
         let (id, gr, vsh) = seed(&conn);
         let dest = tmp_path("null");
 
-        let rows = export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
-        assert_eq!(rows, 6, "one row per depth sample");
+        let result = export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        assert_eq!(result.rows, 6, "one row per depth sample");
 
         let text = std::fs::read_to_string(&dest).unwrap();
         let _ = std::fs::remove_file(&dest);
@@ -623,5 +738,89 @@ mod tests {
         let refused = export_las(&conn, &well_id, refused_dest.to_str().unwrap()).unwrap_err();
         assert!(refused.contains("no single live ancestry record"), "{refused}");
         assert!(!refused_dest.exists(), "a refused export must not leave a partial file");
+    }
+
+    /// SB-DIO-055 / SB-DIO-T80..T81. The completeness and two-surface omission rule is
+    /// specified in `docs/PRD_v2/21_data-io.md` §§4.10 and 6.10.
+    #[test]
+    fn every_held_curve_is_written_or_named_with_the_same_reason_in_the_file_and_result() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        let well_id = id.to_string();
+        db::insert_well(&conn, id, "FORTY-CURVES", None, None, None).unwrap();
+        let depth = vec![1500.0_f32, 1500.5, 1501.0];
+        db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![50.0; 3],
+            vec![2.0; 3],
+            vec![0.2; 3],
+            vec![2.4; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+        )
+        .unwrap();
+        for i in 0..40 {
+            let name = format!("X{i:02}");
+            let curve_id = db::upsert_curve_meta(
+                &conn,
+                &well_id,
+                "RAW",
+                &name,
+                Some("V/V"),
+                None,
+                Some("synthetic"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve_id, &depth, &vec![i as f32; depth.len()]).unwrap();
+        }
+        let collision = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "WIRE",
+            "GR",
+            Some("GAPI"),
+            None,
+            Some("synthetic"),
+            Some(1),
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &collision, &depth, &[60.0; 3]).unwrap();
+        let off_grid = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "LWD",
+            "OFFGRID",
+            Some("V/V"),
+            None,
+            Some("synthetic"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &off_grid, &[1500.25], &[1.0]).unwrap();
+
+        let dest = tmp_path("forty-curves");
+        let result = export_las(&conn, &well_id, dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+        for i in 0..40 {
+            assert!(text.contains(&format!(" X{i:02}")), "aligned generic curve X{i:02} was omitted");
+        }
+        assert_eq!(result.curves_written, 46, "six standard plus all forty aligned curves");
+        assert_eq!(result.curves_held, 48, "written plus the two deliberately unwriteable curves");
+        assert_eq!(result.omitted.len(), 2);
+        assert!(result.omitted.iter().any(|o| o.curve.starts_with("GR ") && o.reason.contains("already written")));
+        assert!(result.omitted.iter().any(|o| o.curve.starts_with("OFFGRID ") && o.reason.contains("different depth frame")));
+
+        let file_omissions = prefixed_json(&text, OMISSION_PREFIX);
+        assert_eq!(file_omissions.len(), result.omitted.len());
+        for omission in &result.omitted {
+            assert!(file_omissions.iter().any(|row| {
+                row["curve"] == omission.curve && row["reason"] == omission.reason
+            }));
+        }
     }
 }

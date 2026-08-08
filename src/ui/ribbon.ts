@@ -1143,9 +1143,13 @@ export class Ribbon {
     }
     if (!dest) return;
     try {
-      const rows = await exportLas(well.well_id, dest);
-      setStatus(`Exported ${well.well_name} (${rows} rows) to ${dest}`);
-      recordProcess("Export", `Exported LAS (${rows} rows) → ${dest}`, well.well_name);
+      const result = await exportLas(well.well_id, dest);
+      const omission = result.omitted.length
+        ? ` Omitted ${result.omitted.map((item) => `${item.curve}: ${item.reason}`).join("; ")}.`
+        : "";
+      const summary = `${result.rows} rows; ${result.curves_written} of ${result.curves_held} held curves written.`;
+      setStatus(`Exported ${well.well_name} (${summary}) to ${dest}.${omission}`);
+      recordProcess("Export", `Exported LAS (${summary})${omission} → ${dest}`, well.well_name);
     } catch (err) {
       setStatus(`Export failed: ${err}`);
     }

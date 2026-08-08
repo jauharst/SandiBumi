@@ -2891,14 +2891,14 @@ async fn run_query(
     .map_err(|e| e.to_string())?
 }
 
-/// Exports one well (standard + computed curves) as a LAS 2.0 file; returns row count.
+/// Exports one well as LAS 2.0 and returns rows, held/written curve counts and named omissions.
 #[tauri::command]
 async fn export_las(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     well_id: String,
     dest_path: String,
-) -> Result<usize, String> {
+) -> Result<export::LasExportResult, String> {
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Export LAS", "write LAS", move || {
         let c = conn.lock().unwrap();
