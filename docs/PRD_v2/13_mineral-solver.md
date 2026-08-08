@@ -2491,6 +2491,12 @@ constraint** (Elan Eqs 89–92 are self-contained; the construction in `image299
 publicly obtainable at all). Needed only if the Sonic Clay Volume predefined constraint ships; it is
 the one member of Elan's seven that `SB-MIN-043` does not offer, for exactly this reason.
 
+**ACQ-11 — The primary Wyllie (1956/1958) and Raymer–Hunt–Gardner (SPWLA 1980) sonic-response
+papers.** Geolog's documentation names this lineage, and dossier G-6 establishes that the IP
+Wyllie ↔ Hunt-Raymer `Cp` bridge is a vendor-fitted four-term regression, but the primary papers are
+not held in the evidence package. They are required before §7.5's independent full-nonlinear route
+can be promoted from a candidate into an owned method with stated limitations, defaults and tests.
+
 ### 7.3 Open items — answerable on this machine, not yet done
 
 **OPEN-1 — The Geolog leg is T3-only and one ingest would change that.**
@@ -2561,7 +2567,62 @@ parity, T-9's assertion must ship with them.**
 
 ### 7.4 Refusals
 
-#### Vendor behaviours SandiBumi will not reproduce
+Two different decisions are recorded here: material declined because the transcription rules forbid
+carrying it into the PRD, and vendor behaviour declined because reproducing it would be a product
+defect. Neither category is a refusal to meet a real user need by an independently derived method.
+
+#### 7.4.1 Transcription refusals — rule compliance
+
+**REF-8 — The 27-row × 14-tool-key `LIB` matrix is not enumerated in §5.** Rows appear only where a
+§4 requirement turns on the specific value. Reason: enumerating the full matrix would copy a merged
+vendor library into a second location — the exposure `SB-CORE-005` exists to reduce, not to
+duplicate. It is carried as an *asset*: 27 rows, 14 columns, `VENDOR-DERIVED`, merged from two vendor
+installs in a third vendor's dropdown order per `IP_PROVENANCE.md` §2.2. `SB-MIN-009` is the
+requirement that re-sources it row by row.
+
+**REF-9 — No `.neu` neutron look-up table data is transcribed anywhere in this chapter.**
+CONTRACT §2.1 names `.neu` chart tables explicitly. The tables are cited by *format and convention*
+only — columns, salinity breakpoints, porosity rows — and the two known non-monotonicities (the
+`-.1960` outlier at φ = .20 Dolomite/50 kppm, and the milder φ = .25 sand/100 kppm case) are cited as
+**QC facts, not as data**. `SB-MIN-026` requires the table be a named, recorded model input; the
+table format, its load-time integrity checks and the "do not silently repair" rule belong to `ENV`,
+which is where §1 declares the seam.
+
+**REF-10 — Elan Tables 29/30 are not carried into §5 as an 18-row default set.** §5 carries the
+two-vendor-corroborated *generating rule* and **one** row for the per-tool defaults, marked
+`ABSENT — ships with no default`. Reason: the set is the deliverable of `SB-MIN-020`, and copying a
+vendor default table into the chapter would create a second location with no build gate over it.
+**Disclosed consequence:** §5 therefore satisfies CONTRACT §2's "every parameter any requirement
+refers to appears here exactly once" for the per-tool σ values with a single ABSENT row rather than
+fourteen valued rows. That is a scoping decision, stated rather than drifted into.
+
+**REF-12 — Client identifiers stay in the research file.** CONTRACT §2.3, and dossier MAJ-9 reached
+the same ruling independently. The project-kb precedent's whole-rock CEC range (3.11–7.99 meq/100 g)
+and the project it belongs to are **not** carried into any requirement, parameter row, test name,
+fixture or shipped warning string. `SB-MIN-011`'s window `[0.01, 2.0] meq/g` and its 0.05 meq/g warn
+threshold are derived from the **shipped library floor alone** — Kaolinite 0.10 meq/g, the lowest
+clay-mineral CEC in any of the three libraries — and `SB-MIN-011` states in its own text that neither
+the message nor the fixture may name a client project or carry a client core-analysis range. Carrying
+the precedent into the product is explicitly Jauhar's call and no agent's.
+
+##### The Matthews & Kelly exception was not used, and is not a precedent
+
+**REF-13 — Explicit non-reliance, stated because this chapter reasoned near it.** §5 transcribes a
+small number of individual vendor values under `NON-ADOPTABLE — cited for verification`: three
+competing Techlog clay CEC values, the four per-clay `Rsh` values, `XWater`, and — inside
+`SB-MIN-T44` only — Techlog's three clay density triples. Each is a **single value cited so a stated
+requirement can be checked**, none is the content of a lookup table, and **none is shipped**.
+
+**This chapter did not reason from CONTRACT §2.1's Matthews & Kelly exception to justify any of
+them.** That exception is scoped to the Matthews & Kelly rows in `Fract_Grad_Coeff.par` — retained
+because that file is plain text, self-documenting and user-extensible by its own header, its rows
+digitise a published 1967 paper, and a High-rated quantification is uncheckable without them — and it
+was ruled on by Jauhar directly on 2026-08-07. **It is not a precedent and this chapter treats it as
+none.** Where a second case looked possible — carrying Elan Tables 29/30 wholesale (REF-10), or
+Techlog's `Rhobdcl` column into §5 (ESC-6) — the chapter **stopped and escalated rather than
+deciding**, which is what CONTRACT §2.1 requires of a chapter that believes it has a second case.
+
+#### 7.4.2 Defect refusals — vendor behaviour SandiBumi will not reproduce
 
 **REF-1 — IP's mineral-deletion non-negativity heuristic.** `SB-MIN-001` MUST NOT achieve
 non-negativity by deleting a component and re-solving a reduced model. Reason: the mechanism changes
@@ -2609,68 +2670,28 @@ verified to 4 dp on four clays (0.26784 / 0.09159 / 0.15042 / 1.37753 against th
 no value from that column**; where an IP-derived CEC appears in the reasoning it is the corrected
 table in dossier §2.8.
 
-#### What this chapter declined to transcribe — CONTRACT §2.1 and §2.2
+### 7.5 Independent-derivation requirements
 
-**REF-8 — The 27-row × 14-tool-key `LIB` matrix is not enumerated in §5.** Rows appear only where a
-§4 requirement turns on the specific value. Reason: enumerating the full matrix would copy a merged
-vendor library into a second location — the exposure `SB-CORE-005` exists to reduce, not to
-duplicate. It is carried as an *asset*: 27 rows, 14 columns, `VENDOR-DERIVED`, merged from two vendor
-installs in a third vendor's dropdown order per `IP_PROVENANCE.md` §2.2. `SB-MIN-009` is the
-requirement that re-sources it row by row.
+**Candidate MIN-C2-1 — Continuous sonic response without IP's Wyllie ↔ Hunt-Raymer `Cp` bridge
+[draft C-2].** The candidate class is C-2 because the dossier identifies the bridge as a proprietary
+vendor implementation but identifies no patent claim. The real user need is a continuous,
+physically stated sonic response across the range where a linear Wyllie response ceases to be the
+preferred model; copying the vendor's fitted bridge is not the need.
 
-**REF-9 — No `.neu` neutron look-up table data is transcribed anywhere in this chapter.**
-CONTRACT §2.1 names `.neu` chart tables explicitly. The tables are cited by *format and convention*
-only — columns, salinity breakpoints, porosity rows — and the two known non-monotonicities (the
-`-.1960` outlier at φ = .20 Dolomite/50 kppm, and the milder φ = .25 sand/100 kppm case) are cited as
-**QC facts, not as data**. `SB-MIN-026` requires the table be a named, recorded model input; the
-table format, its load-time integrity checks and the "do not silently repair" rule belong to `ENV`,
-which is where §1 declares the seam.
+The prohibited path is unchanged: the four-term fit and its coefficient set MUST NOT be transcribed,
+reconstructed, approximated from vendor outputs or used as a target for calibration. Dossier G-6
+identifies a lawful candidate route — solve the full nonlinear sonic response directly, as IP's own
+nonlinear optimiser does — so the fitted bridge is unnecessary. That route is independently useful
+because it removes the vendor-fit coefficients and the fitted transition itself, but it is not yet a
+shippable **Better**: ACQ-11 must first supply the primary method lineage and limitations, after which
+the PRD must state SandiBumi's own method, defaults and applicability bounds and add an owning
+`SB-MIN-*` requirement plus analytic, boundary, continuity and regression tests. Until that evidence
+and ownership package exists, no implementation requirement is asserted here.
 
-**REF-10 — Elan Tables 29/30 are not carried into §5 as an 18-row default set.** §5 carries the
-two-vendor-corroborated *generating rule* and **one** row for the per-tool defaults, marked
-`ABSENT — ships with no default`. Reason: the set is the deliverable of `SB-MIN-020`, and copying a
-vendor default table into the chapter would create a second location with no build gate over it.
-**Disclosed consequence:** §5 therefore satisfies CONTRACT §2's "every parameter any requirement
-refers to appears here exactly once" for the per-tool σ values with a single ABSENT row rather than
-fourteen valued rows. That is a scoping decision, stated rather than drifted into.
-
-**REF-11 — Tier C: IP's Wyllie ↔ Hunt-Raymer `Cp` bridge is named and not implemented.** It is a
-vendor-fitted four-term regression (dossier G-6). CONTRACT §2.2: named, never built, never
-approximated, never reverse-engineered — **and its coefficient set is deliberately not repeated in
-this chapter**, in any section. The capability-level description is all that is permitted and all
-that is given. SandiBumi's answer is a design-around by construction rather than by approximation:
-it uses the full non-linear sonic form, which is what IP's own non-linear optimiser does, so the fit
-is never needed. **No other Tier-C register item is touched by this domain** — Experienced Eye /
-EEFS, Domain Transfer Analysis, Omovie Sonic Saturation (US 12,242,011 B2), entropy image
-speed-correction, shipped neural-network weight DLLs, Textural Facies `Freq_Tiles` encoding and
-frequency-domain dispersion fits do not appear in the mineral-solver dossier and are not described,
-proposed or renamed here.
-
-**REF-12 — Client identifiers stay in the research file.** CONTRACT §2.3, and dossier MAJ-9 reached
-the same ruling independently. The project-kb precedent's whole-rock CEC range (3.11–7.99 meq/100 g)
-and the project it belongs to are **not** carried into any requirement, parameter row, test name,
-fixture or shipped warning string. `SB-MIN-011`'s window `[0.01, 2.0] meq/g` and its 0.05 meq/g warn
-threshold are derived from the **shipped library floor alone** — Kaolinite 0.10 meq/g, the lowest
-clay-mineral CEC in any of the three libraries — and `SB-MIN-011` states in its own text that neither
-the message nor the fixture may name a client project or carry a client core-analysis range. Carrying
-the precedent into the product is explicitly Jauhar's call and no agent's.
-
-#### The Matthews & Kelly exception was not used, and is not a precedent
-
-**REF-13 — Explicit non-reliance, stated because this chapter reasoned near it.** §5 transcribes a
-small number of individual vendor values under `NON-ADOPTABLE — cited for verification`: three
-competing Techlog clay CEC values, the four per-clay `Rsh` values, `XWater`, and — inside
-`SB-MIN-T44` only — Techlog's three clay density triples. Each is a **single value cited so a stated
-requirement can be checked**, none is the content of a lookup table, and **none is shipped**.
-
-**This chapter did not reason from CONTRACT §2.1's Matthews & Kelly exception to justify any of
-them.** That exception is scoped to the Matthews & Kelly rows in `Fract_Grad_Coeff.par` — retained
-because that file is plain text, self-documenting and user-extensible by its own header, its rows
-digitise a published 1967 paper, and a High-rated quantification is uncheckable without them — and it
-was ruled on by Jauhar directly on 2026-08-07. **It is not a precedent and this chapter treats it as
-none.** Where a second case looked possible — carrying Elan Tables 29/30 wholesale (REF-10), or
-Techlog's `Rhobdcl` column into §5 (ESC-6) — the chapter **stopped and escalated rather than
-deciding**, which is what CONTRACT §2.1 requires of a chapter that believes it has a second case.
+**No other Tier-C register item falls in this domain.** Experienced Eye / EEFS, Domain Transfer
+Analysis, Omovie Sonic Saturation (US 12,242,011 B2), entropy image speed-correction, shipped
+neural-network weight DLLs, Textural Facies `Freq_Tiles` encoding and frequency-domain dispersion
+fits do not appear in the mineral-solver dossier and are not described, proposed or renamed here.
 
 ---
 
