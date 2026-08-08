@@ -201,6 +201,8 @@ fn insert_parsed_well(
     let alias_decisions = columns.alias_decisions.clone();
     let index_resolution = columns.index_resolution.clone();
     let unit_designations = columns.unit_designations.clone();
+    let las_version = columns.las_version.clone();
+    let unread_sections = columns.unread_sections.clone();
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
@@ -378,6 +380,16 @@ fn insert_parsed_well(
     let non_monotonic = columns.depth.windows(2).any(|w| w[0] < w[1])
         && columns.depth.windows(2).any(|w| w[0] > w[1]);
     let mut notes: Vec<String> = Vec::new();
+    if las_version.as_deref().and_then(|value| value.parse::<f32>().ok()) == Some(3.0) {
+        if unread_sections.is_empty() {
+            notes.push("LAS 3.0 recognized; no unread sections were present".into());
+        } else {
+            notes.push(format!(
+                "LAS 3.0 recognized; unread sections: {}",
+                unread_sections.join(", ")
+            ));
+        }
+    }
     notes.extend(unit_designations.iter().map(crate::curves::UnitDesignation::note));
     notes.extend(alias_decisions.iter().filter_map(|decision| {
         decision.table_entry.as_ref().map(|entry| {
@@ -2037,6 +2049,8 @@ mod tests {
         db::create_schema(&conn).unwrap();
 
         let cols = || CurveColumns {
+            las_version: None,
+            unread_sections: Vec::new(),
             depth_unit: Some("M".into()),
             depth: vec![1000.0, 1000.5, 1001.0],
             gr: vec![40.0, 45.0, 50.0],
@@ -2400,6 +2414,8 @@ mod tests {
         assert_eq!(first_gr, 10.0, "keep-first keeps the first sample, not the PK's accident");
 
         let make_columns = || CurveColumns {
+            las_version: None,
+            unread_sections: Vec::new(),
             depth_unit: Some("M".into()),
             depth: vec![1000.0, 1000.0, 1000.0, 1000.0, 1001.0],
             gr: vec![10.0, 20.0, 30.0, 40.0, 50.0],
@@ -4061,6 +4077,49 @@ mod tests {
             "asking to follow a core that is not there must be said out loud"
         );
         std::fs::remove_file(&xrd).ok();
+    }
+
+    /// SB-DIO-041 / SB-DIO-T59. LAS 3.0 recognition and named unread sections are specified
+    /// in `docs/PRD_v2/21_data-io.md` §§4.8 and 6.8 (D-25).
+    #[test]
+    fn a_las_3_file_is_recognised_as_3_0_and_every_unread_section_is_named_in_the_result() {
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-dio-041-las3-{}.las",
+            std::process::id()
+        ));
+        let body = "~Version\nVERS. 3.0 : CWLS LAS 3\nWRAP. NO :\n\
+                    ~Well\nWELL. LAS-THREE :\nNULL. -999.25 :\n\
+                    ~Curve\nDEPT.M : depth\nGR.GAPI : gamma ray\n\
+                    ~Core_Data\nPLUG_A | 1000.0 | 0.18\n\
+                    ~Tops\nSAND_A | 1000.5\n\
+                    ~ASCII\n1000.0 50\n1000.5 55\n";
+        std::fs::write(&path, body).unwrap();
+
+        let frame = parsers::parse_las_2_all(&path).unwrap();
+        assert_eq!(frame.las_version.as_deref(), Some("3.0"));
+        assert_eq!(frame.unread_sections, vec!["~Core_Data", "~Tops"]);
+        assert_eq!(frame.curves.len(), 1, "an associated Core_Data section is not a ~Curve block");
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let result = import_las_files_with(
+            &conn,
+            &[path.to_string_lossy().into_owned()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        assert!(result.error.is_none(), "LAS 3.0's ordinary log array still imports: {:?}", result.error);
+        let warning = result.warning.unwrap_or_default();
+        assert!(warning.contains("LAS 3.0 recognized"));
+        assert!(warning.contains("~Core_Data") && warning.contains("~Tops"));
+
+        // The opposite side: changing only the declaration to 2.0 must not label that file 3.0.
+        std::fs::write(&path, body.replacen("VERS. 3.0", "VERS. 2.0", 1)).unwrap();
+        let frame2 = parsers::parse_las_2_all(&path).unwrap();
+        assert_eq!(frame2.las_version.as_deref(), Some("2.0"));
+        assert!(frame2.unread_sections.is_empty());
+        std::fs::remove_file(&path).ok();
     }
 
     /// Ad-hoc verification against a real field delivery — whatever LAS files sit in the

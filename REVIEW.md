@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-041: LAS 3.0 and unread sections are explicit
+
+- [ ] Import a LAS declaring `VERS. 3.0` and carrying `~Core_Data` and `~Tops`. Does the result
+      explicitly say **LAS 3.0 recognized** and name both sections as unread, while the ordinary
+      `~Curve`/`~ASCII` log array still imports correctly?
+
 ## 2026-08-09 — SB-DIO-039: DLIS sentinel screening is per-channel and counted
 
 - [ ] Import a DLIS channel containing a legitimate `-999.25`. With its exact mnemonic entered

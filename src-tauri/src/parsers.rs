@@ -126,6 +126,10 @@ pub struct IndexResolution {
 /// Columnar curve data ready to be handed to the DuckDB Appender.
 #[derive(Debug, Clone, Default)]
 pub struct CurveColumns {
+    /// Declared LAS version, e.g. `2.0` or `3.0`.
+    pub las_version: Option<String>,
+    /// Section headers present in a LAS 3.0 delivery that this release did not consume.
+    pub unread_sections: Vec<String>,
     /// The index column's declared unit, verbatim from the ~C block (e.g. "M", "FT").
     /// `None` when the file declares none. Resolved against the project's depth unit at
     /// ingest — see `units::resolve_index_unit`; storing a foot index in a metric project
@@ -310,11 +314,55 @@ fn parse_wrap_line(trimmed: &str) -> Option<bool> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LasSection {
     Header,
+    VersionBlock,
     WellBlock,
     CurveBlock,
     AsciiData,
+}
+
+fn las_section_header(trimmed: &str) -> Option<&str> {
+    let body = trimmed.strip_prefix('~')?.trim_start();
+    let name = body
+        .split(|ch: char| ch.is_whitespace() || ch == '|')
+        .next()?
+        .trim();
+    (!name.is_empty()).then_some(name)
+}
+
+fn classify_las_section(name: &str) -> Option<LasSection> {
+    match name.to_ascii_uppercase().as_str() {
+        "V" | "VERSION" => Some(LasSection::VersionBlock),
+        "W" | "WELL" => Some(LasSection::WellBlock),
+        "C" | "CURVE" => Some(LasSection::CurveBlock),
+        "A" | "ASCII" => Some(LasSection::AsciiData),
+        _ => None,
+    }
+}
+
+fn parse_las_version_line(trimmed: &str) -> Option<String> {
+    let declaration = trimmed.split(':').next().unwrap_or(trimmed);
+    let (mnemonic, rest) = declaration.split_once('.')?;
+    if !mnemonic.trim().eq_ignore_ascii_case("VERS") {
+        return None;
+    }
+    rest.split_whitespace().next().map(str::to_string)
+}
+
+fn las_version_is_3(version: Option<&str>) -> bool {
+    version.and_then(|value| value.trim().parse::<f32>().ok()) == Some(3.0)
+}
+
+fn record_unread_section(unread: &mut Vec<String>, name: &str) {
+    if name.is_empty() {
+        return;
+    }
+    let display = format!("~{name}");
+    if !unread.iter().any(|held| held.eq_ignore_ascii_case(&display)) {
+        unread.push(display);
+    }
 }
 
 /// Priority-ordered mnemonic aliases per target curve, mirroring the alias tables commercial suites/IP
@@ -410,8 +458,9 @@ pub fn resolve_index_column(
     Err("no structural declaration or index name resolved; user designation is required".into())
 }
 
-/// Streams a LAS 2.0 file line-by-line (never loads the whole file into RAM), reading the
-/// `~C` (Curve) block to map column indices and the `~A` (ASCII) block for the data rows.
+/// Streams a LAS log array line-by-line (never loads the whole file into RAM), reading the
+/// `~C` (Curve) block and `~A` (ASCII) rows. LAS 3.0 is identified, while associated sections
+/// that this release cannot consume are returned by name.
 pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     parse_las_2_with_channel_nulls(path, &ChannelNullValues::new())
 }
@@ -465,6 +514,8 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     let mut declared_null: Option<f32> = None;
     let mut wrapped = false;
     let mut resolved_channel_nulls = channel_nulls.clone();
+    let mut las_version: Option<String> = None;
+    let mut encountered_unread_sections = Vec::new();
 
     for (line_index, line) in text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -474,17 +525,22 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
         }
 
         if trimmed.starts_with('~') {
-            section = match trimmed.chars().nth(1).map(|c| c.to_ascii_uppercase()) {
-                Some('W') => LasSection::WellBlock,
-                Some('C') => LasSection::CurveBlock,
-                Some('A') => LasSection::AsciiData,
-                _ => LasSection::Header,
-            };
+            let name = las_section_header(trimmed).unwrap_or("");
+            section = classify_las_section(name).unwrap_or_else(|| {
+                record_unread_section(&mut encountered_unread_sections, name);
+                LasSection::Header
+            });
             continue;
         }
 
         match section {
             LasSection::Header => {
+                continue;
+            }
+            LasSection::VersionBlock => {
+                if let Some(version) = parse_las_version_line(trimmed) {
+                    las_version = Some(version);
+                }
                 if let Some(value) = parse_wrap_line(trimmed) {
                     wrapped = value;
                 }
@@ -720,6 +776,12 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     cols.rhob = picked.remove(0);
     cols.dt = picked.remove(0);
     cols.sp = picked.remove(0);
+    cols.unread_sections = if las_version_is_3(las_version.as_deref()) {
+        encountered_unread_sections
+    } else {
+        Vec::new()
+    };
+    cols.las_version = las_version;
 
     Ok(cols)
 }
@@ -933,6 +995,10 @@ pub struct RawLasCurve {
 /// it's the shared index every other curve is sampled against.
 #[derive(Debug, Clone, Default)]
 pub struct LasFrame {
+    /// Declared LAS version, e.g. `2.0` or `3.0`.
+    pub las_version: Option<String>,
+    /// Section headers present in a LAS 3.0 delivery that this release did not consume.
+    pub unread_sections: Vec<String>,
     // depth_mnemonic/depth_unit feed the Phase 6c TVD-scale + well-header UI (is the file's
     // index depth in metres or feet?); captured now with the rest of the frame.
     #[allow(dead_code)]
@@ -966,7 +1032,7 @@ pub fn sanitize_las_frame(frame: &mut LasFrame) -> DepthSanitizeReport {
     report
 }
 
-/// Parses a LAS 2.0 file keeping **all** curves (mnemonic + unit + values), streaming the
+/// Parses a LAS log array keeping **all** curves (mnemonic + unit + values), streaming the
 /// same way as `parse_las_2` but without collapsing to the fixed standard set. LAS's
 /// positionally guaranteed first column becomes the shared index; every other column is
 /// returned as its own `RawLasCurve`.
@@ -1003,6 +1069,8 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
     let mut declared_null: Option<f32> = None;
     let mut wrapped = false;
     let mut resolved_channel_nulls = channel_nulls.clone();
+    let mut las_version: Option<String> = None;
+    let mut encountered_unread_sections = Vec::new();
 
     for (line_index, line) in text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -1011,17 +1079,20 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
             continue;
         }
         if trimmed.starts_with('~') {
-            section = match trimmed.chars().nth(1).map(|c| c.to_ascii_uppercase()) {
-                Some('W') => LasSection::WellBlock,
-                Some('C') => LasSection::CurveBlock,
-                Some('A') => LasSection::AsciiData,
-                _ => LasSection::Header,
-            };
+            let name = las_section_header(trimmed).unwrap_or("");
+            section = classify_las_section(name).unwrap_or_else(|| {
+                record_unread_section(&mut encountered_unread_sections, name);
+                LasSection::Header
+            });
             continue;
         }
 
         match section {
-            LasSection::Header => {
+            LasSection::Header => continue,
+            LasSection::VersionBlock => {
+                if let Some(version) = parse_las_version_line(trimmed) {
+                    las_version = Some(version);
+                }
                 if let Some(value) = parse_wrap_line(trimmed) {
                     wrapped = value;
                 }
@@ -1136,6 +1207,12 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
     }
 
     let mut frame = LasFrame {
+        las_version: las_version.clone(),
+        unread_sections: if las_version_is_3(las_version.as_deref()) {
+            encountered_unread_sections
+        } else {
+            Vec::new()
+        },
         depth_mnemonic: curve_names[depth_idx].clone(),
         depth_unit: curve_units[depth_idx].clone(),
         depth: columns.get(depth_idx).cloned().unwrap_or_default(),
@@ -1168,7 +1245,9 @@ pub fn extract_well_name<P: AsRef<Path>>(path: P) -> ParseResult<String> {
             continue;
         }
         if trimmed.starts_with('~') {
-            in_well_block = trimmed.chars().nth(1).map(|c| c.to_ascii_uppercase()) == Some('W');
+            in_well_block = las_section_header(trimmed)
+                .and_then(classify_las_section)
+                == Some(LasSection::WellBlock);
             continue;
         }
         let upper = trimmed.to_uppercase();
@@ -2960,6 +3039,8 @@ mod las_depth_tests {
     fn cols_from(depth: Vec<f32>) -> CurveColumns {
         let seq: Vec<f32> = (0..depth.len()).map(|i| i as f32).collect();
         CurveColumns {
+            las_version: None,
+            unread_sections: Vec::new(),
             depth_unit: None,
             depth,
             gr: seq.clone(),
