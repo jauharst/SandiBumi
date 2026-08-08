@@ -2,8 +2,10 @@ import {
   listGenericCurveCatalog,
   listLogSetNames,
   listWells,
+  reframeSourceCurves,
   runReframe,
   type ReframeResult,
+  type ReframeSourceSpec,
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion } from "../state";
@@ -160,6 +162,33 @@ export async function buildReframeContent(
     formRow("Curves (optional)", curvesInput, "Comma-separated. Blank carries everything the source holds."),
   );
 
+  // A substitution is never inferred from family/type. The requested mnemonic is typed, the
+  // actual source mnemonic is offered verbatim, and the checkbox is the separate act of consent.
+  const missingCurve = document.createElement("input");
+  missingCurve.className = "form-control";
+  missingCurve.type = "text";
+  missingCurve.placeholder = "unavailable mnemonic, e.g. CALI";
+  const substituteCurve = document.createElement("select");
+  substituteCurve.className = "form-control";
+  const acceptSubstitute = document.createElement("input");
+  acceptSubstitute.type = "checkbox";
+  acceptSubstitute.className = "form-check";
+  const acceptControl = document.createElement("label");
+  acceptControl.append(acceptSubstitute, document.createTextNode(" Accept this named substitute"));
+  grid.append(
+    formRow(
+      "Unavailable curve",
+      missingCurve,
+      "Optional. It must also appear in Curves above; leaving this blank means no substitution.",
+    ),
+    formRow(
+      "Use instead",
+      substituteCurve,
+      "Exact mnemonics held by the selected source on the active well. The output keeps this name.",
+    ),
+    formRow("Accept substitution", acceptControl, "Unchecked writes nothing if a substitution is requested."),
+  );
+
   const outSet = document.createElement("input");
   outSet.className = "form-control";
   outSet.type = "text";
@@ -214,6 +243,7 @@ export async function buildReframeContent(
     syncRows();
     void refreshNames();
   });
+  srcName.addEventListener("change", () => void refreshNames());
   tgtKind.addEventListener("change", syncRows);
   syncRows();
 
@@ -251,6 +281,17 @@ export async function buildReframeContent(
         allWells.map((w) => w.well_name),
         matchWell.value,
       );
+      if (well) {
+        const source: ReframeSourceSpec = {
+          kind: srcKind.value as ReframeSourceSpec["kind"],
+          name: srcKind.value === "standard" ? null : srcName.value || null,
+        };
+        const offered = await reframeSourceCurves(well.well_id, source).catch(() => []);
+        if (disposed) return;
+        fill(substituteCurve, offered, substituteCurve.value);
+      } else {
+        fill(substituteCurve, [], "");
+      }
     } catch {
       // No backend / fresh project: leave the pickers as they are.
     }
@@ -280,13 +321,34 @@ export async function buildReframeContent(
       outSet.focus();
       return null;
     }
+    const curves = curvesInput.value
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean);
+    const requested = missingCurve.value.trim().toUpperCase();
+    const substitutions: Array<{ requested: string; substitute: string; accepted: boolean }> = [];
+    if (requested) {
+      if (!curves.includes(requested)) {
+        status.textContent = `Add ${requested} to Curves so the requested input is explicit.`;
+        curvesInput.focus();
+        return null;
+      }
+      if (!substituteCurve.value) {
+        status.textContent = "The selected source offers no named curve to substitute.";
+        return null;
+      }
+      if (!acceptSubstitute.checked) {
+        status.textContent = `Accept ${substituteCurve.value} explicitly, or clear the unavailable-curve field.`;
+        acceptSubstitute.focus();
+        return null;
+      }
+      substitutions.push({ requested, substitute: substituteCurve.value, accepted: true });
+    }
     return {
       well_ids: wellIds,
       source: { kind: srcKind.value, name: srcKind.value === "standard" ? null : srcName.value },
-      curves: curvesInput.value
-        .split(",")
-        .map((s) => s.trim().toUpperCase())
-        .filter(Boolean),
+      curves,
+      substitutions,
       target: {
         kind: tgtKind.value,
         step: (tgtKind.value === "step" || tgtKind.value === "regularize") && stepGiven ? parseFloat(stepInput.value) : null,

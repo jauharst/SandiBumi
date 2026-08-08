@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-032: substitutions are named, accepted and recorded
+
+- [ ] In Reframe, request a curve the selected source does not hold, choose an exact source
+      mnemonic in **Use instead**, and leave **Accept substitution** unchecked. Is the run refused
+      before writing? After checking it, does the output retain the substitute's own mnemonic and
+      show the requested-to-substitute decision in the set provenance and run note?
+
 ## 2026-08-09 — SB-DIO-030: alias renames preserve both identities
 
 - [ ] Import a LAS carrying only `SGR`. Does its standard curve appear as `GR`, while the generic

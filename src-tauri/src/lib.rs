@@ -2582,6 +2582,18 @@ async fn run_reframe(
     Ok(reframe::run_reframe(&conn, &req))
 }
 
+/// Exact mnemonics the selected Reframe source can offer as a substitute. This list never expands
+/// by family/type: the person must be shown the actual curve whose data would be used.
+#[tauri::command]
+fn reframe_source_curves(
+    db: tauri::State<DbState>,
+    well_id: String,
+    source: reframe::SourceSpec,
+) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().unwrap();
+    reframe::source_curve_names(&conn, &well_id, &source)
+}
+
 /// Are numpy and Pillow reachable? Probed once so the conditioning workspace can say what is
 /// missing before a photograph is opened rather than after a slider is moved.
 #[tauri::command]
@@ -3343,6 +3355,7 @@ pub fn run() {
             run_workflow_module,
             module_output_names,
             run_reframe,
+            reframe_source_curves,
             run_pay_summary,
             stats_curve_summary,
             stats_pair_summary,

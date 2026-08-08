@@ -4943,6 +4943,16 @@ export interface ReframeResult {
   error: string | null;
 }
 
+export interface ReframeSourceSpec {
+  kind: "logset" | "import" | "standard";
+  name: string | null;
+}
+
+/** Exact source mnemonics offered for an explicit substitution; never family/type-expanded. */
+export function reframeSourceCurves(wellId: string, source: ReframeSourceSpec): Promise<string[]> {
+  return invoke<string[]>("reframe_source_curves", { wellId, source });
+}
+
 /** Resamples a set onto a different sampling as a NEW set. `preview: true` reports without writing. */
 export function runReframe(req: Record<string, unknown>): Promise<ReframeResult[]> {
   return invoke<ReframeResult[]>("run_reframe", { req });
