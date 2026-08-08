@@ -24,6 +24,8 @@ pub struct ImportResult {
     pub unit_conversions: Vec<crate::curves::UnitConversion>,
     /// Declared units that were preserved because no reviewed conversion applied.
     pub unconverted_units: Vec<crate::curves::UnconvertedUnit>,
+    /// Per-file answers to genuinely ambiguous unit symbols.
+    pub unit_designations: Vec<crate::curves::UnitDesignation>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -61,6 +63,9 @@ pub struct LasImportOptions {
     /// chapter's four policies.
     #[serde(default, alias = "duplicateDepthPolicy")]
     pub duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
+    /// Explicit answers keyed by the exact source path; absent is deliberately not a default.
+    #[serde(default, alias = "msPerFtMeanings")]
+    pub ms_per_ft_meanings: std::collections::HashMap<String, crate::curves::MsPerFtMeaning>,
 }
 
 /// Normalizes a user/derived set name to the store's convention: trimmed, upper-cased,
@@ -122,10 +127,11 @@ pub fn import_las_files_with(
         .map(|path| {
             let result = (|| {
                 let well_name = parsers::extract_well_name(path)?;
-                let columns = parsers::parse_las_2_with_null_rules(
+                let columns = parsers::parse_las_2_with_unit_designation(
                     path,
                     &opts.channel_nulls,
                     &opts.null_rules,
+                    opts.ms_per_ft_meanings.get(path).copied(),
                 )?;
                 Ok::<_, ParseError>((well_name, columns))
             })();
@@ -157,6 +163,7 @@ pub fn import_las_files_with(
                     index_resolution: None,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
+                    unit_designations: Vec::new(),
                 };
             }
             if let Some(p) = progress {
@@ -166,7 +173,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new() },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new() },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -193,6 +200,7 @@ fn insert_parsed_well(
     let well_id = Uuid::new_v4();
     let alias_decisions = columns.alias_decisions.clone();
     let index_resolution = columns.index_resolution.clone();
+    let unit_designations = columns.unit_designations.clone();
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
@@ -217,6 +225,7 @@ fn insert_parsed_well(
                     index_resolution: index_resolution.clone(),
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
+                    unit_designations: unit_designations.clone(),
                 }
             }
         },
@@ -238,6 +247,7 @@ fn insert_parsed_well(
                 index_resolution: index_resolution.clone(),
                 unit_conversions: Vec::new(),
                 unconverted_units: Vec::new(),
+                unit_designations: unit_designations.clone(),
             }
         }
     };
@@ -275,6 +285,7 @@ fn insert_parsed_well(
                     index_resolution,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
+                    unit_designations: unit_designations.clone(),
                 }
             }
         }
@@ -300,6 +311,7 @@ fn insert_parsed_well(
                     index_resolution,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
+                    unit_designations: unit_designations.clone(),
                 }
             }
             Some(parsers::DuplicateDepthPolicy::Refuse) => {
@@ -317,6 +329,7 @@ fn insert_parsed_well(
                     index_resolution,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
+                    unit_designations: unit_designations.clone(),
                 }
             }
             Some(policy) => {
@@ -355,6 +368,7 @@ fn insert_parsed_well(
             index_resolution: index_resolution.clone(),
             unit_conversions: Vec::new(),
             unconverted_units: Vec::new(),
+            unit_designations: unit_designations.clone(),
         };
     }
 
@@ -364,6 +378,7 @@ fn insert_parsed_well(
     let non_monotonic = columns.depth.windows(2).any(|w| w[0] < w[1])
         && columns.depth.windows(2).any(|w| w[0] > w[1]);
     let mut notes: Vec<String> = Vec::new();
+    notes.extend(unit_designations.iter().map(crate::curves::UnitDesignation::note));
     if let Some(note) = non_monotonic_note {
         notes.push(note);
     }
@@ -400,7 +415,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone() }
             }
         };
         match stmt
@@ -409,7 +424,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone() }
             }
         }
     };
@@ -423,6 +438,7 @@ fn insert_parsed_well(
             notes,
             alias_decisions.clone(),
             index_resolution.clone(),
+            unit_designations.clone(),
         );
         if out.error.is_none() {
             if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
@@ -498,6 +514,7 @@ fn insert_parsed_well(
                 &opts.channel_nulls,
                 &opts.null_rules,
                 opts.duplicate_depth_policy,
+                opts.ms_per_ft_meanings.get(&path).copied(),
             ) {
                 Ok(report) => {
                     unit_conversions = report.unit_conversions;
@@ -517,9 +534,9 @@ fn insert_parsed_well(
                 }
             }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions, unconverted_units }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions, unconverted_units, unit_designations }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new() },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations },
     }
 }
 
@@ -537,6 +554,7 @@ fn attach_curves_to_existing_well(
     notes: Vec<String>,
     alias_decisions: Vec<parsers::AliasDecision>,
     index_resolution: Option<parsers::IndexResolution>,
+    unit_designations: Vec<crate::curves::UnitDesignation>,
 ) -> ImportResult {
     let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
     match import_all_curves_into_generic_store_with_channel_nulls(
@@ -548,6 +566,7 @@ fn attach_curves_to_existing_well(
         &opts.channel_nulls,
         &opts.null_rules,
         opts.duplicate_depth_policy,
+        opts.ms_per_ft_meanings.get(&path).copied(),
     ) {
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
         // and the frontend reports it separately. Only genuine notes (unit reconciliation,
@@ -568,11 +587,12 @@ fn attach_curves_to_existing_well(
                 index_resolution,
                 unit_conversions: report.unit_conversions,
                 unconverted_units: report.unconverted_units,
+                unit_designations,
             }
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new() },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations },
     }
 }
 
@@ -597,6 +617,7 @@ pub fn import_all_curves_into_generic_store(
         &parsers::ChannelNullValues::new(),
         &[],
         None,
+        None,
     )
     .map(|report| (report.curves_written, report.rows))
 }
@@ -617,6 +638,7 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
     channel_nulls: &parsers::ChannelNullValues,
     null_rules: &[parsers::NullExceptionRule],
     duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
+    ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
 ) -> db::DbResult<GenericCurveImportReport> {
     let mut frame = match parsers::parse_las_2_all_with_null_rules(path, channel_nulls, null_rules) {
         Ok(f) => f,
@@ -677,12 +699,33 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
         if values.len() != frame.depth.len() {
             values.resize(frame.depth.len(), f32::NAN);
         }
-        let (fam, rejected_alias) =
-            crate::curves::family_for_import(&raw.mnemonic, raw.unit.as_deref());
-        let family = fam.map(|f| f.family);
         let mut unit = raw.unit.clone();
+        let resolved_ms_per_ft = crate::curves::is_ms_per_ft(raw.unit.as_deref());
+        let (fam, rejected_alias) = if resolved_ms_per_ft {
+            let meaning = ms_per_ft_meaning.ok_or_else(|| {
+                db::DbError::LengthMismatch(format!(
+                    "curve {} declares MS/FT and has no per-file quantity designation",
+                    raw.mnemonic
+                ))
+            })?;
+            match meaning {
+                crate::curves::MsPerFtMeaning::MicrosecondsPerFoot => {
+                    let family = crate::curves::family_for(&raw.mnemonic)
+                        .filter(|family| matches!(family.family, "DT" | "DTS"));
+                    unit = Some("us/ft".to_string());
+                    (family, None)
+                }
+                crate::curves::MsPerFtMeaning::MillisiemensPerFoot => (None, None),
+            }
+        } else {
+            crate::curves::family_for_import(&raw.mnemonic, raw.unit.as_deref())
+        };
+        let family = fam.map(|f| f.family);
         if let Some(rejected) = rejected_alias {
             unconverted_units.push(rejected);
+        } else if resolved_ms_per_ft {
+            // The per-file designation is already returned by the standard parser. It is
+            // neither an automatic conversion nor an unresolved pass-through.
         } else if let Some(f) = fam {
             if let Some(conversion) = crate::curves::convert_to_canonical(
                 &raw.mnemonic,
@@ -1996,6 +2039,7 @@ mod tests {
             sp: vec![f32::NAN; 3],
             alias_decisions: Vec::new(),
             index_resolution: None,
+            unit_designations: Vec::new(),
         };
 
         // First import: a fresh well, no duplicate warning.
@@ -2298,6 +2342,7 @@ mod tests {
             sp: vec![f32::NAN; 5],
             alias_decisions: Vec::new(),
             index_resolution: None,
+            unit_designations: Vec::new(),
         };
         let mut last = make_columns();
         assert_eq!(
@@ -2640,6 +2685,135 @@ mod tests {
         assert_eq!(raw.unit.as_deref(), Some("PPG"));
         let samples = db::get_curve_samples(&conn, &raw.curve_id).unwrap();
         assert_eq!(samples[0].value, 9.5, "rejection retains the source data for later designation");
+    }
+
+    /// SB-DIO-029 / SB-DIO-T45. Finding D-12 establishes two legitimate readings
+    /// for MS/FT and no evidence in the file that selects between them. The no-answer,
+    /// microsecond and millisiemens paths are all pinned so an implementation that always
+    /// assumes the legacy sonic reading cannot pass.
+    #[test]
+    fn an_ms_per_ft_curve_waits_for_a_per_file_quantity_answer_and_records_either_answer() {
+        let las = "~Version\n\
+                   VERS. 2.0 :\n\
+                   ~Well\n\
+                   WELL. DIO-029 :\n\
+                   ~Curve\n\
+                   DEPT.M     : depth\n\
+                   DTCO.MS/FT : ambiguous channel\n\
+                   ~ASCII\n\
+                   1000.0 100.0\n\
+                   1000.5 110.0\n";
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-dio029-{}-{}.las",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(&path, las).unwrap();
+        let file = path.to_string_lossy().to_string();
+
+        let undecided = Connection::open_in_memory().unwrap();
+        db::create_schema(&undecided).unwrap();
+        let blocked = import_las_files_with(
+            &undecided,
+            std::slice::from_ref(&file),
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        assert!(
+            blocked.error.as_deref().is_some_and(|error| {
+                error.contains("MS/FT")
+                    && error.contains("microseconds per foot")
+                    && error.contains("millisiemens per foot")
+                    && error.contains("per-file")
+            }),
+            "the ambiguity and both meanings must be named: {:?}",
+            blocked.error
+        );
+        assert_eq!(
+            undecided.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get::<_, i64>(0)).unwrap(),
+            0,
+            "no answer means no commit"
+        );
+
+        let sonic = Connection::open_in_memory().unwrap();
+        db::create_schema(&sonic).unwrap();
+        let sonic_result = import_las_files_with(
+            &sonic,
+            std::slice::from_ref(&file),
+            None,
+            &LasImportOptions {
+                ms_per_ft_meanings: std::collections::HashMap::from([(
+                    file.clone(),
+                    crate::curves::MsPerFtMeaning::MicrosecondsPerFoot,
+                )]),
+                ..Default::default()
+            },
+        )
+        .remove(0);
+        assert!(sonic_result.error.is_none(), "sonic designation failed: {:?}", sonic_result.error);
+        let sonic_answer = sonic_result.unit_designations.first().expect("sonic answer recorded");
+        assert_eq!(sonic_answer.meaning, "microseconds_per_foot");
+        assert_eq!(sonic_answer.recorded_unit, "us/ft");
+        assert_eq!(sonic_answer.family.as_deref(), Some("DT"));
+        assert!(
+            sonic_result.warning.as_deref().is_some_and(|note| {
+                note.contains("DTCO") && note.contains("MS/FT") && note.contains("microseconds_per_foot")
+            }),
+            "the per-file answer must also be visible: {:?}",
+            sonic_result.warning
+        );
+        let sonic_curve = db::list_generic_curve_catalog(&sonic, sonic_result.well_id.as_deref().unwrap())
+            .unwrap()
+            .into_iter()
+            .find(|curve| curve.mnemonic == "DTCO")
+            .unwrap();
+        assert_eq!(sonic_curve.family.as_deref(), Some("DT"));
+        assert_eq!(sonic_curve.unit.as_deref(), Some("us/ft"));
+        assert_eq!(db::get_curve_samples(&sonic, &sonic_curve.curve_id).unwrap()[0].value, 100.0);
+
+        let conductivity = Connection::open_in_memory().unwrap();
+        db::create_schema(&conductivity).unwrap();
+        let conductivity_result = import_las_files_with(
+            &conductivity,
+            std::slice::from_ref(&file),
+            None,
+            &LasImportOptions {
+                ms_per_ft_meanings: std::collections::HashMap::from([(
+                    file.clone(),
+                    crate::curves::MsPerFtMeaning::MillisiemensPerFoot,
+                )]),
+                ..Default::default()
+            },
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+        assert!(
+            conductivity_result.error.is_none(),
+            "conductivity designation failed: {:?}",
+            conductivity_result.error
+        );
+        let conductivity_answer = conductivity_result.unit_designations.first().expect("conductivity answer recorded");
+        assert_eq!(conductivity_answer.meaning, "millisiemens_per_foot");
+        assert_eq!(conductivity_answer.recorded_unit, "MS/FT");
+        assert_eq!(conductivity_answer.family, None);
+        let conductivity_well = conductivity_result.well_id.as_deref().unwrap();
+        let standard_dt: f32 = conductivity
+            .query_row(
+                "SELECT dt FROM standard_curves WHERE well_id = ?1 ORDER BY depth LIMIT 1",
+                params![conductivity_well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(standard_dt.is_nan(), "a conductivity designation must not populate standard DT");
+        let conductivity_curve = db::list_generic_curve_catalog(&conductivity, conductivity_well)
+            .unwrap()
+            .into_iter()
+            .find(|curve| curve.mnemonic == "DTCO")
+            .unwrap();
+        assert_eq!(conductivity_curve.family, None);
+        assert_eq!(conductivity_curve.unit.as_deref(), Some("MS/FT"));
+        assert_eq!(db::get_curve_samples(&conductivity, &conductivity_curve.curve_id).unwrap()[0].value, 100.0);
     }
 
     /// Phase 6b: a full LAS with curves beyond the fixed 6 (PEF, CALI, a metric-unit

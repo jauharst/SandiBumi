@@ -156,6 +156,76 @@ pub fn convertible_unit_families() -> Vec<String> {
     CONVERTIBLE_FAMILIES.iter().map(|family| (*family).to_string()).collect()
 }
 
+/// The two legitimate meanings of `MS/FT` identified by chapter finding D-12.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MsPerFtMeaning {
+    MicrosecondsPerFoot,
+    MillisiemensPerFoot,
+}
+
+impl MsPerFtMeaning {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::MicrosecondsPerFoot => "microseconds_per_foot",
+            Self::MillisiemensPerFoot => "millisiemens_per_foot",
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub struct UnitDesignation {
+    pub curve: String,
+    pub declared_unit: String,
+    pub meaning: String,
+    pub recorded_unit: String,
+    pub family: Option<String>,
+}
+
+impl UnitDesignation {
+    pub fn note(&self) -> String {
+        format!(
+            "designated {} unit {} as {}; recorded unit {}{}",
+            self.curve,
+            self.declared_unit,
+            self.meaning,
+            self.recorded_unit,
+            self.family
+                .as_deref()
+                .map(|family| format!(" and family {family}"))
+                .unwrap_or_default()
+        )
+    }
+}
+
+pub fn is_ms_per_ft(unit: Option<&str>) -> bool {
+    matches!(unit.map(normalize_unit).as_deref(), Some("ms/ft" | "msft"))
+}
+
+pub fn ms_per_ft_designation(
+    curve: &str,
+    declared_unit: &str,
+    meaning: MsPerFtMeaning,
+) -> UnitDesignation {
+    let inferred = family_for(curve).filter(|family| matches!(family.family, "DT" | "DTS"));
+    match meaning {
+        MsPerFtMeaning::MicrosecondsPerFoot => UnitDesignation {
+            curve: curve.to_string(),
+            declared_unit: declared_unit.to_string(),
+            meaning: meaning.label().to_string(),
+            recorded_unit: "us/ft".to_string(),
+            family: inferred.map(|family| family.family.to_string()),
+        },
+        MsPerFtMeaning::MillisiemensPerFoot => UnitDesignation {
+            curve: curve.to_string(),
+            declared_unit: declared_unit.to_string(),
+            meaning: meaning.label().to_string(),
+            recorded_unit: declared_unit.to_string(),
+            family: None,
+        },
+    }
+}
+
 /// Returns the canonical family for a mnemonic, or `None` if it isn't recognized (the
 /// curve is still imported — it just goes in the catalog family-less, and modules that
 /// need a family won't auto-pick it).

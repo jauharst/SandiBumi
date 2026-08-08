@@ -155,6 +155,8 @@ pub struct DlisImportResult {
     pub unit_conversions: Vec<crate::curves::UnitConversion>,
     /// Declared units that were preserved because no reviewed conversion applied.
     pub unconverted_units: Vec<crate::curves::UnconvertedUnit>,
+    /// Per-file answers to genuinely ambiguous unit symbols.
+    pub unit_designations: Vec<crate::curves::UnitDesignation>,
     /// Every frame/channel/curve/row the reader did not carry, with count and rule.
     pub skipped: Vec<DlisSkip>,
     pub error: Option<String>,
@@ -177,6 +179,7 @@ fn failed(path: &str, error: String, skipped: Vec<DlisSkip>) -> DlisImportResult
         notes: Vec::new(),
         unit_conversions: Vec::new(),
         unconverted_units: Vec::new(),
+        unit_designations: Vec::new(),
         skipped,
         error: Some(error),
     }
@@ -200,12 +203,31 @@ fn validate_header(header: &DlisHeader) -> Result<(), String> {
 /// RAW with per-frame run numbers, same-(mnemonic, run) re-imports REPLACE and are counted
 /// in `replaced`. Any other name is auto-suffixed per well (`WIRE` taken → `WIRE_1`,
 /// Geolog-style), so duplicates are always KEPT and `replaced` stays 0.
+#[allow(dead_code)] // compatibility entry point; the command supplies an explicit ambiguity answer
 pub fn import_dlis_file(
     conn: &Connection,
     well_id: &str,
     path: &str,
     set_name: Option<&str>,
     confirmed_file_unit: Option<&str>,
+) -> DlisImportResult {
+    import_dlis_file_with_unit_designation(
+        conn,
+        well_id,
+        path,
+        set_name,
+        confirmed_file_unit,
+        None,
+    )
+}
+
+pub fn import_dlis_file_with_unit_designation(
+    conn: &Connection,
+    well_id: &str,
+    path: &str,
+    set_name: Option<&str>,
+    confirmed_file_unit: Option<&str>,
+    ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
 ) -> DlisImportResult {
     let fail = |e: String| failed(path, e, Vec::new());
 
@@ -249,6 +271,27 @@ pub fn import_dlis_file(
     if let Err(error) = validate_header(&header) {
         return failed(path, error, header.skips);
     }
+    let ambiguous: Vec<&DlisCurveMeta> = header
+        .curves
+        .iter()
+        .filter(|meta| crate::curves::is_ms_per_ft(Some(&meta.unit)))
+        .collect();
+    if let Some(first) = ambiguous.first() {
+        let Some(meaning) = ms_per_ft_meaning else {
+            return failed(
+                path,
+                format!(
+                    "curve {} declares {}; this can mean microseconds per foot or millisiemens per foot, so a per-file user designation is required before commit",
+                    first.mnemonic, first.unit
+                ),
+                header.skips,
+            );
+        };
+        // The answer is recorded below after `notes` is initialized; keeping the
+        // ambiguity check here guarantees no curve can be written first.
+        debug_assert!(ambiguous.iter().all(|meta| crate::curves::is_ms_per_ft(Some(&meta.unit))));
+        let _ = meaning;
+    }
     let mut skipped = header.skips.clone();
     let payload = &stdout[nl + 1..];
 
@@ -274,6 +317,15 @@ pub fn import_dlis_file(
             Ok(resolved) => resolved,
             Err(e) => return failed(path, e, skipped),
         };
+    let unit_designations: Vec<crate::curves::UnitDesignation> = ms_per_ft_meaning
+        .map(|meaning| {
+            ambiguous
+                .iter()
+                .map(|meta| crate::curves::ms_per_ft_designation(&meta.mnemonic, &meta.unit, meaning))
+                .collect()
+        })
+        .unwrap_or_default();
+    notes.extend(unit_designations.iter().map(crate::curves::UnitDesignation::note));
 
     // Each curve occupies 2 * n * 4 bytes (depth column then value column).
     let mut offset = 0usize;
@@ -314,13 +366,27 @@ pub fn import_dlis_file(
             });
         }
 
-        let (fam, rejected_alias) =
-            crate::curves::family_for_import(&meta.mnemonic, Some(&meta.unit));
-        let family = fam.map(|f| f.family);
         let mut unit = if meta.unit.trim().is_empty() { None } else { Some(meta.unit.clone()) };
+        let resolved_ms_per_ft = crate::curves::is_ms_per_ft(Some(&meta.unit));
+        let (fam, rejected_alias) = if resolved_ms_per_ft {
+            match ms_per_ft_meaning.expect("ambiguity checked before writes") {
+                crate::curves::MsPerFtMeaning::MicrosecondsPerFoot => {
+                    let family = crate::curves::family_for(&meta.mnemonic)
+                        .filter(|family| matches!(family.family, "DT" | "DTS"));
+                    unit = Some("us/ft".to_string());
+                    (family, None)
+                }
+                crate::curves::MsPerFtMeaning::MillisiemensPerFoot => (None, None),
+            }
+        } else {
+            crate::curves::family_for_import(&meta.mnemonic, Some(&meta.unit))
+        };
+        let family = fam.map(|f| f.family);
         if let Some(rejected) = rejected_alias {
             notes.push(rejected.note());
             unconverted_units.push(rejected);
+        } else if resolved_ms_per_ft {
+            // The explicit designation above owns both the label and family decision.
         } else if let Some(f) = fam {
             if let Some(conversion) = crate::curves::convert_to_canonical(
                 &meta.mnemonic,
@@ -442,6 +508,7 @@ pub fn import_dlis_file(
         notes,
         unit_conversions,
         unconverted_units,
+        unit_designations,
         skipped,
         error: None,
     }

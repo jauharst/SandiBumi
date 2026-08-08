@@ -379,6 +379,7 @@ async fn import_las_files(
     null_rules: Option<Vec<parsers::NullExceptionRule>>,
     non_monotonic_index: Option<ingest::NonMonotonicIndexDecision>,
     duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
+    ms_per_ft_meanings: Option<std::collections::HashMap<String, curves::MsPerFtMeaning>>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
     // Import-sets options (T-IMP-02): one set name per batch; attach-by-name defaults ON
     // when the frontend doesn't say otherwise (the dialog always sends it explicitly).
@@ -390,6 +391,7 @@ async fn import_las_files(
         null_rules: null_rules.unwrap_or_default(),
         non_monotonic_index,
         duplicate_depth_policy,
+        ms_per_ft_meanings: ms_per_ft_meanings.unwrap_or_default(),
     };
     // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
     let items: Vec<(String, String)> = paths
@@ -1336,17 +1338,19 @@ async fn import_dlis_file(
     path: String,
     set_name: Option<String>,
     file_depth_unit: Option<String>,
+    ms_per_ft_meaning: Option<curves::MsPerFtMeaning>,
 ) -> Result<dlis::DlisImportResult, String> {
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import DLIS", base, move || {
         let c = conn.lock().unwrap();
-        Ok(dlis::import_dlis_file(
+        Ok(dlis::import_dlis_file_with_unit_designation(
             &c,
             &well_id,
             &path,
             set_name.as_deref(),
             file_depth_unit.as_deref(),
+            ms_per_ft_meaning,
         ))
     })
     .await

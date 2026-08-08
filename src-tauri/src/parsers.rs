@@ -139,6 +139,8 @@ pub struct CurveColumns {
     /// Present only where more than one incoming mnemonic matched one standard target.
     pub alias_decisions: Vec<AliasDecision>,
     pub index_resolution: Option<IndexResolution>,
+    /// Per-file answers to unit symbols that have more than one legitimate quantity.
+    pub unit_designations: Vec<crate::curves::UnitDesignation>,
 }
 
 /// Parses a generic curve CSV export into columnar arrays, mapping missing values to `f32::NAN`.
@@ -424,6 +426,15 @@ pub fn parse_las_2_with_null_rules<P: AsRef<Path>>(
     channel_nulls: &ChannelNullValues,
     null_rules: &[NullExceptionRule],
 ) -> ParseResult<CurveColumns> {
+    parse_las_2_with_unit_designation(path, channel_nulls, null_rules, None)
+}
+
+pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+    null_rules: &[NullExceptionRule],
+    ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+) -> ParseResult<CurveColumns> {
     let source = path.as_ref().display().to_string();
     let text = read_text_file(path.as_ref())?;
 
@@ -525,6 +536,30 @@ pub fn parse_las_2_with_null_rules<P: AsRef<Path>>(
                     idx_depth = Some(resolution.column);
                     cols.index_resolution = Some(resolution);
                     cols.depth_unit = idx_depth.and_then(|i| curve_units.get(i).cloned().flatten());
+                    let ambiguous: Vec<usize> = curve_units
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, unit)| {
+                            Some(*index) != idx_depth && crate::curves::is_ms_per_ft(unit.as_deref())
+                        })
+                        .map(|(index, _)| index)
+                        .collect();
+                    if let Some(first) = ambiguous.first() {
+                        let Some(meaning) = ms_per_ft_meaning else {
+                            return Err(ParseError::Las(format!(
+                                "{source}: curve {} declares {}; this can mean microseconds per foot or millisiemens per foot, so a per-file user designation is required before commit",
+                                curve_names[*first],
+                                curve_units[*first].as_deref().unwrap_or("MS/FT")
+                            )));
+                        };
+                        cols.unit_designations.extend(ambiguous.iter().map(|index| {
+                            crate::curves::ms_per_ft_designation(
+                                &curve_names[*index],
+                                curve_units[*index].as_deref().unwrap_or("MS/FT"),
+                                meaning,
+                            )
+                        }));
+                    }
                     let alias_sets =
                         [&GR_ALIASES[..], &RES_ALIASES, &NPHI_ALIASES, &RHOB_ALIASES, &DT_ALIASES, &SP_ALIASES];
                     for (k, aliases) in alias_sets.iter().enumerate() {
@@ -540,6 +575,14 @@ pub fn parse_las_2_with_null_rules<P: AsRef<Path>>(
                                 )
                                 .1
                                 .is_none()
+                            });
+                        }
+                        if k == 4
+                            && ms_per_ft_meaning
+                                == Some(crate::curves::MsPerFtMeaning::MillisiemensPerFoot)
+                        {
+                            cand[k].retain(|index| {
+                                !crate::curves::is_ms_per_ft(curve_units[*index].as_deref())
                             });
                         }
                         cand_buf[k] = vec![Vec::new(); cand[k].len()];
@@ -2915,6 +2958,7 @@ mod las_depth_tests {
             sp: seq,
             alias_decisions: Vec::new(),
             index_resolution: None,
+            unit_designations: Vec::new(),
         }
     }
 

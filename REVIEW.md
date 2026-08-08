@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-029: MS/FT has no default meaning
+
+- [ ] Import a file declaring `MS/FT` with no answer. Is nothing committed until that exact file
+      is designated as microseconds/ft or millisiemens/ft? Does the former retain DT and canonical
+      `us/ft`, while the latter stays familyless, with either answer recorded on the file result?
+
 ## 2026-08-09 — SB-DIO-028: every unit factor carries its arithmetic
 
 - [ ] Inspect the unit-rule query/code table. Does every factor carry a reproducible derivation,

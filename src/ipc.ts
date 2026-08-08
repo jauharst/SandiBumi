@@ -157,6 +157,14 @@ export interface ImportResult {
     designation_required: boolean;
     rejected_entry: string | null;
   }>;
+  /** Per-file answers to genuinely ambiguous unit symbols. */
+  unit_designations: Array<{
+    curve: string;
+    declared_unit: string;
+    meaning: "microseconds_per_foot" | "millisiemens_per_foot";
+    recorded_unit: string;
+    family: string | null;
+  }>;
 }
 
 /** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */
@@ -177,6 +185,8 @@ export interface LasImportOptions {
   nonMonotonicIndex?: "accept_as_delivered" | null;
   /** Required only when repeated depths are present; absent means block before commit. */
   duplicateDepthPolicy?: "keep-first" | "keep-last" | "mean" | "refuse" | null;
+  /** Explicit MS/FT meanings keyed by the exact source path; no entry means refuse. */
+  msPerFtMeanings?: Record<string, "microseconds_per_foot" | "millisiemens_per_foot">;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -189,6 +199,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     nullRules: opts?.nullRules ?? null,
     nonMonotonicIndex: opts?.nonMonotonicIndex ?? null,
     duplicateDepthPolicy: opts?.duplicateDepthPolicy ?? null,
+    msPerFtMeanings: opts?.msPerFtMeanings ?? null,
   });
 }
 
@@ -4291,6 +4302,7 @@ export interface DlisImportResult {
   /** Every automatic value conversion performed by the importer. */
   unit_conversions: ImportResult["unit_conversions"];
   unconverted_units: ImportResult["unconverted_units"];
+  unit_designations: ImportResult["unit_designations"];
   skipped: Array<{ kind: string; name: string; count: number; rule: string }>;
   error: string | null;
 }
@@ -4302,12 +4314,14 @@ export function importDlisFile(
   path: string,
   setName?: string | null,
   fileDepthUnit?: "M" | "FT" | null,
+  msPerFtMeaning?: "microseconds_per_foot" | "millisiemens_per_foot" | null,
 ): Promise<DlisImportResult> {
   return invoke<DlisImportResult>("import_dlis_file", {
     wellId,
     path,
     setName: setName ?? null,
     fileDepthUnit: fileDepthUnit ?? null,
+    msPerFtMeaning: msPerFtMeaning ?? null,
   });
 }
 
