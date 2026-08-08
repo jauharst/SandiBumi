@@ -57,6 +57,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 const MISSING: f32 = f32::NAN;
+const CURVE_SELECTION_DOC_TYPE: &str = "curve_selection";
 
 /// How one curve's samples are carried onto the new frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,9 +146,9 @@ pub struct TargetSpec {
 pub struct ReframeRequest {
     pub well_ids: Vec<String>,
     pub source: SourceSpec,
-    /// Curves to carry. Empty means every curve the source holds.
-    #[serde(default)]
-    pub curves: Vec<String>,
+    /// The named, saved, inspectable selection whose members are carried. There is deliberately no
+    /// empty/all fallback: that would make the chosen curves a hidden default again.
+    pub selection_name: String,
     /// An unavailable requested mnemonic may be replaced only by a named source curve the user
     /// explicitly accepted. The substitute keeps its OWN mnemonic in the output; recording the
     /// mapping as run provenance must never turn into supplying its data under `requested`.
@@ -175,6 +176,90 @@ pub struct CurveSubstitution {
     /// No serde default is needed for safety: a missing field fails deserialization instead of
     /// turning an absent decision into consent.
     pub accepted: bool,
+}
+
+/// The only selection mode currently supported. It is stored anyway: a member list without a mode
+/// is ambiguous about whether listed curves are included or excluded, which is D-19's failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CurveSelectionMode {
+    Selected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurveSelection {
+    pub name: String,
+    pub mode: CurveSelectionMode,
+    /// Ordered exact mnemonics. Order survives save/reload because ordinal addressing is part of
+    /// the selection's inspectable identity, not an implementation detail to sort away.
+    pub members: Vec<String>,
+}
+
+fn normalized_selection(selection: &CurveSelection) -> Result<CurveSelection, String> {
+    let name = selection.name.trim();
+    if name.is_empty() {
+        return Err("name the curve selection".into());
+    }
+    let mut members = Vec::new();
+    for raw in &selection.members {
+        let member = raw.trim().to_uppercase();
+        if member.is_empty() {
+            return Err(format!("curve selection '{name}' contains an empty member"));
+        }
+        if !members.contains(&member) {
+            members.push(member);
+        }
+    }
+    if members.is_empty() {
+        return Err(format!(
+            "curve selection '{name}' lists no members; there is no hidden all-curves fallback"
+        ));
+    }
+    Ok(CurveSelection { name: name.to_string(), mode: selection.mode, members })
+}
+
+pub fn save_curve_selection(conn: &Connection, selection: &CurveSelection) -> Result<CurveSelection, String> {
+    let selection = normalized_selection(selection)?;
+    let json = serde_json::to_string(&selection).map_err(|e| e.to_string())?;
+    crate::db::save_document(conn, CURVE_SELECTION_DOC_TYPE, &selection.name, &json).map_err(|e| e.to_string())?;
+    Ok(selection)
+}
+
+pub fn list_curve_selections(conn: &Connection) -> Result<Vec<CurveSelection>, String> {
+    let docs = crate::db::list_documents(conn, CURVE_SELECTION_DOC_TYPE).map_err(|e| e.to_string())?;
+    let mut selections = Vec::with_capacity(docs.len());
+    for doc in docs {
+        let selection: CurveSelection = serde_json::from_str(&doc.json)
+            .map_err(|e| format!("saved curve selection '{}' is unreadable: {e}", doc.name))?;
+        let selection = normalized_selection(&selection)?;
+        if selection.name != doc.name {
+            return Err(format!(
+                "saved curve selection key '{}' disagrees with its inspectable name '{}'",
+                doc.name, selection.name
+            ));
+        }
+        selections.push(selection);
+    }
+    Ok(selections)
+}
+
+pub fn delete_curve_selection(conn: &Connection, name: &str) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("name the curve selection to delete".into());
+    }
+    crate::db::delete_document(conn, CURVE_SELECTION_DOC_TYPE, name).map_err(|e| e.to_string())
+}
+
+fn load_curve_selection(conn: &Connection, name: &str) -> Result<CurveSelection, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("pick a saved curve selection; no hidden all-curves selection is applied".into());
+    }
+    list_curve_selections(conn)?
+        .into_iter()
+        .find(|selection| selection.name == name)
+        .ok_or_else(|| format!("saved curve selection '{name}' does not exist"))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1016,11 +1101,19 @@ fn one_well(
 ) -> ReframeResult {
     let mut res = one_well_shell(conn, well_id);
 
+    let selection = match load_curve_selection(conn, &req.selection_name) {
+        Ok(selection) => selection,
+        Err(e) => {
+            res.error = Some(e);
+            return res;
+        }
+    };
+
     let (wanted, substitutions) = match resolve_substitutions(
         conn,
         well_id,
         &req.source,
-        &req.curves,
+        &selection.members,
         &req.substitutions,
     ) {
         Ok(v) => v,
@@ -1148,6 +1241,7 @@ fn one_well(
         params_json: serde_json::to_string(&serde_json::json!({
             "source": req.source.kind,
             "source_set": req.source.name,
+            "curve_selection": selection,
             "target_step": res.target_step,
             "source_step": res.source_step,
             "substitutions": substitutions,
@@ -1378,11 +1472,20 @@ mod tests {
             vec![f32::NAN; n],
         )
         .unwrap();
+        save_curve_selection(
+            &conn,
+            &CurveSelection {
+                name: "FINE_GR".into(),
+                mode: CurveSelectionMode::Selected,
+                members: vec!["GR".into()],
+            },
+        )
+        .unwrap();
 
         let req = ReframeRequest {
             well_ids: vec![wid.to_string()],
             source: SourceSpec { kind: "standard".into(), name: None },
-            curves: vec![],
+            selection_name: "FINE_GR".into(),
             substitutions: vec![],
             target: TargetSpec {
                 kind: "step".into(),
@@ -1456,11 +1559,20 @@ mod tests {
             vec![f32::NAN; 3],
         )
         .unwrap();
+        save_curve_selection(
+            &conn,
+            &CurveSelection {
+                name: "CALI_REQUEST".into(),
+                mode: CurveSelectionMode::Selected,
+                members: vec!["CALI".into()],
+            },
+        )
+        .unwrap();
 
         let mut req = ReframeRequest {
             well_ids: vec![wid.to_string()],
             source: SourceSpec { kind: "standard".into(), name: None },
-            curves: vec!["CALI".into()],
+            selection_name: "CALI_REQUEST".into(),
             substitutions: vec![CurveSubstitution {
                 requested: "CALI".into(),
                 substitute: "GR".into(),
@@ -1507,6 +1619,45 @@ mod tests {
             provenance["substitutions"],
             serde_json::json!([{"requested": "CALI", "substitute": "GR", "accepted": true}]),
             "the resulting curve's ancestry must preserve the explicit decision"
+        );
+    }
+
+    /// **A saved curve selection reloads as a named object listing its members.**
+    ///
+    /// `SB-DIO-033` / T49, sourced to data-I/O finding D-19. The member order is part of the
+    /// object and its `selected` mode is stored rather than implied; the control proves a document
+    /// with no mode cannot deserialize into a selection and therefore cannot acquire a hidden one.
+    #[test]
+    fn a_saved_curve_selection_reloads_as_a_named_object_listing_its_members() {
+        use crate::db;
+        use duckdb::Connection;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let saved = save_curve_selection(
+            &conn,
+            &CurveSelection {
+                name: "  PRIMARY INPUTS  ".into(),
+                mode: CurveSelectionMode::Selected,
+                members: vec!["rhob".into(), "GR".into(), "RHOB".into()],
+            },
+        )
+        .unwrap();
+        assert_eq!(saved.name, "PRIMARY INPUTS");
+        assert_eq!(saved.members, vec!["RHOB", "GR"], "order survives and duplicates do not hide in the object");
+
+        let reloaded = list_curve_selections(&conn).unwrap();
+        assert_eq!(
+            reloaded,
+            vec![CurveSelection {
+                name: "PRIMARY INPUTS".into(),
+                mode: CurveSelectionMode::Selected,
+                members: vec!["RHOB".into(), "GR".into()],
+            }]
+        );
+        assert!(
+            serde_json::from_str::<CurveSelection>(r#"{"name":"AMBIGUOUS","members":["GR"]}"#).is_err(),
+            "a member list without a stated mode must not acquire a hidden interpretation"
         );
     }
 
@@ -1610,7 +1761,7 @@ mod tests {
         let req = ReframeRequest {
             well_ids: vec!["A".into(), "B".into()],
             source: SourceSpec { kind: "standard".into(), name: None },
-            curves: vec![],
+            selection_name: "ANY_EXPLICIT_SELECTION".into(),
             substitutions: vec![],
             target: step_target("regularize", None, true),
             methods: Default::default(),

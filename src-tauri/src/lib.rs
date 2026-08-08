@@ -2594,6 +2594,27 @@ fn reframe_source_curves(
     reframe::source_curve_names(&conn, &well_id, &source)
 }
 
+#[tauri::command]
+fn save_curve_selection(
+    db: tauri::State<DbState>,
+    selection: reframe::CurveSelection,
+) -> Result<reframe::CurveSelection, String> {
+    let conn = db.0.lock().unwrap();
+    reframe::save_curve_selection(&conn, &selection)
+}
+
+#[tauri::command]
+fn list_curve_selections(db: tauri::State<DbState>) -> Result<Vec<reframe::CurveSelection>, String> {
+    let conn = db.0.lock().unwrap();
+    reframe::list_curve_selections(&conn)
+}
+
+#[tauri::command]
+fn delete_curve_selection(db: tauri::State<DbState>, name: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    reframe::delete_curve_selection(&conn, &name)
+}
+
 /// Are numpy and Pillow reachable? Probed once so the conditioning workspace can say what is
 /// missing before a photograph is opened rather than after a slider is moved.
 #[tauri::command]
@@ -3356,6 +3377,9 @@ pub fn run() {
             module_output_names,
             run_reframe,
             reframe_source_curves,
+            save_curve_selection,
+            list_curve_selections,
+            delete_curve_selection,
             run_pay_summary,
             stats_curve_summary,
             stats_pair_summary,

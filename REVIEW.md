@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-033: curve selections are named saved objects
+
+- [ ] In Reframe, create **PRIMARY INPUTS** with ordered members `RHOB, GR`, save it, close/reopen
+      the pane, and inspect it. Is the same name, explicit selected mode and member order present?
+      Is Reframe blocked when no saved selection is chosen, with no blank-means-all fallback?
+
 ## 2026-08-09 — SB-DIO-032: substitutions are named, accepted and recorded
 
 - [ ] In Reframe, request a curve the selected source does not hold, choose an exact source

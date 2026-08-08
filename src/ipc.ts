@@ -4948,6 +4948,25 @@ export interface ReframeSourceSpec {
   name: string | null;
 }
 
+export interface CurveSelection {
+  name: string;
+  mode: "selected";
+  /** Ordered exact mnemonics; this order survives save/reload. */
+  members: string[];
+}
+
+export function saveCurveSelection(selection: CurveSelection): Promise<CurveSelection> {
+  return invoke<CurveSelection>("save_curve_selection", { selection });
+}
+
+export function listCurveSelections(): Promise<CurveSelection[]> {
+  return invoke<CurveSelection[]>("list_curve_selections");
+}
+
+export function deleteCurveSelection(name: string): Promise<void> {
+  return invoke<void>("delete_curve_selection", { name });
+}
+
 /** Exact source mnemonics offered for an explicit substitution; never family/type-expanded. */
 export function reframeSourceCurves(wellId: string, source: ReframeSourceSpec): Promise<string[]> {
   return invoke<string[]>("reframe_source_curves", { wellId, source });
