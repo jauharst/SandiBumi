@@ -19,6 +19,7 @@ pub struct ImportResult {
     pub attached_set: Option<String>,
     /// Typed audit trail for every standard target that matched more than one LAS column.
     pub alias_decisions: Vec<parsers::AliasDecision>,
+    pub index_resolution: Option<parsers::IndexResolution>,
 }
 
 /// Options for a LAS import batch (the Import LAS dialog's choices).
@@ -135,6 +136,7 @@ pub fn import_las_files_with(
                     error: None,
                     attached_set: None,
                     alias_decisions: Vec::new(),
+                    index_resolution: None,
                 };
             }
             if let Some(p) = progress {
@@ -144,7 +146,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new() },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -170,6 +172,7 @@ fn insert_parsed_well(
 ) -> ImportResult {
     let well_id = Uuid::new_v4();
     let alias_decisions = columns.alias_decisions.clone();
+    let index_resolution = columns.index_resolution.clone();
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
@@ -191,6 +194,7 @@ fn insert_parsed_well(
                     error: Some(format!("unrecognized confirmed file depth unit '{raw}'")),
                     attached_set: None,
                     alias_decisions: alias_decisions.clone(),
+                    index_resolution: index_resolution.clone(),
                 }
             }
         },
@@ -209,6 +213,7 @@ fn insert_parsed_well(
                 error: Some(error),
                 attached_set: None,
                 alias_decisions: alias_decisions.clone(),
+                index_resolution: index_resolution.clone(),
             }
         }
     };
@@ -241,6 +246,7 @@ fn insert_parsed_well(
             )),
             attached_set: None,
             alias_decisions: alias_decisions.clone(),
+            index_resolution: index_resolution.clone(),
         };
     }
 
@@ -280,7 +286,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone() }
             }
         };
         match stmt
@@ -289,7 +295,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone() }
             }
         }
     };
@@ -302,6 +308,7 @@ fn insert_parsed_well(
             opts,
             notes,
             alias_decisions.clone(),
+            index_resolution.clone(),
         );
         if out.error.is_none() {
             if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
@@ -385,9 +392,9 @@ fn insert_parsed_well(
                 ));
             }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions, index_resolution }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution },
     }
 }
 
@@ -404,6 +411,7 @@ fn attach_curves_to_existing_well(
     opts: &LasImportOptions,
     notes: Vec<String>,
     alias_decisions: Vec<parsers::AliasDecision>,
+    index_resolution: Option<parsers::IndexResolution>,
 ) -> ImportResult {
     let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
     match import_all_curves_into_generic_store_with_channel_nulls(
@@ -428,11 +436,12 @@ fn attach_curves_to_existing_well(
                 error: None,
                 attached_set: Some(set),
                 alias_decisions,
+                index_resolution,
             }
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution },
     }
 }
 
@@ -1790,6 +1799,7 @@ mod tests {
             dt: vec![f32::NAN; 3],
             sp: vec![f32::NAN; 3],
             alias_decisions: Vec::new(),
+            index_resolution: None,
         };
 
         // First import: a fresh well, no duplicate warning.
@@ -1859,6 +1869,48 @@ mod tests {
                 },
             ],
             "the per-file result carries both the chosen and passed-over coverage"
+        );
+    }
+
+    /// SB-DIO-010 / SB-DIO-T15..T16. Geolog's per-column `REFERENCE | LOG`
+    /// declaration and LAS's first-column guarantee are cited in chapter §5.3.
+    #[test]
+    fn a_structural_index_wins_and_every_resolution_records_the_mechanism_that_fired() {
+        let headers = vec!["GR".to_string(), "SCD".to_string()];
+        let classes = vec!["LOG".to_string(), "REFERENCE".to_string()];
+        let structural = parsers::resolve_index_column(
+            &headers,
+            Some(&classes),
+            &["DEPTH"],
+            Some(0),
+            None,
+        )
+        .unwrap();
+        assert_eq!(structural.column, 1, "the non-first structural declaration wins");
+        assert_eq!(
+            structural.mechanism,
+            parsers::IndexResolutionMechanism::StructuralDeclaration
+        );
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join("sandibumi_positional_index_audit.las");
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. POSITIONAL :\n\
+             ~CURVE\nXREF.M : index\nMD.M : auxiliary track\nGR.API :\n~ASCII\n\
+             1000.0 3000.0 50.0\n1000.5 3000.5 51.0\n",
+        )
+        .unwrap();
+        let result = import_las_files(&conn, &[path.to_str().unwrap().to_string()], None).remove(0);
+        std::fs::remove_file(&path).ok();
+        assert!(result.error.is_none(), "the LAS fixture must import: {:?}", result.error);
+        let positional = result.index_resolution.expect("the result must carry its index decision");
+        assert_eq!(positional.column, 0, "a second-column MD track cannot steal the LAS index");
+        assert_eq!(positional.mnemonic, "XREF");
+        assert_eq!(
+            positional.mechanism,
+            parsers::IndexResolutionMechanism::PositionalGuarantee
         );
     }
 

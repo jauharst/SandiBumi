@@ -128,6 +128,11 @@ export interface ImportResult {
     chosen: string;
     candidates: Array<{ mnemonic: string; finite_samples: number; chosen: boolean }>;
   }>;
+  index_resolution: {
+    column: number;
+    mnemonic: string;
+    mechanism: "structural_declaration" | "positional_guarantee" | "name_alias" | "user_designation";
+  } | null;
 }
 
 /** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */

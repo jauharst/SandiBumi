@@ -103,6 +103,24 @@ pub struct AliasDecision {
     pub candidates: Vec<AliasCandidateCoverage>,
 }
 
+/// How a reader established which column is the shared index. The mechanism is data,
+/// not a note: callers can display and persist the exact resolution that fired.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexResolutionMechanism {
+    StructuralDeclaration,
+    PositionalGuarantee,
+    NameAlias,
+    UserDesignation,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct IndexResolution {
+    pub column: usize,
+    pub mnemonic: String,
+    pub mechanism: IndexResolutionMechanism,
+}
+
 /// Columnar curve data ready to be handed to the DuckDB Appender.
 #[derive(Debug, Clone, Default)]
 pub struct CurveColumns {
@@ -120,6 +138,7 @@ pub struct CurveColumns {
     pub sp: Vec<f32>,
     /// Present only where more than one incoming mnemonic matched one standard target.
     pub alias_decisions: Vec<AliasDecision>,
+    pub index_resolution: Option<IndexResolution>,
 }
 
 /// Parses a generic curve CSV export into columnar arrays, mapping missing values to `f32::NAN`.
@@ -321,6 +340,71 @@ fn resolve_curve_index(curve_names: &[String], aliases: &[&str]) -> Option<usize
     aliases.iter().find_map(|alias| curve_names.iter().position(|n| n == alias))
 }
 
+/// Resolve an index under the chapter's precedence rule. `classes` is a format-owned
+/// per-column declaration such as Geolog flat ASCII's `REFERENCE | LOG`; `positional`
+/// is used only by formats such as LAS whose specification guarantees the index slot.
+pub fn resolve_index_column(
+    headers: &[String],
+    classes: Option<&[String]>,
+    aliases: &[&str],
+    positional: Option<usize>,
+    designated: Option<usize>,
+) -> Result<IndexResolution, String> {
+    if let Some(classes) = classes {
+        if classes.len() != headers.len() {
+            return Err(format!(
+                "structural index declaration has {} class entries for {} columns",
+                classes.len(),
+                headers.len()
+            ));
+        }
+        let declared: Vec<usize> = classes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, class)| class.trim().eq_ignore_ascii_case("REFERENCE").then_some(index))
+            .collect();
+        match declared.as_slice() {
+            [column] => {
+                return Ok(IndexResolution {
+                    column: *column,
+                    mnemonic: headers[*column].clone(),
+                    mechanism: IndexResolutionMechanism::StructuralDeclaration,
+                })
+            }
+            [] => {}
+            _ => return Err("structural declaration identifies more than one REFERENCE column".into()),
+        }
+    }
+    if let Some(column) = positional {
+        let mnemonic = headers
+            .get(column)
+            .ok_or_else(|| format!("positional index column {column} is outside the {} declared columns", headers.len()))?;
+        return Ok(IndexResolution {
+            column,
+            mnemonic: mnemonic.clone(),
+            mechanism: IndexResolutionMechanism::PositionalGuarantee,
+        });
+    }
+    if let Some(column) = resolve_curve_index(headers, aliases) {
+        return Ok(IndexResolution {
+            column,
+            mnemonic: headers[column].clone(),
+            mechanism: IndexResolutionMechanism::NameAlias,
+        });
+    }
+    if let Some(column) = designated {
+        let mnemonic = headers
+            .get(column)
+            .ok_or_else(|| format!("designated index column {column} is outside the {} declared columns", headers.len()))?;
+        return Ok(IndexResolution {
+            column,
+            mnemonic: mnemonic.clone(),
+            mechanism: IndexResolutionMechanism::UserDesignation,
+        });
+    }
+    Err("no structural declaration or index name resolved; user designation is required".into())
+}
+
 /// Streams a LAS 2.0 file line-by-line (never loads the whole file into RAM), reading the
 /// `~C` (Curve) block to map column indices and the `~A` (ASCII) block for the data rows.
 pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
@@ -427,10 +511,18 @@ pub fn parse_las_2_with_null_rules<P: AsRef<Path>>(
                         null_rules,
                     )
                     .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
-                    // Fall back to column 0 (the LAS index column) when no mnemonic matches,
-                    // matching parse_las_2_all — a TDEP/MD/other-indexed file must not produce
-                    // an all-NaN depth column.
-                    idx_depth = resolve_curve_index(&curve_names, &DEPTH_ALIASES).or(Some(0));
+                    // LAS declares its index structurally by position: column 0. A later MD or
+                    // TDEP track is data, never a stronger claim than the format guarantee.
+                    let resolution = resolve_index_column(
+                        &curve_names,
+                        None,
+                        &DEPTH_ALIASES,
+                        Some(0),
+                        None,
+                    )
+                    .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
+                    idx_depth = Some(resolution.column);
+                    cols.index_resolution = Some(resolution);
                     cols.depth_unit = idx_depth.and_then(|i| curve_units.get(i).cloned().flatten());
                     let alias_sets =
                         [&GR_ALIASES[..], &RES_ALIASES, &NPHI_ALIASES, &RHOB_ALIASES, &DT_ALIASES, &SP_ALIASES];
@@ -665,6 +757,7 @@ pub struct LasFrame {
     pub depth_unit: Option<String>,
     pub depth: Vec<f32>,
     pub curves: Vec<RawLasCurve>,
+    pub index_resolution: Option<IndexResolution>,
 }
 
 /// Applies the same depth sanitation as [`sanitize_curve_columns`] to a full [`LasFrame`]:
@@ -687,9 +780,9 @@ pub fn sanitize_las_frame(frame: &mut LasFrame) -> DepthSanitizeReport {
 }
 
 /// Parses a LAS 2.0 file keeping **all** curves (mnemonic + unit + values), streaming the
-/// same way as `parse_las_2` but without collapsing to the fixed standard set. The first
-/// column recognized as depth (by `DEPTH_ALIASES`, else column 0) becomes the shared
-/// index; every other column is returned as its own `RawLasCurve`.
+/// same way as `parse_las_2` but without collapsing to the fixed standard set. LAS's
+/// positionally guaranteed first column becomes the shared index; every other column is
+/// returned as its own `RawLasCurve`.
 #[allow(dead_code)] // compatibility entry point for tests/callers with no channel override
 pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     parse_las_2_all_with_channel_nulls(path, &ChannelNullValues::new())
@@ -716,6 +809,7 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
     // One value column per curve, filled in ~A order.
     let mut columns: Vec<Vec<f32>> = Vec::new();
     let mut idx_depth: Option<usize> = None;
+    let mut index_resolution: Option<IndexResolution> = None;
     let mut indices_resolved = false;
     let mut token_buffer: Vec<f32> = Vec::new();
     let mut buffer_start_line: Option<usize> = None;
@@ -781,7 +875,16 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
                         null_rules,
                     )
                     .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
-                    idx_depth = resolve_curve_index(&curve_names, &DEPTH_ALIASES).or(Some(0));
+                    let resolution = resolve_index_column(
+                        &curve_names,
+                        None,
+                        &DEPTH_ALIASES,
+                        Some(0),
+                        None,
+                    )
+                    .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
+                    idx_depth = Some(resolution.column);
+                    index_resolution = Some(resolution);
                     columns = vec![Vec::new(); curve_names.len()];
                     indices_resolved = true;
                 }
@@ -850,6 +953,7 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
         depth_unit: curve_units[depth_idx].clone(),
         depth: columns.get(depth_idx).cloned().unwrap_or_default(),
         curves: Vec::new(),
+        index_resolution,
     };
     for i in 0..curve_names.len() {
         if i == depth_idx {
@@ -2656,6 +2760,7 @@ mod las_depth_tests {
             dt: seq.clone(),
             sp: seq,
             alias_decisions: Vec::new(),
+            index_resolution: None,
         }
     }
 
