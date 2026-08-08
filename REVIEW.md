@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-050: declared STEP is checked against the samples
+
+- [ ] Import a LAS declaring `STEP.M 0.5` whose actual index spacing is `1.0`. Does the import
+      succeed with **possibly re-gridded** naming both values and the first mismatching row pair?
+      Does an otherwise identical file declaring `STEP.M 1.0` avoid that warning? The separate
+      round-interval detector remains absent because the chapter cites no threshold for it.
+
 ## 2026-08-09 — SB-DIO-049: every writer must pass its own reader
 
 - [ ] Export LAS from a feet project. Does success explicitly state that the SandiBumi reader

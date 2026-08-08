@@ -203,6 +203,10 @@ fn insert_parsed_well(
     let unit_designations = columns.unit_designations.clone();
     let las_version = columns.las_version.clone();
     let unread_sections = columns.unread_sections.clone();
+    let declared_step_note = parsers::declared_step_mismatch_note(
+        columns.declared_step.as_deref(),
+        &columns.depth,
+    );
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
@@ -380,6 +384,9 @@ fn insert_parsed_well(
     let non_monotonic = columns.depth.windows(2).any(|w| w[0] < w[1])
         && columns.depth.windows(2).any(|w| w[0] > w[1]);
     let mut notes: Vec<String> = Vec::new();
+    if let Some(note) = declared_step_note {
+        notes.push(note);
+    }
     if las_version.as_deref().and_then(|value| value.parse::<f32>().ok()) == Some(3.0) {
         if unread_sections.is_empty() {
             notes.push("LAS 3.0 recognized; no unread sections were present".into());
@@ -2062,6 +2069,7 @@ mod tests {
             las_version: None,
             unread_sections: Vec::new(),
             depth_unit: Some("M".into()),
+            declared_step: None,
             depth: vec![1000.0, 1000.5, 1001.0],
             gr: vec![40.0, 45.0, 50.0],
             res: vec![f32::NAN; 3],
@@ -2346,6 +2354,44 @@ mod tests {
         );
     }
 
+    /// SB-DIO-050 / T70. No read-side STEP tolerance is cited in §5, so this pins the
+    /// exact declared-versus-observed disagreement without introducing one. The matching
+    /// control prevents an implementation that warns on every file carrying STEP.
+    #[test]
+    fn a_declared_step_that_disagrees_with_actual_spacing_is_flagged_as_possibly_regridded_and_a_matching_step_is_not() {
+        let import = |tag: &str, step: &str| {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            let path = std::env::temp_dir().join(format!("sandibumi-step-{tag}.las"));
+            std::fs::write(
+                &path,
+                format!(
+                    "~VERSION\nVERS. 2.0 :\nWRAP. NO :\n~WELL\nSTEP.M {step} : declared step\nNULL. -999.25 :\nWELL. STEP-{tag} :\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n1000 50\n1001 51\n1002 52\n"
+                ),
+            )
+            .unwrap();
+            let result = import_las_files(&conn, &[path.to_str().unwrap().to_string()], None).remove(0);
+            std::fs::remove_file(&path).ok();
+            result
+        };
+
+        let mismatch = import("MISMATCH", "0.5");
+        assert!(mismatch.error.is_none(), "a re-grid flag is a warning, not a refusal: {:?}", mismatch.error);
+        let warning = mismatch.warning.as_deref().unwrap_or("");
+        assert!(warning.contains("possibly re-gridded"), "the risk must be named: {warning}");
+        assert!(warning.contains("declared STEP 0.5"), "the file's declaration must be named: {warning}");
+        assert!(warning.contains("actual spacing 1"), "the observed spacing must be named: {warning}");
+        assert!(warning.contains("data rows 1 and 2"), "the first disagreement must be locatable: {warning}");
+
+        let matching = import("MATCHING", "1.0");
+        assert!(matching.error.is_none(), "the matching control must import: {:?}", matching.error);
+        assert!(
+            !matching.warning.as_deref().unwrap_or("").contains("possibly re-gridded"),
+            "a declared step matching every interval must not be flagged: {:?}",
+            matching.warning
+        );
+    }
+
     /// SB-DIO-020 / SB-DIO-T32..T33. The four policy names are the complete
     /// declared set in chapter §4.5; none is a default.
     #[test]
@@ -2427,6 +2473,7 @@ mod tests {
             las_version: None,
             unread_sections: Vec::new(),
             depth_unit: Some("M".into()),
+            declared_step: None,
             depth: vec![1000.0, 1000.0, 1000.0, 1000.0, 1001.0],
             gr: vec![10.0, 20.0, 30.0, 40.0, 50.0],
             res: vec![f32::NAN; 5],

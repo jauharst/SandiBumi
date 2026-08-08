@@ -135,6 +135,9 @@ pub struct CurveColumns {
     /// ingest — see `units::resolve_index_unit`; storing a foot index in a metric project
     /// was a silent corruption before this was carried through.
     pub depth_unit: Option<String>,
+    /// The `~W STEP` value as declared in the file. Kept as text so absence is not
+    /// represented by `Option<f32>`; callers parse it only when performing the audit.
+    pub declared_step: Option<String>,
     pub depth: Vec<f32>,
     pub gr: Vec<f32>,
     pub res: Vec<f32>,
@@ -321,6 +324,33 @@ enum LasSection {
     WellBlock,
     CurveBlock,
     AsciiData,
+}
+
+fn parse_well_value_text(trimmed: &str, wanted: &str) -> Option<String> {
+    let declaration = trimmed.split(':').next().unwrap_or(trimmed);
+    let (mnemonic, rest) = declaration.split_once('.')?;
+    if !mnemonic.trim().eq_ignore_ascii_case(wanted) {
+        return None;
+    }
+    rest.split_whitespace().last().map(str::to_string)
+}
+
+/// Compares a file's declared STEP with every finite adjacent index pair. This uses
+/// exact comparison deliberately: §5 supplies no tolerance for this read-side check, so
+/// introducing one here would be an uncited parameter. A mismatch is a warning, not an
+/// automatic rewrite or refusal.
+pub fn declared_step_mismatch_note(declared_step: Option<&str>, depth: &[f32]) -> Option<String> {
+    let raw = declared_step?;
+    let Ok(declared) = raw.parse::<f32>() else { return None };
+    let (pair_index, actual) = depth.windows(2).enumerate().find_map(|(index, pair)| {
+        let actual = pair[1] - pair[0];
+        (pair[0].is_finite() && pair[1].is_finite() && actual != declared).then_some((index, actual))
+    })?;
+    Some(format!(
+        "possibly re-gridded: declared STEP {raw} disagrees with actual spacing {actual} between data rows {} and {}",
+        pair_index + 1,
+        pair_index + 2
+    ))
 }
 
 fn las_section_header(trimmed: &str) -> Option<&str> {
@@ -512,6 +542,7 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     let mut token_buffer: Vec<f32> = Vec::new();
     let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
+    let mut declared_step: Option<String> = None;
     let mut wrapped = false;
     let mut resolved_channel_nulls = channel_nulls.clone();
     let mut las_version: Option<String> = None;
@@ -549,6 +580,9 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
             LasSection::WellBlock => {
                 if let Some(n) = parse_null_line(trimmed) {
                     declared_null = Some(n);
+                }
+                if let Some(step) = parse_well_value_text(trimmed, "STEP") {
+                    declared_step = Some(step);
                 }
                 continue;
             }
@@ -776,6 +810,7 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     cols.rhob = picked.remove(0);
     cols.dt = picked.remove(0);
     cols.sp = picked.remove(0);
+    cols.declared_step = declared_step;
     cols.unread_sections = if las_version_is_3(las_version.as_deref()) {
         encountered_unread_sections
     } else {
@@ -3091,6 +3126,7 @@ mod las_depth_tests {
             las_version: None,
             unread_sections: Vec::new(),
             depth_unit: None,
+            declared_step: None,
             depth,
             gr: seq.clone(),
             res: seq.clone(),
