@@ -61,3 +61,54 @@ lanes do not edit the spine directly.
   although the task direction says it is recorded there.
 - **What closes it:** in a spine-maintenance lane, add the 2026-08-08 discard/supersession decision
   to §26 so the index citation and consolidated decision register agree.
+
+## SP-006 — Requirements total is 931, not 932
+
+- **Index location:** `docs/PRD_v2/91_REQUIREMENTS_INDEX.md` Reading rules and Roll-ups.
+- **Counted source:** requirement definitions in `04_CORE_REQUIREMENTS.md` §15 and every chapter's
+  §4, `10_clay-volume.md` through `27_ip-install-blockers.md`.
+- **Discrepancy:** the commissioning brief states 932 distinct requirement IDs. The mechanical,
+  de-duplicated count is 931: 25 `SB-CORE` definitions and 906 domain definitions. No duplicate
+  requirement definition accounts for the difference, so the index records 931 and does not
+  manufacture a row.
+
+## SP-007 — `SB-CORE` requirement-number gaps
+
+- **Chapter location:** `docs/PRD_v2/04_CORE_REQUIREMENTS.md` §15.
+- **Discrepancy:** the defined requirement sequence omits `SB-CORE-008`–`009`, `SB-CORE-016`–`029`,
+  and `SB-CORE-037`–`039`.
+- **Disposition:** unassigned only; no number is filled, reused, or renumbered in this lane.
+
+## SP-008 — `SB-CORE` test-number gaps
+
+- **Chapter location:** `docs/PRD_v2/04_CORE_REQUIREMENTS.md` §15, the per-requirement **Verified
+  by** clauses; also recorded in `docs/PRD_v2/RESUME.md` §5.
+- **Discrepancy:** `SB-CORE-T04` through `SB-CORE-T08` are unassigned between defined `T03` and
+  `T09`.
+- **Disposition:** left open for the spine-maintenance sweep, exactly as `RESUME.md` directs.
+
+## SP-009 — Porosity requirements omit status and tests omit T26–T27
+
+- **Chapter location:** `docs/PRD_v2/11_porosity.md` §4 and §6.
+- **Discrepancy:** all 62 requirements state priority but no per-requirement status, although
+  `CONTRACT.md` §3 requires the status vocabulary on each requirement. Section 6 defines 41 test
+  IDs but leaves numeric IDs `SB-POR-T26` and `SB-POR-T27` unassigned, using `T14b` and `T18b`
+  within the stated `T01 … T27` carried set instead.
+- **Disposition:** status cells remain empty and the test gaps remain unfilled in the index.
+
+## SP-010 — Fifteen installer requirements omit priority
+
+- **Chapter location:** `docs/PRD_v2/27_ip-install-blockers.md` §4.
+- **Discrepancy:** `SB-INS-006`, `-007`, `-009`, `-011`–`013`, `-017`–`022`, and `-024`–`026`
+  state a contract-defined status but no priority. The chapter's eleven explicit `P0` tags match
+  its front-matter P0 count; that does not supply priorities for the remaining fifteen.
+- **Disposition:** priority cells remain empty; no `P1`–`P4` value is inferred.
+
+## SP-011 — Two `SB-CORE` statuses are outside the contract vocabulary
+
+- **Chapter location:** `docs/PRD_v2/04_CORE_REQUIREMENTS.md` §15.3.
+- **Discrepancy:** `SB-CORE-030` uses `UNMEASURED`; `SB-CORE-033` uses
+  `ABSENT — designed, parked`. Neither is one of `ABSENT`, `PARTIAL`, `PRESENT-OK`,
+  `PRESENT-DIVERGENT`, or `PRESENT-UNVERIFIED` from `CONTRACT.md` §3.
+- **Disposition:** both values are carried verbatim in the index and are not mapped to a legal
+  status.
