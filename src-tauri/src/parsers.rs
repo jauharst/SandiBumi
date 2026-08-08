@@ -203,7 +203,8 @@ fn resolve_curve_index(curve_names: &[String], aliases: &[&str]) -> Option<usize
 /// Streams a LAS 2.0 file line-by-line (never loads the whole file into RAM), reading the
 /// `~C` (Curve) block to map column indices and the `~A` (ASCII) block for the data rows.
 pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
-    let text = read_text_file(path)?;
+    let source = path.as_ref().display().to_string();
+    let text = read_text_file(path.as_ref())?;
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
@@ -304,7 +305,7 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                 let tokens: Vec<&str> = trimmed.split_whitespace().collect();
                 if !wrapped && tokens.len() != expected_per_row {
                     return Err(ParseError::Las(format!(
-                        "line {line_number}: ASCII row has {} value(s), but ~C declares {expected_per_row} columns (truncated or corrupt LAS)",
+                        "{source}: line {line_number}: ASCII row has {} value(s), but ~C declares {expected_per_row} columns (truncated or corrupt LAS)",
                         tokens.len()
                     )));
                 }
@@ -314,7 +315,7 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                 for tok in tokens {
                     let v: f32 = tok
                         .parse()
-                        .map_err(|e| ParseError::Las(format!("line {line_number}: bad numeric token '{tok}': {e}")))?;
+                        .map_err(|e| ParseError::Las(format!("{source}: line {line_number}: bad numeric token '{tok}': {e}")))?;
                     // `f32::from_str` accepts "inf"/"-inf" and overflows a cell like `1.0E+40` to
                     // infinity. Everything downstream screens for missing with `is_nan()` only
                     // (modules::is_missing), so an infinity survives into the compute cores and
@@ -350,7 +351,7 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     // loudly rather than silently mis-columning the rest of the file.
     if !token_buffer.is_empty() {
         return Err(ParseError::Las(format!(
-            "line {}: ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            "{source}: line {}: ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
             buffer_start_line.unwrap_or(0),
             token_buffer.len(),
             curve_names.len()
@@ -511,7 +512,8 @@ pub fn sanitize_las_frame(frame: &mut LasFrame) -> DepthSanitizeReport {
 /// column recognized as depth (by `DEPTH_ALIASES`, else column 0) becomes the shared
 /// index; every other column is returned as its own `RawLasCurve`.
 pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
-    let text = read_text_file(path)?;
+    let source = path.as_ref().display().to_string();
+    let text = read_text_file(path.as_ref())?;
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
@@ -588,7 +590,7 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                 let tokens: Vec<&str> = trimmed.split_whitespace().collect();
                 if !wrapped && tokens.len() != expected_per_row {
                     return Err(ParseError::Las(format!(
-                        "line {line_number}: ASCII row has {} value(s), but ~C declares {expected_per_row} columns (truncated or corrupt LAS)",
+                        "{source}: line {line_number}: ASCII row has {} value(s), but ~C declares {expected_per_row} columns (truncated or corrupt LAS)",
                         tokens.len()
                     )));
                 }
@@ -597,7 +599,7 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                 }
                 for tok in tokens {
                     let v: f32 =
-                        tok.parse().map_err(|e| ParseError::Las(format!("line {line_number}: bad numeric token '{tok}': {e}")))?;
+                        tok.parse().map_err(|e| ParseError::Las(format!("{source}: line {line_number}: bad numeric token '{tok}': {e}")))?;
                     token_buffer.push(v);
                 }
                 while token_buffer.len() >= expected_per_row {
@@ -619,7 +621,7 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     // mis-columning the rest of the file.
     if !token_buffer.is_empty() {
         return Err(ParseError::Las(format!(
-            "line {}: ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            "{source}: line {}: ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
             buffer_start_line.unwrap_or(0),
             token_buffer.len(),
             curve_names.len()

@@ -131,8 +131,8 @@ fn a_truncated_las_refuses_rather_than_importing_what_survived() {
     let err = res.error.as_deref().unwrap_or("");
     assert!(!err.is_empty(), "a truncated ASCII block must be an error, not a warning");
     assert!(
-        err.contains("leftover token"),
-        "the message must say what is actually wrong so the user can look at the file: {err}"
+        err.contains("bad_truncated.las") && err.contains("line ") && err.contains("ASCII row"),
+        "the message must locate the bad row and name its failed rule: {err}"
     );
     assert!(
         err.contains("truncated or corrupt"),
@@ -308,4 +308,195 @@ fn aux_interval_examples_parse() {
     let perf = parsers::parse_interval_file(example("perforations_SANDI-01.csv")).unwrap();
     assert_eq!(perf.rows.len(), 3);
     assert!(perf.items.contains(&"STATUS".to_string()));
+}
+
+fn malformed_corpus_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/dio-malformed")
+}
+
+const REGISTERED_FILE_READERS: &[&str] = &[
+    "intake::probe",
+    "intake::probe_arrays",
+    "intake::read_wide",
+    "parsers::extract_well_name",
+    "parsers::parse_core_csv",
+    "parsers::parse_core_table_mapped",
+    "parsers::parse_csv_export",
+    "parsers::parse_deviation_csv",
+    "parsers::parse_interval_file",
+    "parsers::parse_las_2",
+    "parsers::parse_las_2_all",
+    "parsers::parse_las_directory",
+    "parsers::parse_locations_file",
+    "parsers::parse_scal_centrifuge_csv",
+    "parsers::parse_scal_csv",
+    "parsers::parse_scal_wide_csv",
+    "parsers::parse_tops_file",
+    "parsers::probe_core_table",
+    "parsers::read_text_file",
+    "parsers::sniff_scal_format",
+];
+
+fn exercise_registered_reader(reader: &str, path: &std::path::Path) -> Result<(), String> {
+    let text_path = path.to_string_lossy();
+    let mapping = parsers::CoreMapping {
+        well: None,
+        depth: 0,
+        cpor: None,
+        cperm: None,
+        cgd: None,
+        csw: None,
+        extras: vec![],
+    };
+    let opts = crate::intake::TableOptions::default();
+    let roles: Vec<String> = Vec::new();
+    match reader {
+        "parsers::read_text_file" => parsers::read_text_file(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_csv_export" => parsers::parse_csv_export(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_las_2" => parsers::parse_las_2(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_las_2_all" => parsers::parse_las_2_all(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::extract_well_name" => parsers::extract_well_name(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_core_csv" => parsers::parse_core_csv(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_scal_csv" => parsers::parse_scal_csv(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_scal_wide_csv" => parsers::parse_scal_wide_csv(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_scal_centrifuge_csv" => {
+            parsers::parse_scal_centrifuge_csv(path).map(|_| ()).map_err(|e| e.to_string())
+        }
+        "parsers::sniff_scal_format" => parsers::sniff_scal_format(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_deviation_csv" => parsers::parse_deviation_csv(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_las_directory" => parsers::parse_las_directory(
+            path.parent().expect("a corpus fixture always has a parent directory"),
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string()),
+        "parsers::parse_tops_file" => parsers::parse_tops_file(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_locations_file" => {
+            parsers::parse_locations_file(path).map(|_| ()).map_err(|e| e.to_string())
+        }
+        "parsers::parse_interval_file" => parsers::parse_interval_file(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::probe_core_table" => parsers::probe_core_table(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_core_table_mapped" => {
+            parsers::parse_core_table_mapped(path, &mapping).map(|_| ()).map_err(|e| e.to_string())
+        }
+        "intake::probe" => crate::intake::probe(&text_path, &opts).map(|_| ()).map_err(|e| e.to_string()),
+        "intake::read_wide" => {
+            crate::intake::read_wide(&text_path, &opts, &roles, false).map(|_| ()).map_err(|e| e.to_string())
+        }
+        "intake::probe_arrays" => crate::intake::probe_arrays(&text_path, &opts, &roles, false)
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
+        _ => Err(format!("reader '{reader}' is registered but has no corpus adapter")),
+    }
+}
+
+fn discovered_file_readers(module: &str, path: &std::path::Path) -> std::collections::BTreeSet<String> {
+    let source = parsers::read_text_file(path).expect("reader source must be readable by the shared text boundary");
+    source
+        .lines()
+        .filter_map(|line| {
+            let declaration = line.trim_start().strip_prefix("pub fn ")?;
+            let name = declaration.split(['(', '<']).next()?.trim();
+            let file_reader = name != "parse_number"
+                && (name.starts_with("parse_")
+                || name.starts_with("read_")
+                || name.starts_with("extract_")
+                || name.starts_with("sniff_")
+                || name.starts_with("probe_")
+                || (module == "intake" && name == "probe"));
+            file_reader.then(|| format!("{module}::{name}"))
+        })
+        .collect()
+}
+
+/// SB-DIO-061 / SB-DIO-T91..T94. The four-part malformed-input contract and the
+/// synthetic-fixture rule are specified in `docs/PRD_v2/21_data-io.md` §§4.10, 6.10 and 7.1 O-9.
+#[test]
+fn malformed_input_is_located_counted_named_bounded_and_every_reader_runs_the_corpus_in_ci() {
+    let corpus = malformed_corpus_dir();
+    let malformed = [
+        corpus.join("malformed-short-las-row.las"),
+        corpus.join("malformed-bad-cells.csv"),
+    ];
+    for fixture in &malformed {
+        assert!(fixture.is_file(), "malformed corpus fixture is missing: {}", fixture.display());
+    }
+
+    // T94: source-derived inventory. A new public file reader changes `discovered`, and CI fails
+    // until an adapter is added above; a hand-maintained list cannot silently become stale.
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut discovered = discovered_file_readers("parsers", &src.join("parsers.rs"));
+    discovered.extend(discovered_file_readers("intake", &src.join("intake.rs")));
+    let registered: std::collections::BTreeSet<String> =
+        REGISTERED_FILE_READERS.iter().map(|name| (*name).to_string()).collect();
+    assert_eq!(discovered, registered, "wire every new reader into the malformed corpus before it ships");
+
+    // T91: the complete matrix runs in a worker with a deadline. Every call is also catch_unwind'd
+    // so one malformed fixture cannot take down the test process without naming reader and file.
+    let fixtures = malformed.to_vec();
+    let (send, recv) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut calls = 0usize;
+        for fixture in fixtures {
+            for reader in REGISTERED_FILE_READERS {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let _ = exercise_registered_reader(reader, &fixture);
+                }));
+                if result.is_err() {
+                    let _ = send.send(Err(format!("{reader} panicked on {}", fixture.display())));
+                    return;
+                }
+                calls += 1;
+            }
+        }
+        let _ = send.send(Ok(calls));
+    });
+    let calls = recv
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the malformed corpus reader matrix hung")
+        .expect("a malformed fixture panicked a reader");
+    assert_eq!(calls, malformed.len() * REGISTERED_FILE_READERS.len());
+
+    // T92: the LAS diagnostic names the file, first bad line, affected count and failed rule.
+    let short = &malformed[0];
+    for error in [parsers::parse_las_2(short).unwrap_err(), parsers::parse_las_2_all(short).unwrap_err()] {
+        let message = error.to_string();
+        assert!(message.contains("malformed-short-las-row.las"), "file absent: {message}");
+        assert!(message.contains("line 12"), "line absent: {message}");
+        assert!(message.contains("2 value(s)"), "affected count absent: {message}");
+        assert!(message.contains("~C declares 3 columns"), "failed rule absent: {message}");
+    }
+    let bad_cells = crate::intake::probe(
+        &malformed[1].to_string_lossy(),
+        &crate::intake::TableOptions::default(),
+    )
+    .unwrap();
+    assert!(bad_cells.path.ends_with("malformed-bad-cells.csv"));
+    assert_eq!(bad_cells.preview_bad, vec![(1, 1), (2, 2)], "row/column location and count");
+    assert!(bad_cells.notes.iter().any(|note| note.contains("2 cell(s)") && note.contains("did not read as a number")));
+
+    // T93: one valid, synthetic LAS seed is cut inside its final logical record at 100 distinct
+    // byte offsets. Both LAS readers must fail cleanly and locate every cut; none may accept a
+    // partial prefix as a shorter delivery.
+    let seed = corpus.join("truncation-seed.las");
+    assert!(parsers::parse_las_2(&seed).is_ok() && parsers::parse_las_2_all(&seed).is_ok());
+    let bytes = std::fs::read(&seed).unwrap();
+    let marker = b"\n1001.0000";
+    let last_row = bytes
+        .windows(marker.len())
+        .rposition(|window| window == marker)
+        .map(|index| index + 1)
+        .expect("seed has a second data record");
+    let temp = std::env::temp_dir().join(format!("sandibumi-dio-061-{}", std::process::id()));
+    std::fs::create_dir_all(&temp).unwrap();
+    for byte_offset in 1..=100usize {
+        let path = temp.join(format!("truncated-{byte_offset:03}.las"));
+        std::fs::write(&path, &bytes[..last_row + byte_offset]).unwrap();
+        for error in [parsers::parse_las_2(&path).unwrap_err(), parsers::parse_las_2_all(&path).unwrap_err()] {
+            let message = error.to_string();
+            assert!(message.contains(path.file_name().unwrap().to_str().unwrap()), "file absent: {message}");
+            assert!(message.contains("line ") && message.contains("ASCII row"), "located rule absent: {message}");
+        }
+        std::fs::remove_file(&path).unwrap();
+    }
+    std::fs::remove_dir(&temp).unwrap();
 }
