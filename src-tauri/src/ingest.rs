@@ -17,6 +17,8 @@ pub struct ImportResult {
     /// Set name the curves landed under when this file ATTACHED to an existing well
     /// (import-sets mode) instead of creating a new record. None = a well was created.
     pub attached_set: Option<String>,
+    /// Typed audit trail for every standard target that matched more than one LAS column.
+    pub alias_decisions: Vec<parsers::AliasDecision>,
 }
 
 /// Options for a LAS import batch (the Import LAS dialog's choices).
@@ -132,6 +134,7 @@ pub fn import_las_files_with(
                     warning: Some("cancelled before import".into()),
                     error: None,
                     attached_set: None,
+                    alias_decisions: Vec::new(),
                 };
             }
             if let Some(p) = progress {
@@ -141,7 +144,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new() },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -166,6 +169,7 @@ fn insert_parsed_well(
     opts: &LasImportOptions,
 ) -> ImportResult {
     let well_id = Uuid::new_v4();
+    let alias_decisions = columns.alias_decisions.clone();
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
@@ -186,6 +190,7 @@ fn insert_parsed_well(
                     warning: None,
                     error: Some(format!("unrecognized confirmed file depth unit '{raw}'")),
                     attached_set: None,
+                    alias_decisions: alias_decisions.clone(),
                 }
             }
         },
@@ -203,6 +208,7 @@ fn insert_parsed_well(
                 warning: None,
                 error: Some(error),
                 attached_set: None,
+                alias_decisions: alias_decisions.clone(),
             }
         }
     };
@@ -234,6 +240,7 @@ fn insert_parsed_well(
                 report.nonfinite, report.duplicate
             )),
             attached_set: None,
+            alias_decisions: alias_decisions.clone(),
         };
     }
 
@@ -273,7 +280,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone() }
             }
         };
         match stmt
@@ -282,12 +289,20 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone() }
             }
         }
     };
     if opts.attach && matches.len() == 1 {
-        let out = attach_curves_to_existing_well(conn, path, well_name, &matches[0], opts, notes);
+        let out = attach_curves_to_existing_well(
+            conn,
+            path,
+            well_name,
+            &matches[0],
+            opts,
+            notes,
+            alias_decisions.clone(),
+        );
         if out.error.is_none() {
             if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
                 if let Err(e) = crate::units::set_project_depth_unit(conn, unit) {
@@ -370,9 +385,9 @@ fn insert_parsed_well(
                 ));
             }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions },
     }
 }
 
@@ -388,6 +403,7 @@ fn attach_curves_to_existing_well(
     well_id: &str,
     opts: &LasImportOptions,
     notes: Vec<String>,
+    alias_decisions: Vec<parsers::AliasDecision>,
 ) -> ImportResult {
     let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
     match import_all_curves_into_generic_store_with_channel_nulls(
@@ -411,11 +427,12 @@ fn attach_curves_to_existing_well(
                 warning: (!notes.is_empty()).then(|| notes.join("; ")),
                 error: None,
                 attached_set: Some(set),
+                alias_decisions,
             }
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions },
     }
 }
 
@@ -1772,6 +1789,7 @@ mod tests {
             rhob: vec![f32::NAN; 3],
             dt: vec![f32::NAN; 3],
             sp: vec![f32::NAN; 3],
+            alias_decisions: Vec::new(),
         };
 
         // First import: a fresh well, no duplicate warning.
@@ -1793,6 +1811,55 @@ mod tests {
             r2.warning
         );
         assert_ne!(r1.well_id, r2.well_id, "still two distinct records (no auto-merge)");
+    }
+
+    /// SB-DIO-009 / SB-DIO-T14. The ordered NPHI aliases and finite-coverage
+    /// tie-break are specified in `docs/PRD_v2/21_data-io.md` §5.3.
+    #[test]
+    fn the_alias_result_names_the_chosen_and_passed_over_columns_with_both_coverage_counts() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join("sandibumi_alias_decision_coverage.las");
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. ALIASES :\n\
+             ~CURVE\nDEPT.M :\nGR.API :\nNPHIED.V/V :\nNPHI_LS.V/V :\n~ASCII\n\
+             1000.0 50.0 -999.25 0.20\n1000.5 51.0 -999.25 0.21\n",
+        )
+        .unwrap();
+        let result = import_las_files(
+            &conn,
+            &[path.to_str().unwrap().to_string()],
+            None,
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+
+        assert!(result.error.is_none(), "the fixture must import: {:?}", result.error);
+        assert_eq!(
+            result.alias_decisions.len(),
+            1,
+            "the single GR match is not reported as a choice, while the two NPHI matches are"
+        );
+        let decision = &result.alias_decisions[0];
+        assert_eq!(decision.target, "NPHI");
+        assert_eq!(decision.chosen, "NPHI_LS");
+        assert_eq!(
+            decision.candidates,
+            vec![
+                parsers::AliasCandidateCoverage {
+                    mnemonic: "NPHIED".into(),
+                    finite_samples: 0,
+                    chosen: false,
+                },
+                parsers::AliasCandidateCoverage {
+                    mnemonic: "NPHI_LS".into(),
+                    finite_samples: 2,
+                    chosen: true,
+                },
+            ],
+            "the per-file result carries both the chosen and passed-over coverage"
+        );
     }
 
     /// SB-DIO-015 / SB-DIO-T22..T24. The accepted depth-unit spellings and the

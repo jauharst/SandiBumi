@@ -122,6 +122,12 @@ export interface ImportResult {
   /** Set the curves landed under when this file ATTACHED to an existing well instead of
    *  creating a new record. null = a new well was created. */
   attached_set: string | null;
+  /** Every standard target for which multiple LAS aliases competed, including coverage. */
+  alias_decisions: Array<{
+    target: string;
+    chosen: string;
+    candidates: Array<{ mnemonic: string; finite_samples: number; chosen: boolean }>;
+  }>;
 }
 
 /** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */

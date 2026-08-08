@@ -87,6 +87,22 @@ pub struct LogDataRow {
     pub sp: Option<f32>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AliasCandidateCoverage {
+    pub mnemonic: String,
+    pub finite_samples: usize,
+    pub chosen: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AliasDecision {
+    pub target: String,
+    pub chosen: String,
+    /// Every matched candidate in alias-priority order. `chosen = false` names the
+    /// passed-over columns; the coverage beside each makes the decision auditable.
+    pub candidates: Vec<AliasCandidateCoverage>,
+}
+
 /// Columnar curve data ready to be handed to the DuckDB Appender.
 #[derive(Debug, Clone, Default)]
 pub struct CurveColumns {
@@ -102,6 +118,8 @@ pub struct CurveColumns {
     pub rhob: Vec<f32>,
     pub dt: Vec<f32>,
     pub sp: Vec<f32>,
+    /// Present only where more than one incoming mnemonic matched one standard target.
+    pub alias_decisions: Vec<AliasDecision>,
 }
 
 /// Parses a generic curve CSV export into columnar arrays, mapping missing values to `f32::NAN`.
@@ -494,24 +512,53 @@ pub fn parse_las_2_with_null_rules<P: AsRef<Path>>(
     // broken by alias priority, since we scan in priority order and only replace on strictly
     // greater coverage). This skips all-null placeholder columns in favour of a populated one.
     let n = cols.depth.len();
-    let pick = |cands: &[Vec<f32>]| -> Vec<f32> {
-        let mut best: Option<&Vec<f32>> = None;
+    let pick = |target: &str, indices: &[usize], cands: &[Vec<f32>]| -> (Vec<f32>, Option<AliasDecision>) {
+        let mut best: Option<usize> = None;
         let mut best_finite: i64 = -1;
-        for c in cands {
+        let mut coverages = Vec::with_capacity(cands.len());
+        for (slot, c) in cands.iter().enumerate() {
             let finite = c.iter().filter(|v| !v.is_nan()).count() as i64;
             if finite > best_finite {
                 best_finite = finite;
-                best = Some(c);
+                best = Some(slot);
             }
+            coverages.push(finite as usize);
         }
-        best.cloned().unwrap_or_else(|| vec![f32::NAN; n])
+        let values = best.map(|slot| cands[slot].clone()).unwrap_or_else(|| vec![f32::NAN; n]);
+        let decision = (indices.len() > 1).then(|| {
+            let chosen_slot = best.expect("multiple candidates always choose one");
+            let candidates = indices
+                .iter()
+                .enumerate()
+                .map(|(slot, index)| AliasCandidateCoverage {
+                    mnemonic: curve_names[*index].clone(),
+                    finite_samples: coverages[slot],
+                    chosen: slot == chosen_slot,
+                })
+                .collect();
+            AliasDecision {
+                target: target.to_string(),
+                chosen: curve_names[indices[chosen_slot]].clone(),
+                candidates,
+            }
+        });
+        (values, decision)
     };
-    cols.gr = pick(&cand_buf[0]);
-    cols.res = pick(&cand_buf[1]);
-    cols.nphi = pick(&cand_buf[2]);
-    cols.rhob = pick(&cand_buf[3]);
-    cols.dt = pick(&cand_buf[4]);
-    cols.sp = pick(&cand_buf[5]);
+    let targets = ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
+    let mut picked = Vec::with_capacity(6);
+    for k in 0..6 {
+        let (values, decision) = pick(targets[k], &cand[k], &cand_buf[k]);
+        picked.push(values);
+        if let Some(decision) = decision {
+            cols.alias_decisions.push(decision);
+        }
+    }
+    cols.gr = picked.remove(0);
+    cols.res = picked.remove(0);
+    cols.nphi = picked.remove(0);
+    cols.rhob = picked.remove(0);
+    cols.dt = picked.remove(0);
+    cols.sp = picked.remove(0);
 
     Ok(cols)
 }
@@ -2608,6 +2655,7 @@ mod las_depth_tests {
             rhob: seq.clone(),
             dt: seq.clone(),
             sp: seq,
+            alias_decisions: Vec::new(),
         }
     }
 
