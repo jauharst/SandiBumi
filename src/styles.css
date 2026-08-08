@@ -5648,6 +5648,62 @@ textarea {
   margin-bottom: 8px;
   line-height: 1.45;
 }
+
+/* The cluster fingerprint table. Data UI, so it stays DENSE — the Organic split is chrome goes
+   warm and rounded, grids and tables keep their professional density. A field with forty-six
+   clusters has to fit on a laptop. */
+.ml-clusters {
+  margin: 10px 0 6px;
+}
+.ml-cluster-table {
+  width: 100%;
+}
+.ml-cluster-table td {
+  vertical-align: top;
+  white-space: nowrap;
+}
+.ml-cluster-id {
+  font-variant-numeric: tabular-nums;
+}
+.ml-cluster-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-sm, 3px);
+  margin-right: 6px;
+  vertical-align: baseline;
+  border: 1px solid rgb(0 0 0 / 0.18);
+}
+/* The share bar sits BEHIND the count rather than beside it, so a forty-six-cluster table does not
+   pay a whole column for it and the eye still finds the two clusters carrying the field. */
+.ml-cluster-n {
+  position: relative;
+  min-width: 120px;
+  font-variant-numeric: tabular-nums;
+}
+.ml-cluster-bar {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  background: var(--accent-soft, #f4e3d5);
+  border-radius: var(--r-sm, 3px);
+  z-index: 0;
+}
+.ml-cluster-count {
+  position: relative;
+  z-index: 1;
+}
+.ml-cluster-mean {
+  font-variant-numeric: tabular-nums;
+}
+/* The range is subordinate to the mean but must stay legible — it is what turns this from a table
+   of averages into something a merge decision can be made from. */
+.ml-cluster-range {
+  font-size: var(--fs-xs, 11px);
+  color: var(--text-dim, #6f6857);
+  font-variant-numeric: tabular-nums;
+}
 .ml-seg-card {
   border: 1px solid var(--border, #e6ded0);
   border-radius: var(--r-lg, 12px);

@@ -26,7 +26,7 @@ import {
 } from "../ipc";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup, setStatus } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
-import { FACIES_PALETTE } from "./plotCanvas";
+import { FACIES_PALETTE, faciesColor } from "./plotCanvas";
 import { formRow } from "./modal";
 import { buildParamSources } from "./paramSources";
 import { recordProcess } from "../processLog";
@@ -2779,6 +2779,11 @@ export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: st
   const segs = (res.metrics as Record<string, unknown> | null)?.["coverage_segments"];
   if (Array.isArray(segs)) renderCoverageSegments(host, segs as CoverageSegment[]);
 
+  const cstats = (res.metrics as Record<string, unknown> | null)?.["cluster_stats"];
+  if (Array.isArray(cstats)) {
+    renderClusterTable(host, cstats as ClusterStat[], (res.metrics as Record<string, unknown>) ?? {});
+  }
+
   if (res.metrics && typeof res.metrics === "object") {
     renderEffectiveParams(host, res.metrics as Record<string, unknown>);
     const table = document.createElement("table");
@@ -2786,6 +2791,11 @@ export function renderResults(host: HTMLElement, res: MlResult, nameOf?: (id: st
     for (const [key, value] of Object.entries(res.metrics)) {
       if (key === "effective_params") continue; // shown as its own table above
       if (key === "coverage_segments") continue; // its own table above; `fmtMetric` would print JSON
+      // Both are rendered as the cluster table above. `cluster_sizes` in particular was ONLY ever
+      // visible here, as a JSON blob in a generic key/value row — the numbers were being emitted
+      // and shown, just not in a form anybody could act on.
+      if (key === "cluster_stats") continue;
+      if (key === "cluster_sizes") continue;
       const tr = document.createElement("tr");
       const th = document.createElement("th");
       th.textContent = key;
@@ -2955,6 +2965,140 @@ function renderMultiResults(
  * A segment that was NOT fitted keeps its card and states why in full. A skipped model that simply
  * vanished would leave blank rock with no visible cause.
  */
+/** One input curve's distribution inside one cluster, as the runner reports it. */
+interface ClusterCurveStat {
+  n: number;
+  mean: number;
+  sd: number;
+  p10: number;
+  p50: number;
+  p90: number;
+}
+/** One cluster's fingerprint: how many samples, and what each input curve looked like in it. */
+interface ClusterStat {
+  cluster: number;
+  n: number;
+  curves: Record<string, ClusterCurveStat>;
+}
+
+const fmtStat = (v: number): string =>
+  !Number.isFinite(v)
+    ? "—"
+    : Math.abs(v) >= 1e4 || (v !== 0 && Math.abs(v) < 1e-3)
+      ? v.toExponential(2)
+      : v.toPrecision(4);
+
+/**
+ * What a clustering run actually found — one row per cluster, in the curves' own units.
+ *
+ * **"Cluster", not "facies"** (Jauhar, 2026-08-08: *"'facies' is just cluster … just say it
+ * cluster"*). A cluster becomes a facies only once somebody has merged and named it. Before that it
+ * is a group of samples, and the same model is as likely to be feeding a propagated curve as a
+ * lithology track — naming the object after one of its two uses is what made this table look like a
+ * facies feature and kept it from being built.
+ *
+ * Every number here already existed and none of it was readable. `cluster_sizes` was emitted by the
+ * runner and rendered nowhere; the per-cluster means were computed only to order the labels and then
+ * discarded. What was missing was somewhere to read them — without which the decision this table
+ * exists for, which clusters are the same rock, has to be made off a crossplot by eye.
+ *
+ * **Mean with the P10–P90 beneath it, not a mean alone.** A column of means cannot tell a tight
+ * cluster from a smeared one, and that is precisely the merge decision: two clusters with the same
+ * mean and no overlap are two rocks that happen to average alike, two with the same mean and
+ * overlapping ranges are one rock split in half. Techlog's equivalent shows the mean and puts the
+ * spread in a histogram thumbnail; the range is the same information in a cell that stays readable.
+ */
+function renderClusterTable(
+  host: HTMLElement,
+  stats: ClusterStat[],
+  metrics: Record<string, unknown>,
+): void {
+  if (!stats.length) return;
+  const curveNames = [...new Set(stats.flatMap((s) => Object.keys(s.curves)))];
+  const total = stats.reduce((a, s) => a + s.n, 0);
+  const rejected = typeof metrics["n_rejected"] === "number" ? (metrics["n_rejected"] as number) : 0;
+
+  const box = document.createElement("div");
+  box.className = "ml-clusters";
+
+  const cap = document.createElement("div");
+  cap.className = "ml-seg-cap";
+  cap.textContent =
+    `${stats.length} cluster${stats.length === 1 ? "" : "s"} over ${total.toLocaleString()} samples, ` +
+    `numbered by ascending ${curveNames[0] ?? "first curve"} — so the ids run from one end of that curve to the other. ` +
+    `Each cell is the cluster's mean with its P10–P90 beneath. Two clusters with the same mean and no overlap are two rocks; ` +
+    `two with the same mean and overlapping ranges are one rock split in half.` +
+    (rejected
+      ? ` ${rejected.toLocaleString()} sample${rejected === 1 ? "" : "s"} belonged to no cluster and ${rejected === 1 ? "is" : "are"} excluded from every column.`
+      : "");
+  box.appendChild(cap);
+
+  const table = document.createElement("table");
+  table.className = "mc-table ml-cluster-table";
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  for (const label of ["Cluster", "Samples", ...curveNames]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const s of stats) {
+    const tr = document.createElement("tr");
+
+    const idCell = document.createElement("td");
+    idCell.className = "ml-cluster-id";
+    const sw = document.createElement("span");
+    sw.className = "ml-cluster-swatch";
+    // The same palette the log track and the crossplot use, so a row here and a band on the plot
+    // are recognisably the same cluster. A separate colour scheme would make this table something
+    // you have to translate before you can act on it.
+    sw.style.background = faciesColor(s.cluster);
+    idCell.append(sw, document.createTextNode(String(s.cluster)));
+    tr.appendChild(idCell);
+
+    const nCell = document.createElement("td");
+    nCell.className = "ml-cluster-n";
+    const pct = total ? (s.n / total) * 100 : 0;
+    const bar = document.createElement("span");
+    bar.className = "ml-cluster-bar";
+    bar.style.width = `${Math.max(1, Math.round(pct))}%`;
+    const nTxt = document.createElement("span");
+    nTxt.className = "ml-cluster-count";
+    nTxt.textContent = `${s.n.toLocaleString()} · ${pct.toFixed(1)}%`;
+    nCell.append(bar, nTxt);
+    tr.appendChild(nCell);
+
+    for (const c of curveNames) {
+      const td = document.createElement("td");
+      const st = s.curves[c];
+      if (!st) {
+        // The cluster exists but this curve was missing across all of its samples. A dash, never a
+        // zero — the workbook's blank-is-not-a-zero rule, and here a zero would be a real value
+        // for most of these curves.
+        td.textContent = "—";
+        tr.appendChild(td);
+        continue;
+      }
+      const mean = document.createElement("div");
+      mean.className = "ml-cluster-mean";
+      mean.textContent = fmtStat(st.mean);
+      const rng = document.createElement("div");
+      rng.className = "ml-cluster-range";
+      rng.textContent = `${fmtStat(st.p10)} – ${fmtStat(st.p90)}`;
+      td.append(mean, rng);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  box.appendChild(table);
+  host.appendChild(box);
+}
+
 function renderCoverageSegments(host: HTMLElement, segments: CoverageSegment[]): void {
   if (!segments.length) return;
   const fitted = segments.filter((s) => !s.skipped);

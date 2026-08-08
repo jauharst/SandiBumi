@@ -1557,6 +1557,11 @@ elif task == "clustering":
     if n_reject:
         out[labels < 0] = CLUSTER_REJECT
     metrics["cluster_sizes"] = {str(remap[c]): int(np.sum(labels == c)) for c in order}
+    # The per-cluster fingerprint is built on the RUST side (`cluster_table`), not here. The runner
+    # is only told the curve names when a model is being saved, which for an unsupervised task is
+    # never - which is why the balance table is built there too, and why it used to read x0, x1, x2.
+    # Rust has the names, the raw matrix and the labels this run just produced, and `distribution.rs`
+    # is the product's one percentile definition rather than a second one written in numpy.
     # Both density methods REJECT samples rather than forcing every one into a cluster, so both owe
     # the reader the count. Leaving HDBSCAN out of this would have been the easy miss: its curve
     # would carry CLUSTER_REJECT values with nothing anywhere saying how many, and a facies track
@@ -5411,6 +5416,86 @@ fn balance_shape(values: &[f32], lo: f32, hi: f32) -> serde_json::Value {
 /// the shared statistics core and a third implementation in Python is exactly the drift this repo
 /// keeps warning about. Doing it in Rust is also what lets the feature curves be NAMED: the runner
 /// only receives names when a model is being saved, so the old table read `x0`, `x1`, `x2`.
+/// What a clustering run actually found: one entry per cluster, in the curves' OWN units.
+///
+/// **In Rust, not the runner**, for the same reason `balance_table` below is: the subprocess is only
+/// told the curve names when a model is being saved, which for an unsupervised task never happens —
+/// so a table built there would be headed `x0`, `x1`, `x2`. Everything needed is on this side: the
+/// names, the raw apply matrix, and the labels the run just produced. It also keeps
+/// [`crate::distribution::percentile`] as the product's ONE percentile definition rather than
+/// growing a second one in numpy that agrees with it until somebody changes one of them.
+///
+/// **`x_apply`, so the numbers are in the curves' own units.** The run standardises before it
+/// clusters, and the standardised matrix is what is in hand at the moment the runner would report
+/// this. A table of z-scores looks like perfectly reasonable numbers and cannot be checked against a
+/// cutoff, a chartbook or another well — which is every use it has.
+///
+/// **Rejected and never-evaluated samples are both left out of every column.** A sample the
+/// algorithm refused is a finding about that rock and belongs in the reject count; averaged into a
+/// cluster it was refused from, it would move that cluster's mean toward rock that is not in it.
+fn cluster_table(
+    feature_names: &[String],
+    d: usize,
+    x_apply: &[f32],
+    labels: &[f32],
+) -> Vec<serde_json::Value> {
+    if d == 0 || feature_names.len() != d || labels.is_empty() {
+        return Vec::new();
+    }
+    let r4 = |x: f64| (x * 1e4).round() / 1e4;
+
+    let mut ids: Vec<i64> =
+        labels.iter().filter(|v| v.is_finite() && **v >= 0.0).map(|v| v.round() as i64).collect();
+    ids.sort_unstable();
+    ids.dedup();
+
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        let rows: Vec<usize> = labels
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_finite() && **v >= 0.0 && v.round() as i64 == id)
+            .map(|(i, _)| i)
+            .collect();
+        let mut curves = serde_json::Map::new();
+        for (j, name) in feature_names.iter().enumerate() {
+            let mut vals: Vec<f32> = rows
+                .iter()
+                .filter_map(|&i| x_apply.get(i * d + j).copied())
+                .filter(|v| v.is_finite())
+                .collect();
+            if vals.is_empty() {
+                continue;
+            }
+            let n = vals.len() as f64;
+            let mean = vals.iter().map(|v| *v as f64).sum::<f64>() / n;
+            let var = vals.iter().map(|v| (*v as f64 - mean).powi(2)).sum::<f64>() / n;
+            vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            curves.insert(
+                name.clone(),
+                serde_json::json!({
+                    "n": vals.len(),
+                    "mean": r4(mean),
+                    "sd": r4(var.sqrt()),
+                    // The spread, and it is not decoration: a mean alone cannot tell a tight cluster
+                    // from a smeared one, and that IS the merge decision. Two clusters with the same
+                    // mean and no overlap are two rocks that happen to average alike; two with the
+                    // same mean and overlapping ranges are one rock split in half.
+                    "p10": r4(crate::distribution::percentile(&vals, 10.0) as f64),
+                    "p50": r4(crate::distribution::percentile(&vals, 50.0) as f64),
+                    "p90": r4(crate::distribution::percentile(&vals, 90.0) as f64),
+                }),
+            );
+        }
+        out.push(serde_json::json!({
+            "cluster": id,
+            "n": rows.len(),
+            "curves": serde_json::Value::Object(curves),
+        }));
+    }
+    out
+}
+
 fn balance_table(
     names: &[String],
     d: usize,
@@ -5588,6 +5673,20 @@ pub(crate) fn exec_ml_full(
     if !balance.is_empty() {
         if let Some(obj) = metrics.as_object_mut() {
             obj.insert("split_balance".into(), serde_json::Value::Array(balance));
+        }
+    }
+    // Same argument as the balance table directly above, and the same place for it: the runner is
+    // told the curve names only when a model is being saved, which for an unsupervised task never
+    // happens. Everything needed is here — the names, the raw apply matrix, and the labels the run
+    // just produced.
+    if task == "clustering" {
+        if let Some(labels) = outs.first().map(|(_, v)| v.as_slice()) {
+            let table = cluster_table(feature_names, d, x_apply, labels);
+            if !table.is_empty() {
+                if let Some(obj) = metrics.as_object_mut() {
+                    obj.insert("cluster_stats".into(), serde_json::Value::Array(table));
+                }
+            }
         }
     }
     Ok(MlRun {
@@ -9967,6 +10066,20 @@ mod tests {
     /// the only job it exists for — telling the reader the prediction there is an extrapolation.
     #[test]
     fn a_knn_band_is_the_neighbours_own_values_and_its_distance_warns_off_the_fitted_range() {
+        // The runner writes these three suffixes as Python string literals, while the naming and
+        // unit rules on this side match on constants. Same-string agreement is the whole basis for
+        // the band being nameable: a runner emitting "_LO" would produce three curves that
+        // `out_name_for` and `unit_for_output` have never heard of, and they would be written with
+        // no unit and no transform-aware name, silently. Checked before the interpreter guard below
+        // so this half runs on every machine, python or not.
+        let rt = ml_runner();
+        for s in [BAND_MIN_SUFFIX, BAND_MAX_SUFFIX, BAND_DIST_SUFFIX] {
+            assert!(
+                rt.contains(&format!("(\"{s}\",")),
+                "the runner must emit the {s} output under exactly that name",
+            );
+        }
+
         let Some(py) = python_with_sklearn() else {
             eprintln!("skipping: no python+sklearn on this machine");
             return;
@@ -10048,6 +10161,97 @@ mod tests {
             "the distance curve needs the fitted rock's own distance as a scale to be read \
              against, or a reader has no way to tell 0.8 from far: {met}",
         );
+    }
+
+    /// The cluster table is what the merge decision is made from, and both halves of a cell have to
+    /// be right or it cannot support one.
+    ///
+    /// **Own units, pinned by the value.** The run standardises before clustering, so the mean is
+    /// sitting in a standardised matrix at the moment it would be easiest to report — and a table of
+    /// z-scores reads as perfectly reasonable numbers. It just cannot be checked against a cutoff, a
+    /// chartbook or another well, which is every use it has. A cluster centred on 20 API must report
+    /// about 20, not about −1.
+    ///
+    /// **The range is real spread, pinned from both sides.** A tight cluster must report a narrow
+    /// P10–P90 and a smeared one a wide one. Without the first half a runner emitting a constant
+    /// passes; without the second, one emitting zero width passes. The distinction is the whole
+    /// point: two clusters with the same mean and no overlap are two rocks, two with the same mean
+    /// and overlapping ranges are one rock split in half, and a column of means makes them identical.
+    #[test]
+    fn a_cluster_table_reports_each_cluster_in_its_own_units_and_its_real_spread() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+
+        // Two groups far enough apart that the partition is not in question — this test is about
+        // what gets REPORTED about them, not about whether k-means can find them. The first group
+        // is deliberately tight and the second deliberately smeared, on the same curve.
+        let mut x: Vec<f32> = Vec::new();
+        for i in 0..150 {
+            x.push(19.5 + (i % 3) as f32 * 0.5);
+            x.push(2.20 + (i % 5) as f32 * 0.01);
+        }
+        for i in 0..150 {
+            x.push(100.0 + (i % 41) as f32);
+            x.push(2.60 + (i % 5) as f32 * 0.01);
+        }
+        let names = vec!["GR".to_string(), "RHOB".to_string()];
+
+        let run = exec_ml_full(
+            &py,
+            "clustering",
+            "kmeans",
+            &params(&[("k", serde_json::json!(2))]),
+            2,
+            &x,
+            None,
+            &x,
+            300,
+            &names,
+            &[],
+            None,
+            None,
+            &[],
+            &NormBasis::Data,
+        )
+        .expect("clustering ran");
+
+        let stats = run
+            .metrics
+            .get("cluster_stats")
+            .and_then(|v| v.as_array())
+            .expect("a clustering run must report its cluster table");
+        assert_eq!(stats.len(), 2, "two separated groups, two clusters: {stats:?}");
+
+        let gr = |i: usize, key: &str| {
+            stats[i]["curves"]["GR"][key]
+                .as_f64()
+                .unwrap_or_else(|| panic!("cluster {i} reports no GR {key}: {stats:?}"))
+        };
+
+        // Ids are ordered by ascending first-feature mean, so cluster 0 is the tight low-GR group.
+        assert!(
+            (gr(0, "mean") - 20.0).abs() < 2.0,
+            "the table must be in the CURVE'S OWN units - a standardised mean would be near -1 here \
+             and could not be read against a cutoff or another well: got {}",
+            gr(0, "mean"),
+        );
+
+        let tight = gr(0, "p90") - gr(0, "p10");
+        let smeared = gr(1, "p90") - gr(1, "p10");
+        assert!(
+            tight < 2.0,
+            "a tight cluster must report a narrow range, or the range says nothing: {tight}",
+        );
+        assert!(
+            smeared > 20.0,
+            "a smeared cluster must report a wide one, or a runner writing zero width would pass \
+             the half above and the table could not tell two rocks from one split in half: {smeared}",
+        );
+
+        let total: i64 = stats.iter().map(|s| s["n"].as_i64().unwrap_or(0)).sum();
+        assert_eq!(total, 300, "every clustered sample belongs to exactly one row: {stats:?}");
     }
 
     /// Two sides of a split can agree exactly on mean and standard deviation and still be different

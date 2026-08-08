@@ -9961,3 +9961,41 @@ feature set and off the end of the world in another.
       visibly smoother; decide for yourself which one you would defend in a report.
 - [ ] **Save the model and re-apply it in a later session.** The band and distance must come back
       identically — the fitted targets travel inside the artifact.
+
+## The cluster table — reading what a clustering run actually found
+
+**"Cluster", not "facies", from here on.** A cluster becomes a facies only once you have merged and
+named it. Before that it is a group of samples, and the same model is as likely to be feeding a
+propagated curve as a lithology track — calling the object "facies" is what made this look like an
+electrofacies feature and kept it from being built.
+
+**The numbers already existed and none of them were readable.** `cluster_sizes` was emitted by the
+runner and rendered nowhere except as a JSON blob in the generic metrics rows; the per-cluster means
+were computed only to order the labels, then thrown away. So a clustering run told you how good the
+separation was (silhouette) without telling you what it had separated.
+
+A clustering run now shows one row per cluster: a colour swatch matching the log track and the
+crossplot, the sample count with a share bar behind it, and then one column per input curve. Each
+cell is the cluster's **mean**, with its **P10–P90** beneath.
+
+**The range is there because a column of means cannot support the decision you make from this
+table.** Two clusters with the same mean and no overlap are two rocks that happen to average alike.
+Two with the same mean and overlapping ranges are one rock split in half. A mean alone makes those
+identical, and merging is exactly the choice between them.
+
+Built in Rust rather than in the Python runner, so it uses the same percentile definition as every
+histogram and box plot in the product, and so the columns carry your curve names — the runner is
+only told those when a model is being saved, which for clustering never happens.
+
+- [ ] **Run any clustering and read the table.** The ids run from one end of the first curve to the
+      other; confirm that ordering makes sense for the curve you put first.
+- [ ] **Look for two clusters with similar means.** Check their P10–P90. Overlapping ranges are your
+      merge candidates; separated ranges are two real rocks that happen to average alike.
+- [ ] **Check the numbers are in the curve's own units** — GR should read like GR, not like a
+      z-score. Cross-check one against a histogram of the same interval.
+- [ ] **Deliberately over-cluster** (say k = 20 on a well you know) and see whether the table makes
+      the merge decisions obvious. That is the workflow this is meant to support.
+- [ ] **Run DBSCAN or HDBSCAN** and confirm the rejected count is stated below the caption and that
+      rejected samples are excluded from every column rather than dragging a cluster's mean.
+- [ ] **Compare a swatch colour against the FACIES track** in a log view — they should be the same
+      colour for the same id.
