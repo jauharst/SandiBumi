@@ -1967,26 +1967,16 @@ evidence rather than judgement.
 
 ### 7.3 Refusals
 
+Two kinds, listed separately per `CONTRACT.md` §2.2.1.
+
+#### 7.3.1 Transcription refusals — rule compliance
+
 **R1 — No M–N crossplot shale volume** until E1 resolves (SB-CLY-025). Three products offer it. The
 absence is recorded as a decision with a reason.
 
 **R2 — No vendor chart lookup-table data.** The only chart referenced anywhere in this chapter is
 the M–N chart in E1, cited by existence, attribution and purpose only. No `.neu`, `.ovl`, `.itt`,
 `.itp`, `.att`, `.bor` or `.eli` content was read or reproduced.
-
-**R3 — No Tier-C item is touched.** Nothing in this domain involves Experienced Eye/EEFS, Domain
-Transfer Analysis, Omovie Sonic Saturation, entropy image speed-correction, shipped neural-network
-weight DLLs, Textural Facies `Freq_Tiles` encoding, or frequency-domain dispersion fits. No
-requirement above is a Tier-C item under another name.
-
-**R4 — Refuse to transcribe the printed sonic-density denominator** (SB-CLY-022). The vendor's
-shipped equation image carries a sign defect. SandiBumi implements the canonical cross-product form,
-which is correct regardless of how E3 resolves.
-
-**R5 — Refuse the corpus's organic-shale form in favour of the vendor's** (SB-CLY-047). An internal
-ingest report omits the renormalising denominator; both editions of the vendor page carry it,
-character-identical. The report is wrong by 23 % on a realistic organic interval. Following the
-vendor here is following the primary source, not the vendor.
 
 **R6 — Refuse to iterate kerogen and heavy-mineral volumes inside the clay module** (SB-CLY-049).
 They are inputs. Where unknown, the module refuses.
@@ -2006,6 +1996,21 @@ error. It is a place to start a search, nothing more.
 realisation quoted (`P3 = 53.68`, `P97 = 133.93 gAPI`) is carried from a delivered-study record
 already in the corpus and is used only to show that the house percentile preset has a realisation,
 not to propose it as a default.
+
+#### 7.3.2 Defect refusals — vendor behaviour SandiBumi declines to reproduce
+
+**R4 — Refuse to transcribe the printed sonic-density denominator** (SB-CLY-022). The vendor's
+shipped equation image carries a sign defect. SandiBumi implements the canonical cross-product form,
+which is correct regardless of how E3 resolves.
+
+**R5 — Refuse the corpus's organic-shale form in favour of the vendor's** (SB-CLY-047). An internal
+ingest report omits the renormalising denominator; both editions of the vendor page carry it,
+character-identical. The report is wrong by 23 % on a realistic organic interval. Following the
+vendor here is following the primary source, not the vendor.
+
+### 7.4 Independent-derivation requirements
+
+No Tier-C item falls in this domain.
 
 ---
 
