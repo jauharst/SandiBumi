@@ -240,6 +240,13 @@ const TASKS: TaskSpec[] = [
         // fails if these drift.
         params: [num("C", "C", 10), num("epsilon", "epsilon", 0.1),
                  num("max_iter", "max iterations (-1 = no limit)", 500)] },
+      { id: "knn", label: "K-Nearest Neighbors",
+        // The propagation algorithm. Unlike the ensembles it returns a blend of MEASURED target
+        // values from similar rock rather than a fitted surface, so it does not regress toward the
+        // mean — and it is the only one that can say how far the nearest real rock was.
+        desc: "Blends measured values from rock with similar inputs — the propagation choice. Also writes a neighbour range and a distance curve saying where the prediction is extrapolating.",
+        params: [num("k_neighbors", "neighbours", 5),
+                 sel("weights", "neighbour weighting", "uniform", ["uniform", "distance"])] },
       { id: "ann", label: "Neural Network (MLP)",
         desc: "Multi-layer perceptron for complex multi-curve patterns; needs plenty of data.",
         params: [txt("hidden", "hidden layers", "64,32"), num("max_iter", "max iterations", 500)] },

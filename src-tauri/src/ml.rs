@@ -150,6 +150,24 @@ def build_model(task, algo, p, seed):
             # truncated fit is never quoted as a score.
             return SVR(C=float(P(p, "C", 10.0)), epsilon=float(P(p, "epsilon", 0.1)),
                        max_iter=int(P(p, "max_iter", SVM_DEFAULT_MAX_ITER))), None
+        if algo == "knn":
+            from sklearn.neighbors import KNeighborsRegressor
+            # Here beside the ensembles rather than instead of them, because it answers a different
+            # question. A tree ensemble predicts an average of averages: smooth, and it will never
+            # return a value the training data did not roughly contain but also never returns one it
+            # DID contain - it regresses toward the mean and flattens exactly the contrast a
+            # synthetic curve is made to recover. k-NN returns a blend of MEASURED target values
+            # from rock with similar inputs, which is what a propagated log is supposed to be.
+            #
+            # n_neighbors and weights are scikit-learn's OWN documented defaults (5, "uniform").
+            # These are algorithm settings and not petrophysical ones, so the library's default is
+            # the citable choice; "distance" is offered because in a standardised space an
+            # unweighted mean treats a near-identical rock and a marginal one alike.
+            w = str(P(p, "weights", "uniform")) or "uniform"
+            if w not in ("uniform", "distance"):
+                fail("unknown k-NN weighting '" + w + "' - use uniform or distance")
+            return KNeighborsRegressor(n_neighbors=max(1, int(P(p, "k_neighbors", 5))),
+                                       weights=w), None
         if algo == "ann":
             from sklearn.neural_network import MLPRegressor
             hidden = tuple(int(t) for t in str(P(p, "hidden", "64,32")).replace(" ", "").split(",") if t)
@@ -213,6 +231,23 @@ const BACK_SUFFIX: &str = "\u{1}BACK";
 /// prediction keeps the base name, so the defensible curve is the one you get by default and the
 /// textured one has to be asked for by name.
 pub(crate) const SIM_SUFFIX: &str = "_SIM";
+
+/// The k-NN neighbour BAND — the smallest and largest MEASURED target value among the k nearest
+/// rocks — and the mean distance to them.
+///
+/// Three curves rather than one summary number because they answer the reader's three questions in
+/// the order they get asked: what is the value, how tightly did the rock that supports it agree,
+/// and was there any such rock at all. `_DIST` is the one this product has never had — every
+/// predicted curve it writes has been quotable with no statement of whether the model had ever seen
+/// anything like the interval it was predicting, which is how a synthetic log gets read as a
+/// measured one.
+///
+/// **`_MIN`/`_MAX` are not a confidence interval.** They are the observed range of real values in
+/// the neighbourhood, so the band is lopsided wherever the neighbourhood is, and it must never be
+/// re-described as the prediction ± anything — that would claim a fitted distribution nobody fitted.
+pub(crate) const BAND_MIN_SUFFIX: &str = "_MIN";
+pub(crate) const BAND_MAX_SUFFIX: &str = "_MAX";
+pub(crate) const BAND_DIST_SUFFIX: &str = "_DIST";
 
 /// The unit a quantity is in, from wherever the catalog happens to record it.
 ///
@@ -794,6 +829,35 @@ def _runtime():
         except Exception:
             out[_n] = None
     return out
+
+
+def knn_band(model, As, y_train):
+    """The neighbours' own MEASURED target values, and how far away they were.
+
+    Shared by the fitting runner and the apply runner deliberately. A saved model exists to be
+    propagated to wells it has never seen, so the band written on apply has to be the same
+    quantity as the band written on the fitting wells - two implementations of "the neighbour
+    range" would let a curve mean one thing in the wells that trained it and another everywhere
+    else, with nothing on the plot to show which.
+
+    `_MIN` / `_MAX` are the SMALLEST and LARGEST real target value among the K nearest rocks.
+    That is not a confidence interval and not the prediction plus or minus anything: it says
+    "the closest K rocks we have measured had PEF between 3.1 and 4.8". A sigma would imply a
+    fitted distribution nobody fitted, and would be symmetric about the prediction, which this
+    deliberately is not - a lopsided band is the honest picture of a lopsided neighbourhood.
+
+    `_DIST` is the MEAN distance to those K neighbours in the STANDARDISED feature space, and it
+    is the curve that turns a prediction into something anyone can check. Near zero means the
+    training set contains rock like this and the value is an interpolation between things that
+    were measured; large means nothing in the training set looks like this and the value is an
+    extrapolation the model has no basis for. Every predicted curve in this product has been
+    quotable without that qualifier, which is how a synthetic log gets read as a measured one.
+    """
+    dist, idx = model.kneighbors(As)
+    nb = np.asarray(y_train, dtype=np.float64)[idx]
+    return [("_MIN", np.min(nb, axis=1).astype(np.float32)),
+            ("_MAX", np.max(nb, axis=1).astype(np.float32)),
+            ("_DIST", np.mean(dist, axis=1).astype(np.float32))]
 "#;
 
 /// The training runner: the shared constants, the runtime probe, the shared estimator definitions,
@@ -1282,6 +1346,28 @@ if task == "regression":
     blind_score(model, "r2")
     base_pred = model.predict(As).astype(np.float32)
     outs.append(("", base_pred))
+    if hasattr(model, "kneighbors"):
+        outs.extend(knn_band(model, As, yf))
+        # What "far" MEANS, in the same units as the _DIST curve. A distance with no reference is
+        # a number nobody can act on: 0.8 is unremarkable in one feature set and off the end of the
+        # world in another. These two are what the fitted rock itself looked like, so a _DIST well
+        # above them is the run saying it has left the data behind.
+        #
+        # k+1 neighbours with the first column dropped, because every fitting sample is in the
+        # index and would otherwise match ITSELF at distance zero - a reference that flattered
+        # every comparison made against it.
+        kq = int(getattr(model, "n_neighbors", 5))
+        if len(Xf) > kq:
+            dtr, _ = model.kneighbors(Xf, n_neighbors=kq + 1)
+            dtr = np.mean(dtr[:, 1:], axis=1)
+            metrics["knn_dist_train_p50"] = round(float(np.percentile(dtr, 50)), 4)
+            metrics["knn_dist_train_p90"] = round(float(np.percentile(dtr, 90)), 4)
+            name_protocol("knn_dist_train_p50",
+                          "the typical distance from a FITTING sample to its k nearest neighbours, "
+                          "excluding itself - the scale the _DIST curve should be read against")
+            name_protocol("knn_dist_train_p90",
+                          "the 90th percentile of that distance - a _DIST above this is rock the "
+                          "fitting set barely covered, and the prediction there is an extrapolation")
     # Round-3 item 5, second half. OFF by default: the plain prediction is the defensible curve,
     # and a textured one that arrived without being asked for would be quoted as a measurement.
     if bool(P(p, "spectral_texture", False)):
@@ -1606,9 +1692,15 @@ if save_model and supervised:
         # the scaler would absorb none of it, and the numbers stay in range and look plausible.
         # Storing it outside the artifact would let the two drift; storing it inside makes the
         # artifact self-describing, which is what the ordered-feature contract already relies on.
-        joblib.dump({"scaler": scaler, "model": model, "features": feature_names,
-                     "transforms": list(TRANSFORMS), "task": task, "algorithm": algo},
-                    buf, compress=3)
+        bundle_out = {"scaler": scaler, "model": model, "features": feature_names,
+                      "transforms": list(TRANSFORMS), "task": task, "algorithm": algo}
+        if hasattr(model, "kneighbors"):
+            # The fitted targets, stored EXPLICITLY rather than read back off the estimator's
+            # private `_y` on apply. A k-NN estimator does carry them, but under a private name that
+            # is scikit-learn's to rename between versions - and a saved model whose band silently
+            # stopped working after a library upgrade would fail in the one place nothing checks.
+            bundle_out["knn_y"] = np.asarray(yf, dtype=np.float64)
+        joblib.dump(bundle_out, buf, compress=3)
         model_blob = buf.getvalue()
         sklearn_version = _sk.__version__
     except Exception as e:
@@ -1722,6 +1814,15 @@ As = scaler.transform(A) if scaler is not None else A
 outs = [("", model.predict(As).astype(np.float32))]
 if task == "classification" and hasattr(model, "predict_proba"):
     outs.append(("_PROB", np.max(model.predict_proba(As), axis=1).astype(np.float32)))
+if task == "regression" and hasattr(model, "kneighbors"):
+    # The band is the whole reason a propagated curve can be audited, so a saved k-NN model that
+    # could not write it would be the version of this feature that matters least - the wells it is
+    # applied to are exactly the ones with no measured target to check against.
+    ky = bundle.get("knn_y")
+    if ky is None:
+        fail("this saved k-NN model carries no fitted targets, so it cannot report the neighbour "
+             "band or distance - refit and save it again with this build")
+    outs.extend(knn_band(model, As, ky))
 
 sys.stdout.buffer.write((json.dumps({"suffixes": [s for s, _ in outs],
                                      "metrics": {"n_apply": n_apply, "applied": True},
@@ -2631,6 +2732,16 @@ fn out_name_for(base: &str, suffix: &str, transform: &str) -> String {
         // named after the log-space curve it was made from — `PERM_LOG10_SIM`, never `PERM_SIM`,
         // which would read as millidarcies and be out by orders of magnitude on a plot.
         (false, SIM_SUFFIX) => format!("{base}{LOG10_SUFFIX}{SIM_SUFFIX}"),
+        // Same rule as the textured curve, and for the same reason: the band is the min and max of
+        // the neighbours' target values IN THE SPACE THE MODEL FITTED, so under a transform it is
+        // log-space and must be named beside the log-space curve. `PERM_MIN` sitting next to
+        // `PERM_LOG10` would read as millidarcies and be out by orders of magnitude on a plot.
+        // (Monotone transforms commute with min and max, so this is a naming question, not a
+        // arithmetic one - log10 of the smallest value IS the smallest log10.)
+        (false, BAND_MIN_SUFFIX | BAND_MAX_SUFFIX) => format!("{base}{LOG10_SUFFIX}{suffix}"),
+        // `_DIST` is deliberately NOT in that list. It measures separation in the standardised
+        // FEATURE space, which the target's transform does not touch, so it carries the plain base
+        // name whether the target was transformed or not.
         _ => format!("{base}{suffix}"),
     }
 }
@@ -2645,7 +2756,12 @@ fn unit_for_output(suffix: &str, transform: &str, target_unit: Option<&str>) -> 
     // The textured curve is the model's own output with detail added, so it is in whatever space
     // that output is in — the same unit as the base curve, transformed or not. Leaving it undeclared
     // would export a curve in log space with no unit beside one that has millidarcies.
-    let base_space = suffix.is_empty() || suffix == SIM_SUFFIX;
+    // The band is in the target's own space — the smallest and largest MEASURED target value among
+    // the neighbours — so it carries the target's unit. A band written without one would sit beside
+    // a curve in millidarcies with nothing to say it is the same quantity, and an export would ship
+    // three curves where only one declared what it was.
+    let base_space =
+        suffix.is_empty() || suffix == SIM_SUFFIX || suffix == BAND_MIN_SUFFIX || suffix == BAND_MAX_SUFFIX;
     let u = if base_space && !transform.is_empty() {
         transformed_unit(transform, Some(tu))
     } else if base_space || suffix == BACK_SUFFIX {
@@ -9832,6 +9948,105 @@ mod tests {
         assert!(
             finished.get("not_converged").is_none(),
             "a fit given room to finish must stay silent, or the flag says nothing: {finished}",
+        );
+    }
+
+    /// A propagated curve is quoted in exactly the wells that have no measured target to check it
+    /// against, so the three curves beside it ARE the check.
+    ///
+    /// Pinned from both sides, because either half alone passes while the feature is broken. With
+    /// ONE neighbour the band must COLLAPSE — the single nearest rock's measured value IS the
+    /// prediction, so `_MIN`, `_MAX` and the prediction are the same number. That is the sharpest
+    /// available statement that the band is the neighbours' own measured values and not a fitted
+    /// interval: a runner emitting prediction ± sigma, or a spread taken from anywhere else, cannot
+    /// reproduce it. And over rock that genuinely varies the band must have WIDTH, or a runner that
+    /// wrote MIN = MAX = prediction unconditionally would pass the first half and say nothing.
+    ///
+    /// `_DIST` is pinned separately and it is the one this product never had: a sample far outside
+    /// the fitted range must report a far LARGER distance than one inside it, or the curve cannot do
+    /// the only job it exists for — telling the reader the prediction there is an extrapolation.
+    #[test]
+    fn a_knn_band_is_the_neighbours_own_values_and_its_distance_warns_off_the_fitted_range() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+
+        let n = 200usize;
+        let x: Vec<f32> = (0..n).map(|i| i as f32 / n as f32).collect();
+        // Alternating offset so ADJACENT samples carry genuinely different measured values. Without
+        // it a zero-width band would be the honest answer and the width half of this test would be
+        // measuring the fixture rather than the runner.
+        let y: Vec<f32> =
+            (0..n).map(|i| x[i] * 2.0 + if i % 2 == 0 { 0.5 } else { -0.5 }).collect();
+        // Three points well inside the fitted range, then one a long way outside it.
+        let ax: Vec<f32> = vec![0.25, 0.50, 0.75, 5.0];
+        let m = ax.len();
+
+        let run = |k: i64| {
+            exec_ml(
+                &py,
+                "regression",
+                "knn",
+                &params(&[("k_neighbors", serde_json::json!(k))]),
+                1,
+                &x,
+                Some(&y),
+                &ax,
+                m,
+            )
+            .expect("knn run failed")
+        };
+        let pick = |outs: &[(String, Vec<f32>)], s: &str| -> Vec<f32> {
+            outs.iter()
+                .find(|(sf, _)| sf == s)
+                .unwrap_or_else(|| panic!("the run wrote no '{s}' output"))
+                .1
+                .clone()
+        };
+
+        let (_, one) = run(1);
+        let (p1, lo1, hi1) =
+            (pick(&one, ""), pick(&one, BAND_MIN_SUFFIX), pick(&one, BAND_MAX_SUFFIX));
+        for i in 0..m {
+            assert!(
+                (p1[i] - lo1[i]).abs() < 1e-5 && (p1[i] - hi1[i]).abs() < 1e-5,
+                "with one neighbour the band is that neighbour's own value, so it must collapse \
+                 onto the prediction — got {} in [{}, {}] at sample {i}",
+                p1[i], lo1[i], hi1[i],
+            );
+        }
+
+        let (met, many) = run(8);
+        let (p8, lo8, hi8, d8) = (
+            pick(&many, ""),
+            pick(&many, BAND_MIN_SUFFIX),
+            pick(&many, BAND_MAX_SUFFIX),
+            pick(&many, BAND_DIST_SUFFIX),
+        );
+        for i in 0..m {
+            assert!(
+                lo8[i] <= p8[i] + 1e-5 && p8[i] <= hi8[i] + 1e-5,
+                "the prediction is a blend of the neighbours, so it cannot fall outside their own \
+                 range — got {} in [{}, {}] at sample {i}",
+                p8[i], lo8[i], hi8[i],
+            );
+        }
+        assert!(
+            (0..3).all(|i| hi8[i] - lo8[i] > 0.5),
+            "over rock whose neighbours genuinely disagree the band must have width, or MIN = MAX = \
+             prediction would pass the collapse test above and mean nothing: {lo8:?} {hi8:?}",
+        );
+
+        assert!(
+            d8[3] > d8[0] * 5.0,
+            "a sample far off the fitted range must report a far larger neighbour distance than one \
+             inside it, or the curve cannot say where a prediction is extrapolating: {d8:?}",
+        );
+        assert!(
+            met.get("knn_dist_train_p90").is_some(),
+            "the distance curve needs the fitted rock's own distance as a scale to be read \
+             against, or a reader has no way to tell 0.8 from far: {met}",
         );
     }
 
