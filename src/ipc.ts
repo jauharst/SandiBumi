@@ -4310,6 +4310,8 @@ export interface DlisImportResult {
   skipped: Array<{ kind: string; name: string; count: number; rule: string; omitted: boolean }>;
   /** Exact channel mnemonics whose LAS-sentinel fallback was disabled for this import. */
   sentinel_exceptions: string[];
+  well_mappings: DlisWellMapping[];
+  mapping_confirmation_required: boolean;
   interval_conflicts: Array<{
     scope: "well" | "set";
     name: string;
@@ -4342,10 +4344,19 @@ export interface DlisDuplicateDecisionRecord extends DlisDuplicateDecision {
   target_set: string | null;
 }
 
-/** Imports every scalar channel of a DLIS file into the selected well's generic store
- *  (via dlisio through the Python subprocess). */
+export interface DlisWellMapping {
+  source_well: string;
+  logical_files: number[];
+  target_well_name: string;
+  /** Null in the pre-commit proposal; populated only after the project well is created. */
+  target_well_id: string | null;
+  will_create: boolean;
+}
+
+/** Imports scalar DLIS channels through the Python subprocess. A single source well targets
+ *  `wellId`; a multi-well container may omit it and requires its returned mapping to be echoed. */
 export function importDlisFile(
-  wellId: string,
+  wellId: string | null,
   path: string,
   setName?: string | null,
   fileDepthUnit?: "M" | "FT" | null,
@@ -4353,6 +4364,7 @@ export function importDlisFile(
   outsideIntervalDecision?: "accept_outside_declared_interval" | null,
   duplicateDecisions?: DlisDuplicateDecision[] | null,
   lasSentinelExceptions?: string[] | null,
+  confirmedWellMappings?: DlisWellMapping[] | null,
 ): Promise<DlisImportResult> {
   return invoke<DlisImportResult>("import_dlis_file", {
     wellId,
@@ -4363,6 +4375,7 @@ export function importDlisFile(
     outsideIntervalDecision: outsideIntervalDecision ?? null,
     duplicateDecisions: duplicateDecisions ?? null,
     lasSentinelExceptions: lasSentinelExceptions ?? null,
+    confirmedWellMappings: confirmedWellMappings ?? null,
   });
 }
 

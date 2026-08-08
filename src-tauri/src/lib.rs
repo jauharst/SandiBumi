@@ -1334,7 +1334,7 @@ async fn materialize_tvd(
 async fn import_dlis_file(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    well_id: String,
+    well_id: Option<String>,
     path: String,
     set_name: Option<String>,
     file_depth_unit: Option<String>,
@@ -1342,6 +1342,7 @@ async fn import_dlis_file(
     outside_interval_decision: Option<dlis::DlisOutsideIntervalDecision>,
     duplicate_decisions: Option<Vec<dlis::DlisDuplicateDecision>>,
     las_sentinel_exceptions: Option<Vec<String>>,
+    confirmed_well_mappings: Option<Vec<dlis::DlisWellMapping>>,
 ) -> Result<dlis::DlisImportResult, String> {
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let conn = db.0.clone();
@@ -1349,7 +1350,7 @@ async fn import_dlis_file(
         let c = conn.lock().unwrap();
         Ok(dlis::import_dlis_file_with_unit_designation(
             &c,
-            &well_id,
+            well_id.as_deref(),
             &path,
             set_name.as_deref(),
             file_depth_unit.as_deref(),
@@ -1357,6 +1358,7 @@ async fn import_dlis_file(
             outside_interval_decision,
             duplicate_decisions.as_deref().unwrap_or(&[]),
             las_sentinel_exceptions.as_deref().unwrap_or(&[]),
+            confirmed_well_mappings.as_deref().unwrap_or(&[]),
         ))
     })
     .await

@@ -32,6 +32,7 @@ path = sys.argv[1]
 out_curves = []
 buffers = []
 skips = []
+logical_files = []
 frame_ord = 0
 channels_declared = 0
 
@@ -45,6 +46,13 @@ def object_name(obj, fallback):
     except Exception:
         return fallback
 
+def attr_text(obj, attr):
+    try:
+        value = getattr(obj, attr)
+        return str(value).strip() if value is not None else ""
+    except Exception:
+        return ""
+
 try:
     batch = dlis.load(path)
 except Exception as e:
@@ -53,6 +61,18 @@ except Exception as e:
 
 with batch:
     for logical_ord, lf in enumerate(batch):
+        try:
+            origins = list(lf.origins)
+        except Exception as e:
+            origins = []
+            skip("logical_file", f"logical-file-{logical_ord}", 1, f"ORIGIN directory unreadable: {type(e).__name__}: {e}", omitted=False)
+        defining_origin = origins[0] if origins else None
+        well_name = attr_text(defining_origin, "well_name") if defining_origin is not None else ""
+        well_id = attr_text(defining_origin, "well_id") if defining_origin is not None else ""
+        logical_files.append({
+            "logical_file": logical_ord,
+            "source_well": well_name or well_id,
+        })
         for frame in lf.frames:
             run = frame_ord
             frame_ord += 1
@@ -131,11 +151,12 @@ with batch:
                     "index_unit": unit_by_name.get(index_name, ""),
                     "n": n,
                     "run": run,
+                    "logical_file": logical_ord,
                 })
                 buffers.append(depth.tobytes())
                 buffers.append(vals.tobytes())
 
-sys.stdout.write(json.dumps({"curves": out_curves, "skips": skips, "channels_declared": channels_declared}))
+sys.stdout.write(json.dumps({"curves": out_curves, "skips": skips, "channels_declared": channels_declared, "logical_files": logical_files}))
 sys.stdout.write("\n")
 sys.stdout.flush()
 sys.stdout.buffer.write(b"".join(buffers))
@@ -148,6 +169,14 @@ struct DlisCurveMeta {
     index_unit: String,
     n: usize,
     run: i32,
+    #[serde(default)]
+    logical_file: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DlisLogicalFile {
+    logical_file: usize,
+    source_well: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,6 +186,57 @@ struct DlisHeader {
     skips: Vec<DlisSkip>,
     #[serde(default)]
     channels_declared: usize,
+    #[serde(default)]
+    logical_files: Vec<DlisLogicalFile>,
+}
+
+struct PreparedDlisCurve {
+    well_id: String,
+    set_name: String,
+    mnemonic: String,
+    unit: Option<String>,
+    family: Option<&'static str>,
+    run_no: Option<i32>,
+    depth: Vec<f32>,
+    values: Vec<f32>,
+}
+
+fn write_prepared_dlis(
+    conn: &Connection,
+    mappings: &[DlisWellMapping],
+    curves: &[PreparedDlisCurve],
+    stored_depth_unit: Option<crate::units::DepthUnit>,
+) -> db::DbResult<()> {
+    for mapping in mappings.iter().filter(|mapping| mapping.will_create) {
+        let id = uuid::Uuid::parse_str(
+            mapping
+                .target_well_id
+                .as_deref()
+                .ok_or_else(|| db::DbError::LengthMismatch("a committed mapping has no target well id".into()))?,
+        )
+        .map_err(|error| db::DbError::LengthMismatch(error.to_string()))?;
+        db::insert_well(conn, id, &mapping.target_well_name, None, None, None)?;
+        if let Some(unit) = stored_depth_unit {
+            conn.execute(
+                "UPDATE wells SET depth_unit = ?2 WHERE well_id = ?1",
+                params![id.to_string(), unit.code()],
+            )?;
+        }
+    }
+    for curve in curves {
+        let curve_id = db::upsert_curve_meta(
+            conn,
+            &curve.well_id,
+            &curve.set_name,
+            &curve.mnemonic,
+            curve.unit.as_deref(),
+            curve.family,
+            Some("DLIS import"),
+            curve.run_no,
+        )?;
+        db::insert_curve_samples(conn, &curve_id, &curve.depth, &curve.values)?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -177,6 +257,15 @@ pub enum DlisImportStatus {
     Complete,
     Partial,
     Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DlisWellMapping {
+    pub source_well: String,
+    pub logical_files: Vec<usize>,
+    pub target_well_name: String,
+    pub target_well_id: Option<String>,
+    pub will_create: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -251,6 +340,10 @@ pub struct DlisImportResult {
     pub skipped: Vec<DlisSkip>,
     /// Exact channel mnemonics for which the user disabled the LAS-derived sentinel fallback.
     pub sentinel_exceptions: Vec<String>,
+    /// Source-well grouping and its proposed/committed project target. For a multi-well
+    /// container this is populated before any write and must be echoed back to confirm it.
+    pub well_mappings: Vec<DlisWellMapping>,
+    pub mapping_confirmation_required: bool,
     /// Incoming extents outside an existing well/set extent. Empty means there was no conflict;
     /// populated beside an error means the required decision was absent.
     pub interval_conflicts: Vec<DlisIntervalConflict>,
@@ -282,6 +375,8 @@ fn failed(path: &str, error: String, skipped: Vec<DlisSkip>) -> DlisImportResult
         unit_designations: Vec::new(),
         skipped,
         sentinel_exceptions: Vec::new(),
+        well_mappings: Vec::new(),
+        mapping_confirmation_required: false,
         interval_conflicts: Vec::new(),
         duplicate_conflicts: Vec::new(),
         duplicate_decisions: Vec::new(),
@@ -317,6 +412,29 @@ fn failed_interval(
         skipped,
     );
     result.interval_conflicts = conflicts;
+    result
+}
+
+fn failed_mapping(path: &str, mapping: Vec<DlisWellMapping>, skipped: Vec<DlisSkip>) -> DlisImportResult {
+    let detail = mapping
+        .iter()
+        .map(|item| {
+            format!(
+                "{} (logical files {:?}) -> new project well {}",
+                item.source_well, item.logical_files, item.target_well_name
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let mut result = failed(
+        path,
+        format!(
+            "multi-well DLIS requires confirmation of the container-to-well mapping before commit: {detail}"
+        ),
+        skipped,
+    );
+    result.well_mappings = mapping;
+    result.mapping_confirmation_required = true;
     result
 }
 
@@ -374,6 +492,65 @@ fn import_status(
     } else {
         DlisImportStatus::Complete
     }
+}
+
+fn multi_well_plan(header: &DlisHeader) -> Result<Vec<DlisWellMapping>, String> {
+    if header.logical_files.len() <= 1 {
+        return Ok(Vec::new());
+    }
+    let unnamed: Vec<usize> = header
+        .logical_files
+        .iter()
+        .filter(|logical| logical.source_well.trim().is_empty())
+        .map(|logical| logical.logical_file)
+        .collect();
+    if !unnamed.is_empty() {
+        return Err(format!(
+            "multi-logical-file DLIS has no source WELL-NAME or WELL-ID for logical file(s) {unnamed:?}; the wells cannot be separated without source identity"
+        ));
+    }
+
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    for logical in &header.logical_files {
+        if let Some((_, files)) = groups
+            .iter_mut()
+            .find(|(name, _)| name.eq_ignore_ascii_case(logical.source_well.trim()))
+        {
+            files.push(logical.logical_file);
+        } else {
+            groups.push((
+                logical.source_well.trim().to_string(),
+                vec![logical.logical_file],
+            ));
+        }
+    }
+    if groups.len() <= 1 {
+        return Ok(Vec::new());
+    }
+    Ok(groups
+        .into_iter()
+        .map(|(source_well, logical_files)| DlisWellMapping {
+            target_well_name: source_well.clone(),
+            source_well,
+            logical_files,
+            target_well_id: None,
+            will_create: true,
+        })
+        .collect())
+}
+
+fn mapping_confirmation_matches(
+    proposed: &[DlisWellMapping],
+    confirmed: &[DlisWellMapping],
+) -> bool {
+    proposed.len() == confirmed.len()
+        && proposed.iter().zip(confirmed).all(|(expected, received)| {
+            expected.source_well == received.source_well
+                && expected.logical_files == received.logical_files
+                && expected.target_well_name == received.target_well_name
+                && received.target_well_id.is_none()
+                && expected.will_create == received.will_create
+        })
 }
 
 fn screen_dlis_values(
@@ -646,7 +823,9 @@ fn duplicate_preflight(
     Ok((target_set, records))
 }
 
-/// Imports every scalar channel of a DLIS file into one existing well's generic curve store.
+/// Imports scalar DLIS channels. A one-source container targets one existing well; a container
+/// naming multiple source wells returns a source-to-project mapping first, then creates and routes
+/// one project well per source only when the exact map is confirmed.
 ///
 /// `set_name` (import-sets, T-IMP-02/06): named sets are auto-suffixed per well (`WIRE` taken
 /// -> `WIRE_1`, Geolog-style). A mnemonic already held anywhere on the well stops before commit
@@ -662,7 +841,7 @@ pub fn import_dlis_file(
 ) -> DlisImportResult {
     import_dlis_file_with_unit_designation(
         conn,
-        well_id,
+        Some(well_id),
         path,
         set_name,
         confirmed_file_unit,
@@ -670,12 +849,13 @@ pub fn import_dlis_file(
         None,
         &[],
         &[],
+        &[],
     )
 }
 
 pub fn import_dlis_file_with_unit_designation(
     conn: &Connection,
-    well_id: &str,
+    well_id: Option<&str>,
     path: &str,
     set_name: Option<&str>,
     confirmed_file_unit: Option<&str>,
@@ -683,21 +863,9 @@ pub fn import_dlis_file_with_unit_designation(
     outside_interval_decision: Option<DlisOutsideIntervalDecision>,
     duplicate_decisions: &[DlisDuplicateDecision],
     las_sentinel_exceptions: &[String],
+    confirmed_well_mappings: &[DlisWellMapping],
 ) -> DlisImportResult {
     let fail = |e: String| failed(path, e, Vec::new());
-
-    let exists: bool = conn
-        .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
-        .unwrap_or(false);
-    if !exists {
-        return fail(format!("unknown well '{well_id}'"));
-    }
-    let desired = crate::ingest::canonical_set_name(set_name);
-    let initial_target_set = if desired == "RAW" {
-        desired.clone()
-    } else {
-        crate::ingest::resolve_set_name(conn, well_id, &desired)
-    };
 
     let Some(python) = find_python() else {
         return fail("no Python with numpy found — install Python 3.10+ with numpy and dlisio, or set SANDIBUMI_PYTHON".into());
@@ -729,6 +897,40 @@ pub fn import_dlis_file_with_unit_designation(
     if let Err(error) = validate_header(&header) {
         return failed(path, error, header.skips);
     }
+    let proposed_well_mappings = match multi_well_plan(&header) {
+        Ok(mapping) => mapping,
+        Err(error) => return failed(path, error, header.skips),
+    };
+    let is_multi_well = !proposed_well_mappings.is_empty();
+    if is_multi_well
+        && !mapping_confirmation_matches(&proposed_well_mappings, confirmed_well_mappings)
+    {
+        return failed_mapping(path, proposed_well_mappings, header.skips);
+    }
+    let selected_well_id = if is_multi_well {
+        well_id.unwrap_or("")
+    } else {
+        let Some(well_id) = well_id else {
+            return failed(
+                path,
+                "single-well DLIS requires a selected project well; no data was written".into(),
+                header.skips,
+            );
+        };
+        let exists: bool = conn
+            .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
+            .unwrap_or(false);
+        if !exists {
+            return failed(path, format!("unknown well '{well_id}'"), header.skips);
+        }
+        well_id
+    };
+    let desired = crate::ingest::canonical_set_name(set_name);
+    let initial_target_set = if is_multi_well || desired == "RAW" {
+        desired.clone()
+    } else {
+        crate::ingest::resolve_set_name(conn, selected_well_id, &desired)
+    };
     let ambiguous: Vec<&DlisCurveMeta> = header
         .curves
         .iter()
@@ -751,16 +953,20 @@ pub fn import_dlis_file_with_unit_designation(
         let _ = meaning;
     }
     let mut skipped = header.skips.clone();
-    let (target_set, duplicate_decision_records) = match duplicate_preflight(
-        conn,
-        well_id,
-        &desired,
-        &initial_target_set,
-        &header.curves,
-        duplicate_decisions,
-    ) {
-        Ok(resolved) => resolved,
-        Err(conflicts) => return failed_duplicates(path, conflicts, skipped),
+    let (target_set, duplicate_decision_records) = if is_multi_well {
+        (desired.clone(), Vec::new())
+    } else {
+        match duplicate_preflight(
+            conn,
+            selected_well_id,
+            &desired,
+            &initial_target_set,
+            &header.curves,
+            duplicate_decisions,
+        ) {
+            Ok(resolved) => resolved,
+            Err(conflicts) => return failed_duplicates(path, conflicts, skipped),
+        }
     };
     let payload = &stdout[nl + 1..];
 
@@ -786,25 +992,35 @@ pub fn import_dlis_file_with_unit_designation(
             Ok(resolved) => resolved,
             Err(e) => return failed(path, e, skipped),
         };
-    let interval_conflicts = match incoming_interval(
-        &header,
-        payload,
-        &index_actions,
-        &duplicate_decision_records,
-    ) {
-        Ok(Some((top, base))) => match interval_preflight(
-            conn,
-            well_id,
-            &target_set,
-            top,
-            base,
-            outside_interval_decision,
+    let mut committed_well_mappings = proposed_well_mappings;
+    if is_multi_well {
+        for mapping in &mut committed_well_mappings {
+            mapping.target_well_id = Some(uuid::Uuid::new_v4().to_string());
+        }
+    }
+    let interval_conflicts = if is_multi_well {
+        Vec::new()
+    } else {
+        match incoming_interval(
+            &header,
+            payload,
+            &index_actions,
+            &duplicate_decision_records,
         ) {
-            Ok(conflicts) => conflicts,
-            Err(conflicts) => return failed_interval(path, conflicts, skipped),
-        },
-        Ok(None) => Vec::new(),
-        Err(error) => return failed(path, error, skipped),
+            Ok(Some((top, base))) => match interval_preflight(
+                conn,
+                selected_well_id,
+                &target_set,
+                top,
+                base,
+                outside_interval_decision,
+            ) {
+                Ok(conflicts) => conflicts,
+                Err(conflicts) => return failed_interval(path, conflicts, skipped),
+            },
+            Ok(None) => Vec::new(),
+            Err(error) => return failed(path, error, skipped),
+        }
     };
     notes.extend(interval_conflicts.iter().map(|conflict| {
         format!(
@@ -832,6 +1048,12 @@ pub fn import_dlis_file_with_unit_designation(
             record.existing.join(", ")
         ),
     }));
+    notes.extend(committed_well_mappings.iter().map(|mapping| {
+        format!(
+            "DLIS source well {} (logical files {:?}) created as project well {}",
+            mapping.source_well, mapping.logical_files, mapping.target_well_name
+        )
+    }));
     let unit_designations: Vec<crate::curves::UnitDesignation> = ms_per_ft_meaning
         .map(|meaning| {
             ambiguous
@@ -849,6 +1071,7 @@ pub fn import_dlis_file_with_unit_designation(
     let replaced = 0usize;
     let mut unit_conversions = Vec::new();
     let mut unconverted_units = Vec::new();
+    let mut prepared_curves = Vec::new();
     for (meta, index_action) in header.curves.iter().zip(index_actions.iter()) {
         let bytes = meta.n * 4;
         let end = offset + 2 * bytes;
@@ -979,20 +1202,42 @@ pub fn import_dlis_file_with_unit_designation(
             continue;
         }
 
-        let res: db::DbResult<()> = (|| {
-            let curve_id = db::upsert_curve_meta(conn, well_id, &target_set, &meta.mnemonic, unit.as_deref(), family, Some("DLIS import"), run_no)?;
-            db::insert_curve_samples(conn, &curve_id, &depth, &values)?;
-            Ok(())
-        })();
-        match res {
-            Ok(()) => {
-                curves_imported += 1;
-                total_rows += depth.len();
-            }
-            Err(e) => {
-                return failed(path, format!("storing curve '{}': {e}", meta.mnemonic), skipped)
-            }
-        }
+        let (curve_well_id, curve_set) = if is_multi_well {
+            let Some(mapping) = committed_well_mappings
+                .iter()
+                .find(|mapping| mapping.logical_files.contains(&meta.logical_file))
+            else {
+                return failed(
+                    path,
+                    format!(
+                        "DLIS curve '{}' belongs to logical file {}, which is absent from the confirmed well mapping",
+                        meta.mnemonic, meta.logical_file
+                    ),
+                    skipped,
+                );
+            };
+            (
+                mapping
+                    .target_well_id
+                    .as_deref()
+                    .expect("a confirmed multi-well mapping has a generated target id"),
+                desired.as_str(),
+            )
+        } else {
+            (selected_well_id, target_set.as_str())
+        };
+        total_rows += depth.len();
+        curves_imported += 1;
+        prepared_curves.push(PreparedDlisCurve {
+            well_id: curve_well_id.to_string(),
+            set_name: curve_set.to_string(),
+            mnemonic: meta.mnemonic.clone(),
+            unit,
+            family,
+            run_no,
+            depth,
+            values,
+        });
     }
 
     if curves_imported == 0 {
@@ -1001,6 +1246,16 @@ pub fn import_dlis_file_with_unit_designation(
             format!("DLIS import produced no curves after validation: {}", skip_summary(&skipped)),
             skipped,
         );
+    }
+
+    let write_result = write_prepared_dlis(
+        conn,
+        &committed_well_mappings,
+        &prepared_curves,
+        project_unit.or(adopted_unit),
+    );
+    if let Err(error) = write_result {
+        return failed(path, format!("storing DLIS curves: {error}"), skipped);
     }
 
     if project_unit.is_none() {
@@ -1028,6 +1283,8 @@ pub fn import_dlis_file_with_unit_designation(
             .map(|name| name.trim().to_ascii_uppercase())
             .filter(|name| !name.is_empty())
             .collect(),
+        well_mappings: committed_well_mappings,
+        mapping_confirmation_required: false,
         interval_conflicts,
         duplicate_conflicts: Vec::new(),
         duplicate_decisions: duplicate_decision_records,
@@ -1193,6 +1450,7 @@ mod tests {
             index_unit: "M".into(),
             n: 2,
             run: 0,
+            logical_file: 0,
         }];
 
         let unresolved = duplicate_preflight(&conn, &well, "RAW", "RAW", &incoming, &[]).unwrap_err();
@@ -1260,6 +1518,7 @@ mod tests {
             index_unit: unit.into(),
             n: 2,
             run: 0,
+            logical_file: 0,
         };
 
         let (_, actions, _) = resolve_dlis_index_actions(
@@ -1309,6 +1568,7 @@ mod tests {
             index_unit: "M".into(),
             n: 2,
             run: 1,
+            logical_file: 0,
         };
         let one_bad_one_good = DlisHeader {
             curves: vec![good],
@@ -1320,12 +1580,14 @@ mod tests {
                 omitted: true,
             }],
             channels_declared: 2,
+            logical_files: Vec::new(),
         };
         assert!(validate_header(&one_bad_one_good).is_ok(), "one good frame must survive a bad one");
         let all_bad = DlisHeader {
             curves: vec![],
             skips: one_bad_one_good.skips.clone(),
             channels_declared: 1,
+            logical_files: Vec::new(),
         };
         let error = validate_header(&all_bad).unwrap_err();
         assert!(error.contains("FRAME-BAD") && error.contains("x1") && error.contains("encrypted"));
@@ -1370,6 +1632,7 @@ mod tests {
             index_unit: "M".into(),
             n: 2,
             run: 0,
+            logical_file: 0,
         };
         let unreadable = DlisSkip {
             kind: "channel".into(),
@@ -1382,6 +1645,7 @@ mod tests {
             curves: vec![readable],
             skips: vec![unreadable],
             channels_declared: 2,
+            logical_files: Vec::new(),
         };
         assert_eq!(import_status(&partial, 1, &partial.skips), DlisImportStatus::Partial);
         assert_eq!(partial.skips[0].name, "LOCKED_RES");
@@ -1399,10 +1663,107 @@ mod tests {
             curves: partial.curves,
             skips: vec![retained_warning],
             channels_declared: 1,
+            logical_files: Vec::new(),
         };
         assert_eq!(import_status(&complete, 1, &complete.skips), DlisImportStatus::Complete);
         assert!(DLIS_RUNNER.contains("for name in payload_names"));
         assert!(DLIS_RUNNER.contains("\"omitted\": bool(omitted)"));
+    }
+
+    /// SB-DIO-045 / SB-DIO-T63..T64. Multi-well separation and the pre-commit mapping are
+    /// specified in `docs/PRD_v2/21_data-io.md` §§4.9 and 6.9 (D-27).
+    #[test]
+    fn a_three_well_dlis_shows_its_logical_file_mapping_before_commit_and_creates_three_wells_without_merging() {
+        assert!(DLIS_RUNNER.contains("well_name = attr_text(defining_origin, \"well_name\")"));
+        assert!(DLIS_RUNNER.contains("\"logical_file\": logical_ord"));
+        let logical_files = ["SANDI-A", "SANDI-B", "SANDI-C"]
+            .into_iter()
+            .enumerate()
+            .map(|(logical_file, source_well)| DlisLogicalFile {
+                logical_file,
+                source_well: source_well.into(),
+            })
+            .collect::<Vec<_>>();
+        let curves = (0..3)
+            .map(|logical_file| DlisCurveMeta {
+                mnemonic: "GR".into(),
+                unit: "GAPI".into(),
+                index_unit: "M".into(),
+                n: 2,
+                run: logical_file as i32,
+                logical_file,
+            })
+            .collect();
+        let header = DlisHeader {
+            curves,
+            skips: Vec::new(),
+            channels_declared: 3,
+            logical_files,
+        };
+        let proposed = multi_well_plan(&header).unwrap();
+        assert_eq!(proposed.len(), 3);
+        assert_eq!(proposed[0].source_well, "SANDI-A");
+        assert_eq!(proposed[2].logical_files, vec![2]);
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let preview = failed_mapping("three-well.dlis", proposed.clone(), Vec::new());
+        assert!(preview.mapping_confirmation_required);
+        assert_eq!(preview.well_mappings, proposed);
+        let before: i64 = conn.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get(0)).unwrap();
+        assert_eq!(before, 0, "showing the mapping cannot commit even the well shells");
+        assert!(mapping_confirmation_matches(&proposed, &preview.well_mappings));
+
+        let mut committed = proposed;
+        for mapping in &mut committed {
+            mapping.target_well_id = Some(Uuid::new_v4().to_string());
+        }
+        let prepared = committed
+            .iter()
+            .enumerate()
+            .map(|(logical_file, mapping)| PreparedDlisCurve {
+                well_id: mapping.target_well_id.clone().unwrap(),
+                set_name: "RAW".into(),
+                mnemonic: "GR".into(),
+                unit: Some("GAPI".into()),
+                family: Some("GR"),
+                run_no: Some(logical_file as i32),
+                depth: vec![1000.0, 1000.5],
+                values: vec![50.0 + logical_file as f32, 51.0 + logical_file as f32],
+            })
+            .collect::<Vec<_>>();
+        write_prepared_dlis(
+            &conn,
+            &committed,
+            &prepared,
+            Some(crate::units::DepthUnit::Metres),
+        )
+        .unwrap();
+        let well_count: i64 = conn.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get(0)).unwrap();
+        let curve_wells: i64 = conn
+            .query_row("SELECT COUNT(DISTINCT well_id) FROM curve_meta", [], |row| row.get(0))
+            .unwrap();
+        let most_curves_on_one_well: i64 = conn
+            .query_row(
+                "SELECT MAX(curves) FROM (SELECT COUNT(*) curves FROM curve_meta GROUP BY well_id)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!((well_count, curve_wells, most_curves_on_one_well), (3, 3, 1));
+
+        // The opposite side: two logical files for the same declared source well are two runs,
+        // not two project wells. Grouping by logical-file ordinal alone would fail this.
+        let same_well = DlisHeader {
+            curves: Vec::new(),
+            skips: Vec::new(),
+            channels_declared: 0,
+            logical_files: vec![
+                DlisLogicalFile { logical_file: 0, source_well: "SANDI-A".into() },
+                DlisLogicalFile { logical_file: 1, source_well: "sandi-a".into() },
+            ],
+        };
+        assert!(multi_well_plan(&same_well).unwrap().is_empty());
     }
 
     /// SB-DIO-039 / SB-DIO-T56..T57. The per-channel exception and per-rule deletion count

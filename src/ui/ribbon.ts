@@ -1373,14 +1373,14 @@ export class Ribbon {
     input.focus();
   }
 
-  /** "Import DLIS…" — loads every scalar channel from a DLIS file into the selected
-   *  well's generic curve store, via dlisio through the Python subprocess. The set-name
+  /** "Import DLIS…" — loads scalar channels from a DLIS file through the dlisio subprocess.
+   *  A single-well file targets the selected project well; a multi-well container proposes
+   *  separate project wells and requires its mapping to be confirmed before any write. The set-name
    *  prompt (T-IMP-06) means a second DLIS never silently replaces the first: you rarely
    *  know what a vendor tape holds until it is in, so duplicates are KEPT under their own
    *  set and compared afterwards. */
   private async handleImportDlis(): Promise<void> {
-    const well = requireWell("Import DLIS");
-    if (!well) return;
+    const well = appState.selectedWell.get();
     let path: string | null;
     try {
       const selection = await open({
@@ -1402,7 +1402,11 @@ export class Ribbon {
     const setName = choice.setName;
     const setLabel = setName ? setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
 
-    setStatus(`Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`);
+    setStatus(
+      well
+        ? `Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`
+        : `Inspecting DLIS well identities before import… (dlisio may take a moment)`,
+    );
     try {
       let intervalDecision: "accept_outside_declared_interval" | null = null;
       let duplicateDecisions: Array<{
@@ -1410,10 +1414,11 @@ export class Ribbon {
         run: number;
         action: "keep_separate" | "skip_incoming";
       }> | null = null;
+      let confirmedWellMappings: Awaited<ReturnType<typeof importDlisFile>>["well_mappings"] | null = null;
       let result: Awaited<ReturnType<typeof importDlisFile>>;
       for (;;) {
         result = await importDlisFile(
-          well.well_id,
+          well?.well_id ?? null,
           path,
           setName,
           choice.fileDepthUnit,
@@ -1421,7 +1426,28 @@ export class Ribbon {
           intervalDecision,
           duplicateDecisions,
           choice.lasSentinelExceptions,
+          confirmedWellMappings,
         );
+        if (result.error && result.mapping_confirmation_required) {
+          const detail = result.well_mappings
+            .map(
+              (mapping) =>
+                `${mapping.source_well} (logical files ${mapping.logical_files.join(", ")}) ` +
+                `→ ${mapping.will_create ? "new project well" : "project well"} ${mapping.target_well_name}`,
+            )
+            .join("\n");
+          const accepted = window.confirm(
+            `This DLIS contains more than one source well. Nothing has been written.\n\n${detail}\n\n` +
+              "Create these separate project wells and import each logical file only into its mapped well?",
+          );
+          if (!accepted) {
+            setStatus("Multi-well DLIS import cancelled before any well or curve was written.");
+            return;
+          }
+          confirmedWellMappings = result.well_mappings;
+          setStatus(`Well mapping confirmed; importing ${confirmedWellMappings.length} separate DLIS wells…`);
+          continue;
+        }
         if (result.error && result.duplicate_conflicts.length > 0 && duplicateDecisions === null) {
           const detail = result.duplicate_conflicts
             .map(
@@ -1443,7 +1469,7 @@ export class Ribbon {
             run: conflict.run,
             action: "keep_separate",
           }));
-          setStatus(`Duplicate choices recorded; checking DLIS intervals for ${well.well_name}…`);
+          setStatus(`Duplicate choices recorded; checking DLIS intervals for ${well?.well_name ?? "the selected well"}…`);
           continue;
         }
         if (result.error && result.interval_conflicts.length > 0 && intervalDecision === null) {
@@ -1463,7 +1489,7 @@ export class Ribbon {
             return;
           }
           intervalDecision = "accept_outside_declared_interval";
-          setStatus(`Interval conflict accepted; importing DLIS into ${well.well_name}…`);
+          setStatus(`Interval conflict accepted; importing DLIS into ${well?.well_name ?? "the selected well"}…`);
           continue;
         }
         break;
@@ -1485,13 +1511,16 @@ export class Ribbon {
         const channelCount = result.channels_declared > 0
           ? ` of ${result.channels_declared} declared channel(s)`
           : "";
+        const destination = result.well_mappings.length > 0
+          ? `${result.well_mappings.length} separately mapped project wells`
+          : well?.well_name ?? "the selected project well";
         setStatus(
-          `${outcome} ${result.curves_imported}${channelCount}, ${result.rows} samples into ${well.well_name} as set ${setLabel}.${unitNote}${skippedNote}`,
+          `${outcome} ${result.curves_imported}${channelCount}, ${result.rows} samples into ${destination} as set ${setLabel}.${unitNote}${skippedNote}`,
         );
         recordProcess(
           "Import",
           `${outcome} DLIS as set ${setLabel} (${result.curves_imported}${channelCount}, ${result.rows} samples)${unitNote}${skippedNote} ← ${path}`,
-          well.well_name,
+          result.well_mappings.length > 0 ? null : well?.well_name ?? null,
         );
         this.workspace.notifyDataChanged();
       }
@@ -1500,9 +1529,8 @@ export class Ribbon {
     }
   }
 
-  /** One-field set-name prompt for a DLIS import. Resolves with the typed name (may be
-   *  empty = RAW), or null when the user cancels. Deliberately lighter than the LAS
-   *  dialog: DLIS always targets the already-selected well, so there is nothing to attach. */
+  /** Set-name and file-level choices collected before the DLIS scan. A single-well file still
+   *  requires a selected target; a multi-well file obtains its targets from the confirmed map. */
   private askDlisSetName(path: string): Promise<{
     setName: string;
     fileDepthUnit: "M" | "FT" | null;

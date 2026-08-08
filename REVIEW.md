@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-045: multi-well DLIS containers stay separated
+
+- [ ] Import a DLIS whose logical files name three different source wells. Before any write, does
+      the confirmation show each source well and its logical-file ordinals mapped to a separate new
+      project well? After confirming, are there three wells with no curve merged across them? If two
+      logical files name the same source well, do they remain two runs on one mapped well?
+
 ## 2026-08-09 — SB-DIO-041: LAS 3.0 and unread sections are explicit
 
 - [ ] Import a LAS declaring `VERS. 3.0` and carrying `~Core_Data` and `~Tops`. Does the result
