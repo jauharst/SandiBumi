@@ -12,3 +12,13 @@ lanes do not edit the spine directly.
   capability from public literature, primary sources and first principles.
 - **Direction wrong:** the spine is stale and over-prohibitive. It incorrectly bars the capability;
   the binding contract bars the derivation path and requires independent derivation.
+
+## SP-002 — Unconventional gas-content scope
+
+- **Spine location:** `docs/PRD_v2/01_PRODUCT.md` §4.3, current line 190.
+- **Current claim:** the shipped unconventional suite includes gas-in-place.
+- **Verified source:** `src-tauri/src/unconventional.rs:247-281` explicitly defines per-sample gas
+  content in scf/ton and names those intensive outputs `GIP_*`; lines 286-364 take no thickness or
+  area and produce no Bcf volume.
+- **Direction wrong:** the spine overstates the shipped physical scope. Intensive gas content ships;
+  extensive areal gas-in-place does not.
