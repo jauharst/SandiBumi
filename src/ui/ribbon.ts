@@ -1152,8 +1152,13 @@ export class Ribbon {
         ? ` Precision: ${result.precision.values_reduced} value(s) reduced, ${result.precision.source_precision} → ${result.precision.destination_precision}.`
         : ` Precision: no values reduced, ${result.precision.source_precision} → ${result.precision.destination_precision}.`;
       const selfCheck = result.self_checked ? " SandiBumi reader self-check passed." : "";
-      setStatus(`Exported ${well.well_name} (${summary}) to ${dest}.${precision}${selfCheck}${omission}`);
-      recordProcess("Export", `Exported LAS (${summary})${precision}${selfCheck}${omission} → ${dest}`, well.well_name);
+      const finalCount = result.curve_states.filter((curve) => curve.state === "final").length;
+      const workingCount = result.curve_states.filter((curve) => curve.state === "working").length;
+      const states = result.curve_states.length
+        ? ` Curve states: ${finalCount} final, ${workingCount} working.`
+        : "";
+      setStatus(`Exported ${well.well_name} (${summary}) to ${dest}.${precision}${selfCheck}${states}${omission}`);
+      recordProcess("Export", `Exported LAS (${summary})${precision}${selfCheck}${states}${omission} → ${dest}`, well.well_name);
     } catch (err) {
       setStatus(`Export failed: ${err}`);
     }

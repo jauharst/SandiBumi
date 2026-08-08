@@ -135,6 +135,7 @@ const PROVENANCE_PREFIX: &str = "SANDIBUMI_PROVENANCE_V1 ";
 const MODEL_PROVENANCE_PREFIX: &str = "SANDIBUMI_MODEL_PROVENANCE_V1 ";
 const OMISSION_PREFIX: &str = "SANDIBUMI_OMISSION_V1 ";
 const PRECISION_PREFIX: &str = "SANDIBUMI_PRECISION_V1 ";
+const CURVE_STATE_PREFIX: &str = "SANDIBUMI_CURVE_STATE_V1 ";
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LasOmission {
@@ -143,11 +144,22 @@ pub struct LasOmission {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct LasCurveState {
+    /// Mnemonic written into this LAS. It may carry a `_FINAL`/`_WORKING` suffix when
+    /// two generic sets hold the same source mnemonic and both must remain addressable.
+    pub export_curve: String,
+    pub source_curve: String,
+    pub set_name: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct LasExportResult {
     pub rows: usize,
     pub curves_written: usize,
     pub curves_held: usize,
     pub omitted: Vec<LasOmission>,
+    pub curve_states: Vec<LasCurveState>,
     /// LAS text is currently written at four decimal places. This report declares that
     /// boundary and counts the stored f32 values whose written representation changes.
     pub precision: crate::parsers::SamplePrecisionReport,
@@ -161,6 +173,12 @@ fn fixed_decimal_4_reduces(value: f32) -> bool {
         && format!("{value:.4}")
             .parse::<f32>()
             .is_ok_and(|written| written != value)
+}
+
+/// `curve_meta` declares FINAL as the QC'd delivery set; RAW, EDIT and other named
+/// import/work sets have not been designated final.
+fn curve_state_for_set(set_name: &str) -> &'static str {
+    if set_name.trim().eq_ignore_ascii_case("FINAL") { "final" } else { "working" }
 }
 
 fn collect_model_ids(value: &serde_json::Value, out: &mut Vec<String>) {
@@ -261,6 +279,7 @@ fn provenance_lines(
                 .map_err(|e| format!("computed curve '{name}' has invalid input JSON: {e}"))?,
             _ => serde_json::Value::Array(Vec::new()),
         };
+        let state = curve_state_for_set(&set_name);
         lines.push(format!(
             "{PROVENANCE_PREFIX}{}",
             serde_json::json!({
@@ -272,6 +291,7 @@ fn provenance_lines(
                 "log_set": set_name,
                 "version": version,
                 "run_date": created_at,
+                "state": state,
             })
         ));
 
@@ -317,7 +337,7 @@ fn add_generic_curves(
     curve_names: &mut Vec<String>,
     units: &mut Vec<String>,
     columns: &mut std::collections::HashMap<String, Vec<f32>>,
-) -> Result<(usize, Vec<LasOmission>), String> {
+) -> Result<(usize, Vec<LasOmission>, Vec<LasCurveState>), String> {
     let mut stmt = conn
         .prepare(
             "SELECT curve_id, upper(mnemonic), COALESCE(unit, ''), set_name, run_no
@@ -340,6 +360,8 @@ fn add_generic_curves(
         .prepare("SELECT depth, value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
         .map_err(|e| e.to_string())?;
     let mut omitted = Vec::new();
+    let mut curve_states = Vec::new();
+    let mut first_generic_state = std::collections::HashMap::<String, String>::new();
 
     for (curve_id, mnemonic, unit, set_name, run_no) in metas {
         let label = match run_no {
@@ -351,11 +373,29 @@ fn add_generic_curves(
             omitted.push(omit("the well index is already written as the LAS DEPT column"));
             continue;
         }
+        let state = curve_state_for_set(&set_name);
+        let mut export_mnemonic = mnemonic.clone();
         if curve_names.iter().any(|name| name.eq_ignore_ascii_case(&mnemonic)) {
-            omitted.push(omit(
-                "that LAS mnemonic is already written from another held standard, computed, set or run curve",
-            ));
-            continue;
+            let Some(existing_state) = first_generic_state.get(&mnemonic) else {
+                omitted.push(omit(
+                    "that LAS mnemonic is already written from another held standard, computed, set or run curve",
+                ));
+                continue;
+            };
+            if existing_state == state {
+                omitted.push(omit(
+                    "that LAS mnemonic is already written from another held standard, computed, set or run curve",
+                ));
+                continue;
+            }
+            let candidate = format!("{mnemonic}_{}", state.to_ascii_uppercase());
+            if curve_names.iter().any(|name| name.eq_ignore_ascii_case(&candidate)) {
+                omitted.push(omit(
+                    "its final/working export mnemonic is already held by another curve",
+                ));
+                continue;
+            }
+            export_mnemonic = candidate;
         }
         let samples: Vec<(f32, f32)> = sample_stmt
             .query_map(params![curve_id], |row| {
@@ -378,11 +418,18 @@ fn add_generic_curves(
         for (d, value) in samples {
             values[depth_index[&d.to_bits()]] = value;
         }
-        columns.insert(mnemonic.clone(), values);
-        curve_names.push(mnemonic);
+        columns.insert(export_mnemonic.clone(), values);
+        curve_names.push(export_mnemonic.clone());
         units.push(unit);
+        first_generic_state.entry(mnemonic.clone()).or_insert_with(|| state.to_string());
+        curve_states.push(LasCurveState {
+            export_curve: export_mnemonic,
+            source_curve: mnemonic,
+            set_name,
+            state: state.to_string(),
+        });
     }
-    Ok((held, omitted))
+    Ok((held, omitted, curve_states))
 }
 
 pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
@@ -508,7 +555,7 @@ fn write_las(
         return Err("well has no curve data".into());
     }
     let initially_written = curve_names.len();
-    let (generic_held, omitted) = add_generic_curves(
+    let (generic_held, omitted, curve_states) = add_generic_curves(
         conn,
         well_id,
         &depth,
@@ -571,6 +618,13 @@ fn write_las(
         for line in &provenance {
             writeln!(w, " {line}")?;
         }
+        for state in &curve_states {
+            writeln!(
+                w,
+                " {CURVE_STATE_PREFIX}{}",
+                serde_json::to_string(state).expect("serializing a curve state cannot fail")
+            )?;
+        }
         for omission in &omitted {
             writeln!(
                 w,
@@ -598,6 +652,7 @@ fn write_las(
         curves_written: curve_names.len(),
         curves_held,
         omitted,
+        curve_states,
         precision,
         self_checked: false,
     })
@@ -1015,6 +1070,7 @@ mod tests {
                 curves_written: 1,
                 curves_held: 1,
                 omitted: Vec::new(),
+                curve_states: Vec::new(),
                 precision: crate::parsers::SamplePrecisionReport::new(
                     "f32 storage",
                     "fixed-decimal-4 LAS text",
@@ -1067,6 +1123,7 @@ mod tests {
                 curves_written: 1,
                 curves_held: 1,
                 omitted: Vec::new(),
+                curve_states: Vec::new(),
                 precision: crate::parsers::SamplePrecisionReport::new(
                     "f32 storage",
                     "fixed-decimal-4 LAS text",
@@ -1284,6 +1341,90 @@ mod tests {
         let refused = export_las(&conn, &well_id, refused_dest.to_str().unwrap()).unwrap_err();
         assert!(refused.contains("no single live ancestry record"), "{refused}");
         assert!(!refused_dest.exists(), "a refused export must not leave a partial file");
+    }
+
+    /// SB-DIO-052 / T74. `curve_meta` declares FINAL as QC'd for delivery and RAW as
+    /// imported/working. Both sides use the same source mnemonic, so this also pins that
+    /// marking a state cannot be implemented by silently omitting the collision.
+    #[test]
+    fn a_working_and_final_phie_are_both_exported_and_each_is_marked_in_the_file() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        let well_id = id.to_string();
+        db::insert_well(&conn, id, "PHIE-STATES", None, None, None).unwrap();
+        let depth = vec![1800.0_f32, 1800.5, 1801.0];
+        db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![50.0; 3],
+            vec![2.0; 3],
+            vec![0.2; 3],
+            vec![2.4; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+        )
+        .unwrap();
+        let working = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "RAW",
+            "PHIE",
+            Some("V/V"),
+            Some("PHIE"),
+            Some("synthetic working curve"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &working, &depth, &[0.10, 0.11, 0.12]).unwrap();
+        let final_curve = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "FINAL",
+            "PHIE",
+            Some("V/V"),
+            Some("PHIE"),
+            Some("synthetic final curve"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &final_curve, &depth, &[0.20, 0.21, 0.22]).unwrap();
+
+        let dest = tmp_path("phie-final-working");
+        let result = export_las(&conn, &well_id, dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        let frame = crate::parsers::parse_las_2_all(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+
+        let exported: Vec<&str> = frame.curves.iter().map(|curve| curve.mnemonic.as_str()).collect();
+        assert!(exported.contains(&"PHIE"), "the working PHIE must remain in the file: {exported:?}");
+        assert!(exported.contains(&"PHIE_FINAL"), "the final collision must be retained with its state: {exported:?}");
+        assert!(
+            !result.omitted.iter().any(|omission| omission.curve.starts_with("PHIE ")),
+            "neither state may be hidden as a duplicate: {:?}",
+            result.omitted
+        );
+        assert_eq!(result.curve_states.len(), 2);
+        assert!(result.curve_states.iter().any(|curve| {
+            curve.export_curve == "PHIE" && curve.source_curve == "PHIE"
+                && curve.set_name == "RAW" && curve.state == "working"
+        }));
+        assert!(result.curve_states.iter().any(|curve| {
+            curve.export_curve == "PHIE_FINAL" && curve.source_curve == "PHIE"
+                && curve.set_name == "FINAL" && curve.state == "final"
+        }));
+
+        let file_states = prefixed_json(&text, CURVE_STATE_PREFIX);
+        assert_eq!(file_states.len(), 2, "both identities must travel in ~Other");
+        assert!(file_states.iter().any(|row| {
+            row["export_curve"] == "PHIE" && row["source_curve"] == "PHIE"
+                && row["set_name"] == "RAW" && row["state"] == "working"
+        }));
+        assert!(file_states.iter().any(|row| {
+            row["export_curve"] == "PHIE_FINAL" && row["source_curve"] == "PHIE"
+                && row["set_name"] == "FINAL" && row["state"] == "final"
+        }));
     }
 
     /// SB-DIO-055 / SB-DIO-T80..T81. The completeness and two-surface omission rule is

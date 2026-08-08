@@ -3979,11 +3979,19 @@ export interface LasOmission {
   reason: string;
 }
 
+export interface LasCurveState {
+  export_curve: string;
+  source_curve: string;
+  set_name: string;
+  state: "working" | "final";
+}
+
 export interface LasExportResult {
   rows: number;
   curves_written: number;
   curves_held: number;
   omitted: LasOmission[];
+  curve_states: LasCurveState[];
   precision: SamplePrecisionReport;
   /** Set only after SandiBumi's own LAS reader accepts the completed file. */
   self_checked: boolean;
