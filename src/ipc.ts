@@ -4202,13 +4202,24 @@ export interface DlisImportResult {
   rows: number;
   /** Existing RAW curves at the same (mnemonic, run) that this import overwrote. */
   replaced: number;
+  notes: string[];
   error: string | null;
 }
 
 /** Imports every scalar channel of a DLIS file into the selected well's generic store
  *  (via dlisio through the Python subprocess). */
-export function importDlisFile(wellId: string, path: string, setName?: string | null): Promise<DlisImportResult> {
-  return invoke<DlisImportResult>("import_dlis_file", { wellId, path, setName: setName ?? null });
+export function importDlisFile(
+  wellId: string,
+  path: string,
+  setName?: string | null,
+  fileDepthUnit?: "M" | "FT" | null,
+): Promise<DlisImportResult> {
+  return invoke<DlisImportResult>("import_dlis_file", {
+    wellId,
+    path,
+    setName: setName ?? null,
+    fileDepthUnit: fileDepthUnit ?? null,
+  });
 }
 
 // --- Petrography: pore area from blue-dyed epoxy (plan_image_analysis A1) ---

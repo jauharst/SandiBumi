@@ -74,6 +74,7 @@ with batch:
                 out_curves.append({
                     "mnemonic": str(name).upper(),
                     "unit": unit_by_name.get(name, ""),
+                    "index_unit": unit_by_name.get(index_name, ""),
                     "n": n,
                     "run": frame_ord,
                 })
@@ -91,6 +92,7 @@ sys.stdout.buffer.write(b"".join(buffers))
 struct DlisCurveMeta {
     mnemonic: String,
     unit: String,
+    index_unit: String,
     n: usize,
     run: i32,
 }
@@ -108,6 +110,8 @@ pub struct DlisImportResult {
     /// Existing RAW curves at the same (mnemonic, run) that this import overwrote — surfaced
     /// so a re-import (or any provenance collision) is never silent.
     pub replaced: usize,
+    /// Unit reconciliation and explicit-confirmation record.
+    pub notes: Vec<String>,
     pub error: Option<String>,
 }
 
@@ -117,8 +121,21 @@ pub struct DlisImportResult {
 /// RAW with per-frame run numbers, same-(mnemonic, run) re-imports REPLACE and are counted
 /// in `replaced`. Any other name is auto-suffixed per well (`WIRE` taken → `WIRE_1`,
 /// Geolog-style), so duplicates are always KEPT and `replaced` stays 0.
-pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str, set_name: Option<&str>) -> DlisImportResult {
-    let fail = |e: String| DlisImportResult { path: path.to_string(), curves_imported: 0, rows: 0, replaced: 0, error: Some(e) };
+pub fn import_dlis_file(
+    conn: &Connection,
+    well_id: &str,
+    path: &str,
+    set_name: Option<&str>,
+    confirmed_file_unit: Option<&str>,
+) -> DlisImportResult {
+    let fail = |e: String| DlisImportResult {
+        path: path.to_string(),
+        curves_imported: 0,
+        rows: 0,
+        replaced: 0,
+        notes: Vec::new(),
+        error: Some(e),
+    };
 
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
@@ -159,20 +176,38 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str, set_name: 
     };
     let payload = &stdout[nl + 1..];
 
+    let confirmed = match confirmed_file_unit {
+        Some(raw) => match crate::units::DepthUnit::parse(raw) {
+            Some(unit) => Some(unit),
+            None => return fail(format!("unrecognized confirmed file depth unit '{raw}'")),
+        },
+        None => None,
+    };
+    let project_unit = match crate::units::project_depth_unit(conn) {
+        Ok(unit) => unit,
+        Err(e) => return fail(e.to_string()),
+    };
+    let (adopted_unit, index_actions, mut notes) =
+        match resolve_dlis_index_actions(project_unit, &header.curves, confirmed) {
+            Ok(resolved) => resolved,
+            Err(e) => return fail(e),
+        };
+
     // Each curve occupies 2 * n * 4 bytes (depth column then value column).
     let mut offset = 0usize;
     let mut curves_imported = 0usize;
     let mut total_rows = 0usize;
     let mut replaced = 0usize;
-    for meta in &header.curves {
+    for (meta, index_action) in header.curves.iter().zip(index_actions.iter()) {
         let bytes = meta.n * 4;
         let end = offset + 2 * bytes;
         if end > payload.len() {
             return fail(format!("dlis payload truncated at curve '{}'", meta.mnemonic));
         }
-        let depth = read_f32(&payload[offset..offset + bytes]);
+        let mut depth = read_f32(&payload[offset..offset + bytes]);
         let mut values = read_f32(&payload[offset + bytes..end]);
         offset = end;
+        apply_index_action(&mut depth, index_action);
 
         // DLIS absent/sentinel values arrive as non-finite or huge magnitudes; normalize to
         // NaN (the project-wide missing convention). Producers also embed LAS-style
@@ -239,7 +274,70 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str, set_name: 
         }
     }
 
-    DlisImportResult { path: path.to_string(), curves_imported, rows: total_rows, replaced, error: None }
+    if project_unit.is_none() {
+        if let Some(unit) = adopted_unit {
+            if let Err(e) = crate::units::set_project_depth_unit(conn, unit) {
+                notes.push(format!("could not record the adopted project depth unit: {e}"));
+            }
+        }
+    }
+
+    DlisImportResult {
+        path: path.to_string(),
+        curves_imported,
+        rows: total_rows,
+        replaced,
+        notes,
+        error: None,
+    }
+}
+
+fn resolve_dlis_index_actions(
+    project_unit: Option<crate::units::DepthUnit>,
+    curves: &[DlisCurveMeta],
+    confirmed_file_unit: Option<crate::units::DepthUnit>,
+) -> Result<
+    (
+        Option<crate::units::DepthUnit>,
+        Vec<crate::units::IndexUnitAction>,
+        Vec<String>,
+    ),
+    String,
+> {
+    let mut target = project_unit;
+    let mut actions = Vec::with_capacity(curves.len());
+    let mut notes = Vec::new();
+    for meta in curves {
+        let declared_file_unit = crate::units::DepthUnit::parse(&meta.index_unit);
+        let file_unit = declared_file_unit.or(confirmed_file_unit);
+        let action = crate::units::resolve_index_unit(target, file_unit)
+            .map_err(|e| format!("DLIS frame {} index: {e}", meta.run))?;
+        if declared_file_unit.is_none() {
+            if let Some(unit) = confirmed_file_unit {
+                let note = format!("DLIS frame {} file depth unit explicitly confirmed as {}", meta.run, unit.code());
+                if !notes.contains(&note) {
+                    notes.push(note);
+                }
+            }
+        }
+        if let Some(note) = action.note() {
+            let note = format!("DLIS frame {}: {note}", meta.run);
+            if !notes.contains(&note) {
+                notes.push(note);
+            }
+        }
+        if target.is_none() {
+            target = file_unit;
+        }
+        actions.push(action);
+    }
+    Ok((target, actions, notes))
+}
+
+fn apply_index_action(depth: &mut [f32], action: &crate::units::IndexUnitAction) {
+    if let crate::units::IndexUnitAction::Convert { from, to } = *action {
+        crate::units::convert_depths(depth, from, to);
+    }
 }
 
 fn read_f32(bytes: &[u8]) -> Vec<f32> {
@@ -285,11 +383,54 @@ mod tests {
         db::insert_well(&conn, well_id, "DLIS-1", None, None, None).unwrap();
         let ids = well_id.to_string();
 
-        let res = import_dlis_file(&conn, &ids, &path, None);
+        let res = import_dlis_file(&conn, &ids, &path, None, None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert!(res.curves_imported > 0, "expected at least one curve");
         let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();
         assert!(!catalog.is_empty());
         println!("imported {} curves, {} rows", res.curves_imported, res.rows);
+    }
+
+    /// SB-DIO-016 / SB-DIO-T25..T26. Index-unit spellings and the 0.3048
+    /// international-foot factor are cited in `docs/PRD_v2/21_data-io.md` §5.1.
+    #[test]
+    fn the_dlis_index_unit_is_read_reconciled_and_an_undeclared_one_is_refused() {
+        assert!(DLIS_RUNNER.contains("\"index_unit\": unit_by_name.get(index_name"));
+        let meta = |unit: &str| DlisCurveMeta {
+            mnemonic: "GR".into(),
+            unit: "GAPI".into(),
+            index_unit: unit.into(),
+            n: 2,
+            run: 0,
+        };
+
+        let (_, actions, _) = resolve_dlis_index_actions(
+            Some(crate::units::DepthUnit::Metres),
+            &[meta("FT")],
+            None,
+        )
+        .unwrap();
+        let mut depth = vec![1000.0_f32, 1001.0];
+        apply_index_action(&mut depth, &actions[0]);
+        assert!((depth[0] - 304.8).abs() < 1e-3, "a feet index converts by the cited factor");
+
+        let refused = resolve_dlis_index_actions(
+            Some(crate::units::DepthUnit::Metres),
+            &[meta("")],
+            None,
+        )
+        .unwrap_err();
+        assert!(refused.contains("file index") && refused.contains("project setting is not a file declaration"));
+
+        let (_, confirmed_actions, notes) = resolve_dlis_index_actions(
+            Some(crate::units::DepthUnit::Metres),
+            &[meta("")],
+            Some(crate::units::DepthUnit::Feet),
+        )
+        .unwrap();
+        let mut confirmed_depth = vec![1000.0_f32];
+        apply_index_action(&mut confirmed_depth, &confirmed_actions[0]);
+        assert!((confirmed_depth[0] - 304.8).abs() < 1e-3);
+        assert!(notes.iter().any(|n| n.contains("explicitly confirmed as FT")));
     }
 }

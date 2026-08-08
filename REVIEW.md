@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-016: DLIS index units are reconciled
+
+- [ ] Import a feet-indexed DLIS into a metre project. Are depths converted, with the index
+      channel's own `UNITS` attribute named in the result? Does an undeclared index refuse until
+      its file unit is explicitly confirmed?
+
 ## 2026-08-09 — SB-DIO-015: an undeclared depth unit now refuses
 
 - [ ] Import a LAS with no unit on its depth curve. Does it refuse until **File depth unit when

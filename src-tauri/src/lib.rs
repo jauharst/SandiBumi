@@ -1320,12 +1320,19 @@ async fn import_dlis_file(
     well_id: String,
     path: String,
     set_name: Option<String>,
+    file_depth_unit: Option<String>,
 ) -> Result<dlis::DlisImportResult, String> {
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import DLIS", base, move || {
         let c = conn.lock().unwrap();
-        Ok(dlis::import_dlis_file(&c, &well_id, &path, set_name.as_deref()))
+        Ok(dlis::import_dlis_file(
+            &c,
+            &well_id,
+            &path,
+            set_name.as_deref(),
+            file_depth_unit.as_deref(),
+        ))
     })
     .await
 }
