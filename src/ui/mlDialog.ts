@@ -771,37 +771,134 @@ export async function buildMlContent(
   sModel.appendChild(detNote);
 
   // --- Input curves + target ----------------------------------------------
+  //
+  // NUMBERED SLOTS, not a checkbox grid (Jauhar, 2026-08-08: *"for log input, its too nasty, better
+  // be Input Log 1 >> dropdown curve, Input Log 2 >> dropdown curve, +input log"*).
+  //
+  // The grid was unusable on a real delivery — sixty-odd curves, two columns, and the four you
+  // wanted scattered through it. But it was also WRONG, and that is the half worth recording. The
+  // help text told the user "class 0 = lowest mean of the FIRST checked curve (put GR first)" and
+  // there was no way to do it: the order came from the catalog's own iteration, not from the order
+  // anybody ticked. So the one instruction the field carried could not be followed, and a user who
+  // believed it got their clusters numbered by whichever curve the catalog happened to list first.
+  //
+  // A slot list makes the order the user's, visibly, which is what the ordered-feature contract
+  // everywhere downstream already assumes — `apply_ml_model` refuses a matrix whose columns are
+  // reordered, and cluster ids are numbered by ascending mean of feature 0.
   const featBox = document.createElement("div");
-  featBox.className = "mc-wells";
-  const featChecks = new Map<string, HTMLInputElement>();
-  for (const c of catalog) {
-    const label = document.createElement("label");
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.value = c.name;
-    cb.checked = DEFAULT_FEATURES.includes(c.name);
-    featChecks.set(c.name, cb);
-    // The unit and where the curve came from, beside the name. The list now carries every
-    // IMPORTED log as well as the standard columns and the computed ones, so on a real delivery
-    // it is long — and "which RHOB is this" is the first question a long list raises.
-    const tail = document.createElement("span");
-    tail.className = "mc-curve-src";
-    tail.textContent = `${c.units ? ` ${c.units}` : ""} · ${c.source.toLowerCase()}`;
-    label.append(cb, document.createTextNode(` ${c.name}`), tail);
-    featBox.appendChild(label);
+  featBox.className = "ml-feature-slots";
+  interface FeatureSlot {
+    row: HTMLElement;
+    sel: HTMLSelectElement;
+    num: HTMLElement;
   }
-  // The fixed-limits table is per input curve, so it follows the ticks. Delegated on the box rather
-  // than bound per checkbox: the list carries every imported log on a real delivery, and one
-  // listener that outlives the rows is cheaper than several hundred that do not.
-  featBox.addEventListener("change", () => {
+  const slots: FeatureSlot[] = [];
+
+  /** The chosen curves, IN SLOT ORDER. Blank slots are skipped; a repeat is taken once. */
+  const selectedFeatures = (): string[] => {
+    const out: string[] = [];
+    for (const s of slots) {
+      const v = s.sel.value;
+      if (v && !out.includes(v)) out.push(v);
+    }
+    return out;
+  };
+
+  const addRow = document.createElement("div");
+  addRow.className = "ml-slot-add-row";
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "ml-slot-add";
+  addBtn.textContent = "+ input log";
+  addRow.appendChild(addBtn);
+
+  /** Grey out a curve already taken by another slot, so the same log cannot be entered twice. */
+  function refreshSlotOptions(): void {
+    const used = new Set(slots.map((s) => s.sel.value).filter(Boolean));
+    for (const s of slots) {
+      for (const o of Array.from(s.sel.options)) {
+        o.disabled = o.value !== "" && o.value !== s.sel.value && used.has(o.value);
+      }
+    }
+  }
+
+  /** Re-append in order and renumber. The number IS the column index the model will see. */
+  function layoutSlots(): void {
+    featBox.textContent = "";
+    slots.forEach((s, i) => {
+      s.num.textContent = `Input log ${i + 1}`;
+      featBox.appendChild(s.row);
+    });
+    featBox.appendChild(addRow);
+    refreshSlotOptions();
+  }
+
+  // Split from `layoutSlots` because the initial build runs before `renderBasisLimits` and
+  // `renderTransforms` exist — calling them from the first layout would be a use-before-definition.
+  function slotsChanged(): void {
+    layoutSlots();
     renderBasisLimits();
     renderTransforms();
+  }
+
+  function makeSlot(initial?: string): FeatureSlot {
+    const row = document.createElement("div");
+    row.className = "ml-slot";
+    const num = document.createElement("span");
+    num.className = "ml-slot-n";
+    const sel = document.createElement("select");
+    sel.className = "form-control ml-slot-sel";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "— choose a curve —";
+    sel.appendChild(blank);
+    for (const c of catalog) {
+      const o = document.createElement("option");
+      o.value = c.name;
+      // The unit and where the curve came from, beside the name. On a real delivery this list
+      // carries every imported log as well as the standard and computed ones, and "which RHOB is
+      // this" is the first question that raises.
+      o.textContent = `${c.name}${c.units ? ` ${c.units}` : ""} · ${c.source.toLowerCase()}`;
+      sel.appendChild(o);
+    }
+    sel.value = initial ?? "";
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "ml-slot-del";
+    del.textContent = "×";
+    del.title = "Remove this input log";
+    const slot: FeatureSlot = { row, sel, num };
+    row.append(num, sel, del);
+
+    sel.addEventListener("change", slotsChanged);
+    del.addEventListener("click", () => {
+      const i = slots.indexOf(slot);
+      if (i >= 0) slots.splice(i, 1);
+      // Never leave the list empty: an empty form gives the user nothing to act on, and the run
+      // would refuse anyway. One blank slot is the same statement and is clickable.
+      if (!slots.length) slots.push(makeSlot());
+      slotsChanged();
+    });
+    return slot;
+  }
+
+  addBtn.addEventListener("click", () => {
+    slots.push(makeSlot());
+    slotsChanged();
+    slots[slots.length - 1].sel.focus();
   });
+
+  for (const name of DEFAULT_FEATURES.filter((n) => curveNames.includes(n))) {
+    slots.push(makeSlot(name));
+  }
+  if (!slots.length) slots.push(makeSlot());
+  layoutSlots();
+
   sIn.appendChild(
     formRow(
       "Input curves",
       featBox,
-      "Tick any curve the model should learn from — standard columns, computed curves and imported logs alike. Order matters for clustering: class 0 = lowest mean of the FIRST checked curve (put GR first).",
+      "The curves the model learns from, in the order the model sees them — standard columns, computed curves and imported logs alike. The ORDER is real: for clustering, class 0 is the lowest mean of Input log 1, so put GR there if you want the numbering to run clean-to-shaly. A saved model records this order and refuses a run that reorders it.",
     ),
   );
 
@@ -1435,7 +1532,7 @@ export async function buildMlContent(
 
   /** Rebuilds the limits table for the currently ticked inputs, keeping anything already typed. */
   function renderBasisLimits(): void {
-    const feats = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    const feats = selectedFeatures();
     basisTable.hidden = normBasis !== "limits";
     if (normBasis !== "limits") return;
     basisTable.innerHTML = "";
@@ -1483,7 +1580,7 @@ export async function buildMlContent(
   transformTable.className = "ml-basis-limits ml-transform-table";
 
   function renderTransforms(): void {
-    const feats = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    const feats = selectedFeatures();
     transformTable.innerHTML = "";
     if (feats.length === 0) {
       const empty = document.createElement("div");
@@ -1630,7 +1727,7 @@ export async function buildMlContent(
 
   async function refreshQc(): Promise<void> {
     const gen = ++qcGen;
-    const feats = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    const feats = selectedFeatures();
     const wellIds = task.supervised
       ? [...train.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id)
       : scope.getWellIds();
@@ -1781,7 +1878,7 @@ export async function buildMlContent(
 
   compareBtn.addEventListener("click", async () => {
     if (!task.supervised) return;
-    const features = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    const features = selectedFeatures();
     const trainIds = [...train.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
     if (features.length === 0) {
       setStatus("Check at least one input curve");
@@ -2221,7 +2318,7 @@ export async function buildMlContent(
   void refreshSaved();
 
   runBtn.addEventListener("click", async () => {
-    const features = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    const features = selectedFeatures();
     const applyIds = scope.getWellIds();
     const trainIds = [...train.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
     if (features.length === 0) {

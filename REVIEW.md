@@ -10041,3 +10041,31 @@ always scored first. The run says how many it reached and whether the per-curve 
       disagree, the disagreement is the interesting part — that is a curve with a stand-in.
 - [ ] **Re-run with a different seed.** The ranking should be stable; if it is not, the differences
       between those curves are inside the noise and none of them is worth much.
+
+## Input curves: numbered slots instead of a checkbox grid
+
+The grid was unusable on a real delivery — sixty-odd curves in two columns with the four you wanted
+scattered through it. It is now **Input log 1 / Input log 2 / + input log**, each a dropdown, with a
+× to remove one.
+
+**It was also wrong, and that is the half worth knowing.** The old help text said "class 0 = lowest
+mean of the FIRST checked curve (put GR first)" — and there was no way to do it. The order came from
+the catalog's own listing, not from the order you ticked. So the one instruction that field carried
+could not be followed, and anyone who believed it got their clusters numbered by whichever curve the
+catalog happened to list first.
+
+The slot number is now the column index the model actually sees. That matters in three places: for
+clustering, class 0 is the lowest mean of Input log 1; a saved model records the order and refuses a
+run that reorders it; and the curve-worth table reads the same list.
+
+A curve already taken by another slot is greyed out in the rest, so the same log cannot be entered
+twice. Removing the last slot leaves one blank rather than an empty form.
+
+- [ ] **Open ML on a well with many imported curves** and confirm the pane is now readable.
+- [ ] **Put GR in slot 1, run a clustering**, and check class 0 really is the cleanest rock. Then
+      move GR to slot 2 and confirm the numbering changes — that is the contract being visible.
+- [ ] **Try to pick the same curve twice.** It should be greyed out in the other slot.
+- [ ] **Remove every slot.** One blank row should remain rather than an empty form.
+- [ ] **Check Data QC, the fixed-limits table and the transform picker** all follow the slots — they
+      are per input curve and should update as you change one.
+- [ ] **Save a model, then reorder the slots and apply it.** It must refuse rather than predict.

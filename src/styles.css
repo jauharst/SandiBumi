@@ -5649,6 +5649,68 @@ textarea {
   line-height: 1.45;
 }
 
+/* Ordered input-curve slots. Replaced a sixty-checkbox grid: this is data UI, so it stays dense,
+   but each row has to read as "slot N holds this curve" because the number IS the column index the
+   model will see. */
+.ml-feature-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ml-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Fixed width so every dropdown starts on the same x — a ragged left edge on a numbered list makes
+   the order harder to read, which is the one thing this control exists to show. */
+.ml-slot-n {
+  flex: 0 0 84px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim, #6f6857);
+  font-variant-numeric: tabular-nums;
+}
+.ml-slot-sel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ml-slot-del {
+  flex: 0 0 auto;
+  border: 1px solid var(--border, #e6ded0);
+  background: transparent;
+  color: var(--text-dim, #6f6857);
+  border-radius: var(--r-sm, 3px);
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.12s, color 0.12s, border-color 0.12s;
+}
+.ml-slot-del:hover {
+  background: var(--accent-soft, #f4e3d5);
+  color: var(--text, #241d15);
+  border-color: var(--border-strong, #d6c9b4);
+}
+.ml-slot-add-row {
+  /* Aligned under the dropdowns, not under the numbers — it adds a curve, so it belongs in the
+     curve column. */
+  padding-left: 92px;
+}
+.ml-slot-add {
+  border: 1px dashed var(--border-strong, #d6c9b4);
+  background: transparent;
+  color: var(--accent-dim, #a4551f);
+  border-radius: var(--r-pill, 999px);
+  padding: 3px 12px;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s;
+}
+.ml-slot-add:hover {
+  background: var(--accent-soft, #f4e3d5);
+  border-color: var(--accent, #c67139);
+}
+
 /* What each curve is worth. Sits above the model leaderboard, so it needs to read as its own
    answer rather than as a header for the table below it. */
 .ml-curve-value {
