@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-051: provenance travels inside LAS deliverables
+
+- [ ] Open an exported LAS at `~O`. Is every curve labelled measured or computed, does each
+      computed curve name its method and parameter values, and does each fitted curve carry its
+      ordered inputs, training/runtime record and model-artifact SHA-256?
+
 ## 2026-08-09 — SB-DIO-017: LAS exports declare their actual depth unit
 
 - [ ] Export and re-import one feet project and one metre project. Do `STRT`, `STOP`, `STEP`
