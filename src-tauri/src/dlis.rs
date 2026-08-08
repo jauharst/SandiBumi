@@ -141,6 +141,24 @@ pub struct DlisSkip {
     pub rule: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DlisOutsideIntervalDecision {
+    AcceptOutsideDeclaredInterval,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DlisIntervalConflict {
+    /// `well` or `set`; stated so an existing well interval and a narrower delivery interval are
+    /// not collapsed into one ambiguous warning.
+    pub scope: String,
+    pub name: String,
+    pub declared_top: f32,
+    pub declared_base: f32,
+    pub incoming_top: f32,
+    pub incoming_base: f32,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DlisImportResult {
     pub path: String,
@@ -159,6 +177,9 @@ pub struct DlisImportResult {
     pub unit_designations: Vec<crate::curves::UnitDesignation>,
     /// Every frame/channel/curve/row the reader did not carry, with count and rule.
     pub skipped: Vec<DlisSkip>,
+    /// Incoming extents outside an existing well/set extent. Empty means there was no conflict;
+    /// populated beside an error means the required decision was absent.
+    pub interval_conflicts: Vec<DlisIntervalConflict>,
     pub error: Option<String>,
 }
 
@@ -181,8 +202,40 @@ fn failed(path: &str, error: String, skipped: Vec<DlisSkip>) -> DlisImportResult
         unconverted_units: Vec::new(),
         unit_designations: Vec::new(),
         skipped,
+        interval_conflicts: Vec::new(),
         error: Some(error),
     }
+}
+
+fn failed_interval(
+    path: &str,
+    conflicts: Vec<DlisIntervalConflict>,
+    skipped: Vec<DlisSkip>,
+) -> DlisImportResult {
+    let detail = conflicts
+        .iter()
+        .map(|conflict| {
+            format!(
+                "{} '{}' is {:.4}-{:.4}, incoming DLIS is {:.4}-{:.4}",
+                conflict.scope,
+                conflict.name,
+                conflict.declared_top,
+                conflict.declared_base,
+                conflict.incoming_top,
+                conflict.incoming_base
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let mut result = failed(
+        path,
+        format!(
+            "incoming DLIS falls outside an existing declared interval ({detail}); explicit confirmation is required before commit"
+        ),
+        skipped,
+    );
+    result.interval_conflicts = conflicts;
+    result
 }
 
 fn validate_header(header: &DlisHeader) -> Result<(), String> {
@@ -195,6 +248,113 @@ fn validate_header(header: &DlisHeader) -> Result<(), String> {
     } else {
         format!("DLIS import produced no scalar curves; every candidate was skipped: {detail}")
     })
+}
+
+fn stored_interval(conn: &Connection, well_id: &str, set_name: Option<&str>) -> Option<(f32, f32)> {
+    let row: Option<(Option<f32>, Option<f32>)> = match set_name {
+        Some(set) => conn
+            .query_row(
+                "SELECT CAST(MIN(s.depth) AS FLOAT), CAST(MAX(s.depth) AS FLOAT)
+                 FROM curve_samples s
+                 JOIN curve_meta m ON m.curve_id = s.curve_id
+                 WHERE m.well_id = ?1 AND upper(m.set_name) = upper(?2)",
+                params![well_id, set],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok(),
+        None => conn
+            .query_row(
+                "SELECT CAST(MIN(depth) AS FLOAT), CAST(MAX(depth) AS FLOAT)
+                 FROM (
+                     SELECT depth FROM standard_curves WHERE well_id = ?1
+                     UNION ALL
+                     SELECT s.depth FROM curve_samples s
+                     JOIN curve_meta m ON m.curve_id = s.curve_id WHERE m.well_id = ?1
+                     UNION ALL
+                     SELECT depth FROM computed_curves WHERE well_id = ?1
+                 ) held",
+                params![well_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok(),
+    };
+    row.and_then(|(top, base)| top.zip(base))
+}
+
+fn detect_interval_conflicts(
+    conn: &Connection,
+    well_id: &str,
+    target_set: &str,
+    incoming_top: f32,
+    incoming_base: f32,
+) -> Vec<DlisIntervalConflict> {
+    let mut conflicts = Vec::new();
+    if let Some((top, base)) = stored_interval(conn, well_id, None) {
+        if incoming_top < top || incoming_base > base {
+            conflicts.push(DlisIntervalConflict {
+                scope: "well".into(),
+                name: well_id.to_string(),
+                declared_top: top,
+                declared_base: base,
+                incoming_top,
+                incoming_base,
+            });
+        }
+    }
+    if let Some((top, base)) = stored_interval(conn, well_id, Some(target_set)) {
+        if incoming_top < top || incoming_base > base {
+            conflicts.push(DlisIntervalConflict {
+                scope: "set".into(),
+                name: target_set.to_string(),
+                declared_top: top,
+                declared_base: base,
+                incoming_top,
+                incoming_base,
+            });
+        }
+    }
+    conflicts
+}
+
+fn incoming_interval(
+    header: &DlisHeader,
+    payload: &[u8],
+    index_actions: &[crate::units::IndexUnitAction],
+) -> Result<Option<(f32, f32)>, String> {
+    let mut offset = 0usize;
+    let mut top = f32::INFINITY;
+    let mut base = f32::NEG_INFINITY;
+    for (meta, index_action) in header.curves.iter().zip(index_actions.iter()) {
+        let bytes = meta.n * 4;
+        let end = offset + 2 * bytes;
+        if end > payload.len() {
+            return Err(format!("dlis payload truncated at curve '{}'", meta.mnemonic));
+        }
+        let mut depth = read_f32(&payload[offset..offset + bytes]);
+        apply_index_action(&mut depth, index_action);
+        for value in depth.into_iter().filter(|value| value.is_finite()) {
+            top = top.min(value);
+            base = base.max(value);
+        }
+        offset = end;
+    }
+    Ok((top.is_finite() && base.is_finite()).then_some((top, base)))
+}
+
+fn interval_preflight(
+    conn: &Connection,
+    well_id: &str,
+    target_set: &str,
+    incoming_top: f32,
+    incoming_base: f32,
+    decision: Option<DlisOutsideIntervalDecision>,
+) -> Result<Vec<DlisIntervalConflict>, Vec<DlisIntervalConflict>> {
+    let conflicts = detect_interval_conflicts(conn, well_id, target_set, incoming_top, incoming_base);
+    if conflicts.is_empty() || decision == Some(DlisOutsideIntervalDecision::AcceptOutsideDeclaredInterval) {
+        Ok(conflicts)
+    } else {
+        Err(conflicts)
+    }
 }
 
 /// Imports every scalar channel of a DLIS file into one existing well's generic curve store.
@@ -218,6 +378,7 @@ pub fn import_dlis_file(
         set_name,
         confirmed_file_unit,
         None,
+        None,
     )
 }
 
@@ -228,6 +389,7 @@ pub fn import_dlis_file_with_unit_designation(
     set_name: Option<&str>,
     confirmed_file_unit: Option<&str>,
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+    outside_interval_decision: Option<DlisOutsideIntervalDecision>,
 ) -> DlisImportResult {
     let fail = |e: String| failed(path, e, Vec::new());
 
@@ -317,6 +479,32 @@ pub fn import_dlis_file_with_unit_designation(
             Ok(resolved) => resolved,
             Err(e) => return failed(path, e, skipped),
         };
+    let interval_conflicts = match incoming_interval(&header, payload, &index_actions) {
+        Ok(Some((top, base))) => match interval_preflight(
+            conn,
+            well_id,
+            &target_set,
+            top,
+            base,
+            outside_interval_decision,
+        ) {
+            Ok(conflicts) => conflicts,
+            Err(conflicts) => return failed_interval(path, conflicts, skipped),
+        },
+        Ok(None) => Vec::new(),
+        Err(error) => return failed(path, error, skipped),
+    };
+    notes.extend(interval_conflicts.iter().map(|conflict| {
+        format!(
+            "Accepted DLIS interval conflict for {} '{}': declared {:.4}-{:.4}, incoming {:.4}-{:.4}",
+            conflict.scope,
+            conflict.name,
+            conflict.declared_top,
+            conflict.declared_base,
+            conflict.incoming_top,
+            conflict.incoming_base
+        )
+    }));
     let unit_designations: Vec<crate::curves::UnitDesignation> = ms_per_ft_meaning
         .map(|meaning| {
             ambiguous
@@ -510,6 +698,7 @@ pub fn import_dlis_file_with_unit_designation(
         unconverted_units,
         unit_designations,
         skipped,
+        interval_conflicts,
         error: None,
     }
 }
@@ -586,6 +775,61 @@ mod tests {
         assert_eq!(back[0], 1.0);
         assert_eq!(back[2], -3.25);
         assert!(back[3].is_nan());
+    }
+
+    /// **A DLIS outside an existing well's declared range requires confirmation before any
+    /// write.** `SB-DIO-035` / T51, sourced to data-I/O finding D-34. Pinned from both sides: an
+    /// inside interval passes without a decision, an outside interval is returned as a conflict
+    /// and leaves the held extent unchanged, and only the named acceptance releases that same
+    /// conflict.
+    #[test]
+    fn a_dlis_outside_an_existing_wells_declared_range_requires_confirmation_before_any_write() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = Uuid::new_v4();
+        db::insert_well(&conn, well_id, "DLIS-RANGE", None, None, None).unwrap();
+        db::insert_standard_curves(
+            &conn,
+            well_id,
+            vec![1000.0, 1001.0, 1002.0],
+            vec![1.0, 2.0, 3.0],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+        )
+        .unwrap();
+        let well = well_id.to_string();
+        assert_eq!(stored_interval(&conn, &well, None), Some((1000.0, 1002.0)));
+        assert!(
+            interval_preflight(&conn, &well, "WIRE", 1000.0, 1002.0, None)
+                .unwrap()
+                .is_empty(),
+            "an interval exactly inside the declaration needs no confirmation"
+        );
+
+        let conflict = interval_preflight(&conn, &well, "WIRE", 999.0, 1003.0, None).unwrap_err();
+        assert_eq!(conflict.len(), 1);
+        assert_eq!(conflict[0].scope, "well");
+        assert_eq!((conflict[0].declared_top, conflict[0].declared_base), (1000.0, 1002.0));
+        assert_eq!((conflict[0].incoming_top, conflict[0].incoming_base), (999.0, 1003.0));
+        assert_eq!(
+            stored_interval(&conn, &well, None),
+            Some((1000.0, 1002.0)),
+            "the refusal happens before any sample can widen the held interval"
+        );
+
+        let accepted = interval_preflight(
+            &conn,
+            &well,
+            "WIRE",
+            999.0,
+            1003.0,
+            Some(DlisOutsideIntervalDecision::AcceptOutsideDeclaredInterval),
+        )
+        .unwrap();
+        assert_eq!(accepted, conflict, "the accepted run retains the exact conflict as its audit record");
     }
 
     /// Full DLIS import path, gated on a real DLIS file being present (ignored by default —

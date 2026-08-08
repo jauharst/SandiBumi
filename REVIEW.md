@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-035: DLIS interval extension needs confirmation
+
+- [ ] Import a DLIS whose converted index extends above or below the selected well's existing
+      finite interval. Does the first pass write nothing and name both the declared and incoming
+      extents? If you decline, is the existing interval unchanged? If you explicitly accept, does
+      the completed import retain the same conflict in its audit notes?
+
 ## 2026-08-09 — SB-DIO-033: curve selections are named saved objects
 
 - [ ] In Reframe, create **PRIMARY INPUTS** with ordered members `RHOB, GR`, save it, close/reopen

@@ -1339,6 +1339,7 @@ async fn import_dlis_file(
     set_name: Option<String>,
     file_depth_unit: Option<String>,
     ms_per_ft_meaning: Option<curves::MsPerFtMeaning>,
+    outside_interval_decision: Option<dlis::DlisOutsideIntervalDecision>,
 ) -> Result<dlis::DlisImportResult, String> {
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let conn = db.0.clone();
@@ -1351,6 +1352,7 @@ async fn import_dlis_file(
             set_name.as_deref(),
             file_depth_unit.as_deref(),
             ms_per_ft_meaning,
+            outside_interval_decision,
         ))
     })
     .await

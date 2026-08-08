@@ -1404,7 +1404,33 @@ export class Ribbon {
 
     setStatus(`Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`);
     try {
-      const result = await importDlisFile(well.well_id, path, setName, choice.fileDepthUnit);
+      let result = await importDlisFile(well.well_id, path, setName, choice.fileDepthUnit, null, null);
+      if (result.error && result.interval_conflicts.length > 0) {
+        const detail = result.interval_conflicts
+          .map(
+            (conflict) =>
+              `${conflict.scope} ${conflict.name}: ${conflict.declared_top}-${conflict.declared_base}; ` +
+              `incoming ${conflict.incoming_top}-${conflict.incoming_base}`,
+          )
+          .join("\n");
+        const accepted = window.confirm(
+          `This DLIS falls outside an existing declared interval:\n\n${detail}\n\n` +
+            "Import those outside samples anyway? Nothing has been written yet.",
+        );
+        if (!accepted) {
+          setStatus("DLIS import stopped at the interval conflict; the existing range is unchanged.");
+          return;
+        }
+        setStatus(`Interval conflict accepted; importing DLIS into ${well.well_name}…`);
+        result = await importDlisFile(
+          well.well_id,
+          path,
+          setName,
+          choice.fileDepthUnit,
+          null,
+          "accept_outside_declared_interval",
+        );
+      }
       const skippedNote = result.skipped.length
         ? ` Skipped ${result.skipped.map((item) => `${item.kind} ${item.name} ×${item.count}: ${item.rule}`).join("; ")}.`
         : "";

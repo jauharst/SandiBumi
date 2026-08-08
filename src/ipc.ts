@@ -4305,6 +4305,14 @@ export interface DlisImportResult {
   unconverted_units: ImportResult["unconverted_units"];
   unit_designations: ImportResult["unit_designations"];
   skipped: Array<{ kind: string; name: string; count: number; rule: string }>;
+  interval_conflicts: Array<{
+    scope: "well" | "set";
+    name: string;
+    declared_top: number;
+    declared_base: number;
+    incoming_top: number;
+    incoming_base: number;
+  }>;
   error: string | null;
 }
 
@@ -4316,6 +4324,7 @@ export function importDlisFile(
   setName?: string | null,
   fileDepthUnit?: "M" | "FT" | null,
   msPerFtMeaning?: "microseconds_per_foot" | "millisiemens_per_foot" | null,
+  outsideIntervalDecision?: "accept_outside_declared_interval" | null,
 ): Promise<DlisImportResult> {
   return invoke<DlisImportResult>("import_dlis_file", {
     wellId,
@@ -4323,6 +4332,7 @@ export function importDlisFile(
     setName: setName ?? null,
     fileDepthUnit: fileDepthUnit ?? null,
     msPerFtMeaning: msPerFtMeaning ?? null,
+    outsideIntervalDecision: outsideIntervalDecision ?? null,
   });
 }
 
