@@ -144,19 +144,12 @@ def build_model(task, algo, p, seed):
                     "xgboost not installed - used sklearn HistGradientBoosting (pip install xgboost)"
         if algo == "svr":
             from sklearn.svm import SVR
-            # `max_iter` is the ONLY bound on this fit. scikit-learn's own default is -1, meaning
-            # unlimited, and SVR gets slow superlinearly with sample count - on a pooled field-scale
-            # set it is the one phase that can run for an hour with no progress and no working
-            # Cancel. The default stays -1 so no existing run changes its answer; what changes is
-            # that the user can now set it, and that the dialog says what -1 costs.
-            #
-            # An ITERATION bound rather than a stopwatch, deliberately (Jauhar, 2026-08-08:
-            # "everything we can do and report in sandibumi, it should be re-producible"). Stopping
-            # after 500 iterations gives the same model on every machine; stopping after ten minutes
-            # gives a different one on a faster laptop, and a curve nobody else can reproduce.
-            # Hitting it raises ConvergenceWarning, which `fit_model` already reports.
+            # `max_iter` is the ONLY bound on this fit, and it is DELIBERATELY LOW - see
+            # SVM_DEFAULT_MAX_ITER in ml.rs for why 500 truncates a normal fit on purpose. Hitting it
+            # raises ConvergenceWarning, which `fit_model` catches and reports by name, so a
+            # truncated fit is never quoted as a score.
             return SVR(C=float(P(p, "C", 10.0)), epsilon=float(P(p, "epsilon", 0.1)),
-                       max_iter=int(P(p, "max_iter", -1))), None
+                       max_iter=int(P(p, "max_iter", SVM_DEFAULT_MAX_ITER))), None
         if algo == "ann":
             from sklearn.neural_network import MLPRegressor
             hidden = tuple(int(t) for t in str(P(p, "hidden", "64,32")).replace(" ", "").split(",") if t)
@@ -173,10 +166,13 @@ def build_model(task, algo, p, seed):
     elif task == "classification":
         if algo == "svm":
             from sklearn.svm import SVC
-            # Same unbounded fit as SVR above, and worse: `probability=True` fits an internal
-            # Platt-scaling cross-validation on top, so the work is several times the plain fit.
+            # Same bound as SVR above, and it matters more here: `probability=True` fits an internal
+            # Platt-scaling cross-validation on top, so the work is several times the plain fit. A
+            # classification fit converges in far fewer iterations than a regression one (measured
+            # ~960 on 3,000 samples against SVR's tens of thousands), so the shared default bites
+            # this algorithm much more gently.
             return SVC(C=float(P(p, "C", 10.0)), probability=True, random_state=seed,
-                       max_iter=int(P(p, "max_iter", -1))), None
+                       max_iter=int(P(p, "max_iter", SVM_DEFAULT_MAX_ITER))), None
         if algo == "knn":
             from sklearn.neighbors import KNeighborsClassifier
             return KNeighborsClassifier(n_neighbors=int(P(p, "n_neighbors", 7))), None
@@ -714,15 +710,35 @@ fn ml_shared_constants_py() -> String {
          CLUSTER_REJECT = {}\n\
          # Round-3 item 5 - the suffix the spectrally textured prediction is emitted under. Emitted\n\
          # so the runner cannot spell it differently from the name resolver that has to place it.\n\
-         SIM_SUFFIX = \"{}\"\n",
+         SIM_SUFFIX = \"{}\"\n\
+         # The default bound on a support-vector fit. Emitted for the same reason as the k-means\n\
+         # numbers: the dialog shows this default to the user before the run, so a copy written into\n\
+         # the runner text could disagree with what was on screen.\n\
+         SVM_DEFAULT_MAX_ITER = {}\n",
         crate::facies::KMEANS_RESTARTS,
         crate::facies::KMEANS_MAX_ITERS,
         crate::facies::KMEANS_TOL,
         crate::facies::SEED_DEFAULT as i64,
         CLUSTER_REJECT,
         SIM_SUFFIX,
+        SVM_DEFAULT_MAX_ITER,
     )
 }
+
+/// The default `max_iter` for SVR and SVC — Jauhar's number, 2026-08-08 ("iteration count max 500").
+///
+/// **This is deliberately below what a normal fit needs, and that is the point.** libsvm's `max_iter`
+/// counts its own inner SMO iterations, not epochs: measured on this machine an SVR needs ~5,500 for
+/// 500 samples and ~61,000 for 8,000, so 500 truncates almost every real fit and the convergence
+/// warning fires. The alternative was scikit-learn's own `-1`, which is unbounded — and an unbounded
+/// support-vector fit on a pooled field-scale set is the one phase of a portfolio run that sits for
+/// an hour with no progress and no working Cancel, which is the behaviour that made the window look
+/// frozen. Bounded and loud beats unbounded and silent; the user raises the number when they want
+/// the fit rather than the answer in ten seconds, and `n_unconverged` tells them they need to.
+///
+/// An ITERATION bound rather than a stopwatch, because a run must reproduce: 500 iterations gives the
+/// same model on every machine, ten minutes gives a different one on a faster laptop.
+pub const SVM_DEFAULT_MAX_ITER: i64 = 500;
 
 /// SB-MLA-021 — the class code meaning "this sample was evaluated and belongs to no cluster".
 ///
@@ -1313,7 +1329,9 @@ elif task == "clustering":
     # would raise rather than explain. Reported as a CLAMP, not silently substituted: "you asked
     # for 12 and got 4" is a fact about the data the user needs, and a run that quietly returned
     # 4 clusters under a request for 12 would be read as 12 clusters that happened to merge.
-    if n_apply and k > n_apply:
+    # Not for HDBSCAN, which does not take a cluster count at all — clamping a number it never reads
+    # would report a correction that changed nothing about the answer.
+    if n_apply and k > n_apply and algo != "hdbscan":
         k = max(1, int(n_apply))
         P_used("k", k)
         metrics["k_clamped"] = "k was reduced to %d: there are only %d samples to cluster" % (k, n_apply)
@@ -1382,6 +1400,51 @@ elif task == "clustering":
                 "of your largest-range curve deliberately." % eps
             )
         labels = DBSCAN(eps=eps, min_samples=int(P(p, "min_samples", 10))).fit_predict(As)
+    elif algo == "hdbscan":
+        try:
+            from sklearn.cluster import HDBSCAN
+        except ImportError:
+            import sklearn as _sk
+            fail("HDBSCAN needs scikit-learn 1.3 or newer; this Python has " + _sk.__version__
+                 + ". Run: pip install -U scikit-learn")
+        # The one clustering method here that CHOOSES its own cluster count rather than being told
+        # one, and that tolerates clusters of very different size and density. That combination is
+        # what a thin coal bed against a thick sand needs: k-means splits the sand to balance the
+        # count, and DBSCAN needs one `eps` to suit both densities at once, which no single value
+        # does. `k` is deliberately ignored for this algorithm - see the note below, which says so
+        # rather than letting a k the user typed sit there looking honoured.
+        #
+        # `min_cluster_size` is in SAMPLES, and that makes it a thickness question in disguise: at a
+        # half-foot sampling, 20 samples is ten feet of hole. The smallest facies unit worth naming
+        # is the analyst's call about their field, so it is stated in the dialog in those terms and
+        # never inferred from the data.
+        mcs = int(P(p, "min_cluster_size", 25))
+        if mcs < 2:
+            fail("min_cluster_size must be at least 2 - a single sample is not a cluster")
+        # min_samples defaults to min_cluster_size in scikit-learn; 0 here means "leave it there"
+        # rather than a value nobody chose.
+        ms = int(P(p, "min_samples", 0))
+        hd = HDBSCAN(min_cluster_size=mcs, min_samples=(ms if ms > 0 else None))
+        labels = hd.fit_predict(As)
+        # Membership STRENGTH, not a posterior - see the prob block below. Carried because it is the
+        # honest way to read an HDBSCAN facies track: the core of a unit and its fuzzy edge are both
+        # labelled, and only this says which is which.
+        prob = np.asarray(hd.probabilities_, dtype=float)
+        metrics["chosen_k"] = int(len([c for c in np.unique(labels) if c >= 0]))
+        metrics["k_ignored"] = (
+            "HDBSCAN chooses its own cluster count from the data; it found %d. The K setting is not "
+            "used by this algorithm - min_cluster_size is what decides how fine the answer is."
+            % metrics["chosen_k"]
+        )
+        if scaler is None:
+            # Not the `eps` unit trap (min_cluster_size is a count), but the same underlying cause:
+            # the mutual-reachability distances this builds its tree from are computed in whatever
+            # units the curves arrived in.
+            metrics["metric_warning"] = (
+                "standardisation is off, so the density estimate is computed in the curves' own "
+                "mixed units and whichever input has the largest numeric range dominates every "
+                "distance. The cluster count will reflect that curve more than the rock."
+            )
     else:
         fail("unknown clustering algorithm '" + algo + "'")
     # SB-MLA-021. Real clusters get ids ordered by first-feature mean; a sample the algorithm
@@ -1408,7 +1471,11 @@ elif task == "clustering":
     if n_reject:
         out[labels < 0] = CLUSTER_REJECT
     metrics["cluster_sizes"] = {str(remap[c]): int(np.sum(labels == c)) for c in order}
-    if algo == "dbscan":
+    # Both density methods REJECT samples rather than forcing every one into a cluster, so both owe
+    # the reader the count. Leaving HDBSCAN out of this would have been the easy miss: its curve
+    # would carry CLUSTER_REJECT values with nothing anywhere saying how many, and a facies track
+    # that is 40% rejected is a different finding from one that is 2%.
+    if algo in ("dbscan", "hdbscan"):
         metrics["noise_pct"] = round(float(np.mean(labels < 0) * 100), 2)
         metrics["n_rejected"] = n_reject
         metrics["reject_code"] = CLUSTER_REJECT
@@ -1439,13 +1506,26 @@ elif task == "clustering":
             metrics["silhouette_error"] = str(e)
     outs.append(("", out))
     if prob is not None:
-        # SB-MLA-030. GMM's is the one genuinely calibrated posterior here, and it deserves to be
-        # distinguished from the classifier scores rather than sharing an undifferentiated name.
-        metrics["prob_definition"] = (
-            "the winning mixture component's RESPONSIBILITY - a true posterior over the components. "
-            "1.0 is unambiguous; about 1/K means the sample sits on a boundary between components"
-        )
-        metrics["prob_normalisation"] = "across the K mixture components at each depth, summing to 1"
+        # SB-MLA-030. Two algorithms produce a `_PROB` curve here and they are NOT the same quantity.
+        # GMM's is a posterior over the components, summing to 1 across them. HDBSCAN's is a
+        # membership STRENGTH within the one cluster the sample was assigned to - it does not sum to
+        # anything, and a 0.4 means "this sample sits at the fuzzy edge of its own cluster", not
+        # "it might belong to another one". Read the second as the first and a facies track's
+        # boundaries look uncertain in exactly the places they are most certain.
+        if algo == "hdbscan":
+            metrics["prob_definition"] = (
+                "the STRENGTH with which this sample belongs to the cluster it was given - 1.0 at "
+                "the dense core of a unit, falling toward 0 at its edge. NOT a posterior: it says "
+                "nothing about which other cluster the sample might belong to, and it does not sum "
+                "to 1 across clusters"
+            )
+            metrics["prob_normalisation"] = "none - it is a per-sample strength, not a distribution"
+        else:
+            metrics["prob_definition"] = (
+                "the winning mixture component's RESPONSIBILITY - a true posterior over the components. "
+                "1.0 is unambiguous; about 1/K means the sample sits on a boundary between components"
+            )
+            metrics["prob_normalisation"] = "across the K mixture components at each depth, summing to 1"
         outs.append(("_PROB", prob.astype(np.float32)))
 
 elif task == "reduction":
@@ -9419,6 +9499,92 @@ mod tests {
         assert!(total > 99.0, "explained variance = {total}%");
     }
 
+    /// HDBSCAN is here for the one thing the other clustering methods cannot do: find a thin unit
+    /// beside a thick one without being told how many units there are.
+    ///
+    /// k-means splits the thick group to balance its counts; DBSCAN needs a single `eps` that suits
+    /// both densities at once, and no value does. So the fixture is deliberately lopsided — a large
+    /// loose group and a small tight one — and the test asserts the small one survives as its own
+    /// cluster rather than being absorbed or written off as noise.
+    ///
+    /// The second half is the part that would go wrong silently: HDBSCAN's `_PROB` is a membership
+    /// STRENGTH within one cluster, and GMM's is a posterior ACROSS components. They are read off a
+    /// track identically and mean different things, so the run must declare which it produced.
+    #[test]
+    fn hdbscan_keeps_a_thin_unit_beside_a_thick_one_and_says_its_prob_is_not_a_posterior() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // 300 samples spread wide, then 40 packed tight a long way off — a thick sand and a thin
+        // coal. Deterministic, so the assertions below mean the same thing on every machine.
+        let mut x: Vec<f32> = Vec::new();
+        for i in 0..300 {
+            x.push((i % 60) as f32 * 0.20 - 6.0);
+        }
+        for i in 0..40 {
+            x.push(40.0 + (i % 4) as f32 * 0.02);
+        }
+        let n = x.len();
+
+        let (metrics, outs) = exec_ml(
+            &py,
+            "clustering",
+            "hdbscan",
+            &params(&[("min_cluster_size", serde_json::json!(15))]),
+            1,
+            &x,
+            None,
+            &x,
+            n,
+        )
+        .expect("hdbscan run failed");
+
+        let chosen = metrics["chosen_k"].as_u64().unwrap_or(0);
+        assert!(
+            chosen >= 2,
+            "the thin group must survive as its own cluster, not be absorbed: {metrics}",
+        );
+        assert!(
+            metrics.get("k_ignored").and_then(|v| v.as_str()).is_some_and(|s| s.contains("chooses its own")),
+            "a K the user typed must be said to be unused, not left looking honoured: {metrics}",
+        );
+
+        // The thin group's samples must not all be rejected — being outnumbered 300 to 40 is exactly
+        // the case where a density method can write a real unit off as noise.
+        let labels = &outs.iter().find(|(s, _)| s.is_empty()).expect("a label curve").1;
+        let thin: Vec<f32> = labels[300..].to_vec();
+        let assigned = thin.iter().filter(|v| v.is_finite() && **v >= 0.0).count();
+        assert!(
+            assigned >= 30,
+            "{assigned} of 40 thin-unit samples were assigned; the rest were rejected as noise",
+        );
+        // ...and they are ONE cluster, distinct from the thick group's.
+        let thin_id = thin.iter().find(|v| v.is_finite() && **v >= 0.0).copied().unwrap();
+        assert!(
+            labels[..300].iter().filter(|v| v.is_finite()).all(|v| *v != thin_id),
+            "the thin unit shares a cluster id with the thick one",
+        );
+
+        // SB-MLA-030: a strength is not a posterior, and the run has to say so.
+        assert!(
+            outs.iter().any(|(s, _)| s == "_PROB"),
+            "membership strength is what distinguishes a unit's core from its edge, and is carried",
+        );
+        let def = metrics["prob_definition"].as_str().unwrap_or("");
+        assert!(
+            def.contains("STRENGTH") && def.contains("NOT a posterior"),
+            "HDBSCAN's _PROB must not be described as GMM's posterior: {def}",
+        );
+        assert_eq!(
+            metrics["prob_normalisation"].as_str(),
+            Some("none - it is a per-sample strength, not a distribution"),
+        );
+        // Both density methods reject samples, so both must report how many.
+        assert!(metrics.get("n_rejected").is_some(), "the reject count is owed: {metrics}");
+        assert!(metrics.get("noise_pct").is_some());
+    }
+
     /// A run that FINISHED without covering every well leaves sets that read exactly like a
     /// complete run over a smaller selection — same set name, same module string.
     ///
@@ -9568,6 +9734,52 @@ mod tests {
         assert!(
             patchy.contains("FINAL") && patchy.contains("W2"),
             "it still has to say which set and which well: {patchy}",
+        );
+    }
+
+    /// A support-vector fit is the one phase of a portfolio run that can sit for an hour with no
+    /// progress and no working Cancel, because scikit-learn's own `max_iter` default is `-1`.
+    ///
+    /// Pinned from both sides, because either alone would pass while the feature was broken. The
+    /// bound has to be FINITE — a runner that quietly went back to `-1` would still fit, still score
+    /// and still look right, and the only symptom is a window that stops responding. And the DIALOG
+    /// has to show the same number, because the user is told what the fit is bounded at before they
+    /// press Run; a default that disagreed with the runner's would make that reading a fiction.
+    #[test]
+    fn a_support_vector_fit_is_bounded_by_default_and_both_sides_agree() {
+        assert!(
+            SVM_DEFAULT_MAX_ITER > 0,
+            "the support-vector bound went back to unlimited ({SVM_DEFAULT_MAX_ITER}), which is the \
+             uncancellable hour-long fit this exists to end",
+        );
+
+        // Both algorithms take the shared constant. A literal here would be a second copy of the
+        // number, free to drift from the one the dialog reads.
+        let src = include_str!("ml.rs");
+        for algo in ["SVR(", "SVC("] {
+            let at = src.find(algo).unwrap_or_else(|| panic!("{algo} vanished from the runner"));
+            let tail = &src[at..(at + 400).min(src.len())];
+            assert!(
+                tail.contains("max_iter=int(P(p, \"max_iter\", SVM_DEFAULT_MAX_ITER))"),
+                "{algo} must take the shared bound, not a number of its own: {tail}",
+            );
+        }
+        assert!(
+            ml_runner().contains(&format!("SVM_DEFAULT_MAX_ITER = {SVM_DEFAULT_MAX_ITER}")),
+            "the constant has to reach the generated Python, or the runner cannot name it",
+        );
+
+        // The dialog's default is what the user sees before the run, so it is part of the contract.
+        let ts = include_str!("../../src/ui/mlDialog.ts");
+        let shown = ts.matches("num(\"max_iter\", \"max iterations (-1 = no limit)\", ").count();
+        assert_eq!(shown, 2, "the two support-vector entries should carry this field");
+        assert_eq!(
+            ts.matches(&format!(
+                "num(\"max_iter\", \"max iterations (-1 = no limit)\", {SVM_DEFAULT_MAX_ITER})"
+            ))
+            .count(),
+            2,
+            "the dialog shows a different bound from the one the fit will use",
         );
     }
 
