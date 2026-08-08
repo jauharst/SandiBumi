@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-005: null conventions are plural and per channel
+
+- [ ] Import a file with two channels whose declared null lists differ. Does each channel lose
+      only its own declared values, including more than one value on a channel, while the other
+      channel's sentinels survive as measurements?
+
 ## 2026-08-09 — SB-DIO-002: the default export format honours the sentinel
 
 - [ ] Open the export format list. Is LAS 2.0 the single default and marked as honouring the

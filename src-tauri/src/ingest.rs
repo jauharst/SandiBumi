@@ -33,6 +33,10 @@ pub struct LasImportOptions {
     /// Explicit unit for files whose index declares none. None means no confirmation:
     /// such a file is refused even when the project already has a unit.
     pub file_depth_unit: Option<String>,
+    /// Resolved per-channel null lists. An absent mnemonic uses the LAS file/global
+    /// convention; a present mnemonic is screened only against its own plural list.
+    #[serde(default)]
+    pub channel_nulls: parsers::ChannelNullValues,
 }
 
 /// Normalizes a user/derived set name to the store's convention: trimmed, upper-cased,
@@ -94,7 +98,7 @@ pub fn import_las_files_with(
         .map(|path| {
             let result = (|| {
                 let well_name = parsers::extract_well_name(path)?;
-                let columns = parsers::parse_las_2(path)?;
+                let columns = parsers::parse_las_2_with_channel_nulls(path, &opts.channel_nulls)?;
                 Ok::<_, ParseError>((well_name, columns))
             })();
             (path.clone(), result)
@@ -340,12 +344,13 @@ fn insert_parsed_well(
             // not fail the whole import (the standard curves are already in), so it's
             // logged, not propagated.
             let set = resolve_set_name(conn, &well_id.to_string(), &canonical_set_name(opts.set_name.as_deref()));
-            if let Err(e) = import_all_curves_into_generic_store(
+            if let Err(e) = import_all_curves_into_generic_store_with_channel_nulls(
                 conn,
                 &well_id.to_string(),
                 &path,
                 &set,
                 confirmed_file_unit,
+                &opts.channel_nulls,
             ) {
                 eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
                 // stderr alone is invisible in a release build, so the import used to report a
@@ -377,12 +382,13 @@ fn attach_curves_to_existing_well(
     notes: Vec<String>,
 ) -> ImportResult {
     let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
-    match import_all_curves_into_generic_store(
+    match import_all_curves_into_generic_store_with_channel_nulls(
         conn,
         well_id,
         &path,
         &set,
         opts.file_depth_unit.as_deref().and_then(crate::units::DepthUnit::parse),
+        &opts.channel_nulls,
     ) {
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
         // and the frontend reports it separately. Only genuine notes (unit reconciliation,
@@ -408,6 +414,7 @@ fn attach_curves_to_existing_well(
 /// under `set_name`, tagging family (via the mnemonic dictionary) and normalizing units
 /// where a conversion is known. The unit stored is the canonical one when converted, else
 /// the file's original unit. Returns `(curves_written, rows)`.
+#[allow(dead_code)] // compatibility entry point for tests/callers with no channel override
 pub fn import_all_curves_into_generic_store(
     conn: &Connection,
     well_id: &str,
@@ -415,7 +422,25 @@ pub fn import_all_curves_into_generic_store(
     set_name: &str,
     confirmed_file_unit: Option<crate::units::DepthUnit>,
 ) -> db::DbResult<(usize, usize)> {
-    let mut frame = match parsers::parse_las_2_all(path) {
+    import_all_curves_into_generic_store_with_channel_nulls(
+        conn,
+        well_id,
+        path,
+        set_name,
+        confirmed_file_unit,
+        &parsers::ChannelNullValues::new(),
+    )
+}
+
+fn import_all_curves_into_generic_store_with_channel_nulls(
+    conn: &Connection,
+    well_id: &str,
+    path: &str,
+    set_name: &str,
+    confirmed_file_unit: Option<crate::units::DepthUnit>,
+    channel_nulls: &parsers::ChannelNullValues,
+) -> db::DbResult<(usize, usize)> {
+    let mut frame = match parsers::parse_las_2_all_with_channel_nulls(path, channel_nulls) {
         Ok(f) => f,
         Err(e) => return Err(db::DbError::LengthMismatch(format!("parse_las_2_all: {e}"))),
     };

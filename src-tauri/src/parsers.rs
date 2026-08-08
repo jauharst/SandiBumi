@@ -145,6 +145,30 @@ fn is_null_value(v: f32, declared: Option<f32>) -> bool {
     is_las_null(v) || declared.is_some_and(|null| matches_null(v, null))
 }
 
+/// Resolved per-channel null conventions supplied by an import rule set. Keys are incoming
+/// channel mnemonics; every vector may carry more than one declared value. An absent key means
+/// the normal LAS file/global convention applies. Empty vectors are deliberately treated as
+/// unset here: the distinct `NoNull` state belongs to SB-DIO-006's rule shape.
+pub type ChannelNullValues = std::collections::HashMap<String, Vec<f64>>;
+
+fn is_null_value_for_channel(
+    v: f32,
+    declared: Option<f32>,
+    channel: Option<&str>,
+    channel_nulls: &ChannelNullValues,
+) -> bool {
+    let configured = channel.and_then(|name| {
+        channel_nulls
+            .get(name)
+            .or_else(|| channel_nulls.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, values)| values))
+            .filter(|values| !values.is_empty())
+    });
+    match configured {
+        Some(values) => values.iter().any(|null| matches_null(v, *null as f32)),
+        None => is_null_value(v, declared),
+    }
+}
+
 /// Parse the NULL value from a `~W` block line ("NULL .  -999.25 : NULL VALUE").
 fn parse_null_line(trimmed: &str) -> Option<f32> {
     if !trimmed.to_uppercase().starts_with("NULL") {
@@ -203,6 +227,13 @@ fn resolve_curve_index(curve_names: &[String], aliases: &[&str]) -> Option<usize
 /// Streams a LAS 2.0 file line-by-line (never loads the whole file into RAM), reading the
 /// `~C` (Curve) block to map column indices and the `~A` (ASCII) block for the data rows.
 pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
+    parse_las_2_with_channel_nulls(path, &ChannelNullValues::new())
+}
+
+pub fn parse_las_2_with_channel_nulls<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+) -> ParseResult<CurveColumns> {
     let source = path.as_ref().display().to_string();
     let text = read_text_file(path.as_ref())?;
 
@@ -328,7 +359,14 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                     let row: Vec<f32> = token_buffer.drain(0..expected_per_row).collect();
                     let get = |idx: Option<usize>| -> f32 {
                         idx.and_then(|i| row.get(i).copied())
-                            .map(|v| if is_null_value(v, declared_null) { f32::NAN } else { v })
+                            .map(|v| {
+                                let channel = idx.and_then(|i| curve_names.get(i)).map(String::as_str);
+                                if is_null_value_for_channel(v, declared_null, channel, channel_nulls) {
+                                    f32::NAN
+                                } else {
+                                    v
+                                }
+                            })
                             .unwrap_or(f32::NAN)
                     };
 
@@ -511,7 +549,15 @@ pub fn sanitize_las_frame(frame: &mut LasFrame) -> DepthSanitizeReport {
 /// same way as `parse_las_2` but without collapsing to the fixed standard set. The first
 /// column recognized as depth (by `DEPTH_ALIASES`, else column 0) becomes the shared
 /// index; every other column is returned as its own `RawLasCurve`.
+#[allow(dead_code)] // compatibility entry point for tests/callers with no channel override
 pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
+    parse_las_2_all_with_channel_nulls(path, &ChannelNullValues::new())
+}
+
+pub fn parse_las_2_all_with_channel_nulls<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+) -> ParseResult<LasFrame> {
     let source = path.as_ref().display().to_string();
     let text = read_text_file(path.as_ref())?;
 
@@ -605,7 +651,17 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                 while token_buffer.len() >= expected_per_row {
                     let row: Vec<f32> = token_buffer.drain(0..expected_per_row).collect();
                     for (i, raw) in row.iter().enumerate() {
-                        let v = if is_null_value(*raw, declared_null) { f32::NAN } else { *raw };
+                        let channel = curve_names.get(i).map(String::as_str);
+                        let v = if is_null_value_for_channel(
+                            *raw,
+                            declared_null,
+                            channel,
+                            channel_nulls,
+                        ) {
+                            f32::NAN
+                        } else {
+                            *raw
+                        };
                         columns[i].push(v);
                     }
                     if token_buffer.is_empty() {
@@ -2464,6 +2520,30 @@ mod las_depth_tests {
         std::fs::remove_file(&p).ok();
         assert!(cols.gr[0].is_nan(), "a declared near-sentinel becomes the internal absent value");
         assert_eq!(cols.gr[1], -12344.0, "recognition must not rewrite a surviving value to another sentinel");
+    }
+
+    /// SB-DIO-005 / SB-DIO-T09. `-999`, `-999.25` and `-32767` are the cited
+    /// per-channel conventions in `docs/PRD_v2/21_data-io.md` §5.2.
+    #[test]
+    fn two_channels_with_different_plural_nulls_are_screened_against_their_own_values_only() {
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. NULLS :\n\
+                    ~CURVE\nDEPT.M :\nA.UNIT :\nB.UNIT :\n~ASCII\n\
+                    1000.0 -999 -999\n1000.5 -999.25 -999.25\n1001.0 -32767 -32767\n";
+        let path = temp("sandibumi_per_channel_plural_nulls.las", body);
+        let channel_nulls = ChannelNullValues::from([
+            ("A".into(), vec![-999.0, -999.25]),
+            ("B".into(), vec![-32767.0]),
+        ]);
+        let frame = parse_las_2_all_with_channel_nulls(&path, &channel_nulls).unwrap();
+        std::fs::remove_file(&path).ok();
+        let a = &frame.curves.iter().find(|curve| curve.mnemonic == "A").unwrap().values;
+        let b = &frame.curves.iter().find(|curve| curve.mnemonic == "B").unwrap().values;
+
+        assert!(a[0].is_nan() && a[1].is_nan(), "both nulls declared for A are active");
+        assert_eq!(a[2], -32767.0, "B's null remains a real value on A");
+        assert_eq!(b[0], -999.0, "A's first null remains a real value on B");
+        assert_eq!(b[1], -999.25, "A's second and the LAS-global null remain real on overridden B");
+        assert!(b[2].is_nan(), "B's own null is screened");
     }
 
     #[test]

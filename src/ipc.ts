@@ -134,6 +134,8 @@ export interface LasImportOptions {
   attach?: boolean;
   /** Explicit unit for files whose index has no usable declaration. Omit to refuse them. */
   fileDepthUnit?: "M" | "FT" | null;
+  /** Resolved per-channel plural nulls. A named channel is screened only against its own list. */
+  channelNulls?: Record<string, number[]>;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -142,6 +144,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     setName: opts?.setName ?? null,
     attach: opts?.attach ?? null,
     fileDepthUnit: opts?.fileDepthUnit ?? null,
+    channelNulls: opts?.channelNulls ?? null,
   });
 }
 
