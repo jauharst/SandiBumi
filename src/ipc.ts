@@ -13,6 +13,11 @@ export function setProjectDepthUnit(unit: DepthUnit): Promise<void> {
   return invoke("set_project_depth_unit", { unit });
 }
 
+/** Quantity families backed by at least one reviewed numeric unit transform. */
+export function listConvertibleUnitFamilies(): Promise<string[]> {
+  return invoke<string[]>("list_convertible_unit_families");
+}
+
 /** The one project-wide absent-value sentinel supplied to every data writer. */
 export function getProjectNullSentinel(): Promise<number> {
   return invoke("get_project_null_sentinel");
@@ -139,6 +144,13 @@ export interface ImportResult {
     from_unit: string;
     to_unit: string;
     factor: number;
+  }>;
+  /** Declared units retained verbatim because no reviewed conversion applied. */
+  unconverted_units: Array<{
+    curve: string;
+    declared_unit: string;
+    family: string | null;
+    reason: string;
   }>;
 }
 
@@ -4273,6 +4285,7 @@ export interface DlisImportResult {
   notes: string[];
   /** Every automatic value conversion performed by the importer. */
   unit_conversions: ImportResult["unit_conversions"];
+  unconverted_units: ImportResult["unconverted_units"];
   skipped: Array<{ kind: string; name: string; count: number; rule: string }>;
   error: string | null;
 }

@@ -336,6 +336,12 @@ fn set_project_depth_unit(db: tauri::State<DbState>, unit: String) -> Result<(),
     units::set_project_depth_unit_checked(&conn, target)
 }
 
+/// Quantity families backed by at least one reviewed numeric unit transform.
+#[tauri::command]
+fn list_convertible_unit_families() -> Vec<String> {
+    curves::convertible_unit_families()
+}
+
 /// The one project-wide absent-value sentinel supplied to every registered data writer.
 #[tauri::command]
 fn get_project_null_sentinel(db: tauri::State<DbState>) -> Result<f32, String> {
@@ -3277,6 +3283,7 @@ pub fn run() {
             await_project_open,
             get_project_depth_unit,
             set_project_depth_unit,
+            list_convertible_unit_families,
             get_project_null_sentinel,
             set_project_null_sentinel,
             save_project_as,

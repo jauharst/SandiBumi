@@ -153,6 +153,8 @@ pub struct DlisImportResult {
     pub notes: Vec<String>,
     /// Every automatic value conversion, including the source unit and applied factor.
     pub unit_conversions: Vec<crate::curves::UnitConversion>,
+    /// Declared units that were preserved because no reviewed conversion applied.
+    pub unconverted_units: Vec<crate::curves::UnconvertedUnit>,
     /// Every frame/channel/curve/row the reader did not carry, with count and rule.
     pub skipped: Vec<DlisSkip>,
     pub error: Option<String>,
@@ -174,6 +176,7 @@ fn failed(path: &str, error: String, skipped: Vec<DlisSkip>) -> DlisImportResult
         replaced: 0,
         notes: Vec::new(),
         unit_conversions: Vec::new(),
+        unconverted_units: Vec::new(),
         skipped,
         error: Some(error),
     }
@@ -278,6 +281,7 @@ pub fn import_dlis_file(
     let mut total_rows = 0usize;
     let mut replaced = 0usize;
     let mut unit_conversions = Vec::new();
+    let mut unconverted_units = Vec::new();
     for (meta, index_action) in header.curves.iter().zip(index_actions.iter()) {
         let bytes = meta.n * 4;
         let end = offset + 2 * bytes;
@@ -323,7 +327,19 @@ pub fn import_dlis_file(
                 unit = Some(f.canonical_unit.to_string());
                 notes.push(conversion.note());
                 unit_conversions.push(conversion);
+            } else if let Some(unconverted) = crate::curves::unconverted_unit(
+                &meta.mnemonic,
+                Some(f.family),
+                unit.as_deref(),
+            ) {
+                notes.push(unconverted.note());
+                unconverted_units.push(unconverted);
             }
+        } else if let Some(unconverted) =
+            crate::curves::unconverted_unit(&meta.mnemonic, None, unit.as_deref())
+        {
+            notes.push(unconverted.note());
+            unconverted_units.push(unconverted);
         }
         // Give DLIS frames their own run numbering (frame 0 → run 0). The old frame-0 → NULL
         // mapping collided with LAS RAW curves (also run_no NULL), so a DLIS silently
@@ -421,6 +437,7 @@ pub fn import_dlis_file(
         replaced,
         notes,
         unit_conversions,
+        unconverted_units,
         skipped,
         error: None,
     }

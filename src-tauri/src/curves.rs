@@ -36,6 +36,14 @@ pub const FAMILIES: &[FamilySpec] = &[
     FamilySpec { family: "RXO", canonical_unit: "ohm.m", aliases: &["RXO", "RXOZ", "MSFL", "RMLL"] },
 ];
 
+/// The exact quantity families for which at least one reviewed numeric transform exists.
+/// This is a capability list, not a claim that every spelling within the family converts.
+pub const CONVERTIBLE_FAMILIES: &[&str] = &["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS"];
+
+pub fn convertible_unit_families() -> Vec<String> {
+    CONVERTIBLE_FAMILIES.iter().map(|family| (*family).to_string()).collect()
+}
+
 /// Returns the canonical family for a mnemonic, or `None` if it isn't recognized (the
 /// curve is still imported — it just goes in the catalog family-less, and modules that
 /// need a family won't auto-pick it).
@@ -66,6 +74,59 @@ impl UnitConversion {
             self.curve, self.from_unit, self.to_unit, self.factor
         )
     }
+}
+
+/// A declared source unit for which no reviewed conversion was applied. Values and the
+/// original unit label remain intact; the record prevents that pass-through from looking
+/// canonical merely because the import itself succeeded.
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub struct UnconvertedUnit {
+    pub curve: String,
+    pub declared_unit: String,
+    pub family: Option<String>,
+    pub reason: String,
+}
+
+impl UnconvertedUnit {
+    pub fn note(&self) -> String {
+        format!(
+            "left {} in declared unit {} (unconverted: {})",
+            self.curve, self.declared_unit, self.reason
+        )
+    }
+}
+
+/// Returns an audit record only when a non-empty declared unit is neither canonical nor
+/// converted. An unknown mnemonic is included: without a known quantity family there is
+/// no dimensional basis on which conversion could be safe.
+pub fn unconverted_unit(
+    curve: &str,
+    family: Option<&str>,
+    src_unit: Option<&str>,
+) -> Option<UnconvertedUnit> {
+    let declared = src_unit?.trim();
+    if declared.is_empty() {
+        return None;
+    }
+    if family
+        .and_then(canonical_unit)
+        .is_some_and(|canonical| normalize_unit(canonical) == normalize_unit(declared))
+    {
+        return None;
+    }
+    let reason = match family {
+        None => "the mnemonic has no known quantity family".to_string(),
+        Some(name) if !CONVERTIBLE_FAMILIES.contains(&name) => {
+            format!("family {name} has no declared numeric conversion coverage")
+        }
+        Some(name) => format!("unit {declared} has no reviewed conversion rule for family {name}"),
+    };
+    Some(UnconvertedUnit {
+        curve: curve.to_string(),
+        declared_unit: declared.to_string(),
+        family: family.map(str::to_string),
+        reason,
+    })
 }
 
 /// Converts a value from a source unit into the canonical unit for a family, in place.
@@ -142,6 +203,21 @@ mod tests {
         assert_eq!(family_for("AT90").unwrap().family, "RES_DEEP");
         assert_eq!(family_for("AT10").unwrap().family, "RES_SHAL");
         assert!(family_for("ZZ_UNKNOWN").is_none());
+    }
+
+    /// SB-DIO-025 / SB-DIO-T41. The query must expose exactly the families backed by
+    /// the code-resident transforms above; a vocabulary entry without arithmetic is not
+    /// conversion coverage (chapter finding D-9).
+    #[test]
+    fn the_unit_system_reports_the_exact_families_it_can_convert() {
+        assert_eq!(
+            convertible_unit_families(),
+            ["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS"]
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(convertible_unit_families().len(), CONVERTIBLE_FAMILIES.len());
     }
 
     #[test]

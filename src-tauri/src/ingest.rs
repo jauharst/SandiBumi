@@ -22,6 +22,8 @@ pub struct ImportResult {
     pub index_resolution: Option<parsers::IndexResolution>,
     /// Every automatic value conversion, including the source unit and applied factor.
     pub unit_conversions: Vec<crate::curves::UnitConversion>,
+    /// Declared units that were preserved because no reviewed conversion applied.
+    pub unconverted_units: Vec<crate::curves::UnconvertedUnit>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -154,6 +156,7 @@ pub fn import_las_files_with(
                     alias_decisions: Vec::new(),
                     index_resolution: None,
                     unit_conversions: Vec::new(),
+                    unconverted_units: Vec::new(),
                 };
             }
             if let Some(p) = progress {
@@ -163,7 +166,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new() },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new() },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -213,6 +216,7 @@ fn insert_parsed_well(
                     alias_decisions: alias_decisions.clone(),
                     index_resolution: index_resolution.clone(),
                     unit_conversions: Vec::new(),
+                    unconverted_units: Vec::new(),
                 }
             }
         },
@@ -233,6 +237,7 @@ fn insert_parsed_well(
                 alias_decisions: alias_decisions.clone(),
                 index_resolution: index_resolution.clone(),
                 unit_conversions: Vec::new(),
+                unconverted_units: Vec::new(),
             }
         }
     };
@@ -269,6 +274,7 @@ fn insert_parsed_well(
                     alias_decisions,
                     index_resolution,
                     unit_conversions: Vec::new(),
+                    unconverted_units: Vec::new(),
                 }
             }
         }
@@ -293,6 +299,7 @@ fn insert_parsed_well(
                     alias_decisions,
                     index_resolution,
                     unit_conversions: Vec::new(),
+                    unconverted_units: Vec::new(),
                 }
             }
             Some(parsers::DuplicateDepthPolicy::Refuse) => {
@@ -309,6 +316,7 @@ fn insert_parsed_well(
                     alias_decisions,
                     index_resolution,
                     unit_conversions: Vec::new(),
+                    unconverted_units: Vec::new(),
                 }
             }
             Some(policy) => {
@@ -346,6 +354,7 @@ fn insert_parsed_well(
             alias_decisions: alias_decisions.clone(),
             index_resolution: index_resolution.clone(),
             unit_conversions: Vec::new(),
+            unconverted_units: Vec::new(),
         };
     }
 
@@ -391,7 +400,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new() }
             }
         };
         match stmt
@@ -400,7 +409,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new() }
             }
         }
     };
@@ -479,6 +488,7 @@ fn insert_parsed_well(
             // logged, not propagated.
             let set = resolve_set_name(conn, &well_id.to_string(), &canonical_set_name(opts.set_name.as_deref()));
             let mut unit_conversions = Vec::new();
+            let mut unconverted_units = Vec::new();
             match import_all_curves_into_generic_store_with_channel_nulls(
                 conn,
                 &well_id.to_string(),
@@ -491,7 +501,9 @@ fn insert_parsed_well(
             ) {
                 Ok(report) => {
                     unit_conversions = report.unit_conversions;
+                    unconverted_units = report.unconverted_units;
                     notes.extend(unit_conversions.iter().map(crate::curves::UnitConversion::note));
+                    notes.extend(unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
                 }
                 Err(e) => {
                     eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
@@ -505,9 +517,9 @@ fn insert_parsed_well(
                 }
             }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions, unconverted_units }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new() },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new() },
     }
 }
 
@@ -543,6 +555,7 @@ fn attach_curves_to_existing_well(
         Ok(report) => {
             let mut notes = notes;
             notes.extend(report.unit_conversions.iter().map(crate::curves::UnitConversion::note));
+            notes.extend(report.unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
             ImportResult {
                 path,
                 well_id: Some(well_id.to_string()),
@@ -554,11 +567,12 @@ fn attach_curves_to_existing_well(
                 alias_decisions,
                 index_resolution,
                 unit_conversions: report.unit_conversions,
+                unconverted_units: report.unconverted_units,
             }
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new() },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new() },
     }
 }
 
@@ -591,6 +605,7 @@ struct GenericCurveImportReport {
     curves_written: usize,
     rows: usize,
     unit_conversions: Vec<crate::curves::UnitConversion>,
+    unconverted_units: Vec<crate::curves::UnconvertedUnit>,
 }
 
 fn import_all_curves_into_generic_store_with_channel_nulls(
@@ -649,11 +664,13 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
             curves_written: 0,
             rows: 0,
             unit_conversions: Vec::new(),
+            unconverted_units: Vec::new(),
         });
     }
 
     let mut curves_written = 0usize;
     let mut unit_conversions = Vec::new();
+    let mut unconverted_units = Vec::new();
     for raw in &frame.curves {
         let mut values = raw.values.clone();
         // Align to the depth column length (defensive: malformed files can short a column).
@@ -672,7 +689,17 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
             ) {
                 unit = Some(f.canonical_unit.to_string());
                 unit_conversions.push(conversion);
+            } else if let Some(unconverted) = crate::curves::unconverted_unit(
+                &raw.mnemonic,
+                Some(f.family),
+                raw.unit.as_deref(),
+            ) {
+                unconverted_units.push(unconverted);
             }
+        } else if let Some(unconverted) =
+            crate::curves::unconverted_unit(&raw.mnemonic, None, raw.unit.as_deref())
+        {
+            unconverted_units.push(unconverted);
         }
         let curve_id =
             db::upsert_curve_meta(conn, well_id, set_name, &raw.mnemonic, unit.as_deref(), family, Some("LAS import"), None)?;
@@ -683,6 +710,7 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
         curves_written,
         rows: frame.depth.len(),
         unit_conversions,
+        unconverted_units,
     })
 }
 
@@ -2427,6 +2455,64 @@ mod tests {
             .expect("DTCO generic curve");
         let samples = db::get_curve_samples(&conn, &dt.curve_id).unwrap();
         assert!((samples[0].value - 30.48).abs() < 1e-4, "100 us/m must become 30.48 us/ft");
+    }
+
+    /// SB-DIO-025 / SB-DIO-T40. A declared unit with no reviewed transform remains
+    /// attached to unchanged samples and is explicitly reported as unconverted. The
+    /// deliberately absurd unit makes accidental canonical treatment unambiguous.
+    #[test]
+    fn an_unknown_declared_unit_is_stored_verbatim_and_flagged_unconverted() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let las = "~Version\n\
+                   VERS. 2.0 :\n\
+                   ~Well\n\
+                   WELL. DIO-025 :\n\
+                   ~Curve\n\
+                   DEPT .M         : depth\n\
+                   RHOZ .FURLONGS  : unsupported density unit\n\
+                   ~ASCII\n\
+                   1000.0 2400.0\n\
+                   1000.5 2500.0\n";
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-dio025-{}-{}.las",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(&path, las).unwrap();
+        let result = import_las_files_with(
+            &conn,
+            &[path.to_string_lossy().to_string()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+
+        assert!(result.error.is_none(), "import failed: {:?}", result.error);
+        assert!(result.unit_conversions.is_empty(), "an unknown unit must not masquerade as converted");
+        assert_eq!(result.unconverted_units.len(), 1);
+        let issue = &result.unconverted_units[0];
+        assert_eq!(issue.curve, "RHOZ");
+        assert_eq!(issue.declared_unit, "FURLONGS");
+        assert_eq!(issue.family.as_deref(), Some("RHOB"));
+        assert!(
+            result.warning.as_deref().is_some_and(|note| {
+                note.contains("RHOZ") && note.contains("FURLONGS") && note.contains("unconverted")
+            }),
+            "the pass-through must be visible: {:?}",
+            result.warning
+        );
+
+        let well_id = result.well_id.unwrap();
+        let rhob = db::list_generic_curve_catalog(&conn, &well_id)
+            .unwrap()
+            .into_iter()
+            .find(|curve| curve.mnemonic == "RHOZ")
+            .expect("RHOZ generic curve");
+        assert_eq!(rhob.unit.as_deref(), Some("FURLONGS"));
+        let samples = db::get_curve_samples(&conn, &rhob.curve_id).unwrap();
+        assert_eq!(samples[0].value, 2400.0, "unconvertible data must be stored unchanged");
     }
 
     /// Phase 6b: a full LAS with curves beyond the fixed 6 (PEF, CALI, a metric-unit

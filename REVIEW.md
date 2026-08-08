@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-025: conversion coverage and pass-throughs are explicit
+
+- [ ] Query the unit-conversion capability list. Does it return exactly CALI, BS, RHOB, DRHO,
+      NPHI, DT and DTS? Import a density with an unsupported declared unit; is its value and unit
+      retained verbatim while the result flags it as unconverted?
+
 ## 2026-08-09 — SB-DIO-024: automatic unit conversions are visible
 
 - [ ] Import a LAS sonic declared in `US/M`. Does the result name the curve, source unit,
