@@ -7,6 +7,11 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-004: one null-recognition rule
+
+- [ ] Import a LAS whose declared null differs slightly after decimal formatting. Is it missing,
+      while a nearby real reading outside the relative tolerance remains unchanged?
+
 ## 2026-08-05 — Fluorescence off the UV frame, and PDF import is off
 
 You said not to build PDF import — you will export the plates yourself. That is recorded in

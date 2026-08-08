@@ -129,14 +129,20 @@ pub fn parse_csv_export<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
 /// Standard LAS null value sentinels, mapped strictly to `f32::NAN`.
 const LAS_NULL_VALUES: [f32; 2] = [-999.25, -9999.0];
 
+const NULL_REL_TOLERANCE: f32 = 1e-5;
+
+fn matches_null(v: f32, null: f32) -> bool {
+    (v - null).abs() <= null.abs().max(1.0) * NULL_REL_TOLERANCE
+}
+
 pub(crate) fn is_las_null(v: f32) -> bool {
-    LAS_NULL_VALUES.iter().any(|null| (v - null).abs() < f32::EPSILON)
+    LAS_NULL_VALUES.iter().any(|&null| matches_null(v, null))
 }
 
 /// Null test honoring the file's own `~W NULL` declaration on top of the standard
 /// sentinels — deliveries using e.g. -99999 or 999.25 otherwise import as data.
 fn is_null_value(v: f32, declared: Option<f32>) -> bool {
-    is_las_null(v) || declared.is_some_and(|n| (v - n).abs() <= n.abs().max(1.0) * 1e-5)
+    is_las_null(v) || declared.is_some_and(|null| matches_null(v, null))
 }
 
 /// Parse the NULL value from a `~W` block line ("NULL .  -999.25 : NULL VALUE").
@@ -2379,6 +2385,26 @@ mod las_depth_tests {
             dt: seq.clone(),
             sp: seq,
         }
+    }
+
+    /// SB-DIO-004 / SB-DIO-T06..T08. The relative tolerance and its 1.0 floor are
+    /// specified in `docs/PRD_v2/21_data-io.md` §5.2. Recognition changes a matched
+    /// sentinel to the internal missing representation; it never canonicalises one
+    /// finite sentinel into another finite value.
+    #[test]
+    fn null_recognition_is_one_relative_tolerance_transform_and_recognition_never_rewrites() {
+        let represented = (-999.250_06_f32 as f64) as f32;
+        assert!(is_las_null(represented), "one f32/f64 representation change stays within tolerance");
+        assert!(is_las_null(-999.251), "the relative tolerance accepts a nearby formatter result");
+        assert!(!is_las_null(-999.20), "a nearby real reading outside the tolerance must survive");
+
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -12345 :\nWELL. SANDI-NULL :\n\
+                    ~CURVE\nDEPT.M :\nGR.API :\n~ASCII\n1000 -12345.1\n1001 -12344.0\n";
+        let p = temp("sandibumi_relative_null_test.las", body);
+        let cols = parse_las_2(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert!(cols.gr[0].is_nan(), "a declared near-sentinel becomes the internal absent value");
+        assert_eq!(cols.gr[1], -12344.0, "recognition must not rewrite a surviving value to another sentinel");
     }
 
     #[test]
