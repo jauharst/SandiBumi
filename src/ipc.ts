@@ -151,6 +151,8 @@ export interface LasImportOptions {
   nullRules?: Array<{ names: string[]; nulls: number[] | "NoNull" }>;
   /** Required only when the index descends; absent means block before commit. */
   nonMonotonicIndex?: "accept_as_delivered" | null;
+  /** Required only when repeated depths are present; absent means block before commit. */
+  duplicateDepthPolicy?: "keep-first" | "keep-last" | "mean" | "refuse" | null;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -162,6 +164,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     channelNulls: opts?.channelNulls ?? null,
     nullRules: opts?.nullRules ?? null,
     nonMonotonicIndex: opts?.nonMonotonicIndex ?? null,
+    duplicateDepthPolicy: opts?.duplicateDepthPolicy ?? null,
   });
 }
 

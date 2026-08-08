@@ -53,6 +53,10 @@ pub struct LasImportOptions {
     /// the user explicitly decides to accept the file's order as delivered.
     #[serde(default, alias = "nonMonotonicIndex")]
     pub non_monotonic_index: Option<NonMonotonicIndexDecision>,
+    /// Absent until repeated depths are present and the user chooses one of the
+    /// chapter's four policies.
+    #[serde(default, alias = "duplicateDepthPolicy")]
+    pub duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
 }
 
 /// Normalizes a user/derived set name to the store's convention: trimmed, upper-cased,
@@ -266,6 +270,52 @@ fn insert_parsed_well(
         None
     };
 
+    let duplicate_count = parsers::duplicate_depth_count(&columns.depth);
+    let duplicate_note = if duplicate_count > 0 {
+        match opts.duplicate_depth_policy {
+            None => {
+                return ImportResult {
+                    path,
+                    well_id: None,
+                    well_name: None,
+                    rows: 0,
+                    warning: None,
+                    error: Some(format!(
+                        "{duplicate_count} repeated depth row(s) require a declared duplicate policy before commit"
+                    )),
+                    attached_set: None,
+                    alias_decisions,
+                    index_resolution,
+                }
+            }
+            Some(parsers::DuplicateDepthPolicy::Refuse) => {
+                return ImportResult {
+                    path,
+                    well_id: None,
+                    well_name: None,
+                    rows: 0,
+                    warning: None,
+                    error: Some(format!(
+                        "duplicate-depth policy refuse blocked {duplicate_count} repeated row(s)"
+                    )),
+                    attached_set: None,
+                    alias_decisions,
+                    index_resolution,
+                }
+            }
+            Some(policy) => {
+                let resolved = parsers::resolve_curve_column_duplicates(&mut columns, policy);
+                debug_assert_eq!(resolved, duplicate_count);
+                Some(format!(
+                    "resolved {duplicate_count} repeated depth row(s) with duplicate policy {}",
+                    policy.label()
+                ))
+            }
+        }
+    } else {
+        None
+    };
+
     // Drop non-finite / duplicate depths so the (well_id, depth) PK can't trip and abort the
     // whole file (which would also orphan the well row); report what was removed.
     let report = parsers::sanitize_curve_columns(&mut columns);
@@ -297,6 +347,9 @@ fn insert_parsed_well(
         && columns.depth.windows(2).any(|w| w[0] > w[1]);
     let mut notes: Vec<String> = Vec::new();
     if let Some(note) = non_monotonic_note {
+        notes.push(note);
+    }
+    if let Some(note) = duplicate_note {
         notes.push(note);
     }
     if let Some(n) = unit_action.note() {
@@ -424,6 +477,7 @@ fn insert_parsed_well(
                 confirmed_file_unit,
                 &opts.channel_nulls,
                 &opts.null_rules,
+                opts.duplicate_depth_policy,
             ) {
                 eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
                 // stderr alone is invisible in a release build, so the import used to report a
@@ -465,6 +519,7 @@ fn attach_curves_to_existing_well(
         opts.file_depth_unit.as_deref().and_then(crate::units::DepthUnit::parse),
         &opts.channel_nulls,
         &opts.null_rules,
+        opts.duplicate_depth_policy,
     ) {
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
         // and the frontend reports it separately. Only genuine notes (unit reconciliation,
@@ -508,6 +563,7 @@ pub fn import_all_curves_into_generic_store(
         confirmed_file_unit,
         &parsers::ChannelNullValues::new(),
         &[],
+        None,
     )
 }
 
@@ -519,6 +575,7 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
     confirmed_file_unit: Option<crate::units::DepthUnit>,
     channel_nulls: &parsers::ChannelNullValues,
     null_rules: &[parsers::NullExceptionRule],
+    duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
 ) -> db::DbResult<(usize, usize)> {
     let mut frame = match parsers::parse_las_2_all_with_null_rules(path, channel_nulls, null_rules) {
         Ok(f) => f,
@@ -541,6 +598,19 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
         }
         crate::units::IndexUnitAction::Adopted(_)
         | crate::units::IndexUnitAction::Matches(_) => {}
+    }
+    let duplicate_count = parsers::duplicate_depth_count(&frame.depth);
+    if duplicate_count > 0 {
+        match duplicate_depth_policy {
+            Some(parsers::DuplicateDepthPolicy::Refuse) | None => {
+                return Err(db::DbError::LengthMismatch(format!(
+                    "{duplicate_count} repeated depth row(s) have no resolving duplicate policy"
+                )))
+            }
+            Some(policy) => {
+                parsers::resolve_las_frame_duplicates(&mut frame, policy);
+            }
+        }
     }
     // curve_samples has PK (curve_id, depth) just like standard_curves, so the same non-finite
     // / duplicate depths the standard-curves path drops would otherwise abort each curve's
@@ -2068,6 +2138,106 @@ mod tests {
         );
     }
 
+    /// SB-DIO-020 / SB-DIO-T32..T33. The four policy names are the complete
+    /// declared set in chapter §4.5; none is a default.
+    #[test]
+    fn duplicate_depths_wait_for_a_declared_policy_and_report_the_count_for_each_resolution() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join("sandibumi_three_repeated_depths.las");
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. DUPLICATES :\n\
+             ~CURVE\nDEPT.M :\nGR.API :\n~ASCII\n\
+             1000.0 10.0\n1000.0 20.0\n1000.0 30.0\n1000.0 40.0\n1001.0 50.0\n",
+        )
+        .unwrap();
+        let file = path.to_str().unwrap().to_string();
+
+        let undecided = import_las_files_with(
+            &conn,
+            &[file.clone()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        assert!(
+            undecided.error.as_deref().is_some_and(|error| {
+                error.contains("3 repeated depth row(s)") && error.contains("declared duplicate policy")
+            }),
+            "the count and missing decision are both named: {:?}",
+            undecided.error
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get::<_, i64>(0)).unwrap(),
+            0,
+            "no policy means no commit"
+        );
+
+        let refused = import_las_files_with(
+            &conn,
+            &[file.clone()],
+            None,
+            &LasImportOptions {
+                duplicate_depth_policy: Some(parsers::DuplicateDepthPolicy::Refuse),
+                ..Default::default()
+            },
+        )
+        .remove(0);
+        assert!(refused.error.as_deref().is_some_and(|error| error.contains("blocked 3")));
+
+        let kept = import_las_files_with(
+            &conn,
+            &[file],
+            None,
+            &LasImportOptions {
+                duplicate_depth_policy: Some(parsers::DuplicateDepthPolicy::KeepFirst),
+                ..Default::default()
+            },
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+        assert!(kept.error.is_none(), "keep-first imports: {:?}", kept.error);
+        assert_eq!(kept.rows, 2, "three repeated rows are resolved to one depth");
+        assert!(
+            kept.warning.as_deref().is_some_and(|warning| {
+                warning.contains("3 repeated depth row(s)") && warning.contains("keep-first")
+            }),
+            "the policy and affected count remain visible: {:?}",
+            kept.warning
+        );
+        let first_gr: f32 = conn
+            .query_row(
+                "SELECT gr FROM standard_curves WHERE well_id = ?1 AND depth = 1000.0",
+                params![kept.well_id.as_deref().unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(first_gr, 10.0, "keep-first keeps the first sample, not the PK's accident");
+
+        let make_columns = || CurveColumns {
+            depth_unit: Some("M".into()),
+            depth: vec![1000.0, 1000.0, 1000.0, 1000.0, 1001.0],
+            gr: vec![10.0, 20.0, 30.0, 40.0, 50.0],
+            res: vec![f32::NAN; 5],
+            nphi: vec![f32::NAN; 5],
+            rhob: vec![f32::NAN; 5],
+            dt: vec![f32::NAN; 5],
+            sp: vec![f32::NAN; 5],
+            alias_decisions: Vec::new(),
+            index_resolution: None,
+        };
+        let mut last = make_columns();
+        assert_eq!(
+            parsers::resolve_curve_column_duplicates(&mut last, parsers::DuplicateDepthPolicy::KeepLast),
+            3
+        );
+        assert_eq!(last.gr, vec![40.0, 50.0], "keep-last keeps the last repeated sample");
+        let mut mean = make_columns();
+        parsers::resolve_curve_column_duplicates(&mut mean, parsers::DuplicateDepthPolicy::Mean);
+        assert_eq!(mean.gr, vec![25.0, 50.0], "mean averages the four finite repeated samples");
+    }
+
     /// SB-DIO-015 / SB-DIO-T22..T24. The accepted depth-unit spellings and the
     /// international-foot factor are cited in `docs/PRD_v2/21_data-io.md` §5.1.
     /// A project declaration is deliberately not used as evidence for an undeclared file.
@@ -2409,7 +2579,15 @@ mod tests {
         let path = std::env::temp_dir().join("arshilla_dupdepth_test.las");
         std::fs::write(&path, las).unwrap();
 
-        let results = import_las_files(&conn, &[path.to_str().unwrap().to_string()], None);
+        let results = import_las_files_with(
+            &conn,
+            &[path.to_str().unwrap().to_string()],
+            None,
+            &LasImportOptions {
+                duplicate_depth_policy: Some(parsers::DuplicateDepthPolicy::KeepFirst),
+                ..Default::default()
+            },
+        );
         std::fs::remove_file(&path).ok();
 
         assert_eq!(results.len(), 1);

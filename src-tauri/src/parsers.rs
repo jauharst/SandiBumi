@@ -674,6 +674,124 @@ impl DepthSanitizeReport {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DuplicateDepthPolicy {
+    KeepFirst,
+    KeepLast,
+    Mean,
+    Refuse,
+}
+
+impl DuplicateDepthPolicy {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::KeepFirst => "keep-first",
+            Self::KeepLast => "keep-last",
+            Self::Mean => "mean",
+            Self::Refuse => "refuse",
+        }
+    }
+}
+
+fn finite_depth_key(depth: f32) -> Option<u32> {
+    depth.is_finite().then_some(if depth == 0.0 { 0 } else { depth.to_bits() })
+}
+
+pub fn duplicate_depth_count(depth: &[f32]) -> usize {
+    let mut seen = std::collections::HashSet::with_capacity(depth.len());
+    depth
+        .iter()
+        .filter_map(|depth| finite_depth_key(*depth))
+        .filter(|key| !seen.insert(*key))
+        .count()
+}
+
+fn resolve_duplicate_rows(
+    depth: &[f32],
+    columns: &[&[f32]],
+    policy: DuplicateDepthPolicy,
+) -> (Vec<f32>, Vec<Vec<f32>>, usize) {
+    let mut group_by_depth = std::collections::HashMap::<u32, usize>::new();
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (row, value) in depth.iter().copied().enumerate() {
+        let group = finite_depth_key(value).and_then(|key| group_by_depth.get(&key).copied());
+        if let Some(group) = group {
+            groups[group].push(row);
+        } else {
+            let group = groups.len();
+            groups.push(vec![row]);
+            if let Some(key) = finite_depth_key(value) {
+                group_by_depth.insert(key, group);
+            }
+        }
+    }
+    let duplicates = groups.iter().map(|rows| rows.len().saturating_sub(1)).sum();
+    let resolved_depth: Vec<f32> = groups.iter().map(|rows| depth[rows[0]]).collect();
+    let resolved_columns = columns
+        .iter()
+        .map(|column| {
+            groups
+                .iter()
+                .map(|rows| match policy {
+                    DuplicateDepthPolicy::KeepFirst => column.get(rows[0]).copied().unwrap_or(f32::NAN),
+                    DuplicateDepthPolicy::KeepLast => {
+                        column.get(*rows.last().expect("every group has a row")).copied().unwrap_or(f32::NAN)
+                    }
+                    DuplicateDepthPolicy::Mean => {
+                        let values: Vec<f32> = rows
+                            .iter()
+                            .filter_map(|row| column.get(*row).copied())
+                            .filter(|value| value.is_finite())
+                            .collect();
+                        if values.is_empty() {
+                            f32::NAN
+                        } else {
+                            values.iter().sum::<f32>() / values.len() as f32
+                        }
+                    }
+                    DuplicateDepthPolicy::Refuse => unreachable!("refuse is handled before resolution"),
+                })
+                .collect()
+        })
+        .collect();
+    (resolved_depth, resolved_columns, duplicates)
+}
+
+pub fn resolve_curve_column_duplicates(
+    columns: &mut CurveColumns,
+    policy: DuplicateDepthPolicy,
+) -> usize {
+    let companions: [&[f32]; 6] = [
+        &columns.gr,
+        &columns.res,
+        &columns.nphi,
+        &columns.rhob,
+        &columns.dt,
+        &columns.sp,
+    ];
+    let (depth, mut resolved, duplicates) =
+        resolve_duplicate_rows(&columns.depth, &companions, policy);
+    columns.depth = depth;
+    columns.gr = resolved.remove(0);
+    columns.res = resolved.remove(0);
+    columns.nphi = resolved.remove(0);
+    columns.rhob = resolved.remove(0);
+    columns.dt = resolved.remove(0);
+    columns.sp = resolved.remove(0);
+    duplicates
+}
+
+pub fn resolve_las_frame_duplicates(frame: &mut LasFrame, policy: DuplicateDepthPolicy) -> usize {
+    let companions: Vec<&[f32]> = frame.curves.iter().map(|curve| curve.values.as_slice()).collect();
+    let (depth, resolved, duplicates) = resolve_duplicate_rows(&frame.depth, &companions, policy);
+    frame.depth = depth;
+    for (curve, values) in frame.curves.iter_mut().zip(resolved) {
+        curve.values = values;
+    }
+    duplicates
+}
+
 /// Row indices to keep so a depth column can satisfy a `(…, depth)` PRIMARY KEY: drops
 /// non-finite depths and depths duplicating an earlier kept row (first occurrence wins, file
 /// order preserved). Shared by [`sanitize_curve_columns`] and [`sanitize_las_frame`] so the

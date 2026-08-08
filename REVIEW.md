@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-020: duplicate depths have a declared policy
+
+- [ ] Import a LAS with repeated depths. Does it commit nothing until you choose keep-first,
+      keep-last, mean or refuse? For a resolving choice, does the result name the policy and exact
+      repeated-row count, with standard and generic curves using the same samples?
+
 ## 2026-08-09 — SB-DIO-019: stored depths cannot be re-declared
 
 - [ ] In a metre project that already holds curves, try changing the project depth unit to feet.
