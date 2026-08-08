@@ -41,9 +41,11 @@ being read as prose, and code touches `modules.rs`, `lib.rs`'s single `generate_
 **Never copy code between worktreets.** A worktree is a checkout, not a copy; a frontend edit in
 the main tree is *supposed* to be invisible to a lane.
 
-The one exception is the cross-tool evidence corpus (`docs/research_2026-08/`, 42,936 lines,
-cited by thirteen PRD files, deliberately untracked). It needs one `cp -r` into every **docs**
-lane. Code lanes do not need it: they implement from the committed chapter.
+The one exception is the cross-tool evidence corpus (`docs/research_2026-08/`, 36 files /
+53,161 lines as of 2026-08-09, up from 42,936 when this was written; cited by thirteen PRD
+files, **gitignored** since 2026-08-09 — it was merely untracked before, and git kept
+offering it). It needs one `cp -r` into every **docs** lane. Code lanes do not need it:
+they implement from the committed chapter.
 
 **A lane must never `git add` it.** `CONTRACT.md` §2.1 forbids transcribing vendor material into
 this tree, and the decision to keep the corpus out of git is recorded. The asymmetry decides it:

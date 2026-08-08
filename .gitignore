@@ -62,3 +62,22 @@ docs/commercial/
 # THIRD-PARTY-LICENSES.md (built from dependency manifests) nor docs/IP_PROVENANCE.md
 # would ever record it. Ignored rather than moved because the plugin resolves by path.
 model-router/
+
+# The cross-tool evidence corpus - vendor material extracted from IP / Techlog / Geolog
+# documentation, cited by thirteen PRD_v2 chapters as a LOCAL reference. CONTRACT.md 2.1
+# forbids transcribing vendor material into this tree, and docs/record_parallel_lanes.md
+# records the decision to keep it out of git. It was merely untracked, which is not the
+# same as settled: git kept offering it, and committing it is NOT cleanly reversible -
+# history would carry it until somebody rewrote history and broke every clone. Docs lanes
+# get it by cp -r into the worktree; code lanes implement from the committed chapter.
+docs/research_2026-08/
+
+# Machine-local agent-tool state. .codex/config.toml hard-codes this repo's absolute path,
+# so it is meaningless on any other machine; .castforge/ is one tool's debug + role state.
+.castforge/
+.codex/
+
+# Design handoff archive - a binary delivered once and unpacked into docs/design_organic/,
+# which is the committed authority. Keeping the zip too versions the same content twice,
+# one copy of which nothing reads.
+SandiBumi UI Redesign.zip
