@@ -112,3 +112,67 @@ lanes do not edit the spine directly.
   `PRESENT-DIVERGENT`, or `PRESENT-UNVERIFIED` from `CONTRACT.md` §3.
 - **Disposition:** both values are carried verbatim in the index and are not mapped to a legal
   status.
+
+## SP-012 — The lack-of-compaction correction runs BACKWARDS on its own shipped default
+
+- **Code location:** `src-tauri/src/modules.rs` `phi_son`, the `cp` binding (~`:995`) and the
+  `DT_SH` parameter declaration in `phi_son_spec` (~`:968`).
+- **Shipped behaviour:** `Cp = DT_SH / 100`, and the Wyllie porosity is divided by it. `DT_SH`
+  ships at **90 µs/ft** with a declared range of 60–150, so `Cp` spans **0.6 – 1.5**.
+- **Verified source:** Raymer, Hunt & Gardner, SPWLA Twenty-First Annual Logging Symposium,
+  July 8–11 1980, quoted in `docs/method_sonic_porosity.md` §2 — *"Cp is always greater than
+  unity. Values ranging from 1 to 1.3 are common, with values as high as 1.8 occasionally
+  observed."*
+- **Consequence:** with `OPT_CP=ON` and the shipped `DT_SH` default, `Cp = 0.90`, so dividing
+  **raises** porosity by 11 %. A lack-of-compaction correction exists to bring an over-high
+  porosity DOWN. The entire lower half of the declared `DT_SH` range is physically impossible
+  per the source, and the only guard is `dt_sh > 0.0`.
+- **Why it qualifies as Tier −1 rather than an ordinary P0:** it is silent. The result computes,
+  plots, sums into a pay summary and prints in a deliverable with nothing flagged, and it moves
+  porosity in the direction that over-reports pay.
+- **Candidate fix, not applied here:** clamp `cp = max(1.0, dt_sh / 100.0)`, or refuse a
+  `DT_SH < 100` by name under `SB-CORE-002`. Which of the two is Jauhar's call; a clamp is silent
+  where a refusal is not.
+
+## SP-013 — The `RHG` option is a one-segment approximation under a three-segment name
+
+- **Code location:** `src-tauri/src/modules.rs` `phi_son`, the `rhg` branch (~`:1001`), and the
+  `OPT_SON` option in `phi_son_spec`.
+- **Shipped behaviour:** `PHIT = 0.625 · (DT − DT_MA) / DT`.
+- **Verified source:** the coefficient `0.625` and this algebraic form appear **nowhere** in
+  Raymer, Hunt & Gardner 1980. That paper's φ < 37 % form is `V = (1 − φ)² · Vma + φ · Vf`,
+  quadratic in φ, and the paper states directly that no single algorithm covers the porosity
+  range — *"The response curve was, therefore, divided into three segments."* Breakpoints are
+  cited at 0.37 and 0.47. See `docs/method_sonic_porosity.md` §3.
+- **Consequence:** a widely used field approximation ships under the name of the transform it
+  approximates, and `0.625` is `SHIPPED-UNCITED` against the source it is named for. This is
+  `SB-CORE-006` — one name, one equation.
+- **Two dispositions, both legitimate, neither chosen here:** rename the option to what it is
+  (`RHG_APPROX`) and cite the approximation's own source, **or** implement RHG80's three
+  segments. The second makes `13_mineral-solver.md` §7.5's candidate `MIN-C2-1` reachable, since
+  the published transform is the lawful route away from IP's proprietary `Cp` bridge.
+
+## SP-014 — A basin name ships in module dialog text
+
+- **Code location:** `src-tauri/src/modules.rs` `phi_son_spec` `doc` string (~`:960`).
+- **Text:** *"undercompacted shaly sands (e.g. shallow Mahakam delta) read porosity high…"*
+- **Rule:** `CONTRACT.md` §2.3 and `CLAUDE.md`'s provenance discipline — no client, field, block,
+  basin or operator name anywhere in the tree. Name the physical condition instead.
+- **Why it matters more than an ordinary comment:** a manifest `doc` string is rendered in the
+  auto-generated parameter dialog, so this is **shipped user-visible text**, not an internal note.
+- **Disposition:** *"undercompacted shaly sands"* already carries the meaning; the parenthesis is
+  the whole violation. A one-line deletion, no judgement required.
+
+## SP-015 — Two `phi_son` behaviours were correct but uncited, and are now citable
+
+Recorded because a correct-and-uncited value is still a `CONTRACT.md` §2 gap, and closing one is
+worth as much as finding a defect.
+
+- **`Cp` never applies to RHG.** The code comment reasoned this out unaided. RHG80 states it:
+  *"Use of the new transform eliminates the need for the 'lack of compaction' correction factor.
+  Using the proposed transform, sonic transit time yields porosity directly."*
+- **`Cp = DT_SH / 100`.** Credited to Hilchie in the code comment; RHG80 gives the same estimator
+  independently — *"The simplest is to use the sonic transit time observed in nearby shales
+  divided by 100."*
+- **Disposition:** cite `docs/method_sonic_porosity.md` at both sites when either is next touched.
+  No behaviour change.
