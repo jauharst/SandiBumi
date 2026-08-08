@@ -324,6 +324,7 @@ enum LasSection {
 // *track* sitting in a later column steal the depth role from the true first-column index. So
 // depth resolves to the first DEPT/DEPTH curve, else column 0 — never an all-NaN depth that
 // would trip the standard_curves (well_id, depth) PK.
+// Source: `docs/PRD_v2/21_data-io.md` §5.3, LAS-path aliases `DEPT`, `DEPTH`.
 const DEPTH_ALIASES: [&str; 2] = ["DEPT", "DEPTH"];
 const GR_ALIASES: [&str; 2] = ["GR", "GRN"];
 const RES_ALIASES: [&str; 8] = ["RES_DEEP", "RESD", "RT", "RES", "DRES", "ILD", "LLD", "AT90"];
@@ -1020,6 +1021,8 @@ pub struct CoreColumns {
     pub csw: Vec<f32>,
 }
 
+// Source: `docs/PRD_v2/21_data-io.md` §5.3, core-table path. Unlike LAS, a
+// core table has no positional guarantee, and MD is unambiguous in this namespace.
 const CORE_DEPTH_ALIASES: [&str; 3] = ["DEPTH", "DEPT", "MD"];
 const CORE_CPOR_ALIASES: [&str; 7] = ["CPOR", "CORE_POR", "PHI_CORE", "CPHI", "POROSITY", "PORO", "POR"];
 const CORE_CPERM_ALIASES: [&str; 8] = ["CPERM", "CORE_PERM", "KAIR", "KL", "KH", "PERMEABILITY", "PERM", "K"];
@@ -1985,8 +1988,11 @@ const TOPS_WELL_ALIASES: [&str; 8] =
     ["WELL", "WELLNAME", "WELL_NAME", "WELLBORE", "BOREHOLE", "UWI", "WELL_ID", "WN"];
 const TOPS_NAME_ALIASES: [&str; 9] =
     ["TOP", "TOP_NAME", "TOPS", "MARKER", "SURFACE", "FORMATION", "HORIZON", "ZONE", "NAME"];
-const TOPS_DEPTH_ALIASES: [&str; 7] =
-    ["DEPTH", "MD", "TOP_MD", "MD_TOP", "TOP_DEPTH", "DEPT", "TVD"];
+// Source: `docs/PRD_v2/21_data-io.md` §5.3. MD-like tops labels are one
+// namespace; Geolog `alias.alias:891` places TVD under `# aliases for welltie`,
+// not the reference namespace, so it remains resolvable only through its own list.
+const TOPS_MD_ALIASES: [&str; 6] = ["DEPTH", "MD", "TOP_MD", "MD_TOP", "TOP_DEPTH", "DEPT"];
+const TOPS_TVD_ALIASES: [&str; 1] = ["TVD"];
 
 /// Reads a delimited text file into (headers, rows), auto-detecting the delimiter from
 /// the first non-comment line: tab, then semicolon, then comma, else runs of whitespace.
@@ -2057,7 +2063,8 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRe
 
     // Depth resolves FIRST and is excluded from the name search — otherwise a header
     // like "TOP_MD" would satisfy the name alias "TOP" (boundary rule allows '_').
-    let idx_depth = resolve_header_index(&headers, &TOPS_DEPTH_ALIASES);
+    let idx_depth = resolve_header_index(&headers, &TOPS_MD_ALIASES)
+        .or_else(|| resolve_header_index(&headers, &TOPS_TVD_ALIASES));
     let idx_name = TOPS_NAME_ALIASES.iter().find_map(|alias| {
         headers
             .iter()
@@ -2842,6 +2849,24 @@ mod las_depth_tests {
             -999.25,
             "NoNull is explicit and preserves the genuine amplitude"
         );
+    }
+
+    /// SB-DIO-011 / SB-DIO-T17. The three path-specific lists and Geolog's
+    /// separate reference/welltie namespaces are cited in chapter §5.3.
+    #[test]
+    fn every_index_alias_list_cites_one_source_and_tvd_is_not_in_an_md_namespace() {
+        let source = include_str!("parsers.rs");
+        for declaration in [
+            "Source: `docs/PRD_v2/21_data-io.md` §5.3, LAS-path aliases",
+            "Source: `docs/PRD_v2/21_data-io.md` §5.3, core-table path",
+            "Source: `docs/PRD_v2/21_data-io.md` §5.3. MD-like tops labels",
+        ] {
+            assert!(source.contains(declaration), "missing source comment: {declaration}");
+        }
+        assert!(!DEPTH_ALIASES.contains(&"TVD"));
+        assert!(!CORE_DEPTH_ALIASES.contains(&"TVD"));
+        assert!(!TOPS_MD_ALIASES.contains(&"TVD"));
+        assert_eq!(TOPS_TVD_ALIASES, ["TVD"], "TVD stays supported in its own namespace");
     }
 
     #[test]
