@@ -151,6 +151,8 @@ pub struct DlisImportResult {
     pub replaced: usize,
     /// Unit reconciliation and explicit-confirmation record.
     pub notes: Vec<String>,
+    /// Every automatic value conversion, including the source unit and applied factor.
+    pub unit_conversions: Vec<crate::curves::UnitConversion>,
     /// Every frame/channel/curve/row the reader did not carry, with count and rule.
     pub skipped: Vec<DlisSkip>,
     pub error: Option<String>,
@@ -171,6 +173,7 @@ fn failed(path: &str, error: String, skipped: Vec<DlisSkip>) -> DlisImportResult
         rows: 0,
         replaced: 0,
         notes: Vec::new(),
+        unit_conversions: Vec::new(),
         skipped,
         error: Some(error),
     }
@@ -274,6 +277,7 @@ pub fn import_dlis_file(
     let mut curves_imported = 0usize;
     let mut total_rows = 0usize;
     let mut replaced = 0usize;
+    let mut unit_conversions = Vec::new();
     for (meta, index_action) in header.curves.iter().zip(index_actions.iter()) {
         let bytes = meta.n * 4;
         let end = offset + 2 * bytes;
@@ -310,8 +314,15 @@ pub fn import_dlis_file(
         let family = fam.map(|f| f.family);
         let mut unit = if meta.unit.trim().is_empty() { None } else { Some(meta.unit.clone()) };
         if let Some(f) = fam {
-            if crate::curves::convert_to_canonical(f.family, unit.as_deref(), &mut values) {
+            if let Some(conversion) = crate::curves::convert_to_canonical(
+                &meta.mnemonic,
+                f.family,
+                unit.as_deref(),
+                &mut values,
+            ) {
                 unit = Some(f.canonical_unit.to_string());
+                notes.push(conversion.note());
+                unit_conversions.push(conversion);
             }
         }
         // Give DLIS frames their own run numbering (frame 0 → run 0). The old frame-0 → NULL
@@ -409,6 +420,7 @@ pub fn import_dlis_file(
         rows: total_rows,
         replaced,
         notes,
+        unit_conversions,
         skipped,
         error: None,
     }

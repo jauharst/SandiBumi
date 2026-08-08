@@ -49,16 +49,40 @@ pub fn canonical_unit(family: &str) -> Option<&'static str> {
     FAMILIES.iter().find(|f| f.family == family).map(|f| f.canonical_unit)
 }
 
+/// One unit conversion that was actually applied during import. This is returned to the
+/// caller instead of a bare boolean so an automatic conversion can never be silent.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct UnitConversion {
+    pub curve: String,
+    pub from_unit: String,
+    pub to_unit: String,
+    pub factor: f32,
+}
+
+impl UnitConversion {
+    pub fn note(&self) -> String {
+        format!(
+            "converted {} from {} to {} with factor {}",
+            self.curve, self.from_unit, self.to_unit, self.factor
+        )
+    }
+}
+
 /// Converts a value from a source unit into the canonical unit for a family, in place.
 /// Only conversions that actually occur in field LAS files are handled; anything already
-/// canonical, unrecognized, or dimensionally identical is left untouched (returns `false`
+/// canonical, unrecognized, or dimensionally identical is left untouched (returns `None`
 /// so the caller can keep the original unit label). NaN is preserved (missing stays missing).
-pub fn convert_to_canonical(family: &str, src_unit: Option<&str>, values: &mut [f32]) -> bool {
-    let Some(target) = canonical_unit(family) else { return false };
+pub fn convert_to_canonical(
+    curve: &str,
+    family: &str,
+    src_unit: Option<&str>,
+    values: &mut [f32],
+) -> Option<UnitConversion> {
+    let target = canonical_unit(family)?;
     let src = src_unit.map(normalize_unit).unwrap_or_default();
     let tgt = normalize_unit(target);
     if src.is_empty() || src == tgt {
-        return false;
+        return None;
     }
 
     // (family-agnostic) linear rescale factor from src→canonical.
@@ -80,17 +104,18 @@ pub fn convert_to_canonical(family: &str, src_unit: Option<&str>, values: &mut [
         _ => None,
     };
 
-    match factor {
-        Some(f) => {
-            for v in values.iter_mut() {
-                if v.is_finite() {
-                    *v *= f;
-                }
-            }
-            true
+    let factor = factor?;
+    for v in values.iter_mut() {
+        if v.is_finite() {
+            *v *= factor;
         }
-        None => false,
     }
+    Some(UnitConversion {
+        curve: curve.to_string(),
+        from_unit: src_unit.unwrap_or_default().trim().to_string(),
+        to_unit: target.to_string(),
+        factor,
+    })
 }
 
 /// Lowercases and strips punctuation/spacing so "US/FT", "us/ft", "usft", "US / FT" all
@@ -123,27 +148,27 @@ mod tests {
     fn unit_conversions_only_when_needed() {
         // Sonic us/m → us/ft.
         let mut dt = [656.0_f32, f32::NAN];
-        assert!(convert_to_canonical("DT", Some("US/M"), &mut dt));
+        assert!(convert_to_canonical("DTCO", "DT", Some("US/M"), &mut dt).is_some());
         assert!((dt[0] - 199.9).abs() < 0.5, "us/m→us/ft, got {}", dt[0]);
         assert!(dt[1].is_nan(), "missing stays missing");
 
         // Density kg/m3 → g/cc.
         let mut rhob = [2400.0_f32];
-        assert!(convert_to_canonical("RHOB", Some("KG/M3"), &mut rhob));
+        assert!(convert_to_canonical("RHOZ", "RHOB", Some("KG/M3"), &mut rhob).is_some());
         assert!((rhob[0] - 2.4).abs() < 1e-4);
 
         // Neutron in percent → v/v.
         let mut nphi = [30.0_f32];
-        assert!(convert_to_canonical("NPHI", Some("PU"), &mut nphi));
+        assert!(convert_to_canonical("TNPH", "NPHI", Some("PU"), &mut nphi).is_some());
         assert!((nphi[0] - 0.30).abs() < 1e-4);
 
         // Already canonical → no change, returns false.
         let mut gr = [55.0_f32];
-        assert!(!convert_to_canonical("GR", Some("GAPI"), &mut gr));
+        assert!(convert_to_canonical("GR", "GR", Some("GAPI"), &mut gr).is_none());
         assert_eq!(gr[0], 55.0);
 
         // Unknown unit → left alone.
         let mut x = [1.0_f32];
-        assert!(!convert_to_canonical("RHOB", Some("FURLONGS"), &mut x));
+        assert!(convert_to_canonical("RHOB", "RHOB", Some("FURLONGS"), &mut x).is_none());
     }
 }

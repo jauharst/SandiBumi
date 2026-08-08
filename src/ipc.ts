@@ -133,6 +133,13 @@ export interface ImportResult {
     mnemonic: string;
     mechanism: "structural_declaration" | "positional_guarantee" | "name_alias" | "user_designation";
   } | null;
+  /** Every automatic value conversion performed by the importer. */
+  unit_conversions: Array<{
+    curve: string;
+    from_unit: string;
+    to_unit: string;
+    factor: number;
+  }>;
 }
 
 /** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */
@@ -4264,6 +4271,8 @@ export interface DlisImportResult {
   /** Existing RAW curves at the same (mnemonic, run) that this import overwrote. */
   replaced: number;
   notes: string[];
+  /** Every automatic value conversion performed by the importer. */
+  unit_conversions: ImportResult["unit_conversions"];
   skipped: Array<{ kind: string; name: string; count: number; rule: string }>;
   error: string | null;
 }

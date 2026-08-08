@@ -20,6 +20,8 @@ pub struct ImportResult {
     /// Typed audit trail for every standard target that matched more than one LAS column.
     pub alias_decisions: Vec<parsers::AliasDecision>,
     pub index_resolution: Option<parsers::IndexResolution>,
+    /// Every automatic value conversion, including the source unit and applied factor.
+    pub unit_conversions: Vec<crate::curves::UnitConversion>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -151,6 +153,7 @@ pub fn import_las_files_with(
                     attached_set: None,
                     alias_decisions: Vec::new(),
                     index_resolution: None,
+                    unit_conversions: Vec::new(),
                 };
             }
             if let Some(p) = progress {
@@ -160,7 +163,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new() },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -209,6 +212,7 @@ fn insert_parsed_well(
                     attached_set: None,
                     alias_decisions: alias_decisions.clone(),
                     index_resolution: index_resolution.clone(),
+                    unit_conversions: Vec::new(),
                 }
             }
         },
@@ -228,6 +232,7 @@ fn insert_parsed_well(
                 attached_set: None,
                 alias_decisions: alias_decisions.clone(),
                 index_resolution: index_resolution.clone(),
+                unit_conversions: Vec::new(),
             }
         }
     };
@@ -263,6 +268,7 @@ fn insert_parsed_well(
                     attached_set: None,
                     alias_decisions,
                     index_resolution,
+                    unit_conversions: Vec::new(),
                 }
             }
         }
@@ -286,6 +292,7 @@ fn insert_parsed_well(
                     attached_set: None,
                     alias_decisions,
                     index_resolution,
+                    unit_conversions: Vec::new(),
                 }
             }
             Some(parsers::DuplicateDepthPolicy::Refuse) => {
@@ -301,6 +308,7 @@ fn insert_parsed_well(
                     attached_set: None,
                     alias_decisions,
                     index_resolution,
+                    unit_conversions: Vec::new(),
                 }
             }
             Some(policy) => {
@@ -337,6 +345,7 @@ fn insert_parsed_well(
             attached_set: None,
             alias_decisions: alias_decisions.clone(),
             index_resolution: index_resolution.clone(),
+            unit_conversions: Vec::new(),
         };
     }
 
@@ -382,7 +391,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new() }
             }
         };
         match stmt
@@ -391,7 +400,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new() }
             }
         }
     };
@@ -469,7 +478,8 @@ fn insert_parsed_well(
             // not fail the whole import (the standard curves are already in), so it's
             // logged, not propagated.
             let set = resolve_set_name(conn, &well_id.to_string(), &canonical_set_name(opts.set_name.as_deref()));
-            if let Err(e) = import_all_curves_into_generic_store_with_channel_nulls(
+            let mut unit_conversions = Vec::new();
+            match import_all_curves_into_generic_store_with_channel_nulls(
                 conn,
                 &well_id.to_string(),
                 &path,
@@ -479,19 +489,25 @@ fn insert_parsed_well(
                 &opts.null_rules,
                 opts.duplicate_depth_policy,
             ) {
-                eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
-                // stderr alone is invisible in a release build, so the import used to report a
-                // clean success while every curve beyond the fixed six — PEF, CALI, DTS, a second
-                // run — was silently missing. Modules that later resolve those mnemonics just get
-                // the all-NaN fallback, with no trace anywhere in the app of why.
-                notes.push(format!(
-                    "only the six standard curves were loaded — the full-curve load failed: {e}"
-                ));
+                Ok(report) => {
+                    unit_conversions = report.unit_conversions;
+                    notes.extend(unit_conversions.iter().map(crate::curves::UnitConversion::note));
+                }
+                Err(e) => {
+                    eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
+                    // stderr alone is invisible in a release build, so the import used to report a
+                    // clean success while every curve beyond the fixed six — PEF, CALI, DTS, a second
+                    // run — was silently missing. Modules that later resolve those mnemonics just get
+                    // the all-NaN fallback, with no trace anywhere in the app of why.
+                    notes.push(format!(
+                        "only the six standard curves were loaded — the full-curve load failed: {e}"
+                    ));
+                }
             }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions, index_resolution }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new() },
     }
 }
 
@@ -524,22 +540,25 @@ fn attach_curves_to_existing_well(
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
         // and the frontend reports it separately. Only genuine notes (unit reconciliation,
         // dropped rows) reach `warning`.
-        Ok((_curves, rows)) => {
+        Ok(report) => {
+            let mut notes = notes;
+            notes.extend(report.unit_conversions.iter().map(crate::curves::UnitConversion::note));
             ImportResult {
                 path,
                 well_id: Some(well_id.to_string()),
                 well_name: Some(well_name),
-                rows,
+                rows: report.rows,
                 warning: (!notes.is_empty()).then(|| notes.join("; ")),
                 error: None,
                 attached_set: Some(set),
                 alias_decisions,
                 index_resolution,
+                unit_conversions: report.unit_conversions,
             }
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new() },
     }
 }
 
@@ -565,6 +584,13 @@ pub fn import_all_curves_into_generic_store(
         &[],
         None,
     )
+    .map(|report| (report.curves_written, report.rows))
+}
+
+struct GenericCurveImportReport {
+    curves_written: usize,
+    rows: usize,
+    unit_conversions: Vec<crate::curves::UnitConversion>,
 }
 
 fn import_all_curves_into_generic_store_with_channel_nulls(
@@ -576,7 +602,7 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
     channel_nulls: &parsers::ChannelNullValues,
     null_rules: &[parsers::NullExceptionRule],
     duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
-) -> db::DbResult<(usize, usize)> {
+) -> db::DbResult<GenericCurveImportReport> {
     let mut frame = match parsers::parse_las_2_all_with_null_rules(path, channel_nulls, null_rules) {
         Ok(f) => f,
         Err(e) => return Err(db::DbError::LengthMismatch(format!("parse_las_2_all: {e}"))),
@@ -619,10 +645,15 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
     // standard path, so both stores hold the same rows for the same file).
     parsers::sanitize_las_frame(&mut frame);
     if frame.depth.is_empty() {
-        return Ok((0, 0));
+        return Ok(GenericCurveImportReport {
+            curves_written: 0,
+            rows: 0,
+            unit_conversions: Vec::new(),
+        });
     }
 
     let mut curves_written = 0usize;
+    let mut unit_conversions = Vec::new();
     for raw in &frame.curves {
         let mut values = raw.values.clone();
         // Align to the depth column length (defensive: malformed files can short a column).
@@ -633,8 +664,14 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
         let family = fam.map(|f| f.family);
         let mut unit = raw.unit.clone();
         if let Some(f) = fam {
-            if crate::curves::convert_to_canonical(f.family, raw.unit.as_deref(), &mut values) {
+            if let Some(conversion) = crate::curves::convert_to_canonical(
+                &raw.mnemonic,
+                f.family,
+                raw.unit.as_deref(),
+                &mut values,
+            ) {
                 unit = Some(f.canonical_unit.to_string());
+                unit_conversions.push(conversion);
             }
         }
         let curve_id =
@@ -642,7 +679,11 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
         db::insert_curve_samples(conn, &curve_id, &frame.depth, &values)?;
         curves_written += 1;
     }
-    Ok((curves_written, frame.depth.len()))
+    Ok(GenericCurveImportReport {
+        curves_written,
+        rows: frame.depth.len(),
+        unit_conversions,
+    })
 }
 
 /// Parses a deviation-survey CSV (columns MD/INC/AZI, alias-tolerant) and stores the
@@ -2326,6 +2367,66 @@ mod tests {
 
         std::fs::remove_file(no_unit).ok();
         std::fs::remove_file(declared).ok();
+    }
+
+    /// SB-DIO-024 / SB-DIO-T39. The international-foot factor is 0.3048 m/ft
+    /// (NIST SP 811, chapter §5.1). Reporting alone is not enough: the stored sample
+    /// is checked too, so a no-op conversion with a plausible audit record cannot pass.
+    #[test]
+    fn a_converted_sonic_reports_its_from_unit_to_unit_and_factor() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let las = "~Version\n\
+                   VERS. 2.0 :\n\
+                   ~Well\n\
+                   WELL. DIO-024 :\n\
+                   ~Curve\n\
+                   DEPT .M    : depth\n\
+                   DTCO .US/M : sonic\n\
+                   ~ASCII\n\
+                   1000.0 100.0\n\
+                   1000.5 200.0\n";
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-dio024-{}-{}.las",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(&path, las).unwrap();
+
+        let result = import_las_files_with(
+            &conn,
+            &[path.to_string_lossy().to_string()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+        assert!(result.error.is_none(), "import failed: {:?}", result.error);
+        assert_eq!(result.unit_conversions.len(), 1);
+        let conversion = &result.unit_conversions[0];
+        assert_eq!(conversion.curve, "DTCO");
+        assert_eq!(conversion.from_unit, "US/M");
+        assert_eq!(conversion.to_unit, "us/ft");
+        assert_eq!(conversion.factor, 0.3048_f32);
+        assert!(
+            result.warning.as_deref().is_some_and(|note| {
+                note.contains("DTCO")
+                    && note.contains("US/M")
+                    && note.contains("us/ft")
+                    && note.contains("0.3048")
+            }),
+            "the visible import note must carry the same audit: {:?}",
+            result.warning
+        );
+
+        let well_id = result.well_id.unwrap();
+        let dt = db::list_generic_curve_catalog(&conn, &well_id)
+            .unwrap()
+            .into_iter()
+            .find(|curve| curve.mnemonic == "DTCO")
+            .expect("DTCO generic curve");
+        let samples = db::get_curve_samples(&conn, &dt.curve_id).unwrap();
+        assert!((samples[0].value - 30.48).abs() < 1e-4, "100 us/m must become 30.48 us/ft");
     }
 
     /// Phase 6b: a full LAS with curves beyond the fixed 6 (PEF, CALI, a metric-unit

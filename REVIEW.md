@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-024: automatic unit conversions are visible
+
+- [ ] Import a LAS sonic declared in `US/M`. Does the result name the curve, source unit,
+      canonical `us/ft` unit and factor `0.3048`, while the stored generic-curve samples are
+      actually converted by that same factor?
+
 ## 2026-08-09 — SB-DIO-022: export re-sampling defaults off
 
 - [ ] Export a well whose stored depths are irregular. Does the LAS `~ASCII` block retain every
