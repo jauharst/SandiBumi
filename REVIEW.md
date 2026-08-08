@@ -7,6 +7,51 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-061: malformed inputs have a shared regression corpus
+
+- [ ] Add a synthetic malformed fixture under `src-tauri/tests/fixtures/dio-malformed`, then run
+      the gate. Does every registered parser/Intake reader execute it, and do failures name the
+      file, line or row/column, affected count and failed rule without a panic or hang?
+
+## 2026-08-09 — SB-DIO-054: every discarded DLIS item is reported
+
+- [ ] Import a DLIS with one unreadable frame and one readable frame. Is the good frame imported
+      while every skipped frame/channel/row is named with a count and rule? Does an all-skipped
+      file fail instead of reporting an empty success?
+
+## 2026-08-09 — SB-DIO-055: LAS export omissions are explicit
+
+- [ ] Export a well with many imported curves, including one duplicate mnemonic and one curve on
+      another frame. Are aligned curves written, and are both omissions named with the same reason
+      in the completion message and the LAS `~O` section?
+
+## 2026-08-09 — SB-DIO-051: provenance travels inside LAS deliverables
+
+- [ ] Open an exported LAS at `~O`. Is every curve labelled measured or computed, does each
+      computed curve name its method and parameter values, and does each fitted curve carry its
+      ordered inputs, training/runtime record and model-artifact SHA-256?
+
+## 2026-08-09 — SB-DIO-017: LAS exports declare their actual depth unit
+
+- [ ] Export and re-import one feet project and one metre project. Do `STRT`, `STOP`, `STEP`
+      and `DEPT` all carry the project unit, with the depth numbers surviving unchanged?
+
+## 2026-08-09 — SB-DIO-016: DLIS index units are reconciled
+
+- [ ] Import a feet-indexed DLIS into a metre project. Are depths converted, with the index
+      channel's own `UNITS` attribute named in the result? Does an undeclared index refuse until
+      its file unit is explicitly confirmed?
+
+## 2026-08-09 — SB-DIO-015: an undeclared depth unit now refuses
+
+- [ ] Import a LAS with no unit on its depth curve. Does it refuse until **File depth unit when
+      undeclared** is explicitly set, even when the project already has a depth unit?
+
+## 2026-08-09 — SB-DIO-004: one null-recognition rule
+
+- [ ] Import a LAS whose declared null differs slightly after decimal formatting. Is it missing,
+      while a nearby real reading outside the relative tolerance remains unchanged?
+
 ## 2026-08-05 — Fluorescence off the UV frame, and PDF import is off
 
 You said not to build PDF import — you will export the plates yourself. That is recorded in

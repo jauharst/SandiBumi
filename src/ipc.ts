@@ -122,6 +122,8 @@ export interface LasImportOptions {
   /** Attach a file whose well name already exists to that well as a new set, instead of
    *  creating a duplicate well record. Defaults to true backend-side. */
   attach?: boolean;
+  /** Explicit unit for files whose index has no usable declaration. Omit to refuse them. */
+  fileDepthUnit?: "M" | "FT" | null;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -129,6 +131,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     paths,
     setName: opts?.setName ?? null,
     attach: opts?.attach ?? null,
+    fileDepthUnit: opts?.fileDepthUnit ?? null,
   });
 }
 
@@ -3892,9 +3895,21 @@ export function runQuery(sql: string, limit = 1000): Promise<TablePage> {
   return invoke<TablePage>("run_query", { sql, limit });
 }
 
-/** Exports one well's standard + computed curves as LAS 2.0; returns row count. */
-export function exportLas(wellId: string, destPath: string): Promise<number> {
-  return invoke<number>("export_las", { wellId, destPath });
+export interface LasOmission {
+  curve: string;
+  reason: string;
+}
+
+export interface LasExportResult {
+  rows: number;
+  curves_written: number;
+  curves_held: number;
+  omitted: LasOmission[];
+}
+
+/** Exports one well as LAS 2.0, including exact held/written counts and named omissions. */
+export function exportLas(wellId: string, destPath: string): Promise<LasExportResult> {
+  return invoke<LasExportResult>("export_las", { wellId, destPath });
 }
 
 /** One water-zone sample that entered the RtC calibration fit. */
@@ -4199,13 +4214,25 @@ export interface DlisImportResult {
   rows: number;
   /** Existing RAW curves at the same (mnemonic, run) that this import overwrote. */
   replaced: number;
+  notes: string[];
+  skipped: Array<{ kind: string; name: string; count: number; rule: string }>;
   error: string | null;
 }
 
 /** Imports every scalar channel of a DLIS file into the selected well's generic store
  *  (via dlisio through the Python subprocess). */
-export function importDlisFile(wellId: string, path: string, setName?: string | null): Promise<DlisImportResult> {
-  return invoke<DlisImportResult>("import_dlis_file", { wellId, path, setName: setName ?? null });
+export function importDlisFile(
+  wellId: string,
+  path: string,
+  setName?: string | null,
+  fileDepthUnit?: "M" | "FT" | null,
+): Promise<DlisImportResult> {
+  return invoke<DlisImportResult>("import_dlis_file", {
+    wellId,
+    path,
+    setName: setName ?? null,
+    fileDepthUnit: fileDepthUnit ?? null,
+  });
 }
 
 // --- Petrography: pore area from blue-dyed epoxy (plan_image_analysis A1) ---

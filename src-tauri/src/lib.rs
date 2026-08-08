@@ -368,10 +368,15 @@ async fn import_las_files(
     paths: Vec<String>,
     set_name: Option<String>,
     attach: Option<bool>,
+    file_depth_unit: Option<String>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
     // Import-sets options (T-IMP-02): one set name per batch; attach-by-name defaults ON
     // when the frontend doesn't say otherwise (the dialog always sends it explicitly).
-    let opts = ingest::LasImportOptions { set_name, attach: attach.unwrap_or(true) };
+    let opts = ingest::LasImportOptions {
+        set_name,
+        attach: attach.unwrap_or(true),
+        file_depth_unit,
+    };
     // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
     let items: Vec<(String, String)> = paths
         .iter()
@@ -1315,12 +1320,19 @@ async fn import_dlis_file(
     well_id: String,
     path: String,
     set_name: Option<String>,
+    file_depth_unit: Option<String>,
 ) -> Result<dlis::DlisImportResult, String> {
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import DLIS", base, move || {
         let c = conn.lock().unwrap();
-        Ok(dlis::import_dlis_file(&c, &well_id, &path, set_name.as_deref()))
+        Ok(dlis::import_dlis_file(
+            &c,
+            &well_id,
+            &path,
+            set_name.as_deref(),
+            file_depth_unit.as_deref(),
+        ))
     })
     .await
 }
@@ -2879,14 +2891,14 @@ async fn run_query(
     .map_err(|e| e.to_string())?
 }
 
-/// Exports one well (standard + computed curves) as a LAS 2.0 file; returns row count.
+/// Exports one well as LAS 2.0 and returns rows, held/written curve counts and named omissions.
 #[tauri::command]
 async fn export_las(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     well_id: String,
     dest_path: String,
-) -> Result<usize, String> {
+) -> Result<export::LasExportResult, String> {
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Export LAS", "write LAS", move || {
         let c = conn.lock().unwrap();

@@ -1143,9 +1143,13 @@ export class Ribbon {
     }
     if (!dest) return;
     try {
-      const rows = await exportLas(well.well_id, dest);
-      setStatus(`Exported ${well.well_name} (${rows} rows) to ${dest}`);
-      recordProcess("Export", `Exported LAS (${rows} rows) → ${dest}`, well.well_name);
+      const result = await exportLas(well.well_id, dest);
+      const omission = result.omitted.length
+        ? ` Omitted ${result.omitted.map((item) => `${item.curve}: ${item.reason}`).join("; ")}.`
+        : "";
+      const summary = `${result.rows} rows; ${result.curves_written} of ${result.curves_held} held curves written.`;
+      setStatus(`Exported ${well.well_name} (${summary}) to ${dest}.${omission}`);
+      recordProcess("Export", `Exported LAS (${summary})${omission} → ${dest}`, well.well_name);
     } catch (err) {
       setStatus(`Export failed: ${err}`);
     }
@@ -1390,28 +1394,33 @@ export class Ribbon {
     }
     if (!path) return;
 
-    const setName = await this.askDlisSetName(path);
-    if (setName === null) {
+    const choice = await this.askDlisSetName(path);
+    if (choice === null) {
       setStatus("Import cancelled");
       return;
     }
+    const setName = choice.setName;
     const setLabel = setName ? setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
 
     setStatus(`Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`);
     try {
-      const result = await importDlisFile(well.well_id, path, setName);
+      const result = await importDlisFile(well.well_id, path, setName, choice.fileDepthUnit);
+      const skippedNote = result.skipped.length
+        ? ` Skipped ${result.skipped.map((item) => `${item.kind} ${item.name} ×${item.count}: ${item.rule}`).join("; ")}.`
+        : "";
       if (result.error) {
-        setStatus(`DLIS import failed: ${result.error}`);
+        setStatus(`DLIS import failed: ${result.error}.${skippedNote}`);
       } else {
         // `replaced` can only be non-zero in RAW: a named set was auto-suffixed to a free
         // name, so nothing of the earlier import was touched.
         const replacedNote = result.replaced > 0 ? ` (replaced ${result.replaced} existing curve(s))` : "";
+        const unitNote = result.notes.length ? ` ${result.notes.join("; ")}` : "";
         setStatus(
-          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${replacedNote}`,
+          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${replacedNote}${unitNote}${skippedNote}`,
         );
         recordProcess(
           "Import",
-          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${replacedNote} ← ${path}`,
+          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${replacedNote}${unitNote}${skippedNote} ← ${path}`,
           well.well_name,
         );
         this.workspace.notifyDataChanged();
@@ -1424,7 +1433,10 @@ export class Ribbon {
   /** One-field set-name prompt for a DLIS import. Resolves with the typed name (may be
    *  empty = RAW), or null when the user cancels. Deliberately lighter than the LAS
    *  dialog: DLIS always targets the already-selected well, so there is nothing to attach. */
-  private askDlisSetName(path: string): Promise<string | null> {
+  private askDlisSetName(path: string): Promise<{
+    setName: string;
+    fileDepthUnit: "M" | "FT" | null;
+  } | null> {
     return new Promise((resolve) => {
       const wrap = document.createElement("div");
       const input = document.createElement("input");
@@ -1444,6 +1456,26 @@ export class Ribbon {
         "old behaviour, where same-mnemonic channels of the same run are replaced.";
       wrap.appendChild(hint);
 
+      const undeclaredUnit = document.createElement("select");
+      undeclaredUnit.className = "form-control";
+      for (const [value, label] of [
+        ["", "Require the DLIS index to declare it"],
+        ["M", "Metres (explicit confirmation)"],
+        ["FT", "Feet (explicit confirmation)"],
+      ] as const) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        undeclaredUnit.appendChild(option);
+      }
+      wrap.appendChild(
+        formRow(
+          "File depth unit when undeclared",
+          undeclaredUnit,
+          "The index channel's UNITS attribute is used first. This choice is only for a tape that omits it.",
+        ),
+      );
+
       const actions = document.createElement("div");
       actions.className = "form-actions";
       const cancelBtn = document.createElement("button");
@@ -1456,7 +1488,7 @@ export class Ribbon {
       wrap.appendChild(actions);
 
       let settled = false;
-      const finish = (v: string | null) => {
+      const finish = (v: { setName: string; fileDepthUnit: "M" | "FT" | null } | null) => {
         if (settled) return;
         settled = true;
         close();
@@ -1464,7 +1496,12 @@ export class Ribbon {
       };
       const close = openModal("Import DLIS — curve set", wrap, 520);
       cancelBtn.addEventListener("click", () => finish(null));
-      okBtn.addEventListener("click", () => finish(input.value.trim()));
+      okBtn.addEventListener("click", () => finish({
+        setName: input.value.trim(),
+        fileDepthUnit: undeclaredUnit.value === "M" || undeclaredUnit.value === "FT"
+          ? undeclaredUnit.value
+          : null,
+      }));
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") okBtn.click();
       });

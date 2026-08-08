@@ -61,6 +61,7 @@ export function suggestSetName(paths: string[]): string {
 export interface ImportSetChoice extends LasImportOptions {
   setName: string;
   attach: boolean;
+  fileDepthUnit: "M" | "FT" | null;
 }
 
 /**
@@ -138,6 +139,26 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
       "A name matching several existing wells is always ambiguous — those import as separate records and say so.";
     wrap.appendChild(attachHint);
 
+    const undeclaredUnit = document.createElement("select");
+    undeclaredUnit.className = "form-control";
+    for (const [value, label] of [
+      ["", "Require the file to declare it"],
+      ["M", "Metres (explicit confirmation)"],
+      ["FT", "Feet (explicit confirmation)"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      undeclaredUnit.appendChild(option);
+    }
+    wrap.appendChild(
+      formRow(
+        "File depth unit when undeclared",
+        undeclaredUnit,
+        "The project unit is not evidence of what a file meant. Leave this safe default to refuse any file that omits its index unit.",
+      ),
+    );
+
     // The mock's footer line, and a true statement of the store's rules: sets
     // auto-suffix (never overwrite) and RAW keeps absolute read priority.
     const provNote = document.createElement("div");
@@ -171,7 +192,13 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
     const close = openModal("Import LAS — curve set", wrap, 560);
     cancelBtn.addEventListener("click", () => finish(null));
     okBtn.addEventListener("click", () =>
-      finish({ setName: setInput.value.trim(), attach: attachBox.checked }),
+      finish({
+        setName: setInput.value.trim(),
+        attach: attachBox.checked,
+        fileDepthUnit: undeclaredUnit.value === "M" || undeclaredUnit.value === "FT"
+          ? undeclaredUnit.value
+          : null,
+      }),
     );
     setInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") okBtn.click();

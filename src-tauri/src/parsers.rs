@@ -129,14 +129,20 @@ pub fn parse_csv_export<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
 /// Standard LAS null value sentinels, mapped strictly to `f32::NAN`.
 const LAS_NULL_VALUES: [f32; 2] = [-999.25, -9999.0];
 
+const NULL_REL_TOLERANCE: f32 = 1e-5;
+
+fn matches_null(v: f32, null: f32) -> bool {
+    (v - null).abs() <= null.abs().max(1.0) * NULL_REL_TOLERANCE
+}
+
 pub(crate) fn is_las_null(v: f32) -> bool {
-    LAS_NULL_VALUES.iter().any(|null| (v - null).abs() < f32::EPSILON)
+    LAS_NULL_VALUES.iter().any(|&null| matches_null(v, null))
 }
 
 /// Null test honoring the file's own `~W NULL` declaration on top of the standard
 /// sentinels — deliveries using e.g. -99999 or 999.25 otherwise import as data.
 fn is_null_value(v: f32, declared: Option<f32>) -> bool {
-    is_las_null(v) || declared.is_some_and(|n| (v - n).abs() <= n.abs().max(1.0) * 1e-5)
+    is_las_null(v) || declared.is_some_and(|null| matches_null(v, null))
 }
 
 /// Parse the NULL value from a `~W` block line ("NULL .  -999.25 : NULL VALUE").
@@ -145,6 +151,19 @@ fn parse_null_line(trimmed: &str) -> Option<f32> {
         return None;
     }
     trimmed.split(':').next()?.split_whitespace().last()?.parse::<f32>().ok()
+}
+
+fn parse_wrap_line(trimmed: &str) -> Option<bool> {
+    let declaration = trimmed.split(':').next().unwrap_or(trimmed);
+    let (mnemonic, rest) = declaration.split_once('.')?;
+    if !mnemonic.trim().eq_ignore_ascii_case("WRAP") {
+        return None;
+    }
+    match rest.split_whitespace().next()?.to_ascii_uppercase().as_str() {
+        "YES" => Some(true),
+        "NO" => Some(false),
+        _ => None,
+    }
 }
 
 enum LasSection {
@@ -184,7 +203,8 @@ fn resolve_curve_index(curve_names: &[String], aliases: &[&str]) -> Option<usize
 /// Streams a LAS 2.0 file line-by-line (never loads the whole file into RAM), reading the
 /// `~C` (Curve) block to map column indices and the `~A` (ASCII) block for the data rows.
 pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
-    let text = read_text_file(path)?;
+    let source = path.as_ref().display().to_string();
+    let text = read_text_file(path.as_ref())?;
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
@@ -207,9 +227,12 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     // across multiple physical lines rather than one line per row. Accumulate tokens and
     // drain a full row's worth at a time instead of assuming line == row.
     let mut token_buffer: Vec<f32> = Vec::new();
+    let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
+    let mut wrapped = false;
 
-    for line in text.lines() {
+    for (line_index, line) in text.lines().enumerate() {
+        let line_number = line_index + 1;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -226,7 +249,12 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
         }
 
         match section {
-            LasSection::Header => continue,
+            LasSection::Header => {
+                if let Some(value) = parse_wrap_line(trimmed) {
+                    wrapped = value;
+                }
+                continue;
+            }
             LasSection::WellBlock => {
                 if let Some(n) = parse_null_line(trimmed) {
                     declared_null = Some(n);
@@ -274,10 +302,20 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                     continue;
                 }
 
-                for tok in trimmed.split_whitespace() {
+                let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+                if !wrapped && tokens.len() != expected_per_row {
+                    return Err(ParseError::Las(format!(
+                        "{source}: line {line_number}: ASCII row has {} value(s), but ~C declares {expected_per_row} columns (truncated or corrupt LAS)",
+                        tokens.len()
+                    )));
+                }
+                if token_buffer.is_empty() && !tokens.is_empty() {
+                    buffer_start_line = Some(line_number);
+                }
+                for tok in tokens {
                     let v: f32 = tok
                         .parse()
-                        .map_err(|e| ParseError::Las(format!("bad numeric token '{tok}': {e}")))?;
+                        .map_err(|e| ParseError::Las(format!("{source}: line {line_number}: bad numeric token '{tok}': {e}")))?;
                     // `f32::from_str` accepts "inf"/"-inf" and overflows a cell like `1.0E+40` to
                     // infinity. Everything downstream screens for missing with `is_nan()` only
                     // (modules::is_missing), so an infinity survives into the compute cores and
@@ -300,6 +338,9 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                             cand_buf[k][j].push(get(Some(ci)));
                         }
                     }
+                    if token_buffer.is_empty() {
+                        buffer_start_line = None;
+                    }
                 }
             }
         }
@@ -310,7 +351,8 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     // loudly rather than silently mis-columning the rest of the file.
     if !token_buffer.is_empty() {
         return Err(ParseError::Las(format!(
-            "ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            "{source}: line {}: ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            buffer_start_line.unwrap_or(0),
             token_buffer.len(),
             curve_names.len()
         )));
@@ -470,7 +512,8 @@ pub fn sanitize_las_frame(frame: &mut LasFrame) -> DepthSanitizeReport {
 /// column recognized as depth (by `DEPTH_ALIASES`, else column 0) becomes the shared
 /// index; every other column is returned as its own `RawLasCurve`.
 pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
-    let text = read_text_file(path)?;
+    let source = path.as_ref().display().to_string();
+    let text = read_text_file(path.as_ref())?;
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
@@ -480,9 +523,12 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     let mut idx_depth: Option<usize> = None;
     let mut indices_resolved = false;
     let mut token_buffer: Vec<f32> = Vec::new();
+    let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
+    let mut wrapped = false;
 
-    for line in text.lines() {
+    for (line_index, line) in text.lines().enumerate() {
+        let line_number = line_index + 1;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -498,7 +544,12 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
         }
 
         match section {
-            LasSection::Header => continue,
+            LasSection::Header => {
+                if let Some(value) = parse_wrap_line(trimmed) {
+                    wrapped = value;
+                }
+                continue;
+            }
             LasSection::WellBlock => {
                 if let Some(n) = parse_null_line(trimmed) {
                     declared_null = Some(n);
@@ -536,9 +587,19 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                 if expected_per_row == 0 {
                     continue;
                 }
-                for tok in trimmed.split_whitespace() {
+                let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+                if !wrapped && tokens.len() != expected_per_row {
+                    return Err(ParseError::Las(format!(
+                        "{source}: line {line_number}: ASCII row has {} value(s), but ~C declares {expected_per_row} columns (truncated or corrupt LAS)",
+                        tokens.len()
+                    )));
+                }
+                if token_buffer.is_empty() && !tokens.is_empty() {
+                    buffer_start_line = Some(line_number);
+                }
+                for tok in tokens {
                     let v: f32 =
-                        tok.parse().map_err(|e| ParseError::Las(format!("bad numeric token '{tok}': {e}")))?;
+                        tok.parse().map_err(|e| ParseError::Las(format!("{source}: line {line_number}: bad numeric token '{tok}': {e}")))?;
                     token_buffer.push(v);
                 }
                 while token_buffer.len() >= expected_per_row {
@@ -546,6 +607,9 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                     for (i, raw) in row.iter().enumerate() {
                         let v = if is_null_value(*raw, declared_null) { f32::NAN } else { *raw };
                         columns[i].push(v);
+                    }
+                    if token_buffer.is_empty() {
+                        buffer_start_line = None;
                     }
                 }
             }
@@ -557,7 +621,8 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     // mis-columning the rest of the file.
     if !token_buffer.is_empty() {
         return Err(ParseError::Las(format!(
-            "ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            "{source}: line {}: ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            buffer_start_line.unwrap_or(0),
             token_buffer.len(),
             curve_names.len()
         )));
@@ -2379,6 +2444,26 @@ mod las_depth_tests {
             dt: seq.clone(),
             sp: seq,
         }
+    }
+
+    /// SB-DIO-004 / SB-DIO-T06..T08. The relative tolerance and its 1.0 floor are
+    /// specified in `docs/PRD_v2/21_data-io.md` §5.2. Recognition changes a matched
+    /// sentinel to the internal missing representation; it never canonicalises one
+    /// finite sentinel into another finite value.
+    #[test]
+    fn null_recognition_is_one_relative_tolerance_transform_and_recognition_never_rewrites() {
+        let represented = (-999.250_06_f32 as f64) as f32;
+        assert!(is_las_null(represented), "one f32/f64 representation change stays within tolerance");
+        assert!(is_las_null(-999.251), "the relative tolerance accepts a nearby formatter result");
+        assert!(!is_las_null(-999.20), "a nearby real reading outside the tolerance must survive");
+
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -12345 :\nWELL. SANDI-NULL :\n\
+                    ~CURVE\nDEPT.M :\nGR.API :\n~ASCII\n1000 -12345.1\n1001 -12344.0\n";
+        let p = temp("sandibumi_relative_null_test.las", body);
+        let cols = parse_las_2(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert!(cols.gr[0].is_nan(), "a declared near-sentinel becomes the internal absent value");
+        assert_eq!(cols.gr[1], -12344.0, "recognition must not rewrite a surviving value to another sentinel");
     }
 
     #[test]

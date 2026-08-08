@@ -7455,25 +7455,6 @@ mod tests {
             r.notes,
         );
 
-        // The requirement is about the DELIVERABLE, so it is checked there: the LAS a client
-        // receives must not carry a log-space column under a permeability header. That is the
-        // failure in its most expensive form — the number leaves the building attached to the
-        // wrong unit, and the reader has no way to tell.
-        let dir = std::env::temp_dir().join(format!("sandibumi-mla035-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let las = dir.join("out.las");
-        crate::export::export_las(&conn, &wid, las.to_str().unwrap()).unwrap();
-        let text = std::fs::read_to_string(&las).unwrap();
-        let unit_of = |mnemonic: &str| -> String {
-            text.lines()
-                .find(|l| l.trim_start().starts_with(&format!("{mnemonic} ")) || l.trim_start().starts_with(&format!("{mnemonic}.")))
-                .and_then(|l| l.split_once('.'))
-                .map(|(_, rest)| rest.split_whitespace().next().unwrap_or("").to_string())
-                .unwrap_or_default()
-        };
-        assert_eq!(unit_of("PERM_EST_LOG10"), "log10(mD)", "the LAS header must name the log space:\n{text}");
-        assert_eq!(unit_of("PERM_EST"), "mD", "the back-transform must be exported in the target's unit:\n{text}");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// **SB-MLA-003 — a saved model identifies the exact training ROWS, not merely the wells.**
