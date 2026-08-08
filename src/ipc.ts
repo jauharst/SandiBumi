@@ -4950,8 +4950,16 @@ export interface IntakeColumn {
   filled: number;
 }
 
+export interface FormatDetection {
+  detected_format: string;
+  recognition: string;
+  choice_report: string;
+  extension_disagreement: string | null;
+}
+
 export interface IntakeProbe {
   path: string;
+  format: FormatDetection;
   columns: IntakeColumn[];
   n_rows: number;
   preview: string[][];

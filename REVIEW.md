@@ -7,6 +7,14 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-060: format recognition follows content
+
+- [ ] Open a comma-delimited table deliberately named `.las` through Intake. Is it read as a
+      delimited table, with the `.las` disagreement reported? Inspect a headerless BIFF5 stream:
+      is `09 08 06 00` named as the reason BIFF5 was chosen? For a PK container, does the report
+      name the workbook entries that distinguish XLSX from generic ZIP? BIFF5 table loading remains
+      unavailable until the out-of-scope P2 BIFF reader ships.
+
 ## 2026-08-09 — SB-DIO-052: final and working curves stay distinguishable
 
 - [ ] Export a well whose `RAW` and `FINAL` generic sets both hold `PHIE`. Are both curves in the

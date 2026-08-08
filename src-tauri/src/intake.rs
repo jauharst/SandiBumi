@@ -93,6 +93,7 @@ pub struct IntakeColumn {
 #[derive(Debug, Clone, Serialize)]
 pub struct IntakeProbe {
     pub path: String,
+    pub format: FormatDetection,
     pub columns: Vec<IntakeColumn>,
     /// Data rows after the header (and the units row, when one was detected).
     pub n_rows: usize,
@@ -118,6 +119,159 @@ pub struct IntakeProbe {
     /// absurd depth gets looked at while a plausible one gets used. The workbook reader's rule.
     pub ambiguous_numbers: usize,
     pub notes: Vec<String>,
+}
+
+/// Content-owned format choice. Extensions are retained only to report a disagreement;
+/// they never select the reader.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct FormatDetection {
+    pub detected_format: String,
+    pub recognition: String,
+    pub choice_report: String,
+    pub extension_disagreement: Option<String>,
+}
+
+fn byte_slice_contains(bytes: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty() && bytes.windows(needle.len()).any(|window| window == needle)
+}
+
+fn extension_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
+fn detection(
+    path: &str,
+    detected_format: &str,
+    recognition: &str,
+    choice_report: String,
+    expected_extensions: &[&str],
+) -> FormatDetection {
+    let extension = extension_of(path);
+    let extension_disagreement = (!extension.is_empty()
+        && !expected_extensions.iter().any(|expected| extension.eq_ignore_ascii_case(expected)))
+        .then(|| {
+            format!(
+                "extension .{extension} disagrees with content; {detected_format} was chosen by {recognition}"
+            )
+        });
+    FormatDetection {
+        detected_format: detected_format.to_string(),
+        recognition: recognition.to_string(),
+        choice_report,
+        extension_disagreement,
+    }
+}
+
+/// Recognises a file from the cited signatures in chapter §2.9/D-31. Raw bytes are used
+/// only for signature inspection; every text interpretation still goes through
+/// `parsers::read_text_file`.
+pub fn detect_format(path: &str) -> ParseResult<FormatDetection> {
+    let bytes = std::fs::read(path)?;
+    if bytes.starts_with(&[0x09, 0x08, 0x06, 0x00]) {
+        let mut found = detection(
+            path,
+            "BIFF5 workbook stream",
+            "09 08 06 00 signature",
+            "09 08 06 00 identifies a headerless BIFF5 workbook stream".into(),
+            &["xls"],
+        );
+        if extension_of(path) == "xls" {
+            found.extension_disagreement = Some(
+                "extension .xls names the Excel family but not its version; signature chose the headerless BIFF5 stream"
+                    .into(),
+            );
+        }
+        return Ok(found);
+    }
+    if bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0]) {
+        return Ok(detection(
+            path,
+            "OLE2 compound document",
+            "D0 CF 11 E0 signature",
+            "D0 CF 11 E0 identifies an OLE2 container; its directory structure must choose the contained format"
+                .into(),
+            &["xls", "doc", "ppt"],
+        ));
+    }
+    if bytes.starts_with(&[0x50, 0x4B]) {
+        let xlsx = byte_slice_contains(&bytes, b"[Content_Types].xml")
+            && byte_slice_contains(&bytes, b"xl/workbook.xml");
+        return Ok(if xlsx {
+            detection(
+                path,
+                "XLSX workbook",
+                "PK ZIP signature plus workbook structure",
+                "PK is shared by ZIP-based formats; [Content_Types].xml and xl/workbook.xml chose XLSX"
+                    .into(),
+                &["xlsx", "xlsm"],
+            )
+        } else {
+            detection(
+                path,
+                "ZIP container",
+                "PK ZIP signature plus archive structure",
+                "PK is shared by ZIP-based formats; no XLSX workbook structure was present, so generic ZIP was chosen"
+                    .into(),
+                &["zip"],
+            )
+        });
+    }
+    if bytes.starts_with(&[0x05, 0xB4]) {
+        return Ok(detection(
+            path,
+            "SDC Geo Suite ODF",
+            "05 B4 nibble-swapped ZIP signature",
+            "05 B4 identifies the nibble-swapped ZIP signature used by SDC Geo Suite ODF".into(),
+            &["odf"],
+        ));
+    }
+
+    let text = parsers::read_text_file(path)?;
+    let first = text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("");
+    if first.starts_with("*HEADER") {
+        return Ok(detection(
+            path,
+            "Geolog dump",
+            "first-line *HEADER signature",
+            "first non-empty line begins *HEADER; Geolog dump was chosen".into(),
+            &["dat", "unl"],
+        ));
+    }
+    if first.starts_with('~')
+        && first
+            .trim_start_matches('~')
+            .trim_start()
+            .to_ascii_uppercase()
+            .starts_with('V')
+    {
+        return Ok(detection(
+            path,
+            "LAS text",
+            "leading ~Version section structure",
+            "first non-empty section is ~Version; LAS was chosen".into(),
+            &["las"],
+        ));
+    }
+    if first.contains(',') || first.contains(';') || first.contains('\t') {
+        return Ok(detection(
+            path,
+            "delimited text",
+            "first-row delimiter structure",
+            "the first non-empty row has delimited-table structure; delimited text was chosen".into(),
+            &["csv", "txt", "tsv", "dat"],
+        ));
+    }
+    Ok(detection(
+        path,
+        "plain text",
+        "readable text without a stronger signature",
+        "no stronger signature or delimited structure was present; plain text was chosen".into(),
+        &["txt", "asc"],
+    ))
 }
 
 /// Reads a number under an explicit or inferred decimal convention.
@@ -217,6 +371,7 @@ fn guess_role(header: &str, kind: &str, taken: &[String]) -> (String, String) {
 
 /// Reads a table and reports everything the pane needs to confirm the mapping. Writes nothing.
 pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
+    let format = detect_format(path)?;
     let text = parsers::read_text_file(path)?;
     let mut lines: Vec<&str> = text
         .lines()
@@ -229,6 +384,7 @@ pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
     let Some(first) = lines.first().copied() else {
         return Ok(IntakeProbe {
             path: path.into(),
+            format,
             columns: vec![],
             n_rows: 0,
             preview: vec![],
@@ -292,7 +448,10 @@ pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
     let headers: Vec<String> = table.remove(0).iter().map(|h| h.trim().to_uppercase()).collect();
     let ncol = headers.len();
 
-    let mut notes = Vec::new();
+    let mut notes = vec![format.choice_report.clone()];
+    if let Some(disagreement) = &format.extension_disagreement {
+        notes.push(disagreement.clone());
+    }
     // A units row: the row under the header whose cells are units words rather than data. Judged
     // on the whole row rather than on one column, because at this point no depth column has been
     // agreed — and a row that is entirely non-numeric where the table below it is numeric is a
@@ -403,6 +562,7 @@ pub fn probe(path: &str, opts: &TableOptions) -> ParseResult<IntakeProbe> {
 
     Ok(IntakeProbe {
         path: path.into(),
+        format,
         columns,
         n_rows: table.len(),
         preview,
@@ -1516,6 +1676,70 @@ fn free_curve_set(conn: &Connection, well_id: &str, desired: &str) -> DbResult<S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SB-DIO-060 / T89 recognition half. D-31 cites 09 08 06 00 for a headerless
+    /// BIFF5 stream and PK for the shared ZIP family. The ZIP control pins structural
+    /// disambiguation: PK alone is insufficient; XLSX needs both named workbook entries.
+    #[test]
+    fn a_biff5_stream_named_xls_is_chosen_by_signature_and_a_shared_zip_signature_is_disambiguated_by_structure() {
+        let biff = std::env::temp_dir().join("sandibumi-biff5-signature.xls");
+        std::fs::write(&biff, [0x09, 0x08, 0x06, 0x00, 0x10, 0x00]).unwrap();
+        let detected = detect_format(biff.to_str().unwrap()).unwrap();
+        assert_eq!(detected.detected_format, "BIFF5 workbook stream");
+        assert_eq!(detected.recognition, "09 08 06 00 signature");
+        assert!(
+            detected.extension_disagreement.as_deref().is_some_and(|note| {
+                note.contains(".xls") && note.contains("BIFF5") && note.contains("signature chose")
+            }),
+            "the family/version disagreement must be explicit: {:?}",
+            detected.extension_disagreement
+        );
+
+        let xlsx = std::env::temp_dir().join("sandibumi-pk-structure.bin");
+        let mut xlsx_bytes = vec![0x50, 0x4B, 0x03, 0x04];
+        xlsx_bytes.extend_from_slice(b"[Content_Types].xml....xl/workbook.xml");
+        std::fs::write(&xlsx, xlsx_bytes).unwrap();
+        let detected = detect_format(xlsx.to_str().unwrap()).unwrap();
+        assert_eq!(detected.detected_format, "XLSX workbook");
+        assert!(detected.choice_report.contains("PK is shared"));
+        assert!(detected.choice_report.contains("xl/workbook.xml"));
+
+        let zip = std::env::temp_dir().join("sandibumi-pk-generic.bin");
+        std::fs::write(&zip, [0x50, 0x4B, 0x03, 0x04, b'a', b'.', b't', b'x', b't']).unwrap();
+        let generic = detect_format(zip.to_str().unwrap()).unwrap();
+        assert_eq!(generic.detected_format, "ZIP container");
+        assert!(generic.choice_report.contains("no XLSX workbook structure"));
+
+        std::fs::remove_file(&biff).ok();
+        std::fs::remove_file(&xlsx).ok();
+        std::fs::remove_file(&zip).ok();
+    }
+
+    /// SB-DIO-060 / T90. The `.las` extension is deliberately false. Intake must still
+    /// parse the table selected by its content and say why; the CSV control prevents an
+    /// implementation that reports an extension disagreement for every delimited file.
+    #[test]
+    fn a_delimited_text_file_named_las_is_read_as_delimited_and_the_extension_disagreement_is_reported() {
+        let body = "WELL,DEPTH,CPOR\nSANDI-SIG,1000,0.20\nSANDI-SIG,1001,0.21\n";
+        let disguised = std::env::temp_dir().join("sandibumi-delimited-disguised.las");
+        std::fs::write(&disguised, body).unwrap();
+        let probe_result = probe(disguised.to_str().unwrap(), &TableOptions::default()).unwrap();
+        assert_eq!(probe_result.format.detected_format, "delimited text");
+        assert_eq!(probe_result.n_rows, 2, "the signature-selected table reader must actually read it");
+        assert_eq!(probe_result.columns[1].header, "DEPTH");
+        let disagreement = probe_result.format.extension_disagreement.as_deref().unwrap_or("");
+        assert!(disagreement.contains("extension .las disagrees with content"), "{disagreement}");
+        assert!(probe_result.notes.iter().any(|note| note == disagreement));
+
+        let ordinary = std::env::temp_dir().join("sandibumi-delimited-control.csv");
+        std::fs::write(&ordinary, body).unwrap();
+        let control = probe(ordinary.to_str().unwrap(), &TableOptions::default()).unwrap();
+        assert_eq!(control.format.detected_format, "delimited text");
+        assert!(control.format.extension_disagreement.is_none(), "a truthful extension must not be flagged");
+
+        std::fs::remove_file(&disguised).ok();
+        std::fs::remove_file(&ordinary).ok();
+    }
 
     /// **A comma decimal is read as one number, not two** — the workbook reader's rule, now in
     /// the delimited path where a delivery can mix conventions just as easily.
