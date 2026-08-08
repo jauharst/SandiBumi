@@ -728,6 +728,48 @@ dialogs where they fit, and expose outputs to Python/SQL per §5.
 The actionable backlog. Roughly ordered: safe frontend wins first, then Performance (which needs a live
 100-well run to sign off), then the Wave B feature suites, then carried-forward deferrals.
 
+## B0. The active lane queue (2026-08-08)
+
+**Where the next work is, and who does it.** Driven by `docs/PRD_v2/91_REQUIREMENTS_INDEX.md`
+— 931 requirements, 235 open `P0`. Lane method and its rules: `docs/record_parallel_lanes.md`.
+
+Each lane runs in the standing code worktree `D:\XX. SandiBumi-check` (its build is paid; keep
+it). One lane at a time, finished and merged before the next starts.
+
+| # | Branch | SCOPE — domain in the index | SPEC — the chapter | Open `P0` | State |
+|---|---|---|---|---|---|
+| 1 | `feat/dio-p1` | `SB-DIO` **P1**s | `21_data-io.md` | — | running |
+| 2 | `feat/ins-p0` | `SB-INS` | `27_ip-install-blockers.md` | 10 | queued |
+| 3 | `feat/plt-p0` | `SB-PLT` | `23_plotting-interactivity.md` | 16 | queued |
+
+`SB-DIO` P0s shipped in PR #29 (eight requirements). Lanes 2 and 3 are Tier 0 — *"It is a
+product"*: installer, in-app method help, command palette, then plotting. **Both are safe
+without the Tier −1 triage because neither contains physics.**
+
+**STOP after lane 3.** Everything remaining — `SB-ENV` (18), `SB-POR` (17), `SB-SAT` (13),
+`SB-CLY` (14), `SB-MIN` (7), `SB-CUT` (5), `SB-SHR` (13), `SB-TBD` (4) — is physics, and much
+of it sits in the 34 Tier −1 candidates the index flagged. Those need Jauhar's judgement, not
+an agent's. `SB-DBM` (16) is `db.rs` and is never delegated. `SB-GEO` (33) and `SB-PLG` (24) are
+unbuilt domains, deliberately off the 1.0 gate.
+
+**Blocked, needing a source rather than an agent:**
+
+- `SB-DIO-023` — physical family bounds. `ABSENT` by design (`21_data-io.md` §5.6, §7.1 O-4),
+  waiting on a range table from `20_envcorr-qc.md`. Tests `T36`–`T38` stay unwritten: a test
+  against bounds that do not exist would pin an invented number. **The first cross-chapter
+  dependency the index surfaced.**
+
+**Open decisions blocking nothing yet, but they compound:**
+
+- The **34 Tier −1 candidates** (`91_REQUIREMENTS_INDEX.md`). `SB-CUT-031` first — twelve
+  IP-seeded Gaussian priors passed as σ at twice the cited convention's width, which moves
+  P10/P90 in studies already delivered. The triage question for each: *would I have to withdraw
+  a number from a study I have already sent?*
+- **Where the ML export refuses.** `SB-DIO-051` makes a saved model a precondition for exporting
+  a model-derived curve, and "Save model as" is optional in the ML pane — so a field-scale fit
+  can be discovered undeliverable at the LAS dialog. The refusal is right (`SB-CORE-010`/`-014`
+  is the Tier-1 claim); the position is wrong. Warn before the run, or keep the late refusal?
+
 ## B1. Hardening backlog (§4b)
 
 **Correctness — OPEN, awaiting Jauhar's method decision (found 2026-07-31)**
