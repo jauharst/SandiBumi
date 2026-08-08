@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-027: the vendor PPG-to-density alias is rejected
+
+- [ ] Import a `RHOZ.PPG` column. Is it retained verbatim but excluded from both standard RHOB
+      and the generic RHOB family, with `density.units: PPG -> density` named as the rejected entry
+      and an explicit quantity-designation requirement?
+
 ## 2026-08-09 — SB-DIO-026: unit transforms carry and apply offsets
 
 - [ ] Import `FTEMP.DEGF` containing 200 and 32 °F. Does the audit show factor `1/1.8` and

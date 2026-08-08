@@ -153,6 +153,8 @@ export interface ImportResult {
     declared_unit: string;
     family: string | null;
     reason: string;
+    designation_required: boolean;
+    rejected_entry: string | null;
   }>;
 }
 

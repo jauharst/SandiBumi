@@ -529,6 +529,19 @@ pub fn parse_las_2_with_null_rules<P: AsRef<Path>>(
                         [&GR_ALIASES[..], &RES_ALIASES, &NPHI_ALIASES, &RHOB_ALIASES, &DT_ALIASES, &SP_ALIASES];
                     for (k, aliases) in alias_sets.iter().enumerate() {
                         cand[k] = resolve_curve_candidates(&curve_names, aliases);
+                        // Finding D-14 / SB-DIO-027: a density mnemonic carrying PPG must
+                        // not populate the standard RHOB channel. The full-curve reader keeps
+                        // it familyless and reports the rejected vendor entry for designation.
+                        if k == 3 {
+                            cand[k].retain(|index| {
+                                crate::curves::family_for_import(
+                                    &curve_names[*index],
+                                    curve_units[*index].as_deref(),
+                                )
+                                .1
+                                .is_none()
+                            });
+                        }
                         cand_buf[k] = vec![Vec::new(); cand[k].len()];
                     }
                     indices_resolved = true;

@@ -88,6 +88,10 @@ pub struct UnconvertedUnit {
     pub declared_unit: String,
     pub family: Option<String>,
     pub reason: String,
+    /// True when values cannot be interpreted safely until the user identifies the quantity.
+    pub designation_required: bool,
+    /// The reviewed vendor-table entry that was rejected, when this is an alias rejection.
+    pub rejected_entry: Option<String>,
 }
 
 impl UnconvertedUnit {
@@ -129,7 +133,35 @@ pub fn unconverted_unit(
         declared_unit: declared.to_string(),
         family: family.map(str::to_string),
         reason,
+        designation_required: false,
+        rejected_entry: None,
     })
+}
+
+/// Resolves an import mnemonic only after applying reviewed unit-alias rejections.
+/// `PPG → density` is explicitly NON-ADOPTABLE in chapter §5.1 / finding D-14:
+/// it is a pressure-gradient quantity, not a bulk-density unit.
+pub fn family_for_import(
+    curve: &str,
+    src_unit: Option<&str>,
+) -> (Option<&'static FamilySpec>, Option<UnconvertedUnit>) {
+    let inferred = family_for(curve);
+    let declared = src_unit.map(str::trim).unwrap_or_default();
+    if normalize_unit(declared) != "ppg" {
+        return (inferred, None);
+    }
+    (
+        None,
+        Some(UnconvertedUnit {
+            curve: curve.to_string(),
+            declared_unit: declared.to_string(),
+            family: None,
+            reason: "PPG is a pressure-gradient quantity, not a bulk-density unit; quantity designation is required"
+                .to_string(),
+            designation_required: true,
+            rejected_entry: Some("density.units: PPG -> density".to_string()),
+        }),
+    )
 }
 
 /// Converts a value from a source unit into the canonical unit for a family, in place.

@@ -677,10 +677,13 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
         if values.len() != frame.depth.len() {
             values.resize(frame.depth.len(), f32::NAN);
         }
-        let fam = crate::curves::family_for(&raw.mnemonic);
+        let (fam, rejected_alias) =
+            crate::curves::family_for_import(&raw.mnemonic, raw.unit.as_deref());
         let family = fam.map(|f| f.family);
         let mut unit = raw.unit.clone();
-        if let Some(f) = fam {
+        if let Some(rejected) = rejected_alias {
+            unconverted_units.push(rejected);
+        } else if let Some(f) = fam {
             if let Some(conversion) = crate::curves::convert_to_canonical(
                 &raw.mnemonic,
                 f.family,
@@ -2566,6 +2569,77 @@ mod tests {
         assert!((samples[0].value - 93.333_336).abs() < 1e-4, "200 °F must become 93.33 °C");
         assert!((samples[0].value - 111.111_115).abs() > 1.0, "the offset must not be omitted");
         assert!(samples[1].value.abs() < 1e-6, "32 °F must become 0 °C");
+    }
+
+    /// SB-DIO-027 / SB-DIO-T43. Finding D-14 and chapter §5.1 mark the vendor
+    /// `density.units: PPG → density` entry NON-ADOPTABLE because PPG denotes a
+    /// pressure-gradient quantity, not bulk density. Both stores are checked: it
+    /// must neither populate standard RHOB nor acquire a generic RHOB family tag.
+    #[test]
+    fn a_ppg_column_is_not_bound_to_density_and_is_flagged_for_designation() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let las = "~Version\n\
+                   VERS. 2.0 :\n\
+                   ~Well\n\
+                   WELL. DIO-027 :\n\
+                   ~Curve\n\
+                   DEPT.M   : depth\n\
+                   RHOZ.PPG : vendor-labelled mud weight\n\
+                   ~ASCII\n\
+                   1000.0 9.5\n\
+                   1000.5 10.0\n";
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-dio027-{}-{}.las",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(&path, las).unwrap();
+        let result = import_las_files_with(
+            &conn,
+            &[path.to_string_lossy().to_string()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+
+        assert!(result.error.is_none(), "import failed: {:?}", result.error);
+        let rejection = result
+            .unconverted_units
+            .iter()
+            .find(|issue| issue.curve == "RHOZ")
+            .expect("PPG rejection record");
+        assert_eq!(rejection.declared_unit, "PPG");
+        assert_eq!(rejection.family, None, "a rejected binding must not report an assigned family");
+        assert!(rejection.designation_required);
+        assert_eq!(rejection.rejected_entry.as_deref(), Some("density.units: PPG -> density"));
+        assert!(
+            result.warning.as_deref().is_some_and(|note| {
+                note.contains("PPG") && note.contains("pressure-gradient") && note.contains("designation")
+            }),
+            "the rejected entry must be visible: {:?}",
+            result.warning
+        );
+
+        let well_id = result.well_id.unwrap();
+        let standard_rhob: f32 = conn
+            .query_row(
+                "SELECT rhob FROM standard_curves WHERE well_id = ?1 ORDER BY depth LIMIT 1",
+                params![&well_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(standard_rhob.is_nan(), "PPG data must not populate the standard RHOB channel");
+        let raw = db::list_generic_curve_catalog(&conn, &well_id)
+            .unwrap()
+            .into_iter()
+            .find(|curve| curve.mnemonic == "RHOZ")
+            .expect("RHOZ generic curve retained for designation");
+        assert_eq!(raw.family, None);
+        assert_eq!(raw.unit.as_deref(), Some("PPG"));
+        let samples = db::get_curve_samples(&conn, &raw.curve_id).unwrap();
+        assert_eq!(samples[0].value, 9.5, "rejection retains the source data for later designation");
     }
 
     /// Phase 6b: a full LAS with curves beyond the fixed 6 (PEF, CALI, a metric-unit

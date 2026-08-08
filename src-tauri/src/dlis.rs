@@ -314,10 +314,14 @@ pub fn import_dlis_file(
             });
         }
 
-        let fam = crate::curves::family_for(&meta.mnemonic);
+        let (fam, rejected_alias) =
+            crate::curves::family_for_import(&meta.mnemonic, Some(&meta.unit));
         let family = fam.map(|f| f.family);
         let mut unit = if meta.unit.trim().is_empty() { None } else { Some(meta.unit.clone()) };
-        if let Some(f) = fam {
+        if let Some(rejected) = rejected_alias {
+            notes.push(rejected.note());
+            unconverted_units.push(rejected);
+        } else if let Some(f) = fam {
             if let Some(conversion) = crate::curves::convert_to_canonical(
                 &meta.mnemonic,
                 f.family,
