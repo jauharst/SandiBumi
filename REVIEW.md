@@ -7,10 +7,16 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-026: unit transforms carry and apply offsets
+
+- [ ] Import `FTEMP.DEGF` containing 200 and 32 °F. Does the audit show factor `1/1.8` and
+      source-space offset `-32`, with stored canonical `DEGC` values 93.33 and 0 rather than the
+      multiplicative-only 111.11 and 17.78?
+
 ## 2026-08-09 — SB-DIO-025: conversion coverage and pass-throughs are explicit
 
 - [ ] Query the unit-conversion capability list. Does it return exactly CALI, BS, RHOB, DRHO,
-      NPHI, DT and DTS? Import a density with an unsupported declared unit; is its value and unit
+      NPHI, DT, DTS and TEMP? Import a density with an unsupported declared unit; is its value and unit
       retained verbatim while the result flags it as unconverted?
 
 ## 2026-08-09 — SB-DIO-024: automatic unit conversions are visible

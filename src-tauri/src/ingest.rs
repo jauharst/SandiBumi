@@ -2436,6 +2436,7 @@ mod tests {
         assert_eq!(conversion.from_unit, "US/M");
         assert_eq!(conversion.to_unit, "us/ft");
         assert_eq!(conversion.factor, 0.3048_f32);
+        assert_eq!(conversion.offset, 0.0, "a multiplicative conversion carries an explicit zero offset");
         assert!(
             result.warning.as_deref().is_some_and(|note| {
                 note.contains("DTCO")
@@ -2513,6 +2514,58 @@ mod tests {
         assert_eq!(rhob.unit.as_deref(), Some("FURLONGS"));
         let samples = db::get_curve_samples(&conn, &rhob.curve_id).unwrap();
         assert_eq!(samples[0].value, 2400.0, "unconvertible data must be stored unchanged");
+    }
+
+    /// SB-DIO-026 / SB-DIO-T42. Chapter §5.1 cites the 32 °F offset, and T42
+    /// fixes the complete expected transform: 200 °F → 93.33 °C. The explicit
+    /// comparison with the multiplicative-only 111.11 answer pins both sides.
+    #[test]
+    fn a_fahrenheit_temperature_applies_its_affine_offset_before_its_factor() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let las = "~Version\n\
+                   VERS. 2.0 :\n\
+                   ~Well\n\
+                   WELL. DIO-026 :\n\
+                   ~Curve\n\
+                   DEPT .M    : depth\n\
+                   FTEMP.DEGF : formation temperature\n\
+                   ~ASCII\n\
+                   1000.0 200.0\n\
+                   1000.5 32.0\n";
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-dio026-{}-{}.las",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(&path, las).unwrap();
+        let result = import_las_files_with(
+            &conn,
+            &[path.to_string_lossy().to_string()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+
+        assert!(result.error.is_none(), "import failed: {:?}", result.error);
+        let conversion = result.unit_conversions.iter().find(|item| item.curve == "FTEMP").unwrap();
+        assert_eq!(conversion.from_unit, "DEGF");
+        assert_eq!(conversion.to_unit, "DEGC");
+        assert!((conversion.factor - 1.0 / 1.8).abs() < 1e-7);
+        assert_eq!(conversion.offset, -32.0);
+        let well_id = result.well_id.unwrap();
+        let temperature = db::list_generic_curve_catalog(&conn, &well_id)
+            .unwrap()
+            .into_iter()
+            .find(|curve| curve.mnemonic == "FTEMP")
+            .expect("FTEMP generic curve");
+        assert_eq!(temperature.family.as_deref(), Some("TEMP"));
+        assert_eq!(temperature.unit.as_deref(), Some("DEGC"));
+        let samples = db::get_curve_samples(&conn, &temperature.curve_id).unwrap();
+        assert!((samples[0].value - 93.333_336).abs() < 1e-4, "200 °F must become 93.33 °C");
+        assert!((samples[0].value - 111.111_115).abs() > 1.0, "the offset must not be omitted");
+        assert!(samples[1].value.abs() < 1e-6, "32 °F must become 0 °C");
     }
 
     /// Phase 6b: a full LAS with curves beyond the fixed 6 (PEF, CALI, a metric-unit

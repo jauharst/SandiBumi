@@ -144,6 +144,8 @@ export interface ImportResult {
     from_unit: string;
     to_unit: string;
     factor: number;
+    /** Source-space offset: canonical = (source + offset) × factor. */
+    offset: number;
   }>;
   /** Declared units retained verbatim because no reviewed conversion applied. */
   unconverted_units: Array<{

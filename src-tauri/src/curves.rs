@@ -29,6 +29,7 @@ pub const FAMILIES: &[FamilySpec] = &[
     FamilySpec { family: "NPHI", canonical_unit: "v/v", aliases: &["NPHI", "TNPH", "NPHIED", "NPHI_LS", "NPOR", "NEUT", "APLC", "FPLC", "SNP", "HNPO", "FSTP"] },
     FamilySpec { family: "DT", canonical_unit: "us/ft", aliases: &["DT", "DTC", "DTCO", "AC", "DT24", "DTP", "DTCOMP"] },
     FamilySpec { family: "DTS", canonical_unit: "us/ft", aliases: &["DTS", "DTSM", "DTSH", "DTSHEAR", "DT_S"] },
+    FamilySpec { family: "TEMP", canonical_unit: "DEGC", aliases: &["FTEMP"] },
     // Resistivity: deep first, then medium/shallow/micro so the primary Rt wins the "RES" bucket.
     FamilySpec { family: "RES_DEEP", canonical_unit: "ohm.m", aliases: &["RES_DEEP", "RESD", "RT", "RDEEP", "RDEP", "DRES", "ILD", "LLD", "AT90", "AHT90", "RLA5", "ATR", "BDAV", "RING", "PSR"] },
     FamilySpec { family: "RES_MED", canonical_unit: "ohm.m", aliases: &["RES_MED", "RESM", "RMED", "ILM", "LLM", "AT30", "AHT30", "RLA3"] },
@@ -38,7 +39,7 @@ pub const FAMILIES: &[FamilySpec] = &[
 
 /// The exact quantity families for which at least one reviewed numeric transform exists.
 /// This is a capability list, not a claim that every spelling within the family converts.
-pub const CONVERTIBLE_FAMILIES: &[&str] = &["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS"];
+pub const CONVERTIBLE_FAMILIES: &[&str] = &["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS", "TEMP"];
 
 pub fn convertible_unit_families() -> Vec<String> {
     CONVERTIBLE_FAMILIES.iter().map(|family| (*family).to_string()).collect()
@@ -65,13 +66,15 @@ pub struct UnitConversion {
     pub from_unit: String,
     pub to_unit: String,
     pub factor: f32,
+    /// Source-space offset: canonical = (source + offset) × factor.
+    pub offset: f32,
 }
 
 impl UnitConversion {
     pub fn note(&self) -> String {
         format!(
-            "converted {} from {} to {} with factor {}",
-            self.curve, self.from_unit, self.to_unit, self.factor
+            "converted {} from {} to {} with factor {} and offset {}",
+            self.curve, self.from_unit, self.to_unit, self.factor, self.offset
         )
     }
 }
@@ -146,29 +149,32 @@ pub fn convert_to_canonical(
         return None;
     }
 
-    // (family-agnostic) linear rescale factor from src→canonical.
-    let factor: Option<f32> = match (src.as_str(), tgt.as_str()) {
+    // Source-space affine transform: canonical = (source + offset) × factor.
+    let transform: Option<(f32, f32)> = match (src.as_str(), tgt.as_str()) {
         // Length: feet → metres and back (depth/CALI/BS live in inches or metres; keep
         // CALI in inches, only convert obvious metric mismatches).
         ("in", "in") => None,
-        ("mm", "in") => Some(1.0 / 25.4),
-        ("cm", "in") => Some(1.0 / 2.54),
+        ("mm", "in") => Some((1.0 / 25.4, 0.0)),
+        ("cm", "in") => Some((1.0 / 2.54, 0.0)),
         // Sonic slowness: us/m → us/ft.
-        ("us/m", "us/ft") => Some(0.3048),
-        ("usec/m", "us/ft") => Some(0.3048),
+        ("us/m", "us/ft") => Some((0.3048, 0.0)),
+        ("usec/m", "us/ft") => Some((0.3048, 0.0)),
         // Bulk density: kg/m3 → g/cc.
-        ("kg/m3", "g/cc") => Some(0.001),
+        ("kg/m3", "g/cc") => Some((0.001, 0.0)),
         // Neutron porosity given in percent → v/v.
-        ("pu", "v/v") => Some(0.01),
-        ("%", "v/v") => Some(0.01),
-        ("p.u.", "v/v") => Some(0.01),
+        ("pu", "v/v") => Some((0.01, 0.0)),
+        ("%", "v/v") => Some((0.01, 0.0)),
+        ("p.u.", "v/v") => Some((0.01, 0.0)),
+        // T42 fixes the full transform: 200 °F becomes 93.33 °C. Chapter §5.1
+        // cites the 32 °F offset; 1/1.8 is the scale required by that expected value.
+        ("degf", "degc") => Some((1.0 / 1.8, -32.0)),
         _ => None,
     };
 
-    let factor = factor?;
+    let (factor, offset) = transform?;
     for v in values.iter_mut() {
         if v.is_finite() {
-            *v *= factor;
+            *v = (*v + offset) * factor;
         }
     }
     Some(UnitConversion {
@@ -176,6 +182,7 @@ pub fn convert_to_canonical(
         from_unit: src_unit.unwrap_or_default().trim().to_string(),
         to_unit: target.to_string(),
         factor,
+        offset,
     })
 }
 
@@ -212,7 +219,7 @@ mod tests {
     fn the_unit_system_reports_the_exact_families_it_can_convert() {
         assert_eq!(
             convertible_unit_families(),
-            ["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS"]
+            ["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS", "TEMP"]
                 .into_iter()
                 .map(str::to_string)
                 .collect::<Vec<_>>()
