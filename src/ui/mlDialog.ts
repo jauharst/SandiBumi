@@ -25,7 +25,7 @@ import {
   type TopEntry,
   type WellSummary,
 } from "../ipc";
-import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup, setStatus } from "../state";
+import { appState, bumpDataVersion, filterByActiveGroup, setStatus } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
 import { FACIES_PALETTE, faciesColor } from "./plotCanvas";
 import { formRow } from "./modal";
@@ -344,10 +344,11 @@ export async function buildMlContent(
   // Results come back keyed by well id; every table the user reads shows the well's NAME.
   const wellNames = new Map(wells.map((w) => [w.well_id, w.well_name]));
   const nameOf = (id: string) => wellNames.get(id) ?? id;
-  const selected = appState.selectedWell.get();
-  // Apply wells (the run scope) come from the shared scope selector; Train wells stay a
-  // checklist below — a distinct labelled-data pick, not the run coverage.
-  const scope = await buildWellScope();
+  // The run scope is now the ONLY well selector — the fit and the prediction both take it. Assigned
+  // through a mutable hook because the things that need to react (the blind-split echo) are defined
+  // further down, and the scope has to exist before them.
+  let onScopeChange: () => void = () => {};
+  const scope = await buildWellScope({ onChange: () => onScopeChange() });
 
   let task = TASKS[0];
   let algo = task.algos[0];
@@ -894,13 +895,12 @@ export async function buildMlContent(
   if (!slots.length) slots.push(makeSlot());
   layoutSlots();
 
-  sIn.appendChild(
-    formRow(
-      "Input curves",
-      featBox,
-      "The curves the model learns from, in the order the model sees them — standard columns, computed curves and imported logs alike. The ORDER is real: for clustering, class 0 is the lowest mean of Input log 1, so put GR there if you want the numbering to run clean-to-shaly. A saved model records this order and refuses a run that reorders it.",
-    ),
+  const featRow = formRow(
+    "Input curves",
+    featBox,
+    "The curves the model learns from, in the order the model sees them — standard columns, computed curves and imported logs alike. The ORDER is real: for clustering, class 0 is the lowest mean of Input log 1, so put GR there if you want the numbering to run clean-to-shaly. A saved model records this order and refuses a run that reorders it.",
   );
+  sIn.appendChild(featRow);
 
   const targetSel = document.createElement("select");
   targetSel.className = "form-control";
@@ -974,35 +974,31 @@ export async function buildMlContent(
     o.textContent = name;
     maskSel.appendChild(o);
   }
-  sIn.appendChild(
-    formRow(
-      "Mask (exclude)", maskSel,
-      "Optional 0/1 flag curve: samples where the mask = 1 are excluded from training and left blank (NaN) in the output — bad-hole, coal, casing.",
-    ),
+  const maskRow = formRow(
+    "Mask (exclude)",
+    maskSel,
+    "Optional 0/1 flag curve: samples where the mask = 1 are excluded from training and left blank (NaN) in the output — bad-hole, coal, casing.",
   );
+  sIn.appendChild(maskRow);
 
   // --- Wells ---------------------------------------------------------------
-  function wellBox(defaultAll: boolean): { el: HTMLElement; checks: Map<string, HTMLInputElement> } {
-    const box = document.createElement("div");
-    box.className = "mc-wells";
-    const checks = new Map<string, HTMLInputElement>();
-    const runDefaults = defaultRunWellIds(wells);
-    if (runDefaults.size === 0 && selected) runDefaults.add(selected.well_id);
-    for (const w of wells) {
-      const label = document.createElement("label");
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.value = w.well_id;
-      cb.checked = defaultAll || runDefaults.has(w.well_id);
-      checks.set(w.well_id, cb);
-      label.append(cb, document.createTextNode(` ${w.well_name}`));
-      box.appendChild(label);
-    }
-    return { el: box, checks };
-  }
-  const train = wellBox(false);
-  const trainRow = formRow("Train wells", train.el, "Wells whose labelled samples fit the model.");
-  sIn.appendChild(trainRow);
+  // ONE well selector, not two (Jauhar, 2026-08-09: *"train wells checkbox overlap with 'run on'
+  // selection, make it simpler using run on only"*).
+  //
+  // There used to be a "Train wells" checklist here as well as RUN ON, and on a sixteen-well field
+  // that is the same list of names twice with no visible rule for which one governs what. It was
+  // also almost never a real choice: a well contributes training rows only where the TARGET curve
+  // exists, so listing a well with no target as a training well already did nothing, and listing
+  // one with a target but leaving it out of RUN ON meant fitting on rock you then refused to
+  // predict. The genuine "fit here, predict there" case is the saved model — fit on the wells that
+  // carry the curve, then propagate that artifact from Model Distribution, which is exactly the
+  // route Jauhar described.
+  //
+  // So the run scope is the run: SandiBumi fits on whichever wells in it carry the target and
+  // predicts for all of them, and says how many actually trained rather than leaving it implied.
+  // The one thing this gives up is holding back a well that HAS the target without also giving up
+  // its prediction — which is what the blind split is for, and it holds out whole wells already.
+  const trainWellIds = (): string[] => scope.getWellIds();
 
   // --- Blind test split ----------------------------------------------------
   // The percentage is a share of the DATA — of the samples these wells actually gave, not of the
@@ -1084,7 +1080,7 @@ export async function buildMlContent(
    *  contradicted would be worse than no number.
    */
   function echoSplit(): void {
-    const n = [...train.checks.values()].filter((c) => c.checked).length;
+    const n = trainWellIds().length;
     if (!splitOn.checked) {
       splitEcho.textContent = n
         ? `All ${n} training well(s) are fitted on. The only validation is cross-validation over folds of those wells.`
@@ -1120,7 +1116,9 @@ export async function buildMlContent(
   });
   for (const el of modeBtns.values()) el.disabled = true;
   splitPct.addEventListener("input", echoSplit);
-  for (const cb of train.checks.values()) cb.addEventListener("change", echoSplit);
+  // The split echo counts wells, and that count is now the run scope's — so it follows the scope
+  // selector rather than a checklist that no longer exists.
+  onScopeChange = echoSplit;
 
   const splitRow = formRow(
     "Blind test",
@@ -1156,9 +1154,15 @@ export async function buildMlContent(
     // The transform echo names the two curves it will write, so it has to follow the name.
     echoTransform();
   });
-  sModel.appendChild(
-    formRow("Output curve", outInput, "Extra outputs get suffixes: _PROB (confidence), or PC1/PC2… for reduction."),
+  // In Input beside the output log SET, not over in Model (Jauhar, 2026-08-09: *"Output set and
+  // log"* as one step). The set says which version of the interpretation the curve lands in and the
+  // name says what it is called; they are one decision and were two tabs apart.
+  const outRow = formRow(
+    "Output curve",
+    outInput,
+    "Extra outputs get suffixes: _PROB (confidence), or PC1/PC2… for reduction.",
   );
+  sIn.appendChild(outRow);
 
   const stdCb = document.createElement("input");
   stdCb.type = "checkbox";
@@ -1326,6 +1330,31 @@ export async function buildMlContent(
   const fitInterval = buildIntervalPicker("Interval");
   sIn.appendChild(fitInterval.row);
 
+  // --- Input tab reading order (Jauhar, 2026-08-09) ------------------------
+  //
+  // The rows above are appended where they are BUILT, which had put the log-set pickers at the
+  // bottom of the tab — a screen away from the curves they govern. *"set/constellation system and
+  // curve feels disconnected"*: which set you read from decides which version of PHIE the model
+  // sees, so a set chosen five rows below the curve list reads as an afterthought rather than as
+  // half of the same decision.
+  //
+  // Re-appended once, here, in the order he asked for. `appendChild` MOVES an existing node, so
+  // this is a reorder and not a rebuild — every listener, value and closure above survives it.
+  // Building them in this order instead would mean hoisting several mutually-dependent blocks,
+  // which is how a reorder turns into a rewrite.
+  for (const row of [
+    setPicker.rows[0], // Input log set — WHICH values, before which curves
+    featRow, //           Input curves
+    setPicker.rows[1], // Output log set — WHERE it lands, with…
+    outRow, //            …what it is called
+    targetRow, //         Target curve
+    maskRow,
+    fitInterval.row,
+    scope.el, //          RUN ON last: the wells are the run, not the question
+  ]) {
+    if (row) sIn.appendChild(row);
+  }
+
   // Every parameter the runner reads through `P(p, key, default)` has a field here, and always did.
   // What it did not have was any way to see WHICH of them you had changed — a grid of numbers looks
   // identical whether they are your settings or the library's, and SB-MLA-001 exists because that
@@ -1410,7 +1439,10 @@ export async function buildMlContent(
   function syncAlgo(): void {
     algoDesc.textContent = algo.desc;
     targetRow.style.display = task.supervised ? "" : "none";
-    trainRow.style.display = task.supervised ? "" : "none";
+    // The run scope is NOT hidden for an unsupervised task — clustering still has to be told which
+    // wells it covers. That was the whole reason two selectors could not simply be one before: the
+    // old Train wells row was supervised-only, and hiding it was how the pane admitted the two
+    // lists meant different things.
     // Clustering and reduction are fitted on the very wells they are applied to, so there is no
     // "held out" to be had — offering the control there would promise a validation that cannot exist.
     splitRow.style.display = task.supervised ? "" : "none";
@@ -1728,9 +1760,7 @@ export async function buildMlContent(
   async function refreshQc(): Promise<void> {
     const gen = ++qcGen;
     const feats = selectedFeatures();
-    const wellIds = task.supervised
-      ? [...train.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id)
-      : scope.getWellIds();
+    const wellIds = scope.getWellIds();
     qcOut.innerHTML = "";
     if (feats.length === 0 || wellIds.length === 0) {
       qcHead.textContent =
@@ -1879,7 +1909,7 @@ export async function buildMlContent(
   compareBtn.addEventListener("click", async () => {
     if (!task.supervised) return;
     const features = selectedFeatures();
-    const trainIds = [...train.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
+    const trainIds = trainWellIds();
     if (features.length === 0) {
       setStatus("Check at least one input curve");
       return;
@@ -2320,7 +2350,7 @@ export async function buildMlContent(
   runBtn.addEventListener("click", async () => {
     const features = selectedFeatures();
     const applyIds = scope.getWellIds();
-    const trainIds = [...train.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
+    const trainIds = trainWellIds();
     if (features.length === 0) {
       setStatus("Check at least one input curve");
       return;
