@@ -1,12 +1,68 @@
 //! LAS 2.0 export: one well's standard + computed curves on the standard depth grid.
-//! NaN (missing) writes as the conventional -999.25 null value.
+//! NaN (missing) writes as the project's declared export sentinel.
 
 use crate::equations::fetch_curve_frame;
 use duckdb::{params, Connection};
 use sha2::{Digest, Sha256};
 use std::io::{BufWriter, Write};
 
-const NULL_VALUE: f32 = -999.25;
+/// CWLS-conventional LAS null, cited in `docs/PRD_v2/21_data-io.md` §5.2. It is the
+/// project default, not a writer-owned constant: every registered writer receives the
+/// project's resolved setting through [`WriterSettings`].
+pub const DEFAULT_NULL_SENTINEL: f32 = -999.25;
+
+const SETTINGS_DOC_TYPE: &str = "settings";
+const SETTINGS_DOC_NAME: &str = "data-io";
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct DataIoSettings {
+    null_sentinel: f32,
+}
+
+/// Required context for every data writer. The registry function type takes this value
+/// by value and not as an `Option`, so a writer that omits the sentinel cannot register.
+#[derive(Debug, Clone, Copy)]
+struct WriterSettings {
+    null_sentinel: f32,
+}
+
+type WriterFn = fn(&Connection, &str, &str, WriterSettings) -> Result<LasExportResult, String>;
+
+struct RegisteredWriter {
+    write: WriterFn,
+}
+
+const LAS_WRITER: RegisteredWriter = RegisteredWriter { write: write_las };
+
+/// The project's one declared export sentinel. Older projects have no data-I/O settings
+/// document and therefore resolve to the cited CWLS convention.
+pub fn project_null_sentinel(conn: &Connection) -> Result<f32, String> {
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT json FROM documents WHERE doc_type = ?1 AND name = ?2",
+            params![SETTINGS_DOC_TYPE, SETTINGS_DOC_NAME],
+            |row| row.get(0),
+        )
+        .ok();
+    let Some(json) = json else { return Ok(DEFAULT_NULL_SENTINEL) };
+    let settings: DataIoSettings = serde_json::from_str(&json)
+        .map_err(|e| format!("invalid project data-I/O settings: {e}"))?;
+    if !settings.null_sentinel.is_finite() {
+        return Err("the project export sentinel must be finite".into());
+    }
+    Ok(settings.null_sentinel)
+}
+
+/// Sets the project-wide export sentinel through the existing whitelisted document writer.
+pub fn set_project_null_sentinel(conn: &Connection, null_sentinel: f32) -> Result<(), String> {
+    if !null_sentinel.is_finite() {
+        return Err("the project export sentinel must be finite".into());
+    }
+    let json = serde_json::to_string(&DataIoSettings { null_sentinel }).map_err(|e| e.to_string())?;
+    crate::db::save_document(conn, SETTINGS_DOC_TYPE, SETTINGS_DOC_NAME, &json)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
 
 /// Standard curve units, mirroring the catalog; computed curves pull units from the
 /// equation that produced them (blank when unknown).
@@ -263,6 +319,16 @@ fn add_generic_curves(
 }
 
 pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
+    let settings = WriterSettings { null_sentinel: project_null_sentinel(conn)? };
+    (LAS_WRITER.write)(conn, well_id, dest_path, settings)
+}
+
+fn write_las(
+    conn: &Connection,
+    well_id: &str,
+    dest_path: &str,
+    settings: WriterSettings,
+) -> Result<LasExportResult, String> {
     let (well_name, field_name): (String, Option<String>) = conn
         .query_row(
             "SELECT well_name, field_name FROM wells WHERE well_id = ?1",
@@ -320,9 +386,10 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<L
 
     let file = std::fs::File::create(dest_path).map_err(|e| e.to_string())?;
     let mut w = BufWriter::new(file);
+    let null_sentinel = settings.null_sentinel;
     let fmt = |v: f32| -> String {
         if v.is_nan() {
-            format!("{NULL_VALUE:.4}")
+            format!("{null_sentinel:.4}")
         } else {
             format!("{v:.4}")
         }
@@ -336,7 +403,7 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<L
         writeln!(w, " STRT.{depth_unit}   {:>12.4} : START DEPTH", depth[0])?;
         writeln!(w, " STOP.{depth_unit}   {:>12.4} : STOP DEPTH", depth[depth.len() - 1])?;
         writeln!(w, " STEP.{depth_unit}   {:>12.4} : STEP", step)?;
-        writeln!(w, " NULL.    {:>12.4} : NULL VALUE", NULL_VALUE)?;
+        writeln!(w, " NULL.    {:>12.4} : NULL VALUE", null_sentinel)?;
         writeln!(w, " WELL.    {} : WELL NAME", well_name)?;
         writeln!(w, " FLD .    {} : FIELD", field_name.unwrap_or_default())?;
         writeln!(w, " SRVC.    SandiBumi : EXPORTED BY")?;
@@ -486,13 +553,13 @@ mod tests {
 
         let vsh_col: Vec<f32> = rows.iter().map(|r| *r.last().unwrap()).collect();
         assert!(
-            vsh_col.iter().any(|v| (*v - NULL_VALUE).abs() > 1e-3),
+            vsh_col.iter().any(|v| (*v - DEFAULT_NULL_SENTINEL).abs() > 1e-3),
             "the mixed-case computed curve exported as ALL NULL — the uppercase key lookup broke"
         );
         for (i, expect) in vsh.iter().enumerate() {
             let got = vsh_col[i];
             if expect.is_nan() {
-                assert!((got - NULL_VALUE).abs() < 1e-3, "row {i}: missing must be the null value");
+                assert!((got - DEFAULT_NULL_SENTINEL).abs() < 1e-3, "row {i}: missing must be the null value");
             } else {
                 assert!((got - expect).abs() < 5e-4, "row {i}: {got} != {expect}");
             }
@@ -500,8 +567,37 @@ mod tests {
 
         // GR is the second column (after DEPT) and carries the missing sample at index 2.
         let gr_col: Vec<f32> = rows.iter().map(|r| r[1]).collect();
-        assert!((gr_col[2] - NULL_VALUE).abs() < 1e-3, "GR's missing sample must be null");
+        assert!((gr_col[2] - DEFAULT_NULL_SENTINEL).abs() < 1e-3, "GR's missing sample must be null");
         assert!((gr_col[0] - gr[0]).abs() < 5e-4);
+    }
+
+    /// SB-DIO-001 / SB-DIO-T01. The non-default value is Baker's cited waveform
+    /// sentinel from `docs/PRD_v2/21_data-io.md` §5.2, not an invented product default.
+    #[test]
+    fn a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        let declared = -32767.0_f32;
+        set_project_null_sentinel(&conn, declared).unwrap();
+        assert_eq!(project_null_sentinel(&conn).unwrap(), declared);
+
+        let dest = tmp_path("declared-sentinel");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+
+        assert!(text.lines().any(|line| line.contains("NULL.") && line.contains("-32767.0000")));
+        assert!(text.contains("-32767.0000"), "missing samples use the declared sentinel");
+        assert!(!text.contains("-999.2500"), "the LAS writer must not emit its former private default");
+    }
+
+    /// SB-DIO-001 / SB-DIO-T02. `WriterFn` is the registry boundary: removing the final,
+    /// non-optional `WriterSettings` argument from a writer makes this assignment and the
+    /// registry constant fail to compile.
+    #[test]
+    fn a_registered_writer_cannot_omit_the_required_sentinel_argument() {
+        let _: WriterFn = write_las;
+        let _: WriterFn = LAS_WRITER.write;
     }
 
     /// The round trip: export a well, import the file into a FRESH project, and the numbers must

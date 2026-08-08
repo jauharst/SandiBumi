@@ -351,6 +351,21 @@ fn set_project_depth_unit(db: tauri::State<DbState>, unit: String) -> Result<(),
     units::set_project_depth_unit(&conn, target).map_err(|e| e.to_string())
 }
 
+/// The one project-wide absent-value sentinel supplied to every registered data writer.
+#[tauri::command]
+fn get_project_null_sentinel(db: tauri::State<DbState>) -> Result<f32, String> {
+    let conn = db.0.lock().unwrap();
+    export::project_null_sentinel(&conn)
+}
+
+/// Declares the project-wide absent-value sentinel. Writer registration makes this a
+/// required argument, so no export path can silently fall back to a private value.
+#[tauri::command]
+fn set_project_null_sentinel(db: tauri::State<DbState>, null_sentinel: f32) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    export::set_project_null_sentinel(&conn, null_sentinel)
+}
+
 /// Lists every well in the project, for the object tree panel.
 #[tauri::command]
 fn list_wells(db: tauri::State<DbState>) -> Result<Vec<db::WellSummary>, String> {
@@ -3262,6 +3277,8 @@ pub fn run() {
             await_project_open,
             get_project_depth_unit,
             set_project_depth_unit,
+            get_project_null_sentinel,
+            set_project_null_sentinel,
             save_project_as,
             compact_project,
             boot_report,

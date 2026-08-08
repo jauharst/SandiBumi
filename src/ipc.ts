@@ -13,6 +13,16 @@ export function setProjectDepthUnit(unit: DepthUnit): Promise<void> {
   return invoke("set_project_depth_unit", { unit });
 }
 
+/** The one project-wide absent-value sentinel supplied to every data writer. */
+export function getProjectNullSentinel(): Promise<number> {
+  return invoke("get_project_null_sentinel");
+}
+
+/** Declares the project-wide absent-value sentinel. It must be finite. */
+export function setProjectNullSentinel(nullSentinel: number): Promise<void> {
+  return invoke("set_project_null_sentinel", { nullSentinel });
+}
+
 export interface EquationDef {
   equation_id: string;
   name: string;
