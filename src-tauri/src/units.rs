@@ -172,6 +172,28 @@ pub fn set_project_depth_unit(conn: &Connection, unit: DepthUnit) -> DbResult<()
     db::save_document(conn, SETTINGS_DOC_TYPE, SETTINGS_DOC_NAME, &json)
 }
 
+/// Guarded project-unit declaration used by every interactive caller. Once a project
+/// contains wells, changing this declaration would reinterpret stored numbers; the only
+/// allowed behaviour here is refusal. A real conversion remains a separate migration.
+pub fn set_project_depth_unit_checked(conn: &Connection, target: DepthUnit) -> Result<(), String> {
+    let current = project_depth_unit(conn).map_err(|error| error.to_string())?;
+    if current == Some(target) {
+        return Ok(());
+    }
+    let wells: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wells", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    if wells > 0 {
+        return Err(format!(
+            "this project already holds {wells} well(s) whose depths are stored in {}. \
+             Changing the unit here would reinterpret every stored depth rather than convert it — \
+             switch the DISPLAY unit instead, or start a new project.",
+            current.unwrap_or_default().label()
+        ));
+    }
+    set_project_depth_unit(conn, target).map_err(|error| error.to_string())
+}
+
 /// The project's depth unit, defaulting to metres when undeclared. Read path for code
 /// that needs an answer rather than an option (the saturation-height Pc conversion, the
 /// depth-scale ratio). Metres is the default because `wells.kb`/`td` and the Field Map's
@@ -296,5 +318,42 @@ mod tests {
         assert!(resolve_index_unit(Some(Metres), Some(Feet)).unwrap().note().is_some());
         assert!(resolve_index_unit(Some(Feet), None).is_err());
         assert!(resolve_index_unit(None, None).is_err());
+    }
+
+    /// SB-DIO-019 / SB-DIO-T31. The requirement permits either an explicit
+    /// migration or refusal while data exists; this project deliberately chooses refusal.
+    #[test]
+    fn changing_the_project_depth_unit_is_refused_while_committed_curves_exist_and_nothing_is_rescaled() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        set_project_depth_unit(&conn, DepthUnit::Metres).unwrap();
+        let well = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well, "UNIT-GUARD", None, None, None).unwrap();
+        let depth = vec![1000.0_f32, 1000.5, 1001.0];
+        db::insert_standard_curves(
+            &conn,
+            well,
+            depth.clone(),
+            vec![50.0; 3],
+            vec![2.0; 3],
+            vec![0.2; 3],
+            vec![2.4; 3],
+            vec![80.0; 3],
+            vec![10.0; 3],
+        )
+        .unwrap();
+
+        let refusal = set_project_depth_unit_checked(&conn, DepthUnit::Feet).unwrap_err();
+        assert!(refusal.contains("1 well(s)"), "the affected well count is named: {refusal}");
+        assert!(refusal.contains("reinterpret"), "the refusal explains the failure mode: {refusal}");
+        assert_eq!(project_depth_unit(&conn).unwrap(), Some(DepthUnit::Metres));
+        let stored: Vec<f32> = conn
+            .prepare("SELECT depth FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
+            .unwrap()
+            .query_map(params![well.to_string()], |row| row.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(stored, depth, "a refused declaration change cannot rescale stored samples");
     }
 }

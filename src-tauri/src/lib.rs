@@ -333,22 +333,7 @@ fn set_project_depth_unit(db: tauri::State<DbState>, unit: String) -> Result<(),
         return Err(format!("unknown depth unit '{unit}' (expected M or FT)"));
     };
     let conn = db.0.lock().unwrap();
-    let current = units::project_depth_unit(&conn).map_err(|e| e.to_string())?;
-    if current == Some(target) {
-        return Ok(());
-    }
-    let wells: i64 = conn
-        .query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0))
-        .map_err(|e| e.to_string())?;
-    if wells > 0 {
-        return Err(format!(
-            "this project already holds {wells} well(s) whose depths are stored in {}. \
-             Changing the unit here would reinterpret every stored depth rather than convert it — \
-             switch the DISPLAY unit instead, or start a new project.",
-            current.unwrap_or_default().label()
-        ));
-    }
-    units::set_project_depth_unit(&conn, target).map_err(|e| e.to_string())
+    units::set_project_depth_unit_checked(&conn, target)
 }
 
 /// The one project-wide absent-value sentinel supplied to every registered data writer.
