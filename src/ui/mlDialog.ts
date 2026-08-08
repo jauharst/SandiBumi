@@ -3008,7 +3008,7 @@ const fmtStat = (v: number): string =>
  * overlapping ranges are one rock split in half. Techlog's equivalent shows the mean and puts the
  * spread in a histogram thumbnail; the range is the same information in a cell that stays readable.
  */
-function renderClusterTable(
+export function renderClusterTable(
   host: HTMLElement,
   stats: ClusterStat[],
   metrics: Record<string, unknown>,
@@ -3068,7 +3068,12 @@ function renderClusterTable(
     bar.style.width = `${Math.max(1, Math.round(pct))}%`;
     const nTxt = document.createElement("span");
     nTxt.className = "ml-cluster-count";
-    nTxt.textContent = `${s.n.toLocaleString()} · ${pct.toFixed(1)}%`;
+    // "<0.1%" rather than "0.0%". Over-clustering deliberately produces clusters of a handful of
+    // samples, and those are precisely the ones to look at before merging — a coal, a cemented
+    // stringer, a bad-hole artefact. Rounded to 0.0% they read as noise, which is the one reading
+    // that makes the table useless for the workflow it is for.
+    const pctTxt = pct === 0 || pct >= 0.05 ? `${pct.toFixed(1)}%` : "<0.1%";
+    nTxt.textContent = `${s.n.toLocaleString()} · ${pctTxt}`;
     nCell.append(bar, nTxt);
     tr.appendChild(nCell);
 

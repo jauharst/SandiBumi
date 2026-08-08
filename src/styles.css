@@ -5697,11 +5697,13 @@ textarea {
 .ml-cluster-mean {
   font-variant-numeric: tabular-nums;
 }
-/* The range is subordinate to the mean but must stay legible — it is what turns this from a table
-   of averages into something a merge decision can be made from. */
+/* The range is subordinate to the mean but it is NOT a caption — it is the number the merge
+   decision is actually made from, set at 11px. Plain --text-dim measured 4.29:1 on the white panel,
+   under AA for small text, so it is mixed back toward --text: still visibly secondary to the mean,
+   still legible. Mixed rather than hard-coded so the five client skins and dark keep their own. */
 .ml-cluster-range {
   font-size: var(--fs-xs, 11px);
-  color: var(--text-dim, #6f6857);
+  color: color-mix(in srgb, var(--text-dim, #6f6857) 50%, var(--text, #241d15));
   font-variant-numeric: tabular-nums;
 }
 .ml-seg-card {
