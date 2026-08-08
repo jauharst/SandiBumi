@@ -10069,3 +10069,25 @@ twice. Removing the last slot leaves one blank rather than an empty form.
 - [ ] **Check Data QC, the fixed-limits table and the transform picker** all follow the slots — they
       are per input curve and should update as you change one.
 - [ ] **Save a model, then reorder the slots and apply it.** It must refuse rather than predict.
+
+## The ML sub-tabs actually switch now
+
+You reported the sub-panes stacked all on the first one and the tabs did nothing. They did — and the
+switching code was never the problem.
+
+`.ml-section[hidden] { display: none }` was there, so the guard was not missing. It just **lost**:
+`.dock-ml .ml-section { display: grid }` has the same specificity and sits later in the stylesheet,
+so it won the tie. Every section then took `display: grid` whatever its `hidden` attribute said, all
+five stacked under Input, and clicking a tab set an attribute that changed nothing. It only failed
+in the docked pane, which is why it looked fine anywhere else.
+
+The pairing is now repeated beside the rule that outranks it, with a note that any future `display`
+rule in that block needs the same line — a guard 1,800 lines away is one nobody editing that block
+will think about.
+
+- [ ] **Click every sub-tab.** Exactly one section at a time, and the content should change.
+- [ ] **Widen the pane past ~1060px.** The active section should go to two columns; prose, tables
+      and charts still span the full width.
+- [ ] **Check the dock tabs** (Database Inspector / Machine Learning) switch again. With five
+      sections stacked the pane was enormously tall, which is the likely cause — but that is a
+      hypothesis, so if they still misbehave say so and it gets its own look.

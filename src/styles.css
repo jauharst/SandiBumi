@@ -6958,6 +6958,21 @@ input[type="number"].num-editing:focus {
   gap: 0 34px;
   align-items: start;
 }
+/* THE `hidden` TRAP, third time in this codebase — and this one is nastier than the first two.
+ *
+ * `.ml-section[hidden] { display: none }` exists further up, so the guard CLAUDE.md asks for was
+ * not missing. It just loses: both selectors are specificity (0,2,0), and the grid rule directly
+ * above is later in the file, so it wins the tie. Every section then took `display: grid` whatever
+ * its `hidden` attribute said — all five stacked under the first tab, and clicking a tab set an
+ * attribute that changed nothing. The switching code was correct the whole time, which is why it
+ * worked undocked and only failed in the pane.
+ *
+ * So the pairing has to be repeated HERE, beside the rule that outranks it, rather than relied on
+ * from a distance. Any future `display` rule added to this block needs the same line after it —
+ * a guard that lives 1,800 lines away is one nobody reading this block will think about. */
+.dock-ml .ml-section[hidden] {
+  display: none;
+}
 @container (min-width: 1060px) {
   .dock-ml .ml-section {
     grid-template-columns: 1fr 1fr;
