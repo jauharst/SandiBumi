@@ -144,19 +144,12 @@ def build_model(task, algo, p, seed):
                     "xgboost not installed - used sklearn HistGradientBoosting (pip install xgboost)"
         if algo == "svr":
             from sklearn.svm import SVR
-            # `max_iter` is the ONLY bound on this fit. scikit-learn's own default is -1, meaning
-            # unlimited, and SVR gets slow superlinearly with sample count - on a pooled field-scale
-            # set it is the one phase that can run for an hour with no progress and no working
-            # Cancel. The default stays -1 so no existing run changes its answer; what changes is
-            # that the user can now set it, and that the dialog says what -1 costs.
-            #
-            # An ITERATION bound rather than a stopwatch, deliberately (Jauhar, 2026-08-08:
-            # "everything we can do and report in sandibumi, it should be re-producible"). Stopping
-            # after 500 iterations gives the same model on every machine; stopping after ten minutes
-            # gives a different one on a faster laptop, and a curve nobody else can reproduce.
-            # Hitting it raises ConvergenceWarning, which `fit_model` already reports.
+            # `max_iter` is the ONLY bound on this fit, and it is DELIBERATELY LOW - see
+            # SVM_DEFAULT_MAX_ITER in ml.rs for why 500 truncates a normal fit on purpose. Hitting it
+            # raises ConvergenceWarning, which `fit_model` catches and reports by name, so a
+            # truncated fit is never quoted as a score.
             return SVR(C=float(P(p, "C", 10.0)), epsilon=float(P(p, "epsilon", 0.1)),
-                       max_iter=int(P(p, "max_iter", -1))), None
+                       max_iter=int(P(p, "max_iter", SVM_DEFAULT_MAX_ITER))), None
         if algo == "ann":
             from sklearn.neural_network import MLPRegressor
             hidden = tuple(int(t) for t in str(P(p, "hidden", "64,32")).replace(" ", "").split(",") if t)
@@ -173,10 +166,13 @@ def build_model(task, algo, p, seed):
     elif task == "classification":
         if algo == "svm":
             from sklearn.svm import SVC
-            # Same unbounded fit as SVR above, and worse: `probability=True` fits an internal
-            # Platt-scaling cross-validation on top, so the work is several times the plain fit.
+            # Same bound as SVR above, and it matters more here: `probability=True` fits an internal
+            # Platt-scaling cross-validation on top, so the work is several times the plain fit. A
+            # classification fit converges in far fewer iterations than a regression one (measured
+            # ~960 on 3,000 samples against SVR's tens of thousands), so the shared default bites
+            # this algorithm much more gently.
             return SVC(C=float(P(p, "C", 10.0)), probability=True, random_state=seed,
-                       max_iter=int(P(p, "max_iter", -1))), None
+                       max_iter=int(P(p, "max_iter", SVM_DEFAULT_MAX_ITER))), None
         if algo == "knn":
             from sklearn.neighbors import KNeighborsClassifier
             return KNeighborsClassifier(n_neighbors=int(P(p, "n_neighbors", 7))), None
@@ -714,15 +710,35 @@ fn ml_shared_constants_py() -> String {
          CLUSTER_REJECT = {}\n\
          # Round-3 item 5 - the suffix the spectrally textured prediction is emitted under. Emitted\n\
          # so the runner cannot spell it differently from the name resolver that has to place it.\n\
-         SIM_SUFFIX = \"{}\"\n",
+         SIM_SUFFIX = \"{}\"\n\
+         # The default bound on a support-vector fit. Emitted for the same reason as the k-means\n\
+         # numbers: the dialog shows this default to the user before the run, so a copy written into\n\
+         # the runner text could disagree with what was on screen.\n\
+         SVM_DEFAULT_MAX_ITER = {}\n",
         crate::facies::KMEANS_RESTARTS,
         crate::facies::KMEANS_MAX_ITERS,
         crate::facies::KMEANS_TOL,
         crate::facies::SEED_DEFAULT as i64,
         CLUSTER_REJECT,
         SIM_SUFFIX,
+        SVM_DEFAULT_MAX_ITER,
     )
 }
+
+/// The default `max_iter` for SVR and SVC — Jauhar's number, 2026-08-08 ("iteration count max 500").
+///
+/// **This is deliberately below what a normal fit needs, and that is the point.** libsvm's `max_iter`
+/// counts its own inner SMO iterations, not epochs: measured on this machine an SVR needs ~5,500 for
+/// 500 samples and ~61,000 for 8,000, so 500 truncates almost every real fit and the convergence
+/// warning fires. The alternative was scikit-learn's own `-1`, which is unbounded — and an unbounded
+/// support-vector fit on a pooled field-scale set is the one phase of a portfolio run that sits for
+/// an hour with no progress and no working Cancel, which is the behaviour that made the window look
+/// frozen. Bounded and loud beats unbounded and silent; the user raises the number when they want
+/// the fit rather than the answer in ten seconds, and `n_unconverged` tells them they need to.
+///
+/// An ITERATION bound rather than a stopwatch, because a run must reproduce: 500 iterations gives the
+/// same model on every machine, ten minutes gives a different one on a faster laptop.
+pub const SVM_DEFAULT_MAX_ITER: i64 = 500;
 
 /// SB-MLA-021 — the class code meaning "this sample was evaluated and belongs to no cluster".
 ///
@@ -9718,6 +9734,52 @@ mod tests {
         assert!(
             patchy.contains("FINAL") && patchy.contains("W2"),
             "it still has to say which set and which well: {patchy}",
+        );
+    }
+
+    /// A support-vector fit is the one phase of a portfolio run that can sit for an hour with no
+    /// progress and no working Cancel, because scikit-learn's own `max_iter` default is `-1`.
+    ///
+    /// Pinned from both sides, because either alone would pass while the feature was broken. The
+    /// bound has to be FINITE — a runner that quietly went back to `-1` would still fit, still score
+    /// and still look right, and the only symptom is a window that stops responding. And the DIALOG
+    /// has to show the same number, because the user is told what the fit is bounded at before they
+    /// press Run; a default that disagreed with the runner's would make that reading a fiction.
+    #[test]
+    fn a_support_vector_fit_is_bounded_by_default_and_both_sides_agree() {
+        assert!(
+            SVM_DEFAULT_MAX_ITER > 0,
+            "the support-vector bound went back to unlimited ({SVM_DEFAULT_MAX_ITER}), which is the \
+             uncancellable hour-long fit this exists to end",
+        );
+
+        // Both algorithms take the shared constant. A literal here would be a second copy of the
+        // number, free to drift from the one the dialog reads.
+        let src = include_str!("ml.rs");
+        for algo in ["SVR(", "SVC("] {
+            let at = src.find(algo).unwrap_or_else(|| panic!("{algo} vanished from the runner"));
+            let tail = &src[at..(at + 400).min(src.len())];
+            assert!(
+                tail.contains("max_iter=int(P(p, \"max_iter\", SVM_DEFAULT_MAX_ITER))"),
+                "{algo} must take the shared bound, not a number of its own: {tail}",
+            );
+        }
+        assert!(
+            ml_runner().contains(&format!("SVM_DEFAULT_MAX_ITER = {SVM_DEFAULT_MAX_ITER}")),
+            "the constant has to reach the generated Python, or the runner cannot name it",
+        );
+
+        // The dialog's default is what the user sees before the run, so it is part of the contract.
+        let ts = include_str!("../../src/ui/mlDialog.ts");
+        let shown = ts.matches("num(\"max_iter\", \"max iterations (-1 = no limit)\", ").count();
+        assert_eq!(shown, 2, "the two support-vector entries should carry this field");
+        assert_eq!(
+            ts.matches(&format!(
+                "num(\"max_iter\", \"max iterations (-1 = no limit)\", {SVM_DEFAULT_MAX_ITER})"
+            ))
+            .count(),
+            2,
+            "the dialog shows a different bound from the one the fit will use",
         );
     }
 

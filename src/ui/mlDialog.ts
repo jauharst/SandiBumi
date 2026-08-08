@@ -233,10 +233,13 @@ const TASKS: TaskSpec[] = [
         params: [num("n_estimators", "trees", 300), num("learning_rate", "learning rate", 0.1), num("max_depth", "max depth", 4)] },
       { id: "svr", label: "Support Vector Regression", family: "svec", familyLabel: "Support Vector",
         desc: "Margin-of-tolerance hyperplane — performs well on smaller, localized datasets.",
-        // max_iter is the only bound on this fit — scikit-learn's default is -1, unlimited, and
-        // this is the one phase of a portfolio run that cannot be cancelled once it starts.
+        // max_iter is the only bound on this fit, and 500 is deliberately below what a normal SVR
+        // needs — it is libsvm's own inner iteration count, not epochs, so most fits stop short and
+        // say so rather than sitting uncancellable for an hour. Keep in step with
+        // ml.rs::SVM_DEFAULT_MAX_ITER; a_support_vector_fit_is_bounded_by_default_and_both_sides_agree
+        // fails if these drift.
         params: [num("C", "C", 10), num("epsilon", "epsilon", 0.1),
-                 num("max_iter", "max iterations (-1 = no limit)", -1)] },
+                 num("max_iter", "max iterations (-1 = no limit)", 500)] },
       { id: "ann", label: "Neural Network (MLP)",
         desc: "Multi-layer perceptron for complex multi-curve patterns; needs plenty of data.",
         params: [txt("hidden", "hidden layers", "64,32"), num("max_iter", "max iterations", 500)] },
@@ -255,7 +258,9 @@ const TASKS: TaskSpec[] = [
       { id: "svm", label: "Support Vector Machine", family: "svec",
         desc: "Non-linear separator for distinct rock types via high-dimensional mapping.",
         // As SVR, and slower still: probability outputs add an internal cross-validation on top.
-        params: [num("C", "C", 10), num("max_iter", "max iterations (-1 = no limit)", -1)] },
+        // Same bound, and it bites far less here — a classification fit converges in hundreds of
+        // iterations where a regression one takes tens of thousands.
+        params: [num("C", "C", 10), num("max_iter", "max iterations (-1 = no limit)", 500)] },
       { id: "knn", label: "K-Nearest Neighbors",
         desc: "Labels each sample by the most common class among its nearest neighbours.",
         params: [num("n_neighbors", "neighbours", 7)] },
