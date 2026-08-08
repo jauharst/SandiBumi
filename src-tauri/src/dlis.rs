@@ -249,6 +249,8 @@ pub struct DlisImportResult {
     pub unit_designations: Vec<crate::curves::UnitDesignation>,
     /// Every frame/channel/curve/row the reader did not carry, with count and rule.
     pub skipped: Vec<DlisSkip>,
+    /// Exact channel mnemonics for which the user disabled the LAS-derived sentinel fallback.
+    pub sentinel_exceptions: Vec<String>,
     /// Incoming extents outside an existing well/set extent. Empty means there was no conflict;
     /// populated beside an error means the required decision was absent.
     pub interval_conflicts: Vec<DlisIntervalConflict>,
@@ -279,6 +281,7 @@ fn failed(path: &str, error: String, skipped: Vec<DlisSkip>) -> DlisImportResult
         unconverted_units: Vec::new(),
         unit_designations: Vec::new(),
         skipped,
+        sentinel_exceptions: Vec::new(),
         interval_conflicts: Vec::new(),
         duplicate_conflicts: Vec::new(),
         duplicate_decisions: Vec::new(),
@@ -371,6 +374,50 @@ fn import_status(
     } else {
         DlisImportStatus::Complete
     }
+}
+
+fn screen_dlis_values(
+    mnemonic: &str,
+    channel_name: &str,
+    values: &mut [f32],
+    disable_las_sentinel_for: &[String],
+) -> Vec<DlisSkip> {
+    let las_sentinel_disabled = disable_las_sentinel_for
+        .iter()
+        .any(|name| name.trim().eq_ignore_ascii_case(mnemonic));
+    let mut nonfinite = 0usize;
+    let mut excessive_magnitude = 0usize;
+    let mut las_sentinel = 0usize;
+    for value in values {
+        if !value.is_finite() {
+            *value = f32::NAN;
+            nonfinite += 1;
+        } else if value.abs() > 1e30 {
+            *value = f32::NAN;
+            excessive_magnitude += 1;
+        } else if !las_sentinel_disabled && crate::parsers::is_las_null(*value) {
+            *value = f32::NAN;
+            las_sentinel += 1;
+        }
+    }
+
+    let mut screened = Vec::new();
+    for (count, rule) in [
+        (nonfinite, "non-finite value; stored as missing"),
+        (excessive_magnitude, "absolute magnitude above 1e30; stored as missing"),
+        (las_sentinel, "recognized LAS sentinel fallback; stored as missing"),
+    ] {
+        if count > 0 {
+            screened.push(DlisSkip {
+                kind: "sample".into(),
+                name: channel_name.into(),
+                count,
+                rule: rule.into(),
+                omitted: false,
+            });
+        }
+    }
+    screened
 }
 
 fn stored_interval(conn: &Connection, well_id: &str, set_name: Option<&str>) -> Option<(f32, f32)> {
@@ -622,6 +669,7 @@ pub fn import_dlis_file(
         None,
         None,
         &[],
+        &[],
     )
 }
 
@@ -634,6 +682,7 @@ pub fn import_dlis_file_with_unit_designation(
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
     outside_interval_decision: Option<DlisOutsideIntervalDecision>,
     duplicate_decisions: &[DlisDuplicateDecision],
+    las_sentinel_exceptions: &[String],
 ) -> DlisImportResult {
     let fail = |e: String| failed(path, e, Vec::new());
 
@@ -828,25 +877,16 @@ pub fn import_dlis_file_with_unit_designation(
 
         // DLIS absent/sentinel values arrive as non-finite or huge magnitudes; normalize to
         // NaN (the project-wide missing convention). Producers also embed LAS-style
-        // -999.25/-9999 sentinels (RP66 has no standard null) — screen them with the same set
-        // the LAS paths use, and do it BEFORE unit canonicalization so a survivor can't be
+        // -999.25/-9999 sentinels (RP66 has no standard null), but that fallback can be disabled
+        // for an exact channel. Screen BEFORE unit canonicalization so a sentinel cannot be
         // unit-scaled into an unrecognizable value.
-        let mut nulled = 0usize;
-        for v in &mut values {
-            if !v.is_finite() || v.abs() > 1e30 || crate::parsers::is_las_null(*v) {
-                *v = f32::NAN;
-                nulled += 1;
-            }
-        }
-        if nulled > 0 {
-            skipped.push(DlisSkip {
-                kind: "row".into(),
-                name: format!("frame {} curve {}", meta.run, meta.mnemonic),
-                count: nulled,
-                rule: "non-finite, magnitude above 1e30, or recognized null sentinel; value stored as missing".into(),
-                omitted: false,
-            });
-        }
+        let channel_name = format!("frame {} curve {}", meta.run, meta.mnemonic);
+        skipped.extend(screen_dlis_values(
+            &meta.mnemonic,
+            &channel_name,
+            &mut values,
+            las_sentinel_exceptions,
+        ));
 
         let mut unit = if meta.unit.trim().is_empty() { None } else { Some(meta.unit.clone()) };
         let resolved_ms_per_ft = crate::curves::is_ms_per_ft(Some(&meta.unit));
@@ -983,6 +1023,11 @@ pub fn import_dlis_file_with_unit_designation(
         unconverted_units,
         unit_designations,
         skipped,
+        sentinel_exceptions: las_sentinel_exceptions
+            .iter()
+            .map(|name| name.trim().to_ascii_uppercase())
+            .filter(|name| !name.is_empty())
+            .collect(),
         interval_conflicts,
         duplicate_conflicts: Vec::new(),
         duplicate_decisions: duplicate_decision_records,
@@ -1358,5 +1403,48 @@ mod tests {
         assert_eq!(import_status(&complete, 1, &complete.skips), DlisImportStatus::Complete);
         assert!(DLIS_RUNNER.contains("for name in payload_names"));
         assert!(DLIS_RUNNER.contains("\"omitted\": bool(omitted)"));
+    }
+
+    /// SB-DIO-039 / SB-DIO-T56..T57. The per-channel exception and per-rule deletion count
+    /// are specified in `docs/PRD_v2/21_data-io.md` §§4.7 and 6.7 (D-5).
+    #[test]
+    fn a_named_dlis_sentinel_exception_preserves_minus_999_25_while_the_default_screens_and_counts_it() {
+        let exceptions = vec!["AMPLITUDE".to_string()];
+        let mut excepted = vec![-999.25_f32, 12.0];
+        let excepted_report = screen_dlis_values(
+            "AMPLITUDE",
+            "frame 2 curve AMPLITUDE",
+            &mut excepted,
+            &exceptions,
+        );
+        assert_eq!(excepted[0], -999.25, "the explicitly excepted finite sample remains data");
+        assert!(excepted_report.is_empty());
+
+        let mut screened = vec![-999.25_f32, 12.0];
+        let screened_report = screen_dlis_values(
+            "AMPLITUDE",
+            "frame 2 curve AMPLITUDE",
+            &mut screened,
+            &[],
+        );
+        assert!(screened[0].is_nan());
+        assert_eq!(screened_report.len(), 1);
+        assert_eq!(screened_report[0].name, "frame 2 curve AMPLITUDE");
+        assert_eq!(screened_report[0].count, 1);
+        assert_eq!(screened_report[0].rule, "recognized LAS sentinel fallback; stored as missing");
+
+        // The opposite side: disabling only the LAS-derived fallback must not disable the
+        // separately sourced non-finite and magnitude screens.
+        let mut still_invalid = vec![f32::INFINITY, 1.1e30_f32];
+        let invalid_report = screen_dlis_values(
+            "AMPLITUDE",
+            "frame 2 curve AMPLITUDE",
+            &mut still_invalid,
+            &exceptions,
+        );
+        assert!(still_invalid.iter().all(|value| value.is_nan()));
+        assert_eq!(invalid_report.iter().map(|item| item.count).sum::<usize>(), 2);
+        assert!(invalid_report.iter().any(|item| item.rule.contains("non-finite")));
+        assert!(invalid_report.iter().any(|item| item.rule.contains("1e30")));
     }
 }

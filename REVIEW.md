@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-039: DLIS sentinel screening is per-channel and counted
+
+- [ ] Import a DLIS channel containing a legitimate `-999.25`. With its exact mnemonic entered
+      under **Keep LAS sentinel values in**, does the sample survive and is the exception recorded?
+      Without the exception, is that sample missing and does the result name the channel, count the
+      one deletion, and state the LAS-sentinel fallback rule?
+
 ## 2026-08-09 — SB-DIO-037: partial DLIS loads are explicit and named
 
 - [ ] Import a DLIS with one readable scalar channel and one encrypted, unsupported, or otherwise

@@ -1420,6 +1420,7 @@ export class Ribbon {
           null,
           intervalDecision,
           duplicateDecisions,
+          choice.lasSentinelExceptions,
         );
         if (result.error && result.duplicate_conflicts.length > 0 && duplicateDecisions === null) {
           const detail = result.duplicate_conflicts
@@ -1473,7 +1474,13 @@ export class Ribbon {
       if (result.error) {
         setStatus(`DLIS import failed: ${result.error}.${skippedNote}`);
       } else {
-        const unitNote = result.notes.length ? ` ${result.notes.join("; ")}` : "";
+        const resultNotes = [...result.notes];
+        if (result.sentinel_exceptions.length > 0) {
+          resultNotes.push(
+            `LAS-sentinel fallback disabled for ${result.sentinel_exceptions.join(", ")}`,
+          );
+        }
+        const unitNote = resultNotes.length ? ` ${resultNotes.join("; ")}` : "";
         const outcome = result.status === "partial" ? "Partially imported" : "Imported";
         const channelCount = result.channels_declared > 0
           ? ` of ${result.channels_declared} declared channel(s)`
@@ -1499,6 +1506,7 @@ export class Ribbon {
   private askDlisSetName(path: string): Promise<{
     setName: string;
     fileDepthUnit: "M" | "FT" | null;
+    lasSentinelExceptions: string[];
   } | null> {
     return new Promise((resolve) => {
       const wrap = document.createElement("div");
@@ -1539,6 +1547,19 @@ export class Ribbon {
         ),
       );
 
+      const sentinelExceptions = document.createElement("input");
+      sentinelExceptions.type = "text";
+      sentinelExceptions.className = "form-control";
+      sentinelExceptions.placeholder = "e.g. TENSION, AMPLITUDE";
+      sentinelExceptions.spellcheck = false;
+      wrap.appendChild(
+        formRow(
+          "Keep LAS sentinel values in",
+          sentinelExceptions,
+          "Optional exact DLIS channel mnemonics, comma-separated. In these channels, finite −999.25/−9999 samples remain data; non-finite and >1e30 values are still missing.",
+        ),
+      );
+
       const actions = document.createElement("div");
       actions.className = "form-actions";
       const cancelBtn = document.createElement("button");
@@ -1551,7 +1572,11 @@ export class Ribbon {
       wrap.appendChild(actions);
 
       let settled = false;
-      const finish = (v: { setName: string; fileDepthUnit: "M" | "FT" | null } | null) => {
+      const finish = (v: {
+        setName: string;
+        fileDepthUnit: "M" | "FT" | null;
+        lasSentinelExceptions: string[];
+      } | null) => {
         if (settled) return;
         settled = true;
         close();
@@ -1564,6 +1589,10 @@ export class Ribbon {
         fileDepthUnit: undeclaredUnit.value === "M" || undeclaredUnit.value === "FT"
           ? undeclaredUnit.value
           : null,
+        lasSentinelExceptions: sentinelExceptions.value
+          .split(",")
+          .map((name) => name.trim())
+          .filter((name) => name.length > 0),
       }));
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") okBtn.click();

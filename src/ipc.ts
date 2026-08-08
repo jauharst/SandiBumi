@@ -4308,6 +4308,8 @@ export interface DlisImportResult {
   unconverted_units: ImportResult["unconverted_units"];
   unit_designations: ImportResult["unit_designations"];
   skipped: Array<{ kind: string; name: string; count: number; rule: string; omitted: boolean }>;
+  /** Exact channel mnemonics whose LAS-sentinel fallback was disabled for this import. */
+  sentinel_exceptions: string[];
   interval_conflicts: Array<{
     scope: "well" | "set";
     name: string;
@@ -4350,6 +4352,7 @@ export function importDlisFile(
   msPerFtMeaning?: "microseconds_per_foot" | "millisiemens_per_foot" | null,
   outsideIntervalDecision?: "accept_outside_declared_interval" | null,
   duplicateDecisions?: DlisDuplicateDecision[] | null,
+  lasSentinelExceptions?: string[] | null,
 ): Promise<DlisImportResult> {
   return invoke<DlisImportResult>("import_dlis_file", {
     wellId,
@@ -4359,6 +4362,7 @@ export function importDlisFile(
     msPerFtMeaning: msPerFtMeaning ?? null,
     outsideIntervalDecision: outsideIntervalDecision ?? null,
     duplicateDecisions: duplicateDecisions ?? null,
+    lasSentinelExceptions: lasSentinelExceptions ?? null,
   });
 }
 

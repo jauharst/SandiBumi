@@ -1341,6 +1341,7 @@ async fn import_dlis_file(
     ms_per_ft_meaning: Option<curves::MsPerFtMeaning>,
     outside_interval_decision: Option<dlis::DlisOutsideIntervalDecision>,
     duplicate_decisions: Option<Vec<dlis::DlisDuplicateDecision>>,
+    las_sentinel_exceptions: Option<Vec<String>>,
 ) -> Result<dlis::DlisImportResult, String> {
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let conn = db.0.clone();
@@ -1355,6 +1356,7 @@ async fn import_dlis_file(
             ms_per_ft_meaning,
             outside_interval_decision,
             duplicate_decisions.as_deref().unwrap_or(&[]),
+            las_sentinel_exceptions.as_deref().unwrap_or(&[]),
         ))
     })
     .await
