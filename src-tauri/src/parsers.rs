@@ -101,6 +101,8 @@ pub struct AliasDecision {
     /// Every matched candidate in alias-priority order. `chosen = false` names the
     /// passed-over columns; the coverage beside each makes the decision auditable.
     pub candidates: Vec<AliasCandidateCoverage>,
+    /// The exact alias-table row when the chosen source name differs from the applied target.
+    pub table_entry: Option<String>,
 }
 
 /// How a reader established which column is the shared index. The mechanism is data,
@@ -136,7 +138,7 @@ pub struct CurveColumns {
     pub rhob: Vec<f32>,
     pub dt: Vec<f32>,
     pub sp: Vec<f32>,
-    /// Present only where more than one incoming mnemonic matched one standard target.
+    /// Present where aliases compete or where one incoming mnemonic is renamed.
     pub alias_decisions: Vec<AliasDecision>,
     pub index_resolution: Option<IndexResolution>,
     /// Per-file answers to unit symbols that have more than one legitimate quantity.
@@ -328,7 +330,7 @@ enum LasSection {
 // would trip the standard_curves (well_id, depth) PK.
 // Source: `docs/PRD_v2/21_data-io.md` §5.3, LAS-path aliases `DEPT`, `DEPTH`.
 const DEPTH_ALIASES: [&str; 2] = ["DEPT", "DEPTH"];
-const GR_ALIASES: [&str; 2] = ["GR", "GRN"];
+const GR_ALIASES: [&str; 3] = ["GR", "GRN", "SGR"];
 const RES_ALIASES: [&str; 8] = ["RES_DEEP", "RESD", "RT", "RES", "DRES", "ILD", "LLD", "AT90"];
 // Thermal (CNL-family) names lead so they win ties over epithermal/legacy tools;
 // APS (APLC/FPLC) and sidewall (SNP) deliveries previously matched nothing and left
@@ -674,8 +676,10 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
             coverages.push(finite as usize);
         }
         let values = best.map(|slot| cands[slot].clone()).unwrap_or_else(|| vec![f32::NAN; n]);
-        let decision = (indices.len() > 1).then(|| {
-            let chosen_slot = best.expect("multiple candidates always choose one");
+        let chosen_slot = best;
+        let renamed = chosen_slot.is_some_and(|slot| !curve_names[indices[slot]].eq_ignore_ascii_case(target));
+        let decision = (indices.len() > 1 || renamed).then(|| {
+            let chosen_slot = chosen_slot.expect("a reported alias decision always chooses one");
             let candidates = indices
                 .iter()
                 .enumerate()
@@ -689,6 +693,14 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
                 target: target.to_string(),
                 chosen: curve_names[indices[chosen_slot]].clone(),
                 candidates,
+                table_entry: renamed.then(|| {
+                    format!(
+                        "{}_ALIASES: {} -> {}",
+                        target,
+                        curve_names[indices[chosen_slot]],
+                        target
+                    )
+                }),
             }
         });
         (values, decision)

@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-030: alias renames preserve both identities
+
+- [ ] Import a LAS carrying only `SGR`. Does its standard curve appear as `GR`, while the generic
+      catalog still says `SGR` with family `GR`? Does the result and visible note name the exact
+      firing row `GR_ALIASES: SGR -> GR`, even though no alias competed with it?
+
 ## 2026-08-09 — SB-DIO-029: MS/FT has no default meaning
 
 - [ ] Import a file declaring `MS/FT` with no answer. Is nothing committed until that exact file

@@ -379,6 +379,14 @@ fn insert_parsed_well(
         && columns.depth.windows(2).any(|w| w[0] > w[1]);
     let mut notes: Vec<String> = Vec::new();
     notes.extend(unit_designations.iter().map(crate::curves::UnitDesignation::note));
+    notes.extend(alias_decisions.iter().filter_map(|decision| {
+        decision.table_entry.as_ref().map(|entry| {
+            format!(
+                "alias renamed {} to {} via {entry}",
+                decision.chosen, decision.target
+            )
+        })
+    }));
     if let Some(note) = non_monotonic_note {
         notes.push(note);
     }
@@ -2110,6 +2118,66 @@ mod tests {
             ],
             "the per-file result carries both the chosen and passed-over coverage"
         );
+    }
+
+    /// SB-DIO-030 / SB-DIO-T46. `SGR` is the source identity and `GR` is the
+    /// applied standard target. The generic store must preserve the former while
+    /// the standard store exposes the latter, and the exact parser table row must
+    /// make the rename auditable even though no second alias competed.
+    #[test]
+    fn an_alias_rename_keeps_both_names_and_records_the_table_entry_that_fired() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-dio030-{}-{}.las",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. DIO-030 :\n\
+             ~CURVE\nDEPT.M : depth\nSGR.GAPI : spectral gamma\n\
+             ~ASCII\n1000.0 71.0\n1000.5 72.0\n",
+        )
+        .unwrap();
+        let result = import_las_files(
+            &conn,
+            &[path.to_string_lossy().to_string()],
+            None,
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+
+        assert!(result.error.is_none(), "fixture import failed: {:?}", result.error);
+        let rename = result.alias_decisions.iter().find(|decision| decision.chosen == "SGR").unwrap();
+        assert_eq!(rename.target, "GR");
+        assert_eq!(rename.candidates.len(), 1, "a rename is reported even without competition");
+        assert_eq!(rename.table_entry.as_deref(), Some("GR_ALIASES: SGR -> GR"));
+        assert!(
+            result.warning.as_deref().is_some_and(|warning| {
+                warning.contains("SGR")
+                    && warning.contains("GR")
+                    && warning.contains("GR_ALIASES: SGR -> GR")
+            }),
+            "the rename must be displayed in the import note: {:?}",
+            result.warning
+        );
+
+        let well_id = result.well_id.unwrap();
+        let standard_gr: f32 = conn
+            .query_row(
+                "SELECT gr FROM standard_curves WHERE well_id = ?1 ORDER BY depth LIMIT 1",
+                params![&well_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(standard_gr, 71.0, "the applied GR target receives the SGR samples");
+        let source = db::list_generic_curve_catalog(&conn, &well_id)
+            .unwrap()
+            .into_iter()
+            .find(|curve| curve.mnemonic == "SGR")
+            .expect("original SGR identity retained");
+        assert_eq!(source.family.as_deref(), Some("GR"), "the applied family remains visible beside SGR");
     }
 
     /// SB-DIO-010 / SB-DIO-T15..T16. Geolog's per-column `REFERENCE | LOG`

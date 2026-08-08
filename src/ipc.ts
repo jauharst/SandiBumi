@@ -132,6 +132,7 @@ export interface ImportResult {
     target: string;
     chosen: string;
     candidates: Array<{ mnemonic: string; finite_samples: number; chosen: boolean }>;
+    table_entry: string | null;
   }>;
   index_resolution: {
     column: number;
