@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-CORE-042: the machine gate remains manually invoked
+
+- [ ] Run `tools\check.ps1` and confirm it executes the verification matrix, frontend acceptance
+      tests/build and Rust tests. Confirm the repository still has no automatic per-change workflow
+      and this PARTIAL gate is not presented as CI.
+
 ## 2026-08-09 — SB-INS-018: missing unit spellings create no mapping
 
 - [ ] Load absent, empty, `-`, `?` and empty-to-empty unit fixtures. Do all remain unmapped rather
