@@ -7,6 +7,11 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-025: future template fields survive normalization
+
+- [ ] Apply a crossplot template carrying an unknown future field. Is the field preserved rather
+      than silently discarded while the known options are normalized?
+
 ## 2026-08-09 — SB-PLT-018: linked-selection limits are explicit
 
 - [ ] Brush exact depths in one plot, then brush a different scope. Does the second brush replace
