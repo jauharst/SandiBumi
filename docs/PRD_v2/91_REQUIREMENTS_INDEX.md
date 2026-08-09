@@ -43,7 +43,7 @@ here because the chapter does not state that they are `PRESENT-OK`.
 | `SB-CLY-050` | Where the vendors disagree, ship no default and surface the conflict | `PRESENT-DIVERGENT` | `10_clay-volume.md` | `SB-CLY-T18`, `SB-CLY-T19`, `SB-CLY-T20` |
 | `SB-CLY-054` | Unit-typed quantities; no magic scale constants | `PARTIAL` | `10_clay-volume.md` | `SB-CLY-T21`, `SB-CLY-T42` |
 | `SB-CORE-001` | Depth unit is a first-class, carried property | `PARTIAL` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T01`, `SB-CORE-T01b`, `SB-CORE-T02` |
-| `SB-CORE-002` | A degraded or failed result is never presented as a clean one | `PRESENT-DIVERGENT` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T03`, `SB-CORE-T09` |
+| `SB-CORE-002` | A degraded or failed result is never presented as a clean one | `PARTIAL` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T03`, `SB-CORE-T04`, `SB-CORE-T05`, `SB-CORE-T06`, `SB-CORE-T07`, `SB-CORE-T08`, `SB-CORE-T09` |
 | `SB-CORE-004` | No parameter ships without a source | `PARTIAL` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T10`, `SB-CORE-T11` |
 | `SB-CORE-006` | One name, one equation | `PRESENT-DIVERGENT` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T17`, `SB-CORE-T18` |
 | `SB-CORE-007` | One definition for every constant and every transform | `PRESENT-DIVERGENT` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T19`, `SB-CORE-T20`, `SB-CORE-T23` |
@@ -591,7 +591,7 @@ Sorted by domain prefix and then numeric ID.
 | `SB-CLY-054` | Unit-typed quantities; no magic scale constants | `P0` | `PARTIAL` | `10_clay-volume.md` | `SB-CLY-T21`, `SB-CLY-T42` |
 | `SB-CLY-055` | LAS null discipline on every domain curve | `P1` | `PARTIAL` | `10_clay-volume.md` | `SB-CLY-T35`, `SB-CLY-T44` |
 | `SB-CORE-001` | Depth unit is a first-class, carried property | `P0` | `PARTIAL` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T01`, `SB-CORE-T01b`, `SB-CORE-T02` |
-| `SB-CORE-002` | A degraded or failed result is never presented as a clean one | `P0` | `PRESENT-DIVERGENT` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T03`, `SB-CORE-T09` |
+| `SB-CORE-002` | A degraded or failed result is never presented as a clean one | `P0` | `PARTIAL` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T03`, `SB-CORE-T04`, `SB-CORE-T05`, `SB-CORE-T06`, `SB-CORE-T07`, `SB-CORE-T08`, `SB-CORE-T09` |
 | `SB-CORE-003` | Validity conditions are enforced preconditions | `P1` | `ABSENT` | `04_CORE_REQUIREMENTS.md` |  |
 | `SB-CORE-004` | No parameter ships without a source | `P0` | `PARTIAL` | `04_CORE_REQUIREMENTS.md` | `SB-CORE-T10`, `SB-CORE-T11` |
 | `SB-CORE-005` | Vendor-derived defaults are re-sourced to primary literature | `P1` | `ABSENT` | `04_CORE_REQUIREMENTS.md` |  |
