@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-015: ambiguous parameter packs stop before activation
+
+- [ ] Against a module-supplied schema, try a crossed ID/ordinal row, missing ordinal, duplicate
+      key, unsupported schema version and empty semantic key. Does every load refuse the whole
+      file and name its file/row conflict, without guessing or returning a partial pack?
+
 ## 2026-08-09 — SB-INS-014: parameter rows are keyed, not name-joined
 
 - [ ] Load a parameter-pack fixture with two identical display labels but distinct semantic IDs
