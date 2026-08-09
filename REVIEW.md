@@ -7,6 +7,14 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-020: plot-derived parameter writes are traceable and undoable
+
+- [ ] Promote a crossplot handle/marker, histogram marker and two-point Pickett fit to zone
+      parameters. Does every write store the stable plot ID/type, concrete axis quantity/unit/
+      conversion/revision bindings, viewport, selection revision, `[lo,hi)` interval, method,
+      applicable fit record, OS user and UTC timestamp? Does Ctrl+Z restore the exact prior row
+      (or clear a previously absent row), and does a missing source record refuse the write?
+
 ## 2026-08-09 — SB-PLT-016: depth-step reconciliation is conservative
 
 - [ ] Plot inputs at equal steps, then at 0.5/1.0, then at 0.5/0.8. Does the first

@@ -2583,6 +2583,58 @@ export function resolvePlotBindings(
   return invoke<PlotChannelBinding[]>("resolve_plot_bindings", { intents, wellIds });
 }
 
+export interface PlotWriteAxisBinding {
+  channel: string;
+  curve_id: string;
+  mnemonic: string;
+  quantity: string;
+  source_unit: string;
+  display_unit: string;
+  conversion: string;
+  source_revision: string;
+}
+
+export interface PlotWriteProvenanceInput {
+  plot_id: string;
+  plot_type: string;
+  x_axis: PlotWriteAxisBinding;
+  y_axis: PlotWriteAxisBinding;
+  z_axis: PlotWriteAxisBinding | null;
+  viewport: {
+    x_min: number;
+    x_max: number;
+    y_min: number;
+    y_max: number;
+    x_log: boolean;
+    y_log: boolean;
+  };
+  selection: {
+    kind: string;
+    selection_id: string | null;
+    member_count: number;
+    revision: string | null;
+  };
+  interval: {
+    low: number | null;
+    high: number | null;
+    closure: "[lo,hi)";
+  };
+  method: string;
+  fit_record: unknown | null;
+  target: {
+    well_id: string;
+    zone_name: string;
+    parameter_name: string;
+    value: number;
+  };
+}
+
+/** Backend adds the actual OS user and UTC timestamp, validates all mandatory fields,
+ * and returns the canonical JSON stored as the zone parameter's source note. */
+export function finalizePlotWriteProvenance(source: PlotWriteProvenanceInput | null): Promise<string> {
+  return invoke<string>("finalize_plot_write_provenance", { source });
+}
+
 // ---------------------------------------------------------------------------
 // Core plug data (routine core analysis): sparse/irregular depths, imported per
 // well by CSV and overlaid onto crossplots/log tracks — not aligned onto the

@@ -1,4 +1,4 @@
-import { getCurveData, type WellSummary } from "../ipc";
+import { getCurveData, plotBindingSnapshot, type ResolvedPlotCurve, type WellSummary } from "../ipc";
 import { appState } from "../state";
 import { formRow, openModal } from "./modal";
 import {
@@ -28,9 +28,12 @@ import {
   loadPlotProps,
   nearestDepthIndex,
   pickRow,
+  plotWriteAxis,
+  plotWriteSelection,
   savePlotProps,
   trySelect,
   type PlotContent,
+  type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { buildWellScope } from "./wellScope";
@@ -260,6 +263,7 @@ export async function buildPickettContent(
   const curveNames = await loadCurveNames();
   const zoneSel = await buildZoneSelect(well);
   trySelect(zoneSel.select, initial?.zone);
+  const plotId = initial?.plotId ?? crypto.randomUUID();
   const props: PickettProps = sanitizePickettProps(await loadPlotProps<PickettProps>("pickett"));
 
   const numField = (value: string, placeholder = ""): HTMLInputElement => {
@@ -363,8 +367,8 @@ export async function buildPickettContent(
   content.appendChild(hint);
 
   const tc = readTheme(document.documentElement);
-  const pickM = pickRow("M (slope)", tc.accent, "M", well, zoneSel.current, setStatus);
-  const pickARw = pickRow("a·Rw (intercept)", tc.accent2, "A_RW", well, zoneSel.current, setStatus);
+  const pickM = pickRow("M (slope)", tc.accent, "M", well, zoneSel.current, setStatus, () => pickettWriteSource());
+  const pickARw = pickRow("a·Rw (intercept)", tc.accent2, "A_RW", well, zoneSel.current, setStatus, () => pickettWriteSource());
   content.appendChild(pickM.row);
   content.appendChild(pickARw.row);
 
@@ -374,11 +378,43 @@ export async function buildPickettContent(
   let picks: [number, number][] = [];
   let colors: string[] | undefined;
   let plot: PlotCanvas | null = null;
+  let lastFit: { m: number; aRw: number } | null = null;
   let hoverIdx = -1;
   // Linked-brush consumer: samples brushed in the crossplot (same well, same backend depth
   // grid) are ringed here so a selection made in one plot is visible in the other.
   let brushSet: Set<number> | null = null;
   const viewRef: ViewportRef = { current: null };
+
+  const resolvedBinding = (curveName: string): ResolvedPlotCurve | null =>
+    plotBindingSnapshot([well.well_id], [curveName])
+      .find((binding) => binding.intent.semantic_request.toUpperCase() === curveName.toUpperCase())
+      ?.resolved[0] ?? null;
+
+  async function pickettWriteSource(): Promise<PlotWriteSource> {
+    if (!plot) throw new Error("plot-derived write requires a rendered viewport");
+    const zone = zoneSel.current();
+    return {
+      plot_id: plotId,
+      plot_type: "pickett",
+      x_axis: plotWriteAxis("resistivity", resolvedBinding(rtSel.value)),
+      y_axis: plotWriteAxis("porosity", resolvedBinding(phiSel.value)),
+      z_axis: props.zCurve ? plotWriteAxis("colour", resolvedBinding(props.zCurve)) : null,
+      viewport: {
+        x_min: plot.x.min,
+        x_max: plot.x.max,
+        y_min: plot.y.min,
+        y_max: plot.y.max,
+        x_log: plot.x.log,
+        y_log: plot.y.log,
+      },
+      selection: await plotWriteSelection(well.well_id),
+      interval: { low: zone.depthMin, high: zone.depthMax, closure: "[lo,hi)" },
+      method: lastFit ? "two_point_pickett_fit" : "manual_pickett_value",
+      fit_record: lastFit
+        ? { model: "two_point_pickett_water_line", m: lastFit.m, a_rw: lastFit.aRw }
+        : null,
+    };
+  }
 
   /** The effective fitted line: typed M+a·Rw win; otherwise none until two points are picked. */
   const currentLine = (): { m: number; aRw: number } | null => {
@@ -535,6 +571,7 @@ export async function buildPickettContent(
     if (resetPending) {
       resetPending = false;
       picks = [];
+      lastFit = null;
       mIn.value = "";
       aRwIn.value = "";
       viewRef.current = null; // new data → reset any zoom/pan
@@ -549,8 +586,14 @@ export async function buildPickettContent(
     });
   }
   // Typing M or a·Rw makes the fitted line follow immediately.
-  mIn.addEventListener("input", redraw);
-  aRwIn.addEventListener("input", redraw);
+  mIn.addEventListener("input", () => {
+    lastFit = null;
+    redraw();
+  });
+  aRwIn.addEventListener("input", () => {
+    lastFit = null;
+    redraw();
+  });
 
   // Track drag so a pan doesn't also drop a water-line anchor. Logical (CSS) pixels.
   let downXY: [number, number] | null = null;
@@ -581,6 +624,7 @@ export async function buildPickettContent(
     if (picks.length === 2) {
       const fit = fitWaterLine(picks[0], picks[1]);
       if (fit) {
+        lastFit = fit;
         // Feed the identifiable fit into the M/a·Rw fields so both paths share one source.
         mIn.value = fit.m.toPrecision(4);
         aRwIn.value = fit.aRw.toPrecision(4);
@@ -778,6 +822,7 @@ export async function buildPickettContent(
       zoneSel.dispose();
     },
     getState: () => ({
+      plotId,
       rt: rtSel.value,
       phi: phiSel.value,
       m: mIn.value,

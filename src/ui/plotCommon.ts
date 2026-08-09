@@ -1,6 +1,23 @@
-import { deleteDocument, getCurveData, listCurveCatalog, listDocuments, listTops, listZones, saveDocument, setZoneParam, type TrackCurveSeries, type WellSummary, type ZoneEntry } from "../ipc";
+import {
+  deleteDocument,
+  finalizePlotWriteProvenance,
+  getCurveData,
+  listCurveCatalog,
+  listDocuments,
+  listTops,
+  listZoneParams,
+  listZones,
+  saveDocument,
+  setZoneParam,
+  type PlotWriteProvenanceInput,
+  type ResolvedPlotCurve,
+  type TrackCurveSeries,
+  type WellSummary,
+  type ZoneEntry,
+} from "../ipc";
 import { appState, type TopInterval } from "../state";
 import { recordProcess } from "../processLog";
+import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
 import { FACIES_PALETTE } from "./plotCanvas";
 import {
@@ -618,6 +635,94 @@ export function describeContextOutcome(o: ContextFetchOutcome): string {
   );
 }
 
+export type PlotWriteSource = Omit<PlotWriteProvenanceInput, "target">;
+
+export function plotWriteAxis(
+  channel: string,
+  curve: ResolvedPlotCurve | null | undefined,
+): PlotWriteProvenanceInput["x_axis"] {
+  if (!curve) throw new Error(`plot-derived write is missing the concrete ${channel} axis binding`);
+  return {
+    channel,
+    curve_id: curve.curve_id,
+    mnemonic: curve.mnemonic,
+    quantity: curve.quantity,
+    source_unit: curve.source_unit,
+    display_unit: curve.display_unit,
+    conversion: curve.conversion,
+    source_revision: curve.source_revision,
+  };
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Selection metadata is hashed over sorted f32 depths; sample arrays never cross IPC
+ * as JSON. The provenance carries only an ID, count and SHA-256 revision. */
+export async function plotWriteSelection(wellId: string): Promise<PlotWriteProvenanceInput["selection"]> {
+  const selection = appState.brushedDepths.get();
+  if (!selection || selection.wellId !== wellId || selection.depths.size === 0) {
+    return { kind: "none", selection_id: null, member_count: 0, revision: null };
+  }
+  const depths = Float32Array.from([...selection.depths].sort((a, b) => a - b));
+  const digest = await crypto.subtle.digest("SHA-256", depths.buffer);
+  return {
+    kind: "ephemeral_brushed_depths",
+    selection_id: `brushed:${wellId}`,
+    member_count: depths.length,
+    revision: bytesToHex(new Uint8Array(digest)),
+  };
+}
+
+export async function writePlotParameter(args: {
+  well: WellSummary;
+  zone: ZoneChoice;
+  parameter: string;
+  value: number;
+  source: PlotWriteSource;
+}): Promise<void> {
+  const parameter = args.parameter.trim().toUpperCase();
+  if (!parameter || !Number.isFinite(args.value)) {
+    throw new Error("plot-derived parameter and value must be present and finite");
+  }
+  const completeSource: PlotWriteProvenanceInput = {
+    ...args.source,
+    target: {
+      well_id: args.well.well_id,
+      zone_name: args.zone.zoneName,
+      parameter_name: parameter,
+      value: args.value,
+    },
+  };
+  const [sourceNote, current] = await Promise.all([
+    finalizePlotWriteProvenance(completeSource),
+    listZoneParams(args.well.well_id),
+  ]);
+  const before = current.find((entry) =>
+    entry.zone_name === args.zone.zoneName && entry.param_name === parameter);
+  const applyNew = () => setZoneParam(
+    args.well.well_id,
+    args.zone.zoneName,
+    parameter,
+    args.value,
+    sourceNote,
+  );
+  const applyOld = () => setZoneParam(
+    args.well.well_id,
+    args.zone.zoneName,
+    parameter,
+    before?.value_num ?? null,
+    before?.value_text ?? null,
+  );
+  await applyNew();
+  pushUndo({
+    label: `set ${parameter} from ${args.source.plot_type}`,
+    undo: applyOld,
+    redo: applyNew,
+  });
+}
+
 /** One "pick → parameter" row: colored swatch, picked-value readout, editable target
  *  parameter name, and a Set button that writes the value to the chosen zone. */
 export function pickRow(
@@ -627,6 +732,7 @@ export function pickRow(
   well: WellSummary,
   getZone: () => ZoneChoice,
   setStatus: (text: string) => void,
+  getSource: (target: { parameter: string; value: number }) => Promise<PlotWriteSource>,
 ): { row: HTMLElement; setValue: (v: number) => void; getValue: () => number } {
   let value = NaN;
 
@@ -658,8 +764,9 @@ export function pickRow(
     if (!param || Number.isNaN(value)) return;
     const zone = getZone();
     try {
-      await setZoneParam(well.well_id, zone.zoneName, param, value, null);
-      setStatus(`${param} = ${value.toPrecision(4)} set on zone '${zone.zoneName}' of ${well.well_name}`);
+      const source = await getSource({ parameter: param, value });
+      await writePlotParameter({ well, zone, parameter: param, value, source });
+      setStatus(`${param} = ${value.toPrecision(4)} set with plot provenance (Ctrl+Z undoes)`);
     } catch (err) {
       // Never report success on a rejected write — a swallowed failure makes the user
       // believe GR_MA/RW landed on the zone when it never reached the module runs.

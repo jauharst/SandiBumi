@@ -1,4 +1,4 @@
-import { getCurveData, type WellSummary } from "../ipc";
+import { getCurveData, plotBindingSnapshot, type ResolvedPlotCurve, type WellSummary } from "../ipc";
 import { histogram as canonicalBinCounts } from "../distribution";
 import { appState, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
@@ -30,9 +30,12 @@ import {
   loadPlotProps,
   nearestDepthIndex,
   pickRow,
+  plotWriteAxis,
+  plotWriteSelection,
   savePlotProps,
   trySelect,
   type PlotContent,
+  type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { buildWellScope } from "./wellScope";
@@ -485,6 +488,7 @@ export async function buildHistogramContent(
   const zoneSel = await buildZoneSelect(well);
   trySelect(zoneSel.select, initial?.zone);
   const opts = normalizeHistogramOptions(await loadPlotProps<HistogramOptions>("histogram"));
+  const plotId = initial?.plotId ?? crypto.randomUUID();
 
   const content = document.createElement("div");
   content.className = "plot-content";
@@ -620,8 +624,8 @@ export async function buildHistogramContent(
   const [p1Default, p2Default] = defaultPickParams(curveSel.value);
   const tc = readTheme(document.documentElement);
   const theme = { a: tc.accent, b: tc.accent2 };
-  const pickA = pickRow("Pick A", theme.a, p1Default, well, zoneSel.current, setStatus);
-  const pickB = pickRow("Pick B", theme.b, p2Default, well, zoneSel.current, setStatus);
+  const pickA = pickRow("Pick A", theme.a, p1Default, well, zoneSel.current, setStatus, () => histogramWriteSource());
+  const pickB = pickRow("Pick B", theme.b, p2Default, well, zoneSel.current, setStatus, () => histogramWriteSource());
   let active: "A" | "B" = "A";
 
   const activator = (which: "A" | "B", row: HTMLElement) => {
@@ -649,6 +653,45 @@ export async function buildHistogramContent(
   let hoverValue: number | null = null;
   let brushValues: number[] = []; // this curve's values at the shared-brush depths (this well)
   const viewRef: ViewportRef = { current: null };
+
+  const resolvedBinding = (curveName: string): ResolvedPlotCurve | null =>
+    plotBindingSnapshot([well.well_id], [curveName])
+      .find((binding) => binding.intent.semantic_request.toUpperCase() === curveName.toUpperCase())
+      ?.resolved[0] ?? null;
+
+  async function histogramWriteSource(): Promise<PlotWriteSource> {
+    if (!plot) throw new Error("plot-derived write requires a rendered viewport");
+    const sourceCurve = resolvedBinding(curveSel.value);
+    const xAxis = plotWriteAxis("value", sourceCurve);
+    const zone = zoneSel.current();
+    return {
+      plot_id: plotId,
+      plot_type: "histogram",
+      x_axis: xAxis,
+      y_axis: {
+        ...xAxis,
+        channel: opts.normalize ? "relative_frequency" : "sample_count",
+        mnemonic: opts.normalize ? "RELATIVE_FREQUENCY" : "SAMPLE_COUNT",
+        quantity: opts.normalize ? "relative_frequency" : "sample_count",
+        source_unit: opts.normalize ? "%" : "count",
+        display_unit: opts.normalize ? "%" : "count",
+        conversion: `canonical_histogram_from:${xAxis.mnemonic}`,
+      },
+      z_axis: null,
+      viewport: {
+        x_min: plot.x.min,
+        x_max: plot.x.max,
+        y_min: plot.y.min,
+        y_max: plot.y.max,
+        x_log: plot.x.log,
+        y_log: plot.y.log,
+      },
+      selection: await plotWriteSelection(well.well_id),
+      interval: { low: zone.depthMin, high: zone.depthMax, closure: "[lo,hi)" },
+      method: "manual_histogram_marker",
+      fit_record: null,
+    };
+  }
 
   const persist = () => savePlotProps("histogram", opts);
 
@@ -1020,7 +1063,7 @@ export async function buildHistogramContent(
       if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
-    getState: () => ({ curve: curveSel.value, zone: zoneSel.select.value, wells: scope.serialize() }),
+    getState: () => ({ plotId, curve: curveSel.value, zone: zoneSel.select.value, wells: scope.serialize() }),
     openProperties: openProps,
   };
 }

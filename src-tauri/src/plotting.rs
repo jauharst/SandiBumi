@@ -556,6 +556,179 @@ pub fn half_open_depth_indices(depth: &[f32], low: f32, high: f32) -> Vec<usize>
         .collect()
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotWriteAxisBinding {
+    pub channel: String,
+    pub curve_id: String,
+    pub mnemonic: String,
+    pub quantity: String,
+    pub source_unit: String,
+    pub display_unit: String,
+    pub conversion: String,
+    pub source_revision: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PlotWriteViewport {
+    pub x_min: f32,
+    pub x_max: f32,
+    pub y_min: f32,
+    pub y_max: f32,
+    pub x_log: bool,
+    pub y_log: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlotWriteSelection {
+    pub kind: String,
+    pub selection_id: Option<String>,
+    pub member_count: usize,
+    pub revision: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotWriteInterval {
+    pub low: Option<f32>,
+    pub high: Option<f32>,
+    pub closure: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotWriteTarget {
+    pub well_id: String,
+    pub zone_name: String,
+    pub parameter_name: String,
+    pub value: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotWriteProvenanceInput {
+    pub plot_id: String,
+    pub plot_type: String,
+    pub x_axis: PlotWriteAxisBinding,
+    pub y_axis: PlotWriteAxisBinding,
+    pub z_axis: Option<PlotWriteAxisBinding>,
+    pub viewport: PlotWriteViewport,
+    pub selection: PlotWriteSelection,
+    pub interval: PlotWriteInterval,
+    pub method: String,
+    pub fit_record: Option<serde_json::Value>,
+    pub target: PlotWriteTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotWriteProvenance {
+    pub source: PlotWriteProvenanceInput,
+    pub user: String,
+    pub timestamp_utc_ms: u64,
+}
+
+fn require_provenance_text(value: &str, field: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        Err(format!("plot-derived write provenance is missing {field}"))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_plot_write_axis(axis: &PlotWriteAxisBinding) -> Result<(), String> {
+    for (value, field) in [
+        (&axis.channel, "axis channel"),
+        (&axis.curve_id, "axis curve id"),
+        (&axis.mnemonic, "axis mnemonic"),
+        (&axis.quantity, "axis quantity"),
+        (&axis.source_unit, "axis source unit"),
+        (&axis.display_unit, "axis display unit"),
+        (&axis.conversion, "axis conversion"),
+    ] {
+        require_provenance_text(value, field)?;
+    }
+    if axis.source_revision.len() != 64
+        || !axis.source_revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("plot-derived write provenance needs a SHA-256 source revision for every axis".into());
+    }
+    Ok(())
+}
+
+pub fn finalize_plot_write_provenance(
+    source: Option<PlotWriteProvenanceInput>,
+    user: &str,
+    timestamp_utc_ms: u64,
+) -> Result<PlotWriteProvenance, String> {
+    let source = source.ok_or_else(|| "plot-derived write rejected: null source note".to_string())?;
+    require_provenance_text(&source.plot_id, "plot id")?;
+    require_provenance_text(&source.plot_type, "plot type")?;
+    validate_plot_write_axis(&source.x_axis)?;
+    validate_plot_write_axis(&source.y_axis)?;
+    if let Some(axis) = &source.z_axis {
+        validate_plot_write_axis(axis)?;
+    }
+    let viewport = source.viewport;
+    if ![
+        viewport.x_min,
+        viewport.x_max,
+        viewport.y_min,
+        viewport.y_max,
+    ]
+    .into_iter()
+    .all(f32::is_finite)
+        || viewport.x_min == viewport.x_max
+        || viewport.y_min == viewport.y_max
+    {
+        return Err("plot-derived write provenance needs a finite non-degenerate viewport".into());
+    }
+    require_provenance_text(&source.selection.kind, "selection kind")?;
+    if source.selection.kind == "none" {
+        if source.selection.member_count != 0 {
+            return Err("a none selection must have zero members".into());
+        }
+    } else {
+        let selection_id = source
+            .selection
+            .selection_id
+            .as_deref()
+            .ok_or_else(|| "an active selection needs an id".to_string())?;
+        require_provenance_text(selection_id, "selection id")?;
+        let revision = source
+            .selection
+            .revision
+            .as_deref()
+            .ok_or_else(|| "an active selection needs a revision".to_string())?;
+        if revision.len() != 64 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("an active selection revision must be a SHA-256 digest".into());
+        }
+    }
+    if source.interval.closure != "[lo,hi)" {
+        return Err("plot-derived write interval must declare [lo,hi)".into());
+    }
+    if source.interval.low.is_some_and(|value| !value.is_finite())
+        || source.interval.high.is_some_and(|value| !value.is_finite())
+        || matches!((source.interval.low, source.interval.high), (Some(low), Some(high)) if low >= high)
+    {
+        return Err("plot-derived write provenance contains an invalid data interval".into());
+    }
+    require_provenance_text(&source.method, "method")?;
+    if source.method.contains("fit") && source.fit_record.is_none() {
+        return Err("a fit-derived write needs its fit record".into());
+    }
+    require_provenance_text(&source.target.well_id, "target well id")?;
+    require_provenance_text(&source.target.zone_name, "target zone")?;
+    require_provenance_text(&source.target.parameter_name, "target parameter")?;
+    if !source.target.value.is_finite() {
+        return Err("plot-derived write target value must be finite".into());
+    }
+    require_provenance_text(user, "user")?;
+    if timestamp_utc_ms == 0 {
+        return Err("plot-derived write provenance needs a timestamp".into());
+    }
+    Ok(PlotWriteProvenance {
+        source,
+        user: user.trim().into(),
+        timestamp_utc_ms,
+    })
+}
+
 /// Screens aligned required channels before assigning any part of the total point
 /// budget. Each represented well first receives enough capacity for both eligible
 /// endpoints (or its single eligible sample), then remaining capacity is shared in
@@ -1286,5 +1459,106 @@ mod tests {
         assert!(refusal.contains("DIO resampling"));
 
         assert_eq!(half_open_depth_indices(&[100.0, 100.5, 101.0], 100.0, 101.0), vec![0, 1]);
+    }
+
+    #[test]
+    fn a_plot_derived_parameter_write_is_undoable_and_requires_complete_non_null_provenance() {
+        // SB-PLT-020 / SB-PLT-T30/T31: numeric values are metadata fixtures, not defaults.
+        let axis = PlotWriteAxisBinding {
+            channel: "x".into(),
+            curve_id: "curve-x".into(),
+            mnemonic: "X".into(),
+            quantity: "fraction".into(),
+            source_unit: "v/v".into(),
+            display_unit: "v/v".into(),
+            conversion: "identity".into(),
+            source_revision: "a".repeat(64),
+        };
+        let input = PlotWriteProvenanceInput {
+            plot_id: "plot-1".into(),
+            plot_type: "crossplot".into(),
+            x_axis: axis.clone(),
+            y_axis: PlotWriteAxisBinding { channel: "y".into(), ..axis },
+            z_axis: None,
+            viewport: PlotWriteViewport {
+                x_min: 0.0,
+                x_max: 1.0,
+                y_min: 0.0,
+                y_max: 1.0,
+                x_log: false,
+                y_log: false,
+            },
+            selection: PlotWriteSelection {
+                kind: "none".into(),
+                selection_id: None,
+                member_count: 0,
+                revision: None,
+            },
+            interval: PlotWriteInterval {
+                low: Some(100.0),
+                high: Some(101.0),
+                closure: "[lo,hi)".into(),
+            },
+            method: "manual_handle_drag".into(),
+            fit_record: None,
+            target: PlotWriteTarget {
+                well_id: "well-1".into(),
+                zone_name: "*".into(),
+                parameter_name: "PARAM".into(),
+                value: 0.25,
+            },
+        };
+
+        let complete = finalize_plot_write_provenance(Some(input.clone()), "test-user", 1).unwrap();
+        assert_eq!(complete.source.plot_id, "plot-1");
+        assert_eq!(complete.user, "test-user");
+        assert_eq!(complete.timestamp_utc_ms, 1);
+
+        assert!(finalize_plot_write_provenance(None, "test-user", 1)
+            .unwrap_err()
+            .contains("null source note"));
+        let mut missing_revision = input.clone();
+        missing_revision.x_axis.source_revision.clear();
+        assert!(finalize_plot_write_provenance(Some(missing_revision), "test-user", 1)
+            .unwrap_err()
+            .contains("source revision"));
+
+        let mut missing_plot = input.clone();
+        missing_plot.plot_id.clear();
+        assert!(finalize_plot_write_provenance(Some(missing_plot), "test-user", 1).is_err());
+        let mut missing_type = input.clone();
+        missing_type.plot_type.clear();
+        assert!(finalize_plot_write_provenance(Some(missing_type), "test-user", 1).is_err());
+        let mut bad_viewport = input.clone();
+        bad_viewport.viewport.x_min = f32::NAN;
+        assert!(finalize_plot_write_provenance(Some(bad_viewport), "test-user", 1).is_err());
+        let mut missing_selection = input.clone();
+        missing_selection.selection.kind.clear();
+        assert!(finalize_plot_write_provenance(Some(missing_selection), "test-user", 1).is_err());
+        let mut missing_interval = input.clone();
+        missing_interval.interval.closure = "closed".into();
+        assert!(finalize_plot_write_provenance(Some(missing_interval), "test-user", 1).is_err());
+        let mut missing_method = input.clone();
+        missing_method.method.clear();
+        assert!(finalize_plot_write_provenance(Some(missing_method), "test-user", 1).is_err());
+        let mut missing_fit_record = input.clone();
+        missing_fit_record.method = "two_point_fit".into();
+        assert!(finalize_plot_write_provenance(Some(missing_fit_record), "test-user", 1).is_err());
+        let mut missing_target = input.clone();
+        missing_target.target.parameter_name.clear();
+        assert!(finalize_plot_write_provenance(Some(missing_target), "test-user", 1).is_err());
+        assert!(finalize_plot_write_provenance(Some(input.clone()), "", 1).is_err());
+        assert!(finalize_plot_write_provenance(Some(input), "test-user", 0).is_err());
+
+        // The UI adapter must validate before writing and retain the exact inverse/redo
+        // operations. This pins the undoable half of SB-PLT-020 at the integration seam.
+        let adapter = include_str!("../../src/ui/plotCommon.ts");
+        let validation = adapter
+            .find("finalizePlotWriteProvenance(completeSource)")
+            .expect("plot write must finalize complete provenance");
+        let write = adapter.find("await applyNew();").expect("plot write must be applied");
+        assert!(validation < write, "provenance validation must precede the write");
+        assert!(adapter.contains("undo: applyOld"));
+        assert!(adapter.contains("redo: applyNew"));
     }
 }

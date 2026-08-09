@@ -1,4 +1,4 @@
-import { getCoreData, getCurveData, plotBindingSnapshot, runNetFlag, setZoneParam, type NetFlagSpec, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { getCoreData, getCurveData, plotBindingSnapshot, runNetFlag, type NetFlagSpec, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
 import { appState, bumpDataVersion, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
@@ -40,9 +40,13 @@ import {
   loadPlotProps,
   nearestDepthIndex,
   pickRow,
+  plotWriteAxis,
+  plotWriteSelection,
   savePlotProps,
   trySelect,
+  writePlotParameter,
   type PlotContent,
+  type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { buildWellScope } from "./wellScope";
@@ -1280,6 +1284,7 @@ export async function buildCrossplotContent(
   const zoneSel = await buildZoneSelect(well);
   trySelect(zoneSel.select, initial?.zone);
   const opts = normalizeCrossplotOptions(await loadPlotProps<CrossplotOptions>("crossplot"));
+  const plotId = initial?.plotId ?? crypto.randomUUID();
 
   const content = document.createElement("div");
   content.className = "plot-content";
@@ -1395,8 +1400,8 @@ export async function buildCrossplotContent(
   };
 
   const tc = readTheme(document.documentElement);
-  const pickX = pickRow("X pick", tc.accent, "NPHI_SH", well, zoneSel.current, setStatus);
-  const pickY = pickRow("Y pick", tc.accent2, "RHO_SH", well, zoneSel.current, setStatus);
+  const pickX = pickRow("X pick", tc.accent, "NPHI_SH", well, zoneSel.current, setStatus, () => crossplotWriteSource("manual_pick"));
+  const pickY = pickRow("Y pick", tc.accent2, "RHO_SH", well, zoneSel.current, setStatus, () => crossplotWriteSource("manual_pick"));
   const picksWrap = document.createElement("div");
   // Cutoff-region selector: shade a net quadrant anchored at the handle. The sense is chosen
   // explicitly here (no cutoff direction is inferred from the axes).
@@ -1477,6 +1482,35 @@ export async function buildCrossplotContent(
     active: false,
     pts: [],
     cursor: null,
+  };
+
+  const resolvedBinding = (curveName: string): ResolvedPlotCurve | null =>
+    plotBindingSnapshot([well.well_id], [curveName])
+      .find((binding) => binding.intent.semantic_request.toUpperCase() === curveName.toUpperCase())
+      ?.resolved[0] ?? null;
+
+  const crossplotWriteSource = async (method: string): Promise<PlotWriteSource> => {
+    if (!plot) throw new Error("plot-derived write requires a rendered viewport");
+    const zone = zoneSel.current();
+    return {
+      plot_id: plotId,
+      plot_type: "crossplot",
+      x_axis: plotWriteAxis("x", resolvedBinding(xSel.value)),
+      y_axis: plotWriteAxis("y", resolvedBinding(ySel.value)),
+      z_axis: zSel.value ? plotWriteAxis("z", resolvedBinding(zSel.value)) : null,
+      viewport: {
+        x_min: plot.x.min,
+        x_max: plot.x.max,
+        y_min: plot.y.min,
+        y_max: plot.y.max,
+        x_log: plot.x.log,
+        y_log: plot.y.log,
+      },
+      selection: await plotWriteSelection(well.well_id),
+      interval: { low: zone.depthMin, high: zone.depthMax, closure: "[lo,hi)" },
+      method,
+      fit_record: null,
+    };
   };
 
   /** Recomputes which sample indices the shared brush covers (only when it targets THIS well;
@@ -2435,19 +2469,20 @@ export async function buildCrossplotContent(
     downXY = null;
     if (!mode || !movedSinceDown) return;
     const zone = zoneSel.current();
-    const write = (param: string, value: number, dp: (v: number) => string) => {
+    const write = (param: string, value: number, dp: (v: number) => string, method: string) => {
       if (!param || Number.isNaN(value)) return;
-      void setZoneParam(well.well_id, zone.zoneName, param, value, null)
-        .then(() => setStatus(`${param} = ${dp(value)} set on zone '${zone.zoneName}' of ${well.well_name}`))
+      void crossplotWriteSource(method)
+        .then((source) => writePlotParameter({ well, zone, parameter: param, value, source }))
+        .then(() => setStatus(`${param} = ${dp(value)} set with plot provenance (Ctrl+Z undoes)`))
         .catch((err) => setStatus(`Failed to set ${param}: ${err}`));
     };
     if (mode === "param") {
-      write(paramName(pickX.row), pickX.getValue(), (v) => v.toPrecision(4));
-      write(paramName(pickY.row), pickY.getValue(), (v) => v.toPrecision(4));
+      write(paramName(pickX.row), pickX.getValue(), (v) => v.toPrecision(4), "manual_handle_drag");
+      write(paramName(pickY.row), pickY.getValue(), (v) => v.toPrecision(4), "manual_handle_drag");
     } else {
       persist();
-      if (mode === "ts-sand") write("PHI_SD_MAX", opts.tsPhiSd, (v) => v.toFixed(3));
-      else write("PHI_SH", opts.tsPhiSh, (v) => v.toFixed(3));
+      if (mode === "ts-sand") write("PHI_SD_MAX", opts.tsPhiSd, (v) => v.toFixed(3), "thomas_stieber_handle_drag");
+      else write("PHI_SH", opts.tsPhiSh, (v) => v.toFixed(3), "thomas_stieber_handle_drag");
     }
   };
   canvas.addEventListener("mouseup", endDrag);
@@ -2608,7 +2643,7 @@ export async function buildCrossplotContent(
       if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
-    getState: () => ({ x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value, wells: scope.serialize() }),
+    getState: () => ({ plotId, x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value, wells: scope.serialize() }),
     openProperties: openProps,
   };
 }
