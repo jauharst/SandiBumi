@@ -7,6 +7,11 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-030: plot canvases remain keyboard reachable
+
+- [ ] Focus an interactive canvas and use the arrow and zoom keys. Does the viewport change while
+      the current accessible label remains present, and does closing the plot remove the handler?
+
 ## 2026-08-09 — SB-PLT-029: stale plot builds cannot replace active content
 
 - [ ] Trigger two plot builds and let the older request finish last. Is the older content disposed
