@@ -687,4 +687,31 @@ mod tests {
         assert_eq!(slowness_conversion.factor, 0.3048);
         assert!((slowness[0] - 0.3048).abs() < f32::EPSILON);
     }
+
+    /// CHARACTERIZATION — SB-INS-018 / SB-INS-T23 supplies absent, empty and placeholder
+    /// unit encodings plus the empty-to-empty mapping row. They all produce no registry
+    /// mapping today; `None` is the current PARTIAL state, not the specified richer typed state.
+    #[test]
+    fn characterizes_all_missing_unit_spellings_as_no_registry_mapping() {
+        let encodings = [None, Some(""), Some("-"), Some("?")];
+        let resolved = encodings
+            .iter()
+            .map(|token| token.and_then(resolve_unit_token))
+            .collect::<Vec<_>>();
+        assert!(resolved.iter().all(Option::is_none));
+
+        for token in ["", "-", "?"] {
+            assert!(matches!(
+                validate_unit_bridge(token, "m"),
+                Err(UnitRegistryError::UnknownUnit { .. })
+            ));
+        }
+        assert!(matches!(
+            validate_unit_bridge("", ""),
+            Err(UnitRegistryError::UnknownUnit { .. })
+        ));
+        assert!(UNIT_TOKENS
+            .iter()
+            .all(|entry| !["", "-", "?"].contains(&entry.token)));
+    }
 }
