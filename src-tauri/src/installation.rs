@@ -1030,7 +1030,7 @@ pub fn validate_installer_qualification(evidence: &InstallerQualification) -> Re
 
 /// Release-tool boundary. Text evidence deliberately uses the shared tolerant decoder: one
 /// stray byte in a delivery must not make this one importer a UTF-8-only exception.
-pub fn validate_installer_qualification_file(path: &Path) -> Result<(), String> {
+pub fn read_installer_qualification_file(path: &Path) -> Result<InstallerQualification, String> {
     let text = crate::parsers::read_text_file(path).map_err(|e| {
         format!(
             "{}: cannot read installer qualification: {e}",
@@ -1043,6 +1043,11 @@ pub fn validate_installer_qualification_file(path: &Path) -> Result<(), String> 
             path.display()
         )
     })?;
+    Ok(evidence)
+}
+
+pub fn validate_installer_qualification_file(path: &Path) -> Result<(), String> {
+    let evidence = read_installer_qualification_file(path)?;
     validate_installer_qualification(&evidence).map_err(|e| format!("{}: {e}", path.display()))
 }
 
@@ -1236,6 +1241,267 @@ pub fn validate_offline_deployment_file(path: &Path) -> Result<(), String> {
         )
     })?;
     validate_offline_deployment(&evidence).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Deployment-owner decision, 2026-08-09: qualify every Microsoft-serviced Windows 11 x64
+/// feature release for both Pro and Enterprise. Feature-release names are release evidence,
+/// never a list frozen into the executable.
+pub const WINDOWS_PRODUCT: &str = "Windows 11";
+pub const WINDOWS_ARCHITECTURE: &str = "x64";
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "PascalCase")]
+pub enum WindowsEdition {
+    Pro,
+    Enterprise,
+}
+
+impl WindowsEdition {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Pro => "Pro",
+            Self::Enterprise => "Enterprise",
+        }
+    }
+}
+
+pub const QUALIFIED_WINDOWS_EDITIONS: &[WindowsEdition] =
+    &[WindowsEdition::Pro, WindowsEdition::Enterprise];
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanMachineScenario {
+    StandardUser,
+    LockedDownUser,
+    OfflineInstall,
+    NoPythonCoreUse,
+    SupportedExternalPython,
+    MissingPackage,
+    Upgrade,
+    Rollback,
+    UninstallPreservation,
+}
+
+impl CleanMachineScenario {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::StandardUser => "standard_user",
+            Self::LockedDownUser => "locked_down_user",
+            Self::OfflineInstall => "offline_install",
+            Self::NoPythonCoreUse => "no_python_core_use",
+            Self::SupportedExternalPython => "supported_external_python",
+            Self::MissingPackage => "missing_package",
+            Self::Upgrade => "upgrade",
+            Self::Rollback => "rollback",
+            Self::UninstallPreservation => "uninstall_preservation",
+        }
+    }
+}
+
+pub const CLEAN_MACHINE_SCENARIOS: &[CleanMachineScenario] = &[
+    CleanMachineScenario::StandardUser,
+    CleanMachineScenario::LockedDownUser,
+    CleanMachineScenario::OfflineInstall,
+    CleanMachineScenario::NoPythonCoreUse,
+    CleanMachineScenario::SupportedExternalPython,
+    CleanMachineScenario::MissingPackage,
+    CleanMachineScenario::Upgrade,
+    CleanMachineScenario::Rollback,
+    CleanMachineScenario::UninstallPreservation,
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MicrosoftServicedWindowsTarget {
+    pub feature_release: String,
+    pub edition: WindowsEdition,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MicrosoftServicedWindowsInventory {
+    pub product: String,
+    pub architecture: String,
+    /// Release-lane observation that binds the inventory to this release qualification.
+    pub observed_at_release: String,
+    /// Named Microsoft lifecycle source or preserved source snapshot.
+    pub source: String,
+    pub source_sha256: String,
+    /// Populated from the source at release time. Edition is part of the target because Microsoft
+    /// servicing can differ by edition; release names remain absent from compiled constants.
+    pub targets: Vec<MicrosoftServicedWindowsTarget>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanMachineScenarioResult {
+    pub feature_release: String,
+    pub edition: WindowsEdition,
+    pub scenario: CleanMachineScenario,
+    pub passed: bool,
+    pub evidence: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanMachineQualification {
+    pub installer_sha256: String,
+    pub qualified_build_commit: String,
+    pub microsoft_serviced_inventory: MicrosoftServicedWindowsInventory,
+    pub results: Vec<CleanMachineScenarioResult>,
+}
+
+fn scenario_key(
+    feature_release: &str,
+    edition: WindowsEdition,
+    scenario: CleanMachineScenario,
+) -> (String, WindowsEdition, CleanMachineScenario) {
+    (feature_release.to_string(), edition, scenario)
+}
+
+fn scenario_name(
+    feature_release: &str,
+    edition: WindowsEdition,
+    scenario: CleanMachineScenario,
+) -> String {
+    format!(
+        "{} {} {} / {}",
+        WINDOWS_PRODUCT,
+        feature_release,
+        edition.label(),
+        scenario.id()
+    )
+}
+
+/// Refuse publication unless the exact installer is qualified across the complete matrix derived
+/// from the release-time Microsoft-serviced inventory. No Windows feature release is assumed by
+/// this executable; omissions are visible because the inventory-to-matrix cross-product is exact.
+pub fn validate_clean_machine_qualification(
+    evidence: &CleanMachineQualification,
+    installer: &InstallerQualification,
+) -> Result<(), String> {
+    let mut errors = Vec::new();
+    if let Err(error) = validate_installer_qualification(installer) {
+        errors.push(format!("installer qualification failed: {error}"));
+    }
+    if evidence.installer_sha256 != installer.installer_sha256 {
+        errors
+            .push("clean-machine matrix does not name the qualified installer SHA-256".to_string());
+    }
+    if evidence.qualified_build_commit != installer.build_commit {
+        errors.push("clean-machine matrix does not name the qualified build commit".to_string());
+    }
+
+    let inventory = &evidence.microsoft_serviced_inventory;
+    if inventory.product != WINDOWS_PRODUCT {
+        errors.push(format!(
+            "serviced inventory product must be {WINDOWS_PRODUCT}"
+        ));
+    }
+    if inventory.architecture != WINDOWS_ARCHITECTURE {
+        errors.push(format!(
+            "serviced inventory architecture must be {WINDOWS_ARCHITECTURE}"
+        ));
+    }
+    if inventory.observed_at_release.trim().is_empty() {
+        errors.push("serviced inventory needs a release-time observation".to_string());
+    }
+    if inventory.source.trim().is_empty() || !is_sha256(&inventory.source_sha256) {
+        errors.push(
+            "serviced inventory needs a named Microsoft source and its 64-hex SHA-256".to_string(),
+        );
+    }
+    if inventory.targets.is_empty() {
+        errors.push("serviced inventory contains no Windows 11 target".to_string());
+    }
+
+    let mut target_keys = BTreeSet::new();
+    let mut targets = BTreeSet::new();
+    for target in &inventory.targets {
+        let trimmed = target.feature_release.trim();
+        if trimmed.is_empty() || trimmed != target.feature_release {
+            errors.push("serviced feature-release names must be non-empty and trimmed".to_string());
+            continue;
+        }
+        if !target_keys.insert((target.feature_release.to_ascii_lowercase(), target.edition)) {
+            errors.push(format!(
+                "serviced inventory repeats {} {} {}",
+                WINDOWS_PRODUCT,
+                target.feature_release,
+                target.edition.label()
+            ));
+        }
+        targets.insert((target.feature_release.as_str(), target.edition));
+    }
+
+    let mut expected = BTreeSet::new();
+    for (feature_release, edition) in &targets {
+        for scenario in CLEAN_MACHINE_SCENARIOS {
+            expected.insert(scenario_key(feature_release, *edition, *scenario));
+        }
+    }
+
+    let mut actual = BTreeSet::new();
+    for result in &evidence.results {
+        let key = scenario_key(&result.feature_release, result.edition, result.scenario);
+        if !actual.insert(key.clone()) {
+            errors.push(format!(
+                "clean-machine matrix repeats {}",
+                scenario_name(&result.feature_release, result.edition, result.scenario)
+            ));
+        }
+        if result.evidence.trim().is_empty() {
+            errors.push(format!(
+                "clean-machine matrix has no evidence for {}",
+                scenario_name(&result.feature_release, result.edition, result.scenario)
+            ));
+        }
+        if !result.passed {
+            errors.push(format!(
+                "clean-machine scenario failed: {}",
+                scenario_name(&result.feature_release, result.edition, result.scenario)
+            ));
+        }
+    }
+
+    for missing in expected.difference(&actual) {
+        errors.push(format!(
+            "clean-machine matrix is missing {}",
+            scenario_name(&missing.0, missing.1, missing.2)
+        ));
+    }
+    for extra in actual.difference(&expected) {
+        errors.push(format!(
+            "clean-machine matrix contains a target outside the serviced inventory: {}",
+            scenario_name(&extra.0, extra.1, extra.2)
+        ));
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "installer is not publishable: {}",
+            errors.join("; ")
+        ))
+    }
+}
+
+/// Release-tool boundary; qualification JSON uses the shared tolerant text decoder.
+pub fn validate_clean_machine_qualification_file(
+    path: &Path,
+    installer: &InstallerQualification,
+) -> Result<(), String> {
+    let text = crate::parsers::read_text_file(path).map_err(|e| {
+        format!(
+            "{}: cannot read clean-machine qualification: {e}",
+            path.display()
+        )
+    })?;
+    let evidence: CleanMachineQualification = serde_json::from_str(&text).map_err(|e| {
+        format!(
+            "{}: invalid clean-machine qualification JSON: {e}",
+            path.display()
+        )
+    })?;
+    validate_clean_machine_qualification(&evidence, installer)
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 #[cfg(test)]
@@ -1606,6 +1872,132 @@ mod tests {
             installed_version: identity.version,
             installed_identifier: identity.identifier,
         }
+    }
+
+    fn clean_machine_qualification_fixture(
+        installer: &InstallerQualification,
+    ) -> CleanMachineQualification {
+        let targets = vec![
+            MicrosoftServicedWindowsTarget {
+                feature_release: "fixture-shared-serviced-release".to_string(),
+                edition: WindowsEdition::Pro,
+            },
+            MicrosoftServicedWindowsTarget {
+                feature_release: "fixture-shared-serviced-release".to_string(),
+                edition: WindowsEdition::Enterprise,
+            },
+            MicrosoftServicedWindowsTarget {
+                feature_release: "fixture-enterprise-only-serviced-release".to_string(),
+                edition: WindowsEdition::Enterprise,
+            },
+        ];
+        let mut results = Vec::new();
+        for target in &targets {
+            for scenario in CLEAN_MACHINE_SCENARIOS {
+                results.push(CleanMachineScenarioResult {
+                    feature_release: target.feature_release.clone(),
+                    edition: target.edition,
+                    scenario: *scenario,
+                    passed: true,
+                    evidence: "isolated clean-machine result".to_string(),
+                });
+            }
+        }
+        CleanMachineQualification {
+            installer_sha256: installer.installer_sha256.clone(),
+            qualified_build_commit: installer.build_commit.clone(),
+            microsoft_serviced_inventory: MicrosoftServicedWindowsInventory {
+                product: WINDOWS_PRODUCT.to_string(),
+                architecture: WINDOWS_ARCHITECTURE.to_string(),
+                observed_at_release: "fixture-release-time-observation".to_string(),
+                source: "preserved Microsoft servicing snapshot".to_string(),
+                source_sha256: "d".repeat(64),
+                targets,
+            },
+            results,
+        }
+    }
+
+    /// SB-INS-023 / SB-INS-T28. The nine scenarios are the complete list in SB-INS-023;
+    /// Windows 11 x64 Pro/Enterprise across every Microsoft-serviced feature release is the
+    /// deployment-owner decision supplied 2026-08-09. The passing and failing sides share the
+    /// same exact installer digest and build provenance so a gate cannot qualify another artifact.
+    #[test]
+    fn one_failing_clean_machine_scenario_blocks_release_and_names_the_scenario() {
+        assert_eq!(
+            CLEAN_MACHINE_SCENARIOS
+                .iter()
+                .map(|scenario| scenario.id())
+                .collect::<Vec<_>>(),
+            vec![
+                "standard_user",
+                "locked_down_user",
+                "offline_install",
+                "no_python_core_use",
+                "supported_external_python",
+                "missing_package",
+                "upgrade",
+                "rollback",
+                "uninstall_preservation",
+            ]
+        );
+        assert_eq!(
+            QUALIFIED_WINDOWS_EDITIONS,
+            &[WindowsEdition::Pro, WindowsEdition::Enterprise]
+        );
+
+        let installer = qualified_fixture();
+        let valid = clean_machine_qualification_fixture(&installer);
+        assert_eq!(
+            valid.results.len(),
+            valid.microsoft_serviced_inventory.targets.len() * CLEAN_MACHINE_SCENARIOS.len()
+        );
+        validate_clean_machine_qualification(&valid, &installer)
+            .expect("the complete passing cross-product is publishable");
+
+        let mut failing = valid.clone();
+        failing
+            .results
+            .iter_mut()
+            .find(|result| {
+                result.feature_release == "fixture-shared-serviced-release"
+                    && result.edition == WindowsEdition::Enterprise
+                    && result.scenario == CleanMachineScenario::Rollback
+            })
+            .expect("Enterprise rollback scenario")
+            .passed = false;
+        let error = validate_clean_machine_qualification(&failing, &installer).unwrap_err();
+        assert!(error.contains("installer is not publishable"), "{error}");
+        assert!(error.contains("fixture-shared-serviced-release"), "{error}");
+        assert!(error.contains("Enterprise"), "{error}");
+        assert!(error.contains("rollback"), "{error}");
+
+        let mut omitted = valid.clone();
+        omitted.results.retain(|result| {
+            !(result.feature_release == "fixture-shared-serviced-release"
+                && result.edition == WindowsEdition::Pro
+                && result.scenario == CleanMachineScenario::StandardUser)
+        });
+        let error = validate_clean_machine_qualification(&omitted, &installer).unwrap_err();
+        assert!(error.contains("matrix is missing"), "{error}");
+        assert!(error.contains("Pro / standard_user"), "{error}");
+
+        let mut expanded_inventory = valid;
+        expanded_inventory
+            .microsoft_serviced_inventory
+            .targets
+            .push(MicrosoftServicedWindowsTarget {
+                feature_release: "fixture-newly-serviced-release".to_string(),
+                edition: WindowsEdition::Pro,
+            });
+        let error =
+            validate_clean_machine_qualification(&expanded_inventory, &installer).unwrap_err();
+        assert!(error.contains("fixture-newly-serviced-release"), "{error}");
+        assert!(error.contains("matrix is missing"), "{error}");
+
+        let gate = include_str!("../examples/installation_gate.rs");
+        assert!(gate.contains("<clean-machine-qualification.json>"));
+        assert!(gate.contains("validate_clean_machine_qualification_file"));
     }
 
     /// SB-INS-001 / SB-INS-T01. Identity and version come from the cited Tauri manifest;
