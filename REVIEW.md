@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-002: native work remains available without Python
+
+- [ ] On a machine with no discoverable Python, launch and open a project, run a native module,
+      render a histogram and inspect native export formats. Do only Python-backed capabilities
+      report unavailable?
+
 ## 2026-08-09 — SB-PLT-030: plot canvases remain keyboard reachable
 
 - [ ] Focus an interactive canvas and use the arrow and zoom keys. Does the viewport change while
