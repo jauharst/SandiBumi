@@ -728,88 +728,145 @@ dialogs where they fit, and expose outputs to Python/SQL per §5.
 The actionable backlog. Roughly ordered: safe frontend wins first, then Performance (which needs a live
 100-well run to sign off), then the Wave B feature suites, then carried-forward deferrals.
 
-## B0. The active lane queue (2026-08-08)
+## B0. The lane queue (2026-08-09)
 
-**Where the next work is, and who does it.** Driven by `docs/PRD_v2/91_REQUIREMENTS_INDEX.md`
-— 931 requirements, 235 open `P0`. Lane method and its rules: `docs/record_parallel_lanes.md`.
+**Read this before starting any lane.** It says what to work on, in what order, and what the
+agent may and may not decide. The prompt itself is `docs/lane_prompt.md`; the counts come from
+`docs/PRD_v2/91_REQUIREMENTS_INDEX.md` (931 requirements, 235 open `P0`); the method and its
+reasons are `docs/record_parallel_lanes.md`.
 
-Each lane runs in the standing code worktree `D:\XX. SandiBumi-check` (its build is paid; keep
-it). One lane at a time, finished and merged before the next starts.
+### B0.1 The rule that changed, 2026-08-09
 
-| # | Branch | SCOPE — domain in the index | SPEC — the chapter | Open `P0` | State |
-|---|---|---|---|---|---|
-| 1 | `feat/dio-p1` | `SB-DIO` **P1**s | `21_data-io.md` | — | running |
-| 2 | `feat/ins-p0` | `SB-INS` | `27_ip-install-blockers.md` | 10 | queued |
-| 3 | `feat/plt-p0` | `SB-PLT` | `23_plotting-interactivity.md` | 16 | queued |
-| 4 | `feat/ignored-tests` | *(none — see below)* | — | — | queued |
-| 5 | `feat/core-040-matrix` | `SB-CORE-040` | `04_CORE_REQUIREMENTS.md` | 1 | queued |
-| 6 | `feat/missing-tests` | *(the 137 no-test list)* | every chapter's §6 | — | queued |
-| 7 | `feat/ins-p1`, then `feat/plt-p1` | `SB-INS`, `SB-PLT` **P1**s | as above | — | queued |
+**The boundary is no longer WHICH FILE. It is WHETHER THE CHAPTER CITES IT.**
 
-`SB-DIO` P0s shipped in PR #29 (eight requirements). Lanes 2 and 3 are Tier 0 — *"It is a
-product"*: installer, in-app method help, command palette, then plotting. **Neither contains
-physics, which is why both are safe without the Tier −1 triage.**
+Jauhar's decision: a lane may edit `equations.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`,
+`montecarlo.rs`, `petrography.rs` and the rest, **provided every value it writes is cited in a
+PRD v2 chapter**, with a final review by Opus before release. The old file blacklist was a proxy
+for "don't let an agent choose physics", and it was blunt: it blocked transcribing a *cited*
+value as firmly as inventing one.
 
-Lanes 4–6 are the verification tier, and all three are safe for the same reason — none of them
-chooses a petrophysical value:
+**What has NOT changed, and no authorization can change:**
 
-- **Lane 4 — the ignored set.** `cargo test -- --ignored` runs the 36 tests the green gate
-  deliberately excludes: the Excel/Word/PowerPoint round-trips, the ML subprocess, the Pillow
-  image path, and the real-field LAS and core fixtures. All six optional packages are installed
-  in the Python 3.12 environment and `SANDIBUMI_FIELD_FIXTURES` is set (2026-08-08), so these can
-  finally run. **Nobody has ever run them all.** Whatever fails is a real finding.
-- **Lane 5 — `SB-CORE-040`, verification indexed by capability.** A Tier −1 item, and the one
-  Tier −1 item that is pure bookkeeping rather than physics. It is also gate item 5: *"a
-  verification matrix a buyer can be shown, and a stated ratio that is not 6.7 %."*
-  `91_REQUIREMENTS_INDEX.md` supplies the requirement-to-test mapping this needs.
-- **Lane 6 — the 137 requirements with no owned acceptance test** (`91_REQUIREMENTS_INDEX.md`).
-  6 are `PRESENT-OK` — pin the shipped behaviour. The rest are `PARTIAL` / `PRESENT-DIVERGENT` /
-  `ABSENT`, where the honest test is `#[ignore]`d with the gap named in its own name, never a
-  green assertion over a known divergence. **`CONTRACT.md` §6 requires a characterization test to
-  say that it is one** — *a snapshot test wearing the costume of a correctness test is worse than
-  no test, because it converts a bug into a defended invariant.*
+1. **A parameter is cited or it ships `ABSENT`** — `CONTRACT.md` §2. If the chapter does not carry
+   the number, the lane records a named gap and moves on. Authorization cannot make an uncited
+   value citable.
+2. **The DuckDB write discipline.** `computed_curves` is deliberately PK-less and uniqueness is
+   upheld by the write path. No chapter cites this, so no chapter can license changing it.
+3. **`src/ui/chartOverlays.ts` is GENERATED** — regenerate with `tools/chartdig`, never hand-edit.
+4. **No client, field, block, basin or operator name** anywhere — `CONTRACT.md` §2.3.
 
-### Docs lanes — run these in PARALLEL, in a second worktree
+**Every physics lane carries two extra obligations:** each commit message names the chapter
+section its value came from, and the PR is tagged for Opus review before release. A number
+transcribed from a cited chapter is safe to write and still worth a second pair of eyes.
 
-A docs lane compiles nothing: no `npm install`, no `target/`, no competition for port 1420. So one
-docs lane and one code lane can run at the same time on the same machine. Each needs
-`cp -r docs/research_2026-08` into its worktree — the corpus is untracked by decision, and a lane
-must never `git add` it.
+### B0.2 Order matters more than volume
 
-| Branch | Job |
+Six days of agent time spent on `SB-GEO` builds a capability the 1.0 gate explicitly excludes,
+while Tier −1 — which blocks every claim above it — waits. Work the phases in order.
+
+Each lane is capped at **ten requirements**. PR #37 ran to 38 and 6,309 lines, which is past
+what anybody can genuinely review; it held only because the commits were one-per-requirement.
+
+---
+
+### Phase A — Tier −1, the truth tier · 7 lanes · do these first
+
+Nothing above can be claimed while these are open (`06_SEQUENCING_AND_GATES.md` §23.1). All are
+cross-cutting, which is exactly why they must run **one at a time** — two lanes amending the same
+definition sites merge cleanly and leave the product still inconsistent.
+
+| Branch | SCOPE | SPEC | Note |
+|---|---|---|---|
+| `feat/core-007-definitions` | `SB-CORE-007` | `04_CORE_REQUIREMENTS.md` | one definition per constant. The 22.2 % `VSH` spread across four sites, and the dual `FTEMP` — 33.1 °C apart at 2 000 m, 14.3 % on `Sw`. **Do this before any domain physics lane**, or domain work adds more definition sites |
+| `feat/core-006-one-equation` | `SB-CORE-006` | `04_CORE_REQUIREMENTS.md` | one name, one equation. 7.3 saturation units under one word |
+| `feat/core-001-depth-unit` | `SB-CORE-001` | `04_CORE_REQUIREMENTS.md` | the silent 3.28× Pc error. Note `units.rs:179-180` falls through to metres — `RESUME.md` §4.1 asks whether that becomes a refusal |
+| `feat/core-002-degraded` | `SB-CORE-002` | `04_CORE_REQUIREMENTS.md` | no degraded result presented as clean — seven named violations |
+| `feat/core-004-sources` | `SB-CORE-004` | `04_CORE_REQUIREMENTS.md` | no parameter without a source, machine-gated. Also the foundation of Tier 1 |
+| `feat/core-040-matrix` | `SB-CORE-040` | `04_CORE_REQUIREMENTS.md` | the verification matrix. 1.0 gate item 5, *"a stated ratio that is not 6.7 %"* |
+| `feat/core-rest-p0` | the remaining open `SB-CORE` P0s | `04_CORE_REQUIREMENTS.md` | 8 open in total |
+
+### Phase B — the 34 Tier −1 candidates · 5 lanes
+
+Surfaced by the index. Each names a quantified consequence in shipped code. Grouped by domain so
+file ownership stays clean; each is small.
+
+| Branch | Candidates |
 |---|---|
-| `docs/prd-v2-gap-analysis` | **`90_GAP_ANALYSIS.md`** — the last missing PRD v2 file. Rolled-up capability gap against IP 2025, Techlog 2018.2, Geolog V14, computed from all 18 chapters now that `91` exists |
-| `docs/prd-v2-task9-ml` | **Task 9 for `24_ml-advanced.md`** — the sixth batch-1 chapter, excluded from PR #25 while the ML lane held it. That lane merged (#24), so it is unblocked. `RESUME.md` §6 |
-| `docs/spine-fold` | Fold `_SPINE_PENDING.md` into the spine. SP-001 and SP-005 are resolved; SP-006 through SP-011 are chapter-quality gaps. **Leave SP-002's `GIP_*` half alone** — renaming a shipped curve is Jauhar's call. Also update `RESUME.md` §6, which still reads "queued" |
+| `feat/tier1c-saturation` | `SB-SAT-012`, `-013`, `-028`, `-031`, `-034`, `-035` |
+| `feat/tier1c-porosity` | `SB-POR-013`, `-021`, `-024`, `-035`, `-055`, `-059` |
+| `feat/tier1c-envcorr` | `SB-ENV-006`, `-024`, `-025`, `-044`, `-045` |
+| `feat/tier1c-cutoffs-thinbed` | `SB-CUT-031`, `-041`, `SB-TBD-006`, `-007`, `-066` |
+| `feat/tier1c-misc` | `SB-CLY-009`, `-050`, `SB-MIN-008`, `-027`, `SB-SHR-005`, `-014`, `SB-TOC-002`, `-005`, `-006`, `-019`, `-025`, `-041` — split into two if it runs long |
 
-**The real ceiling is not the lane list.** Ten lanes is ten PRs to read and ten `REVIEW.md` entries
-to field-verify against real wells, and only Jauhar can do either. Field-verify as each lane merges,
-never in a batch at the end: PR #29 changed the LAS import path — null recognition, index units,
-export provenance — and no gate can tell you whether a real delivery still reads correctly.
+**Start with `SB-CUT-031`**: twelve IP-seeded Gaussian priors passed as σ at twice the cited
+convention's width, which moves P10/P90 in studies already delivered.
 
-**STOP after lane 7 and the three docs lanes.** Everything remaining — `SB-ENV` (18), `SB-POR` (17), `SB-SAT` (13),
-`SB-CLY` (14), `SB-MIN` (7), `SB-CUT` (5), `SB-SHR` (13), `SB-TBD` (4) — is physics, and much
-of it sits in the 34 Tier −1 candidates the index flagged. Those need Jauhar's judgement, not
-an agent's. `SB-DBM` (16) is `db.rs` and is never delegated. `SB-GEO` (33) and `SB-PLG` (24) are
-unbuilt domains, deliberately off the 1.0 gate.
+Also queued here, from `_SPINE_PENDING.md` and not in the 34: **`SP-012`** — `Cp = DT_SH/100`
+with the shipped `DT_SH` of 90 gives 0.90, so the lack-of-compaction correction *raises* porosity
+11 % when its purpose is to lower it. RHG80 says `Cp` is always greater than unity
+(`docs/method_sonic_porosity.md`). Clamp or refuse is Jauhar's call — a clamp is silent where a
+refusal is not. **`SP-013`** (the `RHG` option is a one-segment approximation under a
+three-segment name) and **`SP-014`** (a basin name in shipped dialog text) ride along.
 
-**Blocked, needing a source rather than an agent:**
+### Phase C — P0s in domains that already have code · 12 lanes
 
-- `SB-DIO-023` — physical family bounds. `ABSENT` by design (`21_data-io.md` §5.6, §7.1 O-4),
-  waiting on a range table from `20_envcorr-qc.md`. Tests `T36`–`T38` stay unwritten: a test
-  against bounds that do not exist would pin an invented number. **The first cross-chapter
-  dependency the index surfaced.**
+These chapters are audits of shipped software, so every `PRESENT-DIVERGENT` and `PARTIAL` is a
+fix rather than a new build. Split at ten.
 
-**Open decisions blocking nothing yet, but they compound:**
+| Branch | SCOPE | SPEC |
+|---|---|---|
+| `feat/env-p0-a` / `-b` | `SB-ENV` P0s, 18 total | `20_envcorr-qc.md` |
+| `feat/por-p0-a` / `-b` | `SB-POR` P0s, 17 total | `11_porosity.md` |
+| `feat/plt-p0-a` / `-b` | `SB-PLT` P0s, 16 total | `23_plotting-interactivity.md` |
+| `feat/cly-p0-a` / `-b` | `SB-CLY` P0s, 14 total | `10_clay-volume.md` |
+| `feat/shr-p0-a` / `-b` | `SB-SHR` P0s, 13 total | `15_sat-height-rocktyping.md` |
+| `feat/sat-p0-a` / `-b` | `SB-SAT` P0s, 13 total | `12_saturation.md` |
+| `feat/min-p0` | `SB-MIN` P0s, 7 | `13_mineral-solver.md` |
+| `feat/cut-p0` | `SB-CUT` P0s, 5 | `14_cutoffs-summation-mc.md` |
+| `feat/tbd-p0` | `SB-TBD` P0s, 4 | `17_thinbed-laminated.md` |
+| `feat/toc-p0-a` / `-b` | `SB-TOC` P0s, 16 total | `19_toc-unconventional.md` |
 
-- The **34 Tier −1 candidates** (`91_REQUIREMENTS_INDEX.md`). `SB-CUT-031` first — twelve
-  IP-seeded Gaussian priors passed as σ at twice the cited convention's width, which moves
-  P10/P90 in studies already delivered. The triage question for each: *would I have to withdraw
-  a number from a study I have already sent?*
-- **Where the ML export refuses.** `SB-DIO-051` makes a saved model a precondition for exporting
-  a model-derived curve, and "Save model as" is optional in the ML pane — so a field-scale fit
-  can be discovered undeliverable at the LAS dialog. The refusal is right (`SB-CORE-010`/`-014`
-  is the Tier-1 claim); the position is wrong. Warn before the run, or keep the late refusal?
+`17_thinbed-laminated.md`'s highest-value item is recorded in `RESUME.md` §5: `lrlc.rs:123` and
+`:228` both read `PHIT`, so the Thomas-Stieber decomposition and the excess-conductivity
+saturation **are not connected**. Connecting them is axis 3's whole differentiator.
+
+### Phase D — P1s in the same built domains · ~12 lanes
+
+Same branches with `-p1`, same chapters, same ten-requirement cap. 401 `P1`s exist across the
+product; work the built domains first for the same reason as Phase C.
+
+### Phase E — domains with no code · ~10 lanes · OFF the 1.0 gate
+
+`06_SEQUENCING_AND_GATES.md` §24 excludes NMR and image logs from the gate **by name**, with the
+reasoning: *"A 1.0 gate that includes everything valuable is a gate that never opens."* These are
+real capability builds, each needing new modules, `modules.rs` manifests and `lib.rs` command
+registrations.
+
+`SB-GEO` 33 (`18_geomech-ppfg.md`) · `SB-PLG` 24 (`26_production-logging.md`) ·
+`SB-RPH` 12 (`25_fluidsub-rockphysics.md`) · `SB-NMR` (`16_nmr.md`)
+
+**Do not start these while Phase A–C remain open.**
+
+### Phase F — blocked on Jauhar, not on capacity
+
+| What | Blocked on |
+|---|---|
+| `SB-INS` — all 10 P0s | the installer package type and per-user/per-machine scope (§7.1 O-INS-1); the offline runtime strategy (§7.1 O-INS-2) — **which is `06_SEQUENCING` §26 decision #2, already blocking 1.0**; the supported-Windows matrix (§7.1 O-INS-4) |
+| `SB-DIO-023` | a family range table owed by `20_envcorr-qc.md` — the first cross-chapter dependency |
+| `SP-003` | US 12,242,011 B2 claims, for a lawyer |
+| `SB-DBM` 16 P0s | `db.rs`. The write discipline has no chapter to cite, so this lane needs Jauhar in the loop rather than a prompt |
+
+**A note on `SB-INS`, learned 2026-08-09:** a lane reported all ten blocked because the prompt's
+HALT wording read as *stop the lane*. It should be **per requirement** — an uncited value blocks
+that requirement only; the lane continues. Only a boundary violation, a branch switch, or an
+unfixable gate failure stops a lane. `SB-INS`'s in-app help and command-palette requirements do
+not depend on the installer decision and should be re-run under the corrected rule.
+
+---
+
+**Roughly 45 lanes.** At ten requirements each that is the whole open `P0` set plus the built-
+domain `P1`s. The constraint remains what it has been: every lane is a PR to read and a
+`REVIEW.md` entry to field-verify against real wells, and only Jauhar can do either.
 
 ## B1. Hardening backlog (§4b)
 
