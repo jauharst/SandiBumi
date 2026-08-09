@@ -57,6 +57,33 @@ export type RegModel = "linear" | "power" | "logx" | "exp";
 export type RegMethod = "yx" | "xy" | "rma";
 export type SizeMode = "fill" | "fixed";
 
+export interface ChartRenderRecord {
+  chart_id: string;
+  title: string;
+  chart_type: string;
+  x_quantity: string;
+  x_unit: string;
+  y_quantity: string;
+  y_unit: string;
+  citation: string;
+  publisher: string;
+  revision_date: string;
+  digitizer: string | null;
+  approved_derivation_path: string;
+  payload_checksum: string;
+  transform_applied: string;
+}
+
+interface ChartSourceProvenance {
+  chartType: string;
+  citation: string;
+  publisher: string;
+  revisionDate: string;
+  digitizer?: string;
+  approvedDerivationPath: "licensed_source" | "independently_digitized_public_primary_source";
+  payloadChecksum: string;
+}
+
 export interface CrossplotOptions {
   pointSize: number;
   xLog: boolean;
@@ -98,6 +125,9 @@ export interface CrossplotOptions {
    *  curves / mineral regions / reference lines, drawn when the plot axes match
    *  the chart's axes (either orientation). */
   chartOverlay: string;
+  /** Complete record for the chart payload actually authorized for this plot. A selected
+   *  chart with absent source metadata remains null and is not rendered. */
+  chartProvenance: ChartRenderRecord | null;
   /** Plot size: fill the panel (default) or a fixed pixel size (consistent exports). */
   sizeMode: SizeMode;
   plotW: number;
@@ -148,6 +178,7 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
   matrixPoints: false,
   rockOverlay: "",
   chartOverlay: "",
+  chartProvenance: null,
   sizeMode: "fill",
   plotW: 640,
   plotH: 480,
@@ -166,6 +197,9 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
  *  the axis-log flags to keep saved por-perm regressions meaning the same thing. */
 export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): CrossplotOptions {
   const opts: CrossplotOptions = { ...DEFAULT_CROSSPLOT_OPTIONS, ...raw };
+  // A saved snapshot never authorizes itself. Rebuild it from the current approved chart
+  // record, concrete axis units and actual transform before the next persistence write.
+  opts.chartProvenance = null;
   if (raw.regModel === undefined) {
     opts.regModel = opts.xLog && opts.yLog ? "power" : opts.xLog ? "logx" : opts.yLog ? "exp" : "linear";
   }
@@ -568,6 +602,12 @@ interface TypedOverlayAuthorization {
   y: OverlayUnitTransform;
 }
 
+interface ChartRenderDecision {
+  authorization: TypedOverlayAuthorization | null;
+  record: ChartRenderRecord | null;
+  refusal: string | null;
+}
+
 function authorizeTypedOverlay(
   def: ChartOverlayDef,
   xName: string,
@@ -588,6 +628,95 @@ function authorizeTypedOverlay(
   if ((x.factor !== 1 && xDecl.admissibleTransform !== "affine")
     || (y.factor !== 1 && yDecl.admissibleTransform !== "affine")) return null;
   return { orientation, x, y };
+}
+
+function authorizeProvenancedChart(
+  def: ChartOverlayDef,
+  xName: string,
+  yName: string,
+  xSource: ResolvedPlotCurve | null,
+  ySource: ResolvedPlotCurve | null,
+): ChartRenderDecision {
+  const authorization = authorizeTypedOverlay(def, xName, yName, xSource, ySource);
+  if (!authorization) return { authorization: null, record: null, refusal: null };
+  const source = (def as ChartOverlayDef & { provenance?: ChartSourceProvenance }).provenance;
+  if (!source) {
+    return {
+      authorization,
+      record: null,
+      refusal: `chart ${def.id} is blocked: source provenance is absent`,
+    };
+  }
+  const required: Array<[string, string]> = [
+    [def.id, "chart id"],
+    [def.label, "chart title"],
+    [source.chartType, "chart type"],
+    [source.citation, "citation"],
+    [source.publisher, "publisher"],
+    [source.revisionDate, "source revision/date"],
+    [source.approvedDerivationPath, "approved derivation path"],
+  ];
+  const missing = required.find(([value]) => !value?.trim());
+  if (missing) {
+    return { authorization, record: null, refusal: `chart ${def.id} is blocked: missing ${missing[1]}` };
+  }
+  if (!["licensed_source", "independently_digitized_public_primary_source"].includes(source.approvedDerivationPath)) {
+    return { authorization, record: null, refusal: `chart ${def.id} is blocked: derivation path is not approved` };
+  }
+  if (source.approvedDerivationPath === "independently_digitized_public_primary_source" && !source.digitizer?.trim()) {
+    return { authorization, record: null, refusal: `chart ${def.id} is blocked: digitizer is absent` };
+  }
+  if (!/^[0-9a-f]{64}$/i.test(source.payloadChecksum)) {
+    return { authorization, record: null, refusal: `chart ${def.id} is blocked: payload checksum is absent or invalid` };
+  }
+  const xKind = authorization.orientation === "normal" ? def.xAxis : def.yAxis;
+  const yKind = authorization.orientation === "normal" ? def.yAxis : def.xAxis;
+  const transform = JSON.stringify({
+    orientation: authorization.orientation,
+    x: {
+      source_unit: authorization.x.sourceUnit,
+      display_unit: authorization.x.displayUnit,
+      factor: authorization.x.factor,
+      offset: authorization.x.offset,
+    },
+    y: {
+      source_unit: authorization.y.sourceUnit,
+      display_unit: authorization.y.displayUnit,
+      factor: authorization.y.factor,
+      offset: authorization.y.offset,
+    },
+  });
+  return {
+    authorization,
+    refusal: null,
+    record: {
+      chart_id: def.id,
+      title: def.label,
+      chart_type: source.chartType,
+      x_quantity: OVERLAY_AXIS_DECLARATIONS[xKind].quantity,
+      x_unit: OVERLAY_AXIS_DECLARATIONS[xKind].canonicalUnit,
+      y_quantity: OVERLAY_AXIS_DECLARATIONS[yKind].quantity,
+      y_unit: OVERLAY_AXIS_DECLARATIONS[yKind].canonicalUnit,
+      citation: source.citation,
+      publisher: source.publisher,
+      revision_date: source.revisionDate,
+      digitizer: source.digitizer?.trim() || null,
+      approved_derivation_path: source.approvedDerivationPath,
+      payload_checksum: source.payloadChecksum.toLowerCase(),
+      transform_applied: transform,
+    },
+  };
+}
+
+function drawChartProvenanceRefusal(plot: PlotCanvas, refusal: string): void {
+  const { ctx } = plot;
+  const r = plot.plotRect;
+  ctx.save();
+  ctx.fillStyle = plot.theme.warn;
+  ctx.font = canvasFont(plot.theme, 10, 600);
+  ctx.textAlign = "left";
+  ctx.fillText(refusal, r.x0 + 8, r.y0 + r.h - 9, Math.max(40, r.w - 16));
+  ctx.restore();
 }
 
 /** Generic chartbook overlay renderer: matrix curves with graduation dots (every
@@ -1239,13 +1368,15 @@ export function drawCrossplot(
   // axes only, except charts that themselves need a log axis (e.g. Th/K ratio).
   const overlayDef = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
   if (overlayDef) {
-    const authorization = authorizeTypedOverlay(overlayDef, xName, yName, typedAxes?.x ?? null, typedAxes?.y ?? null);
-    if (authorization) {
-      const flipped = authorization.orientation === "flipped";
+    const decision = authorizeProvenancedChart(overlayDef, xName, yName, typedAxes?.x ?? null, typedAxes?.y ?? null);
+    if (decision.authorization && decision.record) {
+      const flipped = decision.authorization.orientation === "flipped";
       const logOk = overlayDef.xLogNeeded
         ? (flipped ? opts.yLog && !opts.xLog : opts.xLog && !opts.yLog)
         : !opts.xLog && !opts.yLog;
-      if (logOk) drawChartOverlay(plot, overlayDef, authorization);
+      if (logOk) drawChartOverlay(plot, overlayDef, decision.authorization);
+    } else if (decision.refusal) {
+      drawChartProvenanceRefusal(plot, decision.refusal);
     }
   }
 
@@ -1344,7 +1475,10 @@ export async function buildCrossplotContent(
     scopeInfo.style.display = ctxInfo ? "" : "none";
   };
 
-  const persist = () => savePlotProps("crossplot", opts);
+  const persist = () => {
+    opts.chartProvenance = currentChartDecision().record;
+    savePlotProps("crossplot", opts);
+  };
 
   const propsBtn = document.createElement("button");
   propsBtn.className = "plot-export-btn";
@@ -1488,6 +1622,20 @@ export async function buildCrossplotContent(
     plotBindingSnapshot([well.well_id], [curveName])
       .find((binding) => binding.intent.semantic_request.toUpperCase() === curveName.toUpperCase())
       ?.resolved[0] ?? null;
+
+  function currentChartDecision(): ChartRenderDecision {
+    const def = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
+    return def
+      ? authorizeProvenancedChart(def, xSel.value, ySel.value, typedAxes.x, typedAxes.y)
+      : { authorization: null, record: null, refusal: null };
+  }
+
+  function persistChartProvenanceIfChanged(): void {
+    const next = currentChartDecision().record;
+    if (JSON.stringify(opts.chartProvenance) === JSON.stringify(next)) return;
+    opts.chartProvenance = next;
+    savePlotProps("crossplot", opts);
+  }
 
   const crossplotWriteSource = async (method: string): Promise<PlotWriteSource> => {
     if (!plot) throw new Error("plot-derived write requires a rendered viewport");
@@ -1970,7 +2118,9 @@ export async function buildCrossplotContent(
       if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
       setStatus(`Crossplot data load failed: ${err}`);
       xs = ys = zs = depths = new Float32Array(0);
+      typedAxes = { x: null, y: null };
     }
+    persistChartProvenanceIfChanged();
     hoverIdx = -1; // the old hover index may point at a different sample now
     if (resetPending) {
       resetPending = false;
@@ -2244,7 +2394,8 @@ export async function buildCrossplotContent(
       for (const d of list) {
         const option = document.createElement("option");
         option.value = d.id;
-        option.textContent = d.label;
+        const source = (d as ChartOverlayDef & { provenance?: ChartSourceProvenance }).provenance;
+        option.textContent = `${d.label}${source ? "" : " — BLOCKED: source provenance absent"}`;
         group.appendChild(option);
       }
       chartSel.appendChild(group);
@@ -2344,7 +2495,8 @@ export async function buildCrossplotContent(
       if (opts.tsOverlay && !tsWas) reloading = tsAutoAxes();
       if (opts.showCore !== coreWas) void reloadCore();
       if (!reloading) redraw();
-      setStatus("Crossplot properties applied");
+      const chartDecision = currentChartDecision();
+      setStatus(chartDecision.refusal ?? "Crossplot properties applied");
       close();
     });
   };
@@ -2643,7 +2795,18 @@ export async function buildCrossplotContent(
       if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
-    getState: () => ({ plotId, x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value, wells: scope.serialize() }),
+    getState: () => {
+      const chartProvenance = currentChartDecision().record;
+      return {
+        plotId,
+        x: xSel.value,
+        y: ySel.value,
+        z: zSel.value,
+        zone: zoneSel.select.value,
+        wells: scope.serialize(),
+        chartProvenance: chartProvenance ? JSON.stringify(chartProvenance) : "",
+      };
+    },
     openProperties: openProps,
   };
 }
