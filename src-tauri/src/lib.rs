@@ -1517,6 +1517,25 @@ fn resolve_plot_bindings(
     plotting::resolve_plot_bindings(&conn, intents, &well_ids)
 }
 
+/// Validates and canonicalizes a plot-derived parameter source note. User and time
+/// are captured in the trusted process so the frontend cannot omit or fabricate them.
+#[tauri::command]
+fn finalize_plot_write_provenance(
+    source: Option<plotting::PlotWriteProvenanceInput>,
+) -> Result<String, String> {
+    let user = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .map_err(|_| "plot-derived write rejected: the operating-system user is unavailable".to_string())?;
+    let timestamp_utc_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("plot-derived write timestamp failed: {error}"))?
+        .as_millis()
+        .try_into()
+        .map_err(|_| "plot-derived write timestamp exceeds u64".to_string())?;
+    let provenance = plotting::finalize_plot_write_provenance(source, &user, timestamp_utc_ms)?;
+    serde_json::to_string(&provenance).map_err(|error| error.to_string())
+}
+
 /// Lists every deterministic module manifest — the frontend auto-generates each module's
 /// parameter dialog from these (module-manifest model).
 #[tauri::command]
@@ -3419,6 +3438,7 @@ pub fn run() {
             get_track_data,
             get_curve_data,
             resolve_plot_bindings,
+            finalize_plot_write_provenance,
             list_modules,
             run_workflow_module,
             module_output_names,
