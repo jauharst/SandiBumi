@@ -835,17 +835,60 @@ saturation **are not connected**. Connecting them is axis 3's whole differentiat
 Same branches with `-p1`, same chapters, same ten-requirement cap. 401 `P1`s exist across the
 product; work the built domains first for the same reason as Phase C.
 
-### Phase E — domains with no code · ~10 lanes · OFF the 1.0 gate
+### Phase E — domains with no shipped code · 8 lanes · **ON the gate, correcting an earlier note**
 
-`06_SEQUENCING_AND_GATES.md` §24 excludes NMR and image logs from the gate **by name**, with the
-reasoning: *"A 1.0 gate that includes everything valuable is a gate that never opens."* These are
-real capability builds, each needing new modules, `modules.rs` manifests and `lib.rs` command
-registrations.
+**This section previously said "OFF the 1.0 gate". That was wrong.** Gate item 1 is *"every `P0`
+requirement closed and verified"*, and §24's exclusion list names only **NMR, image logs, OSDU,
+the 2D map and automation** — not geomechanics, not production logging, not rock physics. Their
+P0s count.
 
-`SB-GEO` 33 (`18_geomech-ppfg.md`) · `SB-PLG` 24 (`26_production-logging.md`) ·
-`SB-RPH` 12 (`25_fluidsub-rockphysics.md`) · `SB-NMR` (`16_nmr.md`)
+Checked against the index: **`SB-NMR` has zero open `P0`s** (all 38 of its requirements are P1 or
+below), so the NMR exclusion costs nothing on gate item 1 either way. And **`SB-MLA` has zero open
+`P0`s** — all ten ML P0s closed in the round-3 work.
 
-**Do not start these while Phase A–C remain open.**
+So these are ordinary gate work, just larger per requirement because each needs a new module, a
+`modules.rs` manifest entry and a `lib.rs` command registration.
+
+| Branch | SCOPE | SPEC | Open P0 |
+|---|---|---|---|
+| `feat/geo-p0-a` … `-d` | `SB-GEO` P0s | `18_geomech-ppfg.md` | 33 → 4 lanes |
+| `feat/plg-p0-a` … `-c` | `SB-PLG` P0s | `26_production-logging.md` | 24 → 3 lanes |
+| `feat/rph-p0-a` / `-b` | `SB-RPH` P0s | `25_fluidsub-rockphysics.md` | 12 → 2 lanes |
+
+**Still run these after Phase A–C**, not because of the gate but because of `SB-CORE-007`: a new
+module that defines its own constants before the definition sites are consolidated adds to the
+problem Phase A is there to fix.
+
+### B0.3 The complete open-`P0` set — 24 lanes, all 235
+
+Gate item 1 in full, so nothing has to be inferred from prose. Ordered by the sequencing
+constraints above; the count is the index's, which is stale by the 8 `SB-DIO` P0s closed in #29.
+
+| Order | Lanes | Domain | Open P0 | Chapter |
+|---:|---|---|---:|---|
+| 1 | 7 | `SB-CORE` (Phase A, one per requirement) | 8 | `04_CORE_REQUIREMENTS.md` |
+| 2 | 2 | `SB-ENV` | 18 | `20_envcorr-qc.md` |
+| 3 | 2 | `SB-POR` | 17 | `11_porosity.md` |
+| 4 | 2 | `SB-TOC` | 16 | `19_toc-unconventional.md` |
+| 5 | 2 | `SB-PLT` | 16 | `23_plotting-interactivity.md` |
+| 6 | 2 | `SB-CLY` | 14 | `10_clay-volume.md` |
+| 7 | 2 | `SB-SHR` | 13 | `15_sat-height-rocktyping.md` |
+| 8 | 2 | `SB-SAT` | 13 | `12_saturation.md` |
+| 9 | 1 | `SB-MIN` | 7 | `13_mineral-solver.md` |
+| 10 | 1 | `SB-CUT` | 5 | `14_cutoffs-summation-mc.md` |
+| 11 | 1 | `SB-TBD` | 4 | `17_thinbed-laminated.md` |
+| 12 | 4 | `SB-GEO` | 33 | `18_geomech-ppfg.md` |
+| 13 | 3 | `SB-PLG` | 24 | `26_production-logging.md` |
+| 14 | 2 | `SB-RPH` | 12 | `25_fluidsub-rockphysics.md` |
+| — | 2 | `SB-DBM` — **needs Jauhar in the loop**, `db.rs` write discipline has no chapter to cite | 16 | `22_database-model.md` |
+| — | 1 | `SB-INS` — 3 of 10 blocked on Jauhar's decisions; the other 7 are runnable | 10 | `27_ip-install-blockers.md` |
+
+`SB-DIO` 10 · closed in #29. `SB-NMR` and `SB-MLA` · zero open P0.
+
+**Re-run `feat/requirements-index` every five lanes.** The index is the queue's only source of
+truth about what is still open, and it goes stale the moment a lane merges. Working from a stale
+index means re-doing closed requirements, which is the one waste this whole apparatus exists to
+prevent.
 
 ### Phase F — blocked on Jauhar, not on capacity
 
