@@ -411,7 +411,8 @@ export function drawRockOverlay(plot: PlotCanvas, kind: string, flipped: boolean
   ctx.restore();
 }
 
-/** Default axis ranges by mnemonic; anything else auto-ranges from P2–P98. */
+/** Audited family display ranges already carried by this panel. They remain display
+ * limits only; no validity filtering is inferred from them. */
 function axisDefaults(curve: string): { min: number; max: number; invert: boolean } | null {
   switch (curve.toUpperCase()) {
     case "NPHI":
@@ -438,6 +439,39 @@ function axisDefaults(curve: string): { min: number; max: number; invert: boolea
     default:
       return null;
   }
+}
+
+export type AxisRangeTier = "user" | "header_display" | "audited_family_display" | "finite_data";
+
+export interface AxisDisplayRange {
+  min: number;
+  max: number;
+}
+
+export interface AxisRangeCandidates {
+  user: AxisDisplayRange | null;
+  headerDisplay: AxisDisplayRange | null;
+  auditedFamilyDisplay: AxisDisplayRange | null;
+  finiteData: AxisDisplayRange | null;
+  /** Validity belongs to filtering and is intentionally excluded from precedence. */
+  validity: AxisDisplayRange | null;
+}
+
+export function resolveAxisRange(
+  candidates: AxisRangeCandidates,
+): (AxisDisplayRange & { tier: AxisRangeTier }) | null {
+  const ordered: Array<[AxisDisplayRange | null, AxisRangeTier]> = [
+    [candidates.user, "user"],
+    [candidates.headerDisplay, "header_display"],
+    [candidates.auditedFamilyDisplay, "audited_family_display"],
+    [candidates.finiteData, "finite_data"],
+  ];
+  for (const [range, tier] of ordered) {
+    if (range && Number.isFinite(range.min) && Number.isFinite(range.max) && range.min !== range.max) {
+      return { ...range, tier };
+    }
+  }
+  return null;
 }
 
 /** Quartz / calcite / dolomite matrix reference points in (NPHI, RHOB) space — drawn
@@ -713,19 +747,26 @@ export function drawCrossplot(
     const pad = (hi - lo) * 0.08;
     return { min: lo - pad, max: hi + pad };
   };
-  /** Manual range > mnemonic default > P2–P98 auto; log axes get a positive floor. */
+  /** User > header display > audited family display > finite-data range. */
   const resolve = (
     name: string,
     values: Float32Array,
     log: boolean,
     manMin: number | null,
     manMax: number | null,
-  ): { min: number; max: number; invert: boolean } | null => {
-    const base = axisDefaults(name) ?? (auto(values) ? { ...auto(values)!, invert: false } : null);
-    if (!base && (manMin === null || manMax === null)) return null;
-    let min = manMin ?? base!.min;
-    let max = manMax ?? base!.max;
-    const invert = base?.invert ?? false;
+  ): { min: number; max: number; invert: boolean; tier: AxisRangeTier } | null => {
+    const family = axisDefaults(name);
+    const finite = auto(values);
+    const resolved = resolveAxisRange({
+      user: manMin !== null && manMax !== null ? { min: manMin, max: manMax } : null,
+      headerDisplay: null,
+      auditedFamilyDisplay: family ? { min: family.min, max: family.max } : null,
+      finiteData: finite,
+      validity: null,
+    });
+    if (!resolved) return null;
+    let { min, max } = resolved;
+    const invert = family?.invert ?? false;
     if (log) {
       if (max <= 0) return null;
       if (min <= 0) {
@@ -738,7 +779,7 @@ export function drawCrossplot(
       }
     }
     if (min === max) return null;
-    return { min, max, invert };
+    return { min, max, invert, tier: resolved.tier };
   };
 
   // With context wells the auto range (and the log-axis positive floor) must cover the
@@ -764,6 +805,12 @@ export function drawCrossplot(
     opts.marginals ? { top: 56, right: 64 } : undefined,
   );
   plot.drawFrame();
+  plot.ctx.save();
+  plot.ctx.font = canvasFont(plot.theme, 9);
+  plot.ctx.fillStyle = plot.theme.axis;
+  plot.ctx.textAlign = "left";
+  plot.ctx.fillText(`axis ranges: X ${xr.tier} · Y ${yr.tier}`, plot.plotRect.x0 + 4, plot.margin.top - 7);
+  plot.ctx.restore();
   const pointColor = opts.color || plot.theme.accent;
 
   // Z coloring only when a Z curve is selected. Discrete class curves (electrofacies,
