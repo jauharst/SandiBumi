@@ -166,6 +166,52 @@ pub fn bind_overlay_axis(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RangePolicyReport {
+    pub input_count: usize,
+    pub non_finite_excluded: usize,
+    pub validity_excluded: usize,
+    pub display_hidden: usize,
+    pub statistics_count: usize,
+    pub kept_values: Vec<f32>,
+}
+
+pub fn apply_range_policy(
+    values: &[f32],
+    display: DisplayRange,
+    validity: Option<DisplayRange>,
+    apply_validity: bool,
+) -> RangePolicyReport {
+    let mut report = RangePolicyReport {
+        input_count: values.len(),
+        non_finite_excluded: 0,
+        validity_excluded: 0,
+        display_hidden: 0,
+        statistics_count: 0,
+        kept_values: Vec::new(),
+    };
+    for &value in values {
+        if !value.is_finite() {
+            report.non_finite_excluded += 1;
+            continue;
+        }
+        if apply_validity
+            && validity
+                .map(|range| value < range.low.min(range.high) || value > range.low.max(range.high))
+                .unwrap_or(false)
+        {
+            report.validity_excluded += 1;
+            continue;
+        }
+        report.statistics_count += 1;
+        report.kept_values.push(value);
+        if value < display.low.min(display.high) || value > display.low.max(display.high) {
+            report.display_hidden += 1;
+        }
+    }
+    report
+}
+
 fn non_blank(value: &str, field: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         Err(format!("resolved plot curve is missing {field}"))
@@ -512,5 +558,30 @@ mod tests {
         assert_eq!(converted.factor, 0.3048);
         assert_eq!(converted.offset, 0.0);
         assert!(converted.transform.contains("0.3048"));
+    }
+
+    #[test]
+    fn display_clipping_counts_hidden_points_while_validity_filtering_changes_the_population_explicitly() {
+        let values = [0.0, 1.0, 2.0, 3.0, 4.0];
+        let clipped = apply_range_policy(
+            &values,
+            DisplayRange { low: 1.0, high: 3.0 },
+            Some(DisplayRange { low: 1.0, high: 3.0 }),
+            false,
+        );
+        assert_eq!(clipped.statistics_count, 5);
+        assert_eq!(clipped.display_hidden, 2);
+        assert_eq!(clipped.validity_excluded, 0);
+
+        let filtered = apply_range_policy(
+            &values,
+            DisplayRange { low: 0.0, high: 4.0 },
+            Some(DisplayRange { low: 1.0, high: 3.0 }),
+            true,
+        );
+        assert_eq!(filtered.statistics_count, 3);
+        assert_eq!(filtered.validity_excluded, 2);
+        assert_eq!(filtered.display_hidden, 0);
+        assert_eq!(filtered.kept_values, vec![1.0, 2.0, 3.0]);
     }
 }
