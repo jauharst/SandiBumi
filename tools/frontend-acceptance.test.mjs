@@ -101,3 +101,17 @@ test("characterizes_vector_exports_as_labelled_while_the_png_print_path_is_not_l
   assert.ok(!labels.some((label) => /raster/i.test(label)));
   assert.match(Function.prototype.toString.call(printCanvas), /image\/png/);
 });
+
+test("characterizes_crossplot_static_draw_and_z_colours_as_separately_invalidated_subsets", async () => {
+  // CHARACTERIZATION — SB-PLT-028 cites the current crossplot source. These memo and
+  // draw boundaries are the shipped PARTIAL subset; the test does not claim that every
+  // range, quantile, transform, invariant overlay and transient layer is separated.
+  const { buildCrossplotContent } = await load("/src/ui/crossplotPanel.ts");
+  const source = Function.prototype.toString.call(buildCrossplotContent);
+
+  assert.match(source, /colorMemo/);
+  assert.match(source, /dataGen/);
+  assert.match(source, /drawStatic/);
+  assert.ok(source.indexOf("drawStatic") < source.lastIndexOf("redraw"));
+  assert.match(source, /plot\s*=\s*drawStatic\(canvas,\s*hoverIdx\)/);
+});
