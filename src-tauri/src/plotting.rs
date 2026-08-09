@@ -429,6 +429,117 @@ pub fn apply_plot_channel_policy(
     report
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WellRequiredChannels {
+    pub well_id: String,
+    pub channels: Vec<Vec<f32>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WellPointAllocation {
+    pub well_id: String,
+    pub finite_pair_count: usize,
+    pub quota: usize,
+    pub source_indices: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AbsentWellAllocation {
+    pub well_id: String,
+    pub reason: String,
+    pub quota: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MultiWellPointAllocation {
+    pub wells: Vec<WellPointAllocation>,
+    pub absent: Vec<AbsentWellAllocation>,
+}
+
+fn endpoint_preserving_subset(eligible: &[usize], count: usize) -> Vec<usize> {
+    if count >= eligible.len() {
+        return eligible.to_vec();
+    }
+    if count == 1 {
+        return vec![eligible[0]];
+    }
+    (0..count)
+        .map(|position| eligible[position * (eligible.len() - 1) / (count - 1)])
+        .collect()
+}
+
+/// Screens aligned required channels before assigning any part of the total point
+/// budget. Each represented well first receives enough capacity for both eligible
+/// endpoints (or its single eligible sample), then remaining capacity is shared in
+/// stable input order without exceeding the total budget.
+pub fn allocate_finite_pair_budget(
+    wells: &[WellRequiredChannels],
+    budget: usize,
+) -> Result<MultiWellPointAllocation, String> {
+    let mut absent = Vec::new();
+    let mut screened: Vec<(String, Vec<usize>)> = Vec::new();
+    for well in wells {
+        let aligned_len = well.channels.iter().map(Vec::len).min().unwrap_or(0);
+        let eligible: Vec<usize> = (0..aligned_len)
+            .filter(|&index| well.channels.iter().all(|channel| channel[index].is_finite()))
+            .collect();
+        if eligible.is_empty() {
+            absent.push(AbsentWellAllocation {
+                well_id: well.well_id.clone(),
+                reason: "zero finite aligned pairs across required channels".into(),
+                quota: 0,
+            });
+        } else {
+            screened.push((well.well_id.clone(), eligible));
+        }
+    }
+    if screened.is_empty() {
+        return Ok(MultiWellPointAllocation { wells: Vec::new(), absent });
+    }
+    let minimum_required: usize = screened
+        .iter()
+        .map(|(_, eligible)| eligible.len().min(2))
+        .sum();
+    if budget < minimum_required {
+        return Err(format!(
+            "point budget {budget} cannot retain both endpoints for {} represented wells; at least {minimum_required} points are required",
+            screened.len()
+        ));
+    }
+    let mut quotas: Vec<usize> = screened
+        .iter()
+        .map(|(_, eligible)| eligible.len().min(2))
+        .collect();
+    let mut remaining = budget - minimum_required;
+    while remaining > 0 {
+        let mut advanced = false;
+        for (index, (_, eligible)) in screened.iter().enumerate() {
+            if remaining == 0 {
+                break;
+            }
+            if quotas[index] < eligible.len() {
+                quotas[index] += 1;
+                remaining -= 1;
+                advanced = true;
+            }
+        }
+        if !advanced {
+            break;
+        }
+    }
+    let wells = screened
+        .into_iter()
+        .zip(quotas)
+        .map(|((well_id, eligible), quota)| WellPointAllocation {
+            well_id,
+            finite_pair_count: eligible.len(),
+            quota,
+            source_indices: endpoint_preserving_subset(&eligible, quota),
+        })
+        .collect();
+    Ok(MultiWellPointAllocation { wells, absent })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PickettFit {
     pub m: f32,
@@ -1000,5 +1111,33 @@ mod tests {
         assert_eq!(waveform.values[2].to_bits(), 10.0f32.to_bits());
 
         assert_eq!(source.iter().map(|value| value.to_bits()).collect::<Vec<_>>(), source_bits);
+    }
+
+    #[test]
+    fn an_all_nan_required_channel_consumes_no_quota_while_represented_wells_keep_both_endpoints() {
+        // SB-PLT-014 / SB-PLT-T20: values are alignment fixtures; no domain limit is implied.
+        let allocation = allocate_finite_pair_budget(
+            &[
+                WellRequiredChannels {
+                    well_id: "missing".into(),
+                    channels: vec![vec![1.0, 2.0, 3.0], vec![f32::NAN; 3]],
+                },
+                WellRequiredChannels {
+                    well_id: "represented".into(),
+                    channels: vec![vec![10.0, 20.0, 30.0], vec![1.0, 2.0, 3.0]],
+                },
+            ],
+            2,
+        )
+        .unwrap();
+
+        assert_eq!(allocation.wells.len(), 1);
+        assert_eq!(allocation.wells[0].well_id, "represented");
+        assert_eq!(allocation.wells[0].quota, 2);
+        assert_eq!(allocation.wells[0].source_indices, vec![0, 2]);
+        assert_eq!(allocation.absent.len(), 1);
+        assert_eq!(allocation.absent[0].well_id, "missing");
+        assert!(allocation.absent[0].reason.contains("zero finite aligned pairs"));
+        assert_eq!(allocation.absent[0].quota, 0);
     }
 }
