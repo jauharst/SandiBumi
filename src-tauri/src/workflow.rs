@@ -447,7 +447,25 @@ pub fn run_workflow_module_into(
     // per WELL, because a facies curve exists on the wells that were clustered and not on others.
     let (depth_unit, class_by_well) = {
         let conn = db.lock().unwrap();
-        let unit = crate::units::project_depth_unit_or_default(&conn);
+        let unit = match crate::units::project_depth_unit(&conn) {
+            Ok(Some(unit)) => unit,
+            Ok(None) if req.module == "sw_height" => {
+                return req
+                    .well_ids
+                    .iter()
+                    .map(|well_id| ModuleRunResult {
+                        well_id: well_id.clone(),
+                        rows_written: 0,
+                        output_curves: vec![],
+                        error: Some(
+                            "sw_height requires a declared project depth unit before it can run"
+                                .into(),
+                        ),
+                    })
+                    .collect();
+            }
+            Ok(None) | Err(_) => crate::units::DepthUnit::Metres,
+        };
         let map: HashMap<String, String> = req
             .well_ids
             .iter()
@@ -3652,6 +3670,50 @@ mod tests {
         );
     }
 
+    /// SB-CORE-T02. Source: `docs/PRD_v2/04_CORE_REQUIREMENTS.md`, SB-CORE-001.
+    /// The control is deliberately a real well with no curves: unit validation
+    /// must run before input resolution, otherwise the workflow can still hide
+    /// the undeclared unit behind an unrelated missing-PHIE refusal.
+    #[test]
+    fn a_depth_dependent_module_refuses_when_the_project_depth_unit_is_undeclared() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_id, "UNDECLARED-DEPTH-UNIT", None, None, None).unwrap();
+        assert_eq!(crate::units::project_depth_unit(&conn).unwrap(), None);
+
+        let well = well_id.to_string();
+        let dbm = Mutex::new(conn);
+        let result = run_workflow_module_into(
+            &dbm,
+            &RunModuleRequest {
+                module: "sw_height".into(),
+                well_ids: vec![well.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::new(),
+                opts: HashMap::new(),
+                output_set: None,
+                input_set: None,
+            },
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(result.len(), 1);
+        let error = result[0].error.as_deref().expect("an undeclared unit must refuse the run");
+        assert!(error.contains("sw_height requires a declared project depth unit"), "{error}");
+        let conn = dbm.lock().unwrap();
+        let written: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1",
+                duckdb::params![well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(written, 0, "a refused run must not write any curve rows");
+    }
+
     /// Cancel responsiveness: with the chain cancel flag already set, run_workflow_module_into
     /// skips every well (no fetch/compute/write) and returns clean no-ops — so a Cancel drains a
     /// running step's remaining wells in ~a well or two instead of grinding through all of them.
@@ -3718,6 +3780,7 @@ mod tests {
     fn a_deviated_wells_height_is_measured_from_the_survey_not_along_hole() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
 
         // Two identical wells on the same MD grid. Only one gets a deviation survey, so the
         // other is the control: it must still fall back to measured depth.

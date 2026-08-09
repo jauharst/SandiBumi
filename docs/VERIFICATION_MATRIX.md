@@ -17,7 +17,7 @@ Capabilities with recorded exercise: **14 / 54**. Fully exercised: **1 / 54**.
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 52 | — | 9 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 18 | — | 3 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Not exercised | 0 / 44 | — | 24 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Not exercised | 0 / 45 | — | 25 |
 | `reframe` | Reframe and sampling alignment | Not exercised | 0 / 34 | — | 4 |
 | `conditioning` | Log conditioning and masking | Not exercised | 0 / 27 | — | 4 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
@@ -29,11 +29,11 @@ Capabilities with recorded exercise: **14 / 54**. Fully exercised: **1 / 54**.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 17 | — | 3 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 33 | — | 10 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 2 / 96 | 2026-07-19 | 24 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 2 / 97 | 2026-07-19 | 25 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
-| `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 5 | — | 3 |
+| `saturation-height` | Saturation-height interpretation | Not exercised | 0 / 6 | — | 4 |
 | `unconventional` | Unconventional interpretation | Not exercised | 0 / 4 | — | 9 |
 | `sandimin` | SandiMin mineral solver | Not exercised | 0 / 28 | — | 18 |
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |

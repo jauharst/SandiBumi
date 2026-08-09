@@ -151,8 +151,11 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
         }
         let fwl = ctx.p("FWL", i);
         let swt_irr = ctx.p("SWT_IRR", i);
-        let h = fwl - dv; // metres above the FWL (negative below it); FWL shares dv's reference
-        hafwl_out[i] = h as f32;
+        let h = fwl - dv; // project-unit height above the FWL; FWL shares dv's reference
+        let h_metres =
+            crate::units::convert_depth(h, ctx.depth_unit, crate::units::DepthUnit::Metres);
+        // HAFWL's manifest unit is metres even when the project's stored depth frame is feet.
+        hafwl_out[i] = h_metres as f32;
 
         if h <= 0.0 {
             swh_out[i] = 1.0; // at/below the free-water level: fully water
@@ -169,10 +172,10 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
             let b = ctx.p("SH_B", i);
             let c = ctx.p("SH_C", i);
             let dd = ctx.p("SH_D", i);
-            if h + dd <= 0.0 {
+            if h_metres + dd <= 0.0 {
                 1.0
             } else {
-                1.0 - a * (-(b / (h + dd)).powf(c)).exp()
+                1.0 - a * (-(b / (h_metres + dd)).powf(c)).exp()
             }
         } else {
             let k = perm[i] as f64;
@@ -266,6 +269,45 @@ mod tests {
         assert!(
             (metric - imperial).abs() < 1e-3,
             "same well, same height above FWL, different declared unit: metric Sw {metric} vs foot Sw {imperial}"
+        );
+    }
+
+    /// SB-CORE-T01b. Source: `docs/PRD_v2/04_CORE_REQUIREMENTS.md`, SB-CORE-001.
+    /// Skelt-Harrison's SH_B and SH_D are declared in metres, so one physical
+    /// 100 m height must produce one answer whether the project's depth frame is
+    /// declared in metres or in international feet (1 ft = 0.3048 m).
+    #[test]
+    fn skelt_harrison_is_identical_whichever_unit_the_project_declares() {
+        use crate::units::DepthUnit;
+
+        let metric = sw_height(&ctx_in_unit(
+            1,
+            &[("DEPTH", vec![1900.0]), ("PHIE", vec![0.25])],
+            &[("FWL", 2000.0)],
+            &[("OPT_SWH", "SKELT")],
+            DepthUnit::Metres,
+        ));
+        let imperial = sw_height(&ctx_in_unit(
+            1,
+            &[("DEPTH", vec![6233.5957]), ("PHIE", vec![0.25])],
+            &[("FWL", 6561.6798)],
+            &[("OPT_SWH", "SKELT")],
+            DepthUnit::Feet,
+        ));
+
+        let metric_sw = metric["SWH"][0];
+        let imperial_sw = imperial["SWH"][0];
+        assert!(metric_sw.is_finite() && metric_sw > 0.0 && metric_sw < 1.0);
+        assert!(
+            (metric_sw - imperial_sw).abs() < 1e-4,
+            "the same 100 m Skelt-Harrison height produced metric Sw {metric_sw} and foot Sw {imperial_sw}"
+        );
+        assert!(
+            (metric["HAFWL"][0] - 100.0).abs() < 1e-4
+                && (imperial["HAFWL"][0] - 100.0).abs() < 1e-3,
+            "HAFWL is declared in metres and must record the same physical height: metric {} vs foot {}",
+            metric["HAFWL"][0],
+            imperial["HAFWL"][0]
         );
     }
 
