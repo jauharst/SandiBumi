@@ -81,9 +81,8 @@ export function sanitizePickettProps(raw: Partial<PickettProps>): PickettProps {
   return p;
 }
 
-/** One extra well's cloud drawn faded behind the active well — display-only: the water
- *  line, picks, brushing and tooltips stay the ACTIVE well's (m/n/Rw are per-well
- *  parameters; the overlay shows whether neighbours share the active well's water line). */
+/** One extra well's cloud drawn faded behind the active well — display-only: the fitted
+ *  product line, picks, brushing and tooltips stay the ACTIVE well's. */
 export interface PickettContextLayer {
   name: string;
   rt: Float32Array;
@@ -97,29 +96,29 @@ export interface PickettContext {
   layers: PickettContextLayer[];
 }
 
-/** Water line fit from two picked points on the log-log plot:
- *  Sw=1 (Archie): RT = Rw / PHI^m  →  m = -Δlog(RT)/Δlog(PHI),  Rw = RT·PHI^m. */
+/** Water-line fit from two picked points on the log-log plot.
+ *  At Sw=1 the intercept is a·Rw: RT = (a·Rw)/PHI^m. The plot cannot identify
+ *  a and Rw separately without one independently supplied, provenance-bearing value. */
 export function fitWaterLine(
   p1: [number, number],
   p2: [number, number],
-): { m: number; rw: number } | null {
+): { m: number; aRw: number } | null {
   const [rt1, phi1] = p1;
   const [rt2, phi2] = p2;
   if (rt1 <= 0 || rt2 <= 0 || phi1 <= 0 || phi2 <= 0) return null;
   const dLogPhi = Math.log10(phi2) - Math.log10(phi1);
   if (Math.abs(dLogPhi) < 1e-6) return null;
   const m = -(Math.log10(rt2) - Math.log10(rt1)) / dLogPhi;
-  const rw = rt1 * Math.pow(phi1, m);
-  if (!Number.isFinite(m) || !Number.isFinite(rw) || m <= 0 || rw <= 0) return null;
-  return { m, rw };
+  const aRw = rt1 * Math.pow(phi1, m);
+  if (!Number.isFinite(m) || !Number.isFinite(aRw) || m <= 0 || aRw <= 0) return null;
+  return { m, aRw };
 }
 
 export function drawPickett(
   canvas: HTMLCanvasElement,
   rt: Float32Array,
   phi: Float32Array,
-  line: { m: number; rw: number } | null,
-  n: number,
+  line: { m: number; aRw: number } | null,
   picks: [number, number][],
   hoverIdx = -1,
   view: Viewport | null = null,
@@ -148,20 +147,15 @@ export function drawPickett(
   plot.drawScatter(rt, phi, style?.colors, style?.pointSize ?? 1.8);
 
   if (line) {
-    // rt(phi) = Rw / (phi^m · sw^n); straight lines in log-log space, spanning the whole
-    // visible porosity window (the old fixed 0.01–1 span truncated under custom ranges/zoom).
+    // The fitted Sw=1 trend needs only m and the identifiable product a·Rw. Saturation
+    // guides remain absent until a, m, n and Rw are all supplied with provenance.
     const phiLo = Math.min(plot.y.min, plot.y.max);
     const phiHi = Math.max(plot.y.min, plot.y.max);
-    const lineFor = (sw: number): [number, number][] => {
-      const points: [number, number][] = [];
-      for (const phiV of [phiLo, phiHi]) {
-        points.push([line.rw / (Math.pow(phiV, line.m) * Math.pow(sw, n)), phiV]);
-      }
-      return points;
-    };
-    plot.drawLine(lineFor(1.0), plot.theme.accent, 2);
-    plot.drawLine(lineFor(0.5), plot.theme.accent2, 1.2, [6, 4]);
-    plot.drawLine(lineFor(0.25), plot.theme.warn, 1.2, [6, 4]);
+    const fittedLine: [number, number][] = [phiLo, phiHi].map((phiV) => [
+      line.aRw / Math.pow(phiV, line.m),
+      phiV,
+    ]);
+    plot.drawLine(fittedLine, plot.theme.accent, 2);
 
     const { ctx } = plot;
     const r = plot.plotRect;
@@ -169,8 +163,8 @@ export function drawPickett(
     ctx.font = canvasFont(plot.theme, 10);
     ctx.fillStyle = plot.theme.text;
     ctx.textAlign = "left";
-    ctx.fillText(`Sw=1 line:  M = ${line.m.toFixed(2)},  Rw = ${line.rw.toPrecision(3)} ohmm  (N = ${n})`, r.x0 + 8, r.y0 + 14);
-    ctx.fillText(`dashed: Sw = 0.5, 0.25${hasCtx ? "  —  line = ACTIVE well's parameters" : ""}`, r.x0 + 8, r.y0 + 27);
+    ctx.fillText(`Fitted line: M = ${line.m.toFixed(2)}, a·Rw = ${line.aRw.toPrecision(3)} ohmm`, r.x0 + 8, r.y0 + 14);
+    ctx.fillText(`a and Rw are not separately identified${hasCtx ? " — line = ACTIVE well's fit" : ""}`, r.x0 + 8, r.y0 + 27);
     ctx.restore();
   }
 
@@ -282,10 +276,9 @@ export async function buildPickettContent(
   content.className = "plot-content";
   const rtSel = curveSelect(curveNames, initial?.rt ?? "RES_DEEP");
   const phiSel = curveSelect(curveNames, initial?.phi ?? "PHIE");
-  const nIn = numField(initial?.n ?? "2");
-  // Manual M / Rw: blank = derive from the two picks; typed = the water line follows them.
+  // Manual M / a·Rw: blank = derive from the two picks; typed = the fitted line follows them.
   const mIn = numField(initial?.m ?? "", "pick");
-  const rwIn = numField(initial?.rw ?? "", "pick");
+  const aRwIn = numField(initial?.aRw ?? "", "pick");
 
   const propsBtn = document.createElement("button");
   propsBtn.className = "form-control";
@@ -294,8 +287,7 @@ export async function buildPickettContent(
   propsBtn.addEventListener("click", () => openProps());
 
   // --- Multi-well scope: extra wells drawn as faded clouds BEHIND the active well's.
-  // The water line, picks, brushing and tooltips stay bound to the ACTIVE well — m/n/Rw
-  // are per-well parameters; the overlay shows whether neighbours share its water line.
+  // The fitted product line, picks, brushing and tooltips stay bound to the ACTIVE well.
   const scope = await buildWellScope({
     includeActive: true,
     defaultMode: "active",
@@ -307,14 +299,14 @@ export async function buildPickettContent(
   });
   const scopeBtn = document.createElement("button");
   scopeBtn.className = "plot-export-btn";
-  scopeBtn.title = "Overlay more wells' clouds behind the active well — the water line stays the active well's";
+  scopeBtn.title = "Overlay more wells' clouds behind the active well — the fitted line stays the active well's";
   const scopeRow = document.createElement("div");
   scopeRow.style.display = "none";
   const scopeStaticHint = document.createElement("p");
   scopeStaticHint.className = "modal-hint";
   scopeStaticHint.textContent =
-    "Context wells are display-only: the Sw lines, M/N/Rw, water-line picks, brushing and tooltips all belong to the " +
-    "active well (m, n and Rw are per-well parameters — the overlay shows whether neighbours share its water line). " +
+    "Context wells are display-only: the fitted M and a·Rw line, water-line picks, brushing and tooltips all belong to the " +
+    "active well. a and Rw are not separately identified, and saturation guides need independently sourced parameters. " +
     "Zone/top windows are resolved per well by NAME (a well without that zone or top is skipped).";
   const scopeInfo = document.createElement("p");
   scopeInfo.className = "modal-hint";
@@ -332,9 +324,8 @@ export async function buildPickettContent(
   selRow.className = "plot-toolbar";
   selRow.appendChild(formRow("RT", rtSel));
   selRow.appendChild(formRow("Porosity", phiSel));
-  selRow.appendChild(formRow("N", nIn));
   selRow.appendChild(formRow("M", mIn));
-  selRow.appendChild(formRow("Rw", rwIn));
+  selRow.appendChild(formRow("a·Rw", aRwIn));
   selRow.appendChild(formRow("Zone", zoneSel.select));
   selRow.appendChild(scopeBtn);
   selRow.appendChild(propsBtn);
@@ -347,7 +338,7 @@ export async function buildPickettContent(
         Object.assign(props, sanitizePickettProps({ ...props, ...t }));
         savePlotProps("pickett", props);
         viewRef.current = null; // show the template's axis ranges (a live zoom would mask them)
-        void reload(true); // refetch (the Z curve may have changed); keeps picks + M/Rw line
+        void reload(true); // refetch (the Z curve may have changed); keeps picks + fitted product line
       },
       setStatus,
     ),
@@ -365,16 +356,16 @@ export async function buildPickettContent(
   const hint = document.createElement("p");
   hint.className = "modal-hint";
   hint.textContent =
-    "Click TWO points along the water-bearing (lowest-RT) trend to fit the Sw=1 line — or type M and Rw " +
-    "directly. Ctrl+wheel = zoom, drag = pan, double-click = reset zoom, right-click = properties. " +
+    "Click TWO points along the water-bearing (lowest-RT) trend to fit M and the identifiable product a·Rw — or type those values " +
+    "directly. The fit does not identify a or Rw separately. Ctrl+wheel = zoom, drag = pan, double-click = reset zoom, right-click = properties. " +
     "Needs a computed porosity curve (run a Porosity module first).";
   content.appendChild(hint);
 
   const tc = readTheme(document.documentElement);
   const pickM = pickRow("M (slope)", tc.accent, "M", well, zoneSel.current, setStatus);
-  const pickRw = pickRow("Rw @ FT", tc.accent2, "RW", well, zoneSel.current, setStatus);
+  const pickARw = pickRow("a·Rw (intercept)", tc.accent2, "A_RW", well, zoneSel.current, setStatus);
   content.appendChild(pickM.row);
-  content.appendChild(pickRw.row);
+  content.appendChild(pickARw.row);
 
   let rt = new Float32Array(0);
   let phi = new Float32Array(0);
@@ -388,12 +379,11 @@ export async function buildPickettContent(
   let brushSet: Set<number> | null = null;
   const viewRef: ViewportRef = { current: null };
 
-  /** The effective water line: typed M+Rw win; otherwise none until two points are picked
-   *  (a completed pick writes its fit into the M/Rw fields, so both paths share one source). */
-  const currentLine = (): { m: number; rw: number } | null => {
+  /** The effective fitted line: typed M+a·Rw win; otherwise none until two points are picked. */
+  const currentLine = (): { m: number; aRw: number } | null => {
     const m = parseFloat(mIn.value);
-    const rw = parseFloat(rwIn.value);
-    if (Number.isFinite(m) && Number.isFinite(rw) && m > 0 && rw > 0) return { m, rw };
+    const aRw = parseFloat(aRwIn.value);
+    if (Number.isFinite(m) && Number.isFinite(aRw) && m > 0 && aRw > 0) return { m, aRw };
     return null;
   };
 
@@ -457,8 +447,7 @@ export async function buildPickettContent(
 
   const redraw = () => {
     canvas.setAttribute("aria-label", `Pickett plot: ${rtSel.value} versus ${phiSel.value}`); // a11y label
-    const n = parseFloat(nIn.value) || 2;
-    plot = drawPickett(canvas, rt, phi, currentLine(), n, picks, hoverIdx, viewRef.current, {
+    plot = drawPickett(canvas, rt, phi, currentLine(), picks, hoverIdx, viewRef.current, {
       rtMin: props.rtMin,
       rtMax: props.rtMax,
       phiMin: props.phiMin,
@@ -496,7 +485,7 @@ export async function buildPickettContent(
   // context sized to the live plot, so the SVG matches what's on screen.
   // The static draw shared by the two vector-export paths (no hover ring, no brush).
   const drawStatic = (c: HTMLCanvasElement) =>
-    drawPickett(c, rt, phi, currentLine(), parseFloat(nIn.value) || 2, picks, -1, viewRef.current, {
+    drawPickett(c, rt, phi, currentLine(), picks, -1, viewRef.current, {
       rtMin: props.rtMin,
       rtMax: props.rtMax,
       phiMin: props.phiMin,
@@ -509,7 +498,7 @@ export async function buildPickettContent(
 
   // Monotonic token so a slow curve/zone load that resolves after a newer one (fast
   // switching) can't overwrite the newer data. `preserveView` keeps the zoom/pan AND the
-  // user's M/Rw line on a data refresh (module run); a user-initiated curve/zone change
+  // user's M/a·Rw line on a data refresh (module run); a user-initiated curve/zone change
   // re-fits from scratch and clears the picks + typed line.
   let reloadGen = 0;
   let resetPending = false;
@@ -537,7 +526,7 @@ export async function buildPickettContent(
       resetPending = false;
       picks = [];
       mIn.value = "";
-      rwIn.value = "";
+      aRwIn.value = "";
       viewRef.current = null; // new data → reset any zoom/pan
     }
     redraw();
@@ -549,10 +538,9 @@ export async function buildPickettContent(
       void reloadContext(); // context wells share the RT/porosity curves and the zone window
     });
   }
-  nIn.addEventListener("change", redraw);
-  // Typing M or Rw makes the line follow immediately (free user input of line parameters).
+  // Typing M or a·Rw makes the fitted line follow immediately.
   mIn.addEventListener("input", redraw);
-  rwIn.addEventListener("input", redraw);
+  aRwIn.addEventListener("input", redraw);
 
   // Track drag so a pan doesn't also drop a water-line anchor. Logical (CSS) pixels.
   let downXY: [number, number] | null = null;
@@ -583,12 +571,12 @@ export async function buildPickettContent(
     if (picks.length === 2) {
       const fit = fitWaterLine(picks[0], picks[1]);
       if (fit) {
-        // Feed the fit into the M/Rw fields so picked and typed lines share one source.
+        // Feed the identifiable fit into the M/a·Rw fields so both paths share one source.
         mIn.value = fit.m.toPrecision(4);
-        rwIn.value = fit.rw.toPrecision(4);
+        aRwIn.value = fit.aRw.toPrecision(4);
         pickM.setValue(fit.m);
-        pickRw.setValue(fit.rw);
-        setStatus(`Water line: M = ${fit.m.toFixed(2)}, Rw = ${fit.rw.toPrecision(3)} ohmm`);
+        pickARw.setValue(fit.aRw);
+        setStatus(`Water line: M = ${fit.m.toFixed(2)}, a·Rw = ${fit.aRw.toPrecision(3)} ohmm; a and Rw are not separately identified`);
       } else {
         setStatus("Could not fit a water line from those two points — pick points at different porosities.");
       }
@@ -616,7 +604,7 @@ export async function buildPickettContent(
   });
 
   // Re-fetch when computed curves change (module/equation run, import, undo) so the
-  // Pickett plot never shows stale data; keep the zoom/pan and the M/Rw line.
+  // Pickett plot never shows stale data; keep the zoom/pan and the M/a·Rw line.
   let dataPrimed = false;
   const unsubData = appState.dataVersion.subscribe(() => {
     if (!dataPrimed) {
@@ -727,7 +715,7 @@ export async function buildPickettContent(
       props.zLog = zLogChk.checked;
       savePlotProps("pickett", props);
       viewRef.current = null; // show the new axis ranges (a live zoom would otherwise mask them)
-      void reload(true); // refetch (the Z curve may have changed); keeps picks + M/Rw line
+      void reload(true); // refetch (the Z curve may have changed); keeps picks + fitted product line
       close();
     });
   };
@@ -782,9 +770,8 @@ export async function buildPickettContent(
     getState: () => ({
       rt: rtSel.value,
       phi: phiSel.value,
-      n: nIn.value,
       m: mIn.value,
-      rw: rwIn.value,
+      aRw: aRwIn.value,
       zone: zoneSel.select.value,
       wells: scope.serialize(),
     }),

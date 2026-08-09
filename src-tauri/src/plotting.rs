@@ -351,6 +351,96 @@ impl RangePositionPct {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PickettFit {
+    pub m: f32,
+    pub a_rw: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourcedPickettValue {
+    pub value: f32,
+    pub provenance: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PickettDisclosure {
+    pub m: f32,
+    pub a_rw: f32,
+    pub a: Option<SourcedPickettValue>,
+    pub rw: Option<SourcedPickettValue>,
+}
+
+fn validate_sourced_pickett_value(
+    name: &str,
+    value: &SourcedPickettValue,
+) -> Result<(), String> {
+    if !value.value.is_finite() || value.value <= 0.0 {
+        return Err(format!("sourced Pickett {name} must be finite and positive"));
+    }
+    if value.provenance.trim().is_empty() {
+        return Err(format!("sourced Pickett {name} requires provenance"));
+    }
+    Ok(())
+}
+
+/// Discloses only what a two-point Pickett fit identifies. The intercept is the
+/// product a·Rw. One independently sourced factor may separate the other; neither
+/// factor is otherwise inferred, and no scientific default is introduced.
+pub fn disclose_pickett_fit(
+    fit: PickettFit,
+    supplied_a: Option<SourcedPickettValue>,
+    supplied_rw: Option<SourcedPickettValue>,
+) -> Result<PickettDisclosure, String> {
+    if !fit.m.is_finite() || fit.m <= 0.0 || !fit.a_rw.is_finite() || fit.a_rw <= 0.0 {
+        return Err("Pickett fit m and a·Rw must be finite and positive".into());
+    }
+    if supplied_a.is_some() && supplied_rw.is_some() {
+        return Err(
+            "supply only one independently sourced Pickett factor; the fitted a·Rw derives the other"
+                .into(),
+        );
+    }
+    if let Some(a) = supplied_a {
+        validate_sourced_pickett_value("a", &a)?;
+        let rw = SourcedPickettValue {
+            value: fit.a_rw / a.value,
+            provenance: format!(
+                "derived from fitted a·Rw using sourced a: {}",
+                a.provenance
+            ),
+        };
+        return Ok(PickettDisclosure {
+            m: fit.m,
+            a_rw: fit.a_rw,
+            a: Some(a),
+            rw: Some(rw),
+        });
+    }
+    if let Some(rw) = supplied_rw {
+        validate_sourced_pickett_value("Rw", &rw)?;
+        let a = SourcedPickettValue {
+            value: fit.a_rw / rw.value,
+            provenance: format!(
+                "derived from fitted a·Rw using sourced Rw: {}",
+                rw.provenance
+            ),
+        };
+        return Ok(PickettDisclosure {
+            m: fit.m,
+            a_rw: fit.a_rw,
+            a: Some(a),
+            rw: Some(rw),
+        });
+    }
+    Ok(PickettDisclosure {
+        m: fit.m,
+        a_rw: fit.a_rw,
+        a: None,
+        rw: None,
+    })
+}
+
 fn non_blank(value: &str, field: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         Err(format!("resolved plot curve is missing {field}"))
@@ -763,5 +853,30 @@ mod tests {
         let below = RangePositionPct::new(-5.0).unwrap();
         assert_eq!(above.value().to_bits(), 130.0f32.to_bits());
         assert_eq!(below.value().to_bits(), (-5.0f32).to_bits());
+    }
+
+    #[test]
+    fn a_pickett_fit_without_sourced_a_or_rw_exposes_only_their_product() {
+        // SB-PLT-011 / SB-PLT-T17: these are arithmetic fixtures, not shipped
+        // petrophysical defaults. The fit identifies m and a·Rw, not a and Rw separately.
+        let fit = PickettFit { m: 2.0, a_rw: 0.04 };
+        let product_only = disclose_pickett_fit(fit, None, None).unwrap();
+        assert_eq!(product_only.m.to_bits(), 2.0f32.to_bits());
+        assert_eq!(product_only.a_rw.to_bits(), 0.04f32.to_bits());
+        assert!(product_only.a.is_none());
+        assert!(product_only.rw.is_none());
+
+        let sourced_a = SourcedPickettValue {
+            value: 2.0,
+            provenance: "explicit test fixture for supplied a".into(),
+        };
+        let separated = disclose_pickett_fit(fit, Some(sourced_a), None).unwrap();
+        assert_eq!(separated.a.unwrap().value.to_bits(), 2.0f32.to_bits());
+        assert_eq!(separated.rw.unwrap().value.to_bits(), 0.02f32.to_bits());
+
+        let unsourced = SourcedPickettValue { value: 2.0, provenance: "".into() };
+        assert!(disclose_pickett_fit(fit, Some(unsourced), None)
+            .unwrap_err()
+            .contains("provenance"));
     }
 }
