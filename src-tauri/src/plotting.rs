@@ -467,6 +467,78 @@ pub struct ReductionManifest {
     pub source_indices: Vec<usize>,
 }
 
+/// One disclosed reduction in a user-exportable plot manifest. This intentionally
+/// carries counts and method metadata, not the numerical sample arrays themselves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReductionExportItem {
+    pub subject_kind: String,
+    pub subject_id: String,
+    pub original_count: usize,
+    pub displayed_count: usize,
+    pub algorithm: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AbsentReductionSubject {
+    pub subject_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlotReductionExport {
+    pub schema_version: u32,
+    pub plot_type: String,
+    pub items: Vec<ReductionExportItem>,
+    pub absent: Vec<AbsentReductionSubject>,
+    pub refusal: Option<String>,
+}
+
+/// Validates and formats the exact object written by the whitelisted manifest
+/// command. A file with no actual reduction/refusal is not a reduction manifest.
+pub fn serialize_reduction_export(export: &PlotReductionExport) -> Result<String, String> {
+    if export.schema_version != 1 {
+        return Err(format!(
+            "unsupported plot reduction manifest schema version {}",
+            export.schema_version
+        ));
+    }
+    if export.plot_type.trim().is_empty() {
+        return Err("plot reduction manifest is missing plot type".into());
+    }
+    let mut reduced = false;
+    for item in &export.items {
+        if item.subject_kind.trim().is_empty()
+            || item.subject_id.trim().is_empty()
+            || item.algorithm.trim().is_empty()
+        {
+            return Err("plot reduction item is missing subject or algorithm".into());
+        }
+        if item.displayed_count > item.original_count {
+            return Err(format!(
+                "plot reduction item {} displays more records than its original count",
+                item.subject_id
+            ));
+        }
+        reduced |= item.displayed_count < item.original_count;
+    }
+    for absent in &export.absent {
+        if absent.subject_id.trim().is_empty() || absent.reason.trim().is_empty() {
+            return Err("absent plot subject is missing identity or reason".into());
+        }
+    }
+    let refused = export
+        .refusal
+        .as_deref()
+        .is_some_and(|reason| !reason.trim().is_empty());
+    if export.refusal.is_some() && !refused {
+        return Err("plot reduction refusal reason is blank".into());
+    }
+    if !reduced && !refused {
+        return Err("plot reduction manifest contains no reduction or refusal".into());
+    }
+    serde_json::to_string_pretty(export).map_err(|error| error.to_string())
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SharedChannelReduction {
     pub channels: Vec<Vec<f32>>,
@@ -1660,5 +1732,68 @@ mod tests {
             .expect("chart renderer call must remain inventoried");
         assert!(gate < draw, "provenance authorization must precede chart rendering");
         assert!(renderer.contains("chartProvenance: chartProvenance ? JSON.stringify(chartProvenance)"));
+    }
+
+    #[test]
+    fn an_export_after_budget_reduction_includes_original_and_displayed_counts_and_the_algorithm_while_a_hard_maximum_refuses() {
+        // SB-PLT-031 / SB-PLT-T40: 0..10 at stride 4 is the cited SB-PLT-T21
+        // reduction fixture. The too-small budget is an arithmetic refusal fixture.
+        let channel = (0..=10).map(|value| value as f32).collect::<Vec<_>>();
+        let eligible = (0..=10).collect::<Vec<_>>();
+        let reduced = decimate_shared_channels(&[channel], &eligible, 4).unwrap();
+        let export = PlotReductionExport {
+            schema_version: 1,
+            plot_type: "crossplot".into(),
+            items: vec![ReductionExportItem {
+                subject_kind: "points".into(),
+                subject_id: "represented-well".into(),
+                original_count: reduced.manifest.original_count,
+                displayed_count: reduced.manifest.displayed_count,
+                algorithm: reduced.manifest.algorithm,
+            }],
+            absent: Vec::new(),
+            refusal: None,
+        };
+        let json = serialize_reduction_export(&export).unwrap();
+        assert!(json.contains("\"original_count\": 11"));
+        assert!(json.contains("\"displayed_count\": 4"));
+        assert!(json.contains("\"algorithm\": \"stride_from_first_with_forced_final_endpoint\""));
+
+        let mut missing_algorithm = export.clone();
+        missing_algorithm.items[0].algorithm.clear();
+        assert!(serialize_reduction_export(&missing_algorithm)
+            .unwrap_err()
+            .contains("algorithm"));
+        let mut impossible_counts = export;
+        impossible_counts.items[0].displayed_count = 12;
+        assert!(serialize_reduction_export(&impossible_counts)
+            .unwrap_err()
+            .contains("more records"));
+
+        let refusal = allocate_finite_pair_budget(
+            &[WellRequiredChannels {
+                well_id: "represented-well".into(),
+                channels: vec![vec![0.0, 1.0], vec![2.0, 3.0]],
+            }],
+            1,
+        )
+        .unwrap_err();
+        assert!(refusal.contains("cannot retain both endpoints"));
+
+        let export_ui = include_str!("../../src/ui/plotExport.ts");
+        assert!(export_ui.contains("savePlotReductionManifest(dest, JSON.stringify(manifest))"));
+        assert!(export_ui.contains("Export original/displayed counts and reduction algorithms"));
+        let command_adapter = include_str!("lib.rs");
+        assert!(command_adapter.contains("fn save_plot_reduction_manifest"));
+        assert!(command_adapter.contains("save_plot_reduction_manifest,"));
+        let common_ui = include_str!("../../src/ui/plotCommon.ts");
+        assert!(common_ui.contains("original_count: layer.reduction.originalCount"));
+        assert!(common_ui.contains("displayed_count: layer.reduction.displayedCount"));
+        assert!(common_ui.contains("algorithm: layer.reduction.algorithm"));
+        let histogram_ui = include_str!("../../src/ui/histogramPanel.ts");
+        assert!(!histogram_ui.contains(".sort((a, b) => a - b).slice(0, 8)"));
+        let vega_ui = include_str!("../../src/ui/vegaPanel.ts");
+        assert!(vega_ui.contains("if (order.length > MAX_GROUPS)"));
+        assert!(vega_ui.contains("pick a categorical curve"));
     }
 }

@@ -7,6 +7,15 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-031: every plot reduction is disclosed and exportable
+
+- [ ] Exceed the context-point budget and the context/well-preview/fit-scatter legend limits.
+      Do the live surfaces state displayed and original counts? Does **Manifest** export a
+      validated JSON record with those counts, every represented well's point algorithm,
+      absent-well reasons and any refusal? Enter more than eight histogram percentiles: are all
+      valid unique values retained instead of a silent prefix? Exceed Vega's categorical-group
+      ceiling: does it refuse with the observed count rather than returning the first groups?
+
 ## 2026-08-09 — SB-PLT-023: chart rendering requires complete provenance
 
 - [ ] Select a chart overlay whose record lacks its source revision/date. Does the chart

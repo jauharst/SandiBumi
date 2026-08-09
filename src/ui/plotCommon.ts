@@ -26,6 +26,7 @@ import {
   reconcileDepthChannels,
   type DepthGridReconciliation,
   type DepthStepManifest,
+  type PlotReductionExport,
   type ReductionManifest,
 } from "./plotTypes";
 
@@ -479,6 +480,9 @@ export interface ContextFetchOutcome {
   refusal: string | null;
 }
 
+/** Context-well rows visible in the on-plot legends; every hidden remainder is disclosed. */
+export const CONTEXT_LEGEND_ROWS = 10;
+
 /** Fetches the context wells' curves, concurrency-limited and cancellable: `isStale()`
  *  is checked after every await, and a stale call returns null without touching anything.
  *  Every requested curve must be present in a well or that well is skipped — a layer with
@@ -633,6 +637,56 @@ export function describeContextOutcome(o: ContextFetchOutcome): string {
     (o.layers.length ? " · interval [lo,hi)" : "") +
     (o.skipped ? ` · ${o.skipped} absent (reasons retained per well)` : "")
   );
+}
+
+/** Builds the portable disclosure required whenever context points, well-name preview,
+ * or on-plot legend are reduced. All represented wells stay in the point inventory,
+ * including wells whose point count did not need reducing; absent wells retain their reason. */
+export function contextReductionExport(
+  plotType: string,
+  outcome: ContextFetchOutcome | null,
+  scopedWellCount: number,
+  visibleScopeWellRows: number,
+): PlotReductionExport | null {
+  const pointReduced = outcome?.layers.some(
+    (layer) => layer.reduction.displayedCount < layer.reduction.originalCount,
+  ) ?? false;
+  const legendReduced = (outcome?.layers.length ?? 0) > CONTEXT_LEGEND_ROWS;
+  const scopePreviewReduced = scopedWellCount > visibleScopeWellRows;
+  if (!pointReduced && !legendReduced && !scopePreviewReduced && !outcome?.refusal) return null;
+
+  const items: PlotReductionExport["items"] = (outcome?.layers ?? []).map((layer) => ({
+    subject_kind: "points",
+    subject_id: layer.wellId,
+    original_count: layer.reduction.originalCount,
+    displayed_count: layer.reduction.displayedCount,
+    algorithm: layer.reduction.algorithm,
+  }));
+  if (scopePreviewReduced) {
+    items.push({
+      subject_kind: "wells",
+      subject_id: "well_scope_name_preview",
+      original_count: scopedWellCount,
+      displayed_count: visibleScopeWellRows,
+      algorithm: "first_well_names_with_remainder_count",
+    });
+  }
+  if (legendReduced) {
+    items.push({
+      subject_kind: "legend",
+      subject_id: "well_legend",
+      original_count: outcome!.layers.length,
+      displayed_count: CONTEXT_LEGEND_ROWS,
+      algorithm: "first_context_well_rows_with_reported_remainder",
+    });
+  }
+  return {
+    schema_version: 1,
+    plot_type: plotType,
+    items,
+    absent: (outcome?.absent ?? []).map((item) => ({ subject_id: item.wellId, reason: item.reason })),
+    refusal: outcome?.refusal ?? null,
+  };
 }
 
 export type PlotWriteSource = Omit<PlotWriteProvenanceInput, "target">;

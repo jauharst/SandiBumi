@@ -1,6 +1,9 @@
 import { attachResizeRedraw, attachScatterTooltip, canvasFont, faciesColor, fitCanvasBackingStore, readTheme } from "./plotCanvas";
 import { buildImageExportButtons } from "./plotExport";
 import { setStatus } from "../state";
+import type { PlotReductionExport } from "./plotTypes";
+
+const FIT_SCATTER_LEGEND_ROWS = 12;
 
 /** QC scatter for a calibration fit — shared by the RtC and S-factor dialogs.
  *
@@ -300,8 +303,8 @@ function buildLegend(points: FitScatterPoint[]): HTMLElement {
   el.className = "fit-scatter-legend";
   const groups = [...new Set(points.map((p) => p.group))];
   // A legend of ninety wells is noise, not information — the colours still separate them on the
-  // canvas, so name what fits and say how many are left.
-  const shown = groups.slice(0, 12);
+  // canvas, so name what fits and report displayed/original group counts.
+  const shown = groups.slice(0, FIT_SCATTER_LEGEND_ROWS);
   for (let i = 0; i < shown.length; i++) {
     const item = document.createElement("span");
     item.className = "fit-scatter-legend-item";
@@ -315,10 +318,28 @@ function buildLegend(points: FitScatterPoint[]): HTMLElement {
   if (groups.length > shown.length) {
     const more = document.createElement("span");
     more.className = "fit-scatter-legend-item";
-    more.textContent = `+${groups.length - shown.length} more`;
+    more.textContent = `legend: ${shown.length} of ${groups.length} groups`;
     el.appendChild(more);
   }
   return el;
+}
+
+function fitScatterReductionExport(spec: FitScatterSpec): PlotReductionExport | null {
+  const groupCount = new Set(spec.points.map((point) => point.group)).size;
+  if (groupCount <= FIT_SCATTER_LEGEND_ROWS) return null;
+  return {
+    schema_version: 1,
+    plot_type: "fit_scatter",
+    items: [{
+      subject_kind: "legend",
+      subject_id: "well_legend",
+      original_count: groupCount,
+      displayed_count: FIT_SCATTER_LEGEND_ROWS,
+      algorithm: "first_group_rows_with_remainder_count",
+    }],
+    absent: [],
+    refusal: null,
+  };
 }
 
 export interface FitScatter {
@@ -342,7 +363,14 @@ export function buildFitScatter(spec: FitScatterSpec): FitScatter {
 
   const canvas = document.createElement("canvas");
   canvas.className = "mc-hist plot-canvas";
-  head.appendChild(buildImageExportButtons(() => canvas, spec.exportName, setStatus));
+  head.appendChild(buildImageExportButtons(
+    () => canvas,
+    spec.exportName,
+    setStatus,
+    undefined,
+    undefined,
+    () => fitScatterReductionExport(spec),
+  ));
   wrap.appendChild(head);
   wrap.appendChild(canvas);
   wrap.appendChild(buildLegend(spec.points));

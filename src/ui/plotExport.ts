@@ -1,9 +1,10 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { savePng } from "../ipc";
+import { savePlotReductionManifest, savePng } from "../ipc";
 import { recordProcess } from "../processLog";
 import type { ContextMenuEntry } from "./contextMenu";
 import { saveSvg } from "./svgExport";
 import { savePdf, type PlotPdf } from "./pdfExport";
+import type { PlotReductionExport } from "./plotTypes";
 
 /** Print / copy / export-image actions shared by every canvas-based visualization
  *  (histogram, crossplot, Pickett, correlation) so a chart can leave the app as a picture
@@ -143,6 +144,35 @@ export function pdfAction(getPdf: () => PlotPdf | null, name: string, setStatus:
     .catch((err) => setStatus(`PDF export failed: ${err}`));
 }
 
+/** Saves a validated, machine-readable disclosure of every applied plot reduction. */
+export function reductionManifestAction(
+  getManifest: () => PlotReductionExport | null,
+  name: string,
+  setStatus: (text: string) => void,
+): void {
+  const manifest = getManifest();
+  if (!manifest) {
+    setStatus("No plot reduction or refusal to export");
+    return;
+  }
+  void save({
+    title: "Export plot reduction manifest",
+    defaultPath: `${name.replace(/[^\w.-]+/g, "_")}_reduction.json`,
+    filters: [{ name: "Plot reduction manifest", extensions: ["json"] }],
+  })
+    .then((dest) => {
+      if (!dest) return null;
+      return savePlotReductionManifest(dest, JSON.stringify(manifest));
+    })
+    .then((path) => {
+      if (path) {
+        setStatus(`${name} reduction manifest saved to ${path}`);
+        recordProcess("Export", `${name} reduction manifest → ${path}`);
+      }
+    })
+    .catch((err) => setStatus(`Reduction manifest export failed: ${err}`));
+}
+
 /** The image entries for a canvas panel's right-click menu. When `getSvg` / `getPdf` are given,
  *  the matching vector-export entries are included. */
 export function imageExportMenuEntries(
@@ -151,6 +181,7 @@ export function imageExportMenuEntries(
   setStatus: (text: string) => void,
   getSvg?: () => string | null,
   getPdf?: () => PlotPdf | null,
+  getReductionManifest?: () => PlotReductionExport | null,
 ): ContextMenuEntry[] {
   const entries: ContextMenuEntry[] = [
     { label: "Copy image", onClick: () => imageAction("copy", getCanvas(), name, setStatus) },
@@ -158,6 +189,12 @@ export function imageExportMenuEntries(
   ];
   if (getSvg) entries.push({ label: "Export SVG (vector)…", onClick: () => svgAction(getSvg, name, setStatus) });
   if (getPdf) entries.push({ label: "Export PDF (vector)…", onClick: () => pdfAction(getPdf, name, setStatus) });
+  if (getReductionManifest) {
+    entries.push({
+      label: "Export reduction manifest…",
+      onClick: () => reductionManifestAction(getReductionManifest, name, setStatus),
+    });
+  }
   entries.push({ label: "Print…", onClick: () => imageAction("print", getCanvas(), name, setStatus) });
   return entries;
 }
@@ -171,6 +208,7 @@ export function buildImageExportButtons(
   setStatus: (text: string) => void,
   getSvg?: () => string | null,
   getPdf?: () => PlotPdf | null,
+  getReductionManifest?: () => PlotReductionExport | null,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "plot-export-group";
@@ -186,6 +224,10 @@ export function buildImageExportButtons(
   mk("⭳ Image", "Export this plot as a PNG image", () => imageAction("save", getCanvas(), name, setStatus));
   if (getSvg) mk("⭳ SVG", "Export this plot as a true-vector SVG", () => svgAction(getSvg, name, setStatus));
   if (getPdf) mk("⭳ PDF", "Export this plot as a true-vector PDF", () => pdfAction(getPdf, name, setStatus));
+  if (getReductionManifest) {
+    mk("⭳ Manifest", "Export original/displayed counts and reduction algorithms", () =>
+      reductionManifestAction(getReductionManifest, name, setStatus));
+  }
   mk("⎙ Print", "Print this plot", () => imageAction("print", getCanvas(), name, setStatus));
   return wrap;
 }

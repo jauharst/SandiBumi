@@ -617,6 +617,11 @@ export function savePlotPdf(destPath: string, content: string, widthPt: number, 
   return invoke<string>("save_plot_pdf", { destPath, content, widthPt, heightPt });
 }
 
+/** Writes a backend-validated plot reduction manifest to a user-picked path. */
+export function savePlotReductionManifest(destPath: string, content: string): Promise<string> {
+  return invoke<string>("save_plot_reduction_manifest", { destPath, content });
+}
+
 /** A free-form net-reservoir polygon drawn on a crossplot: vertices in DATA space (axis order),
  *  the axes' log flags, and the output curve name. Inside → 1, outside → 0, undefined → NaN. */
 /** Field names are snake_case because they cross the wire into `netflag.rs`'s serde structs,

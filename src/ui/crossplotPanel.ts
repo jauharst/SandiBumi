@@ -26,13 +26,20 @@ import {
 } from "./plotCanvas";
 import { parsePercentiles } from "./histogramPanel";
 import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type AxisKind, type ChartOverlayDef } from "./chartOverlays";
-import { applyPlotChannelPolicy, reconcileDepthChannels, type PlotRangeEdge } from "./plotTypes";
+import {
+  applyPlotChannelPolicy,
+  reconcileDepthChannels,
+  type PlotRangeEdge,
+  type PlotReductionExport,
+} from "./plotTypes";
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
   concatValues,
   contextZoneWindow,
   CORE_OVERLAY_MAP,
+  contextReductionExport,
+  CONTEXT_LEGEND_ROWS,
   curveSelect,
   describeContextOutcome,
   fetchContextLayers,
@@ -49,7 +56,7 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { buildWellScope } from "./wellScope";
+import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
 
@@ -1236,7 +1243,6 @@ export function drawCrossplot(
   if (hasCtx) {
     const { ctx } = plot;
     const r = plot.plotRect;
-    const MAX_ROWS = 10;
     const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
     ctx.save();
     ctx.beginPath();
@@ -1268,10 +1274,10 @@ export function drawCrossplot(
     // Z-colored cloud gets a label instead of a misleading single swatch.
     row(hasZ ? null : opts.color || plot.theme.accent, `${trunc(context!.activeName)} (active${hasZ ? `, by ${zName}` : ""})`);
     const layers = context!.layers;
-    for (const layer of layers.slice(0, MAX_ROWS)) row(layer.color, trunc(layer.name));
-    if (layers.length > MAX_ROWS) {
+    for (const layer of layers.slice(0, CONTEXT_LEGEND_ROWS)) row(layer.color, trunc(layer.name));
+    if (layers.length > CONTEXT_LEGEND_ROWS) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(`+${layers.length - MAX_ROWS} more`, boxX + 16, boxY + 10);
+      ctx.fillText(`context legend: ${CONTEXT_LEGEND_ROWS} of ${layers.length} wells`, boxX + 16, boxY + 10);
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);
@@ -1511,7 +1517,14 @@ export async function buildCrossplotContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(() => canvas, "Crossplot", setStatus, () => getSvg(), () => getPdf()));
+  selRow.appendChild(buildImageExportButtons(
+    () => canvas,
+    "Crossplot",
+    setStatus,
+    () => getSvg(),
+    () => getPdf(),
+    () => ctxReductionManifest,
+  ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);
 
@@ -2173,6 +2186,7 @@ export async function buildCrossplotContent(
   // share and is stride-decimated down to it; the scope row reports the decimation.
   const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: ContextWellLayer[] = [];
+  let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxInfo = "";
   let ctxGen = 0;
 
@@ -2186,11 +2200,18 @@ export async function buildCrossplotContent(
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
+      ctxReductionManifest = null;
       ctxInfo = "";
       updateScopeUi();
       if (had) redraw();
       return;
     }
+    ctxReductionManifest = contextReductionExport(
+      "crossplot",
+      null,
+      scope.getWellIds().length,
+      WELL_SCOPE_NAME_PREVIEW_ROWS,
+    );
     setStatus(`Crossplot: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
     const outcome = await fetchContextLayers({
       ids,
@@ -2201,6 +2222,12 @@ export async function buildCrossplotContent(
       isStale: () => gen !== ctxGen,
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
+    ctxReductionManifest = contextReductionExport(
+      "crossplot",
+      outcome,
+      scope.getWellIds().length,
+      WELL_SCOPE_NAME_PREVIEW_ROWS,
+    );
     ctxLayers = outcome.layers.map((l) => ({
       name: l.name,
       color: l.color,
