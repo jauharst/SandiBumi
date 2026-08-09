@@ -28,6 +28,7 @@ use std::process::{Command, Stdio};
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 
+use crate::installation;
 use crate::python_engine::{find_python, hide_console};
 use crate::units::{self, DepthUnit};
 
@@ -281,6 +282,8 @@ pub struct ImageProbe {
 /// Reads the header of every selected file. Never decodes, never writes.
 pub fn probe_image_files(paths: &[String]) -> Vec<ImageProbe> {
     let pillow = pillow_available();
+    let selected_python = find_python();
+    let pillow_message = installation::package_remediation("Pillow", selected_python.as_deref());
     paths
         .iter()
         .map(|p| {
@@ -312,8 +315,9 @@ pub fn probe_image_files(paths: &[String]) -> Vec<ImageProbe> {
                             probe.height = m.height;
                             if !pillow && !browser_decodable(m.mime) {
                                 probe.error = Some(format!(
-                                    "{} needs Pillow (pip install pillow) to be read",
-                                    m.mime.trim_start_matches("image/").to_uppercase()
+                                    "{} cannot be read. {}",
+                                    m.mime.trim_start_matches("image/").to_uppercase(),
+                                    pillow_message
                                 ));
                             }
                         }
@@ -425,10 +429,9 @@ pub struct PreparedImage {
 /// decides whether the wizard offers TIFF at all.
 pub fn pillow_available() -> bool {
     let Some(python) = find_python() else { return false };
-    let mut cmd = Command::new(python);
-    cmd.args(["-c", "import PIL.Image"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    hide_console(&mut cmd);
-    matches!(cmd.status(), Ok(s) if s.success())
+    installation::probe_manifest_package(&python, "Pillow")
+        .map(|probe| installation::package_is_available(&probe, "Pillow"))
+        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -490,7 +493,7 @@ try:
     import openpyxl
     from PIL import Image
 except Exception as e:
-    sys.stderr.write("needs openpyxl and Pillow (pip install openpyxl pillow): %s\n" % e)
+    sys.stderr.write("plate-dependencies-missing: %s\n" % e)
     sys.exit(1)
 
 # stdin.buffer, never stdin: a piped child's TEXT stdin decodes with the Windows ANSI codepage
@@ -854,9 +857,16 @@ pub fn probe_plate_workbooks(paths: &[String], out_dir: &Path) -> Result<Workboo
 
     std::fs::create_dir_all(out_dir).map_err(|e| format!("cannot write to {}: {e}", out_dir.display()))?;
     let python = find_python().ok_or_else(|| {
-        "no Python with openpyxl was found - set SANDIBUMI_PYTHON to an interpreter that has it"
-            .to_string()
+        installation::capability_message(
+            installation::CAPABILITY_PLATE_EXTRACTION,
+            None,
+            None,
+        )
     })?;
+    installation::require_python_capability(
+        &python,
+        installation::CAPABILITY_PLATE_EXTRACTION,
+    )?;
 
     let header = serde_json::json!({
         "paths": usable,
@@ -865,7 +875,7 @@ pub fn probe_plate_workbooks(paths: &[String], out_dir: &Path) -> Result<Workboo
         "min_px": MIN_PLATE_PX,
     });
 
-    let mut cmd = Command::new(python);
+    let mut cmd = Command::new(&python);
     cmd.args(["-c", WORKBOOK_RUNNER])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -881,7 +891,16 @@ pub fn probe_plate_workbooks(paths: &[String], out_dir: &Path) -> Result<Workboo
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        return Err(err.lines().last().unwrap_or("workbook read failed").trim().to_string());
+        let last = err.lines().last().unwrap_or("workbook read failed").trim();
+        return Err(if last.contains("plate-dependencies-missing") {
+            installation::capability_message(
+                installation::CAPABILITY_PLATE_EXTRACTION,
+                Some(&python),
+                None,
+            )
+        } else {
+            last.to_string()
+        });
     }
 
     #[derive(Deserialize)]
@@ -969,9 +988,12 @@ pub fn prepare_images(paths: &[String], max_px: u32, quality: u8) -> Vec<Prepare
 }
 
 fn prepare_with_pillow(paths: &[String], max_px: u32, quality: u8) -> Result<Vec<PreparedImage>, String> {
-    let python = find_python().ok_or_else(|| {
-        "no Python found - install Python 3.10+ with Pillow, or set SANDIBUMI_PYTHON".to_string()
-    })?;
+    let python = find_python()
+        .ok_or_else(|| installation::package_remediation("Pillow", None))?;
+    let pillow_probe = installation::probe_manifest_package(&python, "Pillow")?;
+    if !installation::package_is_available(&pillow_probe, "Pillow") {
+        return Err(installation::package_remediation("Pillow", Some(&python)));
+    }
     let mut cmd = Command::new(&python);
     cmd.args(["-c", PILLOW_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
@@ -988,7 +1010,7 @@ fn prepare_with_pillow(paths: &[String], max_px: u32, quality: u8) -> Result<Vec
         let err = String::from_utf8_lossy(&out.stderr);
         let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("image conversion failed");
         return Err(if last.contains("pillow-missing") {
-            "Pillow is not installed (pip install pillow)".to_string()
+            installation::package_remediation("Pillow", Some(&python))
         } else {
             last.trim().to_string()
         });

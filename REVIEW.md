@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-004: dependency detection and messages share one manifest
+
+- [ ] Open Project → Help → Prerequisites with the qualified Python pack, note the selected
+      executable and observed package versions, then remove one required package and re-probe.
+      Does only its dependent capability become unavailable, with remediation derived from the
+      same equation/DLIS/plate/workbook/document/deck package matrix?
+
 ## 2026-08-09 — SB-INS-003: prerequisite claims are capability-level and manifest-derived
 
 - [ ] On a machine with no Python, open Project → Help → Prerequisites. Are Python equations,

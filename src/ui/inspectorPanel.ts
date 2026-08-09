@@ -305,15 +305,15 @@ export class InspectorPanel {
     const note = this.equationTab.querySelector<HTMLElement>("#eq-lang-note");
     if (!note) return;
     if (this.pythonInfo.path === null) {
-      note.textContent += "  ⚠ No Python with numpy found — install Python 3.10+ & numpy, or set SANDIBUMI_PYTHON.";
+      note.textContent += `  ⚠ ${this.pythonInfo.message}`;
       return;
     }
     // scipy is optional, so its absence is a NOTE, not a warning — the engine is fully usable
     // without it. Say so while the script is being written rather than after it is queued.
     note.textContent +=
       this.pythonInfo.scipy === null
-        ? `  (engine: ${this.pythonInfo.path} · no scipy — install it for signal/interpolate/optimize/stats)`
-        : `  (engine: ${this.pythonInfo.path} · scipy ${this.pythonInfo.scipy})`;
+        ? `  (${this.pythonInfo.message} · ${this.pythonInfo.scipy_message})`
+        : `  (${this.pythonInfo.message} · scipy ${this.pythonInfo.scipy})`;
   }
 
   private readFormIntoCurrent(): void {

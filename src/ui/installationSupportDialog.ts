@@ -32,7 +32,14 @@ export async function openInstallationSupportDialog(): Promise<void> {
       const packages = document.createElement("p");
       packages.className = "form-hint";
       packages.textContent = capability.packages
-        .map((pkg) => `${pkg.distribution}${pkg.required ? "" : " (optional)"}`)
+        .map((pkg) => {
+          const observed = capability.package_status.find(
+            (status) => status.distribution.toLowerCase() === pkg.distribution.toLowerCase(),
+          );
+          const version = observed?.version ? ` ${observed.version}` : "";
+          const state = observed ? (observed.available ? " ✓" : " ✕") : "";
+          return `${pkg.distribution}${version}${pkg.required ? "" : " (optional)"}${state}`;
+        })
         .join(", ");
       const reason = document.createElement("p");
       reason.className = "form-hint";

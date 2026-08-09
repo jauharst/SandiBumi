@@ -5,9 +5,60 @@
 //! unless those observations agree with the executable identity compiled from this tree.
 
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 const CAPABILITY_MANIFEST_JSON: &str = include_str!("../resources/install/capabilities.json");
+
+pub const CAPABILITY_PYTHON_EQUATIONS: &str = "python_equations";
+pub const CAPABILITY_DLIS_IMPORT: &str = "dlis_import";
+pub const CAPABILITY_PLATE_EXTRACTION: &str = "spreadsheet_plate_extraction";
+pub const CAPABILITY_WORKBOOK_EXPORT: &str = "workbook_export";
+pub const CAPABILITY_DOCUMENT_EXPORT: &str = "document_export";
+pub const CAPABILITY_DECK_EXPORT: &str = "deck_export";
+
+/// One generic package probe for every Python-backed capability. Package names arrive as JSON
+/// from the capability manifest; this runner owns no second inventory. Its stdin is bytes by
+/// contract so non-ASCII paths survive the Windows ANSI-codepage boundary.
+const PYTHON_PACKAGE_PROBE: &str = r#"
+import importlib
+import importlib.metadata
+import json
+import sys
+
+request = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+packages = []
+for item in request["packages"]:
+    available = False
+    version = None
+    error = None
+    try:
+        module = importlib.import_module(item["import_name"])
+        available = True
+        try:
+            version = importlib.metadata.version(item["distribution"])
+        except Exception:
+            observed = getattr(module, "__version__", None)
+            version = str(observed) if observed is not None else None
+    except Exception as exc:
+        error = str(exc)
+    packages.append({
+        "distribution": item["distribution"],
+        "import_name": item["import_name"],
+        "available": available,
+        "version": version,
+        "error": error,
+    })
+
+reply = {
+    "executable": sys.executable,
+    "python_version": ".".join(str(part) for part in sys.version_info[:3]),
+    "packages": packages,
+}
+sys.stdout.buffer.write(json.dumps(reply, ensure_ascii=False).encode("utf-8"))
+"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InterpreterRequirement {
@@ -47,8 +98,403 @@ pub struct CapabilityManifest {
 }
 
 pub fn capability_manifest() -> Result<CapabilityManifest, String> {
-    serde_json::from_str(CAPABILITY_MANIFEST_JSON)
-        .map_err(|e| format!("bundled capability manifest is invalid: {e}"))
+    let manifest: CapabilityManifest = serde_json::from_str(CAPABILITY_MANIFEST_JSON)
+        .map_err(|e| format!("bundled capability manifest is invalid: {e}"))?;
+    validate_capability_manifest(&manifest)?;
+    Ok(manifest)
+}
+
+fn validate_capability_manifest(manifest: &CapabilityManifest) -> Result<(), String> {
+    let mut errors = Vec::new();
+    if manifest.schema_version == 0 {
+        errors.push("schema_version must be non-zero".to_string());
+    }
+    if manifest.interpreter.id.trim().is_empty()
+        || manifest.interpreter.execution != "subprocess"
+        || manifest.interpreter.minimum_version.trim().is_empty()
+        || manifest.interpreter.selection_scope != "session"
+    {
+        errors.push(
+            "interpreter must name a session-scoped subprocess and its cited minimum version"
+                .to_string(),
+        );
+    }
+
+    let mut capability_ids = BTreeSet::new();
+    for capability in &manifest.capabilities {
+        if capability.id.trim().is_empty()
+            || capability.display_name.trim().is_empty()
+            || capability.owning_domain.trim().is_empty()
+        {
+            errors
+                .push("every capability needs a non-empty id, display name and owner".to_string());
+        }
+        if !capability_ids.insert(capability.id.as_str()) {
+            errors.push(format!("duplicate capability id {}", capability.id));
+        }
+        if capability.interpreter != manifest.interpreter.id {
+            errors.push(format!(
+                "capability {} names interpreter {}, expected {}",
+                capability.id, capability.interpreter, manifest.interpreter.id
+            ));
+        }
+        if capability.offline_route.trim().is_empty() {
+            errors.push(format!(
+                "capability {} has no offline availability route",
+                capability.id
+            ));
+        }
+        if capability.packages.is_empty() {
+            errors.push(format!(
+                "capability {} has no package mapping",
+                capability.id
+            ));
+        }
+        let mut distributions = BTreeSet::new();
+        for package in &capability.packages {
+            if package.distribution.trim().is_empty() || package.import_name.trim().is_empty() {
+                errors.push(format!(
+                    "capability {} has an empty package key",
+                    capability.id
+                ));
+            }
+            if !distributions.insert(package.distribution.to_ascii_lowercase()) {
+                errors.push(format!(
+                    "capability {} repeats package {}",
+                    capability.id, package.distribution
+                ));
+            }
+            match package.minimum_supported_version.as_deref() {
+                Some(version) if version.trim().is_empty() => errors.push(format!(
+                    "capability {} package {} has an empty minimum version",
+                    capability.id, package.distribution
+                )),
+                None if package.version_source != "qualified_release_lock" => errors.push(format!(
+                    "capability {} package {} has neither a cited minimum version nor the qualified release-lock source",
+                    capability.id, package.distribution
+                )),
+                _ => {}
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("capability manifest: {}", errors.join("; ")))
+    }
+}
+
+pub fn capability_requirement(id: &str) -> Result<CapabilityRequirement, String> {
+    capability_manifest()?
+        .capabilities
+        .into_iter()
+        .find(|capability| capability.id == id)
+        .ok_or_else(|| format!("capability manifest has no {id}"))
+}
+
+pub fn package_requirement(distribution: &str) -> Result<PackageRequirement, String> {
+    capability_manifest()?
+        .capabilities
+        .into_iter()
+        .flat_map(|capability| capability.packages)
+        .find(|package| package.distribution.eq_ignore_ascii_case(distribution))
+        .ok_or_else(|| format!("capability manifest has no package {distribution}"))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PackageProbe {
+    pub distribution: String,
+    pub import_name: String,
+    pub available: bool,
+    pub version: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonPackageProbe {
+    pub executable: String,
+    pub python_version: String,
+    pub packages: Vec<PackageProbe>,
+}
+
+fn probe_requirements(
+    python: &Path,
+    requirements: &[PackageRequirement],
+) -> Result<PythonPackageProbe, String> {
+    let mut unique = BTreeMap::<String, &PackageRequirement>::new();
+    for package in requirements {
+        unique
+            .entry(package.distribution.to_ascii_lowercase())
+            .or_insert(package);
+    }
+    let request = serde_json::json!({
+        "packages": unique.values().map(|package| serde_json::json!({
+            "distribution": package.distribution,
+            "import_name": package.import_name,
+        })).collect::<Vec<_>>(),
+    });
+
+    let mut command = Command::new(python);
+    command
+        .args(["-c", PYTHON_PACKAGE_PROBE])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::python_engine::hide_console(&mut command);
+    let mut child = command.spawn().map_err(|e| {
+        format!(
+            "cannot start Python package probe {}: {e}",
+            python.display()
+        )
+    })?;
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| format!("Python package probe {} has no stdin", python.display()))?;
+        let bytes = serde_json::to_vec(&request)
+            .map_err(|e| format!("cannot encode Python package probe: {e}"))?;
+        stdin
+            .write_all(&bytes)
+            .map_err(|e| format!("cannot write Python package probe: {e}"))?;
+    }
+    drop(child.stdin.take());
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Python package probe {} failed: {e}", python.display()))?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!(
+            "Python package probe {} exited {}{}",
+            python.display(),
+            output.status,
+            if error.is_empty() {
+                String::new()
+            } else {
+                format!(": {error}")
+            }
+        ));
+    }
+    serde_json::from_slice(&output.stdout).map_err(|e| {
+        format!(
+            "Python package probe {} returned invalid JSON: {e}",
+            python.display()
+        )
+    })
+}
+
+pub fn probe_python_capability(
+    python: &Path,
+    capability_id: &str,
+) -> Result<PythonPackageProbe, String> {
+    let capability = capability_requirement(capability_id)?;
+    probe_requirements(python, &capability.packages)
+}
+
+pub fn probe_all_python_packages(python: &Path) -> Result<PythonPackageProbe, String> {
+    let requirements = capability_manifest()?
+        .capabilities
+        .into_iter()
+        .flat_map(|capability| capability.packages)
+        .collect::<Vec<_>>();
+    probe_requirements(python, &requirements)
+}
+
+pub fn probe_manifest_package(
+    python: &Path,
+    distribution: &str,
+) -> Result<PythonPackageProbe, String> {
+    probe_requirements(python, &[package_requirement(distribution)?])
+}
+
+pub fn package_is_available(probe: &PythonPackageProbe, distribution: &str) -> bool {
+    probe
+        .packages
+        .iter()
+        .any(|package| package.distribution.eq_ignore_ascii_case(distribution) && package.available)
+}
+
+pub fn capability_is_available(
+    probe: &PythonPackageProbe,
+    capability_id: &str,
+) -> Result<bool, String> {
+    let capability = capability_requirement(capability_id)?;
+    Ok(capability
+        .packages
+        .iter()
+        .filter(|package| package.required)
+        .all(|package| package_is_available(probe, &package.distribution)))
+}
+
+pub fn require_python_capability(
+    python: &Path,
+    capability_id: &str,
+) -> Result<PythonPackageProbe, String> {
+    let probe = probe_python_capability(python, capability_id)?;
+    if capability_is_available(&probe, capability_id)? {
+        Ok(probe)
+    } else {
+        Err(capability_message(
+            capability_id,
+            Some(python),
+            Some(&probe),
+        ))
+    }
+}
+
+pub fn package_remediation(distribution: &str, python: Option<&Path>) -> String {
+    let package = package_requirement(distribution);
+    match (package, python) {
+        (Ok(package), Some(path)) => format!(
+            "{} is unavailable in {}. Run: \"{}\" -m pip install {} then re-probe, or repair the qualified offline Python pack.",
+            package.distribution,
+            path.display(),
+            path.display(),
+            package.distribution
+        ),
+        (Ok(package), None) => format!(
+            "{} is unavailable because no session Python is selected; install or repair the qualified offline Python pack, then re-probe.",
+            package.distribution
+        ),
+        (Err(error), _) => error,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PackageRuntimeSupport {
+    pub distribution: String,
+    pub selected_interpreter: Option<String>,
+    pub available: bool,
+    pub version: Option<String>,
+    pub message: String,
+}
+
+pub fn package_runtime_support(
+    distribution: &str,
+    python: Option<&Path>,
+) -> Result<PackageRuntimeSupport, String> {
+    let requirement = package_requirement(distribution)?;
+    let Some(path) = python else {
+        return Ok(PackageRuntimeSupport {
+            distribution: requirement.distribution.clone(),
+            selected_interpreter: None,
+            available: false,
+            version: None,
+            message: package_remediation(&requirement.distribution, None),
+        });
+    };
+    let probe = probe_manifest_package(path, &requirement.distribution)?;
+    let observed = probe.packages.iter().find(|package| {
+        package
+            .distribution
+            .eq_ignore_ascii_case(&requirement.distribution)
+    });
+    let available = observed.is_some_and(|package| package.available);
+    Ok(PackageRuntimeSupport {
+        distribution: requirement.distribution.clone(),
+        selected_interpreter: Some(path.to_string_lossy().into_owned()),
+        available,
+        version: observed.and_then(|package| package.version.clone()),
+        message: if available {
+            format!(
+                "{} is available in {}",
+                requirement.distribution,
+                path.display()
+            )
+        } else {
+            package_remediation(&requirement.distribution, Some(path))
+        },
+    })
+}
+
+pub fn capability_message(
+    capability_id: &str,
+    python: Option<&Path>,
+    probe: Option<&PythonPackageProbe>,
+) -> String {
+    let Ok(capability) = capability_requirement(capability_id) else {
+        return format!("capability manifest has no {capability_id}");
+    };
+    let missing = capability
+        .packages
+        .iter()
+        .filter(|package| {
+            package.required
+                && probe
+                    .map(|observed| !package_is_available(observed, &package.distribution))
+                    .unwrap_or(true)
+        })
+        .map(|package| package.distribution.as_str())
+        .collect::<Vec<_>>();
+    let package_names = if missing.is_empty() {
+        capability
+            .packages
+            .iter()
+            .filter(|package| package.required)
+            .map(|package| package.distribution.as_str())
+            .collect::<Vec<_>>()
+    } else {
+        missing
+    };
+    match python {
+        Some(path) => format!(
+            "{} is unavailable in {}: missing {}. Repair the qualified offline Python pack, then re-probe.",
+            capability.display_name,
+            path.display(),
+            package_names.join(", ")
+        ),
+        None => format!(
+            "{} is unavailable: no session-resolved Python {}+ interpreter with {}. Install or repair the qualified offline Python pack, or set {} to an approved interpreter, then re-probe.",
+            capability.display_name,
+            capability_manifest()
+                .map(|manifest| manifest.interpreter.minimum_version)
+                .unwrap_or_else(|_| "the manifest-declared minimum".to_string()),
+            package_names.join(", "),
+            crate::python_engine::PYTHON_ENV
+        ),
+    }
+}
+
+pub fn capability_status_message(
+    capability_id: &str,
+    python: Option<&Path>,
+    probe: Option<&PythonPackageProbe>,
+) -> String {
+    let Some(path) = python else {
+        return capability_message(capability_id, None, probe);
+    };
+    let Some(observed) = probe else {
+        return capability_message(capability_id, Some(path), None);
+    };
+    if !capability_is_available(observed, capability_id).unwrap_or(false) {
+        return capability_message(capability_id, Some(path), Some(observed));
+    }
+    let Ok(capability) = capability_requirement(capability_id) else {
+        return format!("capability manifest has no {capability_id}");
+    };
+    let optional_missing = capability
+        .packages
+        .iter()
+        .filter(|package| {
+            !package.required && !package_is_available(observed, &package.distribution)
+        })
+        .map(|package| package.distribution.as_str())
+        .collect::<Vec<_>>();
+    if optional_missing.is_empty() {
+        format!(
+            "{} is available in {}",
+            capability.display_name,
+            path.display()
+        )
+    } else {
+        format!(
+            "{} is available in {}; optional package unavailable: {}",
+            capability.display_name,
+            path.display(),
+            optional_missing.join(", ")
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -61,6 +507,7 @@ pub struct CapabilitySupport {
     /// have not yet supplied a truthful answer. It is never optimistically `true`.
     pub available: Option<bool>,
     pub reason: String,
+    pub package_status: Vec<PackageProbe>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -71,37 +518,67 @@ pub struct InstallationSupport {
     pub capabilities: Vec<CapabilitySupport>,
 }
 
-/// Build the in-app prerequisite view from the same manifest used by release copy. Until the
-/// package probes are centralised, an existing interpreter remains `unknown`, never falsely
-/// available. The no-Python case is already certain and every dependent capability is red.
+/// Build the in-app prerequisite view from the same manifest used by release copy and probes.
 pub fn installation_support(
     selected_interpreter: Option<String>,
 ) -> Result<InstallationSupport, String> {
     let manifest = capability_manifest()?;
+    let probe = selected_interpreter
+        .as_deref()
+        .map(Path::new)
+        .map(probe_all_python_packages);
     let capabilities = manifest
         .capabilities
         .iter()
         .map(|capability| {
-            let (available, reason) = match selected_interpreter.as_deref() {
-                None => (
+            let (available, reason, package_status) = match (&selected_interpreter, &probe) {
+                (None, _) => (
                     Some(false),
                     format!(
                         "Unavailable: no session-resolved Python {}+ interpreter",
                         manifest.interpreter.minimum_version
                     ),
+                    Vec::new(),
                 ),
-                Some(path) => (None, format!("Package probe required in {path}")),
+                (Some(path), Some(Ok(observed))) => {
+                    let package_status = capability
+                        .packages
+                        .iter()
+                        .filter_map(|requirement| {
+                            observed.packages.iter().find(|package| {
+                                package
+                                    .distribution
+                                    .eq_ignore_ascii_case(&requirement.distribution)
+                            })
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    let available = capability_is_available(observed, &capability.id)?;
+                    let reason = capability_status_message(
+                        &capability.id,
+                        Some(Path::new(path)),
+                        Some(observed),
+                    );
+                    (Some(available), reason, package_status)
+                }
+                (Some(_), Some(Err(error))) => (
+                    Some(false),
+                    format!("Unavailable: package probe failed: {error}"),
+                    Vec::new(),
+                ),
+                (Some(_), None) => unreachable!("a selected interpreter always has a probe"),
             };
-            CapabilitySupport {
+            Ok(CapabilitySupport {
                 id: capability.id.clone(),
                 display_name: capability.display_name.clone(),
                 owning_domain: capability.owning_domain.clone(),
                 packages: capability.packages.clone(),
                 available,
                 reason,
-            }
+                package_status,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, String>>()?;
     Ok(InstallationSupport {
         manifest_schema_version: manifest.schema_version,
         interpreter_minimum_version: manifest.interpreter.minimum_version,
@@ -403,6 +880,101 @@ mod tests {
             .map(|offset| start + offset + end_marker.len())
             .expect("README generated prerequisite block ends");
         &readme[start..end]
+    }
+
+    /// SB-INS-004 / SB-INS-T04. The interpreter minimum and exact package rows come from
+    /// chapter section 5. The qualified release lock is the deployment-owner decision supplied
+    /// 2026-08-09; package minimums remain absent until that qualification cites exact versions.
+    #[test]
+    fn each_optional_capability_maps_to_the_cited_packages_and_no_detector_carries_a_second_package_list(
+    ) {
+        let manifest = capability_manifest().expect("valid bundled capability manifest");
+        assert_eq!(manifest.interpreter.execution, "subprocess");
+        assert_eq!(manifest.interpreter.minimum_version, "3.10");
+        assert_eq!(manifest.interpreter.selection_scope, "session");
+
+        let expected = [
+            (
+                CAPABILITY_PYTHON_EQUATIONS,
+                vec![("numpy", true), ("scipy", false)],
+            ),
+            (CAPABILITY_DLIS_IMPORT, vec![("dlisio", true)]),
+            (
+                CAPABILITY_PLATE_EXTRACTION,
+                vec![("openpyxl", true), ("Pillow", true)],
+            ),
+            (CAPABILITY_WORKBOOK_EXPORT, vec![("xlsxwriter", true)]),
+            (CAPABILITY_DOCUMENT_EXPORT, vec![("python-docx", true)]),
+            (
+                CAPABILITY_DECK_EXPORT,
+                vec![("python-pptx", true), ("matplotlib", true)],
+            ),
+        ];
+        assert_eq!(manifest.capabilities.len(), expected.len());
+        for (capability_id, packages) in expected {
+            let capability = capability_requirement(capability_id)
+                .unwrap_or_else(|error| panic!("{capability_id}: {error}"));
+            assert_eq!(capability.interpreter, manifest.interpreter.id);
+            assert_eq!(capability.offline_route, "qualified_python_pack");
+            assert_eq!(
+                capability
+                    .packages
+                    .iter()
+                    .map(|package| (package.distribution.as_str(), package.required))
+                    .collect::<Vec<_>>(),
+                packages
+            );
+            for package in &capability.packages {
+                assert_eq!(package.minimum_supported_version, None);
+                assert_eq!(package.version_source, "qualified_release_lock");
+            }
+        }
+
+        let all_present = PythonPackageProbe {
+            executable: "qualified-python.exe".to_string(),
+            python_version: "3.10.0".to_string(),
+            packages: manifest
+                .capabilities
+                .iter()
+                .flat_map(|capability| &capability.packages)
+                .map(|package| PackageProbe {
+                    distribution: package.distribution.clone(),
+                    import_name: package.import_name.clone(),
+                    available: true,
+                    version: None,
+                    error: None,
+                })
+                .collect(),
+        };
+        for capability in &manifest.capabilities {
+            assert!(capability_is_available(&all_present, &capability.id).unwrap());
+        }
+
+        let mut missing_optional = all_present.clone();
+        missing_optional
+            .packages
+            .iter_mut()
+            .find(|package| package.distribution == "scipy")
+            .expect("SciPy manifest row")
+            .available = false;
+        assert!(capability_is_available(&missing_optional, CAPABILITY_PYTHON_EQUATIONS).unwrap());
+
+        let mut missing_required = all_present;
+        missing_required
+            .packages
+            .iter_mut()
+            .find(|package| package.distribution == "numpy")
+            .expect("NumPy manifest row")
+            .available = false;
+        assert!(!capability_is_available(&missing_required, CAPABILITY_PYTHON_EQUATIONS).unwrap());
+
+        assert!(PYTHON_PACKAGE_PROBE.contains("sys.stdin.buffer"));
+        let office = include_str!("office.rs");
+        assert!(office.contains("probe_all_python_packages"));
+        assert!(!office.contains("const SUPPORT_PROBE"));
+        assert!(include_str!("python_engine.rs").contains("probe_python_capability"));
+        assert!(include_str!("dlis.rs").contains("require_python_capability"));
+        assert!(include_str!("images.rs").contains("probe_manifest_package"));
     }
 
     /// SB-INS-003 / SB-INS-T03. The capability inventory and package names come from

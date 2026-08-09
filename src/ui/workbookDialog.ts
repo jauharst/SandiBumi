@@ -28,7 +28,11 @@ export async function openWorkbookDialog(): Promise<void> {
     docx: false,
     pptx: false,
     openpyxl: false,
+    pillow: false,
     matplotlib: false,
+    messages: {},
+    package_versions: {},
+    probe_error: "Office prerequisite probe failed.",
   }));
   const cutoffs = await loadCutoffDefaults();
 
@@ -101,9 +105,8 @@ export async function openWorkbookDialog(): Promise<void> {
     const warn = document.createElement("div");
     warn.className = "form-hint";
     warn.style.color = "var(--warn)";
-    warn.textContent = support.python
-      ? `xlsxwriter is not installed in the Python SandiBumi found (${support.python}). Run: pip install xlsxwriter`
-      : "No Python was found. Install Python 3.10+ with xlsxwriter, or set SANDIBUMI_PYTHON to its python.exe.";
+    warn.textContent =
+      support.messages.workbook_export ?? support.probe_error ?? "Workbook prerequisite probe failed.";
     wrap.appendChild(warn);
   }
 

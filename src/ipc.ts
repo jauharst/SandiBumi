@@ -524,9 +524,13 @@ export interface OfficeSupport {
   docx: boolean;
   pptx: boolean;
   openpyxl: boolean;
+  pillow: boolean;
   /** The deck needs BOTH pptx and matplotlib — python-pptx assembles the slides, matplotlib
    *  draws the figures they carry. */
   matplotlib: boolean;
+  messages: Record<string, string>;
+  package_versions: Record<string, string | null>;
+  probe_error: string | null;
 }
 
 export interface DeckSpec {
@@ -3179,10 +3183,17 @@ export function probePlateWorkbooks(paths: string[]): Promise<WorkbookProbe> {
   return invoke<WorkbookProbe>("probe_plate_workbooks", { paths });
 }
 
-/** Is Pillow reachable? Decides whether the wizard offers TIFF and whether it warns that
- *  pictures will print as labelled frames. */
-export function imageSupport(): Promise<boolean> {
-  return invoke<boolean>("image_support");
+export interface PackageRuntimeSupport {
+  distribution: string;
+  selected_interpreter: string | null;
+  available: boolean;
+  version: string | null;
+  message: string;
+}
+
+/** Pillow status and manifest-derived remediation for the image wizard. */
+export function imageSupport(): Promise<PackageRuntimeSupport> {
+  return invoke<PackageRuntimeSupport>("image_support");
 }
 
 export function importWellImages(req: ImageImportRequest): Promise<ImageImportResult> {
@@ -4157,6 +4168,10 @@ export interface PythonStatus {
   /** scipy version when importable in that interpreter; null when scipy is absent.
    *  scipy is OPTIONAL — numpy alone is a fully working engine. */
   scipy: string | null;
+  /** Manifest-derived equation capability status/remediation. */
+  message: string;
+  /** Manifest-derived optional SciPy remediation. */
+  scipy_message: string;
 }
 
 /** Interpreter + optional-package status for the equation engine. */
@@ -4181,6 +4196,13 @@ export interface CapabilitySupport {
   /** False = known unavailable; null = the interpreter exists but probing is pending. */
   available: boolean | null;
   reason: string;
+  package_status: Array<{
+    distribution: string;
+    import_name: string;
+    available: boolean;
+    version: string | null;
+    error: string | null;
+  }>;
 }
 
 export interface InstallationSupport {
