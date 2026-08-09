@@ -1,4 +1,5 @@
 import { getCurveData, type WellSummary } from "../ipc";
+import { histogram as canonicalBinCounts } from "../distribution";
 import { appState, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
@@ -68,7 +69,7 @@ export interface HistogramOptions {
 
 export const DEFAULT_HISTOGRAM_OPTIONS: HistogramOptions = {
   mode: "bars",
-  bins: 60,
+  bins: 50,
   normalize: false,
   stats: ["p5", "p50", "p95", "count"],
   cumulative: false,
@@ -91,7 +92,7 @@ const STAT_DEFS: { key: StatKey; label: string; fmt: (s: BasicStats) => string; 
 ];
 
 const clampBins = (v: number): number =>
-  Math.max(5, Math.min(400, Math.round(v) || DEFAULT_HISTOGRAM_OPTIONS.bins));
+  Math.max(1, Math.min(200, Math.round(v) || DEFAULT_HISTOGRAM_OPTIONS.bins));
 
 /** Parses "10, 50, 90"-style user input into clean percentiles (bounded, deduped, sorted). */
 export function parsePercentiles(text: string): number[] {
@@ -133,19 +134,17 @@ export function computeHistogram(
   min: number,
   max: number,
   bins = DEFAULT_HISTOGRAM_OPTIONS.bins,
-): { counts: number[]; edges: number[]; n: number } {
-  const counts = new Array(bins).fill(0);
-  const width = (max - min) / bins;
-  let n = 0;
+): { counts: number[]; edges: number[]; n: number; nonFiniteExcluded: number } {
+  const binCount = clampBins(bins);
+  const counts = canonicalBinCounts(values, min, max, binCount);
+  const n = counts.reduce((sum, count) => sum + count, 0);
+  let nonFiniteExcluded = 0;
   for (let i = 0; i < values.length; i++) {
-    const v = values[i];
-    if (Number.isNaN(v) || v < min || v > max) continue;
-    const bin = Math.min(bins - 1, Math.floor((v - min) / width));
-    counts[bin]++;
-    n++;
+    if (!Number.isFinite(values[i])) nonFiniteExcluded++;
   }
-  const edges = Array.from({ length: bins + 1 }, (_, i) => min + i * width);
-  return { counts, edges, n };
+  const width = (max - min) / binCount;
+  const edges = Array.from({ length: binCount + 1 }, (_, i) => min + i * width);
+  return { counts, edges, n, nonFiniteExcluded };
 }
 
 /** Compact percentile label ("P10", "P97.5"). */
@@ -202,7 +201,7 @@ export function drawHistogram(
   const xMax = view ? view.xMax : max;
 
   const bins = clampBins(opts.bins);
-  const { counts, edges, n } = computeHistogram(values, min, max, bins);
+  const { counts, edges, n, nonFiniteExcluded } = computeHistogram(values, min, max, bins);
   if (n === 0) return null;
 
   const stats = basicStats(values);
@@ -236,7 +235,8 @@ export function drawHistogram(
   // count that the stats chips show. Surface both ("n = X of Y") so the two never silently
   // disagree — a real QC trap for anyone standardizing GR on P3/P97 tails.
   const nLabel = stats.count > n ? `${n} of ${stats.count}` : `${n}`;
-  const yLabel = opts.normalize ? `% of samples (n=${nLabel})` : `Count (n=${nLabel})`;
+  const excludedLabel = nonFiniteExcluded ? `; non-finite excluded=${nonFiniteExcluded}` : "";
+  const yLabel = opts.normalize ? `% of samples (n=${nLabel}${excludedLabel})` : `Count (n=${nLabel}${excludedLabel})`;
 
   const plot = new PlotCanvas(
     canvas,
