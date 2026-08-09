@@ -3255,6 +3255,76 @@ mod tests {
         assert_eq!(pef.n_samples, 2, "generic PEF deduped to 2 rows, not aborted");
     }
 
+    /// SB-CORE-002 / SB-CORE-T04. CORRECTNESS: `04_CORE_REQUIREMENTS.md` records R4's
+    /// contract that the already-committed six-curve import remains successful while the
+    /// failed full-curve load is named in `ImportResult.warning`. The clean control pins
+    /// the opposite side so every successful import cannot satisfy the test by warning.
+    #[test]
+    fn a_partial_generic_curve_import_returns_a_named_warning_while_the_standard_curves_remain_successful() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let write_las = |well: &str| {
+            let path = std::env::temp_dir().join(format!(
+                "sandibumi-core002-{}-{}.las",
+                std::process::id(),
+                Uuid::new_v4()
+            ));
+            let las = format!(
+                "~Version\nVERS. 2.0 :\n~Well\nWELL. {well} :\nNULL. -999.25 :\n\
+                 ~Curve\nDEPT.M : depth\nGR.GAPI : gamma\nILD.OHMM : resistivity\n\
+                 NPHI.V/V : neutron\nRHOB.G/CC : density\nDT.US/FT : sonic\nSP.MV : spontaneous potential\n\
+                 PEF.B/E : photoelectric\n~ASCII\n\
+                 1000.0 45.0 20.0 0.18 2.35 80.0 -10.0 3.0\n\
+                 1000.5 47.0 22.0 0.19 2.34 79.0 -11.0 3.1\n"
+            );
+            std::fs::write(&path, las).unwrap();
+            path
+        };
+
+        let clean_path = write_las("FULL_CURVE_CONTROL");
+        let clean = import_las_files_with(
+            &conn,
+            &[clean_path.to_string_lossy().into_owned()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&clean_path).ok();
+        assert!(clean.error.is_none(), "clean control import failed: {:?}", clean.error);
+        assert!(
+            !clean.warning.as_deref().unwrap_or("").contains("only the six standard curves were loaded"),
+            "a complete import must not be labelled partial: {:?}",
+            clean.warning
+        );
+
+        conn.execute_batch("DROP TABLE curve_samples").unwrap();
+        let partial_path = write_las("FULL_CURVE_DEPENDENCY_MISSING");
+        let partial = import_las_files_with(
+            &conn,
+            &[partial_path.to_string_lossy().into_owned()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&partial_path).ok();
+
+        assert!(partial.error.is_none(), "the committed standard import must remain successful: {:?}", partial.error);
+        let well_id = partial.well_id.as_deref().expect("partial success must return its well id");
+        assert_eq!(partial.rows, 2);
+        let standard_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM standard_curves WHERE well_id = ?1",
+                params![well_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(standard_rows, 2, "the standard curves must survive the generic-store failure");
+        let warning = partial.warning.as_deref().expect("partial success must carry a visible warning");
+        assert!(warning.contains("only the six standard curves were loaded"), "partial scope must be named: {warning}");
+        assert!(warning.contains("full-curve load failed"), "the failed operation must be named: {warning}");
+        assert!(warning.contains("curve_samples"), "the underlying cause must remain actionable: {warning}");
+    }
+
     /// Core import v2 (T-IMP-07): a real delivery shape end-to-end — WN well column,
     /// units row, feet depths, percent porosity, an unmatched name, an ambiguous name,
     /// and a blank well cell. Probe must SEE all of it; commit must route, convert, and

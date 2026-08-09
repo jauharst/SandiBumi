@@ -356,10 +356,10 @@ fn fmt_num(v: f32, dec: usize) -> String {
 }
 
 /// Builds every report page as DrawOps. Locks the connection only while reading.
-fn report_pages(
+fn report_pages_with_degradations(
     db: &Mutex<Connection>,
     spec: &ReportSpec,
-) -> Result<(Vec<Vec<DrawOp>>, f64, f64, String), String> {
+) -> Result<(Vec<Vec<DrawOp>>, f64, f64, String, Vec<String>), String> {
     let (composite_pages, pw, ph, well_name, header, zones, zparams, logged, ml_prov) = {
         let conn = db.lock().unwrap();
         let header = composite::fetch_header(&conn, &spec.composite.well_id)?;
@@ -396,6 +396,7 @@ fn report_pages(
             .then_some(printed);
 
         let mut pages: Vec<Vec<DrawOp>> = Vec::new();
+        let mut degradations: Vec<String> = Vec::new();
 
         // 1 — cover
         pages.push(cover_page(spec, &header, interval, window, pw, ph));
@@ -576,13 +577,11 @@ fn report_pages(
             // The pay numbers were computed in memory but a storage-side error (read-only DB, disk
             // full, appender failure) failed the FLAG_* write. Surface it in the document instead of
             // dropping the section, and keep the rest of the report (composite pages) intact.
-            Err(e) => pages.push(note_page(
-                &pay_section,
-                &well_name,
-                &format!("Pay Summary unavailable — {e}"),
-                pw,
-                ph,
-            )),
+            Err(e) => {
+                let message = format!("Pay Summary unavailable — {e}");
+                degradations.push(message.clone());
+                pages.push(note_page(&pay_section, &well_name, &message, pw, ph));
+            }
         }
 
         // 5 — composite log pages
@@ -590,8 +589,16 @@ fn report_pages(
             pages.extend(composite_pages.into_iter().map(|p| p.ops));
         }
 
-        Ok((pages, pw, ph, well_name))
+        Ok((pages, pw, ph, well_name, degradations))
     }
+}
+
+fn report_pages(
+    db: &Mutex<Connection>,
+    spec: &ReportSpec,
+) -> Result<(Vec<Vec<DrawOp>>, f64, f64, String), String> {
+    let (pages, pw, ph, well_name, _) = report_pages_with_degradations(db, spec)?;
+    Ok((pages, pw, ph, well_name))
 }
 
 /// SVG preview of the whole report (one SVG per page, same shape as the composite result).
@@ -618,12 +625,20 @@ pub fn render_report(db: &Mutex<Connection>, spec: &ReportSpec) -> Result<Compos
 
 /// The full report as one multi-page PDF (bytes).
 pub fn render_report_pdf(db: &Mutex<Connection>, spec: &ReportSpec) -> Result<Vec<u8>, String> {
-    let (pages, pw, ph, _) = report_pages(db, spec)?;
+    render_report_pdf_with_degradations(db, spec).map(|(bytes, _)| bytes)
+}
+
+fn render_report_pdf_with_degradations(
+    db: &Mutex<Connection>,
+    spec: &ReportSpec,
+) -> Result<(Vec<u8>, Vec<String>), String> {
+    let (pages, pw, ph, _, degradations) = report_pages_with_degradations(db, spec)?;
     let streams: Vec<String> = pages.iter().map(|ops| composite::pdf_content(ops, pw, ph)).collect();
     // The report embeds the composite pages verbatim, so it inherits their image tracks —
     // collect the XObjects here too or a report would reference plates it never wrote.
     let op_pages: Vec<&[composite::DrawOp]> = pages.iter().map(|ops| ops.as_slice()).collect();
-    Ok(composite::assemble_pdf_with_images(&streams, pw, ph, &composite::collect_images(&op_pages)))
+    let bytes = composite::assemble_pdf_with_images(&streams, pw, ph, &composite::collect_images(&op_pages));
+    Ok((bytes, degradations))
 }
 
 /// Batch export: one report PDF per well into `dest_dir`, named `<WELL>_report.pdf`.
@@ -655,12 +670,15 @@ pub fn export_report_batch(
         };
         let mut s = spec.clone();
         s.composite.well_id = wid.clone();
-        match render_report_pdf(db, &s) {
-            Ok(bytes) => {
+        match render_report_pdf_with_degradations(db, &s) {
+            Ok((bytes, degradations)) => {
                 let path =
                     format!("{}/{}_report.pdf", dest_dir.trim_end_matches(['/', '\\']), unique_stem(&mut used, &name, wid));
                 match std::fs::write(&path, &bytes) {
-                    Ok(()) => written.push(path),
+                    Ok(()) => {
+                        written.push(path);
+                        errors.extend(degradations.into_iter().map(|message| format!("{name}: {message}")));
+                    }
                     Err(e) => errors.push(format!("{name}: {e}")),
                 }
             }
@@ -831,6 +849,39 @@ mod tests {
         let pa = std::fs::read(self_path(&dir, "SANDI-BATCH-A_report.pdf")).unwrap();
         let pb = std::fs::read(self_path(&dir, "SANDI-BATCH-B_report.pdf")).unwrap();
         assert_ne!(pa, pb, "each well's report must be its own — identical bytes means the cover well never changed");
+    }
+
+    /// SB-CORE-002 / SB-CORE-T07. CORRECTNESS: `04_CORE_REQUIREMENTS.md` assigns the
+    /// recovered R4 contract to both user-facing artefacts. A section dependency failure
+    /// degrades the PDF instead of suppressing it, and the same degradation must be named
+    /// in the batch result rather than counted as an unqualified success.
+    #[test]
+    fn a_failed_pay_summary_is_named_in_the_pdf_and_in_the_batch_run_record() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = seed_batch_well(&conn, "PAY_SECTION_DEPENDENCY_MISSING", true);
+        conn.execute_batch(
+            "ALTER TABLE computed_curves RENAME TO computed_curves_read_source;
+             CREATE VIEW computed_curves AS SELECT * FROM computed_curves_read_source;",
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+        let dir = ScratchDir::new();
+
+        let (written, errors) =
+            export_report_batch(&dbm, &batch_spec(), &[well_id], &dir.path()).unwrap();
+
+        assert_eq!(written.len(), 1, "the intact report sections must still be delivered");
+        assert_eq!(dir.files(), vec!["PAY_SECTION_DEPENDENCY_MISSING_report.pdf"]);
+        let bytes = std::fs::read(&written[0]).unwrap();
+        assert!(bytes.starts_with(b"%PDF"), "the delivered artefact must be a PDF");
+        let pdf = String::from_utf8_lossy(&bytes);
+        assert!(pdf.contains("Pay Summary"), "the failed section heading must remain in the PDF");
+        assert!(pdf.contains("Pay Summary unavailable"), "the PDF must name the section degradation");
+
+        assert_eq!(errors.len(), 1, "one degraded section must produce one batch-record entry");
+        assert!(errors[0].starts_with("PAY_SECTION_DEPENDENCY_MISSING:"), "the batch record names the well: {}", errors[0]);
+        assert!(errors[0].contains("Pay Summary unavailable"), "the batch record names the failed section: {}", errors[0]);
     }
 
     fn self_path(dir: &ScratchDir, name: &str) -> std::path::PathBuf {

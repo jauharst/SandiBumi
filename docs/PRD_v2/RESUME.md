@@ -167,9 +167,9 @@ why `SB-CORE-T23` forbids the fixture from supplying parameters.
 
 **Closed 2026-08-09 — SP-008 / `SB-CORE-002`.** The original seven degraded-result paths were
 recovered from recorded R4/R18/R19/R21 evidence and assigned one-for-one to `SB-CORE-T03` through
-`T09`. The stale claim that four violations remain open was corrected: six behaviors are closed but
-lack a qualifying reporting-surface regression test; `SB-CORE-T07` remains open because a failed Pay
-Summary is visible in the PDF but absent from the report batch/run record. Tests of internal helpers,
+`T09`. The stale claim that four violations remain open was corrected, all seven reporting surfaces
+now have their named regression, and `SB-CORE-T07` closes the remaining production defect by naming
+the Pay Summary degradation in both the PDF and batch/run record. Tests of internal helpers,
 internal `Result` values, or persistence alone were deliberately not counted.
 
 ---

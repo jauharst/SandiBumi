@@ -3,6 +3,8 @@ mod composite;
 mod condition;
 mod contacts;
 mod coreimage;
+#[cfg(test)]
+mod core_reporting_tests;
 mod curve_edit;
 mod curves;
 mod db;

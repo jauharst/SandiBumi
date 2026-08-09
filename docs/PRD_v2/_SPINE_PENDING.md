@@ -85,11 +85,11 @@ lanes do not edit the spine directly.
   by** clauses; also recorded in `docs/PRD_v2/RESUME.md` §5.
 - **Discrepancy:** `SB-CORE-T04` through `SB-CORE-T08` were unassigned between defined `T03` and
   `T09`, and the shorthand index entry obscured the seven-test ownership.
-- **Disposition:** closed by the `SB-CORE-002` adjudication. `SB-CORE-T03` through `T09` now each own
-  one explicit, non-overlapping reporting-surface contract for one of the seven recorded R4/R18/R19/
-  R21 violations. Six behaviors are closed but missing their reporting-surface regression test;
-  `SB-CORE-T07` remains open because the report batch/run record does not expose the Pay Summary
-  degradation.
+- **Disposition:** closed by the `SB-CORE-002` adjudication and implementation. `SB-CORE-T03`
+  through `T09` each own one explicit, non-overlapping reporting-surface contract for one of the
+  seven recorded R4/R18/R19/R21 violations, and all seven named regressions now pass. `T07` also
+  closes the remaining production defect by carrying a Pay Summary degradation into the batch/run
+  result beside the still-written PDF.
 
 ## SP-009 — Porosity requirements omit status and tests omit T26–T27
 
