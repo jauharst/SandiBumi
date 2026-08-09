@@ -7,6 +7,15 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-023: chart rendering requires complete provenance
+
+- [ ] Select a chart overlay whose record lacks its source revision/date. Does the chart
+      payload stay absent from both the live plot and its vector/raster draw paths, with a
+      visible provenance refusal? Do the selector and status identify the block? Inspect a
+      complete fixture: does persisted plot state retain chart ID/title/type, X/Y quantity and
+      unit, citation, publisher, revision/date, applicable digitizer, approved derivation path,
+      payload SHA-256 and the actual orientation/unit transform?
+
 ## 2026-08-09 — SB-PLT-020: plot-derived parameter writes are traceable and undoable
 
 - [ ] Promote a crossplot handle/marker, histogram marker and two-point Pickett fit to zone

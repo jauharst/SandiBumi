@@ -729,6 +729,67 @@ pub fn finalize_plot_write_provenance(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChartRenderRecord {
+    pub chart_id: String,
+    pub title: String,
+    pub chart_type: String,
+    pub x_quantity: String,
+    pub x_unit: String,
+    pub y_quantity: String,
+    pub y_unit: String,
+    pub citation: String,
+    pub publisher: String,
+    pub revision_date: String,
+    pub digitizer: Option<String>,
+    pub approved_derivation_path: String,
+    pub payload_checksum: String,
+    pub transform_applied: String,
+}
+
+pub fn validate_chart_render_record(record: Option<&ChartRenderRecord>) -> Result<(), String> {
+    let record = record.ok_or_else(|| {
+        "deliverable chart rendering is blocked: chart provenance is absent".to_string()
+    })?;
+    for (value, field) in [
+        (&record.chart_id, "chart id"),
+        (&record.title, "chart title"),
+        (&record.chart_type, "chart type"),
+        (&record.x_quantity, "X quantity"),
+        (&record.x_unit, "X unit"),
+        (&record.y_quantity, "Y quantity"),
+        (&record.y_unit, "Y unit"),
+        (&record.citation, "citation"),
+        (&record.publisher, "publisher"),
+        (&record.revision_date, "source revision/date"),
+        (&record.approved_derivation_path, "approved derivation path"),
+        (&record.transform_applied, "transform applied"),
+    ] {
+        require_provenance_text(value, field)?;
+    }
+    if !matches!(
+        record.approved_derivation_path.as_str(),
+        "licensed_source" | "independently_digitized_public_primary_source"
+    ) {
+        return Err("deliverable chart rendering needs an approved derivation path".into());
+    }
+    if record.approved_derivation_path == "independently_digitized_public_primary_source" {
+        let digitizer = record.digitizer.as_deref().ok_or_else(|| {
+            "an independently digitized chart needs its digitizer".to_string()
+        })?;
+        require_provenance_text(digitizer, "digitizer")?;
+    }
+    if record.payload_checksum.len() != 64
+        || !record
+            .payload_checksum
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("deliverable chart rendering needs the rendered payload SHA-256 checksum".into());
+    }
+    Ok(())
+}
+
 /// Screens aligned required channels before assigning any part of the total point
 /// budget. Each represented well first receives enough capacity for both eligible
 /// endpoints (or its single eligible sample), then remaining capacity is shared in
@@ -1560,5 +1621,44 @@ mod tests {
         assert!(validation < write, "provenance validation must precede the write");
         assert!(adapter.contains("undo: applyOld"));
         assert!(adapter.contains("redo: applyNew"));
+    }
+
+    #[test]
+    fn a_chart_record_missing_its_source_revision_cannot_render_in_a_deliverable() {
+        // SB-PLT-023 / SB-PLT-T35: strings are provenance fixtures, not shipped content.
+        let complete = ChartRenderRecord {
+            chart_id: "chart-id".into(),
+            title: "Chart title".into(),
+            chart_type: "crossplot_overlay".into(),
+            x_quantity: "fraction".into(),
+            x_unit: "v/v".into(),
+            y_quantity: "bulk_density".into(),
+            y_unit: "g/cc".into(),
+            citation: "Public primary source citation".into(),
+            publisher: "Publisher".into(),
+            revision_date: "revision fixture".into(),
+            digitizer: Some("Digitizer".into()),
+            approved_derivation_path: "independently_digitized_public_primary_source".into(),
+            payload_checksum: "b".repeat(64),
+            transform_applied: "orientation=normal;x=identity;y=identity".into(),
+        };
+        assert!(validate_chart_render_record(Some(&complete)).is_ok());
+
+        let mut missing_revision = complete;
+        missing_revision.revision_date.clear();
+        assert!(validate_chart_render_record(Some(&missing_revision))
+            .unwrap_err()
+            .contains("revision/date"));
+        assert!(validate_chart_render_record(None).unwrap_err().contains("provenance"));
+
+        let renderer = include_str!("../../src/ui/crossplotPanel.ts");
+        let gate = renderer
+            .find("authorizeProvenancedChart(overlayDef")
+            .expect("chart renderer must authorize provenance");
+        let draw = renderer
+            .find("drawChartOverlay(plot, overlayDef")
+            .expect("chart renderer call must remain inventoried");
+        assert!(gate < draw, "provenance authorization must precede chart rendering");
+        assert!(renderer.contains("chartProvenance: chartProvenance ? JSON.stringify(chartProvenance)"));
     }
 }
