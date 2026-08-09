@@ -130,3 +130,59 @@ test("a_superseded_async_plot_build_is_disposed_before_it_can_replace_the_active
   assert.ok(staleDispose > generationCheck, "stale content is disposed inside the guard");
   assert.ok(activeAppend > staleDispose, "the stale-return branch precedes active-panel mutation");
 });
+
+test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handler_on_dispose", async () => {
+  // CORRECTNESS — SB-PLT-030 / SB-PLT-T39 cites plotCanvas.ts:527-618 for the
+  // accessible label, keyboard focus, pan/zoom and disposer contract.
+  const { attachKeyboardPanZoom, makeCanvasAccessible } = await load("/src/ui/plotCanvas.ts");
+  const attributes = new Map();
+  const listeners = new Map();
+  const canvas = {
+    tabIndex: -1,
+    setAttribute(name, value) {
+      attributes.set(name, value);
+    },
+    hasAttribute(name) {
+      return attributes.has(name);
+    },
+    addEventListener(name, listener) {
+      listeners.set(name, listener);
+    },
+    removeEventListener(name, listener) {
+      if (listeners.get(name) === listener) listeners.delete(name);
+    },
+  };
+  makeCanvasAccessible(canvas, "Current finite-pair crossplot");
+  assert.equal(attributes.get("role"), "img");
+  assert.equal(attributes.get("aria-label"), "Current finite-pair crossplot");
+  assert.equal(canvas.tabIndex, 0);
+
+  const view = { current: null };
+  let redraws = 0;
+  const detach = attachKeyboardPanZoom({
+    canvas,
+    getPlot: () => ({
+      x: { min: 0, max: 10, log: false },
+      y: { min: 100, max: 200, log: false },
+    }),
+    view,
+    redraw: () => {
+      redraws += 1;
+    },
+  });
+  let prevented = false;
+  listeners.get("keydown")({
+    key: "ArrowRight",
+    shiftKey: false,
+    preventDefault: () => {
+      prevented = true;
+    },
+  });
+
+  assert.deepEqual(view.current, { xMin: 0.8, xMax: 10.8, yMin: 100, yMax: 200 });
+  assert.equal(redraws, 1);
+  assert.equal(prevented, true);
+  assert.equal(attributes.get("aria-label"), "Current finite-pair crossplot");
+  detach();
+  assert.equal(listeners.has("keydown"), false);
+});
