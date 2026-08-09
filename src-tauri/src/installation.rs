@@ -1569,6 +1569,49 @@ mod tests {
         std::fs::remove_file(&path).expect("remove isolated native project fixture");
     }
 
+    /// CORRECTNESS — SB-INS-006 / SB-INS-T08 requires a missing `dlisio` probe to
+    /// refuse before DLIS parsing starts and to name the exact missing item. The source-order
+    /// assertion pins the preflight from the other side: a runner-first implementation fails.
+    #[test]
+    fn a_missing_dlis_package_is_named_and_refused_before_file_parsing_starts() {
+        let python = Path::new("C:/qualified-runtime/python.exe");
+        let probe = probe_python_capability_with(
+            python,
+            CAPABILITY_DLIS_IMPORT,
+            |selected, requirements| {
+                assert_eq!(selected, python);
+                assert_eq!(requirements.len(), 1);
+                assert_eq!(requirements[0].distribution, "dlisio");
+                Ok(PythonPackageProbe {
+                    executable: selected.to_string_lossy().into_owned(),
+                    python_version: "3.10.0".to_string(),
+                    packages: vec![PackageProbe {
+                        distribution: "dlisio".to_string(),
+                        import_name: "dlisio".to_string(),
+                        available: false,
+                        version: None,
+                        error: Some("module unavailable".to_string()),
+                    }],
+                })
+            },
+        )
+        .expect("the manifest-derived preflight runs");
+        assert!(!capability_is_available(&probe, CAPABILITY_DLIS_IMPORT).unwrap());
+        let message = capability_status_message(CAPABILITY_DLIS_IMPORT, Some(python), Some(&probe));
+        assert!(message.contains("dlisio"), "{message}");
+        assert!(message.contains(&python.display().to_string()), "{message}");
+
+        let source = include_str!("dlis.rs");
+        let preflight = source
+            .find("installation::require_python_capability(")
+            .expect("DLIS import performs the manifest preflight");
+        let runner = source[preflight..]
+            .find("let mut cmd = Command::new(&python)")
+            .map(|offset| preflight + offset)
+            .expect("DLIS parsing starts through its subprocess runner");
+        assert!(preflight < runner, "dependency refusal must precede the file parser subprocess");
+    }
+
     /// SB-INS-004 / SB-INS-T04. The interpreter minimum and exact package rows come from
     /// chapter section 5. The qualified release lock is the deployment-owner decision supplied
     /// 2026-08-09; package minimums remain absent until that qualification cites exact versions.
