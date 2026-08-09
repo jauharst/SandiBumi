@@ -38,6 +38,7 @@ import { buildImageExportButtons } from "./plotExport";
 import { buildWellScope } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
+import { parsePercentileP } from "./plotTypes";
 
 export type HistogramMode = "bars" | "line";
 
@@ -100,7 +101,9 @@ export function parsePercentiles(text: string): number[] {
   for (const part of text.split(/[,;\s]+/)) {
     if (!part) continue;
     const p = Number(part);
-    if (Number.isFinite(p) && p > 0 && p < 100) out.add(Math.round(p * 100) / 100);
+    if (Number.isFinite(p) && p > 0 && p < 100) {
+      out.add(parsePercentileP(Math.round(p * 100) / 100).value);
+    }
   }
   return [...out].sort((a, b) => a - b).slice(0, 8);
 }

@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-008: percentile probability is not range position
+
+- [ ] Load or export typed percentage values. Is `PercentileP=130` refused while
+      `RangePositionPct=130` and `RangePositionPct=-5` retain their exact values and explicit type
+      tags, with no shared clamping path?
+
 ## 2026-08-09 — SB-PLT-006: histogram binning is canonical
 
 - [ ] Plot values exactly on every edge, including the final upper endpoint. Are bins half-open
