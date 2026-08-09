@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-001: the Windows release is a qualified per-machine MSI
+
+- [ ] On a clean supported Windows 11 x64 image with neither Rust nor Node.js, have IT deploy
+      the signed MSI silently under the system context, then launch SandiBumi as a standard
+      user. Does the release evidence record the final MSI SHA-256 and build commit, and do the
+      installed name, version and identifier exactly match `tauri.conf.json`?
+
 ## 2026-08-09 — SB-DIO-020: the malformed duplicate exemplar requires a policy
 
 - [ ] Import `bad_dup_depth.las` without choosing a duplicate-depth policy. Does it name all
