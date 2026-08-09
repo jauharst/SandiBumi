@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-061: every public reader runs the malformed corpus
+
+- [ ] Add a new public parser entry point and run the gate. Does the source-derived inventory
+      refuse it until an explicit malformed-corpus adapter is registered, while every registered
+      reader still runs against every corpus fixture?
+
 ## 2026-08-09 — SB-DIO-062: text encoding is detected and reported
 
 - [ ] Import the same ASCII LAS encoded as UTF-16LE once with a BOM and once without. Do both

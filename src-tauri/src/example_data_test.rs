@@ -320,12 +320,18 @@ const REGISTERED_FILE_READERS: &[&str] = &[
     "intake::read_wide",
     "parsers::extract_well_name",
     "parsers::parse_core_csv",
+    "parsers::parse_core_csv_with_depth_column",
     "parsers::parse_core_table_mapped",
     "parsers::parse_csv_export",
     "parsers::parse_deviation_csv",
     "parsers::parse_interval_file",
     "parsers::parse_las_2",
     "parsers::parse_las_2_all",
+    "parsers::parse_las_2_all_with_channel_nulls",
+    "parsers::parse_las_2_all_with_null_rules",
+    "parsers::parse_las_2_with_channel_nulls",
+    "parsers::parse_las_2_with_null_rules",
+    "parsers::parse_las_2_with_unit_designation",
     "parsers::parse_las_directory",
     "parsers::parse_locations_file",
     "parsers::parse_scal_centrifuge_csv",
@@ -334,6 +340,7 @@ const REGISTERED_FILE_READERS: &[&str] = &[
     "parsers::parse_tops_file",
     "parsers::probe_core_table",
     "parsers::read_text_file",
+    "parsers::read_text_file_with_encoding",
     "parsers::sniff_scal_format",
 ];
 
@@ -352,11 +359,60 @@ fn exercise_registered_reader(reader: &str, path: &std::path::Path) -> Result<()
     let roles: Vec<String> = Vec::new();
     match reader {
         "parsers::read_text_file" => parsers::read_text_file(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::read_text_file_with_encoding" => {
+            parsers::read_text_file_with_encoding(path).map(|_| ()).map_err(|e| e.to_string())
+        }
         "parsers::parse_csv_export" => parsers::parse_csv_export(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_las_2" => parsers::parse_las_2(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_las_2_all" => parsers::parse_las_2_all(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_las_2_with_channel_nulls" => {
+            parsers::parse_las_2_with_channel_nulls(path, &parsers::ChannelNullValues::new())
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        "parsers::parse_las_2_with_null_rules" => {
+            parsers::parse_las_2_with_null_rules(
+                path,
+                &parsers::ChannelNullValues::new(),
+                &[],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
+        "parsers::parse_las_2_with_unit_designation" => {
+            parsers::parse_las_2_with_unit_designation(
+                path,
+                &parsers::ChannelNullValues::new(),
+                &[],
+                None,
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
+        "parsers::parse_las_2_all_with_channel_nulls" => {
+            parsers::parse_las_2_all_with_channel_nulls(
+                path,
+                &parsers::ChannelNullValues::new(),
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
+        "parsers::parse_las_2_all_with_null_rules" => {
+            parsers::parse_las_2_all_with_null_rules(
+                path,
+                &parsers::ChannelNullValues::new(),
+                &[],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
         "parsers::extract_well_name" => parsers::extract_well_name(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_core_csv" => parsers::parse_core_csv(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_core_csv_with_depth_column" => {
+            parsers::parse_core_csv_with_depth_column(path, None)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
         "parsers::parse_scal_csv" => parsers::parse_scal_csv(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_scal_wide_csv" => parsers::parse_scal_wide_csv(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_scal_centrifuge_csv" => {
