@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-015: decimation preserves identity and provenance
+
+- [ ] Reduce eligible source indices 0…10 at stride 4. Does the view use exactly
+      `[0,4,8,10]`, report 11 original / 4 displayed, name the stride-from-first algorithm,
+      and say the final endpoint was forced? Inspect depth, X, Y and Z: were all four
+      sampled with that same index vector, and is the reduced view never labelled complete?
+
 ## 2026-08-09 — SB-PLT-014: multi-well budget follows finite-pair screening
 
 - [ ] Request two context wells where one required Y curve is a full-length NaN vector.
