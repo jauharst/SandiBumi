@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-CORE-044: Tier-C policy is auditable but partial
+
+- [ ] Review `docs/IP_PROVENANCE.md`. Does it retain the same-increment maintenance rule, blocked
+      Tier-C treatment, publication re-derivation doctrine and primary-source fallback routes?
+      Confirm the current known-asset register is not presented as exhaustive capability coverage.
+
 ## 2026-08-09 — SB-CORE-042: the machine gate remains manually invoked
 
 - [ ] Run `tools\check.ps1` and confirm it executes the verification matrix, frontend acceptance
