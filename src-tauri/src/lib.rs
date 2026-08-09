@@ -43,6 +43,7 @@ mod netflag;
 mod neutron_charts;
 mod office;
 mod param_sources;
+pub mod parameter_pack;
 mod parsers;
 #[cfg(test)]
 mod pipeline_field_test;

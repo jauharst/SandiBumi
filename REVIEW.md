@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-014: parameter rows are keyed, not name-joined
+
+- [ ] Load a parameter-pack fixture with two identical display labels but distinct semantic IDs
+      and ordinals. Can each row be retrieved by either key, while a crossed ID/ordinal pair finds
+      nothing and the display label never participates in selection?
+
 ## 2026-08-09 — SB-INS-010: installed settings stay immutable
 
 - [ ] On a clean user profile, launch once and inspect the per-user `settings.json`, edit its
