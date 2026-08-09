@@ -352,6 +352,84 @@ impl RangePositionPct {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlotChannelPolicy {
+    Cartesian { log_axis: bool, display: DisplayRange },
+    Colour { log_axis: bool, display: DisplayRange },
+    ArrayWaveform { display: DisplayRange },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RangeEdge {
+    None,
+    Low,
+    High,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotChannelPolicyReport {
+    pub values: Vec<f32>,
+    pub edge_marks: Vec<RangeEdge>,
+    pub non_finite_excluded: usize,
+    pub log_domain_excluded: usize,
+    pub display_clipped: usize,
+    pub clamped: usize,
+}
+
+/// Applies the policy for one visual channel to a copy. Source samples are borrowed
+/// and never changed: X/Y overflow is reported for clipping, while colour and array
+/// waveform overflow are clamped in the derived display vector.
+pub fn apply_plot_channel_policy(
+    source: &[f32],
+    policy: PlotChannelPolicy,
+) -> PlotChannelPolicyReport {
+    let mut report = PlotChannelPolicyReport {
+        values: source.to_vec(),
+        edge_marks: vec![RangeEdge::None; source.len()],
+        non_finite_excluded: 0,
+        log_domain_excluded: 0,
+        display_clipped: 0,
+        clamped: 0,
+    };
+    let (display, log_axis, clamp) = match policy {
+        PlotChannelPolicy::Cartesian { log_axis, display } => (display, log_axis, false),
+        PlotChannelPolicy::Colour { log_axis, display } => (display, log_axis, true),
+        PlotChannelPolicy::ArrayWaveform { display } => (display, false, true),
+    };
+    let low = display.low.min(display.high);
+    let high = display.low.max(display.high);
+    for (index, &value) in source.iter().enumerate() {
+        if !value.is_finite() {
+            report.non_finite_excluded += 1;
+            continue;
+        }
+        if log_axis && value <= 0.0 {
+            report.log_domain_excluded += 1;
+            continue;
+        }
+        if value < low {
+            if clamp {
+                report.values[index] = low;
+                report.edge_marks[index] = RangeEdge::Low;
+                report.clamped += 1;
+            } else {
+                report.display_clipped += 1;
+            }
+        } else if value > high {
+            if clamp {
+                report.values[index] = high;
+                report.edge_marks[index] = RangeEdge::High;
+                report.clamped += 1;
+            } else {
+                report.display_clipped += 1;
+            }
+        }
+    }
+    report
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PickettFit {
     pub m: f32,
     pub a_rw: f32,
@@ -878,5 +956,49 @@ mod tests {
         assert!(disclose_pickett_fit(fit, Some(unsourced), None)
             .unwrap_err()
             .contains("provenance"));
+    }
+
+    #[test]
+    fn missing_log_xy_z_and_waveform_values_follow_their_own_reported_policies() {
+        // SB-PLT-013: 0 and 10 are display-range arithmetic fixtures, not scientific limits.
+        let source = [-1.0, 5.0, 20.0, f32::NAN];
+        let source_bits: Vec<u32> = source.iter().map(|value| value.to_bits()).collect();
+
+        let xy = apply_plot_channel_policy(
+            &source,
+            PlotChannelPolicy::Cartesian {
+                log_axis: true,
+                display: DisplayRange { low: 0.0, high: 10.0 },
+            },
+        );
+        assert_eq!(xy.non_finite_excluded, 1);
+        assert_eq!(xy.log_domain_excluded, 1);
+        assert_eq!(xy.display_clipped, 1);
+        assert_eq!(xy.clamped, 0);
+        assert_eq!(xy.values[2].to_bits(), 20.0f32.to_bits());
+
+        let z = apply_plot_channel_policy(
+            &source,
+            PlotChannelPolicy::Colour {
+                log_axis: false,
+                display: DisplayRange { low: 0.0, high: 10.0 },
+            },
+        );
+        assert_eq!(z.non_finite_excluded, 1);
+        assert_eq!(z.clamped, 2);
+        assert_eq!(z.values[0].to_bits(), 0.0f32.to_bits());
+        assert_eq!(z.values[2].to_bits(), 10.0f32.to_bits());
+        assert_eq!(z.edge_marks, vec![RangeEdge::Low, RangeEdge::None, RangeEdge::High, RangeEdge::None]);
+
+        let waveform = apply_plot_channel_policy(
+            &source,
+            PlotChannelPolicy::ArrayWaveform { display: DisplayRange { low: 0.0, high: 10.0 } },
+        );
+        assert_eq!(waveform.non_finite_excluded, 1);
+        assert_eq!(waveform.clamped, 2);
+        assert_eq!(waveform.values[0].to_bits(), 0.0f32.to_bits());
+        assert_eq!(waveform.values[2].to_bits(), 10.0f32.to_bits());
+
+        assert_eq!(source.iter().map(|value| value.to_bits()).collect::<Vec<_>>(), source_bits);
     }
 }
