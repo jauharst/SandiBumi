@@ -3990,11 +3990,14 @@ mod tests {
             .collect();
 
         let db = Mutex::new(conn);
-        let run = |module: &str, params: &[(&str, f64)], opts: &[(&str, &str)]| {
+        let run = |module: &str,
+                   log_inputs: &[(&str, &str)],
+                   params: &[(&str, f64)],
+                   opts: &[(&str, &str)]| {
             let req = RunModuleRequest {
                 module: module.into(),
                 well_ids: well_ids.clone(),
-                log_inputs: HashMap::new(),
+                log_inputs: log_inputs.iter().map(|(arg, curve)| (arg.to_string(), curve.to_string())).collect(),
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
                 output_set: None,
@@ -4007,18 +4010,25 @@ mod tests {
             }
         };
 
-        run("vsh_gr", &[("GR_MA", 25.0), ("GR_SH", 130.0)], &[("OPT_GR", "LINEAR")]);
+        run(
+            "vsh_gr",
+            &[("GR", "GRN_CS")],
+            &[("GR_MA", 25.0), ("GR_SH", 130.0)],
+            &[("OPT_GR", "LINEAR")],
+        );
         run(
             "phi_dn",
+            &[("NPHI", "NPHI_COR")],
             &[("RHO_MA", 2.645), ("RHO_SH", 2.5), ("NPHI_SH", 0.35), ("RHO_DSH", 2.65), ("PHIE_MAX", 0.35)],
             &[("OPT_XPLOT", "AVERAGE")],
         );
         run(
             "sw_indo",
+            &[],
             &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.2), ("RT_SH", 4.0)],
             &[("OPT_INDO", "FULL"), ("OPT_RW", "CONSTANT")],
         );
-        run("perm_wyllie_rose", &[("SWE_IRR", 0.15)], &[("OPT_WR", "TIMUR")]);
+        run("perm_wyllie_rose", &[], &[("SWE_IRR", 0.15)], &[("OPT_WR", "TIMUR")]);
 
         // Physical sanity: VSH/PHIE/SWE within [0,1], PERM non-negative, and each
         // well has a meaningful number of valid samples.

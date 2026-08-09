@@ -26,6 +26,85 @@ use std::time::Instant;
 /// How many wells of the delivery this harness exercises.
 const WELLS_WANTED: usize = 4;
 
+/// The configured field fixture carries explicit corrected-channel mnemonics rather than the
+/// canonical module inputs. Keep that delivery fact here as a run-time choice; adding either
+/// mnemonic to the global alias table would turn one delivery's convention into an automatic
+/// interpretation for every import.
+fn field_log_inputs(spec: &modules::ModuleSpec) -> HashMap<String, String> {
+    spec.args
+        .iter()
+        .filter(|arg| arg.kind == ArgKind::LogIn)
+        .filter_map(|arg| match arg.default.as_str() {
+            "GR" => Some((arg.name.clone(), "GRN_CS".to_string())),
+            "NPHI" => Some((arg.name.clone(), "NPHI_COR".to_string())),
+            _ => None,
+        })
+        .collect()
+}
+
+#[derive(Default)]
+struct MissingInputs {
+    required: Vec<String>,
+    all: Vec<String>,
+}
+
+fn missing_inputs(
+    conn: &Connection,
+    spec: &modules::ModuleSpec,
+    log_inputs: &HashMap<String, String>,
+    well_id: &str,
+) -> MissingInputs {
+    let mut missing = MissingInputs::default();
+    for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::LogIn) {
+        let mnemonic = log_inputs.get(&arg.name).unwrap_or(&arg.default);
+        let has_finite = crate::equations::fetch_curve_frame(conn, well_id, &[mnemonic.clone()])
+            .ok()
+            .and_then(|(_, curves)| curves.get(mnemonic).cloned())
+            .is_some_and(|values| values.iter().any(|value| value.is_finite()));
+        if !has_finite {
+            let input = format!("{}={mnemonic}", arg.name);
+            if arg.required {
+                missing.required.push(input.clone());
+            }
+            missing.all.push(input);
+        }
+    }
+    missing
+}
+
+fn is_documented_absence_refusal(
+    spec: &modules::ModuleSpec,
+    error: &str,
+    missing_inputs: &MissingInputs,
+) -> bool {
+    if let Some(expected) = modules::retired_module(&spec.name) {
+        return error == expected;
+    }
+
+    let names_an_absent_open_parameter = spec
+        .args
+        .iter()
+        .filter(|arg| arg.kind == ArgKind::Param && arg.default.trim().is_empty())
+        .any(|arg| error.contains(&arg.name));
+    if names_an_absent_open_parameter {
+        return true;
+    }
+
+    if error != "no finite output — every sample is missing (check inputs, e.g. precalc not run)" {
+        return false;
+    }
+    if !missing_inputs.required.is_empty() {
+        return true;
+    }
+
+    // Brittleness has mutually exclusive elastic and mineralogical input groups, so none of its
+    // LogIn arguments can be unconditionally required. Its default method is elastic, which
+    // nevertheless needs both slowness curves; this delivery carries neither.
+    spec.name == "brittleness"
+        && missing_inputs.all.iter().any(|input| input == "DT=DT")
+        && missing_inputs.all.iter().any(|input| input == "DTS=DTS")
+}
+
 /// Count of finite (non-NaN) samples for a computed curve.
 fn finite_count(conn: &Connection, well_id: &str, curve: &str) -> i64 {
     conn.query_row(
@@ -115,14 +194,28 @@ fn pipeline_field_full_run() {
     let db = Mutex::new(conn);
     let specs = modules::list_modules();
     println!("\n=== MODULE RUNS (default params, {} modules) ===", specs.len());
-    let mut hard_errors: Vec<String> = Vec::new();
+    let mut unexpected_errors: Vec<String> = Vec::new();
+    let mut documented_refusals: Vec<String> = Vec::new();
     let mut empty_outputs: Vec<String> = Vec::new();
 
     for spec in &specs {
+        let log_inputs = field_log_inputs(spec);
+        let missing_by_well: HashMap<String, MissingInputs> = {
+            let conn = db.lock().unwrap();
+            well_ids
+                .iter()
+                .map(|well_id| {
+                    (
+                        well_id.clone(),
+                        missing_inputs(&conn, spec, &log_inputs, well_id),
+                    )
+                })
+                .collect()
+        };
         let req = RunModuleRequest {
             module: spec.name.clone(),
             well_ids: well_ids.clone(),
-            log_inputs: HashMap::new(),
+            log_inputs,
             params: HashMap::new(),
             opts: HashMap::new(),
             output_set: None,
@@ -131,6 +224,12 @@ fn pipeline_field_full_run() {
         let t = Instant::now();
         let runs = run_workflow_module(&db, &req);
         let elapsed = t.elapsed();
+        assert_eq!(
+            runs.len(),
+            well_ids.len(),
+            "{} must report one outcome per requested well",
+            spec.name
+        );
 
         let out_names: Vec<String> = spec
             .args
@@ -154,11 +253,22 @@ fn pipeline_field_full_run() {
         }
 
         let errs: Vec<String> = runs.iter().filter_map(|r| r.error.clone()).collect();
-        let status = if !errs.is_empty() {
-            for e in &errs {
-                hard_errors.push(format!("{}: {e}", spec.name));
+        for run in &runs {
+            let Some(error) = run.error.as_deref() else {
+                continue;
+            };
+            let missing = missing_by_well.get(&run.well_id).expect("requested well was inventoried");
+            if is_documented_absence_refusal(spec, error, missing) {
+                let refusal = format!("{}: {error}", spec.name);
+                if !documented_refusals.contains(&refusal) {
+                    documented_refusals.push(refusal);
+                }
+            } else {
+                unexpected_errors.push(format!("{}: {error}", spec.name));
             }
-            format!("ERROR: {}", errs[0])
+        }
+        let status = if !errs.is_empty() {
+            format!("REFUSED: {}", errs[0])
         } else if total_finite == 0 && !out_names.is_empty() {
             empty_outputs.push(spec.name.clone());
             "all-NaN".into()
@@ -197,7 +307,7 @@ fn pipeline_field_full_run() {
                 );
             }
         }
-        Err(e) => hard_errors.push(format!("pay_summary: {e}")),
+        Err(e) => unexpected_errors.push(format!("pay_summary: {e}")),
     }
 
     // ---- 4. Render report PDF -------------------------------------------
@@ -228,7 +338,7 @@ fn pipeline_field_full_run() {
             println!("  PDF {} bytes -> {}", bytes.len(), out.display());
             assert!(bytes.len() > 1000, "PDF suspiciously small");
         }
-        Err(e) => hard_errors.push(format!("report: {e}")),
+        Err(e) => unexpected_errors.push(format!("report: {e}")),
     }
 
     // ---- 5. Validation vs delivery's own curves -------------------------
@@ -236,16 +346,21 @@ fn pipeline_field_full_run() {
     // left holding whatever the last porosity/saturation module wrote in the sweep above.
     println!("\n=== VALIDATION vs delivered PHIE/SWE/VSH (well {}) ===", wells[0].well_name);
     for m in ["vsh_gr", "phi_dn", "sw_indo"] {
+        let spec = specs.iter().find(|spec| spec.name == m).expect("catalogued validation module");
         let req = RunModuleRequest {
             module: m.into(),
             well_ids: well_ids.clone(),
-            log_inputs: HashMap::new(),
+            log_inputs: field_log_inputs(spec),
             params: HashMap::new(),
             opts: HashMap::new(),
             output_set: None,
             input_set: None,
         };
-        let _ = run_workflow_module(&db, &req);
+        let runs = run_workflow_module(&db, &req);
+        assert!(
+            runs.iter().all(|run| run.error.is_none()),
+            "the explicit validation chain must run cleanly: {runs:?}"
+        );
     }
     {
         let conn = db.lock().unwrap();
@@ -265,16 +380,17 @@ fn pipeline_field_full_run() {
 
     // ---- Report problems -------------------------------------------------
     println!("\n=== ISSUES ===");
-    if hard_errors.is_empty() {
-        println!("  no hard errors");
+    if unexpected_errors.is_empty() {
+        println!("  no unexpected errors");
     } else {
-        for e in &hard_errors {
+        for e in &unexpected_errors {
             println!("  ERROR {e}");
         }
     }
+    println!("  documented refusals: {documented_refusals:?}");
     println!("  all-NaN modules (default params — many are expected, need core/scal/targets): {empty_outputs:?}");
 
-    assert!(hard_errors.is_empty(), "hard errors: {hard_errors:?}");
+    assert!(unexpected_errors.is_empty(), "unexpected errors: {unexpected_errors:?}");
 }
 
 #[test]
