@@ -3,9 +3,25 @@
 **SandiBumi** is a Windows desktop application for multi-well petrophysical log analysis,
 built for real field workflows (Mahakam Delta / Indonesian basins): field-scale well counts, a
 full library of deterministic petrophysical modules, and print-quality deliverables — in a
-single installer with no external database or runtime dependencies.
+single native desktop application with an embedded database and capability-level prerequisites.
 
 Stack: **Tauri v2** (Rust) + **DuckDB** (embedded, bundled) + **vanilla TypeScript/WebGPU**.
+
+<!-- capability-prerequisites:start -->
+**Runtime prerequisites.** The native core, project open, plotting and native exports do not
+require Python. These optional capabilities use one session-resolved Python 3.10+ subprocess:
+
+- **Python equations** — requires numpy; optional scipy (owner: `SB-MLA`).
+- **DLIS import** — requires dlisio (owner: `SB-DIO`).
+- **Spreadsheet plate extraction** — requires openpyxl, Pillow (owner: `SB-DIO`).
+- **Workbook export** — requires xlsxwriter (owner: `SB-DIO`).
+- **Document export** — requires python-docx (owner: `SB-DIO`).
+- **Deck export** — requires python-pptx, matplotlib (owner: `SB-DIO`).
+
+Package versions are never guessed here: each release takes them from the SandiBumi-qualified
+offline Python pack lock. Open **Project → Help → Prerequisites** to see availability on this
+machine.
+<!-- capability-prerequisites:end -->
 
 ## Highlights
 

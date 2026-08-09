@@ -26,8 +26,13 @@
   },
   "bundle": {
     "active": true,
+    "shortDescription": "Native desktop petrophysics with capability-level runtime prerequisites.",
+    "longDescription": "Native core runs without Python. Optional Python-backed capabilities use one session-resolved Python 3.10+ subprocess; their exact packages are listed in the bundled capability-prerequisites notice and versions come only from the qualified release lock.",
     "targets": [
       "msi"
+    ],
+    "resources": [
+      "resources/install/capability-prerequisites.txt"
     ],
     "windows": {
       "digestAlgorithm": "sha256",

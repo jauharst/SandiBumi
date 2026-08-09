@@ -1,0 +1,14 @@
+SandiBumi capability prerequisites
+
+Native core, project open, plotting and native exports do not require Python.
+Optional capabilities use one session-resolved Python 3.10+ subprocess:
+
+Python equations: requires numpy; optional scipy.
+DLIS import: requires dlisio.
+Spreadsheet plate extraction: requires openpyxl, Pillow.
+Workbook export: requires xlsxwriter.
+Document export: requires python-docx.
+Deck export: requires python-pptx, matplotlib.
+
+Offline deployment uses the separately signed, versioned SandiBumi-qualified Python pack.
+Exact package versions come only from the qualified release lock.

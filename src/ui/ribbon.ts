@@ -45,6 +45,7 @@ import { openDataSetsDialog } from "./dataSetsDialog";
 import { openWorkbookDialog } from "./workbookDialog";
 import { openDeckDialog } from "./deckDialog";
 import { requireWell } from "./needWell";
+import { openInstallationSupportDialog } from "./installationSupportDialog";
 
 interface RibbonMenuItem {
   label: string;
@@ -188,6 +189,9 @@ export class Ribbon {
     // Contextual Help (?): opens a guide for whichever panel is active — the future hook for
     // the illustrated HTML help library, keyed to the "current active panel".
     q<HTMLButtonElement>("#help-btn")?.addEventListener("click", () => void workspace.openHelpForActivePanel());
+    q<HTMLButtonElement>("#installation-support-btn")?.addEventListener("click", () =>
+      void openInstallationSupportDialog(),
+    );
     // Unsaved-state dot: lights while any panel/workspace state isn't in a named save yet.
     // It is mirrored onto the PROJECT TAB as well, because Save Session… now lives inside
     // that tab: a warning you only see after opening the tab that holds the fix is no

@@ -7,6 +7,206 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+const CAPABILITY_MANIFEST_JSON: &str = include_str!("../resources/install/capabilities.json");
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InterpreterRequirement {
+    pub id: String,
+    pub execution: String,
+    pub minimum_version: String,
+    pub selection_scope: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PackageRequirement {
+    pub distribution: String,
+    pub import_name: String,
+    pub required: bool,
+    /// Deliberately `None` in the source manifest. The deployment-owner decision says exact
+    /// versions come from the SandiBumi-qualified release lock; no plausible number is allowed
+    /// to leak in here before qualification produces it.
+    pub minimum_supported_version: Option<String>,
+    pub version_source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapabilityRequirement {
+    pub id: String,
+    pub display_name: String,
+    pub owning_domain: String,
+    pub interpreter: String,
+    pub offline_route: String,
+    pub packages: Vec<PackageRequirement>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapabilityManifest {
+    pub schema_version: u32,
+    pub interpreter: InterpreterRequirement,
+    pub capabilities: Vec<CapabilityRequirement>,
+}
+
+pub fn capability_manifest() -> Result<CapabilityManifest, String> {
+    serde_json::from_str(CAPABILITY_MANIFEST_JSON)
+        .map_err(|e| format!("bundled capability manifest is invalid: {e}"))
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CapabilitySupport {
+    pub id: String,
+    pub display_name: String,
+    pub owning_domain: String,
+    pub packages: Vec<PackageRequirement>,
+    /// `false` means known unavailable; `None` means the interpreter exists but package probes
+    /// have not yet supplied a truthful answer. It is never optimistically `true`.
+    pub available: Option<bool>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct InstallationSupport {
+    pub manifest_schema_version: u32,
+    pub interpreter_minimum_version: String,
+    pub selected_interpreter: Option<String>,
+    pub capabilities: Vec<CapabilitySupport>,
+}
+
+/// Build the in-app prerequisite view from the same manifest used by release copy. Until the
+/// package probes are centralised, an existing interpreter remains `unknown`, never falsely
+/// available. The no-Python case is already certain and every dependent capability is red.
+pub fn installation_support(
+    selected_interpreter: Option<String>,
+) -> Result<InstallationSupport, String> {
+    let manifest = capability_manifest()?;
+    let capabilities = manifest
+        .capabilities
+        .iter()
+        .map(|capability| {
+            let (available, reason) = match selected_interpreter.as_deref() {
+                None => (
+                    Some(false),
+                    format!(
+                        "Unavailable: no session-resolved Python {}+ interpreter",
+                        manifest.interpreter.minimum_version
+                    ),
+                ),
+                Some(path) => (None, format!("Package probe required in {path}")),
+            };
+            CapabilitySupport {
+                id: capability.id.clone(),
+                display_name: capability.display_name.clone(),
+                owning_domain: capability.owning_domain.clone(),
+                packages: capability.packages.clone(),
+                available,
+                reason,
+            }
+        })
+        .collect();
+    Ok(InstallationSupport {
+        manifest_schema_version: manifest.schema_version,
+        interpreter_minimum_version: manifest.interpreter.minimum_version,
+        selected_interpreter,
+        capabilities,
+    })
+}
+
+fn package_clause(capability: &CapabilityRequirement) -> String {
+    let required = capability
+        .packages
+        .iter()
+        .filter(|package| package.required)
+        .map(|package| package.distribution.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let optional = capability
+        .packages
+        .iter()
+        .filter(|package| !package.required)
+        .map(|package| package.distribution.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if optional.is_empty() {
+        format!("requires {required}")
+    } else {
+        format!("requires {required}; optional {optional}")
+    }
+}
+
+fn capability_markdown_lines(manifest: &CapabilityManifest) -> String {
+    manifest
+        .capabilities
+        .iter()
+        .map(|capability| {
+            format!(
+                "- **{}** — {} (owner: `{}`).",
+                capability.display_name,
+                package_clause(capability),
+                capability.owning_domain
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn readme_prerequisite_block() -> Result<String, String> {
+    let manifest = capability_manifest()?;
+    Ok(format!(
+        "<!-- capability-prerequisites:start -->\n\
+**Runtime prerequisites.** The native core, project open, plotting and native exports do not\n\
+require Python. These optional capabilities use one session-resolved Python {}+ subprocess:\n\n\
+{}\n\n\
+Package versions are never guessed here: each release takes them from the SandiBumi-qualified\n\
+offline Python pack lock. Open **Project → Help → Prerequisites** to see availability on this\n\
+machine.\n\
+<!-- capability-prerequisites:end -->",
+        manifest.interpreter.minimum_version,
+        capability_markdown_lines(&manifest)
+    ))
+}
+
+pub fn release_prerequisite_markdown() -> Result<String, String> {
+    let manifest = capability_manifest()?;
+    Ok(format!(
+        "# Capability prerequisites — generated release-note fragment\n\n\
+The native core, project open, plotting and native exports do not require Python. The following\n\
+optional capabilities use one session-resolved Python {}+ subprocess:\n\n\
+{}\n\n\
+The supported offline route is the separately signed, versioned SandiBumi-qualified Python pack.\n\
+Exact package versions are supplied only by that release's qualification lock.\n",
+        manifest.interpreter.minimum_version,
+        capability_markdown_lines(&manifest)
+    ))
+}
+
+pub fn installer_prerequisite_text() -> Result<String, String> {
+    let manifest = capability_manifest()?;
+    let lines = manifest
+        .capabilities
+        .iter()
+        .map(|capability| {
+            format!(
+                "{}: {}.",
+                capability.display_name,
+                package_clause(capability)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(format!(
+        "SandiBumi capability prerequisites\n\n\
+Native core, project open, plotting and native exports do not require Python.\n\
+Optional capabilities use one session-resolved Python {}+ subprocess:\n\n\
+{}\n\n\
+Offline deployment uses the separately signed, versioned SandiBumi-qualified Python pack.\n\
+Exact package versions come only from the qualified release lock.\n",
+        manifest.interpreter.minimum_version, lines
+    ))
+}
+
+pub fn installer_long_description() -> String {
+    "Native core runs without Python. Optional Python-backed capabilities use one session-resolved Python 3.10+ subprocess; their exact packages are listed in the bundled capability-prerequisites notice and versions come only from the qualified release lock.".to_string()
+}
+
 /// Deployment-owner decision, 2026-08-09: IT deploys one MSI device-wide, under the system
 /// context; ordinary users launch it afterwards. This is a product-policy value supplied by
 /// the owner, not a package-manager default inferred by the code.
@@ -192,6 +392,74 @@ pub fn validate_installer_qualification_file(path: &Path) -> Result<(), String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn generated_readme_block(readme: &str) -> &str {
+        let start = readme
+            .find("<!-- capability-prerequisites:start -->")
+            .expect("README generated prerequisite block starts");
+        let end_marker = "<!-- capability-prerequisites:end -->";
+        let end = readme[start..]
+            .find(end_marker)
+            .map(|offset| start + offset + end_marker.len())
+            .expect("README generated prerequisite block ends");
+        &readme[start..end]
+    }
+
+    /// SB-INS-003 / SB-INS-T03. The capability inventory and package names come from
+    /// chapter §5 / Finding INS-6. The native/Python boundary comes from SB-INS-002 and the
+    /// offline-lock wording from the deployment-owner decision supplied 2026-08-09.
+    #[test]
+    fn a_machine_without_python_names_every_python_capability_unavailable_and_makes_no_blanket_runtime_claim(
+    ) {
+        let manifest = capability_manifest().unwrap();
+        let support = installation_support(None).unwrap();
+        assert_eq!(support.capabilities.len(), manifest.capabilities.len());
+        for expected in &manifest.capabilities {
+            let actual = support
+                .capabilities
+                .iter()
+                .find(|capability| capability.id == expected.id)
+                .unwrap_or_else(|| panic!("support omitted {}", expected.display_name));
+            assert_eq!(actual.available, Some(false));
+            assert!(actual.reason.contains("Unavailable"), "{}", actual.reason);
+        }
+
+        let readme = include_str!("../../README.md").replace("\r\n", "\n");
+        assert_eq!(
+            generated_readme_block(&readme),
+            readme_prerequisite_block().unwrap()
+        );
+        assert!(
+            !readme
+                .to_ascii_lowercase()
+                .contains("no external database or runtime dependencies"),
+            "the divergent blanket claim from Finding INS-6 must not return"
+        );
+        assert_eq!(
+            include_str!("../../docs/INSTALLATION_PREREQUISITES.md").replace("\r\n", "\n"),
+            release_prerequisite_markdown().unwrap()
+        );
+        assert_eq!(
+            include_str!("../resources/install/capability-prerequisites.txt").replace("\r\n", "\n"),
+            installer_prerequisite_text().unwrap()
+        );
+
+        let tauri_config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            tauri_config["bundle"]["longDescription"].as_str(),
+            Some(installer_long_description().as_str())
+        );
+        assert!(tauri_config["bundle"]["resources"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| {
+                item.as_str() == Some("resources/install/capability-prerequisites.txt")
+            })));
+
+        let support_ui = include_str!("../../src/ui/installationSupportDialog.ts");
+        assert!(support_ui.contains("installationSupport()"));
+        assert!(include_str!("../../index.html").contains("installation-support-btn"));
+    }
 
     fn qualified_fixture() -> InstallerQualification {
         let identity = configured_identity().expect("configured identity");

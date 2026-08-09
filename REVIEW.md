@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-003: prerequisite claims are capability-level and manifest-derived
+
+- [ ] On a machine with no Python, open Project → Help → Prerequisites. Are Python equations,
+      DLIS import, spreadsheet plate extraction, workbook export, document export and deck
+      export each named unavailable, while native project open, plotting and exports remain
+      available? Do the MSI notice and release-note fragment name the same package rows?
+
 ## 2026-08-09 — SB-INS-001: the Windows release is a qualified per-machine MSI
 
 - [ ] On a clean supported Windows 11 x64 image with neither Rust nor Node.js, have IT deploy

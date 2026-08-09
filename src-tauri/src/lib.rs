@@ -1119,6 +1119,15 @@ fn python_status() -> python_engine::PythonStatus {
     python_engine::python_status()
 }
 
+/// One truthful prerequisite surface for the whole application. Its capability and package
+/// rows come from the bundled manifest; absence of Python makes only those rows unavailable.
+#[tauri::command]
+fn installation_support() -> Result<installation::InstallationSupport, String> {
+    installation::installation_support(
+        python_engine::find_python().map(|path| path.to_string_lossy().into_owned()),
+    )
+}
+
 /// Lists the curve catalog (standard + computed curves), auto-derived from the database.
 #[tauri::command]
 fn list_curve_catalog(db: tauri::State<DbState>) -> Result<Vec<equations::CurveCatalogEntry>, String> {
@@ -3468,6 +3477,7 @@ pub fn run() {
             list_data_export_formats,
             export_las,
             python_status,
+            installation_support,
             run_ml,
             apply_ml_model,
             list_ml_models,
