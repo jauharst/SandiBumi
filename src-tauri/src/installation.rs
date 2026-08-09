@@ -1640,6 +1640,63 @@ mod tests {
         }
     }
 
+    /// CHARACTERIZATION — SB-INS-021 / SB-INS-T26 requires a one-action reproducible
+    /// support report. This test pins the currently serializable runtime fragments and
+    /// explicitly records the absent release identity, OS, configuration-layer and redacted-
+    /// diagnostic fields; it is not a correctness claim for the full report.
+    #[test]
+    fn characterizes_support_report_as_runtime_fragments_without_release_or_configuration_identity() {
+        let support = InstallationSupport {
+            manifest_schema_version: 1,
+            interpreter_minimum_version: "3.10".to_string(),
+            selected_interpreter: Some("C:/qualified-runtime/python.exe".to_string()),
+            selected_interpreter_rule: Some("configured override".to_string()),
+            interpreter_candidates: vec![crate::python_engine::PythonCandidateReport {
+                candidate: "configured candidate".to_string(),
+                precedence_rule: "configured override".to_string(),
+                resolved_executable: Some("C:/qualified-runtime/python.exe".to_string()),
+                accepted: true,
+                reason: "accepted fixture".to_string(),
+            }],
+            capabilities: vec![CapabilitySupport {
+                id: CAPABILITY_DLIS_IMPORT.to_string(),
+                display_name: "DLIS import".to_string(),
+                owning_domain: "data_io".to_string(),
+                packages: vec![package_requirement("dlisio").unwrap()],
+                available: Some(true),
+                reason: "available fixture".to_string(),
+                package_status: vec![PackageProbe {
+                    distribution: "dlisio".to_string(),
+                    import_name: "dlisio".to_string(),
+                    available: true,
+                    version: Some("observed-version".to_string()),
+                    error: None,
+                }],
+            }],
+        };
+        let value = serde_json::to_value(&support).expect("support fragments serialize");
+        let root = value.as_object().expect("support report is an object");
+
+        assert!(root.contains_key("selected_interpreter"));
+        assert!(root.contains_key("selected_interpreter_rule"));
+        assert!(root.contains_key("interpreter_candidates"));
+        assert!(root.contains_key("capabilities"));
+        assert_eq!(value["capabilities"][0]["package_status"][0]["version"], "observed-version");
+        for absent in [
+            "application_version",
+            "build_digest",
+            "installer_type",
+            "os_architecture",
+            "configuration_layers",
+            "redacted_failure_diagnostics",
+        ] {
+            assert!(!root.contains_key(absent), "{absent} is not in the current PARTIAL payload");
+        }
+        let serialized = value.to_string().to_ascii_lowercase();
+        assert!(!serialized.contains("project_data"));
+        assert!(!serialized.contains("user_secret"));
+    }
+
     /// SB-INS-004 / SB-INS-T04. The interpreter minimum and exact package rows come from
     /// chapter section 5. The qualified release lock is the deployment-owner decision supplied
     /// 2026-08-09; package minimums remain absent until that qualification cites exact versions.
