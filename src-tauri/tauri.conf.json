@@ -26,7 +26,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "msi"
+    ],
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "wix": {
+        "upgradeCode": "ab826e11-4b0c-5bad-9c80-1b0bbc3e3be8"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

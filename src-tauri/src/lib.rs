@@ -24,6 +24,7 @@ mod geo;
 mod health;
 mod hfu;
 mod images;
+pub mod installation;
 mod petrography;
 mod plugqc;
 mod ingest;
