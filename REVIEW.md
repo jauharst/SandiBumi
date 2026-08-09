@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-020: the malformed duplicate exemplar requires a policy
+
+- [ ] Import `bad_dup_depth.las` without choosing a duplicate-depth policy. Does it name all
+      five repeated rows, require a policy, and commit no well, while `bad_null_depth.las`
+      retains its existing all-null-depth refusal?
+
 ## 2026-08-09 — SB-DIO-012: non-increasing index confirmation is tested independently
 
 - [ ] Import a 400-row LAS whose final depth decreases by half a depth unit without repeating

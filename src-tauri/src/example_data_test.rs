@@ -77,8 +77,8 @@ fn las_examples_import_end_to_end() {
 }
 
 /// The malformed exemplars behave exactly as the manual test plan documents
-/// (T-IMP-03 / T-IMP-04): duplicated depths import WITH a dropped-rows warning;
-/// an all-NULL depth column errors cleanly and commits no orphan well.
+/// (T-IMP-03 / T-IMP-04): duplicated depths require an explicit policy before commit;
+/// an all-NULL depth column still errors cleanly and commits no orphan well.
 #[test]
 fn malformed_las_exemplars_fail_the_documented_way() {
     let db_path = std::env::temp_dir().join("sandibumi_example_badlas_test.duckdb");
@@ -87,13 +87,16 @@ fn malformed_las_exemplars_fail_the_documented_way() {
     let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db");
 
     let dup = &crate::ingest::import_las_files(&conn, &[example("bad_dup_depth.las")], None)[0];
-    assert!(dup.error.is_none(), "dup-depth file must still import: {:?}", dup.error);
-    assert_eq!(dup.rows, 35, "40 rows minus the 5 duplicated depths");
     assert!(
-        dup.warning.as_deref().unwrap_or("").contains("duplicate depth"),
-        "must warn about dropped duplicates, got: {:?}",
-        dup.warning
+        dup.error.as_deref().is_some_and(|error| {
+            error.contains("5 repeated depth row(s)")
+                && error.contains("declared duplicate policy")
+        }),
+        "all five duplicates and the missing policy must be named: {:?}",
+        dup.error
     );
+    assert_eq!(dup.rows, 0, "an undecided duplicate policy cannot commit rows");
+    assert!(dup.well_id.is_none(), "an undecided duplicate policy cannot create a well");
 
     let null = &crate::ingest::import_las_files(&conn, &[example("bad_null_depth.las")], None)[0];
     assert!(null.error.is_some(), "all-null depth column must be a clean error");
