@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-009: statistics coverage is honestly classified
+
+- [ ] Inspect a statistics result for `[1,2,3,NaN,+∞]`. Does it still report count 3,
+      mean 2 and median 2? Confirm the current panel does not imply that this arithmetic-only
+      summary already carries the population, interval, selection, exclusion, interpolation and
+      standard-deviation metadata that remain absent from the PARTIAL implementation.
+
 ## 2026-08-09 — SB-CORE-040: verification is indexed by capability
 
 - [ ] Open `docs/VERIFICATION_MATRIX.md` and look up LAS import, Monte Carlo and machine

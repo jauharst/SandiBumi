@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test:frontend": "node --test tools/frontend-acceptance.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:e2e": "node e2e/run.mjs"
