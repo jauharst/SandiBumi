@@ -441,6 +441,7 @@ pub struct WellPointAllocation {
     pub finite_pair_count: usize,
     pub quota: usize,
     pub source_indices: Vec<usize>,
+    pub manifest: ReductionManifest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -456,16 +457,66 @@ pub struct MultiWellPointAllocation {
     pub absent: Vec<AbsentWellAllocation>,
 }
 
-fn endpoint_preserving_subset(eligible: &[usize], count: usize) -> Vec<usize> {
-    if count >= eligible.len() {
-        return eligible.to_vec();
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReductionManifest {
+    pub original_count: usize,
+    pub displayed_count: usize,
+    pub algorithm: String,
+    pub stride: usize,
+    pub endpoints_forced: bool,
+    pub source_indices: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SharedChannelReduction {
+    pub channels: Vec<Vec<f32>>,
+    pub manifest: ReductionManifest,
+}
+
+fn stride_source_indices(eligible: &[usize], stride: usize) -> Result<(Vec<usize>, bool), String> {
+    if stride == 0 {
+        return Err("decimation stride must be at least 1".into());
     }
-    if count == 1 {
-        return vec![eligible[0]];
+    if eligible.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err("eligible source indices must be strictly increasing".into());
     }
-    (0..count)
-        .map(|position| eligible[position * (eligible.len() - 1) / (count - 1)])
-        .collect()
+    let mut source_indices: Vec<usize> = eligible.iter().copied().step_by(stride).collect();
+    let mut endpoints_forced = false;
+    if let Some(&last) = eligible.last() {
+        if source_indices.last().copied() != Some(last) {
+            source_indices.push(last);
+            endpoints_forced = true;
+        }
+    }
+    Ok((source_indices, endpoints_forced))
+}
+
+pub fn decimate_shared_channels(
+    channels: &[Vec<f32>],
+    eligible: &[usize],
+    stride: usize,
+) -> Result<SharedChannelReduction, String> {
+    let (source_indices, endpoints_forced) = stride_source_indices(eligible, stride)?;
+    if let Some(index) = source_indices.last().copied() {
+        if channels.iter().any(|channel| index >= channel.len()) {
+            return Err("shared decimation index exceeds one or more channel lengths".into());
+        }
+    }
+    let reduced = channels
+        .iter()
+        .map(|channel| source_indices.iter().map(|&index| channel[index]).collect())
+        .collect();
+    Ok(SharedChannelReduction {
+        channels: reduced,
+        manifest: ReductionManifest {
+            original_count: eligible.len(),
+            displayed_count: source_indices.len(),
+            algorithm: "stride_from_first_with_forced_final_endpoint".into(),
+            stride,
+            endpoints_forced,
+            source_indices,
+        },
+    })
 }
 
 /// Screens aligned required channels before assigning any part of the total point
@@ -530,11 +581,29 @@ pub fn allocate_finite_pair_budget(
     let wells = screened
         .into_iter()
         .zip(quotas)
-        .map(|((well_id, eligible), quota)| WellPointAllocation {
-            well_id,
-            finite_pair_count: eligible.len(),
-            quota,
-            source_indices: endpoint_preserving_subset(&eligible, quota),
+        .map(|((well_id, eligible), quota)| {
+            let stride = if quota >= eligible.len() {
+                1
+            } else {
+                (eligible.len() - 1).div_ceil(quota - 1)
+            };
+            let (source_indices, endpoints_forced) = stride_source_indices(&eligible, stride)
+                .expect("screened eligible indices are strictly increasing and stride is positive");
+            let manifest = ReductionManifest {
+                original_count: eligible.len(),
+                displayed_count: source_indices.len(),
+                algorithm: "stride_from_first_with_forced_final_endpoint".into(),
+                stride,
+                endpoints_forced,
+                source_indices: source_indices.clone(),
+            };
+            WellPointAllocation {
+                well_id,
+                finite_pair_count: eligible.len(),
+                quota: source_indices.len(),
+                source_indices,
+                manifest,
+            }
         })
         .collect();
     Ok(MultiWellPointAllocation { wells, absent })
@@ -1139,5 +1208,29 @@ mod tests {
         assert_eq!(allocation.absent[0].well_id, "missing");
         assert!(allocation.absent[0].reason.contains("zero finite aligned pairs"));
         assert_eq!(allocation.absent[0].quota, 0);
+    }
+
+    #[test]
+    fn decimation_uses_one_shared_index_vector_and_reports_the_forced_final_endpoint() {
+        // SB-PLT-015 / SB-PLT-T21/T22: 0..10 and stride 4 are the cited acceptance fixture.
+        let eligible: Vec<usize> = (0..=10).collect();
+        let channels = vec![
+            (0..=10).map(|value| value as f32).collect::<Vec<_>>(),
+            (0..=10).map(|value| 100.0 + value as f32).collect::<Vec<_>>(),
+            (0..=10).map(|value| 200.0 + value as f32).collect::<Vec<_>>(),
+            (0..=10).map(|value| 300.0 + value as f32).collect::<Vec<_>>(),
+        ];
+        let reduced = decimate_shared_channels(&channels, &eligible, 4).unwrap();
+
+        assert_eq!(reduced.manifest.original_count, 11);
+        assert_eq!(reduced.manifest.displayed_count, 4);
+        assert_eq!(reduced.manifest.algorithm, "stride_from_first_with_forced_final_endpoint");
+        assert_eq!(reduced.manifest.stride, 4);
+        assert!(reduced.manifest.endpoints_forced);
+        assert_eq!(reduced.manifest.source_indices, vec![0, 4, 8, 10]);
+        for (channel_index, channel) in reduced.channels.iter().enumerate() {
+            let base = 100.0 * channel_index as f32;
+            assert_eq!(channel, &vec![base, base + 4.0, base + 8.0, base + 10.0]);
+        }
     }
 }

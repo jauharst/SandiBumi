@@ -108,6 +108,7 @@ export interface FinitePairWellAllocation {
   finitePairCount: number;
   quota: number;
   sourceIndices: number[];
+  manifest: ReductionManifest;
 }
 
 export interface AbsentFinitePairWell {
@@ -122,13 +123,59 @@ export interface FinitePairBudgetAllocation {
   refusal: string | null;
 }
 
-function endpointPreservingSubset(eligible: number[], count: number): number[] {
-  if (count >= eligible.length) return [...eligible];
-  if (count === 1) return [eligible[0]];
-  return Array.from(
-    { length: count },
-    (_, position) => eligible[Math.floor(position * (eligible.length - 1) / (count - 1))],
-  );
+export interface ReductionManifest {
+  originalCount: number;
+  displayedCount: number;
+  algorithm: "stride_from_first_with_forced_final_endpoint";
+  stride: number;
+  endpointsForced: boolean;
+  sourceIndices: number[];
+}
+
+export interface SharedChannelReduction {
+  channels: Float32Array[];
+  manifest: ReductionManifest;
+}
+
+function strideSourceIndices(eligible: number[], stride: number): { sourceIndices: number[]; endpointsForced: boolean } {
+  if (!Number.isInteger(stride) || stride < 1) throw new RangeError("decimation stride must be an integer of at least 1");
+  for (let index = 1; index < eligible.length; index++) {
+    if (eligible[index - 1] >= eligible[index]) throw new RangeError("eligible source indices must be strictly increasing");
+  }
+  const sourceIndices: number[] = [];
+  for (let position = 0; position < eligible.length; position += stride) sourceIndices.push(eligible[position]);
+  let endpointsForced = false;
+  const last = eligible.length ? eligible[eligible.length - 1] : undefined;
+  if (last !== undefined && sourceIndices[sourceIndices.length - 1] !== last) {
+    sourceIndices.push(last);
+    endpointsForced = true;
+  }
+  return { sourceIndices, endpointsForced };
+}
+
+/** Apply one index vector to depth/X/Y/Z (or any other channel bundle), preserving
+ * sample identity and recording enough information to reproduce the view. */
+export function decimateSharedChannels(
+  channels: Float32Array[],
+  eligible: number[],
+  stride: number,
+): SharedChannelReduction {
+  const { sourceIndices, endpointsForced } = strideSourceIndices(eligible, stride);
+  const finalIndex = sourceIndices.length ? sourceIndices[sourceIndices.length - 1] : undefined;
+  if (finalIndex !== undefined && channels.some((channel) => finalIndex >= channel.length)) {
+    throw new RangeError("shared decimation index exceeds one or more channel lengths");
+  }
+  return {
+    channels: channels.map((channel) => Float32Array.from(sourceIndices.map((index) => channel[index]))),
+    manifest: {
+      originalCount: eligible.length,
+      displayedCount: sourceIndices.length,
+      algorithm: "stride_from_first_with_forced_final_endpoint",
+      stride,
+      endpointsForced,
+      sourceIndices,
+    },
+  };
 }
 
 /** Screen finite aligned rows before assigning budget. Zero-pair wells receive no
@@ -176,12 +223,27 @@ export function allocateFinitePairBudget(
     if (!advanced) break;
   }
   return {
-    wells: screened.map((well, index) => ({
-      wellId: well.wellId,
-      finitePairCount: well.eligible.length,
-      quota: quotas[index],
-      sourceIndices: endpointPreservingSubset(well.eligible, quotas[index]),
-    })),
+    wells: screened.map((well, index) => {
+      const stride = quotas[index] >= well.eligible.length
+        ? 1
+        : Math.ceil((well.eligible.length - 1) / (quotas[index] - 1));
+      const { sourceIndices, endpointsForced } = strideSourceIndices(well.eligible, stride);
+      const manifest: ReductionManifest = {
+        originalCount: well.eligible.length,
+        displayedCount: sourceIndices.length,
+        algorithm: "stride_from_first_with_forced_final_endpoint",
+        stride,
+        endpointsForced,
+        sourceIndices: [...sourceIndices],
+      };
+      return {
+        wellId: well.wellId,
+        finitePairCount: well.eligible.length,
+        quota: sourceIndices.length,
+        sourceIndices,
+        manifest,
+      };
+    }),
     absent,
     refusal: null,
   };
