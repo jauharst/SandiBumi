@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-035: clay-overlay parity is characterized, not overstated
+
+- [ ] Compare the interactive Thomas–Stieber overlay endpoints with the batch module equations.
+      Do the laminated and dispersed endpoint constructions still agree algebraically? Confirm the
+      UI's current duplicate formula is not presented as a governed-equation call.
+
 ## 2026-08-09 — SB-CORE-044: Tier-C policy is auditable but partial
 
 - [ ] Review `docs/IP_PROVENANCE.md`. Does it retain the same-increment maintenance rule, blocked

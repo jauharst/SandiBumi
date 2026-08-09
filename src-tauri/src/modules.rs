@@ -5055,4 +5055,30 @@ mod tests {
         assert!((out_disp["VDISP"][0] as f64 - vs).abs() < 1e-4);
         assert!((out_disp["VSAND"][0] as f64 - 1.0).abs() < 1e-4);
     }
+
+    /// CHARACTERIZATION — SB-PLT-035 requires the interactive clay plot to call the
+    /// governed batch equation. The current UI instead duplicates the two equations below.
+    /// Their endpoint identity is algebraic — at VSH=PHI_SD, PHI_SD−VSH·(1−PHI_SH)
+    /// reduces to PHI_SD·PHI_SH — so no uncited endpoint value enters this test.
+    #[test]
+    fn characterizes_the_interactive_clay_overlay_as_a_duplicate_formula_matching_batch_endpoints() {
+        let spec = thin_bed_ts_spec();
+        assert!(spec
+            .doc
+            .contains("PHIT = PHI_SD_MAX*(1-VSH) + PHI_SH*VSH"));
+        assert!(spec
+            .doc
+            .contains("PHIT = PHI_SD_MAX - VSH*(1-PHI_SH)"));
+
+        let ui = include_str!("../../src/ui/crossplotPanel.ts");
+        assert!(ui.contains("const vMin = Math.min(1, phiSd)"));
+        assert!(ui.contains("[vMin, phiSd * phiSh]"));
+        assert!(ui.contains("PHIT = PHI_SD − VSH·(1−PHI_SH)"));
+        assert!(ui.contains("[1, phiSh]"));
+        assert!(
+            !ui.contains("runModule(\"thin_bed_ts\"")
+                && !ui.contains("invoke(\"thin_bed_ts\""),
+            "the PARTIAL UI does not yet call the governed batch equation"
+        );
+    }
 }
