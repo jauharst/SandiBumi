@@ -212,6 +212,74 @@ pub fn apply_range_policy(
     report
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnitLimitPair {
+    pub quantity: String,
+    pub source_unit: String,
+    pub converted_unit: String,
+    pub source_value: f32,
+    pub converted_value: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnitLimitAudit {
+    pub divergence_factor: f32,
+    pub enabled: bool,
+    pub reason: String,
+}
+
+/// Audits one converted-unit row. Activation is exact: the pair needs a typed,
+/// registered conversion and the supplied converted value must be the reviewed
+/// affine result byte-for-byte. No unpublished tolerance is introduced here.
+pub fn audit_unit_limit_pair(pair: UnitLimitPair) -> UnitLimitAudit {
+    let divergence_factor = if pair.source_value.is_finite()
+        && pair.converted_value.is_finite()
+        && pair.source_value != 0.0
+        && pair.converted_value != 0.0
+    {
+        let ratio = (pair.converted_value / pair.source_value).abs();
+        ratio.max(1.0 / ratio)
+    } else {
+        f32::INFINITY
+    };
+    let bridge = crate::curves::validate_unit_bridge(&pair.source_unit, &pair.converted_unit);
+    let Ok(bridge) = bridge else {
+        return UnitLimitAudit {
+            divergence_factor,
+            enabled: false,
+            reason: "disabled: no registered dimensional conversion proves this unit-limit pair".into(),
+        };
+    };
+    let rule = crate::curves::UNIT_RULES.iter().find(|rule| {
+        crate::curves::validate_unit_bridge(rule.from_unit, rule.to_unit)
+            .map(|candidate| candidate.from_unit == bridge.from_unit && candidate.to_unit == bridge.to_unit)
+            .unwrap_or(false)
+    });
+    let Some(rule) = rule else {
+        return UnitLimitAudit {
+            divergence_factor,
+            enabled: false,
+            reason: "disabled: compatible dimensions have no registered numeric conversion".into(),
+        };
+    };
+    let expected = (pair.source_value + rule.offset) * rule.factor;
+    if expected.to_bits() != pair.converted_value.to_bits() {
+        return UnitLimitAudit {
+            divergence_factor,
+            enabled: false,
+            reason: format!(
+                "disabled: converted value does not equal the registered transform ({})",
+                rule.derivation
+            ),
+        };
+    }
+    UnitLimitAudit {
+        divergence_factor,
+        enabled: true,
+        reason: format!("enabled after exact registered conversion audit: {}", rule.derivation),
+    }
+}
+
 fn non_blank(value: &str, field: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         Err(format!("resolved plot curve is missing {field}"))
@@ -583,5 +651,21 @@ mod tests {
         assert_eq!(filtered.validity_excluded, 2);
         assert_eq!(filtered.display_hidden, 0);
         assert_eq!(filtered.kept_values, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn a_dimensionally_divergent_unit_limit_row_stays_disabled_with_its_reason() {
+        // The 6.56× expected divergence is cited by critique A-4 and §3.3a / SB-PLT-T05.
+        // 1.0 is only a dimensionless arithmetic normalization, not a shipped limit.
+        let audited = audit_unit_limit_pair(UnitLimitPair {
+            quantity: "acoustic_attenuation".into(),
+            source_unit: "unregistered_source_unit".into(),
+            converted_unit: "unregistered_converted_unit".into(),
+            source_value: 1.0,
+            converted_value: 6.56,
+        });
+        assert!((audited.divergence_factor - 6.56).abs() < f32::EPSILON);
+        assert!(!audited.enabled);
+        assert!(audited.reason.contains("registered dimensional conversion"));
     }
 }
