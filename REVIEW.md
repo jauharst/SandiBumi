@@ -7,6 +7,14 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-001: plot requests retain concrete per-well curve resolution
+
+- [ ] Open a histogram or crossplot over more than one well, then inspect the plot binding record.
+      Does it retain the semantic request separately from every well's resolved curve ID, mnemonic,
+      typed quantity, units, conversion, finite sample count, resolution reason and SHA-256 source
+      revision? Does a required curve with no typed resolution refuse the plot instead of silently
+      substituting a same-named source?
+
 ## 2026-08-09 — SB-INS-023: release qualification covers every serviced Windows target
 
 - [ ] Supply the release-time Microsoft-serviced Windows 11 x64 feature-release inventory and run

@@ -27,6 +27,7 @@ mod images;
 pub mod installation;
 mod petrography;
 mod plugqc;
+mod plotting;
 mod ingest;
 mod intake;
 mod jobs;
@@ -1502,6 +1503,18 @@ fn get_curve_data(
     let series = equations::fetch_curve_data(&conn, &well_id, &curve_names, depth_min, depth_max)
         .map_err(|e| e.to_string())?;
     Ok(tauri::ipc::Response::new(equations::pack_curve_series(&series)))
+}
+
+/// Resolves semantic plot requests to concrete, typed per-well curve identities.
+/// This is metadata only; numeric arrays continue through `get_curve_data` as raw bytes.
+#[tauri::command]
+fn resolve_plot_bindings(
+    db: tauri::State<DbState>,
+    intents: Vec<plotting::PlotChannelIntent>,
+    well_ids: Vec<String>,
+) -> Result<Vec<plotting::PlotChannelBinding>, String> {
+    let conn = db.0.lock().unwrap();
+    plotting::resolve_plot_bindings(&conn, intents, &well_ids)
 }
 
 /// Lists every deterministic module manifest — the frontend auto-generates each module's
@@ -3405,6 +3418,7 @@ pub fn run() {
             set_pinned_wells,
             get_track_data,
             get_curve_data,
+            resolve_plot_bindings,
             list_modules,
             run_workflow_module,
             module_output_names,
