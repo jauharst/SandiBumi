@@ -69,6 +69,41 @@ pub struct TrackCurveSeries {
     pub data: Vec<u8>,
 }
 
+/// One full-resolution track curve on the depth grid that owns its samples. The interactive
+/// viewer decimates this for IPC; SVG/PDF composite output consumes it directly so export and
+/// screen resolve the same `(set, mnemonic)` identity.
+#[derive(Debug, Clone)]
+pub(crate) struct TrackCurveFrame {
+    pub curve_name: String,
+    pub depth: Vec<f32>,
+    pub value: Vec<f32>,
+}
+
+/// One curve requested by a log layout. `set_name = None` preserves the application's
+/// established standard/computed/RAW resolution. Naming an imported set is explicit and
+/// therefore reads that set's own samples without projecting them onto the standard frame.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrackCurveRequest {
+    pub curve_name: String,
+    #[serde(default)]
+    pub set_name: Option<String>,
+}
+
+/// Stable lookup key mirrored by `src/trackCurveRequest.ts`. Unqualified curves retain their
+/// historical upper-case mnemonic key; qualified equal mnemonics can coexist in one layout.
+pub fn track_curve_key(request: &TrackCurveRequest) -> String {
+    let curve = request.curve_name.trim().to_uppercase();
+    match request
+        .set_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|set| !set.is_empty())
+    {
+        Some(set) => format!("{set}\u{001f}{curve}"),
+        None => curve,
+    }
+}
+
 /// Packs a set of curve series into ONE length-prefixed binary buffer for raw-IPC transport
 /// (a `tauri::ipc::Response` → JS `ArrayBuffer`), instead of letting serde encode each
 /// `data: Vec<u8>` as a JSON number array (~4× the bytes + a main-thread `JSON.parse`).
@@ -96,23 +131,134 @@ pub fn pack_curve_series(series: &[TrackCurveSeries]) -> Vec<u8> {
 pub fn fetch_track_data(
     conn: &Connection,
     well_id: &str,
-    curve_names: &[String],
+    curve_requests: &[TrackCurveRequest],
     target_pixel_height: usize,
+    depth_min: Option<f32>,
+    depth_max: Option<f32>,
 ) -> duckdb::Result<Vec<TrackCurveSeries>> {
-    let (depth, columns) = fetch_curve_frame(conn, well_id, curve_names)?;
-    Ok(curve_names
-        .iter()
-        .map(|name| {
-            let upper = name.trim().to_uppercase();
-            let values = columns.get(&upper).cloned().unwrap_or_default();
-            let (dec_depth, dec_value) = crate::decimate::min_max_decimate(&depth, &values, target_pixel_height);
+    fetch_track_frames(conn, well_id, curve_requests, depth_min, depth_max)?
+        .into_iter()
+        .map(|frame| {
+            let (dec_depth, dec_value) =
+                crate::decimate::min_max_decimate(&frame.depth, &frame.value, target_pixel_height);
             let point_count = dec_depth.len();
             let mut packed = Vec::with_capacity(point_count * 2);
             packed.extend_from_slice(&dec_depth);
             packed.extend_from_slice(&dec_value);
-            TrackCurveSeries { curve_name: upper, point_count, data: bytemuck::cast_slice(&packed).to_vec() }
+            Ok(TrackCurveSeries {
+                curve_name: frame.curve_name,
+                point_count,
+                data: bytemuck::cast_slice(&packed).to_vec(),
+            })
         })
-        .collect())
+        .collect()
+}
+
+/// Resolves every request onto the grid that owns it without display decimation. This is the
+/// common identity boundary for the WebGPU viewer and composite SVG/PDF/report renderer.
+pub(crate) fn fetch_track_frames(
+    conn: &Connection,
+    well_id: &str,
+    curve_requests: &[TrackCurveRequest],
+    depth_min: Option<f32>,
+    depth_max: Option<f32>,
+) -> duckdb::Result<Vec<TrackCurveFrame>> {
+    let current_names: Vec<String> = curve_requests
+        .iter()
+        .filter(|request| request.set_name.as_deref().map(str::trim).filter(|set| !set.is_empty()).is_none())
+        .map(|request| request.curve_name.trim().to_uppercase())
+        .collect();
+    let (current_depth, current_columns) = if current_names.is_empty() {
+        (Vec::new(), HashMap::new())
+    } else {
+        fetch_curve_frame(conn, well_id, &current_names)?
+    };
+
+    curve_requests
+        .iter()
+        .map(|request| {
+            let upper = request.curve_name.trim().to_uppercase();
+            let (depth, values) = match request.set_name.as_deref().map(str::trim).filter(|set| !set.is_empty()) {
+                Some(set) => fetch_generic_curve_native(conn, well_id, set, &upper, depth_min, depth_max)?,
+                None => {
+                    let values = current_columns.get(&upper).cloned().unwrap_or_default();
+                    filter_curve_interval(&current_depth, &values, depth_min, depth_max)
+                }
+            };
+            Ok(TrackCurveFrame {
+                curve_name: track_curve_key(request),
+                depth,
+                value: values,
+            })
+        })
+        .collect()
+}
+
+fn filter_curve_interval(
+    depth: &[f32],
+    values: &[f32],
+    depth_min: Option<f32>,
+    depth_max: Option<f32>,
+) -> (Vec<f32>, Vec<f32>) {
+    if depth_min.is_none() && depth_max.is_none() {
+        return (depth.to_vec(), values.to_vec());
+    }
+    let lo = depth_min.unwrap_or(f32::NEG_INFINITY);
+    let hi = depth_max.unwrap_or(f32::INFINITY);
+    depth
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, d)| *d >= lo && *d <= hi)
+        .map(|(index, d)| (d, values.get(index).copied().unwrap_or(f32::NAN)))
+        .unzip()
+}
+
+/// Resolves one exact mnemonic within one explicit imported set and returns that curve's
+/// own ordered samples. Filtering is performed in DuckDB before decimation, so zooming does
+/// not repeatedly transfer the whole well and never changes the rows in storage.
+fn fetch_generic_curve_native(
+    conn: &Connection,
+    well_id: &str,
+    set_name: &str,
+    curve_name: &str,
+    depth_min: Option<f32>,
+    depth_max: Option<f32>,
+) -> duckdb::Result<(Vec<f32>, Vec<f32>)> {
+    let curve_id: Option<String> = match conn.query_row(
+        "SELECT curve_id FROM curve_meta
+             WHERE well_id = ?1 AND set_name = ?2 AND upper(mnemonic) = ?3
+             ORDER BY COALESCE(pinned, 0) DESC, run_no NULLS FIRST, curve_id
+             LIMIT 1",
+        params![well_id, set_name, curve_name],
+        |row| row.get(0),
+    ) {
+        Ok(curve_id) => Some(curve_id),
+        Err(duckdb::Error::QueryReturnedNoRows) => None,
+        Err(error) => return Err(error),
+    };
+    let Some(curve_id) = curve_id else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT depth, value FROM curve_samples
+         WHERE curve_id = ?1
+           AND (?2 IS NULL OR depth >= ?2)
+           AND (?3 IS NULL OR depth <= ?3)
+         ORDER BY depth",
+    )?;
+    let rows = stmt.query_map(params![curve_id, depth_min, depth_max], |row| {
+        Ok((row.get::<_, f32>(0)?, row.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN)))
+    })?;
+    let mut depth = Vec::new();
+    let mut values = Vec::new();
+    for row in rows {
+        let (d, v) = row?;
+        depth.push(d);
+        values.push(v);
+    }
+    Ok((depth, values))
 }
 
 /// Fetches full-resolution (undecimated) curve values for crossplots/histograms/Pickett
@@ -1621,6 +1767,60 @@ mod tests {
         assert!(approx(cols["PHIE"][2], 0.25));
         // No computed rows and no generic curve registered → all NaN (generic fallback).
         assert!(cols["MADEUP"].iter().all(|v| v.is_nan()), "absent curve should be all-NaN");
+    }
+
+    /// A log-view request that names an imported set is an identity request, not a family
+    /// lookup. Its own depth samples must survive even when the well's standard frame has a
+    /// different spacing; a viewport bound is applied before display decimation. Leaving the
+    /// set blank deliberately retains the established standard/computed/RAW resolution.
+    #[test]
+    fn explicit_track_set_keeps_its_native_grid_and_filters_before_decimation() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well = "25252525-2525-2525-2525-252525252525";
+        conn.execute_batch(&format!(
+            "INSERT INTO wells (well_id, well_name) VALUES ('{well}', 'SANDI-NATIVE');
+             INSERT INTO standard_curves (well_id, depth, gr, res_deep, nphi, rhob) VALUES
+                ('{well}', 1000.0000, 10.0, 2.0, 0.10, 2.40),
+                ('{well}', 1000.1524, 20.0, 2.0, 0.20, 2.50),
+                ('{well}', 1000.3048, 30.0, 2.0, 0.30, 2.60);"
+        ))
+        .unwrap();
+        let curve_id = crate::db::upsert_curve_meta(
+            &conn,
+            well,
+            "WIRE_ALT",
+            "GR",
+            Some("GAPI"),
+            Some("GR"),
+            Some("LAS import"),
+            None,
+        )
+        .unwrap();
+        let native_depth: Vec<f32> = (0..=8).map(|i| 999.5 + i as f32 * 0.5).collect();
+        let native_value: Vec<f32> = (0..=8).map(|i| 100.0 + i as f32).collect();
+        crate::db::insert_curve_samples(&conn, &curve_id, &native_depth, &native_value).unwrap();
+
+        let explicit = TrackCurveRequest { curve_name: "GR".into(), set_name: Some("WIRE_ALT".into()) };
+        let full = fetch_track_data(&conn, well, &[explicit.clone()], 100, None, None).unwrap();
+        assert_eq!(full.len(), 1);
+        assert_eq!(full[0].curve_name, track_curve_key(&explicit));
+        let packed: &[f32] = bytemuck::cast_slice(&full[0].data);
+        let n = full[0].point_count;
+        assert_eq!(&packed[..n], native_depth.as_slice(), "explicit set must keep native depths");
+        assert_eq!(&packed[n..], native_value.as_slice(), "explicit set must keep native values");
+
+        let visible = fetch_track_data(&conn, well, &[explicit], 1, Some(1000.0), Some(1002.5)).unwrap();
+        let visible_packed: &[f32] = bytemuck::cast_slice(&visible[0].data);
+        let visible_n = visible[0].point_count;
+        assert!(visible_n <= 2, "one pixel bucket emits at most its min/max pair");
+        assert!(visible_packed[..visible_n].iter().all(|d| *d >= 1000.0 && *d <= 1002.5));
+
+        let current = TrackCurveRequest { curve_name: "GR".into(), set_name: None };
+        let standard = fetch_track_data(&conn, well, &[current], 100, None, None).unwrap();
+        let standard_packed: &[f32] = bytemuck::cast_slice(&standard[0].data);
+        assert_eq!(&standard_packed[..standard[0].point_count], &[1000.0, 1000.1524, 1000.3048]);
+        assert_eq!(&standard_packed[standard[0].point_count..], &[10.0, 20.0, 30.0]);
     }
 
     /// A single-name request still works through the `IN (?)` builder (placeholder count 1).

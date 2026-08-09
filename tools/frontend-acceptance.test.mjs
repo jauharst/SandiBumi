@@ -20,6 +20,36 @@ async function load(path) {
   return server.ssrLoadModule(path);
 }
 
+test("track curve keys distinguish equal mnemonics from different imported sets", async () => {
+  const { availableTrackSets, hasTrackCurve, trackCurveKey } = await load("/src/trackCurveRequest.ts");
+  assert.equal(trackCurveKey({ curve_name: "gr" }), "GR");
+  assert.notEqual(
+    trackCurveKey({ curve_name: "GR", set_name: "WIRE" }),
+    trackCurveKey({ curve_name: "GR", set_name: "WIRE_1" }),
+  );
+  assert.equal(
+    trackCurveKey({ curve_name: " gr ", set_name: " WIRE_1 " }),
+    trackCurveKey({ curve_name: "GR", set_name: "WIRE_1" }),
+  );
+  const inventory = [
+    { curve_name: "GR", set_name: "WIRE" },
+    { curve_name: "GR", set_name: "WIRE_1" },
+    { curve_name: "PEF", set_name: "WIRE_1" },
+  ];
+  assert.deepEqual(
+    availableTrackSets(inventory, "gr"),
+    ["WIRE", "WIRE_1"],
+    "a mnemonic only offers sets that actually contain it",
+  );
+  assert.deepEqual(
+    availableTrackSets(inventory, "GR", "LEGACY_SET"),
+    ["LEGACY_SET", "WIRE", "WIRE_1"],
+    "an existing cross-well layout keeps its saved set until the user changes the mnemonic",
+  );
+  assert.equal(hasTrackCurve(inventory, { curve_name: "PEF", set_name: "WIRE_1" }), true);
+  assert.equal(hasTrackCurve(inventory, { curve_name: "PEF", set_name: "WIRE" }), false);
+});
+
 test("characterizes_finite_statistics_without_population_or_exclusion_metadata", async () => {
   // CHARACTERIZATION — SB-PLT-009 / SB-PLT-T12 supplies the arithmetic fixture and
   // expected count=3, mean=2 and P50=2. The absent disclosure fields describe the

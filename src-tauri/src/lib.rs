@@ -1199,6 +1199,17 @@ fn list_generic_curve_catalog(db: tauri::State<DbState>, well_id: String) -> Res
     db::list_generic_curve_catalog(&conn, &well_id).map_err(|e| e.to_string())
 }
 
+/// Metadata-only inventory for navigation and set pickers. Unlike the full Curve Catalog,
+/// this never joins `curve_samples` or computes statistics.
+#[tauri::command]
+fn list_generic_curve_inventory(
+    db: tauri::State<DbState>,
+    well_id: String,
+) -> Result<Vec<db::GenericCurveInventoryEntry>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_generic_curve_inventory(&conn, &well_id).map_err(|e| e.to_string())
+}
+
 /// Phase 6: reads every sample of one curve from the generic store, ordered by depth.
 #[tauri::command]
 fn get_generic_curve_samples(db: tauri::State<DbState>, curve_id: String) -> Result<Vec<db::CurveSamplePoint>, String> {
@@ -1491,12 +1502,21 @@ fn set_pinned_wells(db: tauri::State<DbState>, well_ids: Vec<String>) -> Result<
 fn get_track_data(
     db: tauri::State<DbState>,
     well_id: String,
-    curve_names: Vec<String>,
+    curve_requests: Vec<equations::TrackCurveRequest>,
     target_pixel_height: usize,
+    depth_min: Option<f32>,
+    depth_max: Option<f32>,
 ) -> Result<tauri::ipc::Response, String> {
     let conn = db.0.lock().unwrap();
-    let series = equations::fetch_track_data(&conn, &well_id, &curve_names, target_pixel_height)
-        .map_err(|e| e.to_string())?;
+    let series = equations::fetch_track_data(
+        &conn,
+        &well_id,
+        &curve_requests,
+        target_pixel_height,
+        depth_min,
+        depth_max,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(tauri::ipc::Response::new(equations::pack_curve_series(&series)))
 }
 
@@ -3418,6 +3438,7 @@ pub fn run() {
             delete_log_set,
             list_computed_catalog,
             list_generic_curve_catalog,
+            list_generic_curve_inventory,
             get_generic_curve_samples,
             delete_generic_curve,
             promote_generic_curve,

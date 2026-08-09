@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurveStyle {
     pub curve_name: String,
+    /// Explicit imported set to display on its own depth grid. None preserves the established
+    /// current standard/computed/RAW resolution for every layout saved before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_name: Option<String>,
     pub color: String,
     pub min: f32,
     pub max: f32,
@@ -40,6 +44,7 @@ pub struct CurveStyle {
 fn curve(name: &str, color: &str, min: f32, max: f32) -> CurveStyle {
     CurveStyle {
         curve_name: name.into(),
+        set_name: None,
         color: color.into(),
         min,
         max,

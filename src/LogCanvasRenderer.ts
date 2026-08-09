@@ -2,6 +2,7 @@ import type { CurveStyle, Layout, Track, TrackCurveSeries } from "./ipc";
 import { faciesColor } from "./ui/plotCanvas";
 import { appState } from "./state";
 import { pxPerUnitAt1to1 } from "./units";
+import { trackCurveKey } from "./trackCurveRequest";
 
 const VERTEX_SHADER = /* wgsl */ `
 struct Transform {
@@ -198,26 +199,33 @@ export class LogCanvasRenderer {
 
   /** Lays out every track's curves using `trackWeights` (keyed by track title) for column
    *  proportions, and centers the view on the data if this is the first load. */
-  loadLayout(layout: Layout, series: TrackCurveSeries[], trackWeights: Map<string, number>): void {
+  loadLayout(
+    layout: Layout,
+    series: TrackCurveSeries[],
+    trackWeights: Map<string, number>,
+    preserveDepthRange = false,
+  ): void {
     this.seriesByName = new Map(series.map((s) => [s.curve_name, s]));
 
-    let depthMin = Infinity;
-    let depthMax = -Infinity;
-    for (const s of series) {
-      for (const d of s.depth) {
-        if (d < depthMin) depthMin = d;
-        if (d > depthMax) depthMax = d;
+    if (!preserveDepthRange) {
+      let depthMin = Infinity;
+      let depthMax = -Infinity;
+      for (const s of series) {
+        for (const d of s.depth) {
+          if (d < depthMin) depthMin = d;
+          if (d > depthMax) depthMax = d;
+        }
       }
-    }
-    const isFirstLoad = this.curves.length === 0 && this.depthMin === 0 && this.depthMax === 1;
-    if (!Number.isFinite(depthMin) || !Number.isFinite(depthMax) || depthMin === depthMax) {
-      depthMin = 0;
-      depthMax = 1;
-    }
-    this.depthMin = depthMin;
-    this.depthMax = depthMax;
-    if (isFirstLoad) {
-      this.view.topDepth = depthMin;
+      const isFirstLoad = this.curves.length === 0 && this.depthMin === 0 && this.depthMax === 1;
+      if (!Number.isFinite(depthMin) || !Number.isFinite(depthMax) || depthMin === depthMax) {
+        depthMin = 0;
+        depthMax = 1;
+      }
+      this.depthMin = depthMin;
+      this.depthMax = depthMax;
+      if (isFirstLoad) {
+        this.view.topDepth = depthMin;
+      }
     }
 
     const previousHidden = new Map(this.curves.map((c) => [c.curveName, c.hidden]));
@@ -246,16 +254,24 @@ export class LogCanvasRenderer {
       const trackRightNdc = -1 + 2 * trackRightFrac;
 
       for (const curveStyle of track.curves) {
-        const s = this.seriesByName.get(curveStyle.curve_name);
+        const seriesKey = trackCurveKey(curveStyle);
+        const s = this.seriesByName.get(seriesKey);
         if (!s) continue;
         if (curveStyle.fill === "blocks") {
-          for (const geometry of this.buildBlockGeometries(s, curveStyle, trackLeftNdc, trackRightNdc)) {
+          for (const geometry of this.buildBlockGeometries(s, curveStyle, trackLeftNdc, trackRightNdc, seriesKey)) {
             geometry.hidden = previousHidden.get(geometry.curveName) ?? false;
             this.curves.push(geometry);
           }
           continue;
         }
-        const geometry = this.buildCurveGeometry(s, curveStyle, track.scale_type, trackLeftNdc, trackRightNdc);
+        const geometry = this.buildCurveGeometry(
+          s,
+          curveStyle,
+          track.scale_type,
+          trackLeftNdc,
+          trackRightNdc,
+          seriesKey,
+        );
         if (geometry) {
           geometry.hidden = previousHidden.get(geometry.curveName) ?? false;
           this.curves.push(geometry);
@@ -267,7 +283,7 @@ export class LogCanvasRenderer {
           const reference = this.resolveCrossover(track, curveStyle);
           if (reference) {
             for (const g of this.buildCrossoverGeometries(
-              s, curveStyle, reference, track.scale_type, trackLeftNdc, trackRightNdc,
+              s, curveStyle, reference, track.scale_type, trackLeftNdc, trackRightNdc, seriesKey,
             )) {
               g.hidden = previousHidden.get(g.curveName) ?? false;
               this.curves.push(g);
@@ -305,6 +321,7 @@ export class LogCanvasRenderer {
     scaleType: "linear" | "log",
     trackLeftNdc: number,
     trackRightNdc: number,
+    seriesKey: string,
   ): CurveGeometry | null {
     const n = Math.min(series.depth.length, series.value.length);
     const positions: number[] = [];
@@ -366,7 +383,7 @@ export class LogCanvasRenderer {
     });
 
     const geometry: CurveGeometry = {
-      curveName: style.curve_name,
+      curveName: seriesKey,
       vertexBuffer,
       vertexCount: data.length / 2,
       hidden: false,
@@ -430,6 +447,7 @@ export class LogCanvasRenderer {
     style: { curve_name: string; fill_opacity?: number },
     trackLeftNdc: number,
     trackRightNdc: number,
+    seriesKey: string,
   ): CurveGeometry[] {
     const n = Math.min(series.depth.length, series.value.length);
     if (n === 0) return [];
@@ -487,7 +505,7 @@ export class LogCanvasRenderer {
       });
 
       out.push({
-        curveName: style.curve_name,
+        curveName: seriesKey,
         // No line geometry for block curves — the line pass draws 0 vertices.
         vertexBuffer: this.device.createBuffer({ size: 8, usage: GPUBufferUsage.VERTEX }),
         vertexCount: 0,
@@ -510,9 +528,12 @@ export class LogCanvasRenderer {
   ): { series: TrackCurveSeries; min: number; max: number } | null {
     const to = style.fill_to?.trim().toUpperCase();
     if (!to) return null;
-    const refStyle = track.curves.find((c) => c.curve_name.trim().toUpperCase() === to);
+    const matches = track.curves.filter((c) => c.curve_name.trim().toUpperCase() === to);
+    const refStyle =
+      matches.find((candidate) => (candidate.set_name?.trim() || null) === (style.set_name?.trim() || null)) ??
+      matches[0];
     if (!refStyle) return null;
-    const series = this.seriesByName.get(refStyle.curve_name) ?? this.seriesByName.get(to);
+    const series = this.seriesByName.get(trackCurveKey(refStyle));
     if (!series) return null;
     return { series, min: refStyle.min, max: refStyle.max };
   }
@@ -530,6 +551,7 @@ export class LogCanvasRenderer {
     scaleType: "linear" | "log",
     trackLeftNdc: number,
     trackRightNdc: number,
+    seriesKey: string,
   ): CurveGeometry[] {
     const toNdc = (v: number, min: number, max: number): number => {
       let frac: number;
@@ -621,7 +643,7 @@ export class LogCanvasRenderer {
       });
 
       out.push({
-        curveName: style.curve_name,
+        curveName: seriesKey,
         // Shading only — the curve's own line geometry is built separately.
         vertexBuffer: this.device.createBuffer({ size: 8, usage: GPUBufferUsage.VERTEX }),
         vertexCount: 0,

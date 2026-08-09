@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DepthUnit } from "./units";
+import type { TrackCurveRequest } from "./trackCurveRequest";
 
 /** The project's stored depth unit, plus whether it was explicitly declared (false = a
  *  fresh project that will adopt the unit of its first import). */
@@ -292,6 +293,9 @@ export type ScaleType = "linear" | "log";
 
 export interface CurveStyle {
   curve_name: string;
+  /** Explicit imported set: display this curve on that set's native depth grid. Blank keeps
+   *  the established current standard/computed/RAW resolution. */
+  set_name?: string;
   color: string;
   min: number;
   max: number;
@@ -767,8 +771,23 @@ function decodeCurveBuffer(buf: ArrayBuffer): TrackCurveSeries[] {
  * `targetPixelHeight`. Numeric data travels as raw bytes (not JSON numbers), per this
  * project's IPC rule — unpacked here into depth/value Float32Arrays per curve.
  */
-export async function getTrackData(wellId: string, curveNames: string[], targetPixelHeight: number): Promise<TrackCurveSeries[]> {
-  const buf = await invoke<ArrayBuffer>("get_track_data", { wellId, curveNames, targetPixelHeight });
+export async function getTrackData(
+  wellId: string,
+  curves: Array<string | TrackCurveRequest>,
+  targetPixelHeight: number,
+  depthMin?: number,
+  depthMax?: number,
+): Promise<TrackCurveSeries[]> {
+  const curveRequests: TrackCurveRequest[] = curves.map((curve) =>
+    typeof curve === "string" ? { curve_name: curve } : curve,
+  );
+  const buf = await invoke<ArrayBuffer>("get_track_data", {
+    wellId,
+    curveRequests,
+    targetPixelHeight,
+    depthMin,
+    depthMax,
+  });
   return decodeCurveBuffer(buf);
 }
 
@@ -4353,7 +4372,7 @@ export function installationSupport(): Promise<InstallationSupport> {
 // per well across RAW/EDIT/FINAL sets, unlike the fixed-6 standard_curves.
 // ---------------------------------------------------------------------------
 
-export interface GenericCurveCatalogEntry {
+export interface GenericCurveInventoryEntry {
   curve_id: string;
   mnemonic: string;
   unit: string | null;
@@ -4361,14 +4380,29 @@ export interface GenericCurveCatalogEntry {
   set_name: string;
   source: string | null;
   run_no: number | null;
-  n_samples: number;
   /** True when the user promoted this curve to win its (well, set, mnemonic) group. */
   pinned: boolean;
+}
+
+export interface GenericCurveCatalogEntry extends GenericCurveInventoryEntry {
+  /** Every stored row, including missing values. */
+  n_samples: number;
+  /** Finite values included in min/max/mean. */
+  n_valid: number;
+  n_missing: number;
+  min: number | null;
+  max: number | null;
+  mean: number | null;
 }
 
 /** Every curve in the generic store for one well, across RAW/EDIT/FINAL sets. */
 export function listGenericCurveCatalog(wellId: string): Promise<GenericCurveCatalogEntry[]> {
   return invoke<GenericCurveCatalogEntry[]>("list_generic_curve_catalog", { wellId });
+}
+
+/** Metadata-only curve list for trees and set pickers; never scans sample rows. */
+export function listGenericCurveInventory(wellId: string): Promise<GenericCurveInventoryEntry[]> {
+  return invoke<GenericCurveInventoryEntry[]>("list_generic_curve_inventory", { wellId });
 }
 
 /** Deletes one generic-store curve (meta + samples) — removes a shadowing/duplicate import. */

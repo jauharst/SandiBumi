@@ -198,20 +198,48 @@ fn value_frac(v: f32, min: f32, max: f32, scale: ScaleType) -> Option<f64> {
 pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(Vec<PageOps>, f64, f64, String), String> {
     let header = fetch_header(conn, &spec.well_id)?;
 
-    let curve_names: Vec<String> = spec
+    let curve_requests: Vec<equations::TrackCurveRequest> = spec
         .layout
         .tracks
         .iter()
-        .flat_map(|t| t.curves.iter().map(|c| c.curve_name.clone()))
+        .flat_map(|track| {
+            track.curves.iter().map(|curve| equations::TrackCurveRequest {
+                curve_name: curve.curve_name.clone(),
+                set_name: curve.set_name.clone(),
+            })
+        })
         .collect();
-    let (depth, columns) =
-        equations::fetch_curve_frame(conn, &spec.well_id, &curve_names).map_err(|e| e.to_string())?;
-    if depth.is_empty() {
+    let frames = equations::fetch_track_frames(conn, &spec.well_id, &curve_requests, None, None)
+        .map_err(|error| error.to_string())?;
+    let mut data_top = f32::INFINITY;
+    let mut data_bot = f32::NEG_INFINITY;
+    for frame in &frames {
+        for depth in &frame.depth {
+            if depth.is_finite() {
+                data_top = data_top.min(*depth);
+                data_bot = data_bot.max(*depth);
+            }
+        }
+    }
+    // Curve-free point/image/diagram layouts historically inherit the well's standard depth
+    // interval. Keep that behavior without using it to resolve any set-qualified curve.
+    if !data_top.is_finite() || !data_bot.is_finite() {
+        let (fallback_depth, _) =
+            equations::fetch_curve_frame(conn, &spec.well_id, &[]).map_err(|error| error.to_string())?;
+        for depth in fallback_depth {
+            if depth.is_finite() {
+                data_top = data_top.min(depth);
+                data_bot = data_bot.max(depth);
+            }
+        }
+    }
+    if !data_top.is_finite() || !data_bot.is_finite() {
         return Err("no curve data for this well".into());
     }
-
-    let data_top = *depth.first().unwrap();
-    let data_bot = *depth.last().unwrap();
+    let curve_frames: HashMap<String, equations::TrackCurveFrame> = frames
+        .into_iter()
+        .map(|frame| (frame.curve_name.clone(), frame))
+        .collect();
     let top = spec.depth_top.unwrap_or(data_top).max(data_top);
     let bottom = spec.depth_bottom.unwrap_or(data_bot).min(data_bot);
     if !(bottom > top) {
@@ -315,7 +343,7 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
         let m_this = if first { m_per_page_first } else { m_per_page_run };
         let d1 = (d0 + m_this).min(bottom);
         let ops = build_page(
-            spec, &header, &depth, &columns, &tops, &zones, &completion, &perforations, &core, &aux,
+            spec, &header, &curve_frames, &tops, &zones, &completion, &perforations, &core, &aux,
             &arrays, &images, pw, ph, mm_per_m, first, d0 as f32, d1 as f32, idx,
         );
         pages.push(PageOps { ops, top: d0 as f32, bot: d1 as f32, idx });
@@ -384,8 +412,7 @@ pub fn export_svg_files(result: &CompositeResult, dest_path: &str) -> Result<Vec
 fn build_page(
     spec: &CompositeSpec,
     header: &WellHeader,
-    depth: &[f32],
-    columns: &HashMap<String, Vec<f32>>,
+    curve_frames: &HashMap<String, equations::TrackCurveFrame>,
     tops: &[crate::db::TopEntry],
     zones: &[crate::db::ZoneEntry],
     completion: &[crate::db::AuxRow],
@@ -527,16 +554,46 @@ fn build_page(
         } else {
             draw_vgrid(&mut ops, track, tx0, tx1, grid_top, grid_bot);
             for cs in &track.curves {
-                let Some(vals) = columns.get(&cs.curve_name.trim().to_uppercase()) else { continue };
+                let request = equations::TrackCurveRequest {
+                    curve_name: cs.curve_name.clone(),
+                    set_name: cs.set_name.clone(),
+                };
+                let Some(frame) = curve_frames.get(&equations::track_curve_key(&request)) else { continue };
                 // Crossover shading needs the reference curve's samples AND its own min/max,
                 // taken from the same track — compatible scaling is the whole point.
                 let xover = cs.fill_to.as_deref().and_then(|to| {
                     let key = to.trim().to_uppercase();
-                    let rs = track.curves.iter().find(|o| o.curve_name.trim().to_uppercase() == key)?;
-                    Some((columns.get(&key)?.as_slice(), rs.min, rs.max))
+                    let matches: Vec<&crate::layout::CurveStyle> = track
+                        .curves
+                        .iter()
+                        .filter(|other| other.curve_name.trim().to_uppercase() == key)
+                        .collect();
+                    let source_set = cs.set_name.as_deref().map(str::trim).filter(|set| !set.is_empty());
+                    let rs = matches
+                        .iter()
+                        .copied()
+                        .find(|other| {
+                            other.set_name.as_deref().map(str::trim).filter(|set| !set.is_empty()) == source_set
+                        })
+                        .or_else(|| matches.first().copied())?;
+                    let request = equations::TrackCurveRequest {
+                        curve_name: rs.curve_name.clone(),
+                        set_name: rs.set_name.clone(),
+                    };
+                    let reference = curve_frames.get(&equations::track_curve_key(&request))?;
+                    Some((reference.value.as_slice(), reference.depth.as_slice(), rs.min, rs.max))
                 });
                 draw_curve(
-                    &mut ops, cs, track.scale_type, vals, depth, xover, tx0, tx1, page_top, page_bot,
+                    &mut ops,
+                    cs,
+                    track.scale_type,
+                    &frame.value,
+                    &frame.depth,
+                    xover,
+                    tx0,
+                    tx1,
+                    page_top,
+                    page_bot,
                     &y_of,
                 );
             }
@@ -763,7 +820,7 @@ fn draw_curve(
     scale: ScaleType,
     vals: &[f32],
     depth: &[f32],
-    xover: Option<(&[f32], f32, f32)>,
+    xover: Option<(&[f32], &[f32], f32, f32)>,
     tx0: f64,
     tx1: f64,
     page_top: f32,
@@ -879,14 +936,14 @@ fn draw_crossover(
     scale: ScaleType,
     vals: &[f32],
     depth: &[f32],
-    reference: (&[f32], f32, f32),
+    reference: (&[f32], &[f32], f32, f32),
     tx0: f64,
     tx1: f64,
     page_top: f32,
     page_bot: f32,
     y_of: &dyn Fn(f32) -> f64,
 ) {
-    let (rvals, rmin, rmax) = reference;
+    let (rvals, rdepth, rmin, rmax) = reference;
     let tw = tx1 - tx0;
     let x_a = |v: f32| value_frac(v, cs.min, cs.max, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
     let x_b = |v: f32| value_frac(v, rmin, rmax, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
@@ -895,19 +952,20 @@ fn draw_crossover(
     let opacity = cs.fill_opacity.unwrap_or(0.3) as f64;
     let step = cs.draw_style.as_deref() == Some("step");
 
-    let n = vals.len().min(depth.len()).min(rvals.len());
+    let aligned_reference = interpolate_display_series(rdepth, rvals, depth);
+    let n = vals.len().min(depth.len()).min(aligned_reference.len());
     for i in 0..n.saturating_sub(1) {
         let (d0, d1) = (depth[i], depth[i + 1]);
         if d0 < page_top || d0 > page_bot || d1 < page_top || d1 > page_bot {
             continue;
         }
-        let (Some(a0), Some(b0)) = (x_a(vals[i]), x_b(rvals[i])) else { continue };
+        let (Some(a0), Some(b0)) = (x_a(vals[i]), x_b(aligned_reference[i])) else { continue };
         // A stepped curve holds its value across the interval, so both edges stay vertical
         // and the pair can never cross inside one interval.
         let (a1, b1) = if step {
             (a0, b0)
         } else {
-            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(rvals[i + 1])) else { continue };
+            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(aligned_reference[i + 1])) else { continue };
             (a1, b1)
         };
         let (y0, y1) = (y_of(d0), y_of(d1));
@@ -934,6 +992,43 @@ fn draw_crossover(
             });
         }
     }
+}
+
+/// Display-only linear interpolation mirrored by `LogCanvasRenderer.makeSampler`. It never
+/// writes a re-framed curve: the reference is sampled in memory at the styled curve's native
+/// depths, returns missing outside its extent, and does not bridge a missing endpoint.
+fn interpolate_display_series(reference_depth: &[f32], reference_value: &[f32], target_depth: &[f32]) -> Vec<f32> {
+    let n = reference_depth.len().min(reference_value.len());
+    if n < 2 {
+        return vec![f32::NAN; target_depth.len()];
+    }
+    let mut cursor = 0usize;
+    target_depth
+        .iter()
+        .map(|target| {
+            if *target < reference_depth[0] || *target > reference_depth[n - 1] {
+                return f32::NAN;
+            }
+            if cursor > n - 2 || reference_depth[cursor] > *target {
+                cursor = 0;
+            }
+            while cursor < n - 2 && reference_depth[cursor + 1] < *target {
+                cursor += 1;
+            }
+            let d0 = reference_depth[cursor];
+            let d1 = reference_depth[cursor + 1];
+            let v0 = reference_value[cursor];
+            let v1 = reference_value[cursor + 1];
+            if v0.is_nan() || v1.is_nan() {
+                return f32::NAN;
+            }
+            if d1 == d0 {
+                v0
+            } else {
+                v0 + (v1 - v0) * (*target - d0) / (d1 - d0)
+            }
+        })
+        .collect()
 }
 
 /// Gathers one point series' samples for the print path. Core reads the ACTIVE core set's
@@ -2038,6 +2133,67 @@ mod tests {
         assert!(cs.draw_style.is_none() && cs.fill_to.is_none() && cs.fill_color2.is_none());
     }
 
+    /// A set-qualified layout is a source-identity contract in every renderer, not only the
+    /// interactive WebGPU view. Give the imported GR a disjoint depth interval so falling back
+    /// to the standard GR cannot accidentally satisfy the requested print window.
+    #[test]
+    fn composite_renders_explicit_set_on_its_native_depth_grid() {
+        let conn = Connection::open_in_memory().unwrap();
+        let well = seed_well(&conn);
+        let curve_id = db::upsert_curve_meta(
+            &conn,
+            &well,
+            "WIRE_1",
+            "GR",
+            Some("GAPI"),
+            Some("GR"),
+            Some("LAS import"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(
+            &conn,
+            &curve_id,
+            &[2000.0, 2000.5, 2001.0, 2001.5],
+            &[80.0, 85.0, 90.0, 95.0],
+        )
+        .unwrap();
+        let layout: crate::layout::Layout = serde_json::from_value(serde_json::json!({
+            "name": "Native set print",
+            "tracks": [{
+                "title": "GR",
+                "width_weight": 1.0,
+                "scale_type": "linear",
+                "curves": [{
+                    "curve_name": "GR",
+                    "set_name": "WIRE_1",
+                    "color": "#2e7d32",
+                    "min": 0.0,
+                    "max": 150.0
+                }]
+            }]
+        }))
+        .unwrap();
+        let spec = CompositeSpec {
+            well_id: well,
+            layout,
+            depth_top: Some(2000.0),
+            depth_bottom: Some(2001.5),
+            scale: 500,
+            page_size: PageSize::A4,
+        };
+
+        let (pages, _, _, _) = render_pages(&conn, &spec)
+            .expect("set-qualified composite must use the imported set's native interval");
+        assert!(
+            pages
+                .iter()
+                .flat_map(|page| page.ops.iter())
+                .any(|op| matches!(op, DrawOp::Poly { .. })),
+            "the explicit imported curve is rendered"
+        );
+    }
+
     /// T-AUX-07, the compatibility half. `layouts_saved_before_crossover_still_load` above covers
     /// the CurveStyle fields; this covers the field the diagram feature added to the TRACK, which
     /// is the one that would break every layout the user has ever saved.
@@ -2249,7 +2405,7 @@ mod tests {
         let mut ops = Vec::new();
         let y = |d: f32| d as f64;
         draw_curve(
-            &mut ops, &cs, ScaleType::Linear, &vals, &depth, Some((&refv, 0.0, 1.0)),
+            &mut ops, &cs, ScaleType::Linear, &vals, &depth, Some((&refv, &depth, 0.0, 1.0)),
             0.0, 10.0, 0.0, 1000.0, &y,
         );
         let f = fills(&ops);
@@ -2260,6 +2416,18 @@ mod tests {
         // colour bleeding a whole sample past it.
         assert_eq!(f[0].1.last().copied(), Some((5.0, 101.0)));
         assert_eq!(f[1].1[0], (5.0, 101.0));
+    }
+
+    #[test]
+    fn composite_crossover_interpolates_reference_without_reframing_storage() {
+        let reference_depth = [100.0f32, 102.0];
+        let reference_value = [0.0f32, 1.0];
+        let target_depth = [99.0f32, 100.0, 101.0, 102.0, 103.0];
+
+        let sampled = interpolate_display_series(&reference_depth, &reference_value, &target_depth);
+
+        assert!(sampled[0].is_nan() && sampled[4].is_nan(), "display sampling never extrapolates");
+        assert_eq!(&sampled[1..4], &[0.0, 0.5, 1.0]);
     }
 
     #[test]

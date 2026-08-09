@@ -2463,6 +2463,20 @@ tools here should be universal for all logs"._
   than "small non-negative integers" (a GR alternating 40 and 80 API is two such integers, and the
   first version mode-averaged it to 80 where the rock averages 60) — it stays a guess, so the
   resolved method is REPORTED per curve.
+- **LAS native-grid display, catalog and import repair ✅ (2026-08-10)** — an explicit imported
+  `(set, mnemonic)` now plots and exports directly from that set's `curve_samples` depths. Pan/zoom
+  filters the visible interval before disposable display decimation, whose true source endpoints
+  retain the exact whole-well extent, so zoom requests more native samples instead of enlarging one
+  whole-well reduction; neither the viewer nor composite SVG/PDF writes or re-frames data.
+  Curve Catalog now reports total/valid/missing and finite-only min/max/mean, while Wells/Set
+  expansion uses cached metadata inventory rather than aggregating the sample table. Normal LAS
+  import keeps WELL plus every channel in one decoded parse and commits the well, standard view,
+  generic metadata and every native sample in one atomic Arrow-staged transaction with the
+  `(curve_id, depth)` PK intact. Two supplied real
+  deliveries retained 91,392 and 27,857 depth rows exactly; the first like-for-like debug run moved
+  from 89.6 s to 61.2 s (31.7% faster), with release-machine timing left as the field gate rather
+  than claimed from a debug build. Declared STEP is compared from exact source decimals before f32
+  storage, preventing deep-depth rounding from fabricating a re-grid warning.
 - **Normalize ✅ (2026-08-05)** — `condition::normalize`, any curve, three methods (percentile pair /
   min-max / z-score) in LINEAR or LOG space. Jauhar, 2026-08-05: *"dont dupilcates, normalize tools
   here should be universal for all logs"* — so `gr_normalize` DELEGATES to it and is hidden from the
