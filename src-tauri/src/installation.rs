@@ -5,7 +5,9 @@
 //! unless those observations agree with the executable identity compiled from this tree.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -717,6 +719,151 @@ pub fn installer_long_description() -> String {
     "Native core runs without Python. Offline Python-backed capabilities require the separately signed SandiBumi-qualified pack, silently deployed per machine by IT; exact packages are listed in the bundled capability-prerequisites notice and versions come only from the qualified release lock.".to_string()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct InstalledSettingsTemplate {
+    pub template_version: String,
+    /// No values are inferred from a mutable profile. This map is empty until a requirement
+    /// supplies a cited product default.
+    pub settings: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsTemplateOrigin {
+    pub template_version: String,
+    pub template_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct UserSettingsDocument {
+    pub origin: SettingsTemplateOrigin,
+    pub settings: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SettingsMaterialization {
+    pub user_path: String,
+    pub origin: SettingsTemplateOrigin,
+    pub created: bool,
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn read_user_settings(path: &Path) -> Result<UserSettingsDocument, String> {
+    let text = crate::parsers::read_text_file(path)
+        .map_err(|e| format!("{}: cannot read user settings: {e}", path.display()))?;
+    let document: UserSettingsDocument = serde_json::from_str(&text)
+        .map_err(|e| format!("{}: invalid user settings JSON: {e}", path.display()))?;
+    if document.origin.template_version.trim().is_empty()
+        || !is_sha256(&document.origin.template_sha256)
+    {
+        return Err(format!(
+            "{}: user settings do not record a template version and SHA-256",
+            path.display()
+        ));
+    }
+    Ok(document)
+}
+
+/// First-run materialisation boundary. The installed resource is read and hashed but never opened
+/// for writing; the user copy is created once with `create_new` outside the installation tree.
+pub fn materialize_user_settings(
+    installed_template: &Path,
+    user_path: &Path,
+) -> Result<SettingsMaterialization, String> {
+    let installed_dir = installed_template
+        .parent()
+        .ok_or_else(|| "installed settings template has no parent directory".to_string())?;
+    if user_path.starts_with(installed_dir) {
+        return Err(format!(
+            "writable user settings {} must be outside installation directory {}",
+            user_path.display(),
+            installed_dir.display()
+        ));
+    }
+
+    if user_path.exists() {
+        let existing = read_user_settings(user_path)?;
+        return Ok(SettingsMaterialization {
+            user_path: user_path.to_string_lossy().into_owned(),
+            origin: existing.origin,
+            created: false,
+        });
+    }
+
+    let template_text = crate::parsers::read_text_file(installed_template).map_err(|e| {
+        format!(
+            "{}: cannot read installed settings template: {e}",
+            installed_template.display()
+        )
+    })?;
+    let template: InstalledSettingsTemplate =
+        serde_json::from_str(&template_text).map_err(|e| {
+            format!(
+                "{}: invalid installed settings template JSON: {e}",
+                installed_template.display()
+            )
+        })?;
+    let identity = configured_identity()?;
+    if template.template_version != identity.version {
+        return Err(format!(
+            "installed settings template version {} does not match application version {}",
+            template.template_version, identity.version
+        ));
+    }
+    let template_bytes = std::fs::read(installed_template).map_err(|e| {
+        format!(
+            "{}: cannot hash installed settings template: {e}",
+            installed_template.display()
+        )
+    })?;
+    let origin = SettingsTemplateOrigin {
+        template_version: template.template_version,
+        template_sha256: sha256_bytes(&template_bytes),
+    };
+    let user_document = UserSettingsDocument {
+        origin: origin.clone(),
+        settings: template.settings,
+    };
+    let bytes = serde_json::to_vec_pretty(&user_document)
+        .map_err(|e| format!("cannot encode first-run user settings: {e}"))?;
+    let parent = user_path
+        .parent()
+        .ok_or_else(|| "user settings path has no parent directory".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|e| {
+        format!(
+            "cannot create user configuration directory {}: {e}",
+            parent.display()
+        )
+    })?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(user_path)
+        .map_err(|e| format!("cannot create user settings {}: {e}", user_path.display()))?;
+    file.write_all(&bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|e| {
+            format!(
+                "cannot materialise user settings {}: {e}",
+                user_path.display()
+            )
+        })?;
+
+    Ok(SettingsMaterialization {
+        user_path: user_path.to_string_lossy().into_owned(),
+        origin,
+        created: true,
+    })
+}
+
 /// Deployment-owner decision, 2026-08-09: IT deploys one MSI device-wide, under the system
 /// context; ordinary users launch it afterwards. This is a product-policy value supplied by
 /// the owner, not a package-manager default inferred by the code.
@@ -1094,6 +1241,7 @@ pub fn validate_offline_deployment_file(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn generated_readme_block(readme: &str) -> &str {
         let start = readme
@@ -1261,6 +1409,77 @@ mod tests {
         let support_ui = include_str!("../../src/ui/installationSupportDialog.ts");
         assert!(support_ui.contains("installationSupport()"));
         assert!(include_str!("../../index.html").contains("installation-support-btn"));
+    }
+
+    /// SB-INS-010 / SB-INS-T12. The immutable-template/user-copy split and provenance fields
+    /// come from dossier section 2.6; the template version is the cited application version in
+    /// tauri.conf.json. The settings map stays empty because no factory values are cited.
+    #[test]
+    fn first_run_materialises_a_user_copy_with_the_immutable_template_version_and_digest() {
+        let installed_template = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("install")
+            .join("settings-template.json");
+        let installed_before = std::fs::read(&installed_template).expect("installed template");
+        let installed_digest = sha256_bytes(&installed_before);
+        let temp = std::env::temp_dir().join(format!(
+            "sandibumi-settings-materialisation-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let user_path = temp.join("config").join("settings.json");
+
+        let first = materialize_user_settings(&installed_template, &user_path)
+            .expect("first run materialises settings");
+        assert!(first.created);
+        assert_eq!(first.origin.template_sha256, installed_digest);
+        assert_eq!(
+            first.origin.template_version,
+            configured_identity().unwrap().version
+        );
+
+        let text = crate::parsers::read_text_file(&user_path).expect("user settings text");
+        let mut user: UserSettingsDocument = serde_json::from_str(&text).unwrap();
+        assert!(
+            user.settings.is_empty(),
+            "uncited defaults must stay absent"
+        );
+        assert_eq!(user.origin, first.origin);
+        user.settings.insert(
+            "test-only-user-edit".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        std::fs::write(&user_path, serde_json::to_vec_pretty(&user).unwrap())
+            .expect("write user edit");
+
+        let second = materialize_user_settings(&installed_template, &user_path)
+            .expect("later launch preserves user settings");
+        assert!(!second.created);
+        assert_eq!(second.origin, first.origin);
+        let edited_text =
+            crate::parsers::read_text_file(&user_path).expect("edited user settings text");
+        let edited: UserSettingsDocument = serde_json::from_str(&edited_text).unwrap();
+        assert_eq!(
+            edited.settings.get("test-only-user-edit"),
+            Some(&serde_json::Value::Bool(true))
+        );
+        assert_eq!(
+            std::fs::read(&installed_template).unwrap(),
+            installed_before
+        );
+        assert_eq!(
+            sha256_bytes(&std::fs::read(&installed_template).unwrap()),
+            installed_digest
+        );
+
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(config["bundle"]["resources"]
+            .as_array()
+            .is_some_and(|resources| resources.iter().any(|resource| {
+                resource.as_str() == Some("resources/install/settings-template.json")
+            })));
+
+        std::fs::remove_dir_all(&temp).expect("remove isolated settings fixture");
     }
 
     fn offline_qualification_fixture() -> OfflineDeploymentQualification {

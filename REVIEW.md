@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-010: installed settings stay immutable
+
+- [ ] On a clean user profile, launch once and inspect the per-user `settings.json`, edit its
+      settings map, then relaunch. Does the edit survive, does origin retain the installed
+      template's application version and SHA-256, and is the bundled template byte-identical?
+
 ## 2026-08-09 — SB-INS-008: offline deployment is release-gated end to end
 
 - [ ] With public network access blocked, have IT silently deploy the application MSI and the
