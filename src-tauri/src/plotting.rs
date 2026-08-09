@@ -35,6 +35,55 @@ pub struct PlotChannelBinding {
     pub resolved: Vec<ResolvedPlotCurve>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DisplayRange {
+    pub low: f32,
+    pub high: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AxisRangeCandidates {
+    pub user: Option<DisplayRange>,
+    pub header_display: Option<DisplayRange>,
+    pub audited_family_display: Option<DisplayRange>,
+    pub finite_data: Option<DisplayRange>,
+    /// Kept in the request so callers cannot accidentally omit the distinction.
+    /// It is deliberately never consulted by `resolve_axis_range`.
+    pub validity: Option<DisplayRange>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AxisRangeTier {
+    User,
+    HeaderDisplay,
+    AuditedFamilyDisplay,
+    FiniteData,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AxisRangeResolution {
+    pub range: DisplayRange,
+    pub tier: AxisRangeTier,
+}
+
+fn usable_range(range: DisplayRange) -> bool {
+    range.low.is_finite() && range.high.is_finite() && range.low != range.high
+}
+
+pub fn resolve_axis_range(candidates: &AxisRangeCandidates) -> Result<AxisRangeResolution, String> {
+    let ordered = [
+        (candidates.user, AxisRangeTier::User),
+        (candidates.header_display, AxisRangeTier::HeaderDisplay),
+        (candidates.audited_family_display, AxisRangeTier::AuditedFamilyDisplay),
+        (candidates.finite_data, AxisRangeTier::FiniteData),
+    ];
+    ordered
+        .into_iter()
+        .find_map(|(range, tier)| range.filter(|value| usable_range(*value)).map(|range| AxisRangeResolution { range, tier }))
+        .ok_or_else(|| "no display range is available; validity limits are not display limits".into())
+}
+
 fn non_blank(value: &str, field: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         Err(format!("resolved plot curve is missing {field}"))
@@ -315,5 +364,33 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("required channel"));
+    }
+
+    #[test]
+    fn a_user_axis_range_wins_and_without_it_the_header_display_range_wins() {
+        let candidates = AxisRangeCandidates {
+            user: Some(DisplayRange { low: 10.0, high: 20.0 }),
+            header_display: Some(DisplayRange { low: 1.0, high: 2.0 }),
+            audited_family_display: Some(DisplayRange { low: 3.0, high: 4.0 }),
+            finite_data: Some(DisplayRange { low: 5.0, high: 6.0 }),
+            validity: Some(DisplayRange { low: 100.0, high: 200.0 }),
+        };
+        let user = resolve_axis_range(&candidates).unwrap();
+        assert_eq!(user.tier, AxisRangeTier::User);
+        assert_eq!(user.range, DisplayRange { low: 10.0, high: 20.0 });
+
+        let without_user = AxisRangeCandidates { user: None, ..candidates };
+        let header = resolve_axis_range(&without_user).unwrap();
+        assert_eq!(header.tier, AxisRangeTier::HeaderDisplay);
+        assert_eq!(header.range, DisplayRange { low: 1.0, high: 2.0 });
+
+        let validity_only = AxisRangeCandidates {
+            user: None,
+            header_display: None,
+            audited_family_display: None,
+            finite_data: None,
+            validity: Some(DisplayRange { low: 100.0, high: 200.0 }),
+        };
+        assert!(resolve_axis_range(&validity_only).is_err());
     }
 }

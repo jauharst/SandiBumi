@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-002: axis ranges expose one precedence tier
+
+- [ ] Open a crossplot whose user, header, audited-family and finite-data ranges differ. Does the
+      user range win and does the plot/export label that tier? Clear the user range: does the header
+      display range win next, while a validity range never becomes a display range?
+
 ## 2026-08-09 — SB-PLT-001: plot requests retain concrete per-well curve resolution
 
 - [ ] Open a histogram or crossplot over more than one well, then inspect the plot binding record.
