@@ -67,6 +67,12 @@ export interface CrossplotOptions {
   xMax: number | null;
   yMin: number | null;
   yMax: number | null;
+  /** Scientific validity limits are opt-in and never become display ranges. */
+  validityFilter: boolean;
+  xValidMin: number | null;
+  xValidMax: number | null;
+  yValidMin: number | null;
+  yValidMax: number | null;
   /** Overlay core plug data as diamond markers when the X/Y axes are recognized
    *  log-curve counterparts of a core measurement (see CORE_OVERLAY_MAP). */
   showCore: boolean;
@@ -125,6 +131,11 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
   xMax: null,
   yMin: null,
   yMax: null,
+  validityFilter: false,
+  xValidMin: null,
+  xValidMax: null,
+  yValidMin: null,
+  yValidMax: null,
   showCore: false,
   tsOverlay: false,
   tsPhiSd: 0.3,
@@ -813,6 +824,42 @@ export interface CrossplotContext {
   layers: ContextWellLayer[];
 }
 
+export interface PairValidityReport {
+  indices: number[];
+  nonFiniteExcluded: number;
+  validityExcluded: number;
+  statisticsCount: number;
+}
+
+export function screenPlotPairs(
+  xs: Float32Array,
+  ys: Float32Array,
+  enabled: boolean,
+  xValidity: AxisDisplayRange | null,
+  yValidity: AxisDisplayRange | null,
+): PairValidityReport {
+  const indices: number[] = [];
+  let nonFiniteExcluded = 0;
+  let validityExcluded = 0;
+  const outside = (value: number, range: AxisDisplayRange | null): boolean =>
+    !!range && (value < Math.min(range.min, range.max) || value > Math.max(range.min, range.max));
+  const n = Math.min(xs.length, ys.length);
+  for (let i = 0; i < n; i++) {
+    const x = xs[i];
+    const y = ys[i];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      nonFiniteExcluded++;
+      continue;
+    }
+    if (enabled && (outside(x, xValidity) || outside(y, yValidity))) {
+      validityExcluded++;
+      continue;
+    }
+    indices.push(i);
+  }
+  return { indices, nonFiniteExcluded, validityExcluded, statisticsCount: indices.length };
+}
+
 export function drawCrossplot(
   canvas: HTMLCanvasElement,
   xName: string,
@@ -829,6 +876,16 @@ export function drawCrossplot(
   typedAxes: { x: ResolvedPlotCurve | null; y: ResolvedPlotCurve | null } | null = null,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
+  const xValidity = opts.xValidMin !== null && opts.xValidMax !== null
+    ? { min: opts.xValidMin, max: opts.xValidMax }
+    : null;
+  const yValidity = opts.yValidMin !== null && opts.yValidMax !== null
+    ? { min: opts.yValidMin, max: opts.yValidMax }
+    : null;
+  const validity = screenPlotPairs(xs, ys, opts.validityFilter, xValidity, yValidity);
+  const plotXs = Float32Array.from(validity.indices.map((index) => xs[index]));
+  const plotYs = Float32Array.from(validity.indices.map((index) => ys[index]));
+  const plotZs = zs.length > 0 ? Float32Array.from(validity.indices.map((index) => zs[index])) : zs;
   const auto = (values: Float32Array): { min: number; max: number } | null => {
     const lo = percentile(values, 2);
     const hi = percentile(values, 98);
@@ -874,8 +931,8 @@ export function drawCrossplot(
   // With context wells the auto range (and the log-axis positive floor) must cover the
   // whole field's spread, not just the active well — otherwise the overlay draws clipped.
   const hasCtx = !!context && context.layers.length > 0;
-  const rangeXs = hasCtx ? concatValues(xs, context!.layers.map((l) => l.xs)) : xs;
-  const rangeYs = hasCtx ? concatValues(ys, context!.layers.map((l) => l.ys)) : ys;
+  const rangeXs = hasCtx ? concatValues(plotXs, context!.layers.map((l) => l.xs)) : plotXs;
+  const rangeYs = hasCtx ? concatValues(plotYs, context!.layers.map((l) => l.ys)) : plotYs;
   const xr = resolve(xName, rangeXs, opts.xLog, opts.xMin, opts.xMax);
   const yr = resolve(yName, rangeYs, opts.yLog, opts.yMin, opts.yMax);
   if (!xr || !yr) return null;
@@ -907,9 +964,10 @@ export function drawCrossplot(
   // colormap (optionally log10-scaled) + a color bar. This is the redraw's heaviest step and
   // is viewport-independent, so the panel memoizes it and passes it in; we only compute it
   // here when a caller (or a test) doesn't supply one.
-  const hasZ = zName !== "" && zs.length > 0;
+  const hasZ = zName !== "" && plotZs.length > 0;
   const { colors, categorical, zLo, zHi } =
-    precolors ?? computeCrossplotColors(zName, zs, xs.length, opts.colormap, opts.zLog, opts.color);
+    (!opts.validityFilter ? precolors : null)
+      ?? computeCrossplotColors(zName, plotZs, plotXs.length, opts.colormap, opts.zLog, opts.color);
 
   // Context wells first, faded, so the active well's cloud always reads on top of them.
   if (hasCtx) {
@@ -921,9 +979,27 @@ export function drawCrossplot(
     }
     ctx.restore();
   }
-  plot.drawScatter(xs, ys, colors, Math.max(0.5, opts.pointSize));
+  plot.drawScatter(plotXs, plotYs, colors, Math.max(0.5, opts.pointSize));
 
-  if (opts.marginals) drawMarginals(plot, xs, ys, opts.bins, pointColor);
+  if (opts.marginals) drawMarginals(plot, plotXs, plotYs, opts.bins, pointColor);
+
+  let displayHidden = 0;
+  for (let i = 0; i < plotXs.length; i++) {
+    if (plotXs[i] < Math.min(xr.min, xr.max) || plotXs[i] > Math.max(xr.min, xr.max)
+      || plotYs[i] < Math.min(yr.min, yr.max) || plotYs[i] > Math.max(yr.min, yr.max)) {
+      displayHidden++;
+    }
+  }
+  plot.ctx.save();
+  plot.ctx.font = canvasFont(plot.theme, 9);
+  plot.ctx.fillStyle = plot.theme.axis;
+  plot.ctx.textAlign = "right";
+  plot.ctx.fillText(
+    `n=${validity.statisticsCount} · display hidden=${displayHidden} · validity excluded=${validity.validityExcluded}`,
+    plot.plotRect.x0 + plot.plotRect.w,
+    plot.plotRect.y0 + plot.plotRect.h + 31,
+  );
+  plot.ctx.restore();
 
   // Where the next top-right legend block may start (the well legend stacks under the
   // facies legend when both are shown).
@@ -932,7 +1008,7 @@ export function drawCrossplot(
     // Discrete facies legend: one swatch per class actually present.
     const { ctx } = plot;
     const r = plot.plotRect;
-    const classes = distinctValues(zs);
+    const classes = distinctValues(plotZs);
     ctx.save();
     ctx.font = canvasFont(plot.theme, 10);
     const rowH = 15;
@@ -1020,7 +1096,7 @@ export function drawCrossplot(
     ctx.setLineDash([3, 4]);
     ctx.font = canvasFont(plot.theme, 9);
     for (const p of opts.percentiles) {
-      const vx = percentile(xs, p);
+      const vx = percentile(plotXs, p);
       if (!Number.isNaN(vx) && (!opts.xLog || vx > 0)) {
         const [px] = plot.toPx(vx, plot.y.min);
         if (px >= r.x0 && px <= r.x0 + r.w) {
@@ -1032,7 +1108,7 @@ export function drawCrossplot(
           ctx.fillText(`P${p}`, px + 3, r.y0 + r.h - 4);
         }
       }
-      const vy = percentile(ys, p);
+      const vy = percentile(plotYs, p);
       if (!Number.isNaN(vy) && (!opts.yLog || vy > 0)) {
         const [, py] = plot.toPx(plot.x.min, vy);
         if (py >= r.y0 && py <= r.y0 + r.h) {
@@ -1051,7 +1127,7 @@ export function drawCrossplot(
   // Regression in the MODEL's space (drawn as a sampled polyline, so it's correct on
   // any axis scaling — a power fit is straight on log-log axes, curved on linear).
   if (opts.regression) {
-    const fit = fitRegression(xs, ys, opts.regModel, opts.regMethod);
+    const fit = fitRegression(plotXs, plotYs, opts.regModel, opts.regMethod);
     if (fit) {
       const xNeedsLog = opts.regModel === "power" || opts.regModel === "logx";
       const yFromT = (t: number) => (opts.regModel === "power" || opts.regModel === "exp" ? Math.pow(10, t) : t);
@@ -1109,7 +1185,7 @@ export function drawCrossplot(
   }
 
   // Synchronized hover: ring the sample at the depth under another view's cursor.
-  if (hoverIdx >= 0 && hoverIdx < xs.length) {
+  if (hoverIdx >= 0 && hoverIdx < xs.length && validity.indices.includes(hoverIdx)) {
     const hx = xs[hoverIdx];
     const hy = ys[hoverIdx];
     if (!Number.isNaN(hx) && !Number.isNaN(hy) && (!opts.xLog || hx > 0) && (!opts.yLog || hy > 0)) {
@@ -2005,6 +2081,11 @@ export async function buildCrossplotContent(
     const xMaxIn = num(opts.xMax);
     const yMinIn = num(opts.yMin);
     const yMaxIn = num(opts.yMax);
+    const validityChk = chk("Apply validity filters", opts.validityFilter);
+    const xValidMinIn = num(opts.xValidMin);
+    const xValidMaxIn = num(opts.xValidMax);
+    const yValidMinIn = num(opts.yValidMin);
+    const yValidMaxIn = num(opts.yValidMax);
 
     // --- Z color ---
     const zLogChk = chk("Log Z scale", opts.zLog);
@@ -2093,6 +2174,9 @@ export async function buildCrossplotContent(
     body.appendChild(inline(xLogChk.el, yLogChk.el));
     body.appendChild(formRow("X range", inline(xMinIn, xMaxIn), "Blank = auto (mnemonic default, else P2–P98)"));
     body.appendChild(formRow("Y range", inline(yMinIn, yMaxIn)));
+    body.appendChild(validityChk.el);
+    body.appendChild(formRow("X valid", inline(xValidMinIn, xValidMaxIn), "Blank = no X validity exclusion"));
+    body.appendChild(formRow("Y valid", inline(yValidMinIn, yValidMaxIn), "Filtering changes n, statistics and fits; display clipping does not"));
     body.appendChild(section("Z color"));
     body.appendChild(inline(formRow("Colormap", cmapSel), zLogChk.el));
     body.appendChild(section("Regression"));
@@ -2132,6 +2216,11 @@ export async function buildCrossplotContent(
       opts.xMax = parseOrNull(xMaxIn);
       opts.yMin = parseOrNull(yMinIn);
       opts.yMax = parseOrNull(yMaxIn);
+      opts.validityFilter = validityChk.input.checked;
+      opts.xValidMin = parseOrNull(xValidMinIn);
+      opts.xValidMax = parseOrNull(xValidMaxIn);
+      opts.yValidMin = parseOrNull(yValidMinIn);
+      opts.yValidMax = parseOrNull(yValidMaxIn);
       opts.zLog = zLogChk.input.checked;
       opts.colormap = cmapSel.value as ColormapName;
       opts.regression = regChk.input.checked;
