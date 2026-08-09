@@ -7,6 +7,14 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-013: range policy is channel-specific
+
+- [ ] Plot non-finite values and non-positive values on logarithmic X/Y axes. Are they
+      excluded and counted separately? Move finite X/Y values beyond the viewport: are they
+      clipped and counted without changing statistics or source arrays? For Z colour and
+      array waveforms, are overflow values clamped only in derived display values, counted,
+      and—on Z—marked at the low/high colour edge?
+
 ## 2026-08-09 — SB-PLT-011: Pickett discloses only identifiable parameters
 
 - [ ] Fit a two-point Pickett water trend without separately sourced `a` or `Rw`. Does the

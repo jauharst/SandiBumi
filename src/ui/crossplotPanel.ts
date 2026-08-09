@@ -26,6 +26,7 @@ import {
 } from "./plotCanvas";
 import { parsePercentiles } from "./histogramPanel";
 import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type AxisKind, type ChartOverlayDef } from "./chartOverlays";
+import { applyPlotChannelPolicy, type PlotRangeEdge } from "./plotTypes";
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
@@ -776,6 +777,11 @@ export interface CrossplotColors {
   /** Continuous color-bar range; NaN when categorical, no Z, or degenerate. */
   zLo: number;
   zHi: number;
+  /** Per-point endpoint marker for a continuous Z value clamped to its display range. */
+  edgeMarks: PlotRangeEdge[];
+  zClamped: number;
+  zExcluded: number;
+  zIncluded: Uint8Array;
 }
 
 /** Builds the Z coloring + legend range. `fillColor` is the solid point color used when
@@ -795,17 +801,43 @@ export function computeCrossplotColors(
   let zLo = NaN;
   let zHi = NaN;
   let colors: string[] | undefined;
+  let edgeMarks: PlotRangeEdge[] = new Array(pointCount).fill("none");
+  let zClamped = 0;
+  let zExcluded = 0;
+  let zIncluded = new Uint8Array(pointCount);
   if (categorical) {
     colors = categoricalColors(zs);
+    for (let index = 0; index < zs.length; index++) {
+      if (Number.isFinite(zs[index])) zIncluded[index] = 1;
+      else {
+        colors[index] = "rgba(0,0,0,0)";
+        zExcluded++;
+      }
+    }
   } else if (hasZ) {
     // Log Z: percentile over the positive values only, else ≤0 junk wrecks the range.
     const zForRange = zLog ? Float32Array.from([...zs].filter((v) => !Number.isNaN(v) && v > 0)) : zs;
     zLo = percentile(zForRange, 5);
     zHi = percentile(zForRange, 95);
-    if (!Number.isNaN(zLo) && zLo !== zHi) colors = colorRampEx(zs, zLo, zHi, colormap, zLog);
+    if (!Number.isNaN(zLo) && zLo !== zHi) {
+      const policy = applyPlotChannelPolicy(zs, "colour", { min: zLo, max: zHi }, zLog);
+      colors = colorRampEx(policy.values, zLo, zHi, colormap, zLog);
+      for (let index = 0; index < colors.length; index++) {
+        if (policy.included[index] === 0) colors[index] = "rgba(0,0,0,0)";
+      }
+      edgeMarks = policy.edgeMarks;
+      zClamped = policy.clamped;
+      zExcluded = policy.nonFiniteExcluded + policy.logDomainExcluded;
+      zIncluded = policy.included;
+    } else {
+      for (let index = 0; index < zs.length; index++) {
+        if (Number.isFinite(zs[index]) && (!zLog || zs[index] > 0)) zIncluded[index] = 1;
+        else zExcluded++;
+      }
+    }
   }
   if (!colors && fillColor) colors = new Array(pointCount).fill(fillColor);
-  return { colors, categorical, zLo, zHi };
+  return { colors, categorical, zLo, zHi, edgeMarks, zClamped, zExcluded, zIncluded };
 }
 
 /** One extra well drawn behind the active well's cloud — display-only: no brushing,
@@ -827,6 +859,7 @@ export interface CrossplotContext {
 export interface PairValidityReport {
   indices: number[];
   nonFiniteExcluded: number;
+  logDomainExcluded: number;
   validityExcluded: number;
   statisticsCount: number;
 }
@@ -837,9 +870,12 @@ export function screenPlotPairs(
   enabled: boolean,
   xValidity: AxisDisplayRange | null,
   yValidity: AxisDisplayRange | null,
+  xLog = false,
+  yLog = false,
 ): PairValidityReport {
   const indices: number[] = [];
   let nonFiniteExcluded = 0;
+  let logDomainExcluded = 0;
   let validityExcluded = 0;
   const outside = (value: number, range: AxisDisplayRange | null): boolean =>
     !!range && (value < Math.min(range.min, range.max) || value > Math.max(range.min, range.max));
@@ -851,13 +887,17 @@ export function screenPlotPairs(
       nonFiniteExcluded++;
       continue;
     }
+    if ((xLog && x <= 0) || (yLog && y <= 0)) {
+      logDomainExcluded++;
+      continue;
+    }
     if (enabled && (outside(x, xValidity) || outside(y, yValidity))) {
       validityExcluded++;
       continue;
     }
     indices.push(i);
   }
-  return { indices, nonFiniteExcluded, validityExcluded, statisticsCount: indices.length };
+  return { indices, nonFiniteExcluded, logDomainExcluded, validityExcluded, statisticsCount: indices.length };
 }
 
 export function drawCrossplot(
@@ -882,7 +922,7 @@ export function drawCrossplot(
   const yValidity = opts.yValidMin !== null && opts.yValidMax !== null
     ? { min: opts.yValidMin, max: opts.yValidMax }
     : null;
-  const validity = screenPlotPairs(xs, ys, opts.validityFilter, xValidity, yValidity);
+  const validity = screenPlotPairs(xs, ys, opts.validityFilter, xValidity, yValidity, opts.xLog, opts.yLog);
   const plotXs = Float32Array.from(validity.indices.map((index) => xs[index]));
   const plotYs = Float32Array.from(validity.indices.map((index) => ys[index]));
   const plotZs = zs.length > 0 ? Float32Array.from(validity.indices.map((index) => zs[index])) : zs;
@@ -965,9 +1005,14 @@ export function drawCrossplot(
   // is viewport-independent, so the panel memoizes it and passes it in; we only compute it
   // here when a caller (or a test) doesn't supply one.
   const hasZ = zName !== "" && plotZs.length > 0;
-  const { colors, categorical, zLo, zHi } =
-    (!opts.validityFilter ? precolors : null)
+  const indicesAreIdentity = validity.indices.length === xs.length
+    && validity.indices.every((sourceIndex, displayIndex) => sourceIndex === displayIndex);
+  const { colors, categorical, zLo, zHi, edgeMarks, zClamped, zExcluded, zIncluded } =
+    (!opts.validityFilter && indicesAreIdentity ? precolors : null)
       ?? computeCrossplotColors(zName, plotZs, plotXs.length, opts.colormap, opts.zLog, opts.color);
+  const displayColors = hasZ && !colors
+    ? Array.from(zIncluded, (included) => included ? pointColor : "rgba(0,0,0,0)")
+    : colors;
 
   // Context wells first, faded, so the active well's cloud always reads on top of them.
   if (hasCtx) {
@@ -979,7 +1024,23 @@ export function drawCrossplot(
     }
     ctx.restore();
   }
-  plot.drawScatter(plotXs, plotYs, colors, Math.max(0.5, opts.pointSize));
+  plot.drawScatter(plotXs, plotYs, displayColors, Math.max(0.5, opts.pointSize));
+  if (hasZ && zClamped > 0) {
+    const edgePoints = (edge: PlotRangeEdge): [Float32Array, Float32Array] => {
+      const edgeXs: number[] = [];
+      const edgeYs: number[] = [];
+      for (let index = 0; index < edgeMarks.length; index++) {
+        if (edgeMarks[index] !== edge) continue;
+        edgeXs.push(plotXs[index]);
+        edgeYs.push(plotYs[index]);
+      }
+      return [Float32Array.from(edgeXs), Float32Array.from(edgeYs)];
+    };
+    const [lowXs, lowYs] = edgePoints("low");
+    const [highXs, highYs] = edgePoints("high");
+    plot.drawDiamonds(lowXs, lowYs, plot.theme.accent2, Math.max(2.5, opts.pointSize + 1));
+    plot.drawDiamonds(highXs, highYs, plot.theme.warn, Math.max(2.5, opts.pointSize + 1));
+  }
 
   if (opts.marginals) drawMarginals(plot, plotXs, plotYs, opts.bins, pointColor);
 
@@ -995,7 +1056,7 @@ export function drawCrossplot(
   plot.ctx.fillStyle = plot.theme.axis;
   plot.ctx.textAlign = "right";
   plot.ctx.fillText(
-    `n=${validity.statisticsCount} · display hidden=${displayHidden} · validity excluded=${validity.validityExcluded}`,
+    `n=${validity.statisticsCount} · non-finite excluded=${validity.nonFiniteExcluded} · log-domain excluded=${validity.logDomainExcluded} · display hidden=${displayHidden} · validity excluded=${validity.validityExcluded}${zExcluded ? ` · Z excluded=${zExcluded}` : ""}${zClamped ? ` · Z clamped/edge-marked=${zClamped}` : ""}`,
     plot.plotRect.x0 + plot.plotRect.w,
     plot.plotRect.y0 + plot.plotRect.h + 31,
   );

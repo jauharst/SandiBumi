@@ -732,7 +732,7 @@ export function colorRamp(values: ArrayLike<number>, min: number, max: number): 
   const nan = dimRgba(0.35);
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
-    if (Number.isNaN(v)) {
+    if (!Number.isFinite(v)) {
       out[i] = nan;
       continue;
     }
@@ -782,7 +782,7 @@ export function colorRampEx(
   const nan = dimRgba(0.35);
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
-    if (Number.isNaN(v) || (log && v <= 0)) {
+    if (!Number.isFinite(v) || (log && v <= 0)) {
       out[i] = nan;
       continue;
     }
