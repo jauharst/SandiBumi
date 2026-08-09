@@ -3331,6 +3331,18 @@ pub fn run() {
         .manage(chain::new_registry())
         .manage(jobs::new_registry())
         .setup(move |app| {
+            use tauri::{path::BaseDirectory, Manager as _};
+
+            let installed_template = app
+                .path()
+                .resolve(
+                    "resources/install/settings-template.json",
+                    BaseDirectory::Resource,
+                )?;
+            let user_settings = app.path().app_config_dir()?.join("settings.json");
+            installation::materialize_user_settings(&installed_template, &user_settings)
+                .map_err(std::io::Error::other)?;
+
             let handle = app.handle().clone();
             std::thread::spawn(move || open_startup_project(handle, startup));
             Ok(())

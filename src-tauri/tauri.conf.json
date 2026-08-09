@@ -32,7 +32,8 @@
       "msi"
     ],
     "resources": [
-      "resources/install/capability-prerequisites.txt"
+      "resources/install/capability-prerequisites.txt",
+      "resources/install/settings-template.json"
     ],
     "windows": {
       "digestAlgorithm": "sha256",
