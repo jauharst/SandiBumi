@@ -178,6 +178,124 @@ export function decimateSharedChannels(
   };
 }
 
+export interface DepthChannelInput {
+  depth: Float32Array;
+  values: Float32Array;
+}
+
+export interface DepthGridReconciliation {
+  depth: Float32Array;
+  channels: Float32Array[];
+  coarsestStep: number;
+  decimationFactors: number[];
+  mode: "unchanged" | "decimated_to_coarsest";
+  intervalClosure: "[lo,hi)";
+}
+
+export type DepthStepManifest = Omit<DepthGridReconciliation, "depth" | "channels">;
+
+function exactDepthStep(depth: Float32Array): number {
+  if (depth.length < 2) throw new RangeError("at least two depth samples are required to identify a step");
+  const step = depth[1] - depth[0];
+  if (!Number.isFinite(step) || step <= 0) throw new RangeError("depth step must be finite and positive");
+  for (let index = 2; index < depth.length; index++) {
+    if (depth[index] - depth[index - 1] !== step) {
+      throw new RangeError("depth grid is not exact and regular; route this plot to the DIO resampling workflow");
+    }
+  }
+  return step;
+}
+
+export function reconcileDepthSteps(steps: number[]): { coarsestStep: number; decimationFactors: number[] } {
+  if (steps.length === 0 || steps.some((step) => !Number.isFinite(step) || step <= 0)) {
+    throw new RangeError("depth steps must be finite and positive");
+  }
+  const coarsestStep = Math.max(...steps);
+  const decimationFactors = steps.map((step) => {
+    const ratio = coarsestStep / step;
+    if (!Number.isInteger(ratio) || ratio < 1) {
+      throw new RangeError(
+        `depth steps are not exact integer multiples; route this plot to the DIO resampling workflow (${step} versus ${coarsestStep})`,
+      );
+    }
+    return ratio;
+  });
+  return { coarsestStep, decimationFactors };
+}
+
+/** Align already-loaded channels by exact depth identity. This never interpolates:
+ * exact multiples use the coarsest input grid; every non-integer relationship refuses. */
+export function reconcileDepthChannels(inputs: DepthChannelInput[]): DepthGridReconciliation {
+  if (inputs.length === 0) throw new RangeError("at least one depth channel is required");
+  for (const input of inputs) {
+    if (input.depth.length !== input.values.length) {
+      throw new RangeError("depth and value arrays must have identical lengths");
+    }
+  }
+  const referenceDepth = inputs[0].depth;
+  const identicalGrids = inputs.every((input) =>
+    input.depth.length === referenceDepth.length
+    && input.depth.every((depth, index) => depth === referenceDepth[index]));
+  if (identicalGrids) {
+    if (referenceDepth.length < 2) throw new RangeError("at least two depth samples are required to identify a step");
+    const coarsestStep = referenceDepth[1] - referenceDepth[0];
+    if (!Number.isFinite(coarsestStep) || coarsestStep <= 0) {
+      throw new RangeError("depth step must be finite and positive");
+    }
+    return {
+      depth: referenceDepth.slice(),
+      channels: inputs.map((input) => input.values.slice()),
+      coarsestStep,
+      decimationFactors: inputs.map(() => 1),
+      mode: "unchanged",
+      intervalClosure: "[lo,hi)",
+    };
+  }
+  const steps = inputs.map((input) => exactDepthStep(input.depth));
+  const { coarsestStep, decimationFactors } = reconcileDepthSteps(steps);
+  const targetIndex = steps.findIndex((step) => step === coarsestStep);
+  const targetDepth = inputs[targetIndex].depth;
+  const sourceMaps = inputs.map((input) => {
+    const map = new Map<number, number>();
+    for (let index = 0; index < input.depth.length; index++) map.set(input.depth[index], index);
+    return map;
+  });
+  const alignedDepth: number[] = [];
+  const alignedValues = inputs.map(() => [] as number[]);
+  for (const depth of targetDepth) {
+    const indices = sourceMaps.map((map) => map.get(depth));
+    if (indices.some((index) => index === undefined)) continue;
+    alignedDepth.push(depth);
+    for (let channel = 0; channel < inputs.length; channel++) {
+      alignedValues[channel].push(inputs[channel].values[indices[channel]!]);
+    }
+  }
+  return {
+    depth: Float32Array.from(alignedDepth),
+    channels: alignedValues.map((values) => Float32Array.from(values)),
+    coarsestStep,
+    decimationFactors,
+    mode: decimationFactors.every((factor) => factor === 1) ? "unchanged" : "decimated_to_coarsest",
+    intervalClosure: "[lo,hi)",
+  };
+}
+
+export function halfOpenDepthIndices(
+  depth: Float32Array,
+  low: number | null,
+  high: number | null,
+): number[] {
+  const indices: number[] = [];
+  for (let index = 0; index < depth.length; index++) {
+    const value = depth[index];
+    if (!Number.isFinite(value)) continue;
+    if (low !== null && value < low) continue;
+    if (high !== null && value >= high) continue;
+    indices.push(index);
+  }
+  return indices;
+}
+
 /** Screen finite aligned rows before assigning budget. Zero-pair wells receive no
  * quota and a durable reason; represented wells receive both endpoints before any
  * remaining capacity is shared in stable request order. */

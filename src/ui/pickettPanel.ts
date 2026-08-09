@@ -36,6 +36,7 @@ import { buildImageExportButtons } from "./plotExport";
 import { buildWellScope } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
+import { reconcileDepthChannels } from "./plotTypes";
 
 /** Persisted Pickett v2 display settings (plotprops doc "pickett"). Axis ranges replace the
  *  old hard-coded 0.1–1000 / 0.01–1 defaults; Z-color paints each sample by a chosen log. */
@@ -511,10 +512,19 @@ export async function buildPickettContent(
       const series = await getCurveData(well.well_id, names, zone.depthMin, zone.depthMax);
       if (gen !== reloadGen) return; // a newer reload started while we awaited
       const byName = new Map(series.map((s) => [s.curve_name, s]));
-      rt = byName.get(rtSel.value.toUpperCase())?.value ?? new Float32Array(0);
-      phi = byName.get(phiSel.value.toUpperCase())?.value ?? new Float32Array(0);
-      depths = byName.get(rtSel.value.toUpperCase())?.depth ?? new Float32Array(0);
-      colors = props.zCurve ? computeColors(byName.get(props.zCurve.toUpperCase())?.value) : undefined;
+      const required = names.map((name) => byName.get(name.toUpperCase()));
+      if (required.some((item) => !item)) throw new Error("one or more required plot curves are absent");
+      const reconciled = reconcileDepthChannels(required.map((item) => ({
+        depth: item!.depth,
+        values: item!.value,
+      })));
+      rt = reconciled.channels[0];
+      phi = reconciled.channels[1];
+      depths = reconciled.depth;
+      colors = props.zCurve ? computeColors(reconciled.channels[2]) : undefined;
+      if (reconciled.mode === "decimated_to_coarsest") {
+        setStatus(`Pickett depth inputs decimated to the coarsest exact step; factors ${reconciled.decimationFactors.join("/")} · interval ${reconciled.intervalClosure}`);
+      }
     } catch (err) {
       if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
       setStatus(`Pickett data load failed: ${err}`);
