@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-010: regression coverage is honestly classified
+
+- [ ] Fit the arithmetic line `y=2+3x` for `x=1…5`. Does the panel still return intercept 2,
+      slope 3, R² 1 and five valid pairs? Confirm this four-value result is not presented as the
+      still-absent versioned record of model, method, transformed space, exclusions, interval,
+      wells and source revisions.
+
 ## 2026-08-09 — SB-PLT-009: statistics coverage is honestly classified
 
 - [ ] Inspect a statistics result for `[1,2,3,NaN,+∞]`. Does it still report count 3,

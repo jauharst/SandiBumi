@@ -36,3 +36,18 @@ test("characterizes_finite_statistics_without_population_or_exclusion_metadata",
     "today's summary has no population, interval, selection, exclusion, percentile-method, or std-estimator metadata",
   );
 });
+
+test("characterizes_regression_as_coefficients_without_a_versioned_scientific_record", async () => {
+  // CHARACTERIZATION — SB-PLT-010 / SB-PLT-T14 cites the arithmetic fixture
+  // y=2+3x for x=1..5. The four-key result is the current PARTIAL payload, not proof
+  // of the required model/version/space/exclusion/interval/well/revision record.
+  const { fitRegression } = await load("/src/ui/crossplotPanel.ts");
+  const fit = fitRegression([1, 2, 3, 4, 5], [5, 8, 11, 14, 17], "linear", "yx");
+
+  assert.ok(fit);
+  assert.equal(fit.a, 2);
+  assert.equal(fit.b, 3);
+  assert.equal(fit.r2, 1);
+  assert.equal(fit.n, 5);
+  assert.deepEqual(Object.keys(fit).sort(), ["a", "b", "n", "r2"]);
+});
