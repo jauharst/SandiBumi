@@ -55,6 +55,12 @@ if (-not $SkipFrontend) {
     Write-Host "[2/3] frontend gate: npm run build (tsc + vite)..." -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Push-Location $repo
+    & npm run test:frontend
+    $code = $LASTEXITCODE
+    if ($code -ne 0) {
+        Pop-Location
+        Fail "frontend acceptance tests" $code
+    }
     & npm run build
     $code = $LASTEXITCODE
     Pop-Location
