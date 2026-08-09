@@ -7,6 +7,14 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-CORE-040: verification is indexed by capability
+
+- [ ] Open `docs/VERIFICATION_MATRIX.md` and look up LAS import, Monte Carlo and machine
+      learning. Does each row state whether real-well exercise is absent, partial or complete,
+      show checked versus listed scenarios and give only the dated `REVIEW.md` ledger date?
+      Temporarily change one mapped checklist mark in a copy of `REVIEW.md`: does `--check`
+      reject the stale matrix until the committed generator is run again?
+
 ## 2026-08-09 — SB-PLT-031: every plot reduction is disclosed and exportable
 
 - [ ] Exceed the context-point budget and the context/well-preview/fit-scatter legend limits.

@@ -1,0 +1,276 @@
+{
+  "schema_version": 1,
+  "source": "docs/PRD_v2/01_PRODUCT.md §4.1-4.7 and docs/PRD_v2/04_CORE_REQUIREMENTS.md SB-CORE-040",
+  "capabilities": [
+    {
+      "id": "las-import",
+      "title": "LAS import",
+      "review_section_patterns": ["LAS", "Example import datasets", "text encoding"]
+    },
+    {
+      "id": "dlis-import",
+      "title": "DLIS import",
+      "review_section_patterns": ["DLIS"]
+    },
+    {
+      "id": "delimited-intake",
+      "title": "Delimited-text Intake",
+      "review_section_patterns": ["Intake", "Import Aux"]
+    },
+    {
+      "id": "core-point-import",
+      "title": "Core and point-data import",
+      "review_section_patterns": ["Core & aux import", "Core import", "point.data", "SCAL deliveries", "Tops.style imports", "well surface coordinates", "Import plates"]
+    },
+    {
+      "id": "delivery-sets",
+      "title": "Delivery and log sets",
+      "review_section_patterns": ["Import sets", "Core sets", "SCAL deliveries", "log set", "Data Sets"]
+    },
+    {
+      "id": "generic-curve-store",
+      "title": "Generic curve store and family resolution",
+      "review_section_patterns": ["Import sets", "log sets", "mnemonic.shadow resolution", "Curve Catalog"]
+    },
+    {
+      "id": "data-conventions",
+      "title": "Depth, unit, null and encoding conventions",
+      "review_section_patterns": ["Depth unit", "unit", "NULL", "null", "encoding", "depth grid", "depth.step"]
+    },
+    {
+      "id": "reframe",
+      "title": "Reframe and sampling alignment",
+      "review_section_patterns": ["Reframe", "regularize", "Frame"]
+    },
+    {
+      "id": "conditioning",
+      "title": "Log conditioning and masking",
+      "review_section_patterns": ["Condition", "GR Normalize", "environmental", "BADHOLE", "MASK"]
+    },
+    {
+      "id": "formation-temperature",
+      "title": "Formation-temperature curves",
+      "review_section_patterns": ["formation temperature"]
+    },
+    {
+      "id": "curve-editing",
+      "title": "Depth shift, splice and curve editing",
+      "review_section_patterns": ["Log.view layout interaction"]
+    },
+    {
+      "id": "array-logs",
+      "title": "Array-log storage and displays",
+      "review_section_patterns": ["Array logs", "array layout", "array write"]
+    },
+    {
+      "id": "image-data",
+      "title": "Depth-registered image data",
+      "review_section_patterns": ["Pictures in their own track", "image track", "Import plates", "core plate"]
+    },
+    {
+      "id": "core-depth-registration",
+      "title": "Core-depth registration",
+      "review_section_patterns": ["Register core depth", "shift per barrel", "shifted core", "re.registration", "core carries its own depth", "follow the core"]
+    },
+    {
+      "id": "core-imaging",
+      "title": "Core-photo conditioning and traces",
+      "review_section_patterns": ["core photograph", "Photo Log", "UV frame", "white.light trace", "unfold", "Core slab"]
+    },
+    {
+      "id": "petrography",
+      "title": "Petrography measurement and QC",
+      "review_section_patterns": ["plate", "Pore area", "Pore geometry", "Plug QC", "Grain size", "Stained carbonate", "Mineral classifier", "point count"]
+    },
+    {
+      "id": "shale-volume",
+      "title": "Shale-volume interpretation",
+      "review_section_patterns": ["VSH", "Larionov", "shale"]
+    },
+    {
+      "id": "porosity",
+      "title": "Porosity interpretation",
+      "review_section_patterns": ["porosity", "NPHI", "PHIE", "density"]
+    },
+    {
+      "id": "saturation",
+      "title": "Water-saturation interpretation",
+      "review_section_patterns": ["saturation", "Sw", "IMTS", "RtC", "Waxman", "Juhász", "Simandoux", "Archie", "dual.water", "Indonesia"]
+    },
+    {
+      "id": "permeability",
+      "title": "Permeability interpretation",
+      "review_section_patterns": ["permeability", "PERM"]
+    },
+    {
+      "id": "thin-beds",
+      "title": "Thin-bed and sand-silt-clay interpretation",
+      "review_section_patterns": ["Thin Beds", "SSC", "SSPW", "sand.silt.clay"]
+    },
+    {
+      "id": "rock-typing",
+      "title": "Rock typing and flow units",
+      "review_section_patterns": ["rock.typ", "Lucia", "Pittman", "HFU", "Modified Lorenz"]
+    },
+    {
+      "id": "saturation-height",
+      "title": "Saturation-height interpretation",
+      "review_section_patterns": ["saturation.height", "Thomeer", "Leverett"]
+    },
+    {
+      "id": "unconventional",
+      "title": "Unconventional interpretation",
+      "review_section_patterns": ["Unconventional", "TOC", "kerogen", "gas.in.place", "brittleness"]
+    },
+    {
+      "id": "sandimin",
+      "title": "SandiMin mineral solver",
+      "review_section_patterns": ["SandiMin", "Multimin", "mineral solver"]
+    },
+    {
+      "id": "electrofacies",
+      "title": "Electrofacies and clustering",
+      "review_section_patterns": ["Electrofacies", "FACIES", "clustering method", "cluster table"]
+    },
+    {
+      "id": "machine-learning",
+      "title": "Machine-learning models",
+      "review_section_patterns": ["ML", "model", "synthetic log", "Predicting a missing log", "curve worth", "leaderboard", "blind draw", "Ward"]
+    },
+    {
+      "id": "equation-engine",
+      "title": "Rhai and Python equation engines",
+      "review_section_patterns": ["Equation", "scipy"]
+    },
+    {
+      "id": "workflow",
+      "title": "Multi-well workflow chains",
+      "review_section_patterns": ["Workflow"]
+    },
+    {
+      "id": "monte-carlo",
+      "title": "Monte Carlo uncertainty",
+      "review_section_patterns": ["Monte Carlo"]
+    },
+    {
+      "id": "field-dashboard",
+      "title": "Field Dashboard",
+      "review_section_patterns": ["Field Dashboard"]
+    },
+    {
+      "id": "cutoffs-pay",
+      "title": "Cutoffs, net flags and pay summaries",
+      "review_section_patterns": ["Cutoff", "pay summary", "net.flag", "net pay"]
+    },
+    {
+      "id": "well-scope",
+      "title": "Well scope, groups and multi-selection",
+      "review_section_patterns": ["well scope", "multi.select", "well pin", "well picker", "well group"]
+    },
+    {
+      "id": "log-view",
+      "title": "Interactive log views and tracks",
+      "review_section_patterns": ["log view", "log.view", "track", "crossover shading", "block track"]
+    },
+    {
+      "id": "histogram",
+      "title": "Histogram",
+      "review_section_patterns": ["Histogram"]
+    },
+    {
+      "id": "crossplot",
+      "title": "Crossplot",
+      "review_section_patterns": ["Crossplot", "crossplot"]
+    },
+    {
+      "id": "pickett",
+      "title": "Pickett plot",
+      "review_section_patterns": ["Pickett"]
+    },
+    {
+      "id": "correlation-tops",
+      "title": "Correlation, tops and propagation",
+      "review_section_patterns": ["Correlation", "Autocorrelate", "Tops editor", "contact"]
+    },
+    {
+      "id": "chart-overlays",
+      "title": "Chart overlays and MID",
+      "review_section_patterns": ["chart", "overlay", "MID plot"]
+    },
+    {
+      "id": "vega",
+      "title": "Vega-Lite interactive charts",
+      "review_section_patterns": ["Vega"]
+    },
+    {
+      "id": "results-qc",
+      "title": "Results QC",
+      "review_section_patterns": ["Results.QC", "Sw.envelope", "Buckles"]
+    },
+    {
+      "id": "thomas-stieber",
+      "title": "Interactive Thomas-Stieber interpretation",
+      "not_listed": true
+    },
+    {
+      "id": "composite",
+      "title": "Composite log plots",
+      "review_section_patterns": ["true.vector PDF export", "true.vector SVG export", "report PDF"]
+    },
+    {
+      "id": "report",
+      "title": "Report deliverables",
+      "review_section_patterns": ["report"]
+    },
+    {
+      "id": "office-deliverables",
+      "title": "Workbook, document and deck deliverables",
+      "review_section_patterns": ["Excel", "workbook", "Word document", "deck", "PowerPoint"]
+    },
+    {
+      "id": "las-export",
+      "title": "LAS export",
+      "review_section_patterns": ["LAS export"]
+    },
+    {
+      "id": "workspace-shell",
+      "title": "Docking workspace, panes and ribbon",
+      "review_section_patterns": ["pane", "ribbon", "dock", "workspace", "start surface", "launch screen"]
+    },
+    {
+      "id": "project-lifecycle",
+      "title": "Project lifecycle and sessions",
+      "review_section_patterns": ["project open", "project file", "Save As", "autosave", "crash", "session"]
+    },
+    {
+      "id": "database-tools",
+      "title": "Database inspector and SQL tools",
+      "review_section_patterns": ["DB Inspector", "SQL console", "database"]
+    },
+    {
+      "id": "processing-history",
+      "title": "Processing history",
+      "review_section_patterns": ["bulk Processing report"]
+    },
+    {
+      "id": "themes-language-accessibility",
+      "title": "Themes, language and accessibility",
+      "review_section_patterns": ["theme", "language", "typography", "accessibility", "brand", "Organic"]
+    },
+    {
+      "id": "portfolio-performance",
+      "title": "Portfolio-scale performance and responsiveness",
+      "review_section_patterns": ["perf", "Performance", "scale", "freeze", "responsive", "open hardening", "window now opens"]
+    },
+    {
+      "id": "security-integrity",
+      "title": "Security and data-integrity guards",
+      "review_section_patterns": ["CSP", "XSS", "hostile", "write", "migration", "undo", "panic", "failure", "refus", "silent", "honest", "corrupt", "WAL"]
+    },
+    {
+      "id": "verification-stewardship",
+      "title": "Verification, provenance and stewardship",
+      "review_section_patterns": ["verification", "green gate", "fresh clone", "provenance", "source", "rules", "contract"]
+    }
+  ]
+}

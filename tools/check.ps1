@@ -4,9 +4,10 @@
 #   powershell -ExecutionPolicy Bypass -File tools\check.ps1
 #
 # Runs, in order, exiting non-zero at the FIRST failure:
-#   1. frontend gate — `npm run build` (= tsc && vite build; tsc runs inside it,
+#   1. verification matrix — generated output agrees with REVIEW.md + capability map
+#   2. frontend gate — `npm run build` (= tsc && vite build; tsc runs inside it,
 #      so a separate `tsc --noEmit` pass would only duplicate work)
-#   2. backend gate  — `cargo test` in src-tauri, through vcvars pinned to 14.29
+#   3. backend gate  — `cargo test` in src-tauri, through vcvars pinned to 14.29
 #      when that toolset exists (the reference machine's 14.50 is broken — missing
 #      clui.dll, see CLAUDE.md); plain `cargo test` on a healthy machine.
 #
@@ -39,23 +40,33 @@ function Fail([string]$stage, [int]$code) {
 
 $total = [System.Diagnostics.Stopwatch]::StartNew()
 
-# --- Stage 1: frontend (tsc + vite build) -----------------------------------
+# --- Stage 1: capability verification matrix --------------------------------
+Write-Host "[1/3] verification matrix: generated file is current..." -ForegroundColor Cyan
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+Push-Location $repo
+& node "tools/generate-verification-matrix.mjs" --check
+$code = $LASTEXITCODE
+Pop-Location
+if ($code -ne 0) { Fail "verification matrix" $code }
+Write-Host ("[1/3] verification matrix green in {0:n0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
+
+# --- Stage 2: frontend (tsc + vite build) -----------------------------------
 if (-not $SkipFrontend) {
-    Write-Host "[1/2] frontend gate: npm run build (tsc + vite)..." -ForegroundColor Cyan
+    Write-Host "[2/3] frontend gate: npm run build (tsc + vite)..." -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Push-Location $repo
     & npm run build
     $code = $LASTEXITCODE
     Pop-Location
     if ($code -ne 0) { Fail "frontend (tsc + vite build)" $code }
-    Write-Host ("[1/2] frontend green in {0:n0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
+    Write-Host ("[2/3] frontend green in {0:n0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
 } else {
-    Write-Host "[1/2] frontend gate SKIPPED (-SkipFrontend)" -ForegroundColor Yellow
+    Write-Host "[2/3] frontend gate SKIPPED (-SkipFrontend)" -ForegroundColor Yellow
 }
 
-# --- Stage 2: backend (cargo test, pinned toolchain when present) -----------
+# --- Stage 3: backend (cargo test, pinned toolchain when present) -----------
 if (-not $SkipRust) {
-    Write-Host "[2/2] backend gate: cargo test..." -ForegroundColor Cyan
+    Write-Host "[3/3] backend gate: cargo test..." -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $vcvars = "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
     if (Test-Path $vcvars) {
@@ -69,9 +80,9 @@ if (-not $SkipRust) {
         Pop-Location
     }
     if ($code -ne 0) { Fail "backend (cargo test)" $code }
-    Write-Host ("[2/2] backend green in {0:n0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
+    Write-Host ("[3/3] backend green in {0:n0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green
 } else {
-    Write-Host "[2/2] backend gate SKIPPED (-SkipRust)" -ForegroundColor Yellow
+    Write-Host "[3/3] backend gate SKIPPED (-SkipRust)" -ForegroundColor Yellow
 }
 
 Write-Host ""
