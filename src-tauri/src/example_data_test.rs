@@ -77,8 +77,8 @@ fn las_examples_import_end_to_end() {
 }
 
 /// The malformed exemplars behave exactly as the manual test plan documents
-/// (T-IMP-03 / T-IMP-04): duplicated depths import WITH a dropped-rows warning;
-/// an all-NULL depth column errors cleanly and commits no orphan well.
+/// (T-IMP-03 / T-IMP-04): duplicated depths require an explicit policy before commit;
+/// an all-NULL depth column still errors cleanly and commits no orphan well.
 #[test]
 fn malformed_las_exemplars_fail_the_documented_way() {
     let db_path = std::env::temp_dir().join("sandibumi_example_badlas_test.duckdb");
@@ -87,13 +87,16 @@ fn malformed_las_exemplars_fail_the_documented_way() {
     let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db");
 
     let dup = &crate::ingest::import_las_files(&conn, &[example("bad_dup_depth.las")], None)[0];
-    assert!(dup.error.is_none(), "dup-depth file must still import: {:?}", dup.error);
-    assert_eq!(dup.rows, 35, "40 rows minus the 5 duplicated depths");
     assert!(
-        dup.warning.as_deref().unwrap_or("").contains("duplicate depth"),
-        "must warn about dropped duplicates, got: {:?}",
-        dup.warning
+        dup.error.as_deref().is_some_and(|error| {
+            error.contains("5 repeated depth row(s)")
+                && error.contains("declared duplicate policy")
+        }),
+        "all five duplicates and the missing policy must be named: {:?}",
+        dup.error
     );
+    assert_eq!(dup.rows, 0, "an undecided duplicate policy cannot commit rows");
+    assert!(dup.well_id.is_none(), "an undecided duplicate policy cannot create a well");
 
     let null = &crate::ingest::import_las_files(&conn, &[example("bad_null_depth.las")], None)[0];
     assert!(null.error.is_some(), "all-null depth column must be a clean error");
@@ -320,12 +323,18 @@ const REGISTERED_FILE_READERS: &[&str] = &[
     "intake::read_wide",
     "parsers::extract_well_name",
     "parsers::parse_core_csv",
+    "parsers::parse_core_csv_with_depth_column",
     "parsers::parse_core_table_mapped",
     "parsers::parse_csv_export",
     "parsers::parse_deviation_csv",
     "parsers::parse_interval_file",
     "parsers::parse_las_2",
     "parsers::parse_las_2_all",
+    "parsers::parse_las_2_all_with_channel_nulls",
+    "parsers::parse_las_2_all_with_null_rules",
+    "parsers::parse_las_2_with_channel_nulls",
+    "parsers::parse_las_2_with_null_rules",
+    "parsers::parse_las_2_with_unit_designation",
     "parsers::parse_las_directory",
     "parsers::parse_locations_file",
     "parsers::parse_scal_centrifuge_csv",
@@ -334,6 +343,7 @@ const REGISTERED_FILE_READERS: &[&str] = &[
     "parsers::parse_tops_file",
     "parsers::probe_core_table",
     "parsers::read_text_file",
+    "parsers::read_text_file_with_encoding",
     "parsers::sniff_scal_format",
 ];
 
@@ -352,11 +362,60 @@ fn exercise_registered_reader(reader: &str, path: &std::path::Path) -> Result<()
     let roles: Vec<String> = Vec::new();
     match reader {
         "parsers::read_text_file" => parsers::read_text_file(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::read_text_file_with_encoding" => {
+            parsers::read_text_file_with_encoding(path).map(|_| ()).map_err(|e| e.to_string())
+        }
         "parsers::parse_csv_export" => parsers::parse_csv_export(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_las_2" => parsers::parse_las_2(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_las_2_all" => parsers::parse_las_2_all(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_las_2_with_channel_nulls" => {
+            parsers::parse_las_2_with_channel_nulls(path, &parsers::ChannelNullValues::new())
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        "parsers::parse_las_2_with_null_rules" => {
+            parsers::parse_las_2_with_null_rules(
+                path,
+                &parsers::ChannelNullValues::new(),
+                &[],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
+        "parsers::parse_las_2_with_unit_designation" => {
+            parsers::parse_las_2_with_unit_designation(
+                path,
+                &parsers::ChannelNullValues::new(),
+                &[],
+                None,
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
+        "parsers::parse_las_2_all_with_channel_nulls" => {
+            parsers::parse_las_2_all_with_channel_nulls(
+                path,
+                &parsers::ChannelNullValues::new(),
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
+        "parsers::parse_las_2_all_with_null_rules" => {
+            parsers::parse_las_2_all_with_null_rules(
+                path,
+                &parsers::ChannelNullValues::new(),
+                &[],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+        }
         "parsers::extract_well_name" => parsers::extract_well_name(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_core_csv" => parsers::parse_core_csv(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::parse_core_csv_with_depth_column" => {
+            parsers::parse_core_csv_with_depth_column(path, None)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
         "parsers::parse_scal_csv" => parsers::parse_scal_csv(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_scal_wide_csv" => parsers::parse_scal_wide_csv(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_scal_centrifuge_csv" => {

@@ -57,6 +57,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 const MISSING: f32 = f32::NAN;
+const CURVE_SELECTION_DOC_TYPE: &str = "curve_selection";
 
 /// How one curve's samples are carried onto the new frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,9 +146,14 @@ pub struct TargetSpec {
 pub struct ReframeRequest {
     pub well_ids: Vec<String>,
     pub source: SourceSpec,
-    /// Curves to carry. Empty means every curve the source holds.
+    /// The named, saved, inspectable selection whose members are carried. There is deliberately no
+    /// empty/all fallback: that would make the chosen curves a hidden default again.
+    pub selection_name: String,
+    /// An unavailable requested mnemonic may be replaced only by a named source curve the user
+    /// explicitly accepted. The substitute keeps its OWN mnemonic in the output; recording the
+    /// mapping as run provenance must never turn into supplying its data under `requested`.
     #[serde(default)]
-    pub curves: Vec<String>,
+    pub substitutions: Vec<CurveSubstitution>,
     pub target: TargetSpec,
     /// Per-curve method overrides, keyed by upper-case mnemonic.
     #[serde(default)]
@@ -161,6 +167,99 @@ pub struct ReframeRequest {
     /// Probe only: compute and report, write nothing.
     #[serde(default)]
     pub preview: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurveSubstitution {
+    pub requested: String,
+    pub substitute: String,
+    /// No serde default is needed for safety: a missing field fails deserialization instead of
+    /// turning an absent decision into consent.
+    pub accepted: bool,
+}
+
+/// The only selection mode currently supported. It is stored anyway: a member list without a mode
+/// is ambiguous about whether listed curves are included or excluded, which is D-19's failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CurveSelectionMode {
+    Selected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurveSelection {
+    pub name: String,
+    pub mode: CurveSelectionMode,
+    /// Ordered exact mnemonics. Order survives save/reload because ordinal addressing is part of
+    /// the selection's inspectable identity, not an implementation detail to sort away.
+    pub members: Vec<String>,
+}
+
+fn normalized_selection(selection: &CurveSelection) -> Result<CurveSelection, String> {
+    let name = selection.name.trim();
+    if name.is_empty() {
+        return Err("name the curve selection".into());
+    }
+    let mut members = Vec::new();
+    for raw in &selection.members {
+        let member = raw.trim().to_uppercase();
+        if member.is_empty() {
+            return Err(format!("curve selection '{name}' contains an empty member"));
+        }
+        if !members.contains(&member) {
+            members.push(member);
+        }
+    }
+    if members.is_empty() {
+        return Err(format!(
+            "curve selection '{name}' lists no members; there is no hidden all-curves fallback"
+        ));
+    }
+    Ok(CurveSelection { name: name.to_string(), mode: selection.mode, members })
+}
+
+pub fn save_curve_selection(conn: &Connection, selection: &CurveSelection) -> Result<CurveSelection, String> {
+    let selection = normalized_selection(selection)?;
+    let json = serde_json::to_string(&selection).map_err(|e| e.to_string())?;
+    crate::db::save_document(conn, CURVE_SELECTION_DOC_TYPE, &selection.name, &json).map_err(|e| e.to_string())?;
+    Ok(selection)
+}
+
+pub fn list_curve_selections(conn: &Connection) -> Result<Vec<CurveSelection>, String> {
+    let docs = crate::db::list_documents(conn, CURVE_SELECTION_DOC_TYPE).map_err(|e| e.to_string())?;
+    let mut selections = Vec::with_capacity(docs.len());
+    for doc in docs {
+        let selection: CurveSelection = serde_json::from_str(&doc.json)
+            .map_err(|e| format!("saved curve selection '{}' is unreadable: {e}", doc.name))?;
+        let selection = normalized_selection(&selection)?;
+        if selection.name != doc.name {
+            return Err(format!(
+                "saved curve selection key '{}' disagrees with its inspectable name '{}'",
+                doc.name, selection.name
+            ));
+        }
+        selections.push(selection);
+    }
+    Ok(selections)
+}
+
+pub fn delete_curve_selection(conn: &Connection, name: &str) -> Result<(), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("name the curve selection to delete".into());
+    }
+    crate::db::delete_document(conn, CURVE_SELECTION_DOC_TYPE, name).map_err(|e| e.to_string())
+}
+
+fn load_curve_selection(conn: &Connection, name: &str) -> Result<CurveSelection, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("pick a saved curve selection; no hidden all-curves selection is applied".into());
+    }
+    list_curve_selections(conn)?
+        .into_iter()
+        .find(|selection| selection.name == name)
+        .ok_or_else(|| format!("saved curve selection '{name}' does not exist"))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -731,6 +830,139 @@ fn read_source(
     Ok((depths, cols))
 }
 
+/// Names the source can actually supply, without using a family/type classification. This is the
+/// precondition for an explicit substitution: it applies only when `requested` is unavailable,
+/// and `substitute` must itself be present by exact mnemonic.
+pub fn source_curve_names(conn: &Connection, well_id: &str, source: &SourceSpec) -> Result<Vec<String>, String> {
+    match source.kind.as_str() {
+        "import" => {
+            let set = source.name.as_deref().unwrap_or("RAW");
+            let mut stmt = conn
+                .prepare(
+                    "SELECT DISTINCT upper(mnemonic) FROM curve_meta
+                     WHERE well_id = ?1 AND upper(set_name) = upper(?2)
+                     ORDER BY upper(mnemonic)",
+                )
+                .map_err(|e| e.to_string())?;
+            stmt.query_map(params![well_id, set], |r| r.get::<_, String>(0))
+                .map_err(|e| e.to_string())?
+                .collect::<duckdb::Result<_>>()
+                .map_err(|e| e.to_string())
+        }
+        "logset" => {
+            let set = source.name.as_deref().ok_or("pick the log set to re-frame")?;
+            let set_id: String = conn
+                .query_row(
+                    "SELECT set_id FROM log_sets WHERE well_id = ?1 AND upper(set_name) = upper(?2)
+                     ORDER BY version DESC LIMIT 1",
+                    params![well_id, set],
+                    |r| r.get(0),
+                )
+                .map_err(|_| format!("no log set '{set}' on this well"))?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT DISTINCT upper(curve_name) FROM computed_curves_archive
+                     WHERE set_id = ?1 ORDER BY upper(curve_name)",
+                )
+                .map_err(|e| e.to_string())?;
+            stmt.query_map(params![set_id], |r| r.get::<_, String>(0))
+                .map_err(|e| e.to_string())?
+                .collect::<duckdb::Result<_>>()
+                .map_err(|e| e.to_string())
+        }
+        _ => {
+            let counts: (i64, i64, i64, i64, i64, i64) = conn
+                .query_row(
+                    "SELECT
+                         COUNT(*) FILTER (WHERE NOT isnan(gr)),
+                         COUNT(*) FILTER (WHERE NOT isnan(res_deep)),
+                         COUNT(*) FILTER (WHERE NOT isnan(nphi)),
+                         COUNT(*) FILTER (WHERE NOT isnan(rhob)),
+                         COUNT(*) FILTER (WHERE dt IS NOT NULL AND NOT isnan(dt)),
+                         COUNT(*) FILTER (WHERE sp IS NOT NULL AND NOT isnan(sp))
+                     FROM standard_curves WHERE well_id = ?1",
+                    params![well_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+                )
+                .map_err(|e| e.to_string())?;
+            Ok(["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"]
+                .into_iter()
+                .zip([counts.0, counts.1, counts.2, counts.3, counts.4, counts.5])
+                .filter_map(|(name, count)| (count > 0).then_some(name.to_string()))
+                .collect())
+        }
+    }
+}
+
+fn resolve_substitutions(
+    conn: &Connection,
+    well_id: &str,
+    source: &SourceSpec,
+    requested: &[String],
+    substitutions: &[CurveSubstitution],
+) -> Result<(Vec<String>, Vec<CurveSubstitution>), String> {
+    if substitutions.is_empty() {
+        return Ok((requested.to_vec(), Vec::new()));
+    }
+    if requested.is_empty() {
+        return Err("a substitution must name one of the explicitly requested curves".into());
+    }
+    let available = source_curve_names(conn, well_id, source)?;
+    let contains = |name: &str| available.iter().any(|held| held.eq_ignore_ascii_case(name.trim()));
+    let mut used = Vec::new();
+    let mut effective = Vec::with_capacity(requested.len());
+
+    for decision in substitutions {
+        let matching = substitutions
+            .iter()
+            .filter(|other| other.requested.trim().eq_ignore_ascii_case(decision.requested.trim()))
+            .count();
+        if matching > 1 {
+            return Err(format!(
+                "requested curve '{}' has more than one substitution decision",
+                decision.requested.trim()
+            ));
+        }
+        if !requested.iter().any(|name| name.trim().eq_ignore_ascii_case(decision.requested.trim())) {
+            return Err(format!(
+                "substitution for '{}' is not attached to an explicitly requested curve",
+                decision.requested.trim()
+            ));
+        }
+    }
+
+    for name in requested {
+        let name = name.trim().to_uppercase();
+        let decision = substitutions.iter().find(|d| d.requested.trim().eq_ignore_ascii_case(&name));
+        let Some(decision) = decision else {
+            effective.push(name);
+            continue;
+        };
+        let substitute = decision.substitute.trim().to_uppercase();
+        if name == substitute {
+            return Err(format!("'{name}' cannot substitute for itself"));
+        }
+        if contains(&name) {
+            return Err(format!(
+                "requested curve '{name}' is available; a substitution is only valid for an unavailable curve"
+            ));
+        }
+        if !decision.accepted {
+            return Err(format!(
+                "substitution {name} -> {substitute} was not explicitly accepted; nothing was written"
+            ));
+        }
+        if !contains(&substitute) {
+            return Err(format!("named substitute '{substitute}' is not present in the selected source"));
+        }
+        effective.push(substitute.clone());
+        used.push(CurveSubstitution { requested: name, substitute, accepted: true });
+    }
+    effective.sort();
+    effective.dedup();
+    Ok((effective, used))
+}
+
 // ---------------------------------------------------------------------------
 // The run
 // ---------------------------------------------------------------------------
@@ -869,7 +1101,28 @@ fn one_well(
 ) -> ReframeResult {
     let mut res = one_well_shell(conn, well_id);
 
-    let (src_depth, cols) = match read_source(conn, well_id, &req.source, &req.curves) {
+    let selection = match load_curve_selection(conn, &req.selection_name) {
+        Ok(selection) => selection,
+        Err(e) => {
+            res.error = Some(e);
+            return res;
+        }
+    };
+
+    let (wanted, substitutions) = match resolve_substitutions(
+        conn,
+        well_id,
+        &req.source,
+        &selection.members,
+        &req.substitutions,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            res.error = Some(e);
+            return res;
+        }
+    };
+    let (src_depth, cols) = match read_source(conn, well_id, &req.source, &wanted) {
         Ok(v) => v,
         Err(e) => {
             res.error = Some(e);
@@ -892,6 +1145,13 @@ fn one_well(
     res.depth_top = out_depth.first().copied().unwrap_or(f32::NAN) as f64;
     res.depth_base = out_depth.last().copied().unwrap_or(f32::NAN) as f64;
     res.rows = out_depth.len();
+
+    for decision in &substitutions {
+        res.notes.push(format!(
+            "Accepted substitution: requested {} was unavailable; used {} under its own name and recorded this decision on the output set.",
+            decision.requested, decision.substitute
+        ));
+    }
 
     if shared.is_some() {
         // Said per well and not once for the run, because this is the number that explains a well
@@ -981,8 +1241,10 @@ fn one_well(
         params_json: serde_json::to_string(&serde_json::json!({
             "source": req.source.kind,
             "source_set": req.source.name,
+            "curve_selection": selection,
             "target_step": res.target_step,
             "source_step": res.source_step,
+            "substitutions": substitutions,
         }))
         .unwrap_or_default(),
         inputs_json: serde_json::to_string(&res.curves.iter().map(|c| &c.name).collect::<Vec<_>>())
@@ -1210,11 +1472,21 @@ mod tests {
             vec![f32::NAN; n],
         )
         .unwrap();
+        save_curve_selection(
+            &conn,
+            &CurveSelection {
+                name: "FINE_GR".into(),
+                mode: CurveSelectionMode::Selected,
+                members: vec!["GR".into()],
+            },
+        )
+        .unwrap();
 
         let req = ReframeRequest {
             well_ids: vec![wid.to_string()],
             source: SourceSpec { kind: "standard".into(), name: None },
-            curves: vec![],
+            selection_name: "FINE_GR".into(),
+            substitutions: vec![],
             target: TargetSpec {
                 kind: "step".into(),
                 step: Some(0.5),
@@ -1257,6 +1529,136 @@ mod tests {
         assert!(set_depth.len() < n / 2, "and it is coarser: {} rows", set_depth.len());
         let mid = set_cols["GR"][set_depth.len() / 2];
         assert!(mid > 45.0 && mid < 75.0, "GR must be averaged onto the new frame, got {mid}");
+    }
+
+    /// **An accepted named substitute is recorded on the resulting curve as provenance.**
+    ///
+    /// `SB-DIO-032` / T48, sourced to data-I/O finding D-15: substitution is legitimate only as
+    /// an explicit user act. Pinned from both sides in one contract test: an unaccepted decision
+    /// writes no set at all, while the accepted decision writes the substitute under its OWN name
+    /// and carries the requested -> substitute mapping on that curve's log-set ancestry.
+    #[test]
+    fn an_accepted_named_substitute_is_recorded_on_the_resulting_curve_as_provenance() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-SUB", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            vec![1000.0, 1001.0, 1002.0],
+            vec![40.0, 50.0, 60.0],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+        )
+        .unwrap();
+        save_curve_selection(
+            &conn,
+            &CurveSelection {
+                name: "CALI_REQUEST".into(),
+                mode: CurveSelectionMode::Selected,
+                members: vec!["CALI".into()],
+            },
+        )
+        .unwrap();
+
+        let mut req = ReframeRequest {
+            well_ids: vec![wid.to_string()],
+            source: SourceSpec { kind: "standard".into(), name: None },
+            selection_name: "CALI_REQUEST".into(),
+            substitutions: vec![CurveSubstitution {
+                requested: "CALI".into(),
+                substitute: "GR".into(),
+                accepted: false,
+            }],
+            target: step_target("step", Some(1.0), false),
+            methods: Default::default(),
+            default_method: Method::Mean,
+            output_set: "SUBSTITUTED".into(),
+            preview: false,
+        };
+
+        let refused = run_reframe(&conn, &req);
+        assert!(
+            refused[0].error.as_deref().unwrap_or("").contains("not explicitly accepted"),
+            "an absent acceptance must be a refusal: {:?}",
+            refused[0].error
+        );
+        let before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM log_sets WHERE well_id = ?1", params![wid.to_string()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(before, 0, "refusal must happen before the run record or curve is written");
+
+        req.substitutions[0].accepted = true;
+        let committed = run_reframe(&conn, &req);
+        assert!(committed[0].error.is_none(), "{:?}", committed[0].error);
+        assert_eq!(committed[0].curves.len(), 1);
+        assert_eq!(committed[0].curves[0].name, "GR", "another curve is never relabelled as CALI");
+
+        let (params_json, curve_name): (String, String) = conn
+            .query_row(
+                "SELECT s.params_json, a.curve_name
+                 FROM log_sets s
+                 JOIN computed_curves_archive a ON a.set_id = s.set_id
+                 WHERE s.well_id = ?1
+                 LIMIT 1",
+                params![wid.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(curve_name, "GR", "the substitute keeps its source identity");
+        let provenance: serde_json::Value = serde_json::from_str(&params_json).unwrap();
+        assert_eq!(
+            provenance["substitutions"],
+            serde_json::json!([{"requested": "CALI", "substitute": "GR", "accepted": true}]),
+            "the resulting curve's ancestry must preserve the explicit decision"
+        );
+    }
+
+    /// **A saved curve selection reloads as a named object listing its members.**
+    ///
+    /// `SB-DIO-033` / T49, sourced to data-I/O finding D-19. The member order is part of the
+    /// object and its `selected` mode is stored rather than implied; the control proves a document
+    /// with no mode cannot deserialize into a selection and therefore cannot acquire a hidden one.
+    #[test]
+    fn a_saved_curve_selection_reloads_as_a_named_object_listing_its_members() {
+        use crate::db;
+        use duckdb::Connection;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let saved = save_curve_selection(
+            &conn,
+            &CurveSelection {
+                name: "  PRIMARY INPUTS  ".into(),
+                mode: CurveSelectionMode::Selected,
+                members: vec!["rhob".into(), "GR".into(), "RHOB".into()],
+            },
+        )
+        .unwrap();
+        assert_eq!(saved.name, "PRIMARY INPUTS");
+        assert_eq!(saved.members, vec!["RHOB", "GR"], "order survives and duplicates do not hide in the object");
+
+        let reloaded = list_curve_selections(&conn).unwrap();
+        assert_eq!(
+            reloaded,
+            vec![CurveSelection {
+                name: "PRIMARY INPUTS".into(),
+                mode: CurveSelectionMode::Selected,
+                members: vec!["RHOB".into(), "GR".into()],
+            }]
+        );
+        assert!(
+            serde_json::from_str::<CurveSelection>(r#"{"name":"AMBIGUOUS","members":["GR"]}"#).is_err(),
+            "a member list without a stated mode must not acquire a hidden interpretation"
+        );
     }
 
     /// **The sampling reported is the MEDIAN spacing, not the mean.** A curve with one gap in it
@@ -1359,7 +1761,8 @@ mod tests {
         let req = ReframeRequest {
             well_ids: vec!["A".into(), "B".into()],
             source: SourceSpec { kind: "standard".into(), name: None },
-            curves: vec![],
+            selection_name: "ANY_EXPLICIT_SELECTION".into(),
+            substitutions: vec![],
             target: step_target("regularize", None, true),
             methods: Default::default(),
             default_method: Method::default(),

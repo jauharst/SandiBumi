@@ -1,15 +1,22 @@
 import {
+  deleteCurveSelection,
+  listCurveSelections,
   listGenericCurveCatalog,
   listLogSetNames,
   listWells,
+  reframeSourceCurves,
   runReframe,
+  saveCurveSelection,
+  type CurveSelection,
   type ReframeResult,
+  type ReframeSourceSpec,
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion } from "../state";
 import { formRow } from "./modal";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
+import { pushUndo } from "../undo";
 
 /**
  * **Reframe** — resample a log set onto a different sampling, as a new set.
@@ -152,12 +159,60 @@ export async function buildReframeContent(
     ),
   );
 
-  const curvesInput = document.createElement("input");
-  curvesInput.className = "form-control";
-  curvesInput.type = "text";
-  curvesInput.placeholder = "all curves in the set";
-  grid.appendChild(
-    formRow("Curves (optional)", curvesInput, "Comma-separated. Blank carries everything the source holds."),
+  const selectionPick = document.createElement("select");
+  selectionPick.className = "form-control";
+  const selectionName = document.createElement("input");
+  selectionName.className = "form-control";
+  selectionName.type = "text";
+  selectionName.placeholder = "e.g. PRIMARY INPUTS";
+  const selectionMembers = document.createElement("input");
+  selectionMembers.className = "form-control";
+  selectionMembers.type = "text";
+  selectionMembers.placeholder = "GR, RHOB, NPHI";
+  const saveSelectionBtn = document.createElement("button");
+  saveSelectionBtn.type = "button";
+  saveSelectionBtn.className = "btn";
+  saveSelectionBtn.textContent = "Save selection";
+  grid.append(
+    formRow(
+      "Curve selection",
+      selectionPick,
+      "A named saved object; no curve type and no blank-means-all default can choose members.",
+    ),
+    formRow("Selection name", selectionName),
+    formRow(
+      "Selected members",
+      selectionMembers,
+      "Ordered exact mnemonics. Saving makes this list inspectable and reusable.",
+    ),
+    formRow("", saveSelectionBtn),
+  );
+
+  // A substitution is never inferred from family/type. The requested mnemonic is typed, the
+  // actual source mnemonic is offered verbatim, and the checkbox is the separate act of consent.
+  const missingCurve = document.createElement("input");
+  missingCurve.className = "form-control";
+  missingCurve.type = "text";
+  missingCurve.placeholder = "unavailable mnemonic, e.g. CALI";
+  const substituteCurve = document.createElement("select");
+  substituteCurve.className = "form-control";
+  const acceptSubstitute = document.createElement("input");
+  acceptSubstitute.type = "checkbox";
+  acceptSubstitute.className = "form-check";
+  const acceptControl = document.createElement("label");
+  acceptControl.append(acceptSubstitute, document.createTextNode(" Accept this named substitute"));
+  grid.append(
+    formRow(
+      "Unavailable curve",
+      missingCurve,
+      "Optional. It must also be a member of the saved selection; leaving this blank means no substitution.",
+    ),
+    formRow(
+      "Use instead",
+      substituteCurve,
+      "Exact mnemonics held by the selected source on the active well. The output keeps this name.",
+    ),
+    formRow("Accept substitution", acceptControl, "Unchecked writes nothing if a substitution is requested."),
   );
 
   const outSet = document.createElement("input");
@@ -214,6 +269,7 @@ export async function buildReframeContent(
     syncRows();
     void refreshNames();
   });
+  srcName.addEventListener("change", () => void refreshNames());
   tgtKind.addEventListener("change", syncRows);
   syncRows();
 
@@ -227,6 +283,61 @@ export async function buildReframeContent(
     }
     if (names.includes(keep)) select.value = keep;
   };
+
+  let curveSelections: CurveSelection[] = [];
+  const showSelection = (): void => {
+    const selection = curveSelections.find((item) => item.name === selectionPick.value);
+    selectionName.value = selection?.name ?? "";
+    selectionMembers.value = selection?.members.join(", ") ?? "";
+  };
+  selectionPick.addEventListener("change", showSelection);
+
+  async function refreshSelections(keep = selectionPick.value): Promise<void> {
+    curveSelections = await listCurveSelections();
+    if (disposed) return;
+    fill(
+      selectionPick,
+      curveSelections.map((item) => item.name),
+      keep,
+    );
+    showSelection();
+  }
+
+  saveSelectionBtn.addEventListener("click", () => {
+    void (async () => {
+      const name = selectionName.value.trim();
+      const members = selectionMembers.value
+        .split(",")
+        .map((member) => member.trim().toUpperCase())
+        .filter(Boolean);
+      if (!name || members.length === 0) {
+        status.textContent = "Name the selection and list at least one exact curve mnemonic.";
+        return;
+      }
+      const next: CurveSelection = { name, mode: "selected", members };
+      const previous = curveSelections.find((item) => item.name === name);
+      try {
+        const saved = await saveCurveSelection(next);
+        await refreshSelections(saved.name);
+        pushUndo({
+          label: `save curve selection ${saved.name}`,
+          undo: async () => {
+            if (previous) await saveCurveSelection(previous);
+            else await deleteCurveSelection(saved.name);
+            await refreshSelections(previous?.name ?? "");
+          },
+          redo: async () => {
+            await saveCurveSelection(saved);
+            await refreshSelections(saved.name);
+          },
+        });
+        recordProcess("Curve selection", `Saved ${saved.name}: ${saved.members.join(", ")}`);
+        status.textContent = `Saved selection ${saved.name}: ${saved.members.join(", ")}.`;
+      } catch (e) {
+        status.textContent = `Could not save curve selection: ${e}`;
+      }
+    })();
+  });
 
   // The delivery-set names come from the ACTIVE well's own catalog, because a delivery belongs to
   // a well; log-set names are project-wide, because a result set spans the run that made it.
@@ -251,6 +362,17 @@ export async function buildReframeContent(
         allWells.map((w) => w.well_name),
         matchWell.value,
       );
+      if (well) {
+        const source: ReframeSourceSpec = {
+          kind: srcKind.value as ReframeSourceSpec["kind"],
+          name: srcKind.value === "standard" ? null : srcName.value || null,
+        };
+        const offered = await reframeSourceCurves(well.well_id, source).catch(() => []);
+        if (disposed) return;
+        fill(substituteCurve, offered, substituteCurve.value);
+      } else {
+        fill(substituteCurve, [], "");
+      }
     } catch {
       // No backend / fresh project: leave the pickers as they are.
     }
@@ -280,13 +402,36 @@ export async function buildReframeContent(
       outSet.focus();
       return null;
     }
+    const selection = curveSelections.find((item) => item.name === selectionPick.value);
+    if (!selection) {
+      status.textContent = "Pick a named saved curve selection; no all-curves default is applied.";
+      selectionPick.focus();
+      return null;
+    }
+    const requested = missingCurve.value.trim().toUpperCase();
+    const substitutions: Array<{ requested: string; substitute: string; accepted: boolean }> = [];
+    if (requested) {
+      if (!selection.members.includes(requested)) {
+        status.textContent = `Add ${requested} to saved selection ${selection.name} so the requested input is explicit.`;
+        selectionMembers.focus();
+        return null;
+      }
+      if (!substituteCurve.value) {
+        status.textContent = "The selected source offers no named curve to substitute.";
+        return null;
+      }
+      if (!acceptSubstitute.checked) {
+        status.textContent = `Accept ${substituteCurve.value} explicitly, or clear the unavailable-curve field.`;
+        acceptSubstitute.focus();
+        return null;
+      }
+      substitutions.push({ requested, substitute: substituteCurve.value, accepted: true });
+    }
     return {
       well_ids: wellIds,
       source: { kind: srcKind.value, name: srcKind.value === "standard" ? null : srcName.value },
-      curves: curvesInput.value
-        .split(",")
-        .map((s) => s.trim().toUpperCase())
-        .filter(Boolean),
+      selection_name: selection.name,
+      substitutions,
       target: {
         kind: tgtKind.value,
         step: (tgtKind.value === "step" || tgtKind.value === "regularize") && stepGiven ? parseFloat(stepInput.value) : null,
@@ -378,6 +523,9 @@ export async function buildReframeContent(
   probeBtn.addEventListener("click", () => void go(true));
   runBtn.addEventListener("click", () => void go(false));
   void refreshNames();
+  void refreshSelections().catch((e) => {
+    status.textContent = `Could not load curve selections: ${e}`;
+  });
 
   return {
     el,

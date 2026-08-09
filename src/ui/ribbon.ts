@@ -1148,8 +1148,17 @@ export class Ribbon {
         ? ` Omitted ${result.omitted.map((item) => `${item.curve}: ${item.reason}`).join("; ")}.`
         : "";
       const summary = `${result.rows} rows; ${result.curves_written} of ${result.curves_held} held curves written.`;
-      setStatus(`Exported ${well.well_name} (${summary}) to ${dest}.${omission}`);
-      recordProcess("Export", `Exported LAS (${summary})${omission} → ${dest}`, well.well_name);
+      const precision = result.precision.reduced
+        ? ` Precision: ${result.precision.values_reduced} value(s) reduced, ${result.precision.source_precision} → ${result.precision.destination_precision}.`
+        : ` Precision: no values reduced, ${result.precision.source_precision} → ${result.precision.destination_precision}.`;
+      const selfCheck = result.self_checked ? " SandiBumi reader self-check passed." : "";
+      const finalCount = result.curve_states.filter((curve) => curve.state === "final").length;
+      const workingCount = result.curve_states.filter((curve) => curve.state === "working").length;
+      const states = result.curve_states.length
+        ? ` Curve states: ${finalCount} final, ${workingCount} working.`
+        : "";
+      setStatus(`Exported ${well.well_name} (${summary}) to ${dest}.${precision}${selfCheck}${states}${omission}`);
+      recordProcess("Export", `Exported LAS (${summary})${precision}${selfCheck}${states}${omission} → ${dest}`, well.well_name);
     } catch (err) {
       setStatus(`Export failed: ${err}`);
     }
@@ -1207,6 +1216,15 @@ export class Ribbon {
       const warned = imported.filter((r) => r.warning);
       const warnNote = warned.length ? ` ${warned.length} well(s) imported with warnings.` : "";
       const cancelNote = cancelled > 0 ? ` ${cancelled} cancelled before import.` : "";
+      const encodingCounts = new Map<string, number>();
+      for (const result of imported) {
+        if (result.text_encoding) {
+          encodingCounts.set(result.text_encoding, (encodingCounts.get(result.text_encoding) ?? 0) + 1);
+        }
+      }
+      const encodingSummary = [...encodingCounts]
+        .map(([encoding, count]) => `${encoding} (${count})`)
+        .join(", ");
       setStatus(
         `Imported ${imported.length}/${results.length} file(s) as set ${setLabel}` +
           ` — ${created} new well(s).${attachNote}${warnNote}${cancelNote}`,
@@ -1217,6 +1235,9 @@ export class Ribbon {
           `${created} new well(s), ${attached.length} attached` +
           (cancelled > 0 ? ` — ${cancelled} cancelled` : ""),
       );
+      if (encodingSummary) {
+        recordProcess("Import", `Text encodings detected: ${encodingSummary}`);
+      }
       for (const w of warned) {
         recordProcess("Import", `${w.well_name ?? w.path}: ${w.warning}`, w.well_name ?? undefined);
       }
@@ -1373,14 +1394,14 @@ export class Ribbon {
     input.focus();
   }
 
-  /** "Import DLIS…" — loads every scalar channel from a DLIS file into the selected
-   *  well's generic curve store, via dlisio through the Python subprocess. The set-name
+  /** "Import DLIS…" — loads scalar channels from a DLIS file through the dlisio subprocess.
+   *  A single-well file targets the selected project well; a multi-well container proposes
+   *  separate project wells and requires its mapping to be confirmed before any write. The set-name
    *  prompt (T-IMP-06) means a second DLIS never silently replaces the first: you rarely
    *  know what a vendor tape holds until it is in, so duplicates are KEPT under their own
    *  set and compared afterwards. */
   private async handleImportDlis(): Promise<void> {
-    const well = requireWell("Import DLIS");
-    if (!well) return;
+    const well = appState.selectedWell.get();
     let path: string | null;
     try {
       const selection = await open({
@@ -1402,26 +1423,125 @@ export class Ribbon {
     const setName = choice.setName;
     const setLabel = setName ? setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
 
-    setStatus(`Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`);
+    setStatus(
+      well
+        ? `Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`
+        : `Inspecting DLIS well identities before import… (dlisio may take a moment)`,
+    );
     try {
-      const result = await importDlisFile(well.well_id, path, setName, choice.fileDepthUnit);
+      let intervalDecision: "accept_outside_declared_interval" | null = null;
+      let duplicateDecisions: Array<{
+        mnemonic: string;
+        run: number;
+        action: "keep_separate" | "skip_incoming";
+      }> | null = null;
+      let confirmedWellMappings: Awaited<ReturnType<typeof importDlisFile>>["well_mappings"] | null = null;
+      let result: Awaited<ReturnType<typeof importDlisFile>>;
+      for (;;) {
+        result = await importDlisFile(
+          well?.well_id ?? null,
+          path,
+          setName,
+          choice.fileDepthUnit,
+          null,
+          intervalDecision,
+          duplicateDecisions,
+          choice.lasSentinelExceptions,
+          confirmedWellMappings,
+        );
+        if (result.error && result.mapping_confirmation_required) {
+          const detail = result.well_mappings
+            .map(
+              (mapping) =>
+                `${mapping.source_well} (logical files ${mapping.logical_files.join(", ")}) ` +
+                `→ ${mapping.will_create ? "new project well" : "project well"} ${mapping.target_well_name}`,
+            )
+            .join("\n");
+          const accepted = window.confirm(
+            `This DLIS contains more than one source well. Nothing has been written.\n\n${detail}\n\n` +
+              "Create these separate project wells and import each logical file only into its mapped well?",
+          );
+          if (!accepted) {
+            setStatus("Multi-well DLIS import cancelled before any well or curve was written.");
+            return;
+          }
+          confirmedWellMappings = result.well_mappings;
+          setStatus(`Well mapping confirmed; importing ${confirmedWellMappings.length} separate DLIS wells…`);
+          continue;
+        }
+        if (result.error && result.duplicate_conflicts.length > 0 && duplicateDecisions === null) {
+          const detail = result.duplicate_conflicts
+            .map(
+              (conflict) =>
+                `${conflict.mnemonic} frame ${conflict.run}: ${conflict.existing.join(", ")}`,
+            )
+            .join("\n");
+          const keep = window.confirm(
+            `This well already holds the following DLIS mnemonic(s):\n\n${detail}\n\n` +
+              "Keep every incoming curve separate in this delivery? Cancel writes nothing. " +
+              "No merge-into-existing action is available.",
+          );
+          if (!keep) {
+            setStatus("DLIS import stopped at duplicate mnemonics; no existing curve was changed.");
+            return;
+          }
+          duplicateDecisions = result.duplicate_conflicts.map((conflict) => ({
+            mnemonic: conflict.mnemonic,
+            run: conflict.run,
+            action: "keep_separate",
+          }));
+          setStatus(`Duplicate choices recorded; checking DLIS intervals for ${well?.well_name ?? "the selected well"}…`);
+          continue;
+        }
+        if (result.error && result.interval_conflicts.length > 0 && intervalDecision === null) {
+          const detail = result.interval_conflicts
+            .map(
+              (conflict) =>
+                `${conflict.scope} ${conflict.name}: ${conflict.declared_top}-${conflict.declared_base}; ` +
+                `incoming ${conflict.incoming_top}-${conflict.incoming_base}`,
+            )
+            .join("\n");
+          const accepted = window.confirm(
+            `This DLIS falls outside an existing declared interval:\n\n${detail}\n\n` +
+              "Import those outside samples anyway? Nothing has been written yet.",
+          );
+          if (!accepted) {
+            setStatus("DLIS import stopped at the interval conflict; the existing range is unchanged.");
+            return;
+          }
+          intervalDecision = "accept_outside_declared_interval";
+          setStatus(`Interval conflict accepted; importing DLIS into ${well?.well_name ?? "the selected well"}…`);
+          continue;
+        }
+        break;
+      }
       const skippedNote = result.skipped.length
         ? ` Skipped ${result.skipped.map((item) => `${item.kind} ${item.name} ×${item.count}: ${item.rule}`).join("; ")}.`
         : "";
       if (result.error) {
         setStatus(`DLIS import failed: ${result.error}.${skippedNote}`);
       } else {
-        // `replaced` can only be non-zero in RAW: a named set was auto-suffixed to a free
-        // name, so nothing of the earlier import was touched.
-        const replacedNote = result.replaced > 0 ? ` (replaced ${result.replaced} existing curve(s))` : "";
-        const unitNote = result.notes.length ? ` ${result.notes.join("; ")}` : "";
+        const resultNotes = [...result.notes];
+        if (result.sentinel_exceptions.length > 0) {
+          resultNotes.push(
+            `LAS-sentinel fallback disabled for ${result.sentinel_exceptions.join(", ")}`,
+          );
+        }
+        const unitNote = resultNotes.length ? ` ${resultNotes.join("; ")}` : "";
+        const outcome = result.status === "partial" ? "Partially imported" : "Imported";
+        const channelCount = result.channels_declared > 0
+          ? ` of ${result.channels_declared} declared channel(s)`
+          : "";
+        const destination = result.well_mappings.length > 0
+          ? `${result.well_mappings.length} separately mapped project wells`
+          : well?.well_name ?? "the selected project well";
         setStatus(
-          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${replacedNote}${unitNote}${skippedNote}`,
+          `${outcome} ${result.curves_imported}${channelCount}, ${result.rows} samples into ${destination} as set ${setLabel}.${unitNote}${skippedNote}`,
         );
         recordProcess(
           "Import",
-          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${replacedNote}${unitNote}${skippedNote} ← ${path}`,
-          well.well_name,
+          `${outcome} DLIS as set ${setLabel} (${result.curves_imported}${channelCount}, ${result.rows} samples)${unitNote}${skippedNote} ← ${path}`,
+          result.well_mappings.length > 0 ? null : well?.well_name ?? null,
         );
         this.workspace.notifyDataChanged();
       }
@@ -1430,12 +1550,12 @@ export class Ribbon {
     }
   }
 
-  /** One-field set-name prompt for a DLIS import. Resolves with the typed name (may be
-   *  empty = RAW), or null when the user cancels. Deliberately lighter than the LAS
-   *  dialog: DLIS always targets the already-selected well, so there is nothing to attach. */
+  /** Set-name and file-level choices collected before the DLIS scan. A single-well file still
+   *  requires a selected target; a multi-well file obtains its targets from the confirmed map. */
   private askDlisSetName(path: string): Promise<{
     setName: string;
     fileDepthUnit: "M" | "FT" | null;
+    lasSentinelExceptions: string[];
   } | null> {
     return new Promise((resolve) => {
       const wrap = document.createElement("div");
@@ -1452,8 +1572,8 @@ export class Ribbon {
       hint.className = "form-hint";
       hint.textContent =
         "A name already used on this well is auto-suffixed (WIRE → WIRE_1), so a second tape " +
-        "never overwrites the first — import it, then compare. Leaving this as RAW keeps the " +
-        "old behaviour, where same-mnemonic channels of the same run are replaced.";
+        "never overwrites the first — import it, then compare. RAW duplicates also stop for a " +
+        "per-curve keep-separate or skip decision; merge-into-existing is never the default.";
       wrap.appendChild(hint);
 
       const undeclaredUnit = document.createElement("select");
@@ -1476,6 +1596,19 @@ export class Ribbon {
         ),
       );
 
+      const sentinelExceptions = document.createElement("input");
+      sentinelExceptions.type = "text";
+      sentinelExceptions.className = "form-control";
+      sentinelExceptions.placeholder = "e.g. TENSION, AMPLITUDE";
+      sentinelExceptions.spellcheck = false;
+      wrap.appendChild(
+        formRow(
+          "Keep LAS sentinel values in",
+          sentinelExceptions,
+          "Optional exact DLIS channel mnemonics, comma-separated. In these channels, finite −999.25/−9999 samples remain data; non-finite and >1e30 values are still missing.",
+        ),
+      );
+
       const actions = document.createElement("div");
       actions.className = "form-actions";
       const cancelBtn = document.createElement("button");
@@ -1488,7 +1621,11 @@ export class Ribbon {
       wrap.appendChild(actions);
 
       let settled = false;
-      const finish = (v: { setName: string; fileDepthUnit: "M" | "FT" | null } | null) => {
+      const finish = (v: {
+        setName: string;
+        fileDepthUnit: "M" | "FT" | null;
+        lasSentinelExceptions: string[];
+      } | null) => {
         if (settled) return;
         settled = true;
         close();
@@ -1501,6 +1638,10 @@ export class Ribbon {
         fileDepthUnit: undeclaredUnit.value === "M" || undeclaredUnit.value === "FT"
           ? undeclaredUnit.value
           : null,
+        lasSentinelExceptions: sentinelExceptions.value
+          .split(",")
+          .map((name) => name.trim())
+          .filter((name) => name.length > 0),
       }));
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") okBtn.click();

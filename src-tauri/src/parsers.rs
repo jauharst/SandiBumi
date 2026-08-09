@@ -39,9 +39,17 @@ const CP1252_HIGH: [char; 32] = [
 /// export is UTF-16LE, which decoded as cp1252 would silently yield NUL-riddled nonsense
 /// rather than an error). Only when there is no BOM and the bytes are not valid UTF-8 do we
 /// fall back to cp1252 — which cannot itself fail, so an import is never refused over encoding
-/// again. Bytes are never rejected, only interpreted; the worst case is a mangled character
+/// again. A BOM-less UTF-16 table is recognised without a guessed percentage threshold: its
+/// two-byte code units contain the file's actual CR/LF record separators in exactly one byte
+/// order. Bytes are never rejected, only interpreted; the worst case is a mangled character
 /// inside a description, not a lost delivery.
-fn decode_text(bytes: &[u8]) -> String {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodedTextFile {
+    pub text: String,
+    pub encoding: String,
+}
+
+fn decode_text(bytes: &[u8]) -> DecodedTextFile {
     let utf16 = |chunks: &[u8], be: bool| -> String {
         let units: Vec<u16> = chunks
             .chunks_exact(2)
@@ -49,19 +57,36 @@ fn decode_text(bytes: &[u8]) -> String {
             .collect();
         String::from_utf16_lossy(&units)
     };
+    let decoded = |text: String, encoding: &str| DecodedTextFile {
+        text,
+        encoding: encoding.to_string(),
+    };
     match bytes {
-        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
-        [0xFF, 0xFE, rest @ ..] => utf16(rest, false),
-        [0xFE, 0xFF, rest @ ..] => utf16(rest, true),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => decoded(String::from_utf8_lossy(rest).into_owned(), "UTF-8 with BOM"),
+        [0xFF, 0xFE, rest @ ..] => decoded(utf16(rest, false), "UTF-16LE with BOM"),
+        [0xFE, 0xFF, rest @ ..] => decoded(utf16(rest, true), "UTF-16BE with BOM"),
+        _ if bytes.len() >= 4 && bytes.len() % 2 == 0
+            && bytes.chunks_exact(2).any(|pair| matches!(pair, [0x0A | 0x0D, 0x00])) =>
+        {
+            decoded(utf16(bytes, false), "UTF-16LE without BOM")
+        }
+        _ if bytes.len() >= 4 && bytes.len() % 2 == 0
+            && bytes.chunks_exact(2).any(|pair| matches!(pair, [0x00, 0x0A | 0x0D])) =>
+        {
+            decoded(utf16(bytes, true), "UTF-16BE without BOM")
+        }
         _ => match std::str::from_utf8(bytes) {
-            Ok(s) => s.to_string(),
-            Err(_) => bytes
+            Ok(s) => decoded(s.to_string(), "UTF-8"),
+            Err(_) => decoded(
+                bytes
                 .iter()
                 .map(|&b| match b {
                     0x80..=0x9F => CP1252_HIGH[(b - 0x80) as usize],
                     _ => b as char, // ASCII and, above 0x9F, Latin-1 == Unicode
                 })
                 .collect(),
+                "Windows-1252",
+            ),
         },
     }
 }
@@ -71,6 +96,12 @@ fn decode_text(bytes: &[u8]) -> String {
 /// outright on one stray byte. Files here are per-well or per-delivery (single-digit MB), so
 /// reading whole is the right trade for never refusing a real delivery.
 pub fn read_text_file<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
+    Ok(read_text_file_with_encoding(path)?.text)
+}
+
+/// The same mandatory decoder as [`read_text_file`], with the chosen encoding retained
+/// for an import result or preview. Callers must not re-decode bytes to obtain this report.
+pub fn read_text_file_with_encoding<P: AsRef<Path>>(path: P) -> std::io::Result<DecodedTextFile> {
     Ok(decode_text(&std::fs::read(path)?))
 }
 
@@ -87,14 +118,59 @@ pub struct LogDataRow {
     pub sp: Option<f32>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AliasCandidateCoverage {
+    pub mnemonic: String,
+    pub finite_samples: usize,
+    pub chosen: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AliasDecision {
+    pub target: String,
+    pub chosen: String,
+    /// Every matched candidate in alias-priority order. `chosen = false` names the
+    /// passed-over columns; the coverage beside each makes the decision auditable.
+    pub candidates: Vec<AliasCandidateCoverage>,
+    /// The exact alias-table row when the chosen source name differs from the applied target.
+    pub table_entry: Option<String>,
+}
+
+/// How a reader established which column is the shared index. The mechanism is data,
+/// not a note: callers can display and persist the exact resolution that fired.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexResolutionMechanism {
+    StructuralDeclaration,
+    PositionalGuarantee,
+    NameAlias,
+    UserDesignation,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct IndexResolution {
+    pub column: usize,
+    pub mnemonic: String,
+    pub mechanism: IndexResolutionMechanism,
+}
+
 /// Columnar curve data ready to be handed to the DuckDB Appender.
 #[derive(Debug, Clone, Default)]
 pub struct CurveColumns {
+    /// Declared LAS version, e.g. `2.0` or `3.0`.
+    pub las_version: Option<String>,
+    /// Section headers present in a LAS 3.0 delivery that this release did not consume.
+    pub unread_sections: Vec<String>,
+    /// Encoding chosen by the mandatory text reader, always reported by LAS import.
+    pub text_encoding: String,
     /// The index column's declared unit, verbatim from the ~C block (e.g. "M", "FT").
     /// `None` when the file declares none. Resolved against the project's depth unit at
     /// ingest — see `units::resolve_index_unit`; storing a foot index in a metric project
     /// was a silent corruption before this was carried through.
     pub depth_unit: Option<String>,
+    /// The `~W STEP` value as declared in the file. Kept as text so absence is not
+    /// represented by `Option<f32>`; callers parse it only when performing the audit.
+    pub declared_step: Option<String>,
     pub depth: Vec<f32>,
     pub gr: Vec<f32>,
     pub res: Vec<f32>,
@@ -102,6 +178,11 @@ pub struct CurveColumns {
     pub rhob: Vec<f32>,
     pub dt: Vec<f32>,
     pub sp: Vec<f32>,
+    /// Present where aliases compete or where one incoming mnemonic is renamed.
+    pub alias_decisions: Vec<AliasDecision>,
+    pub index_resolution: Option<IndexResolution>,
+    /// Per-file answers to unit symbols that have more than one legitimate quantity.
+    pub unit_designations: Vec<crate::curves::UnitDesignation>,
 }
 
 /// Parses a generic curve CSV export into columnar arrays, mapping missing values to `f32::NAN`.
@@ -145,6 +226,109 @@ fn is_null_value(v: f32, declared: Option<f32>) -> bool {
     is_las_null(v) || declared.is_some_and(|null| matches_null(v, null))
 }
 
+/// The right-hand side of a null-exception rule: plural values, or the explicit statement
+/// that a channel has no absent-value convention. The untagged representation is either a
+/// JSON number array or the literal `"NoNull"`, matching the chapter's `[f64] | NoNull` shape.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ChannelNullMode {
+    Values(Vec<f64>),
+    NoNull(NoNullMarker),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NoNullMarker {
+    NoNull,
+}
+
+/// The vendor-rule shape specified by SB-DIO-006. One entry owns every regex in `names`;
+/// flattening this into one-name rules would recreate the Weatherford six-name loss.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NullExceptionRule {
+    pub names: Vec<String>,
+    pub nulls: ChannelNullMode,
+}
+
+/// Resolved per-channel null conventions supplied by an import rule set. An absent key means
+/// the normal LAS file/global convention applies.
+pub type ChannelNullValues = std::collections::HashMap<String, ChannelNullMode>;
+
+pub fn resolve_null_exception_rules(
+    channel_names: &[String],
+    rules: &[NullExceptionRule],
+) -> Result<ChannelNullValues, String> {
+    let mut resolved = ChannelNullValues::new();
+    for (rule_index, rule) in rules.iter().enumerate() {
+        if rule.names.is_empty() {
+            return Err(format!("null-exception rule {} has no name patterns", rule_index + 1));
+        }
+        if matches!(&rule.nulls, ChannelNullMode::Values(values) if values.is_empty()) {
+            return Err(format!(
+                "null-exception rule {} has an empty value list; use NoNull when the channel has no null convention",
+                rule_index + 1
+            ));
+        }
+        let patterns: Vec<regex::Regex> = rule
+            .names
+            .iter()
+            .map(|pattern| {
+                regex::RegexBuilder::new(pattern)
+                    .case_insensitive(true)
+                    .build()
+                    .map_err(|e| format!("null-exception rule {} pattern '{pattern}' is invalid: {e}", rule_index + 1))
+            })
+            .collect::<Result<_, _>>()?;
+        for channel in channel_names {
+            if patterns.iter().any(|pattern| pattern.is_match(channel)) {
+                if resolved.insert(channel.clone(), rule.nulls.clone()).is_some() {
+                    return Err(format!(
+                        "channel '{channel}' matches more than one null-exception rule"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(resolved)
+}
+
+fn merge_null_configuration(
+    explicit: &ChannelNullValues,
+    channel_names: &[String],
+    rules: &[NullExceptionRule],
+) -> Result<ChannelNullValues, String> {
+    let mut resolved = explicit.clone();
+    for (channel, mode) in resolve_null_exception_rules(channel_names, rules)? {
+        if resolved.keys().any(|key| key.eq_ignore_ascii_case(&channel)) {
+            return Err(format!(
+                "channel '{channel}' has both an explicit null list and a matching null-exception rule"
+            ));
+        }
+        resolved.insert(channel, mode);
+    }
+    Ok(resolved)
+}
+
+fn is_null_value_for_channel(
+    v: f32,
+    declared: Option<f32>,
+    channel: Option<&str>,
+    channel_nulls: &ChannelNullValues,
+) -> bool {
+    let configured = channel.and_then(|name| {
+        channel_nulls
+            .get(name)
+            .or_else(|| channel_nulls.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, mode)| mode))
+    });
+    match configured {
+        Some(ChannelNullMode::Values(values)) if !values.is_empty() => {
+            values.iter().any(|null| matches_null(v, *null as f32))
+        }
+        Some(ChannelNullMode::NoNull(_)) => false,
+        None => is_null_value(v, declared),
+        Some(ChannelNullMode::Values(_)) => is_null_value(v, declared),
+    }
+}
+
 /// Parse the NULL value from a `~W` block line ("NULL .  -999.25 : NULL VALUE").
 fn parse_null_line(trimmed: &str) -> Option<f32> {
     if !trimmed.to_uppercase().starts_with("NULL") {
@@ -166,11 +350,82 @@ fn parse_wrap_line(trimmed: &str) -> Option<bool> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LasSection {
     Header,
+    VersionBlock,
     WellBlock,
     CurveBlock,
     AsciiData,
+}
+
+fn parse_well_value_text(trimmed: &str, wanted: &str) -> Option<String> {
+    let declaration = trimmed.split(':').next().unwrap_or(trimmed);
+    let (mnemonic, rest) = declaration.split_once('.')?;
+    if !mnemonic.trim().eq_ignore_ascii_case(wanted) {
+        return None;
+    }
+    rest.split_whitespace().last().map(str::to_string)
+}
+
+/// Compares a file's declared STEP with every finite adjacent index pair. This uses
+/// exact comparison deliberately: §5 supplies no tolerance for this read-side check, so
+/// introducing one here would be an uncited parameter. A mismatch is a warning, not an
+/// automatic rewrite or refusal.
+pub fn declared_step_mismatch_note(declared_step: Option<&str>, depth: &[f32]) -> Option<String> {
+    let raw = declared_step?;
+    let Ok(declared) = raw.parse::<f32>() else { return None };
+    let (pair_index, actual) = depth.windows(2).enumerate().find_map(|(index, pair)| {
+        let actual = pair[1] - pair[0];
+        (pair[0].is_finite() && pair[1].is_finite() && actual != declared).then_some((index, actual))
+    })?;
+    Some(format!(
+        "possibly re-gridded: declared STEP {raw} disagrees with actual spacing {actual} between data rows {} and {}",
+        pair_index + 1,
+        pair_index + 2
+    ))
+}
+
+fn las_section_header(trimmed: &str) -> Option<&str> {
+    let body = trimmed.strip_prefix('~')?.trim_start();
+    let name = body
+        .split(|ch: char| ch.is_whitespace() || ch == '|')
+        .next()?
+        .trim();
+    (!name.is_empty()).then_some(name)
+}
+
+fn classify_las_section(name: &str) -> Option<LasSection> {
+    match name.to_ascii_uppercase().as_str() {
+        "V" | "VERSION" => Some(LasSection::VersionBlock),
+        "W" | "WELL" => Some(LasSection::WellBlock),
+        "C" | "CURVE" => Some(LasSection::CurveBlock),
+        "A" | "ASCII" => Some(LasSection::AsciiData),
+        _ => None,
+    }
+}
+
+fn parse_las_version_line(trimmed: &str) -> Option<String> {
+    let declaration = trimmed.split(':').next().unwrap_or(trimmed);
+    let (mnemonic, rest) = declaration.split_once('.')?;
+    if !mnemonic.trim().eq_ignore_ascii_case("VERS") {
+        return None;
+    }
+    rest.split_whitespace().next().map(str::to_string)
+}
+
+fn las_version_is_3(version: Option<&str>) -> bool {
+    version.and_then(|value| value.trim().parse::<f32>().ok()) == Some(3.0)
+}
+
+fn record_unread_section(unread: &mut Vec<String>, name: &str) {
+    if name.is_empty() {
+        return;
+    }
+    let display = format!("~{name}");
+    if !unread.iter().any(|held| held.eq_ignore_ascii_case(&display)) {
+        unread.push(display);
+    }
 }
 
 /// Priority-ordered mnemonic aliases per target curve, mirroring the alias tables commercial suites/IP
@@ -184,8 +439,9 @@ enum LasSection {
 // *track* sitting in a later column steal the depth role from the true first-column index. So
 // depth resolves to the first DEPT/DEPTH curve, else column 0 — never an all-NaN depth that
 // would trip the standard_curves (well_id, depth) PK.
+// Source: `docs/PRD_v2/21_data-io.md` §5.3, LAS-path aliases `DEPT`, `DEPTH`.
 const DEPTH_ALIASES: [&str; 2] = ["DEPT", "DEPTH"];
-const GR_ALIASES: [&str; 2] = ["GR", "GRN"];
+const GR_ALIASES: [&str; 3] = ["GR", "GRN", "SGR"];
 const RES_ALIASES: [&str; 8] = ["RES_DEEP", "RESD", "RT", "RES", "DRES", "ILD", "LLD", "AT90"];
 // Thermal (CNL-family) names lead so they win ties over epithermal/legacy tools;
 // APS (APLC/FPLC) and sidewall (SNP) deliveries previously matched nothing and left
@@ -197,19 +453,113 @@ const DT_ALIASES: [&str; 5] = ["DT", "DTC", "DTCO", "AC", "DT24"];
 const SP_ALIASES: [&str; 3] = ["SP", "SPC", "SPR"];
 
 fn resolve_curve_index(curve_names: &[String], aliases: &[&str]) -> Option<usize> {
-    aliases.iter().find_map(|alias| curve_names.iter().position(|n| n == alias))
+    aliases
+        .iter()
+        .find_map(|alias| curve_names.iter().position(|name| header_matches(name, alias)))
 }
 
-/// Streams a LAS 2.0 file line-by-line (never loads the whole file into RAM), reading the
-/// `~C` (Curve) block to map column indices and the `~A` (ASCII) block for the data rows.
+/// Resolve an index under the chapter's precedence rule. `classes` is a format-owned
+/// per-column declaration such as Geolog flat ASCII's `REFERENCE | LOG`; `positional`
+/// is used only by formats such as LAS whose specification guarantees the index slot.
+pub fn resolve_index_column(
+    headers: &[String],
+    classes: Option<&[String]>,
+    aliases: &[&str],
+    positional: Option<usize>,
+    designated: Option<usize>,
+) -> Result<IndexResolution, String> {
+    if let Some(classes) = classes {
+        if classes.len() != headers.len() {
+            return Err(format!(
+                "structural index declaration has {} class entries for {} columns",
+                classes.len(),
+                headers.len()
+            ));
+        }
+        let declared: Vec<usize> = classes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, class)| class.trim().eq_ignore_ascii_case("REFERENCE").then_some(index))
+            .collect();
+        match declared.as_slice() {
+            [column] => {
+                return Ok(IndexResolution {
+                    column: *column,
+                    mnemonic: headers[*column].clone(),
+                    mechanism: IndexResolutionMechanism::StructuralDeclaration,
+                })
+            }
+            [] => {}
+            _ => return Err("structural declaration identifies more than one REFERENCE column".into()),
+        }
+    }
+    if let Some(column) = positional {
+        let mnemonic = headers
+            .get(column)
+            .ok_or_else(|| format!("positional index column {column} is outside the {} declared columns", headers.len()))?;
+        return Ok(IndexResolution {
+            column,
+            mnemonic: mnemonic.clone(),
+            mechanism: IndexResolutionMechanism::PositionalGuarantee,
+        });
+    }
+    if let Some(column) = resolve_curve_index(headers, aliases) {
+        return Ok(IndexResolution {
+            column,
+            mnemonic: headers[column].clone(),
+            mechanism: IndexResolutionMechanism::NameAlias,
+        });
+    }
+    if let Some(column) = designated {
+        let mnemonic = headers
+            .get(column)
+            .ok_or_else(|| format!("designated index column {column} is outside the {} declared columns", headers.len()))?;
+        return Ok(IndexResolution {
+            column,
+            mnemonic: mnemonic.clone(),
+            mechanism: IndexResolutionMechanism::UserDesignation,
+        });
+    }
+    Err("no structural declaration or index name resolved; user designation is required".into())
+}
+
+/// Streams a LAS log array line-by-line (never loads the whole file into RAM), reading the
+/// `~C` (Curve) block and `~A` (ASCII) rows. LAS 3.0 is identified, while associated sections
+/// that this release cannot consume are returned by name.
 pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
+    parse_las_2_with_channel_nulls(path, &ChannelNullValues::new())
+}
+
+pub fn parse_las_2_with_channel_nulls<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+) -> ParseResult<CurveColumns> {
+    parse_las_2_with_null_rules(path, channel_nulls, &[])
+}
+
+pub fn parse_las_2_with_null_rules<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+    null_rules: &[NullExceptionRule],
+) -> ParseResult<CurveColumns> {
+    parse_las_2_with_unit_designation(path, channel_nulls, null_rules, None)
+}
+
+pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+    null_rules: &[NullExceptionRule],
+    ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+) -> ParseResult<CurveColumns> {
     let source = path.as_ref().display().to_string();
-    let text = read_text_file(path.as_ref())?;
+    let decoded = read_text_file_with_encoding(path.as_ref())?;
+    let text = decoded.text;
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
     let mut curve_units: Vec<Option<String>> = Vec::new();
     let mut cols = CurveColumns::default();
+    cols.text_encoding = decoded.encoding;
 
     // Index lookup into curve_names for the columns we care about, resolved once the
     // ~C block is fully parsed and the first ~A line arrives. For the six standard curves
@@ -229,7 +579,11 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     let mut token_buffer: Vec<f32> = Vec::new();
     let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
+    let mut declared_step: Option<String> = None;
     let mut wrapped = false;
+    let mut resolved_channel_nulls = channel_nulls.clone();
+    let mut las_version: Option<String> = None;
+    let mut encountered_unread_sections = Vec::new();
 
     for (line_index, line) in text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -239,17 +593,22 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
         }
 
         if trimmed.starts_with('~') {
-            section = match trimmed.chars().nth(1).map(|c| c.to_ascii_uppercase()) {
-                Some('W') => LasSection::WellBlock,
-                Some('C') => LasSection::CurveBlock,
-                Some('A') => LasSection::AsciiData,
-                _ => LasSection::Header,
-            };
+            let name = las_section_header(trimmed).unwrap_or("");
+            section = classify_las_section(name).unwrap_or_else(|| {
+                record_unread_section(&mut encountered_unread_sections, name);
+                LasSection::Header
+            });
             continue;
         }
 
         match section {
             LasSection::Header => {
+                continue;
+            }
+            LasSection::VersionBlock => {
+                if let Some(version) = parse_las_version_line(trimmed) {
+                    las_version = Some(version);
+                }
                 if let Some(value) = parse_wrap_line(trimmed) {
                     wrapped = value;
                 }
@@ -258,6 +617,9 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
             LasSection::WellBlock => {
                 if let Some(n) = parse_null_line(trimmed) {
                     declared_null = Some(n);
+                }
+                if let Some(step) = parse_well_value_text(trimmed, "STEP") {
+                    declared_step = Some(step);
                 }
                 continue;
             }
@@ -284,15 +646,74 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                     continue;
                 }
                 if !indices_resolved {
-                    // Fall back to column 0 (the LAS index column) when no mnemonic matches,
-                    // matching parse_las_2_all — a TDEP/MD/other-indexed file must not produce
-                    // an all-NaN depth column.
-                    idx_depth = resolve_curve_index(&curve_names, &DEPTH_ALIASES).or(Some(0));
+                    resolved_channel_nulls = merge_null_configuration(
+                        channel_nulls,
+                        &curve_names,
+                        null_rules,
+                    )
+                    .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
+                    // LAS declares its index structurally by position: column 0. A later MD or
+                    // TDEP track is data, never a stronger claim than the format guarantee.
+                    let resolution = resolve_index_column(
+                        &curve_names,
+                        None,
+                        &DEPTH_ALIASES,
+                        Some(0),
+                        None,
+                    )
+                    .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
+                    idx_depth = Some(resolution.column);
+                    cols.index_resolution = Some(resolution);
                     cols.depth_unit = idx_depth.and_then(|i| curve_units.get(i).cloned().flatten());
+                    let ambiguous: Vec<usize> = curve_units
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, unit)| {
+                            Some(*index) != idx_depth && crate::curves::is_ms_per_ft(unit.as_deref())
+                        })
+                        .map(|(index, _)| index)
+                        .collect();
+                    if let Some(first) = ambiguous.first() {
+                        let Some(meaning) = ms_per_ft_meaning else {
+                            return Err(ParseError::Las(format!(
+                                "{source}: curve {} declares {}; this can mean microseconds per foot or millisiemens per foot, so a per-file user designation is required before commit",
+                                curve_names[*first],
+                                curve_units[*first].as_deref().unwrap_or("MS/FT")
+                            )));
+                        };
+                        cols.unit_designations.extend(ambiguous.iter().map(|index| {
+                            crate::curves::ms_per_ft_designation(
+                                &curve_names[*index],
+                                curve_units[*index].as_deref().unwrap_or("MS/FT"),
+                                meaning,
+                            )
+                        }));
+                    }
                     let alias_sets =
                         [&GR_ALIASES[..], &RES_ALIASES, &NPHI_ALIASES, &RHOB_ALIASES, &DT_ALIASES, &SP_ALIASES];
                     for (k, aliases) in alias_sets.iter().enumerate() {
                         cand[k] = resolve_curve_candidates(&curve_names, aliases);
+                        // Finding D-14 / SB-DIO-027: a density mnemonic carrying PPG must
+                        // not populate the standard RHOB channel. The full-curve reader keeps
+                        // it familyless and reports the rejected vendor entry for designation.
+                        if k == 3 {
+                            cand[k].retain(|index| {
+                                crate::curves::family_for_import(
+                                    &curve_names[*index],
+                                    curve_units[*index].as_deref(),
+                                )
+                                .1
+                                .is_none()
+                            });
+                        }
+                        if k == 4
+                            && ms_per_ft_meaning
+                                == Some(crate::curves::MsPerFtMeaning::MillisiemensPerFoot)
+                        {
+                            cand[k].retain(|index| {
+                                !crate::curves::is_ms_per_ft(curve_units[*index].as_deref())
+                            });
+                        }
                         cand_buf[k] = vec![Vec::new(); cand[k].len()];
                     }
                     indices_resolved = true;
@@ -328,7 +749,14 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                     let row: Vec<f32> = token_buffer.drain(0..expected_per_row).collect();
                     let get = |idx: Option<usize>| -> f32 {
                         idx.and_then(|i| row.get(i).copied())
-                            .map(|v| if is_null_value(v, declared_null) { f32::NAN } else { v })
+                            .map(|v| {
+                                let channel = idx.and_then(|i| curve_names.get(i)).map(String::as_str);
+                                if is_null_value_for_channel(v, declared_null, channel, &resolved_channel_nulls) {
+                                    f32::NAN
+                                } else {
+                                    v
+                                }
+                            })
                             .unwrap_or(f32::NAN)
                     };
 
@@ -362,24 +790,70 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     // broken by alias priority, since we scan in priority order and only replace on strictly
     // greater coverage). This skips all-null placeholder columns in favour of a populated one.
     let n = cols.depth.len();
-    let pick = |cands: &[Vec<f32>]| -> Vec<f32> {
-        let mut best: Option<&Vec<f32>> = None;
+    let pick = |target: &str, indices: &[usize], cands: &[Vec<f32>]| -> (Vec<f32>, Option<AliasDecision>) {
+        let mut best: Option<usize> = None;
         let mut best_finite: i64 = -1;
-        for c in cands {
+        let mut coverages = Vec::with_capacity(cands.len());
+        for (slot, c) in cands.iter().enumerate() {
             let finite = c.iter().filter(|v| !v.is_nan()).count() as i64;
             if finite > best_finite {
                 best_finite = finite;
-                best = Some(c);
+                best = Some(slot);
             }
+            coverages.push(finite as usize);
         }
-        best.cloned().unwrap_or_else(|| vec![f32::NAN; n])
+        let values = best.map(|slot| cands[slot].clone()).unwrap_or_else(|| vec![f32::NAN; n]);
+        let chosen_slot = best;
+        let renamed = chosen_slot.is_some_and(|slot| !curve_names[indices[slot]].eq_ignore_ascii_case(target));
+        let decision = (indices.len() > 1 || renamed).then(|| {
+            let chosen_slot = chosen_slot.expect("a reported alias decision always chooses one");
+            let candidates = indices
+                .iter()
+                .enumerate()
+                .map(|(slot, index)| AliasCandidateCoverage {
+                    mnemonic: curve_names[*index].clone(),
+                    finite_samples: coverages[slot],
+                    chosen: slot == chosen_slot,
+                })
+                .collect();
+            AliasDecision {
+                target: target.to_string(),
+                chosen: curve_names[indices[chosen_slot]].clone(),
+                candidates,
+                table_entry: renamed.then(|| {
+                    format!(
+                        "{}_ALIASES: {} -> {}",
+                        target,
+                        curve_names[indices[chosen_slot]],
+                        target
+                    )
+                }),
+            }
+        });
+        (values, decision)
     };
-    cols.gr = pick(&cand_buf[0]);
-    cols.res = pick(&cand_buf[1]);
-    cols.nphi = pick(&cand_buf[2]);
-    cols.rhob = pick(&cand_buf[3]);
-    cols.dt = pick(&cand_buf[4]);
-    cols.sp = pick(&cand_buf[5]);
+    let targets = ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
+    let mut picked = Vec::with_capacity(6);
+    for k in 0..6 {
+        let (values, decision) = pick(targets[k], &cand[k], &cand_buf[k]);
+        picked.push(values);
+        if let Some(decision) = decision {
+            cols.alias_decisions.push(decision);
+        }
+    }
+    cols.gr = picked.remove(0);
+    cols.res = picked.remove(0);
+    cols.nphi = picked.remove(0);
+    cols.rhob = picked.remove(0);
+    cols.dt = picked.remove(0);
+    cols.sp = picked.remove(0);
+    cols.declared_step = declared_step;
+    cols.unread_sections = if las_version_is_3(las_version.as_deref()) {
+        encountered_unread_sections
+    } else {
+        Vec::new()
+    };
+    cols.las_version = las_version;
 
     Ok(cols)
 }
@@ -400,6 +874,124 @@ impl DepthSanitizeReport {
     pub fn is_clean(&self) -> bool {
         self.total() == 0
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DuplicateDepthPolicy {
+    KeepFirst,
+    KeepLast,
+    Mean,
+    Refuse,
+}
+
+impl DuplicateDepthPolicy {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::KeepFirst => "keep-first",
+            Self::KeepLast => "keep-last",
+            Self::Mean => "mean",
+            Self::Refuse => "refuse",
+        }
+    }
+}
+
+fn finite_depth_key(depth: f32) -> Option<u32> {
+    depth.is_finite().then_some(if depth == 0.0 { 0 } else { depth.to_bits() })
+}
+
+pub fn duplicate_depth_count(depth: &[f32]) -> usize {
+    let mut seen = std::collections::HashSet::with_capacity(depth.len());
+    depth
+        .iter()
+        .filter_map(|depth| finite_depth_key(*depth))
+        .filter(|key| !seen.insert(*key))
+        .count()
+}
+
+fn resolve_duplicate_rows(
+    depth: &[f32],
+    columns: &[&[f32]],
+    policy: DuplicateDepthPolicy,
+) -> (Vec<f32>, Vec<Vec<f32>>, usize) {
+    let mut group_by_depth = std::collections::HashMap::<u32, usize>::new();
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (row, value) in depth.iter().copied().enumerate() {
+        let group = finite_depth_key(value).and_then(|key| group_by_depth.get(&key).copied());
+        if let Some(group) = group {
+            groups[group].push(row);
+        } else {
+            let group = groups.len();
+            groups.push(vec![row]);
+            if let Some(key) = finite_depth_key(value) {
+                group_by_depth.insert(key, group);
+            }
+        }
+    }
+    let duplicates = groups.iter().map(|rows| rows.len().saturating_sub(1)).sum();
+    let resolved_depth: Vec<f32> = groups.iter().map(|rows| depth[rows[0]]).collect();
+    let resolved_columns = columns
+        .iter()
+        .map(|column| {
+            groups
+                .iter()
+                .map(|rows| match policy {
+                    DuplicateDepthPolicy::KeepFirst => column.get(rows[0]).copied().unwrap_or(f32::NAN),
+                    DuplicateDepthPolicy::KeepLast => {
+                        column.get(*rows.last().expect("every group has a row")).copied().unwrap_or(f32::NAN)
+                    }
+                    DuplicateDepthPolicy::Mean => {
+                        let values: Vec<f32> = rows
+                            .iter()
+                            .filter_map(|row| column.get(*row).copied())
+                            .filter(|value| value.is_finite())
+                            .collect();
+                        if values.is_empty() {
+                            f32::NAN
+                        } else {
+                            values.iter().sum::<f32>() / values.len() as f32
+                        }
+                    }
+                    DuplicateDepthPolicy::Refuse => unreachable!("refuse is handled before resolution"),
+                })
+                .collect()
+        })
+        .collect();
+    (resolved_depth, resolved_columns, duplicates)
+}
+
+pub fn resolve_curve_column_duplicates(
+    columns: &mut CurveColumns,
+    policy: DuplicateDepthPolicy,
+) -> usize {
+    let companions: [&[f32]; 6] = [
+        &columns.gr,
+        &columns.res,
+        &columns.nphi,
+        &columns.rhob,
+        &columns.dt,
+        &columns.sp,
+    ];
+    let (depth, mut resolved, duplicates) =
+        resolve_duplicate_rows(&columns.depth, &companions, policy);
+    columns.depth = depth;
+    columns.gr = resolved.remove(0);
+    columns.res = resolved.remove(0);
+    columns.nphi = resolved.remove(0);
+    columns.rhob = resolved.remove(0);
+    columns.dt = resolved.remove(0);
+    columns.sp = resolved.remove(0);
+    duplicates
+}
+
+pub fn resolve_las_frame_duplicates(frame: &mut LasFrame, policy: DuplicateDepthPolicy) -> usize {
+    let companions: Vec<&[f32]> = frame.curves.iter().map(|curve| curve.values.as_slice()).collect();
+    let (depth, resolved, duplicates) = resolve_duplicate_rows(&frame.depth, &companions, policy);
+    frame.depth = depth;
+    for (curve, values) in frame.curves.iter_mut().zip(resolved) {
+        curve.values = values;
+    }
+    duplicates
 }
 
 /// Row indices to keep so a depth column can satisfy a `(…, depth)` PRIMARY KEY: drops
@@ -475,6 +1067,10 @@ pub struct RawLasCurve {
 /// it's the shared index every other curve is sampled against.
 #[derive(Debug, Clone, Default)]
 pub struct LasFrame {
+    /// Declared LAS version, e.g. `2.0` or `3.0`.
+    pub las_version: Option<String>,
+    /// Section headers present in a LAS 3.0 delivery that this release did not consume.
+    pub unread_sections: Vec<String>,
     // depth_mnemonic/depth_unit feed the Phase 6c TVD-scale + well-header UI (is the file's
     // index depth in metres or feet?); captured now with the rest of the frame.
     #[allow(dead_code)]
@@ -486,6 +1082,7 @@ pub struct LasFrame {
     pub depth_unit: Option<String>,
     pub depth: Vec<f32>,
     pub curves: Vec<RawLasCurve>,
+    pub index_resolution: Option<IndexResolution>,
 }
 
 /// Applies the same depth sanitation as [`sanitize_curve_columns`] to a full [`LasFrame`]:
@@ -507,11 +1104,27 @@ pub fn sanitize_las_frame(frame: &mut LasFrame) -> DepthSanitizeReport {
     report
 }
 
-/// Parses a LAS 2.0 file keeping **all** curves (mnemonic + unit + values), streaming the
-/// same way as `parse_las_2` but without collapsing to the fixed standard set. The first
-/// column recognized as depth (by `DEPTH_ALIASES`, else column 0) becomes the shared
-/// index; every other column is returned as its own `RawLasCurve`.
+/// Parses a LAS log array keeping **all** curves (mnemonic + unit + values), streaming the
+/// same way as `parse_las_2` but without collapsing to the fixed standard set. LAS's
+/// positionally guaranteed first column becomes the shared index; every other column is
+/// returned as its own `RawLasCurve`.
+#[allow(dead_code)] // compatibility entry point for tests/callers with no channel override
 pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
+    parse_las_2_all_with_channel_nulls(path, &ChannelNullValues::new())
+}
+
+pub fn parse_las_2_all_with_channel_nulls<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+) -> ParseResult<LasFrame> {
+    parse_las_2_all_with_null_rules(path, channel_nulls, &[])
+}
+
+pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
+    path: P,
+    channel_nulls: &ChannelNullValues,
+    null_rules: &[NullExceptionRule],
+) -> ParseResult<LasFrame> {
     let source = path.as_ref().display().to_string();
     let text = read_text_file(path.as_ref())?;
 
@@ -521,11 +1134,15 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     // One value column per curve, filled in ~A order.
     let mut columns: Vec<Vec<f32>> = Vec::new();
     let mut idx_depth: Option<usize> = None;
+    let mut index_resolution: Option<IndexResolution> = None;
     let mut indices_resolved = false;
     let mut token_buffer: Vec<f32> = Vec::new();
     let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
     let mut wrapped = false;
+    let mut resolved_channel_nulls = channel_nulls.clone();
+    let mut las_version: Option<String> = None;
+    let mut encountered_unread_sections = Vec::new();
 
     for (line_index, line) in text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -534,17 +1151,20 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
             continue;
         }
         if trimmed.starts_with('~') {
-            section = match trimmed.chars().nth(1).map(|c| c.to_ascii_uppercase()) {
-                Some('W') => LasSection::WellBlock,
-                Some('C') => LasSection::CurveBlock,
-                Some('A') => LasSection::AsciiData,
-                _ => LasSection::Header,
-            };
+            let name = las_section_header(trimmed).unwrap_or("");
+            section = classify_las_section(name).unwrap_or_else(|| {
+                record_unread_section(&mut encountered_unread_sections, name);
+                LasSection::Header
+            });
             continue;
         }
 
         match section {
-            LasSection::Header => {
+            LasSection::Header => continue,
+            LasSection::VersionBlock => {
+                if let Some(version) = parse_las_version_line(trimmed) {
+                    las_version = Some(version);
+                }
                 if let Some(value) = parse_wrap_line(trimmed) {
                     wrapped = value;
                 }
@@ -579,7 +1199,22 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                     continue;
                 }
                 if !indices_resolved {
-                    idx_depth = resolve_curve_index(&curve_names, &DEPTH_ALIASES).or(Some(0));
+                    resolved_channel_nulls = merge_null_configuration(
+                        channel_nulls,
+                        &curve_names,
+                        null_rules,
+                    )
+                    .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
+                    let resolution = resolve_index_column(
+                        &curve_names,
+                        None,
+                        &DEPTH_ALIASES,
+                        Some(0),
+                        None,
+                    )
+                    .map_err(|error| ParseError::Las(format!("{source}: {error}")))?;
+                    idx_depth = Some(resolution.column);
+                    index_resolution = Some(resolution);
                     columns = vec![Vec::new(); curve_names.len()];
                     indices_resolved = true;
                 }
@@ -605,7 +1240,17 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                 while token_buffer.len() >= expected_per_row {
                     let row: Vec<f32> = token_buffer.drain(0..expected_per_row).collect();
                     for (i, raw) in row.iter().enumerate() {
-                        let v = if is_null_value(*raw, declared_null) { f32::NAN } else { *raw };
+                        let channel = curve_names.get(i).map(String::as_str);
+                        let v = if is_null_value_for_channel(
+                            *raw,
+                            declared_null,
+                            channel,
+                            &resolved_channel_nulls,
+                        ) {
+                            f32::NAN
+                        } else {
+                            *raw
+                        };
                         columns[i].push(v);
                     }
                     if token_buffer.is_empty() {
@@ -634,10 +1279,17 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     }
 
     let mut frame = LasFrame {
+        las_version: las_version.clone(),
+        unread_sections: if las_version_is_3(las_version.as_deref()) {
+            encountered_unread_sections
+        } else {
+            Vec::new()
+        },
         depth_mnemonic: curve_names[depth_idx].clone(),
         depth_unit: curve_units[depth_idx].clone(),
         depth: columns.get(depth_idx).cloned().unwrap_or_default(),
         curves: Vec::new(),
+        index_resolution,
     };
     for i in 0..curve_names.len() {
         if i == depth_idx {
@@ -665,7 +1317,9 @@ pub fn extract_well_name<P: AsRef<Path>>(path: P) -> ParseResult<String> {
             continue;
         }
         if trimmed.starts_with('~') {
-            in_well_block = trimmed.chars().nth(1).map(|c| c.to_ascii_uppercase()) == Some('W');
+            in_well_block = las_section_header(trimmed)
+                .and_then(classify_las_section)
+                == Some(LasSection::WellBlock);
             continue;
         }
         let upper = trimmed.to_uppercase();
@@ -702,8 +1356,11 @@ pub struct CoreColumns {
     pub cperm: Vec<f32>,
     pub cgd: Vec<f32>,
     pub csw: Vec<f32>,
+    pub index_resolution: Option<IndexResolution>,
 }
 
+// Source: `docs/PRD_v2/21_data-io.md` §5.3, core-table path. Unlike LAS, a
+// core table has no positional guarantee, and MD is unambiguous in this namespace.
 const CORE_DEPTH_ALIASES: [&str; 3] = ["DEPTH", "DEPT", "MD"];
 const CORE_CPOR_ALIASES: [&str; 7] = ["CPOR", "CORE_POR", "PHI_CORE", "CPHI", "POROSITY", "PORO", "POR"];
 const CORE_CPERM_ALIASES: [&str; 8] = ["CPERM", "CORE_PERM", "KAIR", "KL", "KH", "PERMEABILITY", "PERM", "K"];
@@ -747,19 +1404,34 @@ fn percent_to_fraction(vals: &mut [f32]) {
 /// don't line up with the log's standard depth grid are expected and fine: core data is
 /// stored and fetched independently, not aligned onto `standard_curves`.
 pub fn parse_core_csv<P: AsRef<Path>>(path: P) -> ParseResult<CoreColumns> {
+    parse_core_csv_with_depth_column(path, None)
+}
+
+pub fn parse_core_csv_with_depth_column<P: AsRef<Path>>(
+    path: P,
+    designated_depth_column: Option<usize>,
+) -> ParseResult<CoreColumns> {
     let text = read_text_file(path)?;
     let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(text.as_bytes());
 
     let headers: Vec<String> =
         rdr.headers()?.iter().map(|h| h.trim().to_uppercase()).collect();
-    let idx_depth = resolve_header_index(&headers, &CORE_DEPTH_ALIASES)
-        .ok_or_else(|| ParseError::Las("core CSV has no recognizable DEPTH column".into()))?;
+    let index_resolution = resolve_index_column(
+        &headers,
+        None,
+        &CORE_DEPTH_ALIASES,
+        None,
+        designated_depth_column,
+    )
+    .map_err(|error| ParseError::Las(format!("core CSV: {error}")))?;
+    let idx_depth = index_resolution.column;
     let idx_cpor = resolve_header_index(&headers, &CORE_CPOR_ALIASES);
     let idx_cperm = resolve_header_index(&headers, &CORE_CPERM_ALIASES);
     let idx_cgd = resolve_header_index(&headers, &CORE_CGD_ALIASES);
     let idx_csw = resolve_header_index(&headers, &CORE_CSW_ALIASES);
 
     let mut cols = CoreColumns::default();
+    cols.index_resolution = Some(index_resolution);
     for result in rdr.records() {
         let record = result?;
         let get = |idx: Option<usize>| -> f32 {
@@ -1276,6 +1948,43 @@ mod core_csv_tests {
         assert!((cols.cgd[0] - 2.65).abs() < 1e-6);
     }
 
+    /// SB-DIO-013, `docs/record_data_tools.md` and `21_data-io.md` §5.3: the
+    /// named depth column carries its unit as a boundary-qualified header; position alone
+    /// remains insufficient when no approved alias is present.
+    #[test]
+    fn unit_qualified_and_bare_depth_aliases_resolve_while_an_unrelated_column_is_not_guessed() {
+        for (case, header) in [
+            ("metres", "Depth (m)"),
+            ("feet", "DEPTH (FT)"),
+            ("bare", "DEPTH"),
+        ] {
+            let path = write_temp_csv(
+                &format!("sandibumi_depth_alias_{case}.csv"),
+                &format!("SAMPLE,{header},CPOR\n1,2001.5,0.225\n"),
+            );
+            let columns = parse_core_csv(&path).unwrap_or_else(|error| {
+                panic!("{header} must resolve as a named depth alias: {error}")
+            });
+            std::fs::remove_file(&path).ok();
+            let resolution = columns.index_resolution.expect("the chosen index must be reported");
+            assert_eq!(resolution.column, 1, "{header} is the second column, not a positional default");
+            assert_eq!(resolution.mnemonic, header.to_uppercase());
+            assert_eq!(resolution.mechanism, IndexResolutionMechanism::NameAlias);
+            assert_eq!(columns.depth, vec![2001.5]);
+        }
+
+        let path = write_temp_csv(
+            "sandibumi_depth_alias_unrelated.csv",
+            "SAMPLE,MEASURE,CPOR\n1,2001.5,0.225\n",
+        );
+        let error = parse_core_csv(&path).expect_err("an unrelated second column must not be guessed");
+        std::fs::remove_file(&path).ok();
+        assert!(
+            error.to_string().contains("user designation is required"),
+            "the refusal must preserve the explicit-designation contract: {error}"
+        );
+    }
+
     #[test]
     fn core_csv_fraction_input_left_alone() {
         let path = write_temp_csv(
@@ -1669,8 +2378,11 @@ const TOPS_WELL_ALIASES: [&str; 8] =
     ["WELL", "WELLNAME", "WELL_NAME", "WELLBORE", "BOREHOLE", "UWI", "WELL_ID", "WN"];
 const TOPS_NAME_ALIASES: [&str; 9] =
     ["TOP", "TOP_NAME", "TOPS", "MARKER", "SURFACE", "FORMATION", "HORIZON", "ZONE", "NAME"];
-const TOPS_DEPTH_ALIASES: [&str; 7] =
-    ["DEPTH", "MD", "TOP_MD", "MD_TOP", "TOP_DEPTH", "DEPT", "TVD"];
+// Source: `docs/PRD_v2/21_data-io.md` §5.3. MD-like tops labels are one
+// namespace; Geolog `alias.alias:891` places TVD under `# aliases for welltie`,
+// not the reference namespace, so it remains resolvable only through its own list.
+const TOPS_MD_ALIASES: [&str; 6] = ["DEPTH", "MD", "TOP_MD", "MD_TOP", "TOP_DEPTH", "DEPT"];
+const TOPS_TVD_ALIASES: [&str; 1] = ["TVD"];
 
 /// Reads a delimited text file into (headers, rows), auto-detecting the delimiter from
 /// the first non-comment line: tab, then semicolon, then comma, else runs of whitespace.
@@ -1741,7 +2453,8 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRe
 
     // Depth resolves FIRST and is excluded from the name search — otherwise a header
     // like "TOP_MD" would satisfy the name alias "TOP" (boundary rule allows '_').
-    let idx_depth = resolve_header_index(&headers, &TOPS_DEPTH_ALIASES);
+    let idx_depth = resolve_header_index(&headers, &TOPS_MD_ALIASES)
+        .or_else(|| resolve_header_index(&headers, &TOPS_TVD_ALIASES));
     let idx_name = TOPS_NAME_ALIASES.iter().find_map(|alias| {
         headers
             .iter()
@@ -1967,6 +2680,50 @@ pub struct WellRowCount {
     pub rows: usize,
 }
 
+/// A write-boundary precision declaration. `values_reduced` counts only finite numeric
+/// values whose destination representation differs from the source representation; an
+/// exactly representable value must not be reported as truncated merely because the two
+/// sides use different types or formats.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SamplePrecisionReport {
+    pub source_precision: String,
+    pub destination_precision: String,
+    pub reduced: bool,
+    pub values_reduced: usize,
+}
+
+impl SamplePrecisionReport {
+    pub fn new(source_precision: &str, destination_precision: &str, values_reduced: usize) -> Self {
+        Self {
+            source_precision: source_precision.to_string(),
+            destination_precision: destination_precision.to_string(),
+            reduced: values_reduced > 0,
+            values_reduced,
+        }
+    }
+
+}
+
+/// Core-table numeric text is first interpreted as f64, then deliberately narrowed to
+/// the repository's cited f32 sample storage. Returning the comparison beside the value
+/// makes the narrowing inspectable instead of letting `parse::<f32>()` hide it.
+pub(crate) fn parse_numeric_text_to_f32(raw: &str) -> Option<(f32, bool)> {
+    let source = raw.trim().replace(',', ".").parse::<f64>().ok()?;
+    let stored = source as f32;
+    Some((stored, source.is_finite() && stored as f64 != source))
+}
+
+fn mapped_numeric_cell(row: &[String], col: Option<usize>, reduced_values: &mut usize) -> f32 {
+    col.and_then(|c| row.get(c))
+        .filter(|c| !c.trim().is_empty())
+        .and_then(|c| parse_numeric_text_to_f32(c))
+        .map(|(stored, reduced)| {
+            *reduced_values += usize::from(reduced);
+            stored
+        })
+        .unwrap_or(f32::NAN)
+}
+
 /// Everything the import dialog shows before anything is written.
 #[derive(Debug, Clone, Serialize)]
 pub struct TableProbe {
@@ -2148,6 +2905,7 @@ pub struct MappedCoreRow {
 pub struct MappedCoreTable {
     pub rows: Vec<MappedCoreRow>,
     pub extra_names: Vec<String>,
+    pub precision_reduced_values: usize,
 }
 
 /// Extracts core rows under the dialog-confirmed `mapping`. The units row (when present)
@@ -2171,13 +2929,7 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
         rows.remove(0);
     }
 
-    let cell = |row: &Vec<String>, col: Option<usize>| -> f32 {
-        col.and_then(|c| row.get(c))
-            .map(|c| c.trim().replace(',', "."))
-            .filter(|c| !c.is_empty())
-            .and_then(|c| c.parse::<f32>().ok())
-            .unwrap_or(f32::NAN)
-    };
+    let mut precision_reduced_values = 0usize;
     // Extra columns out of range for THIS file are dropped (multi-file imports confirm the
     // mapping by header name, so a file that simply lacks a column must not abort).
     let extras: Vec<usize> = mapping.extras.iter().copied().filter(|&c| c < headers.len()).collect();
@@ -2185,10 +2937,24 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
 
     let mut out: Vec<MappedCoreRow> = Vec::new();
     for row in &rows {
-        let depth = cell(row, Some(mapping.depth));
+        let depth = mapped_numeric_cell(row, Some(mapping.depth), &mut precision_reduced_values);
         if !depth.is_finite() {
             continue;
         }
+        let cpor = mapped_numeric_cell(row, mapping.cpor, &mut precision_reduced_values);
+        let cperm = mapped_numeric_cell(row, mapping.cperm, &mut precision_reduced_values);
+        let cgd = mapped_numeric_cell(row, mapping.cgd, &mut precision_reduced_values);
+        let csw = mapped_numeric_cell(row, mapping.csw, &mut precision_reduced_values);
+        let extra_cells = extras
+            .iter()
+            .map(|&c| {
+                row.get(c).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).inspect(|raw| {
+                    if parse_numeric_text_to_f32(raw).is_some_and(|(_, reduced)| reduced) {
+                        precision_reduced_values += 1;
+                    }
+                })
+            })
+            .collect();
         let well = mapping
             .well
             .and_then(|c| row.get(c))
@@ -2197,14 +2963,11 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
         out.push(MappedCoreRow {
             well,
             depth,
-            cpor: cell(row, mapping.cpor),
-            cperm: cell(row, mapping.cperm),
-            cgd: cell(row, mapping.cgd),
-            csw: cell(row, mapping.csw),
-            extras: extras
-                .iter()
-                .map(|&c| row.get(c).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
-                .collect(),
+            cpor,
+            cperm,
+            cgd,
+            csw,
+            extras: extra_cells,
         });
     }
     // File-wide percent→fraction on porosity and saturation (same heuristic and scope as
@@ -2218,7 +2981,7 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
         r.cpor = p;
         r.csw = s;
     }
-    Ok(MappedCoreTable { rows: out, extra_names })
+    Ok(MappedCoreTable { rows: out, extra_names, precision_reduced_values })
 }
 
 #[cfg(test)]
@@ -2435,7 +3198,11 @@ mod las_depth_tests {
     fn cols_from(depth: Vec<f32>) -> CurveColumns {
         let seq: Vec<f32> = (0..depth.len()).map(|i| i as f32).collect();
         CurveColumns {
+            las_version: None,
+            unread_sections: Vec::new(),
+            text_encoding: "test fixture".into(),
             depth_unit: None,
+            declared_step: None,
             depth,
             gr: seq.clone(),
             res: seq.clone(),
@@ -2443,6 +3210,9 @@ mod las_depth_tests {
             rhob: seq.clone(),
             dt: seq.clone(),
             sp: seq,
+            alias_decisions: Vec::new(),
+            index_resolution: None,
+            unit_designations: Vec::new(),
         }
     }
 
@@ -2464,6 +3234,84 @@ mod las_depth_tests {
         std::fs::remove_file(&p).ok();
         assert!(cols.gr[0].is_nan(), "a declared near-sentinel becomes the internal absent value");
         assert_eq!(cols.gr[1], -12344.0, "recognition must not rewrite a surviving value to another sentinel");
+    }
+
+    /// SB-DIO-005 / SB-DIO-T09. `-999`, `-999.25` and `-32767` are the cited
+    /// per-channel conventions in `docs/PRD_v2/21_data-io.md` §5.2.
+    #[test]
+    fn two_channels_with_different_plural_nulls_are_screened_against_their_own_values_only() {
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. NULLS :\n\
+                    ~CURVE\nDEPT.M :\nA.UNIT :\nB.UNIT :\n~ASCII\n\
+                    1000.0 -999 -999\n1000.5 -999.25 -999.25\n1001.0 -32767 -32767\n";
+        let path = temp("sandibumi_per_channel_plural_nulls.las", body);
+        let channel_nulls = ChannelNullValues::from([
+            ("A".into(), ChannelNullMode::Values(vec![-999.0, -999.25])),
+            ("B".into(), ChannelNullMode::Values(vec![-32767.0])),
+        ]);
+        let frame = parse_las_2_all_with_channel_nulls(&path, &channel_nulls).unwrap();
+        std::fs::remove_file(&path).ok();
+        let a = &frame.curves.iter().find(|curve| curve.mnemonic == "A").unwrap().values;
+        let b = &frame.curves.iter().find(|curve| curve.mnemonic == "B").unwrap().values;
+
+        assert!(a[0].is_nan() && a[1].is_nan(), "both nulls declared for A are active");
+        assert_eq!(a[2], -32767.0, "B's null remains a real value on A");
+        assert_eq!(b[0], -999.0, "A's first null remains a real value on B");
+        assert_eq!(b[1], -999.25, "A's second and the LAS-global null remain real on overridden B");
+        assert!(b[2].is_nan(), "B's own null is screened");
+    }
+
+    /// SB-DIO-006 / SB-DIO-T10. The six-name Weatherford CXD shape and its explicit
+    /// no-null declaration are cited in `docs/PRD_v2/21_data-io.md` §5.2.
+    #[test]
+    fn one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset() {
+        let names: Vec<String> = ["WF1I", "WF2I", "WF3T", "WF4T", "WF5R", "WF6R"]
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+        let rule = NullExceptionRule {
+            names: names.iter().map(|name| format!("^{name}$")).collect(),
+            nulls: ChannelNullMode::NoNull(NoNullMarker::NoNull),
+        };
+        let mut channels = names.clone();
+        channels.push("OTHER".into());
+        let resolved = resolve_null_exception_rules(&channels, &[rule.clone()]).unwrap();
+        assert_eq!(resolved.len(), 6, "none of the six patterns may be dropped");
+        assert!(names.iter().all(|name| matches!(
+            resolved.get(name),
+            Some(ChannelNullMode::NoNull(NoNullMarker::NoNull))
+        )));
+        assert!(!resolved.contains_key("OTHER"));
+
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. NO-NULL :\n\
+                    ~CURVE\nDEPT.M :\nWF1I.UNIT :\n~ASCII\n1000.0 -999.25\n";
+        let path = temp("sandibumi_many_to_many_no_null.las", body);
+        let screened = parse_las_2_all(&path).unwrap();
+        assert!(screened.curves[0].values[0].is_nan(), "unset uses normal LAS screening");
+        let excepted = parse_las_2_all_with_null_rules(&path, &ChannelNullValues::new(), &[rule]).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(
+            excepted.curves[0].values[0],
+            -999.25,
+            "NoNull is explicit and preserves the genuine amplitude"
+        );
+    }
+
+    /// SB-DIO-011 / SB-DIO-T17. The three path-specific lists and Geolog's
+    /// separate reference/welltie namespaces are cited in chapter §5.3.
+    #[test]
+    fn every_index_alias_list_cites_one_source_and_tvd_is_not_in_an_md_namespace() {
+        let source = include_str!("parsers.rs");
+        for declaration in [
+            "Source: `docs/PRD_v2/21_data-io.md` §5.3, LAS-path aliases",
+            "Source: `docs/PRD_v2/21_data-io.md` §5.3, core-table path",
+            "Source: `docs/PRD_v2/21_data-io.md` §5.3. MD-like tops labels",
+        ] {
+            assert!(source.contains(declaration), "missing source comment: {declaration}");
+        }
+        assert!(!DEPTH_ALIASES.contains(&"TVD"));
+        assert!(!CORE_DEPTH_ALIASES.contains(&"TVD"));
+        assert!(!TOPS_MD_ALIASES.contains(&"TVD"));
+        assert_eq!(TOPS_TVD_ALIASES, ["TVD"], "TVD stays supported in its own namespace");
     }
 
     #[test]

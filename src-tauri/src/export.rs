@@ -1,30 +1,141 @@
 //! LAS 2.0 export: one well's standard + computed curves on the standard depth grid.
-//! NaN (missing) writes as the conventional -999.25 null value.
+//! NaN (missing) writes as the project's declared export sentinel.
 
 use crate::equations::fetch_curve_frame;
 use duckdb::{params, Connection};
 use sha2::{Digest, Sha256};
 use std::io::{BufWriter, Write};
 
-const NULL_VALUE: f32 = -999.25;
+/// CWLS-conventional LAS null, cited in `docs/PRD_v2/21_data-io.md` §5.2. It is the
+/// project default, not a writer-owned constant: every registered writer receives the
+/// project's resolved setting through [`WriterSettings`].
+pub const DEFAULT_NULL_SENTINEL: f32 = -999.25;
 
-/// Standard curve units, mirroring the catalog; computed curves pull units from the
-/// equation that produced them (blank when unknown).
-fn standard_units(name: &str) -> &'static str {
-    match name {
-        "GR" => "GAPI",
-        "RES_DEEP" => "OHMM",
-        "NPHI" => "V/V",
-        "RHOB" => "G/C3",
-        "DT" => "US/F",
-        "SP" => "MV",
-        _ => "",
+const SETTINGS_DOC_TYPE: &str = "settings";
+const SETTINGS_DOC_NAME: &str = "data-io";
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct DataIoSettings {
+    null_sentinel: f32,
+}
+
+/// Required context for every data writer. The registry function type takes this value
+/// by value and not as an `Option`, so a writer that omits the sentinel cannot register.
+#[derive(Debug, Clone, Copy)]
+struct WriterSettings {
+    null_sentinel: f32,
+}
+
+type WriterFn = fn(&Connection, &str, &str, WriterSettings) -> Result<LasExportResult, String>;
+type SelfReaderFn = fn(&Connection, &str, &LasExportResult) -> Result<(), String>;
+
+#[derive(Debug, Clone, Copy)]
+enum SentinelSupport {
+    Honours,
+    #[allow(dead_code)] // no incapable format ships yet; registration still has to declare the case
+    Incapable(&'static str),
+}
+
+struct RegisteredWriter {
+    id: &'static str,
+    label: &'static str,
+    extension: &'static str,
+    is_default: bool,
+    sentinel_support: SentinelSupport,
+    write: WriterFn,
+    self_read: SelfReaderFn,
+}
+
+const REGISTERED_WRITERS: &[RegisteredWriter] = &[RegisteredWriter {
+    id: "las-2.0",
+    label: "LAS 2.0",
+    extension: "las",
+    is_default: true,
+    sentinel_support: SentinelSupport::Honours,
+    write: write_las,
+    self_read: validate_las_output,
+}];
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExportFormatInfo {
+    pub id: String,
+    pub label: String,
+    pub extension: String,
+    pub is_default: bool,
+    pub honours_project_sentinel: bool,
+    /// Present for a format that cannot honour the project sentinel. A format picker
+    /// displays this instead of presenting the format as equivalent to a capable one.
+    pub sentinel_limitation: Option<String>,
+}
+
+fn format_info(writer: &RegisteredWriter) -> ExportFormatInfo {
+    let (honours_project_sentinel, sentinel_limitation) = match writer.sentinel_support {
+        SentinelSupport::Honours => (true, None),
+        SentinelSupport::Incapable(reason) => (false, Some(reason.to_string())),
+    };
+    ExportFormatInfo {
+        id: writer.id.to_string(),
+        label: writer.label.to_string(),
+        extension: writer.extension.to_string(),
+        is_default: writer.is_default,
+        honours_project_sentinel,
+        sentinel_limitation,
     }
+}
+
+pub fn export_formats() -> Vec<ExportFormatInfo> {
+    REGISTERED_WRITERS.iter().map(format_info).collect()
+}
+
+fn default_writer() -> Result<&'static RegisteredWriter, String> {
+    let writer = REGISTERED_WRITERS
+        .iter()
+        .find(|writer| writer.is_default)
+        .ok_or_else(|| "no default data export format is registered".to_string())?;
+    match writer.sentinel_support {
+        SentinelSupport::Honours => Ok(writer),
+        SentinelSupport::Incapable(reason) => Err(format!(
+            "the default export format '{}' cannot honour the project sentinel: {reason}",
+            writer.label
+        )),
+    }
+}
+
+/// The project's one declared export sentinel. Older projects have no data-I/O settings
+/// document and therefore resolve to the cited CWLS convention.
+pub fn project_null_sentinel(conn: &Connection) -> Result<f32, String> {
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT json FROM documents WHERE doc_type = ?1 AND name = ?2",
+            params![SETTINGS_DOC_TYPE, SETTINGS_DOC_NAME],
+            |row| row.get(0),
+        )
+        .ok();
+    let Some(json) = json else { return Ok(DEFAULT_NULL_SENTINEL) };
+    let settings: DataIoSettings = serde_json::from_str(&json)
+        .map_err(|e| format!("invalid project data-I/O settings: {e}"))?;
+    if !settings.null_sentinel.is_finite() {
+        return Err("the project export sentinel must be finite".into());
+    }
+    Ok(settings.null_sentinel)
+}
+
+/// Sets the project-wide export sentinel through the existing whitelisted document writer.
+pub fn set_project_null_sentinel(conn: &Connection, null_sentinel: f32) -> Result<(), String> {
+    if !null_sentinel.is_finite() {
+        return Err("the project export sentinel must be finite".into());
+    }
+    let json = serde_json::to_string(&DataIoSettings { null_sentinel }).map_err(|e| e.to_string())?;
+    crate::db::save_document(conn, SETTINGS_DOC_TYPE, SETTINGS_DOC_NAME, &json)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 const PROVENANCE_PREFIX: &str = "SANDIBUMI_PROVENANCE_V1 ";
 const MODEL_PROVENANCE_PREFIX: &str = "SANDIBUMI_MODEL_PROVENANCE_V1 ";
 const OMISSION_PREFIX: &str = "SANDIBUMI_OMISSION_V1 ";
+const PRECISION_PREFIX: &str = "SANDIBUMI_PRECISION_V1 ";
+const CURVE_STATE_PREFIX: &str = "SANDIBUMI_CURVE_STATE_V1 ";
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LasOmission {
@@ -33,11 +144,41 @@ pub struct LasOmission {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct LasCurveState {
+    /// Mnemonic written into this LAS. It may carry a `_FINAL`/`_WORKING` suffix when
+    /// two generic sets hold the same source mnemonic and both must remain addressable.
+    pub export_curve: String,
+    pub source_curve: String,
+    pub set_name: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct LasExportResult {
     pub rows: usize,
     pub curves_written: usize,
     pub curves_held: usize,
     pub omitted: Vec<LasOmission>,
+    pub curve_states: Vec<LasCurveState>,
+    /// LAS text is currently written at four decimal places. This report declares that
+    /// boundary and counts the stored f32 values whose written representation changes.
+    pub precision: crate::parsers::SamplePrecisionReport,
+    /// True only after the registered reader accepted the completed file and its declared
+    /// depth unit, row count, and curve count matched what the writer says it emitted.
+    pub self_checked: bool,
+}
+
+fn fixed_decimal_4_reduces(value: f32) -> bool {
+    value.is_finite()
+        && format!("{value:.4}")
+            .parse::<f32>()
+            .is_ok_and(|written| written != value)
+}
+
+/// `curve_meta` declares FINAL as the QC'd delivery set; RAW, EDIT and other named
+/// import/work sets have not been designated final.
+fn curve_state_for_set(set_name: &str) -> &'static str {
+    if set_name.trim().eq_ignore_ascii_case("FINAL") { "final" } else { "working" }
 }
 
 fn collect_model_ids(value: &serde_json::Value, out: &mut Vec<String>) {
@@ -138,6 +279,7 @@ fn provenance_lines(
                 .map_err(|e| format!("computed curve '{name}' has invalid input JSON: {e}"))?,
             _ => serde_json::Value::Array(Vec::new()),
         };
+        let state = curve_state_for_set(&set_name);
         lines.push(format!(
             "{PROVENANCE_PREFIX}{}",
             serde_json::json!({
@@ -149,6 +291,7 @@ fn provenance_lines(
                 "log_set": set_name,
                 "version": version,
                 "run_date": created_at,
+                "state": state,
             })
         ));
 
@@ -194,7 +337,7 @@ fn add_generic_curves(
     curve_names: &mut Vec<String>,
     units: &mut Vec<String>,
     columns: &mut std::collections::HashMap<String, Vec<f32>>,
-) -> Result<(usize, Vec<LasOmission>), String> {
+) -> Result<(usize, Vec<LasOmission>, Vec<LasCurveState>), String> {
     let mut stmt = conn
         .prepare(
             "SELECT curve_id, upper(mnemonic), COALESCE(unit, ''), set_name, run_no
@@ -217,6 +360,8 @@ fn add_generic_curves(
         .prepare("SELECT depth, value FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
         .map_err(|e| e.to_string())?;
     let mut omitted = Vec::new();
+    let mut curve_states = Vec::new();
+    let mut first_generic_state = std::collections::HashMap::<String, String>::new();
 
     for (curve_id, mnemonic, unit, set_name, run_no) in metas {
         let label = match run_no {
@@ -228,11 +373,29 @@ fn add_generic_curves(
             omitted.push(omit("the well index is already written as the LAS DEPT column"));
             continue;
         }
+        let state = curve_state_for_set(&set_name);
+        let mut export_mnemonic = mnemonic.clone();
         if curve_names.iter().any(|name| name.eq_ignore_ascii_case(&mnemonic)) {
-            omitted.push(omit(
-                "that LAS mnemonic is already written from another held standard, computed, set or run curve",
-            ));
-            continue;
+            let Some(existing_state) = first_generic_state.get(&mnemonic) else {
+                omitted.push(omit(
+                    "that LAS mnemonic is already written from another held standard, computed, set or run curve",
+                ));
+                continue;
+            };
+            if existing_state == state {
+                omitted.push(omit(
+                    "that LAS mnemonic is already written from another held standard, computed, set or run curve",
+                ));
+                continue;
+            }
+            let candidate = format!("{mnemonic}_{}", state.to_ascii_uppercase());
+            if curve_names.iter().any(|name| name.eq_ignore_ascii_case(&candidate)) {
+                omitted.push(omit(
+                    "its final/working export mnemonic is already held by another curve",
+                ));
+                continue;
+            }
+            export_mnemonic = candidate;
         }
         let samples: Vec<(f32, f32)> = sample_stmt
             .query_map(params![curve_id], |row| {
@@ -255,14 +418,98 @@ fn add_generic_curves(
         for (d, value) in samples {
             values[depth_index[&d.to_bits()]] = value;
         }
-        columns.insert(mnemonic.clone(), values);
-        curve_names.push(mnemonic);
+        columns.insert(export_mnemonic.clone(), values);
+        curve_names.push(export_mnemonic.clone());
         units.push(unit);
+        first_generic_state.entry(mnemonic.clone()).or_insert_with(|| state.to_string());
+        curve_states.push(LasCurveState {
+            export_curve: export_mnemonic,
+            source_curve: mnemonic,
+            set_name,
+            state: state.to_string(),
+        });
     }
-    Ok((held, omitted))
+    Ok((held, omitted, curve_states))
 }
 
 pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<LasExportResult, String> {
+    let settings = WriterSettings { null_sentinel: project_null_sentinel(conn)? };
+    let writer = default_writer()?;
+    export_with_writer(conn, well_id, dest_path, settings, writer)
+}
+
+fn export_with_writer(
+    conn: &Connection,
+    well_id: &str,
+    dest_path: &str,
+    settings: WriterSettings,
+    writer: &RegisteredWriter,
+) -> Result<LasExportResult, String> {
+    let mut result = (writer.write)(conn, well_id, dest_path, settings)?;
+    (writer.self_read)(conn, dest_path, &result)?;
+    result.self_checked = true;
+    Ok(result)
+}
+
+/// Reads a completed LAS with the same full-curve reader used by import, then verifies
+/// the semantic declarations that a syntax-only parse cannot: a feet project labelled
+/// as metres is readable but still wrong by 3.28×.
+fn validate_las_output(
+    conn: &Connection,
+    dest_path: &str,
+    result: &LasExportResult,
+) -> Result<(), String> {
+    let frame = crate::parsers::parse_las_2_all(dest_path)
+        .map_err(|error| format!("LAS self-check failed: SandiBumi's LAS reader rejected the output: {error}"))?;
+    let expected_unit = crate::units::project_depth_unit_or_default(conn);
+    let written_unit = frame
+        .depth_unit
+        .as_deref()
+        .and_then(crate::units::DepthUnit::parse)
+        .ok_or_else(|| {
+            format!(
+                "LAS self-check failed: the written depth unit {:?} is missing or unrecognized",
+                frame.depth_unit
+            )
+        })?;
+    if written_unit != expected_unit {
+        return Err(format!(
+            "LAS self-check failed: project depths are {}, but the written DEPT curve declares {}",
+            expected_unit.code(),
+            written_unit.code()
+        ));
+    }
+    if frame.depth.len() != result.rows {
+        return Err(format!(
+            "LAS self-check failed: writer reported {} row(s), but its reader found {}",
+            result.rows,
+            frame.depth.len()
+        ));
+    }
+    if frame.curves.len() != result.curves_written {
+        return Err(format!(
+            "LAS self-check failed: writer reported {} curve(s), but its reader found {}",
+            result.curves_written,
+            frame.curves.len()
+        ));
+    }
+    if let Some(curve) = frame.curves.iter().find(|curve| curve.values.len() != result.rows) {
+        return Err(format!(
+            "LAS self-check failed: curve {} has {} value(s), expected {}",
+            curve.mnemonic,
+            curve.values.len(),
+            result.rows
+        ));
+    }
+    Ok(())
+}
+
+fn write_las(
+    conn: &Connection,
+    well_id: &str,
+    dest_path: &str,
+    settings: WriterSettings,
+) -> Result<LasExportResult, String> {
     let (well_name, field_name): (String, Option<String>) = conn
         .query_row(
             "SELECT well_name, field_name FROM wells WHERE well_id = ?1",
@@ -274,7 +521,10 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<L
     // Every curve this well actually has: the six standard ones + its computed curves.
     let mut curve_names: Vec<String> =
         ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"].iter().map(|s| s.to_string()).collect();
-    let mut units: Vec<String> = curve_names.iter().map(|n| standard_units(n).to_string()).collect();
+    let mut units: Vec<String> = curve_names
+        .iter()
+        .map(|name| crate::curves::canonical_unit(name).unwrap_or("").to_string())
+        .collect();
     {
         let mut stmt = conn
             .prepare(
@@ -305,7 +555,7 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<L
         return Err("well has no curve data".into());
     }
     let initially_written = curve_names.len();
-    let (generic_held, omitted) = add_generic_curves(
+    let (generic_held, omitted, curve_states) = add_generic_curves(
         conn,
         well_id,
         &depth,
@@ -317,12 +567,25 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<L
     let depth_unit = crate::units::project_depth_unit_or_default(conn).code();
     let provenance = provenance_lines(conn, well_id, &curve_names)?;
     let step = if depth.len() > 1 { depth[1] - depth[0] } else { 0.0 };
+    let mut values_reduced = depth.iter().filter(|&&value| fixed_decimal_4_reduces(value)).count();
+    for name in &curve_names {
+        let key = name.trim().to_uppercase();
+        if let Some(values) = columns.get(&key) {
+            values_reduced += values.iter().filter(|&&value| fixed_decimal_4_reduces(value)).count();
+        }
+    }
+    let precision = crate::parsers::SamplePrecisionReport::new(
+        "f32 storage",
+        "fixed-decimal-4 LAS text",
+        values_reduced,
+    );
 
     let file = std::fs::File::create(dest_path).map_err(|e| e.to_string())?;
     let mut w = BufWriter::new(file);
+    let null_sentinel = settings.null_sentinel;
     let fmt = |v: f32| -> String {
         if v.is_nan() {
-            format!("{NULL_VALUE:.4}")
+            format!("{null_sentinel:.4}")
         } else {
             format!("{v:.4}")
         }
@@ -336,7 +599,7 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<L
         writeln!(w, " STRT.{depth_unit}   {:>12.4} : START DEPTH", depth[0])?;
         writeln!(w, " STOP.{depth_unit}   {:>12.4} : STOP DEPTH", depth[depth.len() - 1])?;
         writeln!(w, " STEP.{depth_unit}   {:>12.4} : STEP", step)?;
-        writeln!(w, " NULL.    {:>12.4} : NULL VALUE", NULL_VALUE)?;
+        writeln!(w, " NULL.    {:>12.4} : NULL VALUE", null_sentinel)?;
         writeln!(w, " WELL.    {} : WELL NAME", well_name)?;
         writeln!(w, " FLD .    {} : FIELD", field_name.unwrap_or_default())?;
         writeln!(w, " SRVC.    SandiBumi : EXPORTED BY")?;
@@ -347,8 +610,20 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<L
         }
         writeln!(w, "~Other Information")?;
         writeln!(w, "# SandiBumi provenance: prefixed JSON Lines; convention version 1")?;
+        writeln!(
+            w,
+            " {PRECISION_PREFIX}{}",
+            serde_json::to_string(&precision).expect("serializing a precision report cannot fail")
+        )?;
         for line in &provenance {
             writeln!(w, " {line}")?;
+        }
+        for state in &curve_states {
+            writeln!(
+                w,
+                " {CURVE_STATE_PREFIX}{}",
+                serde_json::to_string(state).expect("serializing a curve state cannot fail")
+            )?;
         }
         for omission in &omitted {
             writeln!(
@@ -377,6 +652,9 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<L
         curves_written: curve_names.len(),
         curves_held,
         omitted,
+        curve_states,
+        precision,
+        self_checked: false,
     })
 }
 
@@ -440,6 +718,132 @@ mod tests {
         (id, gr, vsh)
     }
 
+    /// SB-DIO-018 / SB-DIO-T29..T30. The fourteen canonical family units are
+    /// the code-resident T1 table cited in chapter §5.1.
+    #[test]
+    fn every_exported_family_unit_comes_from_the_one_canonical_table() {
+        let source = include_str!("export.rs");
+        let duplicate_definition = ["fn standard", "_units"].concat();
+        assert!(!source.contains(&duplicate_definition), "the duplicate writer table must stay deleted");
+        assert!(
+            source.contains("crate::curves::canonical_unit"),
+            "the writer must consult curves::canonical_unit"
+        );
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        let well_id = id.to_string();
+        db::insert_well(&conn, id, "CANONICAL-UNITS", None, None, None).unwrap();
+        let depth = vec![1000.0_f32, 1000.5, 1001.0];
+        db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![50.0; 3],
+            vec![2.0; 3],
+            vec![0.2; 3],
+            vec![2.4; 3],
+            vec![80.0; 3],
+            vec![10.0; 3],
+        )
+        .unwrap();
+        let standard = ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
+        for family in crate::curves::FAMILIES {
+            if standard.contains(&family.family) {
+                continue;
+            }
+            let curve_id = db::upsert_curve_meta(
+                &conn,
+                &well_id,
+                "RAW",
+                family.family,
+                Some(family.canonical_unit),
+                Some(family.family),
+                Some("synthetic canonical-unit fixture"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve_id, &depth, &[1.0, 1.0, 1.0]).unwrap();
+        }
+
+        let dest = tmp_path("canonical-units");
+        export_las(&conn, &well_id, dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        std::fs::remove_file(&dest).ok();
+        let curve_block = text
+            .split("~Curve Information")
+            .nth(1)
+            .and_then(|tail| tail.split("~Other Information").next())
+            .unwrap();
+        for family in crate::curves::FAMILIES {
+            let declared = curve_block.lines().find_map(|line| {
+                let entry = line.trim().split(':').next()?;
+                let (mnemonic, unit) = entry.split_once('.')?;
+                mnemonic.trim().eq(family.family).then_some(unit.trim())
+            })
+            .unwrap_or_else(|| panic!("{} was not exported", family.family));
+            assert_eq!(
+                declared,
+                family.canonical_unit,
+                "{} must retain the table's exact unit spelling and case",
+                family.family
+            );
+        }
+    }
+
+    /// SB-DIO-022 / SB-DIO-T35. D-22 and D-23 require writer-side re-gridding to be
+    /// an explicit resample and to default OFF. The synthetic values are deliberately
+    /// non-linear as well as irregularly spaced: a writer that silently regularized the
+    /// depths or interpolated the curve would fail one side of the assertion even if it
+    /// happened to preserve the other.
+    #[test]
+    fn an_export_at_defaults_writes_the_irregular_stored_samples_without_regridding() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        db::insert_well(&conn, id, "IRREGULAR-EXPORT", None, None, None).unwrap();
+        let stored_depth = vec![1000.0_f32, 1000.1, 1000.35, 1001.0];
+        let stored_gr = vec![10.0_f32, 40.0, 15.0, 90.0];
+        let missing = vec![f32::NAN; stored_depth.len()];
+        db::insert_standard_curves(
+            &conn,
+            id,
+            stored_depth.clone(),
+            stored_gr.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing.clone(),
+            missing,
+        )
+        .unwrap();
+
+        let dest = tmp_path("irregular-default");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        std::fs::remove_file(&dest).ok();
+        let rows: Vec<Vec<f32>> = text
+            .split("~ASCII")
+            .nth(1)
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| line.split_whitespace().map(|field| field.parse::<f32>().unwrap()).collect())
+            .collect();
+
+        assert_eq!(
+            rows.iter().map(|row| row[0]).collect::<Vec<_>>(),
+            stored_depth,
+            "the default writer must not replace an irregular stored index with a regular grid"
+        );
+        assert_eq!(
+            rows.iter().map(|row| row[1]).collect::<Vec<_>>(),
+            stored_gr,
+            "the default writer must not interpolate stored values onto different samples"
+        );
+    }
+
     /// `export.rs` shipped with no tests at all. Three claims matter and none was pinned.
     ///
     /// **Missing writes as the null value, never as a blank or a zero.** A 0.0 where a sample was
@@ -486,13 +890,13 @@ mod tests {
 
         let vsh_col: Vec<f32> = rows.iter().map(|r| *r.last().unwrap()).collect();
         assert!(
-            vsh_col.iter().any(|v| (*v - NULL_VALUE).abs() > 1e-3),
+            vsh_col.iter().any(|v| (*v - DEFAULT_NULL_SENTINEL).abs() > 1e-3),
             "the mixed-case computed curve exported as ALL NULL — the uppercase key lookup broke"
         );
         for (i, expect) in vsh.iter().enumerate() {
             let got = vsh_col[i];
             if expect.is_nan() {
-                assert!((got - NULL_VALUE).abs() < 1e-3, "row {i}: missing must be the null value");
+                assert!((got - DEFAULT_NULL_SENTINEL).abs() < 1e-3, "row {i}: missing must be the null value");
             } else {
                 assert!((got - expect).abs() < 5e-4, "row {i}: {got} != {expect}");
             }
@@ -500,8 +904,79 @@ mod tests {
 
         // GR is the second column (after DEPT) and carries the missing sample at index 2.
         let gr_col: Vec<f32> = rows.iter().map(|r| r[1]).collect();
-        assert!((gr_col[2] - NULL_VALUE).abs() < 1e-3, "GR's missing sample must be null");
+        assert!((gr_col[2] - DEFAULT_NULL_SENTINEL).abs() < 1e-3, "GR's missing sample must be null");
         assert!((gr_col[0] - gr[0]).abs() < 5e-4);
+    }
+
+    /// SB-DIO-001 / SB-DIO-T01. The non-default value is Baker's cited waveform
+    /// sentinel from `docs/PRD_v2/21_data-io.md` §5.2, not an invented product default.
+    #[test]
+    fn a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        let declared = -32767.0_f32;
+        set_project_null_sentinel(&conn, declared).unwrap();
+        assert_eq!(project_null_sentinel(&conn).unwrap(), declared);
+
+        let dest = tmp_path("declared-sentinel");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+
+        assert!(text.lines().any(|line| line.contains("NULL.") && line.contains("-32767.0000")));
+        assert!(text.contains("-32767.0000"), "missing samples use the declared sentinel");
+        assert!(!text.contains("-999.2500"), "the LAS writer must not emit its former private default");
+    }
+
+    /// SB-DIO-001 / SB-DIO-T02. `WriterFn` is the registry boundary: removing the final,
+    /// non-optional `WriterSettings` argument from a writer makes this assignment and the
+    /// registry constant fail to compile.
+    #[test]
+    fn a_registered_writer_cannot_omit_the_required_sentinel_argument() {
+        let _: WriterFn = write_las;
+        let _: WriterFn = REGISTERED_WRITERS[0].write;
+    }
+
+    /// SB-DIO-002 / SB-DIO-T03. `-32767` is the cited Baker waveform sentinel in
+    /// `docs/PRD_v2/21_data-io.md` §5.2; it is used only to prove the default path
+    /// honours a non-default declaration.
+    #[test]
+    fn the_default_export_format_honours_the_sentinel_and_an_incapable_format_is_marked() {
+        let defaults: Vec<&RegisteredWriter> =
+            REGISTERED_WRITERS.iter().filter(|writer| writer.is_default).collect();
+        assert_eq!(defaults.len(), 1, "the format picker must have one unambiguous default");
+        assert!(matches!(defaults[0].sentinel_support, SentinelSupport::Honours));
+
+        fn cannot_write(
+            _: &Connection,
+            _: &str,
+            _: &str,
+            _: WriterSettings,
+        ) -> Result<LasExportResult, String> {
+            Err("format cannot carry an arbitrary null sentinel".into())
+        }
+        let incapable = RegisteredWriter {
+            id: "incapable-test-format",
+            label: "Incapable test format",
+            extension: "test",
+            is_default: false,
+            sentinel_support: SentinelSupport::Incapable("fixed null convention"),
+            write: cannot_write,
+            self_read: validate_las_output,
+        };
+        let shown = format_info(&incapable);
+        assert!(!shown.honours_project_sentinel);
+        assert_eq!(shown.sentinel_limitation.as_deref(), Some("fixed null convention"));
+
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        set_project_null_sentinel(&conn, -32767.0).unwrap();
+        let dest = tmp_path("default-format-sentinel");
+        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+        assert!(text.contains("-32767.0000"));
+        assert!(!text.contains("-999.2500"));
     }
 
     /// The round trip: export a well, import the file into a FRESH project, and the numbers must
@@ -554,6 +1029,134 @@ mod tests {
                 assert!((back[i] - expect).abs() < 5e-4, "row {i}: {} != {expect}", back[i]);
             }
         }
+    }
+
+    /// SB-DIO-049 / T68. Registration requires a format's own reader, and the shared
+    /// export wrapper is the only route to success. The corrupt control returns a normal
+    /// writer result after emitting half an ASCII row; only the mandatory read-back can
+    /// turn that apparent success into the required error.
+    #[test]
+    fn every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        let settings = WriterSettings { null_sentinel: project_null_sentinel(&conn).unwrap() };
+        for writer in REGISTERED_WRITERS {
+            let dest = tmp_path(&format!("{}-self-read", writer.id));
+            let result = export_with_writer(
+                &conn,
+                &id.to_string(),
+                dest.to_str().unwrap(),
+                settings,
+                writer,
+            )
+            .unwrap();
+            assert!(result.self_checked, "{} must not report success before its reader passes", writer.id);
+            let _ = std::fs::remove_file(&dest);
+        }
+
+        fn write_corrupt(
+            _: &Connection,
+            _: &str,
+            dest_path: &str,
+            _: WriterSettings,
+        ) -> Result<LasExportResult, String> {
+            std::fs::write(
+                dest_path,
+                "~Version\nVERS. 2.0\nWRAP. NO\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000\n",
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(LasExportResult {
+                rows: 1,
+                curves_written: 1,
+                curves_held: 1,
+                omitted: Vec::new(),
+                curve_states: Vec::new(),
+                precision: crate::parsers::SamplePrecisionReport::new(
+                    "f32 storage",
+                    "fixed-decimal-4 LAS text",
+                    0,
+                ),
+                self_checked: false,
+            })
+        }
+        let corrupt = RegisteredWriter {
+            id: "corrupt-test",
+            label: "Corrupt test writer",
+            extension: "las",
+            is_default: false,
+            sentinel_support: SentinelSupport::Honours,
+            write: write_corrupt,
+            self_read: validate_las_output,
+        };
+        let dest = tmp_path("self-read-corrupt");
+        let error = export_with_writer(
+            &conn,
+            &id.to_string(),
+            dest.to_str().unwrap(),
+            settings,
+            &corrupt,
+        )
+        .unwrap_err();
+        let _ = std::fs::remove_file(&dest);
+        assert!(error.contains("LAS self-check failed"), "reader rejection must be the export error: {error}");
+        assert!(error.contains("ASCII row has 1 value(s)"), "the reader's exact rejection must remain actionable: {error}");
+    }
+
+    /// SB-DIO-049 / T69. A unit lie is syntactically valid LAS, so parse success alone is
+    /// insufficient: the self-reader must compare the DEPT declaration with the depth
+    /// unit of the samples the writer was asked to deliver.
+    #[test]
+    fn a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success() {
+        fn write_metres_label(
+            _: &Connection,
+            _: &str,
+            dest_path: &str,
+            _: WriterSettings,
+        ) -> Result<LasExportResult, String> {
+            std::fs::write(
+                dest_path,
+                "~Version\nVERS. 2.0\nWRAP. NO\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000 50\n",
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(LasExportResult {
+                rows: 1,
+                curves_written: 1,
+                curves_held: 1,
+                omitted: Vec::new(),
+                curve_states: Vec::new(),
+                precision: crate::parsers::SamplePrecisionReport::new(
+                    "f32 storage",
+                    "fixed-decimal-4 LAS text",
+                    0,
+                ),
+                self_checked: false,
+            })
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&conn);
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Feet).unwrap();
+        let writer = RegisteredWriter {
+            id: "wrong-unit-test",
+            label: "Wrong-unit test writer",
+            extension: "las",
+            is_default: false,
+            sentinel_support: SentinelSupport::Honours,
+            write: write_metres_label,
+            self_read: validate_las_output,
+        };
+        let dest = tmp_path("feet-misdeclared-metres");
+        let error = export_with_writer(
+            &conn,
+            &id.to_string(),
+            dest.to_str().unwrap(),
+            WriterSettings { null_sentinel: project_null_sentinel(&conn).unwrap() },
+            &writer,
+        )
+        .unwrap_err();
+        let _ = std::fs::remove_file(&dest);
+        assert!(error.contains("project depths are FT"), "the expected unit must be named: {error}");
+        assert!(error.contains("declares M"), "the false declaration must be named: {error}");
     }
 
     /// SB-DIO-017 / SB-DIO-T27..T28. The LAS unit spellings and the project-unit
@@ -738,6 +1341,90 @@ mod tests {
         let refused = export_las(&conn, &well_id, refused_dest.to_str().unwrap()).unwrap_err();
         assert!(refused.contains("no single live ancestry record"), "{refused}");
         assert!(!refused_dest.exists(), "a refused export must not leave a partial file");
+    }
+
+    /// SB-DIO-052 / T74. `curve_meta` declares FINAL as QC'd for delivery and RAW as
+    /// imported/working. Both sides use the same source mnemonic, so this also pins that
+    /// marking a state cannot be implemented by silently omitting the collision.
+    #[test]
+    fn a_working_and_final_phie_are_both_exported_and_each_is_marked_in_the_file() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        let well_id = id.to_string();
+        db::insert_well(&conn, id, "PHIE-STATES", None, None, None).unwrap();
+        let depth = vec![1800.0_f32, 1800.5, 1801.0];
+        db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![50.0; 3],
+            vec![2.0; 3],
+            vec![0.2; 3],
+            vec![2.4; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+        )
+        .unwrap();
+        let working = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "RAW",
+            "PHIE",
+            Some("V/V"),
+            Some("PHIE"),
+            Some("synthetic working curve"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &working, &depth, &[0.10, 0.11, 0.12]).unwrap();
+        let final_curve = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "FINAL",
+            "PHIE",
+            Some("V/V"),
+            Some("PHIE"),
+            Some("synthetic final curve"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &final_curve, &depth, &[0.20, 0.21, 0.22]).unwrap();
+
+        let dest = tmp_path("phie-final-working");
+        let result = export_las(&conn, &well_id, dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        let frame = crate::parsers::parse_las_2_all(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+
+        let exported: Vec<&str> = frame.curves.iter().map(|curve| curve.mnemonic.as_str()).collect();
+        assert!(exported.contains(&"PHIE"), "the working PHIE must remain in the file: {exported:?}");
+        assert!(exported.contains(&"PHIE_FINAL"), "the final collision must be retained with its state: {exported:?}");
+        assert!(
+            !result.omitted.iter().any(|omission| omission.curve.starts_with("PHIE ")),
+            "neither state may be hidden as a duplicate: {:?}",
+            result.omitted
+        );
+        assert_eq!(result.curve_states.len(), 2);
+        assert!(result.curve_states.iter().any(|curve| {
+            curve.export_curve == "PHIE" && curve.source_curve == "PHIE"
+                && curve.set_name == "RAW" && curve.state == "working"
+        }));
+        assert!(result.curve_states.iter().any(|curve| {
+            curve.export_curve == "PHIE_FINAL" && curve.source_curve == "PHIE"
+                && curve.set_name == "FINAL" && curve.state == "final"
+        }));
+
+        let file_states = prefixed_json(&text, CURVE_STATE_PREFIX);
+        assert_eq!(file_states.len(), 2, "both identities must travel in ~Other");
+        assert!(file_states.iter().any(|row| {
+            row["export_curve"] == "PHIE" && row["source_curve"] == "PHIE"
+                && row["set_name"] == "RAW" && row["state"] == "working"
+        }));
+        assert!(file_states.iter().any(|row| {
+            row["export_curve"] == "PHIE_FINAL" && row["source_curve"] == "PHIE"
+                && row["set_name"] == "FINAL" && row["state"] == "final"
+        }));
     }
 
     /// SB-DIO-055 / SB-DIO-T80..T81. The completeness and two-surface omission rule is

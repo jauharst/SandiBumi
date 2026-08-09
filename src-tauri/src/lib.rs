@@ -333,22 +333,28 @@ fn set_project_depth_unit(db: tauri::State<DbState>, unit: String) -> Result<(),
         return Err(format!("unknown depth unit '{unit}' (expected M or FT)"));
     };
     let conn = db.0.lock().unwrap();
-    let current = units::project_depth_unit(&conn).map_err(|e| e.to_string())?;
-    if current == Some(target) {
-        return Ok(());
-    }
-    let wells: i64 = conn
-        .query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0))
-        .map_err(|e| e.to_string())?;
-    if wells > 0 {
-        return Err(format!(
-            "this project already holds {wells} well(s) whose depths are stored in {}. \
-             Changing the unit here would reinterpret every stored depth rather than convert it — \
-             switch the DISPLAY unit instead, or start a new project.",
-            current.unwrap_or_default().label()
-        ));
-    }
-    units::set_project_depth_unit(&conn, target).map_err(|e| e.to_string())
+    units::set_project_depth_unit_checked(&conn, target)
+}
+
+/// Quantity families backed by at least one reviewed numeric unit transform.
+#[tauri::command]
+fn list_convertible_unit_families() -> Vec<String> {
+    curves::convertible_unit_families()
+}
+
+/// The one project-wide absent-value sentinel supplied to every registered data writer.
+#[tauri::command]
+fn get_project_null_sentinel(db: tauri::State<DbState>) -> Result<f32, String> {
+    let conn = db.0.lock().unwrap();
+    export::project_null_sentinel(&conn)
+}
+
+/// Declares the project-wide absent-value sentinel. Writer registration makes this a
+/// required argument, so no export path can silently fall back to a private value.
+#[tauri::command]
+fn set_project_null_sentinel(db: tauri::State<DbState>, null_sentinel: f32) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    export::set_project_null_sentinel(&conn, null_sentinel)
 }
 
 /// Lists every well in the project, for the object tree panel.
@@ -369,6 +375,11 @@ async fn import_las_files(
     set_name: Option<String>,
     attach: Option<bool>,
     file_depth_unit: Option<String>,
+    channel_nulls: Option<parsers::ChannelNullValues>,
+    null_rules: Option<Vec<parsers::NullExceptionRule>>,
+    non_monotonic_index: Option<ingest::NonMonotonicIndexDecision>,
+    duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
+    ms_per_ft_meanings: Option<std::collections::HashMap<String, curves::MsPerFtMeaning>>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
     // Import-sets options (T-IMP-02): one set name per batch; attach-by-name defaults ON
     // when the frontend doesn't say otherwise (the dialog always sends it explicitly).
@@ -376,6 +387,11 @@ async fn import_las_files(
         set_name,
         attach: attach.unwrap_or(true),
         file_depth_unit,
+        channel_nulls: channel_nulls.unwrap_or_default(),
+        null_rules: null_rules.unwrap_or_default(),
+        non_monotonic_index,
+        duplicate_depth_policy,
+        ms_per_ft_meanings: ms_per_ft_meanings.unwrap_or_default(),
     };
     // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
     let items: Vec<(String, String)> = paths
@@ -400,12 +416,13 @@ async fn import_core_csv(
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     well_id: String,
     path: String,
+    depth_column: Option<usize>,
 ) -> Result<ingest::CoreImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import core", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_core_csv(&c, &well_id, &path))
+        Ok(ingest::import_core_csv_with_depth_column(&c, &well_id, &path, depth_column))
     })
     .await
 }
@@ -1317,21 +1334,31 @@ async fn materialize_tvd(
 async fn import_dlis_file(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    well_id: String,
+    well_id: Option<String>,
     path: String,
     set_name: Option<String>,
     file_depth_unit: Option<String>,
+    ms_per_ft_meaning: Option<curves::MsPerFtMeaning>,
+    outside_interval_decision: Option<dlis::DlisOutsideIntervalDecision>,
+    duplicate_decisions: Option<Vec<dlis::DlisDuplicateDecision>>,
+    las_sentinel_exceptions: Option<Vec<String>>,
+    confirmed_well_mappings: Option<Vec<dlis::DlisWellMapping>>,
 ) -> Result<dlis::DlisImportResult, String> {
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import DLIS", base, move || {
         let c = conn.lock().unwrap();
-        Ok(dlis::import_dlis_file(
+        Ok(dlis::import_dlis_file_with_unit_designation(
             &c,
-            &well_id,
+            well_id.as_deref(),
             &path,
             set_name.as_deref(),
             file_depth_unit.as_deref(),
+            ms_per_ft_meaning,
+            outside_interval_decision,
+            duplicate_decisions.as_deref().unwrap_or(&[]),
+            las_sentinel_exceptions.as_deref().unwrap_or(&[]),
+            confirmed_well_mappings.as_deref().unwrap_or(&[]),
         ))
     })
     .await
@@ -2563,6 +2590,39 @@ async fn run_reframe(
     Ok(reframe::run_reframe(&conn, &req))
 }
 
+/// Exact mnemonics the selected Reframe source can offer as a substitute. This list never expands
+/// by family/type: the person must be shown the actual curve whose data would be used.
+#[tauri::command]
+fn reframe_source_curves(
+    db: tauri::State<DbState>,
+    well_id: String,
+    source: reframe::SourceSpec,
+) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().unwrap();
+    reframe::source_curve_names(&conn, &well_id, &source)
+}
+
+#[tauri::command]
+fn save_curve_selection(
+    db: tauri::State<DbState>,
+    selection: reframe::CurveSelection,
+) -> Result<reframe::CurveSelection, String> {
+    let conn = db.0.lock().unwrap();
+    reframe::save_curve_selection(&conn, &selection)
+}
+
+#[tauri::command]
+fn list_curve_selections(db: tauri::State<DbState>) -> Result<Vec<reframe::CurveSelection>, String> {
+    let conn = db.0.lock().unwrap();
+    reframe::list_curve_selections(&conn)
+}
+
+#[tauri::command]
+fn delete_curve_selection(db: tauri::State<DbState>, name: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    reframe::delete_curve_selection(&conn, &name)
+}
+
 /// Are numpy and Pillow reachable? Probed once so the conditioning workspace can say what is
 /// missing before a photograph is opened rather than after a slider is moved.
 #[tauri::command]
@@ -2889,6 +2949,12 @@ async fn run_query(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Export formats and their sentinel capability, including the one unambiguous default.
+#[tauri::command]
+fn list_data_export_formats() -> Vec<export::ExportFormatInfo> {
+    export::export_formats()
 }
 
 /// Exports one well as LAS 2.0 and returns rows, held/written curve counts and named omissions.
@@ -3262,6 +3328,9 @@ pub fn run() {
             await_project_open,
             get_project_depth_unit,
             set_project_depth_unit,
+            list_convertible_unit_families,
+            get_project_null_sentinel,
+            set_project_null_sentinel,
             save_project_as,
             compact_project,
             boot_report,
@@ -3315,6 +3384,10 @@ pub fn run() {
             run_workflow_module,
             module_output_names,
             run_reframe,
+            reframe_source_curves,
+            save_curve_selection,
+            list_curve_selections,
+            delete_curve_selection,
             run_pay_summary,
             stats_curve_summary,
             stats_pair_summary,
@@ -3391,6 +3464,7 @@ pub fn run() {
             apply_fwl_to_zone_params,
             sw_method_spread,
             run_query,
+            list_data_export_formats,
             export_las,
             python_status,
             run_ml,

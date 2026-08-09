@@ -7,6 +7,246 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-020: the malformed duplicate exemplar requires a policy
+
+- [ ] Import `bad_dup_depth.las` without choosing a duplicate-depth policy. Does it name all
+      five repeated rows, require a policy, and commit no well, while `bad_null_depth.las`
+      retains its existing all-null-depth refusal?
+
+## 2026-08-09 — SB-DIO-012: non-increasing index confirmation is tested independently
+
+- [ ] Import a 400-row LAS whose final depth decreases by half a depth unit without repeating
+      an earlier depth. Is row 400 refused until delivery order is explicitly accepted, then
+      imported with the accepted conflict retained in the audit result?
+
+## 2026-08-09 — SB-DIO-013: unit-qualified depth headers remain explicit aliases
+
+- [ ] Import core tables whose second column is `Depth (m)`, `DEPTH (FT)` and bare `DEPTH`.
+      Does each resolve that named column as the index, while a second column with an unrelated
+      name is still refused instead of being guessed by position?
+
+## 2026-08-09 — SB-DIO-061: every public reader runs the malformed corpus
+
+- [ ] Add a new public parser entry point and run the gate. Does the source-derived inventory
+      refuse it until an explicit malformed-corpus adapter is registered, while every registered
+      reader still runs against every corpus fixture?
+
+## 2026-08-09 — SB-DIO-062: text encoding is detected and reported
+
+- [ ] Import the same ASCII LAS encoded as UTF-16LE once with a BOM and once without. Do both
+      import with the same rows, and does each result explicitly name `UTF-16LE with BOM` or
+      `UTF-16LE without BOM`? Do UTF-16BE, UTF-8 and a Windows-1252 description likewise name the
+      decoder actually chosen?
+
+## 2026-08-09 — SB-DIO-060: format recognition follows content
+
+- [ ] Open a comma-delimited table deliberately named `.las` through Intake. Is it read as a
+      delimited table, with the `.las` disagreement reported? Inspect a headerless BIFF5 stream:
+      is `09 08 06 00` named as the reason BIFF5 was chosen? For a PK container, does the report
+      name the workbook entries that distinguish XLSX from generic ZIP? BIFF5 table loading remains
+      unavailable until the out-of-scope P2 BIFF reader ships.
+
+## 2026-08-09 — SB-DIO-052: final and working curves stay distinguishable
+
+- [ ] Export a well whose `RAW` and `FINAL` generic sets both hold `PHIE`. Are both curves in the
+      LAS (`PHIE` plus the collision-safe state suffix), and does `~Other` name each export
+      mnemonic, its original `PHIE`, its source set, and its `working` or `final` state? Does the
+      visible result count both states?
+
+## 2026-08-09 — SB-DIO-050: declared STEP is checked against the samples
+
+- [ ] Import a LAS declaring `STEP.M 0.5` whose actual index spacing is `1.0`. Does the import
+      succeed with **possibly re-gridded** naming both values and the first mismatching row pair?
+      Does an otherwise identical file declaring `STEP.M 1.0` avoid that warning? The separate
+      round-interval detector remains absent because the chapter cites no threshold for it.
+
+## 2026-08-09 — SB-DIO-049: every writer must pass its own reader
+
+- [ ] Export LAS from a feet project. Does success explicitly state that the SandiBumi reader
+      self-check passed? In a debugger or focused test, corrupt one ASCII row or falsely label the
+      feet index as metres: does export return **LAS self-check failed** instead of success or a
+      warning?
+
+## 2026-08-09 — SB-DIO-047: precision reductions are declared
+
+- [ ] Import a core-analysis table containing more numeric precision than `f32` can retain. Does
+      the result and History state `f64 numeric parse → f32 storage` and count only the values that
+      changed? Export a LAS containing a value beyond four decimal places: does the result state
+      `f32 storage → fixed-decimal-4 LAS text`, count the reduction, and carry the same declaration
+      in `~Other`?
+
+## 2026-08-09 — SB-DIO-045: multi-well DLIS containers stay separated
+
+- [ ] Import a DLIS whose logical files name three different source wells. Before any write, does
+      the confirmation show each source well and its logical-file ordinals mapped to a separate new
+      project well? After confirming, are there three wells with no curve merged across them? If two
+      logical files name the same source well, do they remain two runs on one mapped well?
+
+## 2026-08-09 — SB-DIO-041: LAS 3.0 and unread sections are explicit
+
+- [ ] Import a LAS declaring `VERS. 3.0` and carrying `~Core_Data` and `~Tops`. Does the result
+      explicitly say **LAS 3.0 recognized** and name both sections as unread, while the ordinary
+      `~Curve`/`~ASCII` log array still imports correctly?
+
+## 2026-08-09 — SB-DIO-039: DLIS sentinel screening is per-channel and counted
+
+- [ ] Import a DLIS channel containing a legitimate `-999.25`. With its exact mnemonic entered
+      under **Keep LAS sentinel values in**, does the sample survive and is the exception recorded?
+      Without the exception, is that sample missing and does the result name the channel, count the
+      one deletion, and state the LAS-sentinel fallback rule?
+
+## 2026-08-09 — SB-DIO-037: partial DLIS loads are explicit and named
+
+- [ ] Import a DLIS with one readable scalar channel and one encrypted, unsupported, or otherwise
+      unreadable channel. Does the result say **Partially imported**, show the loaded-versus-declared
+      count, and name the omitted channel with its reason instead of reporting ordinary success?
+
+## 2026-08-09 — SB-DIO-036: duplicate DLIS mnemonics never default to merge
+
+- [ ] Import a DLIS whose mnemonic/frame already exists anywhere on the selected well. Does the
+      preflight name every existing set/run and write nothing until you answer? Does **Keep
+      separate** place an exact RAW collision in a fresh set and record that choice per curve?
+      Is there no merge-into-existing default or action?
+
+## 2026-08-09 — SB-DIO-035: DLIS interval extension needs confirmation
+
+- [ ] Import a DLIS whose converted index extends above or below the selected well's existing
+      finite interval. Does the first pass write nothing and name both the declared and incoming
+      extents? If you decline, is the existing interval unchanged? If you explicitly accept, does
+      the completed import retain the same conflict in its audit notes?
+
+## 2026-08-09 — SB-DIO-033: curve selections are named saved objects
+
+- [ ] In Reframe, create **PRIMARY INPUTS** with ordered members `RHOB, GR`, save it, close/reopen
+      the pane, and inspect it. Is the same name, explicit selected mode and member order present?
+      Is Reframe blocked when no saved selection is chosen, with no blank-means-all fallback?
+
+## 2026-08-09 — SB-DIO-032: substitutions are named, accepted and recorded
+
+- [ ] In Reframe, request a curve the selected source does not hold, choose an exact source
+      mnemonic in **Use instead**, and leave **Accept substitution** unchecked. Is the run refused
+      before writing? After checking it, does the output retain the substitute's own mnemonic and
+      show the requested-to-substitute decision in the set provenance and run note?
+
+## 2026-08-09 — SB-DIO-030: alias renames preserve both identities
+
+- [ ] Import a LAS carrying only `SGR`. Does its standard curve appear as `GR`, while the generic
+      catalog still says `SGR` with family `GR`? Does the result and visible note name the exact
+      firing row `GR_ALIASES: SGR -> GR`, even though no alias competed with it?
+
+## 2026-08-09 — SB-DIO-029: MS/FT has no default meaning
+
+- [ ] Import a file declaring `MS/FT` with no answer. Is nothing committed until that exact file
+      is designated as microseconds/ft or millisiemens/ft? Does the former retain DT and canonical
+      `us/ft`, while the latter stays familyless, with either answer recorded on the file result?
+
+## 2026-08-09 — SB-DIO-028: every unit factor carries its arithmetic
+
+- [ ] Inspect the unit-rule query/code table. Does every factor carry a reproducible derivation,
+      including corrected `MEQ/L -> meq/mL ×10^-3` from `1 L = 10^3 mL`? Does that corrected row
+      remain confirmation-only because §7.1 O-2 says affected files may already contain meq/mL?
+
+## 2026-08-09 — SB-DIO-027: the vendor PPG-to-density alias is rejected
+
+- [ ] Import a `RHOZ.PPG` column. Is it retained verbatim but excluded from both standard RHOB
+      and the generic RHOB family, with `density.units: PPG -> density` named as the rejected entry
+      and an explicit quantity-designation requirement?
+
+## 2026-08-09 — SB-DIO-026: unit transforms carry and apply offsets
+
+- [ ] Import `FTEMP.DEGF` containing 200 and 32 °F. Does the audit show factor `1/1.8` and
+      source-space offset `-32`, with stored canonical `DEGC` values 93.33 and 0 rather than the
+      multiplicative-only 111.11 and 17.78?
+
+## 2026-08-09 — SB-DIO-025: conversion coverage and pass-throughs are explicit
+
+- [ ] Query the unit-conversion capability list. Does it return exactly CALI, BS, RHOB, DRHO,
+      NPHI, DT, DTS and TEMP? Import a density with an unsupported declared unit; is its value and unit
+      retained verbatim while the result flags it as unconverted?
+
+## 2026-08-09 — SB-DIO-024: automatic unit conversions are visible
+
+- [ ] Import a LAS sonic declared in `US/M`. Does the result name the curve, source unit,
+      canonical `us/ft` unit and factor `0.3048`, while the stored generic-curve samples are
+      actually converted by that same factor?
+
+## 2026-08-09 — SB-DIO-022: export re-sampling defaults off
+
+- [ ] Export a well whose stored depths are irregular. Does the LAS `~ASCII` block retain every
+      stored depth and its paired value exactly, with no regular grid or interpolated samples
+      introduced at the default settings?
+
+## 2026-08-09 — SB-DIO-020: duplicate depths have a declared policy
+
+- [ ] Import a LAS with repeated depths. Does it commit nothing until you choose keep-first,
+      keep-last, mean or refuse? For a resolving choice, does the result name the policy and exact
+      repeated-row count, with standard and generic curves using the same samples?
+
+## 2026-08-09 — SB-DIO-019: stored depths cannot be re-declared
+
+- [ ] In a metre project that already holds curves, try changing the project depth unit to feet.
+      Is it refused with the affected well count, while the declaration and every stored depth
+      remain unchanged?
+
+## 2026-08-09 — SB-DIO-018: canonical units have one owner
+
+- [ ] Export a well carrying one curve from every family. Does each LAS curve unit exactly match
+      `curves::FAMILIES`, including spelling and case, with no writer-owned standard-unit table?
+
+## 2026-08-09 — SB-DIO-013: unknown table indexes are designated
+
+- [ ] Open a delimited/core table whose depth column has an unfamiliar header. Does it refuse to
+      pick column 0, commit nothing, and require you to mark the index? After designation, does the
+      result record the selected column and `user_designation` mechanism?
+
+## 2026-08-09 — SB-DIO-012: descending indexes require a decision
+
+- [ ] Import a LAS whose index first decreases late in the file. Is the import blocked before any
+      well commits, with the exact data row named? After explicitly accepting the delivered order,
+      does it commit while retaining that row in the result audit?
+
+## 2026-08-09 — SB-DIO-011: index aliases keep their namespaces
+
+- [ ] Inspect the LAS, core-table and tops index aliases. Does each path cite its source? Is `TVD`
+      still accepted for tops, but held in a separate TVD namespace rather than any MD/reference
+      alias list?
+
+## 2026-08-09 — SB-DIO-010: index resolution names its mechanism
+
+- [ ] Import one LAS whose second column is named `MD`, and inspect the per-file result. Does the
+      first column remain the index and say `positional_guarantee`? On a structurally declared
+      table, does the `REFERENCE` column win even when it is not first?
+
+## 2026-08-09 — SB-DIO-009: competing aliases are auditable
+
+- [ ] Import a LAS in which two aliases target the same standard curve and one has greater finite
+      coverage. Does the per-file result name the chosen mnemonic, every passed-over mnemonic and
+      the finite-sample count for each, while targets with only one match stay out of the report?
+
+## 2026-08-09 — SB-DIO-006: null exceptions are many-to-many
+
+- [ ] Load one null-exception entry carrying several channel-name patterns. Are all patterns
+      active? For an entry declared `NoNull`, does a genuine `-999.25` amplitude survive while
+      the same value on an unset channel is screened normally?
+
+## 2026-08-09 — SB-DIO-005: null conventions are plural and per channel
+
+- [ ] Import a file with two channels whose declared null lists differ. Does each channel lose
+      only its own declared values, including more than one value on a channel, while the other
+      channel's sentinels survive as measurements?
+
+## 2026-08-09 — SB-DIO-002: the default export format honours the sentinel
+
+- [ ] Open the export format list. Is LAS 2.0 the single default and marked as honouring the
+      project sentinel? If a fixed-null format is added later, does the picker name that limitation
+      instead of presenting it as equivalent?
+
+## 2026-08-09 — SB-DIO-001: one declared sentinel reaches every writer
+
+- [ ] Set the project's export sentinel to a non-default finite value, export a LAS with missing
+      samples, and inspect both `~W NULL` and `~A`. Do they carry only that declared value, with
+      no writer-owned `-999.25` leaking into the file?
+
 ## 2026-08-09 — SB-DIO-061: malformed inputs have a shared regression corpus
 
 - [ ] Add a synthetic malformed fixture under `src-tauri/tests/fixtures/dio-malformed`, then run

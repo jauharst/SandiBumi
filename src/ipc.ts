@@ -13,6 +13,21 @@ export function setProjectDepthUnit(unit: DepthUnit): Promise<void> {
   return invoke("set_project_depth_unit", { unit });
 }
 
+/** Quantity families backed by at least one reviewed numeric unit transform. */
+export function listConvertibleUnitFamilies(): Promise<string[]> {
+  return invoke<string[]>("list_convertible_unit_families");
+}
+
+/** The one project-wide absent-value sentinel supplied to every data writer. */
+export function getProjectNullSentinel(): Promise<number> {
+  return invoke("get_project_null_sentinel");
+}
+
+/** Declares the project-wide absent-value sentinel. It must be finite. */
+export function setProjectNullSentinel(nullSentinel: number): Promise<void> {
+  return invoke("set_project_null_sentinel", { nullSentinel });
+}
+
 export interface EquationDef {
   equation_id: string;
   name: string;
@@ -106,12 +121,53 @@ export interface ImportResult {
   well_id: string | null;
   well_name: string | null;
   rows: number;
+  /** Encoding selected by the mandatory byte-tolerant text reader. */
+  text_encoding: string | null;
   /** Non-fatal note for a successful import (e.g. rows dropped for a bad/duplicate depth). */
   warning: string | null;
   error: string | null;
   /** Set the curves landed under when this file ATTACHED to an existing well instead of
    *  creating a new record. null = a new well was created. */
   attached_set: string | null;
+  /** Every standard target for which multiple LAS aliases competed, including coverage. */
+  alias_decisions: Array<{
+    target: string;
+    chosen: string;
+    candidates: Array<{ mnemonic: string; finite_samples: number; chosen: boolean }>;
+    table_entry: string | null;
+  }>;
+  index_resolution: {
+    column: number;
+    mnemonic: string;
+    mechanism: "structural_declaration" | "positional_guarantee" | "name_alias" | "user_designation";
+  } | null;
+  /** Every automatic value conversion performed by the importer. */
+  unit_conversions: Array<{
+    curve: string;
+    from_unit: string;
+    to_unit: string;
+    factor: number;
+    /** Source-space offset: canonical = (source + offset) × factor. */
+    offset: number;
+    derivation: string;
+  }>;
+  /** Declared units retained verbatim because no reviewed conversion applied. */
+  unconverted_units: Array<{
+    curve: string;
+    declared_unit: string;
+    family: string | null;
+    reason: string;
+    designation_required: boolean;
+    rejected_entry: string | null;
+  }>;
+  /** Per-file answers to genuinely ambiguous unit symbols. */
+  unit_designations: Array<{
+    curve: string;
+    declared_unit: string;
+    meaning: "microseconds_per_foot" | "millisiemens_per_foot";
+    recorded_unit: string;
+    family: string | null;
+  }>;
 }
 
 /** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */
@@ -124,6 +180,16 @@ export interface LasImportOptions {
   attach?: boolean;
   /** Explicit unit for files whose index has no usable declaration. Omit to refuse them. */
   fileDepthUnit?: "M" | "FT" | null;
+  /** Resolved per-channel plural nulls. A named channel is screened only against its own list. */
+  channelNulls?: Record<string, number[] | "NoNull">;
+  /** One vendor exception entry may own many regex names and plural nulls, or explicit NoNull. */
+  nullRules?: Array<{ names: string[]; nulls: number[] | "NoNull" }>;
+  /** Required only when the index descends; absent means block before commit. */
+  nonMonotonicIndex?: "accept_as_delivered" | null;
+  /** Required only when repeated depths are present; absent means block before commit. */
+  duplicateDepthPolicy?: "keep-first" | "keep-last" | "mean" | "refuse" | null;
+  /** Explicit MS/FT meanings keyed by the exact source path; no entry means refuse. */
+  msPerFtMeanings?: Record<string, "microseconds_per_foot" | "millisiemens_per_foot">;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -132,6 +198,11 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     setName: opts?.setName ?? null,
     attach: opts?.attach ?? null,
     fileDepthUnit: opts?.fileDepthUnit ?? null,
+    channelNulls: opts?.channelNulls ?? null,
+    nullRules: opts?.nullRules ?? null,
+    nonMonotonicIndex: opts?.nonMonotonicIndex ?? null,
+    duplicateDepthPolicy: opts?.duplicateDepthPolicy ?? null,
+    msPerFtMeanings: opts?.msPerFtMeanings ?? null,
   });
 }
 
@@ -2453,12 +2524,13 @@ export interface CoreImportResult {
   path: string;
   rows: number;
   error: string | null;
+  index_resolution: ImportResult["index_resolution"];
 }
 
 /** Parses a core CSV (alias-resolved headers: DEPTH, CPOR/POR, CPERM/PERM, CGD, CSW)
  *  and replaces the given well's core plug data. */
-export function importCoreCsv(wellId: string, path: string): Promise<CoreImportResult> {
-  return invoke<CoreImportResult>("import_core_csv", { wellId, path });
+export function importCoreCsv(wellId: string, path: string, depthColumn?: number | null): Promise<CoreImportResult> {
+  return invoke<CoreImportResult>("import_core_csv", { wellId, path, depthColumn: depthColumn ?? null });
 }
 
 // --- Core import v2 (T-IMP-07): probe → confirm mapping → commit -------------
@@ -2510,6 +2582,14 @@ export interface CoreWellOutcome {
   problem: string | null;
 }
 
+/** Declares a numeric write boundary and counts only values that actually changed. */
+export interface SamplePrecisionReport {
+  source_precision: string;
+  destination_precision: string;
+  reduced: boolean;
+  values_reduced: number;
+}
+
 export interface CoreTableImportResult {
   path: string;
   rows_imported: number;
@@ -2520,6 +2600,7 @@ export interface CoreTableImportResult {
    *  came from (empty when no extras were mapped). */
   extra_rows: number;
   extra_items: string[];
+  precision: SamplePrecisionReport;
   error: string | null;
 }
 
@@ -3900,11 +3981,37 @@ export interface LasOmission {
   reason: string;
 }
 
+export interface LasCurveState {
+  export_curve: string;
+  source_curve: string;
+  set_name: string;
+  state: "working" | "final";
+}
+
 export interface LasExportResult {
   rows: number;
   curves_written: number;
   curves_held: number;
   omitted: LasOmission[];
+  curve_states: LasCurveState[];
+  precision: SamplePrecisionReport;
+  /** Set only after SandiBumi's own LAS reader accepts the completed file. */
+  self_checked: boolean;
+}
+
+export interface DataExportFormat {
+  id: string;
+  label: string;
+  extension: string;
+  is_default: boolean;
+  honours_project_sentinel: boolean;
+  /** Why a fixed-null format cannot honour the project declaration; shown by a format picker. */
+  sentinel_limitation: string | null;
+}
+
+/** Lists export formats with their default and sentinel capability declared. */
+export function listDataExportFormats(): Promise<DataExportFormat[]> {
+  return invoke<DataExportFormat[]>("list_data_export_formats");
 }
 
 /** Exports one well as LAS 2.0, including exact held/written counts and named omissions. */
@@ -4210,28 +4317,87 @@ export function materializeTvd(wellIds: string[]): Promise<TvdMaterializeResult[
 
 export interface DlisImportResult {
   path: string;
+  status: "complete" | "partial" | "failed";
+  /** Payload channels named by the file, excluding frame index channels. */
+  channels_declared: number;
   curves_imported: number;
   rows: number;
-  /** Existing RAW curves at the same (mnemonic, run) that this import overwrote. */
+  /** Legacy field; always zero now that duplicate curves require keep-separate or skip. */
   replaced: number;
   notes: string[];
-  skipped: Array<{ kind: string; name: string; count: number; rule: string }>;
+  /** Every automatic value conversion performed by the importer. */
+  unit_conversions: ImportResult["unit_conversions"];
+  unconverted_units: ImportResult["unconverted_units"];
+  unit_designations: ImportResult["unit_designations"];
+  skipped: Array<{ kind: string; name: string; count: number; rule: string; omitted: boolean }>;
+  /** Exact channel mnemonics whose LAS-sentinel fallback was disabled for this import. */
+  sentinel_exceptions: string[];
+  well_mappings: DlisWellMapping[];
+  mapping_confirmation_required: boolean;
+  interval_conflicts: Array<{
+    scope: "well" | "set";
+    name: string;
+    declared_top: number;
+    declared_base: number;
+    incoming_top: number;
+    incoming_base: number;
+  }>;
+  duplicate_conflicts: DlisDuplicateConflict[];
+  duplicate_decisions: DlisDuplicateDecisionRecord[];
   error: string | null;
 }
 
-/** Imports every scalar channel of a DLIS file into the selected well's generic store
- *  (via dlisio through the Python subprocess). */
+export type DlisDuplicateAction = "keep_separate" | "skip_incoming";
+
+export interface DlisDuplicateDecision {
+  mnemonic: string;
+  run: number;
+  action: DlisDuplicateAction;
+}
+
+export interface DlisDuplicateConflict {
+  mnemonic: string;
+  run: number;
+  existing: string[];
+}
+
+export interface DlisDuplicateDecisionRecord extends DlisDuplicateDecision {
+  existing: string[];
+  target_set: string | null;
+}
+
+export interface DlisWellMapping {
+  source_well: string;
+  logical_files: number[];
+  target_well_name: string;
+  /** Null in the pre-commit proposal; populated only after the project well is created. */
+  target_well_id: string | null;
+  will_create: boolean;
+}
+
+/** Imports scalar DLIS channels through the Python subprocess. A single source well targets
+ *  `wellId`; a multi-well container may omit it and requires its returned mapping to be echoed. */
 export function importDlisFile(
-  wellId: string,
+  wellId: string | null,
   path: string,
   setName?: string | null,
   fileDepthUnit?: "M" | "FT" | null,
+  msPerFtMeaning?: "microseconds_per_foot" | "millisiemens_per_foot" | null,
+  outsideIntervalDecision?: "accept_outside_declared_interval" | null,
+  duplicateDecisions?: DlisDuplicateDecision[] | null,
+  lasSentinelExceptions?: string[] | null,
+  confirmedWellMappings?: DlisWellMapping[] | null,
 ): Promise<DlisImportResult> {
   return invoke<DlisImportResult>("import_dlis_file", {
     wellId,
     path,
     setName: setName ?? null,
     fileDepthUnit: fileDepthUnit ?? null,
+    msPerFtMeaning: msPerFtMeaning ?? null,
+    outsideIntervalDecision: outsideIntervalDecision ?? null,
+    duplicateDecisions: duplicateDecisions ?? null,
+    lasSentinelExceptions: lasSentinelExceptions ?? null,
+    confirmedWellMappings: confirmedWellMappings ?? null,
   });
 }
 
@@ -4786,8 +4952,17 @@ export interface IntakeColumn {
   filled: number;
 }
 
+export interface FormatDetection {
+  detected_format: string;
+  recognition: string;
+  choice_report: string;
+  extension_disagreement: string | null;
+}
+
 export interface IntakeProbe {
   path: string;
+  format: FormatDetection;
+  text_encoding: string;
   columns: IntakeColumn[];
   n_rows: number;
   preview: string[][];
@@ -4850,6 +5025,35 @@ export interface ReframeResult {
   version: number | null;
   notes: string[];
   error: string | null;
+}
+
+export interface ReframeSourceSpec {
+  kind: "logset" | "import" | "standard";
+  name: string | null;
+}
+
+export interface CurveSelection {
+  name: string;
+  mode: "selected";
+  /** Ordered exact mnemonics; this order survives save/reload. */
+  members: string[];
+}
+
+export function saveCurveSelection(selection: CurveSelection): Promise<CurveSelection> {
+  return invoke<CurveSelection>("save_curve_selection", { selection });
+}
+
+export function listCurveSelections(): Promise<CurveSelection[]> {
+  return invoke<CurveSelection[]>("list_curve_selections");
+}
+
+export function deleteCurveSelection(name: string): Promise<void> {
+  return invoke<void>("delete_curve_selection", { name });
+}
+
+/** Exact source mnemonics offered for an explicit substitution; never family/type-expanded. */
+export function reframeSourceCurves(wellId: string, source: ReframeSourceSpec): Promise<string[]> {
+  return invoke<string[]>("reframe_source_curves", { wellId, source });
 }
 
 /** Resamples a set onto a different sampling as a NEW set. `preview: true` reports without writing. */
