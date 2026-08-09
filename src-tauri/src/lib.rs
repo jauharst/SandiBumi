@@ -1127,9 +1127,7 @@ fn python_status() -> python_engine::PythonStatus {
 /// rows come from the bundled manifest; absence of Python makes only those rows unavailable.
 #[tauri::command]
 fn installation_support() -> Result<installation::InstallationSupport, String> {
-    installation::installation_support(
-        python_engine::find_python().map(|path| path.to_string_lossy().into_owned()),
-    )
+    installation::installation_support(python_engine::python_resolution()?)
 }
 
 /// Lists the curve catalog (standard + computed curves), auto-derived from the database.

@@ -288,17 +288,38 @@ pub fn probe_python_capability(
     python: &Path,
     capability_id: &str,
 ) -> Result<PythonPackageProbe, String> {
+    probe_python_capability_with(python, capability_id, probe_requirements)
+}
+
+pub(crate) fn probe_python_capability_with<F>(
+    python: &Path,
+    capability_id: &str,
+    execute: F,
+) -> Result<PythonPackageProbe, String>
+where
+    F: FnOnce(&Path, &[PackageRequirement]) -> Result<PythonPackageProbe, String>,
+{
     let capability = capability_requirement(capability_id)?;
-    probe_requirements(python, &capability.packages)
+    execute(python, &capability.packages)
 }
 
 pub fn probe_all_python_packages(python: &Path) -> Result<PythonPackageProbe, String> {
+    probe_all_python_packages_with(python, probe_requirements)
+}
+
+pub(crate) fn probe_all_python_packages_with<F>(
+    python: &Path,
+    execute: F,
+) -> Result<PythonPackageProbe, String>
+where
+    F: FnOnce(&Path, &[PackageRequirement]) -> Result<PythonPackageProbe, String>,
+{
     let requirements = capability_manifest()?
         .capabilities
         .into_iter()
         .flat_map(|capability| capability.packages)
         .collect::<Vec<_>>();
-    probe_requirements(python, &requirements)
+    execute(python, &requirements)
 }
 
 pub fn probe_manifest_package(
@@ -515,14 +536,17 @@ pub struct InstallationSupport {
     pub manifest_schema_version: u32,
     pub interpreter_minimum_version: String,
     pub selected_interpreter: Option<String>,
+    pub selected_interpreter_rule: Option<String>,
+    pub interpreter_candidates: Vec<crate::python_engine::PythonCandidateReport>,
     pub capabilities: Vec<CapabilitySupport>,
 }
 
 /// Build the in-app prerequisite view from the same manifest used by release copy and probes.
 pub fn installation_support(
-    selected_interpreter: Option<String>,
+    resolution: crate::python_engine::PythonResolution,
 ) -> Result<InstallationSupport, String> {
     let manifest = capability_manifest()?;
+    let selected_interpreter = resolution.selected_interpreter.clone();
     let probe = selected_interpreter
         .as_deref()
         .map(Path::new)
@@ -583,6 +607,8 @@ pub fn installation_support(
         manifest_schema_version: manifest.schema_version,
         interpreter_minimum_version: manifest.interpreter.minimum_version,
         selected_interpreter,
+        selected_interpreter_rule: resolution.selected_rule,
+        interpreter_candidates: resolution.candidates,
         capabilities,
     })
 }
@@ -984,7 +1010,12 @@ mod tests {
     fn a_machine_without_python_names_every_python_capability_unavailable_and_makes_no_blanket_runtime_claim(
     ) {
         let manifest = capability_manifest().unwrap();
-        let support = installation_support(None).unwrap();
+        let support = installation_support(crate::python_engine::PythonResolution {
+            selected_interpreter: None,
+            selected_rule: None,
+            candidates: Vec::new(),
+        })
+        .unwrap();
         assert_eq!(support.capabilities.len(), manifest.capabilities.len());
         for expected in &manifest.capabilities {
             let actual = support

@@ -4209,6 +4209,14 @@ export interface InstallationSupport {
   manifest_schema_version: number;
   interpreter_minimum_version: string;
   selected_interpreter: string | null;
+  selected_interpreter_rule: string | null;
+  interpreter_candidates: Array<{
+    candidate: string;
+    precedence_rule: string;
+    resolved_executable: string | null;
+    accepted: boolean;
+    reason: string;
+  }>;
   capabilities: CapabilitySupport[];
 }
 

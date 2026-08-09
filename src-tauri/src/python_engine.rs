@@ -33,7 +33,7 @@ use crate::equations::{fetch_curve_frame, write_equation_output, EquationDef, Eq
 use crate::installation;
 use duckdb::Connection;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
@@ -176,47 +176,239 @@ while True:
         send({"ok": False, "error": f"script error: {e}"})
 "#;
 
-/// Finds a Python with numpy, once per session.
-pub fn find_python() -> Option<PathBuf> {
-    static FOUND: OnceLock<Option<PathBuf>> = OnceLock::new();
-    FOUND
+#[derive(Debug, Clone)]
+struct PythonCandidate {
+    path: PathBuf,
+    precedence_rule: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub struct PythonCandidateReport {
+    /// Candidate as configured (an absolute path or a PATH command).
+    pub candidate: String,
+    /// The cited discovery rule that gave this candidate its place in the order.
+    pub precedence_rule: String,
+    /// `sys.executable` reported by a candidate that started successfully.
+    pub resolved_executable: Option<String>,
+    pub accepted: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub struct PythonResolution {
+    /// Exact `sys.executable` selected for every Python-backed capability.
+    pub selected_interpreter: Option<String>,
+    pub selected_rule: Option<String>,
+    /// Attempted candidates only: every entry before the selected row is a higher-priority
+    /// rejection; when nothing is selected, every candidate carries its rejection reason.
+    pub candidates: Vec<PythonCandidateReport>,
+}
+
+impl PythonResolution {
+    pub fn selected_path(&self) -> Option<PathBuf> {
+        self.selected_interpreter.as_deref().map(PathBuf::from)
+    }
+}
+
+fn discovery_candidates() -> Vec<PythonCandidate> {
+    let mut candidates = Vec::new();
+    for (variable, rule) in [
+        (PYTHON_ENV, "SANDIBUMI_PYTHON override"),
+        (PYTHON_ENV_LEGACY, "legacy compatibility override"),
+    ] {
+        if let Ok(path) = std::env::var(variable) {
+            let path = path.trim();
+            if !path.is_empty() {
+                candidates.push(PythonCandidate {
+                    path: PathBuf::from(path),
+                    precedence_rule: rule.to_string(),
+                });
+            }
+        }
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        for (directory, version) in [
+            ("Python313", "3.13"),
+            ("Python312", "3.12"),
+            ("Python311", "3.11"),
+            ("Python310", "3.10"),
+        ] {
+            candidates.push(PythonCandidate {
+                path: PathBuf::from(&local)
+                    .join("Programs")
+                    .join("Python")
+                    .join(directory)
+                    .join("python.exe"),
+                precedence_rule: format!("per-user Python {version}"),
+            });
+        }
+    }
+    for command in ["python3", "python"] {
+        candidates.push(PythonCandidate {
+            path: PathBuf::from(command),
+            precedence_rule: format!("PATH {command}"),
+        });
+    }
+    candidates
+}
+
+fn numeric_version(value: &str) -> Option<Vec<u32>> {
+    let parts = value
+        .split('.')
+        .map(str::parse::<u32>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    (parts.len() >= 2).then_some(parts)
+}
+
+fn version_at_least(observed: &str, minimum: &str) -> bool {
+    let (Some(mut observed), Some(mut minimum)) =
+        (numeric_version(observed), numeric_version(minimum))
+    else {
+        return false;
+    };
+    let width = observed.len().max(minimum.len());
+    observed.resize(width, 0);
+    minimum.resize(width, 0);
+    observed >= minimum
+}
+
+fn resolve_python_candidates_with<F>(
+    candidates: Vec<PythonCandidate>,
+    mut probe: F,
+) -> Result<PythonResolution, String>
+where
+    F: FnMut(&Path) -> Result<installation::PythonPackageProbe, String>,
+{
+    let manifest = installation::capability_manifest()?;
+    let equation = installation::capability_requirement(
+        installation::CAPABILITY_PYTHON_EQUATIONS,
+    )?;
+    let mut reports = Vec::new();
+
+    for candidate in candidates {
+        let candidate_label = candidate.path.to_string_lossy().into_owned();
+        let observed = match probe(&candidate.path) {
+            Ok(observed) => observed,
+            Err(error) => {
+                reports.push(PythonCandidateReport {
+                    candidate: candidate_label,
+                    precedence_rule: candidate.precedence_rule,
+                    resolved_executable: None,
+                    accepted: false,
+                    reason: format!("rejected: {error}"),
+                });
+                continue;
+            }
+        };
+        let exact_executable = observed.executable.trim().to_string();
+        if exact_executable.is_empty() {
+            reports.push(PythonCandidateReport {
+                candidate: candidate_label,
+                precedence_rule: candidate.precedence_rule,
+                resolved_executable: None,
+                accepted: false,
+                reason: "rejected: probe returned no sys.executable".to_string(),
+            });
+            continue;
+        }
+        if !version_at_least(
+            &observed.python_version,
+            &manifest.interpreter.minimum_version,
+        ) {
+            reports.push(PythonCandidateReport {
+                candidate: candidate_label,
+                precedence_rule: candidate.precedence_rule,
+                resolved_executable: Some(exact_executable),
+                accepted: false,
+                reason: format!(
+                    "rejected: Python {} is below the required {}",
+                    observed.python_version, manifest.interpreter.minimum_version
+                ),
+            });
+            continue;
+        }
+        let missing = equation
+            .packages
+            .iter()
+            .filter(|package| {
+                package.required
+                    && !installation::package_is_available(&observed, &package.distribution)
+            })
+            .map(|package| {
+                let detail = observed
+                    .packages
+                    .iter()
+                    .find(|result| {
+                        result
+                            .distribution
+                            .eq_ignore_ascii_case(&package.distribution)
+                    })
+                    .and_then(|result| result.error.as_deref())
+                    .filter(|error| !error.trim().is_empty());
+                match detail {
+                    Some(error) => format!("{} ({error})", package.distribution),
+                    None => package.distribution.clone(),
+                }
+            })
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            reports.push(PythonCandidateReport {
+                candidate: candidate_label,
+                precedence_rule: candidate.precedence_rule,
+                resolved_executable: Some(exact_executable),
+                accepted: false,
+                reason: format!(
+                    "rejected: required package unavailable: {}",
+                    missing.join(", ")
+                ),
+            });
+            continue;
+        }
+
+        reports.push(PythonCandidateReport {
+            candidate: candidate_label,
+            precedence_rule: candidate.precedence_rule.clone(),
+            resolved_executable: Some(exact_executable.clone()),
+            accepted: true,
+            reason: format!(
+                "selected: Python {} and all required equation packages are available",
+                observed.python_version
+            ),
+        });
+        return Ok(PythonResolution {
+            selected_interpreter: Some(exact_executable),
+            selected_rule: Some(candidate.precedence_rule),
+            candidates: reports,
+        });
+    }
+
+    Ok(PythonResolution {
+        selected_interpreter: None,
+        selected_rule: None,
+        candidates: reports,
+    })
+}
+
+/// Resolve and explain one Python interpreter once per session. Every Python-backed caller uses
+/// [`find_python`], which is a path-only view of this same cached decision.
+pub fn python_resolution() -> Result<PythonResolution, String> {
+    static RESOLUTION: OnceLock<Result<PythonResolution, String>> = OnceLock::new();
+    RESOLUTION
         .get_or_init(|| {
-            let mut candidates: Vec<PathBuf> = Vec::new();
-            // Current name first, then the pre-rename one. A user who set ARSHILLA_PYTHON
-            // years ago keeps working without being told to change anything; a user reading
-            // an error message today is only ever told the current name.
-            for var in [PYTHON_ENV, PYTHON_ENV_LEGACY] {
-                if let Ok(p) = std::env::var(var) {
-                    let p = p.trim();
-                    if !p.is_empty() {
-                        candidates.push(PathBuf::from(p));
-                    }
-                }
-            }
-            if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                for ver in ["Python313", "Python312", "Python311", "Python310"] {
-                    candidates.push(PathBuf::from(&local).join("Programs").join("Python").join(ver).join("python.exe"));
-                }
-            }
-            candidates.push(PathBuf::from("python3"));
-            candidates.push(PathBuf::from("python"));
-            candidates.into_iter().find(|c| has_numpy(c))
+            resolve_python_candidates_with(discovery_candidates(), |candidate| {
+                installation::probe_python_capability(
+                    candidate,
+                    installation::CAPABILITY_PYTHON_EQUATIONS,
+                )
+            })
         })
         .clone()
 }
 
-fn has_numpy(python: &PathBuf) -> bool {
-    installation::probe_python_capability(
-        python,
-        installation::CAPABILITY_PYTHON_EQUATIONS,
-    )
-    .and_then(|probe| {
-        installation::capability_is_available(
-            &probe,
-            installation::CAPABILITY_PYTHON_EQUATIONS,
-        )
-    })
-    .unwrap_or(false)
+/// Exact interpreter selected for the session, shared by every Python-backed capability.
+pub fn find_python() -> Option<PathBuf> {
+    python_resolution().ok()?.selected_path()
 }
 
 /// What the equation engine can actually offer, probed once per session.
@@ -520,6 +712,33 @@ pub fn run_python_equation(
 mod env_name_tests {
     use super::*;
 
+    fn equation_probe(
+        executable: &str,
+        python_version: &str,
+        numpy_available: bool,
+    ) -> installation::PythonPackageProbe {
+        let packages = installation::capability_requirement(
+            installation::CAPABILITY_PYTHON_EQUATIONS,
+        )
+        .expect("equation capability")
+        .packages
+        .into_iter()
+        .map(|package| installation::PackageProbe {
+            error: (!numpy_available && package.distribution == "numpy")
+                .then(|| "No module named numpy".to_string()),
+            available: package.distribution != "numpy" || numpy_available,
+            distribution: package.distribution,
+            import_name: package.import_name,
+            version: None,
+        })
+        .collect();
+        installation::PythonPackageProbe {
+            executable: executable.to_string(),
+            python_version: python_version.to_string(),
+            packages,
+        }
+    }
+
     /// A customer who has no Python is told what to set. Until 2026-07-31 they were told to
     /// set `ARSHILLA_PYTHON` — a variable named after this app's PREVIOUS name — in ten
     /// separate messages across DLIS import, ML, images and all three office exports. That is
@@ -539,6 +758,155 @@ mod env_name_tests {
             "the message must not name the pre-rename variable: {message}"
         );
         assert_ne!(PYTHON_ENV, PYTHON_ENV_LEGACY);
+    }
+
+    /// SB-INS-005 / SB-INS-T05. Candidate order and the NumPy acceptance rule come from
+    /// python_engine.rs:176-209 as cited by the chapter; Python 3.10 is the cited minimum in
+    /// section 5. Both candidate identities and the higher-priority rejection must survive.
+    #[test]
+    fn a_lower_precedence_numpy_capable_interpreter_is_selected_and_higher_rejections_are_explained(
+    ) {
+        let candidates = vec![
+            PythonCandidate {
+                path: PathBuf::from("higher-priority-python.exe"),
+                precedence_rule: "higher fixture rule".to_string(),
+            },
+            PythonCandidate {
+                path: PathBuf::from("lower-priority-python.exe"),
+                precedence_rule: "lower fixture rule".to_string(),
+            },
+        ];
+        let resolution = resolve_python_candidates_with(candidates, |candidate| {
+            if candidate == Path::new("higher-priority-python.exe") {
+                Ok(equation_probe(
+                    "C:/interpreters/higher/python.exe",
+                    "3.13.1",
+                    false,
+                ))
+            } else {
+                Ok(equation_probe(
+                    "C:/interpreters/lower/python.exe",
+                    "3.10.0",
+                    true,
+                ))
+            }
+        })
+        .expect("resolution fixture");
+
+        assert_eq!(
+            resolution.selected_interpreter.as_deref(),
+            Some("C:/interpreters/lower/python.exe")
+        );
+        assert_eq!(resolution.selected_rule.as_deref(), Some("lower fixture rule"));
+        assert_eq!(resolution.candidates.len(), 2);
+        assert_eq!(
+            resolution.candidates[0].candidate,
+            "higher-priority-python.exe"
+        );
+        assert!(!resolution.candidates[0].accepted);
+        assert!(resolution.candidates[0].reason.contains("numpy"));
+        assert!(resolution.candidates[0]
+            .reason
+            .contains("No module named numpy"));
+        assert_eq!(
+            resolution.candidates[1].candidate,
+            "lower-priority-python.exe"
+        );
+        assert!(resolution.candidates[1].accepted);
+    }
+
+    /// SB-INS-005 / SB-INS-T06. The override name and one-session resolver come from the
+    /// chapter's section 5 and python_engine.rs:39-41,176-203. The manifest supplies the full
+    /// Python-backed capability inventory; every probe must receive the selected sys.executable.
+    #[test]
+    fn a_valid_override_is_the_exact_interpreter_used_by_every_python_backed_probe() {
+        let exact = "C:/qualified-runtime/python.exe";
+        let resolution = resolve_python_candidates_with(
+            vec![PythonCandidate {
+                path: PathBuf::from("configured-override.exe"),
+                precedence_rule: "SANDIBUMI_PYTHON override".to_string(),
+            }],
+            |_| Ok(equation_probe(exact, "3.10.0", true)),
+        )
+        .expect("valid override resolves");
+        assert_eq!(resolution.selected_interpreter.as_deref(), Some(exact));
+        assert_eq!(
+            resolution.selected_rule.as_deref(),
+            Some("SANDIBUMI_PYTHON override")
+        );
+
+        let selected = resolution.selected_path().expect("selected path");
+        let manifest = installation::capability_manifest().expect("capability manifest");
+        let mut probed_paths = Vec::new();
+        for capability in &manifest.capabilities {
+            let observed = installation::probe_python_capability_with(
+                &selected,
+                &capability.id,
+                |path, requirements| {
+                    probed_paths.push(path.to_string_lossy().into_owned());
+                    Ok(installation::PythonPackageProbe {
+                        executable: path.to_string_lossy().into_owned(),
+                        python_version: "3.10.0".to_string(),
+                        packages: requirements
+                            .iter()
+                            .map(|package| installation::PackageProbe {
+                                distribution: package.distribution.clone(),
+                                import_name: package.import_name.clone(),
+                                available: true,
+                                version: None,
+                                error: None,
+                            })
+                            .collect(),
+                    })
+                },
+            )
+            .unwrap_or_else(|error| panic!("{}: {error}", capability.id));
+            assert_eq!(observed.executable, exact);
+        }
+        let observed = installation::probe_all_python_packages_with(
+            &selected,
+            |path, requirements| {
+                probed_paths.push(path.to_string_lossy().into_owned());
+                Ok(installation::PythonPackageProbe {
+                    executable: path.to_string_lossy().into_owned(),
+                    python_version: "3.10.0".to_string(),
+                    packages: requirements
+                        .iter()
+                        .map(|package| installation::PackageProbe {
+                            distribution: package.distribution.clone(),
+                            import_name: package.import_name.clone(),
+                            available: true,
+                            version: None,
+                            error: None,
+                        })
+                        .collect(),
+                })
+            },
+        )
+        .expect("release-wide package probe");
+        assert_eq!(observed.executable, exact);
+        assert_eq!(probed_paths.len(), manifest.capabilities.len() + 1);
+        assert!(probed_paths.iter().all(|path| path == exact));
+
+        for (module, source) in [
+            ("core image", include_str!("coreimage.rs")),
+            ("DLIS", include_str!("dlis.rs")),
+            ("images", include_str!("images.rs")),
+            ("ML", include_str!("ml.rs")),
+            ("Office", include_str!("office.rs")),
+            ("petrography", include_str!("petrography.rs")),
+        ] {
+            assert!(source.contains("find_python()"), "{module} bypasses the resolver");
+            assert!(
+                !source.contains("Command::new(\"python\"")
+                    && !source.contains("Command::new(\"python3\""),
+                "{module} carries a second interpreter choice"
+            );
+            assert!(
+                !source.contains("std::env::var(\"SANDIBUMI_PYTHON\")"),
+                "{module} carries a second override resolver"
+            );
+        }
     }
 }
 
