@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-021: support-report fragments are honestly classified
+
+- [ ] Inspect the current installation-support payload. Does it expose interpreter selection,
+      candidate reasons, package versions and the capability matrix without project data or secret
+      fields? Confirm it is not presented as the still-absent full release/configuration report.
+
 ## 2026-08-09 — SB-INS-007: remediation targets the selected interpreter
 
 - [ ] For each unavailable optional package, copy the remediation command. Does it name the exact
