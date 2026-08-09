@@ -115,3 +115,18 @@ test("characterizes_crossplot_static_draw_and_z_colours_as_separately_invalidate
   assert.ok(source.indexOf("drawStatic") < source.lastIndexOf("redraw"));
   assert.match(source, /plot\s*=\s*drawStatic\(canvas,\s*hoverIdx\)/);
 });
+
+test("a_superseded_async_plot_build_is_disposed_before_it_can_replace_the_active_panel", async () => {
+  // CORRECTNESS — SB-PLT-029 / SB-PLT-T28/T33 cites workspace.ts's generation
+  // contract: reverse-order completion may render only the newest generation.
+  const { Workspace } = await load("/src/ui/workspace.ts");
+  const source = Function.prototype.toString.call(Workspace.prototype.createPlot);
+  const generationCheck = source.indexOf("gen !== generation");
+  const staleDispose = source.indexOf("content.dispose", generationCheck);
+  const activeAppend = source.indexOf("host.appendChild(content.el)");
+
+  assert.ok(source.includes("const gen = ++generation"));
+  assert.ok(generationCheck >= 0, "resolved content is guarded by its generation");
+  assert.ok(staleDispose > generationCheck, "stale content is disposed inside the guard");
+  assert.ok(activeAppend > staleDispose, "the stale-return branch precedes active-panel mutation");
+});
