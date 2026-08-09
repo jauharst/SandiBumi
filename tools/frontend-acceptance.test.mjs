@@ -70,3 +70,13 @@ test("characterizes_linked_brushing_as_one_ephemeral_scope_with_exact_depth_memb
   clearBrush();
   assert.equal(appState.brushedDepths.get(), null);
 });
+
+test("an_unknown_future_template_field_survives_crossplot_option_normalization", async () => {
+  // CORRECTNESS — SB-PLT-025 / SB-PLT-T36 specifies that an unknown future field is
+  // preserved or migration refuses; this fixture pins the shipped preservation route.
+  const { normalizeCrossplotOptions } = await load("/src/ui/crossplotPanel.ts");
+  const future = { schema: 7, semanticBinding: "future-axis-contract" };
+  const normalized = normalizeCrossplotOptions({ future_template_field: future });
+
+  assert.deepEqual(normalized.future_template_field, future);
+});
