@@ -90,9 +90,6 @@ NEVER, UNDER ANY CIRCUMSTANCE
 
 NEVER TOUCH THESE FILES
   db.rs — the DuckDB write discipline is never delegated
-  equations.rs, multimin.rs, multimin2.rs, ssc.rs, lrlc.rs, satheight.rs, thomeer.rs,
-    hfu.rs, montecarlo.rs, distribution.rs, petrography.rs — a wrong answer in any of these
-    compiles, plots and reaches a client report with no gate to catch it
   ml.rs, mlDialog.ts — another session's domain
   src/ui/chartOverlays.ts — GENERATED; regenerate with tools/chartdig, never hand-edit
   docs/PRD_v2/** — the specification is not yours to amend
