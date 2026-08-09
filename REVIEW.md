@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-023: release qualification covers every serviced Windows target
+
+- [ ] Supply the release-time Microsoft-serviced Windows 11 x64 feature-release inventory and run
+      Pro and Enterprise through all nine clean-machine scenarios. Does one failed or omitted
+      scenario name its exact release, edition and scenario and keep the installer unpublished?
+
 ## 2026-08-09 — SB-INS-016: unit conversions are quantity-typed
 
 - [ ] Validate the unit registry with the demonstrated `md` → `m` bridge, then with `mm` → `in`
