@@ -3,6 +3,7 @@ import { appState, type TopInterval } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
 import { FACIES_PALETTE } from "./plotCanvas";
+import { allocateFinitePairBudget } from "./plotTypes";
 
 /** Shared pieces for the parameter-selection dialogs: curve/zone selectors and the
  *  "apply picked value to a zone parameter" row. */
@@ -429,8 +430,8 @@ export async function contextZoneWindow(
   return z ? [z.top_depth, z.bottom_depth] : null;
 }
 
-/** One fetched context well: its requested curves, stride-decimated in step (paired
- *  samples stay paired), keyed by upper-cased curve name. */
+/** One fetched context well: its requested curves screened and reduced by one shared
+ * source-index vector, keyed by upper-cased curve name. */
 export interface ContextLayerData {
   name: string;
   color: string;
@@ -444,6 +445,10 @@ export interface ContextFetchOutcome {
   decimated: boolean;
   /** Wells dropped: no matching zone/top, no data for the curves, or a fetch error. */
   skipped: number;
+  /** Per-well absence is explicit; an all-NaN required curve is not represented. */
+  absent: { wellId: string; reason: string; quota: 0 }[];
+  /** Present only when the total budget cannot retain required endpoints. */
+  refusal: string | null;
 }
 
 /** Fetches the context wells' curves, concurrency-limited and cancellable: `isStale()`
@@ -460,11 +465,14 @@ export async function fetchContextLayers(args: {
   isStale: () => boolean;
 }): Promise<ContextFetchOutcome | null> {
   const { ids, names, curves, windowFor, budget, isStale } = args;
-  const quota = Math.max(1, Math.floor(budget / ids.length));
-  const layers: (ContextLayerData | null)[] = new Array(ids.length).fill(null);
-  let skipped = 0;
-  let shown = 0;
-  let decimated = false;
+  interface Candidate {
+    wellId: string;
+    name: string;
+    color: string;
+    arrays: Float32Array[];
+  }
+  const candidates: (Candidate | null)[] = new Array(ids.length).fill(null);
+  const absent: { wellId: string; reason: string; quota: 0 }[] = [];
   let next = 0;
   const worker = async (): Promise<void> => {
     while (next < ids.length && !isStale()) {
@@ -473,51 +481,85 @@ export async function fetchContextLayers(args: {
         const win = await windowFor(ids[i]);
         if (isStale()) return;
         if (!win) {
-          skipped++;
+          absent.push({ wellId: ids[i], reason: "no matching zone or top interval", quota: 0 });
           continue;
         }
         const series = await getCurveData(ids[i], curves, win[0], win[1]);
         if (isStale()) return;
         const byName = new Map(series.map((s) => [s.curve_name, s.value]));
         const arrays = curves.map((c) => byName.get(c.toUpperCase()));
-        const n = arrays.reduce((m, a) => Math.min(m, a?.length ?? 0), Infinity);
-        if (arrays.some((a) => !a) || !Number.isFinite(n) || n === 0) {
-          skipped++;
+        if (arrays.some((array) => !array)) {
+          absent.push({ wellId: ids[i], reason: "one or more required curves are absent", quota: 0 });
           continue;
         }
-        const stride = Math.max(1, Math.ceil(n / quota));
-        const out = new Map<string, Float32Array>();
-        let m = n;
-        if (stride > 1) {
-          decimated = true;
-          m = Math.ceil(n / stride);
-          for (let c = 0; c < curves.length; c++) {
-            const src = arrays[c]!;
-            const dst = new Float32Array(m);
-            for (let k = 0, j = 0; k < n; k += stride, j++) dst[j] = src[k];
-            out.set(curves[c].toUpperCase(), dst);
-          }
-        } else {
-          for (let c = 0; c < curves.length; c++) out.set(curves[c].toUpperCase(), arrays[c]!.subarray(0, n));
-        }
-        layers[i] = { name: names[i], color: FACIES_PALETTE[i % FACIES_PALETTE.length], series: out };
-        shown += m;
-      } catch {
-        skipped++;
+        candidates[i] = {
+          wellId: ids[i],
+          name: names[i],
+          color: FACIES_PALETTE[i % FACIES_PALETTE.length],
+          arrays: arrays as Float32Array[],
+        };
+      } catch (error) {
+        absent.push({ wellId: ids[i], reason: `context fetch failed: ${String(error)}`, quota: 0 });
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(args.concurrency ?? 8, ids.length) }, () => worker()));
   if (isStale()) return null;
-  return { layers: layers.filter((l): l is ContextLayerData => l !== null), shown, decimated, skipped };
+  const fetched = candidates.filter((candidate): candidate is Candidate => candidate !== null);
+  const allocation = allocateFinitePairBudget(
+    fetched.map((candidate) => ({ wellId: candidate.wellId, channels: candidate.arrays })),
+    budget,
+  );
+  absent.push(...allocation.absent);
+  if (allocation.refusal) {
+    for (const candidate of fetched) {
+      if (allocation.absent.some((item) => item.wellId === candidate.wellId)) continue;
+      absent.push({ wellId: candidate.wellId, reason: allocation.refusal, quota: 0 });
+    }
+    return {
+      layers: [],
+      shown: 0,
+      decimated: false,
+      skipped: absent.length,
+      absent,
+      refusal: allocation.refusal,
+    };
+  }
+  const byWell = new Map(allocation.wells.map((item) => [item.wellId, item]));
+  const layers: ContextLayerData[] = [];
+  let shown = 0;
+  let decimated = false;
+  for (const candidate of fetched) {
+    const assigned = byWell.get(candidate.wellId);
+    if (!assigned) continue;
+    const out = new Map<string, Float32Array>();
+    for (let channel = 0; channel < curves.length; channel++) {
+      out.set(
+        curves[channel].toUpperCase(),
+        Float32Array.from(assigned.sourceIndices.map((sourceIndex) => candidate.arrays[channel][sourceIndex])),
+      );
+    }
+    layers.push({ name: candidate.name, color: candidate.color, series: out });
+    shown += assigned.sourceIndices.length;
+    if (assigned.sourceIndices.length < assigned.finitePairCount) decimated = true;
+  }
+  return {
+    layers,
+    shown,
+    decimated,
+    skipped: absent.length,
+    absent,
+    refusal: null,
+  };
 }
 
 /** Human line for the scope row: "Context: 41 wells · ~58,200 pts (decimated) · 3 skipped …". */
 export function describeContextOutcome(o: ContextFetchOutcome): string {
+  if (o.refusal) return `Context refused: ${o.refusal}`;
   return (
     `Context: ${o.layers.length} well${o.layers.length === 1 ? "" : "s"} · ~${o.shown.toLocaleString()} pts` +
     (o.decimated ? " (decimated)" : "") +
-    (o.skipped ? ` · ${o.skipped} skipped (no data or no matching zone/top)` : "")
+    (o.skipped ? ` · ${o.skipped} absent (reasons retained per well)` : "")
   );
 }
 

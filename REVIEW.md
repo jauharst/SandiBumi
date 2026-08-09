@@ -7,6 +7,14 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-014: multi-well budget follows finite-pair screening
+
+- [ ] Request two context wells where one required Y curve is a full-length NaN vector.
+      Does that well appear in the outcome as absent with zero finite aligned pairs and zero
+      quota? Does the valid well receive the available budget only after screening, with its
+      first and final eligible source samples retained? If the budget cannot retain every
+      represented well's endpoints, is the context plot refused explicitly?
+
 ## 2026-08-09 — SB-PLT-013: range policy is channel-specific
 
 - [ ] Plot non-finite values and non-positive values on logarithmic X/Y axes. Are they

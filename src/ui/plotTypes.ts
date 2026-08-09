@@ -97,3 +97,92 @@ export function applyPlotChannelPolicy(
     clamped,
   };
 }
+
+export interface FinitePairWellInput {
+  wellId: string;
+  channels: Float32Array[];
+}
+
+export interface FinitePairWellAllocation {
+  wellId: string;
+  finitePairCount: number;
+  quota: number;
+  sourceIndices: number[];
+}
+
+export interface AbsentFinitePairWell {
+  wellId: string;
+  reason: string;
+  quota: 0;
+}
+
+export interface FinitePairBudgetAllocation {
+  wells: FinitePairWellAllocation[];
+  absent: AbsentFinitePairWell[];
+  refusal: string | null;
+}
+
+function endpointPreservingSubset(eligible: number[], count: number): number[] {
+  if (count >= eligible.length) return [...eligible];
+  if (count === 1) return [eligible[0]];
+  return Array.from(
+    { length: count },
+    (_, position) => eligible[Math.floor(position * (eligible.length - 1) / (count - 1))],
+  );
+}
+
+/** Screen finite aligned rows before assigning budget. Zero-pair wells receive no
+ * quota and a durable reason; represented wells receive both endpoints before any
+ * remaining capacity is shared in stable request order. */
+export function allocateFinitePairBudget(
+  inputs: FinitePairWellInput[],
+  budget: number,
+): FinitePairBudgetAllocation {
+  const absent: AbsentFinitePairWell[] = [];
+  const screened: { wellId: string; eligible: number[] }[] = [];
+  for (const input of inputs) {
+    const alignedLength = input.channels.length
+      ? Math.min(...input.channels.map((channel) => channel.length))
+      : 0;
+    const eligible: number[] = [];
+    for (let index = 0; index < alignedLength; index++) {
+      if (input.channels.every((channel) => Number.isFinite(channel[index]))) eligible.push(index);
+    }
+    if (eligible.length === 0) {
+      absent.push({ wellId: input.wellId, reason: "zero finite aligned pairs across required channels", quota: 0 });
+    } else {
+      screened.push({ wellId: input.wellId, eligible });
+    }
+  }
+  const normalizedBudget = Math.max(0, Math.floor(budget));
+  const minimumRequired = screened.reduce((sum, well) => sum + Math.min(2, well.eligible.length), 0);
+  if (normalizedBudget < minimumRequired) {
+    return {
+      wells: [],
+      absent,
+      refusal: `point budget ${normalizedBudget} cannot retain both endpoints for ${screened.length} represented wells; at least ${minimumRequired} points are required`,
+    };
+  }
+  const quotas = screened.map((well) => Math.min(2, well.eligible.length));
+  let remaining = normalizedBudget - minimumRequired;
+  while (remaining > 0) {
+    let advanced = false;
+    for (let index = 0; index < screened.length && remaining > 0; index++) {
+      if (quotas[index] >= screened[index].eligible.length) continue;
+      quotas[index]++;
+      remaining--;
+      advanced = true;
+    }
+    if (!advanced) break;
+  }
+  return {
+    wells: screened.map((well, index) => ({
+      wellId: well.wellId,
+      finitePairCount: well.eligible.length,
+      quota: quotas[index],
+      sourceIndices: endpointPreservingSubset(well.eligible, quotas[index]),
+    })),
+    absent,
+    refusal: null,
+  };
+}
