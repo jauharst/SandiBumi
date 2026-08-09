@@ -2514,8 +2514,73 @@ export async function getCurveData(
   depthMin: number | null,
   depthMax: number | null,
 ): Promise<TrackCurveSeries[]> {
+  const bindings = await resolvePlotBindings(
+    curveNames.map((semantic_request, index) => ({
+      channel: `curve:${index}`,
+      semantic_request,
+      required: true,
+    })),
+    [wellId],
+  );
+  for (const binding of bindings) {
+    plotBindingRegistry.set(`${wellId}\u0000${binding.intent.semantic_request.toUpperCase()}`, binding);
+  }
   const buf = await invoke<ArrayBuffer>("get_curve_data", { wellId, curveNames, depthMin, depthMax });
   return decodeCurveBuffer(buf);
+}
+
+export interface PlotChannelIntent {
+  channel: string;
+  semantic_request: string;
+  required: boolean;
+}
+
+export interface ResolvedPlotCurve {
+  well_id: string;
+  curve_id: string;
+  mnemonic: string;
+  quantity: string;
+  source_unit: string;
+  display_unit: string;
+  conversion: string;
+  sample_count: number;
+  resolution_reason: string;
+  source_revision: string;
+}
+
+export interface PlotChannelBinding {
+  intent: PlotChannelIntent;
+  resolved: ResolvedPlotCurve[];
+}
+
+const plotBindingRegistry = new Map<string, PlotChannelBinding>();
+
+/** Concrete bindings accumulated by the plot reads in this session, suitable for
+ * persisted plot state and provenance records without another curve-resolution pass. */
+export function plotBindingSnapshot(wellIds: string[], curveNames: string[]): PlotChannelBinding[] {
+  const out: PlotChannelBinding[] = [];
+  for (const curveName of curveNames) {
+    const resolved: ResolvedPlotCurve[] = [];
+    for (const wellId of wellIds) {
+      const binding = plotBindingRegistry.get(`${wellId}\u0000${curveName.toUpperCase()}`);
+      if (binding) resolved.push(...binding.resolved);
+    }
+    if (resolved.length > 0) {
+      out.push({
+        intent: { channel: curveName, semantic_request: curveName, required: true },
+        resolved,
+      });
+    }
+  }
+  return out;
+}
+
+/** Resolves and validates the semantic plot request before numeric curve bytes are read. */
+export function resolvePlotBindings(
+  intents: PlotChannelIntent[],
+  wellIds: string[],
+): Promise<PlotChannelBinding[]> {
+  return invoke<PlotChannelBinding[]>("resolve_plot_bindings", { intents, wellIds });
 }
 
 // ---------------------------------------------------------------------------
