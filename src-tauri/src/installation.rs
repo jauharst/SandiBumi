@@ -18,6 +18,8 @@ pub const CAPABILITY_PLATE_EXTRACTION: &str = "spreadsheet_plate_extraction";
 pub const CAPABILITY_WORKBOOK_EXPORT: &str = "workbook_export";
 pub const CAPABILITY_DOCUMENT_EXPORT: &str = "document_export";
 pub const CAPABILITY_DECK_EXPORT: &str = "deck_export";
+pub const QUALIFIED_PYTHON_PACK_ROUTE: &str = "qualified_python_pack";
+pub const APPLICATION_LOCAL_RUNTIME_SCOPE: &str = "sandibumi_application_local";
 
 /// One generic package probe for every Python-backed capability. Package names arrive as JSON
 /// from the capability manifest; this runner owns no second inventory. Its stdin is bytes by
@@ -138,10 +140,10 @@ fn validate_capability_manifest(manifest: &CapabilityManifest) -> Result<(), Str
                 capability.id, capability.interpreter, manifest.interpreter.id
             ));
         }
-        if capability.offline_route.trim().is_empty() {
+        if capability.offline_route != QUALIFIED_PYTHON_PACK_ROUTE {
             errors.push(format!(
-                "capability {} has no offline availability route",
-                capability.id
+                "capability {} offline route must be {}",
+                capability.id, QUALIFIED_PYTHON_PACK_ROUTE
             ));
         }
         if capability.packages.is_empty() {
@@ -658,9 +660,10 @@ pub fn readme_prerequisite_block() -> Result<String, String> {
 **Runtime prerequisites.** The native core, project open, plotting and native exports do not\n\
 require Python. These optional capabilities use one session-resolved Python {}+ subprocess:\n\n\
 {}\n\n\
-Package versions are never guessed here: each release takes them from the SandiBumi-qualified\n\
-offline Python pack lock. Open **Project → Help → Prerequisites** to see availability on this\n\
-machine.\n\
+Offline deployment has one supported route: IT silently deploys the separately signed, versioned\n\
+SandiBumi-qualified Python pack per machine. The pack configures `SANDIBUMI_PYTHON` to its\n\
+application-local interpreter; qualification blocks public network access. Exact package versions\n\
+come only from that release's lock. Open **Project → Help → Prerequisites** for local status.\n\
 <!-- capability-prerequisites:end -->",
         manifest.interpreter.minimum_version,
         capability_markdown_lines(&manifest)
@@ -674,7 +677,9 @@ pub fn release_prerequisite_markdown() -> Result<String, String> {
 The native core, project open, plotting and native exports do not require Python. The following\n\
 optional capabilities use one session-resolved Python {}+ subprocess:\n\n\
 {}\n\n\
-The supported offline route is the separately signed, versioned SandiBumi-qualified Python pack.\n\
+The supported offline route is the separately signed, versioned SandiBumi-qualified Python pack,\n\
+silently deployed per machine by IT. It configures `SANDIBUMI_PYTHON` to its application-local\n\
+interpreter. The release gate blocks public network access and accepts zero observed requests.\n\
 Exact package versions are supplied only by that release's qualification lock.\n",
         manifest.interpreter.minimum_version,
         capability_markdown_lines(&manifest)
@@ -700,14 +705,16 @@ pub fn installer_prerequisite_text() -> Result<String, String> {
 Native core, project open, plotting and native exports do not require Python.\n\
 Optional capabilities use one session-resolved Python {}+ subprocess:\n\n\
 {}\n\n\
-Offline deployment uses the separately signed, versioned SandiBumi-qualified Python pack.\n\
-Exact package versions come only from the qualified release lock.\n",
+Offline deployment uses the separately signed, versioned SandiBumi-qualified Python pack, silently\n\
+deployed per machine by IT. It configures SANDIBUMI_PYTHON to its application-local interpreter.\n\
+Qualification blocks public network access and accepts zero observed requests. Exact package\n\
+versions come only from the qualified release lock.\n",
         manifest.interpreter.minimum_version, lines
     ))
 }
 
 pub fn installer_long_description() -> String {
-    "Native core runs without Python. Optional Python-backed capabilities use one session-resolved Python 3.10+ subprocess; their exact packages are listed in the bundled capability-prerequisites notice and versions come only from the qualified release lock.".to_string()
+    "Native core runs without Python. Offline Python-backed capabilities require the separately signed SandiBumi-qualified pack, silently deployed per machine by IT; exact packages are listed in the bundled capability-prerequisites notice and versions come only from the qualified release lock.".to_string()
 }
 
 /// Deployment-owner decision, 2026-08-09: IT deploys one MSI device-wide, under the system
@@ -892,6 +899,198 @@ pub fn validate_installer_qualification_file(path: &Path) -> Result<(), String> 
     validate_installer_qualification(&evidence).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// Evidence captured while both the application MSI and the separately signed Python pack are
+/// installed on a clean machine whose public network path is blocked. Exact runtime/package
+/// versions live in the referenced release lock; this schema deliberately carries no default.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OfflineDeploymentQualification {
+    pub pack_file: String,
+    pub pack_version: String,
+    pub pack_sha256: String,
+    pub release_lock_file: String,
+    pub release_lock_sha256: String,
+    pub signature: SignatureEvidence,
+    pub deployment_route: String,
+    pub install_scope: String,
+    pub deployment_context: String,
+    pub runtime_scope: String,
+    pub application_msi_silent_install_succeeded: bool,
+    pub pack_silent_install_succeeded: bool,
+    pub public_network_blocked: bool,
+    pub network_requests_observed: u64,
+    pub network_monitor_evidence: String,
+    pub selected_interpreter: String,
+    pub selection_rule: String,
+    pub claimed_capabilities: Vec<String>,
+    pub probe: PythonPackageProbe,
+}
+
+/// Refuse release media unless the application installer is intrinsically offline and the
+/// qualified pack proves every manifest capability while the public network is unavailable.
+pub fn validate_offline_deployment(
+    evidence: &OfflineDeploymentQualification,
+) -> Result<(), String> {
+    let manifest = capability_manifest()?;
+    let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+        .map_err(|e| format!("tauri.conf.json is invalid: {e}"))?;
+    let mut errors = Vec::new();
+
+    if config["bundle"]["windows"]["webviewInstallMode"]["type"].as_str()
+        != Some("offlineInstaller")
+    {
+        errors.push(
+            "application MSI must embed Tauri's offline WebView2 installer; a downloaded bootstrapper is not an offline route"
+                .to_string(),
+        );
+    }
+    if evidence.pack_file.trim().is_empty() || evidence.pack_version.trim().is_empty() {
+        errors.push("qualified Python pack file and version are required".to_string());
+    }
+    if !is_sha256(&evidence.pack_sha256) {
+        errors.push("pack_sha256 must be the 64-hex digest of the qualified pack".to_string());
+    }
+    if evidence.release_lock_file.trim().is_empty() || !is_sha256(&evidence.release_lock_sha256) {
+        errors.push(
+            "the exact-version release lock file and its 64-hex SHA-256 are required".to_string(),
+        );
+    }
+    if !evidence.signature.valid || evidence.signature.certificate_thumbprint.trim().is_empty() {
+        errors.push(
+            "the qualified Python pack must have a valid signature and certificate thumbprint"
+                .to_string(),
+        );
+    }
+    if evidence.deployment_route != QUALIFIED_PYTHON_PACK_ROUTE {
+        errors.push(format!(
+            "deployment_route must be {QUALIFIED_PYTHON_PACK_ROUTE}"
+        ));
+    }
+    if evidence.install_scope != WINDOWS_INSTALL_SCOPE
+        || evidence.deployment_context != WINDOWS_DEPLOYMENT_CONTEXT
+    {
+        errors.push(format!(
+            "the offline pack must be deployed {} by {}",
+            WINDOWS_INSTALL_SCOPE, WINDOWS_DEPLOYMENT_CONTEXT
+        ));
+    }
+    if evidence.runtime_scope != APPLICATION_LOCAL_RUNTIME_SCOPE {
+        errors.push(format!(
+            "runtime_scope must be {APPLICATION_LOCAL_RUNTIME_SCOPE}"
+        ));
+    }
+    if !evidence.application_msi_silent_install_succeeded || !evidence.pack_silent_install_succeeded
+    {
+        errors.push(
+            "both the application MSI and qualified Python pack must install silently".to_string(),
+        );
+    }
+    if !evidence.public_network_blocked
+        || evidence.network_requests_observed != 0
+        || evidence.network_monitor_evidence.trim().is_empty()
+    {
+        errors.push(
+            "offline qualification requires a blocked public network, zero observed network requests and named monitor evidence"
+                .to_string(),
+        );
+    }
+    if evidence.selected_interpreter.trim().is_empty()
+        || evidence.probe.executable != evidence.selected_interpreter
+    {
+        errors.push(
+            "the package probe must report the exact selected application-local interpreter"
+                .to_string(),
+        );
+    }
+    if evidence.selection_rule != crate::python_engine::PYTHON_OVERRIDE_RULE {
+        errors.push(format!(
+            "the offline pack must configure the existing {} resolver rule",
+            crate::python_engine::PYTHON_OVERRIDE_RULE
+        ));
+    }
+    if !crate::python_engine::version_at_least(
+        &evidence.probe.python_version,
+        &manifest.interpreter.minimum_version,
+    ) {
+        errors.push(format!(
+            "qualified pack Python {} is below the cited minimum {}",
+            evidence.probe.python_version, manifest.interpreter.minimum_version
+        ));
+    }
+
+    let expected_capabilities = manifest
+        .capabilities
+        .iter()
+        .map(|capability| capability.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let claimed_capabilities = evidence
+        .claimed_capabilities
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if claimed_capabilities.len() != evidence.claimed_capabilities.len() {
+        errors.push("offline feature set repeats a capability id".to_string());
+    }
+    for missing in expected_capabilities.difference(&claimed_capabilities) {
+        errors.push(format!(
+            "offline feature set omits manifest capability {missing}"
+        ));
+    }
+    for unknown in claimed_capabilities.difference(&expected_capabilities) {
+        errors.push(format!(
+            "offline feature set claims unknown capability {unknown}"
+        ));
+    }
+
+    for capability in &manifest.capabilities {
+        for package in &capability.packages {
+            if !evidence.probe.packages.iter().any(|observed| {
+                observed
+                    .distribution
+                    .eq_ignore_ascii_case(&package.distribution)
+            }) {
+                errors.push(format!(
+                    "offline probe omitted {} package {}",
+                    capability.display_name, package.distribution
+                ));
+            }
+        }
+        if claimed_capabilities.contains(capability.id.as_str()) {
+            match capability_is_available(&evidence.probe, &capability.id) {
+                Ok(true) => {}
+                Ok(false) => errors.push(capability_message(
+                    &capability.id,
+                    Some(Path::new(&evidence.selected_interpreter)),
+                    Some(&evidence.probe),
+                )),
+                Err(error) => errors.push(error),
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+/// Release-tool boundary; all qualification JSON uses the repository's tolerant text decoder.
+pub fn validate_offline_deployment_file(path: &Path) -> Result<(), String> {
+    let text = crate::parsers::read_text_file(path).map_err(|e| {
+        format!(
+            "{}: cannot read offline deployment qualification: {e}",
+            path.display()
+        )
+    })?;
+    let evidence: OfflineDeploymentQualification = serde_json::from_str(&text).map_err(|e| {
+        format!(
+            "{}: invalid offline deployment qualification JSON: {e}",
+            path.display()
+        )
+    })?;
+    validate_offline_deployment(&evidence).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1062,6 +1261,108 @@ mod tests {
         let support_ui = include_str!("../../src/ui/installationSupportDialog.ts");
         assert!(support_ui.contains("installationSupport()"));
         assert!(include_str!("../../index.html").contains("installation-support-btn"));
+    }
+
+    fn offline_qualification_fixture() -> OfflineDeploymentQualification {
+        let manifest = capability_manifest().expect("capability manifest");
+        OfflineDeploymentQualification {
+            pack_file: "qualified-python-pack".to_string(),
+            pack_version: "version-from-release-lock".to_string(),
+            pack_sha256: "b".repeat(64),
+            release_lock_file: "qualified-release-lock.json".to_string(),
+            release_lock_sha256: "c".repeat(64),
+            signature: SignatureEvidence {
+                valid: true,
+                certificate_thumbprint: "qualification-fixture-certificate".to_string(),
+            },
+            deployment_route: QUALIFIED_PYTHON_PACK_ROUTE.to_string(),
+            install_scope: WINDOWS_INSTALL_SCOPE.to_string(),
+            deployment_context: WINDOWS_DEPLOYMENT_CONTEXT.to_string(),
+            runtime_scope: APPLICATION_LOCAL_RUNTIME_SCOPE.to_string(),
+            application_msi_silent_install_succeeded: true,
+            pack_silent_install_succeeded: true,
+            public_network_blocked: true,
+            network_requests_observed: 0,
+            network_monitor_evidence: "clean-machine network trace".to_string(),
+            selected_interpreter: "C:/Program Files/SandiBumi Runtime/python.exe".to_string(),
+            selection_rule: crate::python_engine::PYTHON_OVERRIDE_RULE.to_string(),
+            claimed_capabilities: manifest
+                .capabilities
+                .iter()
+                .map(|capability| capability.id.clone())
+                .collect(),
+            probe: PythonPackageProbe {
+                executable: "C:/Program Files/SandiBumi Runtime/python.exe".to_string(),
+                python_version: "3.10.0".to_string(),
+                packages: manifest
+                    .capabilities
+                    .iter()
+                    .flat_map(|capability| &capability.packages)
+                    .map(|package| PackageProbe {
+                        distribution: package.distribution.clone(),
+                        import_name: package.import_name.clone(),
+                        available: package.distribution != "scipy",
+                        version: None,
+                        error: (package.distribution == "scipy")
+                            .then(|| "optional package absent".to_string()),
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    /// SB-INS-008 / SB-INS-T10. Zero network use and every manifest capability come from T10;
+    /// Tauri documents `offlineInstaller` as its no-network WebView2 mode. The signed, versioned,
+    /// application-local, per-machine pack is the deployment-owner decision supplied 2026-08-09.
+    #[test]
+    fn an_offline_clean_machine_makes_no_network_request_and_every_claimed_capability_passes_its_probe(
+    ) {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(
+            config["bundle"]["windows"]["webviewInstallMode"]["type"].as_str(),
+            Some("offlineInstaller")
+        );
+
+        let valid = offline_qualification_fixture();
+        validate_offline_deployment(&valid).expect("complete offline qualification passes");
+        assert!(valid
+            .probe
+            .packages
+            .iter()
+            .any(|package| package.distribution == "scipy" && !package.available));
+
+        let mut network_used = valid.clone();
+        network_used.network_requests_observed = 1;
+        let error = validate_offline_deployment(&network_used).unwrap_err();
+        assert!(error.contains("zero observed network requests"), "{error}");
+
+        let mut missing_required = valid.clone();
+        let numpy = missing_required
+            .probe
+            .packages
+            .iter_mut()
+            .find(|package| package.distribution == "numpy")
+            .expect("NumPy probe row");
+        numpy.available = false;
+        numpy.error = Some("required package absent".to_string());
+        let error = validate_offline_deployment(&missing_required).unwrap_err();
+        assert!(error.contains("Python equations"), "{error}");
+        assert!(error.contains("numpy"), "{error}");
+
+        let mut incomplete_claim = valid.clone();
+        let omitted = incomplete_claim.claimed_capabilities.pop().unwrap();
+        let error = validate_offline_deployment(&incomplete_claim).unwrap_err();
+        assert!(error.contains(&omitted), "{error}");
+
+        let mut unsigned = valid;
+        unsigned.signature.valid = false;
+        let error = validate_offline_deployment(&unsigned).unwrap_err();
+        assert!(error.contains("valid signature"), "{error}");
+
+        let gate = include_str!("../examples/installation_gate.rs");
+        assert!(gate.contains("validate_installer_qualification_file"));
+        assert!(gate.contains("validate_offline_deployment_file"));
     }
 
     fn qualified_fixture() -> InstallerQualification {

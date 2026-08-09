@@ -40,6 +40,7 @@ use std::sync::{Mutex, OnceLock};
 /// The environment variable naming the interpreter to use. Every message the user ever sees
 /// names THIS one.
 pub const PYTHON_ENV: &str = "SANDIBUMI_PYTHON";
+pub const PYTHON_OVERRIDE_RULE: &str = "SANDIBUMI_PYTHON override";
 /// The pre-rename name, still honoured so an existing setup keeps working. Deliberately never
 /// mentioned in a message: telling a customer to set a variable named after a product that no
 /// longer exists is how the old name outlives the rename.
@@ -213,7 +214,7 @@ impl PythonResolution {
 fn discovery_candidates() -> Vec<PythonCandidate> {
     let mut candidates = Vec::new();
     for (variable, rule) in [
-        (PYTHON_ENV, "SANDIBUMI_PYTHON override"),
+        (PYTHON_ENV, PYTHON_OVERRIDE_RULE),
         (PYTHON_ENV_LEGACY, "legacy compatibility override"),
     ] {
         if let Ok(path) = std::env::var(variable) {
@@ -261,7 +262,7 @@ fn numeric_version(value: &str) -> Option<Vec<u32>> {
     (parts.len() >= 2).then_some(parts)
 }
 
-fn version_at_least(observed: &str, minimum: &str) -> bool {
+pub(crate) fn version_at_least(observed: &str, minimum: &str) -> bool {
     let (Some(mut observed), Some(mut minimum)) =
         (numeric_version(observed), numeric_version(minimum))
     else {
