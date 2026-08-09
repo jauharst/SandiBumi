@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-013: unit-qualified depth headers remain explicit aliases
+
+- [ ] Import core tables whose second column is `Depth (m)`, `DEPTH (FT)` and bare `DEPTH`.
+      Does each resolve that named column as the index, while a second column with an unrelated
+      name is still refused instead of being guessed by position?
+
 ## 2026-08-09 — SB-DIO-061: every public reader runs the malformed corpus
 
 - [ ] Add a new public parser entry point and run the gate. Does the source-derived inventory

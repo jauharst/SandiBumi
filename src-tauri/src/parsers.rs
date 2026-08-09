@@ -453,7 +453,9 @@ const DT_ALIASES: [&str; 5] = ["DT", "DTC", "DTCO", "AC", "DT24"];
 const SP_ALIASES: [&str; 3] = ["SP", "SPC", "SPR"];
 
 fn resolve_curve_index(curve_names: &[String], aliases: &[&str]) -> Option<usize> {
-    aliases.iter().find_map(|alias| curve_names.iter().position(|n| n == alias))
+    aliases
+        .iter()
+        .find_map(|alias| curve_names.iter().position(|name| header_matches(name, alias)))
 }
 
 /// Resolve an index under the chapter's precedence rule. `classes` is a format-owned
@@ -1946,6 +1948,43 @@ mod core_csv_tests {
         assert!((cols.cgd[0] - 2.65).abs() < 1e-6);
     }
 
+    /// SB-DIO-013, `docs/record_data_tools.md` and `21_data-io.md` §5.3: the
+    /// named depth column carries its unit as a boundary-qualified header; position alone
+    /// remains insufficient when no approved alias is present.
+    #[test]
+    fn unit_qualified_and_bare_depth_aliases_resolve_while_an_unrelated_column_is_not_guessed() {
+        for (case, header) in [
+            ("metres", "Depth (m)"),
+            ("feet", "DEPTH (FT)"),
+            ("bare", "DEPTH"),
+        ] {
+            let path = write_temp_csv(
+                &format!("sandibumi_depth_alias_{case}.csv"),
+                &format!("SAMPLE,{header},CPOR\n1,2001.5,0.225\n"),
+            );
+            let columns = parse_core_csv(&path).unwrap_or_else(|error| {
+                panic!("{header} must resolve as a named depth alias: {error}")
+            });
+            std::fs::remove_file(&path).ok();
+            let resolution = columns.index_resolution.expect("the chosen index must be reported");
+            assert_eq!(resolution.column, 1, "{header} is the second column, not a positional default");
+            assert_eq!(resolution.mnemonic, header.to_uppercase());
+            assert_eq!(resolution.mechanism, IndexResolutionMechanism::NameAlias);
+            assert_eq!(columns.depth, vec![2001.5]);
+        }
+
+        let path = write_temp_csv(
+            "sandibumi_depth_alias_unrelated.csv",
+            "SAMPLE,MEASURE,CPOR\n1,2001.5,0.225\n",
+        );
+        let error = parse_core_csv(&path).expect_err("an unrelated second column must not be guessed");
+        std::fs::remove_file(&path).ok();
+        assert!(
+            error.to_string().contains("user designation is required"),
+            "the refusal must preserve the explicit-designation contract: {error}"
+        );
+    }
+
     #[test]
     fn core_csv_fraction_input_left_alone() {
         let path = write_temp_csv(
@@ -2662,6 +2701,7 @@ impl SamplePrecisionReport {
             values_reduced,
         }
     }
+
 }
 
 /// Core-table numeric text is first interpreted as f64, then deliberately narrowed to
