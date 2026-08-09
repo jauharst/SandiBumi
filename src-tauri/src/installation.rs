@@ -1521,6 +1521,54 @@ mod tests {
         &readme[start..end]
     }
 
+    /// CORRECTNESS — SB-INS-002 / SB-INS-T02 states that no Python executable may
+    /// disable only Python-backed capabilities while project open, native computation,
+    /// plotting and native export remain usable. The tiny arrays are non-physical smoke
+    /// fixtures; the sourced expected value is successful availability, not a scientific result.
+    #[test]
+    fn missing_python_does_not_block_project_open_native_computation_plotting_or_native_export() {
+        let support = installation_support(crate::python_engine::PythonResolution {
+            selected_interpreter: None,
+            selected_rule: None,
+            candidates: Vec::new(),
+        })
+        .expect("native launch support resolves without Python");
+        assert!(support
+            .capabilities
+            .iter()
+            .all(|capability| capability.available == Some(false)));
+
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-native-without-python-{}.sdb",
+            uuid::Uuid::new_v4()
+        ));
+        let path_text = path.to_string_lossy().into_owned();
+        let connection = crate::project::open_and_migrate(&path_text)
+            .expect("an existing-project-capable native store opens without Python");
+
+        let context = crate::modules::ModuleContext {
+            n: 2,
+            logs: std::collections::HashMap::from([
+                ("DEPTH".to_string(), vec![0.0, 1.0]),
+                ("CURVE".to_string(), vec![10.0, 20.0]),
+            ]),
+            params: std::collections::HashMap::from([("SHIFT".to_string(), vec![0.0, 0.0])]),
+            opts: std::collections::HashMap::new(),
+            depth_unit: crate::units::DepthUnit::Metres,
+        };
+        let shifted = crate::modules::run_module("depth_shift", &context)
+            .expect("the native module dispatch remains available");
+        assert_eq!(shifted["CURVE_DS"], [10.0, 20.0]);
+
+        let histogram = crate::plotting::canonical_histogram(&[0.0, 1.0], 0.0, 1.0, 1);
+        assert_eq!(histogram.displayed_total, 2);
+        let formats = crate::export::export_formats();
+        assert!(formats.iter().any(|format| format.is_default && format.extension == "las"));
+
+        drop(connection);
+        std::fs::remove_file(&path).expect("remove isolated native project fixture");
+    }
+
     /// SB-INS-004 / SB-INS-T04. The interpreter minimum and exact package rows come from
     /// chapter section 5. The qualified release lock is the deployment-owner decision supplied
     /// 2026-08-09; package minimums remain absent until that qualification cites exact versions.
