@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-006: histogram binning is canonical
+
+- [ ] Plot values exactly on every edge, including the final upper endpoint. Are bins half-open
+      except for that final inclusion, with the displayed total equal to their sum? Add NaN and
+      infinity: are both excluded and reported separately? Do saved options accept 1–200 bins and
+      default to the cited 50?
+
 ## 2026-08-09 — SB-PLT-005: unit-limit rows require a dimensional audit
 
 - [ ] Pass the documented attenuation converted-unit exemplar through the audit. Does it report
