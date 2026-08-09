@@ -173,7 +173,154 @@ commit** → **Delete branch**. Three lines of body: which ids, which files, the
 
 ---
 
-## 4. The step no agent can do
+## 5. The batch table — exactly what to paste
+
+**This is the lookup you need at step 2.** Every open `P0` in the product, grouped into eight
+batches. Copy the branch name into `git checkout -b`, then copy the two lines verbatim over the
+`SCOPE:` and `SPEC:` lines in §2. Nothing to invent.
+
+Counts are from `docs/PRD_v2/91_REQUIREMENTS_INDEX.md` and go stale as lanes merge — re-run the
+re-mark-and-reindex lane (§6) after batch 4.
+
+---
+
+### Batch 1 · `feat/p0-core` · 8 requirements · **run this one alone, first**
+
+```
+SCOPE: the open P0 requirements of SB-CORE in docs/PRD_v2/91_REQUIREMENTS_INDEX.md.
+SPEC:  docs/PRD_v2/04_CORE_REQUIREMENTS.md — implement what it specifies.
+```
+
+Alone and first because `SB-CORE-007` consolidates the definition sites for shared constants. Any
+domain batch that runs before it adds new sites to the 22.2 % `VSH` spread it exists to remove.
+`SB-CORE-006` (7.3 saturation units under one word) and `SB-CORE-001` (the silent 3.28× Pc error)
+are in the same batch and are equally cross-cutting.
+
+### Batch 2 · `feat/p0-env-cut` · 23 · physics
+
+```
+SCOPE: the open P0 requirements of SB-ENV and SB-CUT in docs/PRD_v2/91_REQUIREMENTS_INDEX.md.
+SPEC:  docs/PRD_v2/20_envcorr-qc.md for SB-ENV, docs/PRD_v2/14_cutoffs-summation-mc.md for
+       SB-CUT — implement what each specifies.
+```
+
+Holds `SB-CUT-031`, the highest-value single fix in the queue: twelve IP-seeded Gaussian priors
+passed as σ at **twice** the cited convention's width, which has moved P10/P90 in studies already
+delivered.
+
+### Batch 3 · `feat/p0-por-cly` · 31 · physics
+
+```
+SCOPE: the open P0 requirements of SB-POR and SB-CLY in docs/PRD_v2/91_REQUIREMENTS_INDEX.md.
+SPEC:  docs/PRD_v2/11_porosity.md for SB-POR, docs/PRD_v2/10_clay-volume.md for SB-CLY —
+       implement what each specifies.
+```
+
+Note: all 62 `SB-POR` requirements omit a status mark (`_SPINE_PENDING.md` SP-009), so the index
+cannot say which are already satisfied. Expect the lane to report several as already shipped.
+
+### Batch 4 · `feat/p0-sat-shr` · 26 · physics
+
+```
+SCOPE: the open P0 requirements of SB-SAT and SB-SHR in docs/PRD_v2/91_REQUIREMENTS_INDEX.md.
+SPEC:  docs/PRD_v2/12_saturation.md for SB-SAT, docs/PRD_v2/15_sat-height-rocktyping.md for
+       SB-SHR — implement what each specifies.
+```
+
+**Re-run §6 after this batch.** Four batches in, the counts will be badly stale.
+
+### Batch 5 · `feat/p0-min-tbd-toc` · 27 · physics
+
+```
+SCOPE: the open P0 requirements of SB-MIN, SB-TBD and SB-TOC in
+       docs/PRD_v2/91_REQUIREMENTS_INDEX.md.
+SPEC:  docs/PRD_v2/13_mineral-solver.md for SB-MIN, docs/PRD_v2/17_thinbed-laminated.md for
+       SB-TBD, docs/PRD_v2/19_toc-unconventional.md for SB-TOC — implement what each specifies.
+```
+
+`17_thinbed-laminated.md` carries axis 3's whole differentiator, recorded in `RESUME.md` §5:
+`lrlc.rs:123` and `:228` both read `PHIT`, so the Thomas-Stieber decomposition and the
+excess-conductivity saturation **are not connected**.
+
+### Batch 6 · `feat/p0-plt-ins` · 23 · frontend, no physics
+
+```
+SCOPE: the open P0 requirements of SB-PLT and SB-INS in docs/PRD_v2/91_REQUIREMENTS_INDEX.md.
+SPEC:  docs/PRD_v2/23_plotting-interactivity.md for SB-PLT,
+       docs/PRD_v2/27_ip-install-blockers.md for SB-INS — implement what each specifies.
+```
+
+Three `SB-INS` requirements are blocked on decisions only Jauhar can make — the installer package
+type and scope (§7.1 O-INS-1), the offline runtime strategy (§7.1 O-INS-2, which is
+`06_SEQUENCING_AND_GATES.md` §26 decision #2 and blocks 1.0), and the supported-Windows matrix
+(§7.1 O-INS-4). **The other seven do not depend on any of those** and are runnable; a lane that
+reports all ten blocked has misread the HALT rule as stopping the lane rather than the requirement.
+
+The `CLAUDE.md` Organic design system is binding for anything visual in this batch: read values
+from `docs/design_organic/organic-tokens.css`, never eyeball them; chrome goes Organic, data
+stays dense.
+
+### Batch 7 · `feat/p0-geo` · 33 · new domain, run alone
+
+```
+SCOPE: the open P0 requirements of SB-GEO in docs/PRD_v2/91_REQUIREMENTS_INDEX.md.
+SPEC:  docs/PRD_v2/18_geomech-ppfg.md — implement what it specifies.
+```
+
+Nothing ships in this domain today, so most requirements are a build rather than a fix: new Rust
+functions plus a `modules.rs` manifest entry each, per `CLAUDE.md` rule 9. Alone because 33 new
+requirements in an unbuilt domain is already a large branch.
+
+Expect blockers. The chapter records one Traugott parameter as `1000` in printed help and `5600`
+in the shipped manifest — *"it has no defensible default"* — and that raster-only Sayers/Wendt
+equations and closed Traugott coefficients cannot be derived from the held corpus. Those are named
+gaps, not failures.
+
+### Batch 8 · `feat/p0-plg-rph` · 36 · new domains
+
+```
+SCOPE: the open P0 requirements of SB-PLG and SB-RPH in docs/PRD_v2/91_REQUIREMENTS_INDEX.md.
+SPEC:  docs/PRD_v2/26_production-logging.md for SB-PLG,
+       docs/PRD_v2/25_fluidsub-rockphysics.md for SB-RPH — implement what each specifies.
+```
+
+### Not in the eight
+
+**`SB-DBM`, 16 P0s, `22_database-model.md`.** Held back on purpose: these touch `db.rs`, and the
+DuckDB write discipline — `computed_curves` is deliberately PK-less, uniqueness upheld by the
+write path — has no chapter to cite. The citation rule that licenses physics work cannot license
+this, so it needs Jauhar in the loop rather than a prompt.
+
+**`SB-NMR` and `SB-MLA`** have zero open `P0`s. NMR's 38 requirements are all P1 or below; ML's
+ten P0s closed in the round-3 work.
+
+---
+
+### Lines to add for every batch
+
+Append these to §2's prompt. The first two are what a batch needs beyond a single-domain lane;
+the third is the correction that cost a whole lane on 2026-08-09.
+
+```
+BATCH ORDER: finish the first domain completely — implemented, tested, gate green — before
+starting the next. Do not interleave. One commit per requirement, the message naming the id.
+
+This lane touches physics. Every value you write must ALREADY APPEAR in its SPEC chapter, and
+each commit message names the chapter section it came from. If a chapter does not carry a
+number, record a named gap and move to the next requirement. Never supply one.
+
+An uncited value blocks THAT REQUIREMENT ONLY. Record it and continue the lane. Only a
+boundary violation, a branch switch, or a gate failure you cannot fix inside your own files
+stops the lane.
+```
+
+Omit the physics paragraph for batch 6, which is frontend.
+
+**Tag every physics batch's PR** `Physics — needs Opus review before release`. That tag is how
+the final review pass finds them.
+---
+
+## 6. The step no agent can do
 
 **Field-verify each lane against real wells before starting the next**, and write the
 `REVIEW.md` mark yourself. PR #29 changed how LAS files are read — null recognition, index
