@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-017: raw unit and encoding tokens remain observable
+
+- [ ] Import a Windows-1252 LAS carrying distinct `mV` and `mv` raw unit spellings. Are the chosen
+      encoding and both raw spellings retained before canonical interpretation? Confirm the current
+      case fold is not presented as an explicit alias or drift-warning implementation.
+
 ## 2026-08-09 — SB-INS-021: support-report fragments are honestly classified
 
 - [ ] Inspect the current installation-support payload. Does it expose interpreter selection,
