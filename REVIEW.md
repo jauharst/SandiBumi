@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-016: depth-step reconciliation is conservative
+
+- [ ] Plot inputs at equal steps, then at 0.5/1.0, then at 0.5/0.8. Does the first
+      proceed with factor 1, the exact multiple decimate to the coarsest step and report
+      factor 2, and the non-integer pair refuse with a route to the DIO resampling workflow?
+      For `[100,101)`, are depths 100 and 100.5 retained while 101 is excluded?
+
 ## 2026-08-09 — SB-PLT-015: decimation preserves identity and provenance
 
 - [ ] Reduce eligible source indices 0…10 at stride 4. Does the view use exactly

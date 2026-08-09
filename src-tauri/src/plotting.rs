@@ -519,6 +519,43 @@ pub fn decimate_shared_channels(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DepthStepReconciliation {
+    pub coarsest_step: f32,
+    pub decimation_factors: Vec<usize>,
+}
+
+/// Chooses only among exact relationships. No tolerance or resampling kernel is
+/// introduced: equality keeps factor 1, exact integer multiples decimate toward
+/// the coarsest step, and every other relationship is routed to Data I/O.
+pub fn reconcile_depth_steps(steps: &[f32]) -> Result<DepthStepReconciliation, String> {
+    if steps.is_empty() || steps.iter().any(|step| !step.is_finite() || *step <= 0.0) {
+        return Err("depth steps must be finite and positive".into());
+    }
+    let coarsest_step = steps.iter().copied().reduce(f32::max).unwrap();
+    let mut decimation_factors = Vec::with_capacity(steps.len());
+    for &step in steps {
+        let ratio = coarsest_step / step;
+        if !ratio.is_finite() || ratio < 1.0 || ratio.fract() != 0.0 {
+            return Err(format!(
+                "depth steps are not exact integer multiples; route this plot to the DIO resampling workflow ({step} versus {coarsest_step})"
+            ));
+        }
+        decimation_factors.push(ratio as usize);
+    }
+    Ok(DepthStepReconciliation { coarsest_step, decimation_factors })
+}
+
+pub fn half_open_depth_indices(depth: &[f32], low: f32, high: f32) -> Vec<usize> {
+    depth
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| {
+            (value.is_finite() && *value >= low && *value < high).then_some(index)
+        })
+        .collect()
+}
+
 /// Screens aligned required channels before assigning any part of the total point
 /// budget. Each represented well first receives enough capacity for both eligible
 /// endpoints (or its single eligible sample), then remaining capacity is shared in
@@ -1232,5 +1269,22 @@ mod tests {
             let base = 100.0 * channel_index as f32;
             assert_eq!(channel, &vec![base, base + 4.0, base + 8.0, base + 10.0]);
         }
+    }
+
+    #[test]
+    fn equal_and_integer_multiple_depth_steps_proceed_but_non_integer_steps_route_to_dio_and_intervals_stay_half_open() {
+        // SB-PLT-016 / SB-PLT-T23–T26: all values are the chapter's shown fixtures.
+        let equal = reconcile_depth_steps(&[0.5, 0.5]).unwrap();
+        assert_eq!(equal.coarsest_step.to_bits(), 0.5f32.to_bits());
+        assert_eq!(equal.decimation_factors, vec![1, 1]);
+
+        let multiple = reconcile_depth_steps(&[0.5, 1.0]).unwrap();
+        assert_eq!(multiple.coarsest_step.to_bits(), 1.0f32.to_bits());
+        assert_eq!(multiple.decimation_factors, vec![2, 1]);
+
+        let refusal = reconcile_depth_steps(&[0.5, 0.8]).unwrap_err();
+        assert!(refusal.contains("DIO resampling"));
+
+        assert_eq!(half_open_depth_indices(&[100.0, 100.5, 101.0], 100.0, 101.0), vec![0, 1]);
     }
 }

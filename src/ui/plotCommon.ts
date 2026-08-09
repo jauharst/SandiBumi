@@ -3,7 +3,14 @@ import { appState, type TopInterval } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
 import { FACIES_PALETTE } from "./plotCanvas";
-import { allocateFinitePairBudget, type ReductionManifest } from "./plotTypes";
+import {
+  allocateFinitePairBudget,
+  halfOpenDepthIndices,
+  reconcileDepthChannels,
+  type DepthGridReconciliation,
+  type DepthStepManifest,
+  type ReductionManifest,
+} from "./plotTypes";
 
 /** Shared pieces for the parameter-selection dialogs: curve/zone selectors and the
  *  "apply picked value to a zone parameter" row. */
@@ -439,6 +446,7 @@ export interface ContextLayerData {
   depth: Float32Array;
   series: Map<string, Float32Array>;
   reduction: ReductionManifest;
+  depthStep: DepthStepManifest;
 }
 
 export interface ContextFetchOutcome {
@@ -474,6 +482,7 @@ export async function fetchContextLayers(args: {
     color: string;
     depth: Float32Array;
     arrays: Float32Array[];
+    depthStep: DepthStepManifest;
   }
   const candidates: (Candidate | null)[] = new Array(ids.length).fill(null);
   const absent: { wellId: string; reason: string; quota: 0 }[] = [];
@@ -497,12 +506,31 @@ export async function fetchContextLayers(args: {
           continue;
         }
         const present = required as TrackCurveSeries[];
+        let reconciled: DepthGridReconciliation;
+        try {
+          reconciled = reconcileDepthChannels(
+            present.map((item) => ({ depth: item.depth, values: item.value })),
+          );
+        } catch (error) {
+          absent.push({ wellId: ids[i], reason: String(error), quota: 0 });
+          continue;
+        }
+        const intervalIndices = halfOpenDepthIndices(reconciled.depth, win[0], win[1]);
+        const depth = Float32Array.from(intervalIndices.map((index) => reconciled.depth[index]));
+        const arrays = reconciled.channels.map((channel) =>
+          Float32Array.from(intervalIndices.map((index) => channel[index])));
         candidates[i] = {
           wellId: ids[i],
           name: names[i],
           color: FACIES_PALETTE[i % FACIES_PALETTE.length],
-          depth: present[0].depth,
-          arrays: present.map((item) => item.value),
+          depth,
+          arrays,
+          depthStep: {
+            coarsestStep: reconciled.coarsestStep,
+            decimationFactors: reconciled.decimationFactors,
+            mode: reconciled.mode,
+            intervalClosure: reconciled.intervalClosure,
+          },
         };
       } catch (error) {
         absent.push({ wellId: ids[i], reason: `context fetch failed: ${String(error)}`, quota: 0 });
@@ -552,6 +580,7 @@ export async function fetchContextLayers(args: {
       depth: Float32Array.from(assigned.sourceIndices.map((sourceIndex) => candidate.depth[sourceIndex])),
       series: out,
       reduction: assigned.manifest,
+      depthStep: candidate.depthStep,
     });
     shown += assigned.manifest.displayedCount;
     if (assigned.manifest.displayedCount < assigned.manifest.originalCount) decimated = true;
@@ -573,11 +602,18 @@ export function describeContextOutcome(o: ContextFetchOutcome): string {
   const strides = [...new Set(o.layers.map((layer) => layer.reduction.stride))].sort((a, b) => a - b);
   const strideText = strides.length === 1 ? `${strides[0]}` : `${strides[0]}–${strides[strides.length - 1]}`;
   const forced = o.layers.filter((layer) => layer.reduction.endpointsForced).length;
+  const depthFactors = [...new Set(o.layers.flatMap((layer) => layer.depthStep.decimationFactors))]
+    .sort((a, b) => a - b);
+  const depthText = depthFactors.some((factor) => factor > 1)
+    ? ` · depth decimation factor${depthFactors.length === 1 ? "" : "s"} ${depthFactors.join("/")} to coarsest exact step`
+    : "";
   return (
     `Context: ${o.layers.length} well${o.layers.length === 1 ? "" : "s"} · ~${o.shown.toLocaleString()} pts` +
     (o.decimated
       ? ` (reduced ${original.toLocaleString()}→${o.shown.toLocaleString()}; stride ${strideText}; final endpoint forced in ${forced} well${forced === 1 ? "" : "s"})`
       : "") +
+    depthText +
+    (o.layers.length ? " · interval [lo,hi)" : "") +
     (o.skipped ? ` · ${o.skipped} absent (reasons retained per well)` : "")
   );
 }

@@ -26,7 +26,7 @@ import {
 } from "./plotCanvas";
 import { parsePercentiles } from "./histogramPanel";
 import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type AxisKind, type ChartOverlayDef } from "./chartOverlays";
-import { applyPlotChannelPolicy, type PlotRangeEdge } from "./plotTypes";
+import { applyPlotChannelPolicy, reconcileDepthChannels, type PlotRangeEdge } from "./plotTypes";
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
@@ -1914,10 +1914,19 @@ export async function buildCrossplotContent(
       const series = await getCurveData(well.well_id, wanted, zone.depthMin, zone.depthMax);
       if (gen !== reloadGen) return; // a newer reload started while we awaited
       const byName = new Map(series.map((s) => [s.curve_name, s]));
-      xs = byName.get(xSel.value.toUpperCase())?.value ?? new Float32Array(0);
-      ys = byName.get(ySel.value.toUpperCase())?.value ?? new Float32Array(0);
-      zs = zSel.value ? (byName.get(zSel.value.toUpperCase())?.value ?? new Float32Array(0)) : new Float32Array(0);
-      depths = byName.get(xSel.value.toUpperCase())?.depth ?? new Float32Array(0);
+      const required = wanted.map((name) => byName.get(name.toUpperCase()));
+      if (required.some((item) => !item)) throw new Error("one or more required plot curves are absent");
+      const reconciled = reconcileDepthChannels(required.map((item) => ({
+        depth: item!.depth,
+        values: item!.value,
+      })));
+      xs = reconciled.channels[0];
+      ys = reconciled.channels[1];
+      zs = zSel.value ? reconciled.channels[2] : new Float32Array(0);
+      depths = reconciled.depth;
+      if (reconciled.mode === "decimated_to_coarsest") {
+        setStatus(`Crossplot depth inputs decimated to the coarsest exact step; factors ${reconciled.decimationFactors.join("/")} · interval ${reconciled.intervalClosure}`);
+      }
       const bindings = plotBindingSnapshot([well.well_id], [xSel.value, ySel.value]);
       typedAxes = {
         x: bindings.find((binding) => binding.intent.semantic_request === xSel.value)?.resolved[0] ?? null,
