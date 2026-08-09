@@ -3078,6 +3078,41 @@ mod encoding_tests {
         assert_eq!(read_text_file(&path).unwrap(), body);
         let _ = std::fs::remove_file(&path);
     }
+
+    /// CHARACTERIZATION — SB-INS-017 / SB-INS-T21/T22 supplies the distinct `mV`/`mv`
+    /// unit-token pair and CP1252 byte 0x92. Raw spellings and chosen encoding are retained;
+    /// the shared canonical result documents today's PARTIAL case-folding behaviour rather
+    /// than claiming the required explicit-alias/drift-warning contract is complete.
+    #[test]
+    fn characterizes_raw_unit_and_encoding_preservation_before_the_current_case_fold() {
+        let mut body = b"~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\n~CURVE\n\
+                         DEPT.M :\nRAW_A.mV :\nRAW_B.mv :\n".to_vec();
+        body.extend_from_slice(b"# CP1252 punctuation ");
+        body.push(0x92);
+        body.extend_from_slice(b" retained\n~ASCII\n1000.0 1.0 2.0\n");
+        let path = write_bytes("sandibumi_raw_unit_encoding.las", &body);
+
+        let decoded = read_text_file_with_encoding(&path).expect("the mandatory decoder reports encoding");
+        assert_eq!(decoded.encoding, "Windows-1252");
+        assert!(decoded.text.contains('\u{2019}'), "CP1252 byte 0x92 is retained as its decoded character");
+
+        let columns = parse_las_2(&path).expect("standard LAS view reads the same decoded delivery");
+        assert_eq!(columns.text_encoding, "Windows-1252");
+        let frame = parse_las_2_all(&path).expect("generic LAS view retains every raw curve");
+        let units = frame
+            .curves
+            .iter()
+            .map(|curve| curve.unit.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(units, [Some("mV"), Some("mv")]);
+
+        let first = crate::curves::resolve_unit_token(units[0].unwrap()).unwrap();
+        let second = crate::curves::resolve_unit_token(units[1].unwrap()).unwrap();
+        assert_eq!(first.canonical_unit, "mV");
+        assert_eq!(second.canonical_unit, "mV");
+
+        std::fs::remove_file(&path).expect("remove isolated encoding fixture");
+    }
 }
 
 #[cfg(test)]
