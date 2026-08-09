@@ -19,9 +19,26 @@ export async function openInstallationSupportDialog(): Promise<void> {
 
     const summary = document.createElement("p");
     summary.textContent = support.selected_interpreter
-      ? `Session Python: ${support.selected_interpreter}`
+      ? `Session Python: ${support.selected_interpreter} · selected by ${support.selected_interpreter_rule ?? "the recorded resolver rule"}`
       : `No session Python ${support.interpreter_minimum_version}+ interpreter is available. Native project, plotting and export paths remain available.`;
     content.appendChild(summary);
+
+    const attempted = document.createElement("section");
+    attempted.className = "form-section";
+    const attemptedHeading = document.createElement("h4");
+    attemptedHeading.textContent = "Interpreter resolution";
+    attempted.appendChild(attemptedHeading);
+    for (const candidate of support.interpreter_candidates) {
+      const row = document.createElement("p");
+      row.className = "form-hint";
+      const resolved =
+        candidate.resolved_executable && candidate.resolved_executable !== candidate.candidate
+          ? ` → ${candidate.resolved_executable}`
+          : "";
+      row.textContent = `${candidate.accepted ? "Selected" : "Rejected"} · ${candidate.precedence_rule}: ${candidate.candidate}${resolved} · ${candidate.reason}`;
+      attempted.appendChild(row);
+    }
+    content.appendChild(attempted);
 
     for (const capability of support.capabilities) {
       const row = document.createElement("section");
