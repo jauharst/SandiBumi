@@ -30,6 +30,7 @@
 //! the request retried once. The worker exits on its own when the app closes its stdin (EOF).
 
 use crate::equations::{fetch_curve_frame, write_equation_output, EquationDef, EquationRunResult};
+use crate::installation;
 use duckdb::Connection;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -44,8 +45,9 @@ pub const PYTHON_ENV: &str = "SANDIBUMI_PYTHON";
 /// longer exists is how the old name outlives the rename.
 pub const PYTHON_ENV_LEGACY: &str = "ARSHILLA_PYTHON";
 
-const NO_PYTHON: &str =
-    "no Python with numpy found — install Python 3.10+ with numpy, or set SANDIBUMI_PYTHON to its python.exe";
+fn no_python_message() -> String {
+    installation::capability_message(installation::CAPABILITY_PYTHON_EQUATIONS, None, None)
+}
 
 /// Persistent request/response loop: read a JSON header line + raw f32 arrays, exec the
 /// user script with numpy bound (fresh namespace each request), and reply with a
@@ -72,24 +74,22 @@ class _MissingScipy:
     and SandiBumi picks its own interpreter, so "install scipy" is genuinely ambiguous on a
     machine with three Pythons. Naming sys.executable is the whole point.
     """
-    __slots__ = ("_name",)
+    __slots__ = ("_name", "_remediation")
 
     def __init__(self, name):
         self._name = name
+        self._remediation = "optional Python package is unavailable"
+
+    def set_remediation(self, remediation):
+        self._remediation = str(remediation)
 
     def __getattr__(self, attr):
         raise RuntimeError(
-            "scipy is not installed in the interpreter this app is using ("
-            + sys.executable
-            + ") - run:  \"" + sys.executable + "\" -m pip install scipy   "
-            + "(needed for " + self._name + "." + str(attr) + ")"
+            self._remediation + " (needed for " + self._name + "." + str(attr) + ")"
         )
 
     def __call__(self, *a, **k):
-        raise RuntimeError(
-            "scipy is not installed in the interpreter this app is using ("
-            + sys.executable + ") - run:  \"" + sys.executable + "\" -m pip install scipy"
-        )
+        raise RuntimeError(self._remediation)
 
 SCIPY_NS = {}
 try:
@@ -133,6 +133,9 @@ while True:
         header = json.loads(line.decode("utf-8"))
         n = int(header["n"]); names = header["names"]
         out_name = header["output"]; script = header["script"]
+        for _dependency in SCIPY_NS.values():
+            if isinstance(_dependency, _MissingScipy):
+                _dependency.set_remediation(header["scipy_remediation"])
     except Exception:
         break  # unframeable request; let the parent respawn
     payload = read_exact(4 * n * len(names))
@@ -203,10 +206,17 @@ pub fn find_python() -> Option<PathBuf> {
 }
 
 fn has_numpy(python: &PathBuf) -> bool {
-    let mut cmd = Command::new(python);
-    cmd.args(["-c", "import numpy"]).stdout(Stdio::null()).stderr(Stdio::null());
-    hide_console(&mut cmd);
-    cmd.status().map(|s| s.success()).unwrap_or(false)
+    installation::probe_python_capability(
+        python,
+        installation::CAPABILITY_PYTHON_EQUATIONS,
+    )
+    .and_then(|probe| {
+        installation::capability_is_available(
+            &probe,
+            installation::CAPABILITY_PYTHON_EQUATIONS,
+        )
+    })
+    .unwrap_or(false)
 }
 
 /// What the equation engine can actually offer, probed once per session.
@@ -221,25 +231,10 @@ pub struct PythonStatus {
     pub path: Option<String>,
     /// scipy's version string when it is importable in that interpreter.
     pub scipy: Option<String>,
-}
-
-/// The scipy version in `python`, if any. One extra subprocess, cached for the session.
-fn scipy_version(python: &PathBuf) -> Option<String> {
-    let mut cmd = Command::new(python);
-    cmd.args(["-c", "import scipy; print(scipy.__version__)"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    hide_console(&mut cmd);
-    let out = cmd.output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if v.is_empty() {
-        None
-    } else {
-        Some(v)
-    }
+    /// Manifest-derived prerequisite/remediation text for the equation capability.
+    pub message: String,
+    /// Manifest-derived remediation for the optional SciPy package.
+    pub scipy_message: String,
 }
 
 /// Interpreter + optional-package status, cached for the session.
@@ -247,11 +242,37 @@ pub fn python_status() -> PythonStatus {
     static STATUS: OnceLock<PythonStatus> = OnceLock::new();
     STATUS
         .get_or_init(|| match find_python() {
-            None => PythonStatus { path: None, scipy: None },
-            Some(p) => PythonStatus {
-                scipy: scipy_version(&p),
-                path: Some(p.to_string_lossy().to_string()),
+            None => PythonStatus {
+                path: None,
+                scipy: None,
+                message: no_python_message(),
+                scipy_message: installation::package_remediation("scipy", None),
             },
+            Some(p) => {
+                let probe = installation::probe_python_capability(
+                    &p,
+                    installation::CAPABILITY_PYTHON_EQUATIONS,
+                )
+                .ok();
+                let scipy = probe.as_ref().and_then(|observed| {
+                    observed
+                        .packages
+                        .iter()
+                        .find(|package| package.distribution.eq_ignore_ascii_case("scipy"))
+                        .filter(|package| package.available)
+                        .and_then(|package| package.version.clone())
+                });
+                PythonStatus {
+                    message: installation::capability_status_message(
+                        installation::CAPABILITY_PYTHON_EQUATIONS,
+                        Some(&p),
+                        probe.as_ref(),
+                    ),
+                    scipy_message: installation::package_remediation("scipy", Some(&p)),
+                    scipy,
+                    path: Some(p.to_string_lossy().to_string()),
+                }
+            }
         })
         .clone()
 }
@@ -347,7 +368,7 @@ fn worker_cell() -> &'static Mutex<Option<PyWorker>> {
 /// respawning once if it has died (broken pipe). A user-script error returns `Err` but
 /// leaves the worker alive for the next request.
 fn run_on_worker(header_json: &str, arrays: &[&[f32]], n: usize) -> Result<Vec<f32>, String> {
-    let python = find_python().ok_or_else(|| NO_PYTHON.to_string())?;
+    let python = find_python().ok_or_else(no_python_message)?;
     let mut guard = worker_cell().lock().unwrap_or_else(|e| e.into_inner());
     for attempt in 0..2 {
         if guard.is_none() {
@@ -370,7 +391,15 @@ fn run_on_worker(header_json: &str, arrays: &[&[f32]], n: usize) -> Result<Vec<f
 /// Runs one script (with `names`/`arrays` starting at "depth") on the persistent worker.
 /// `output` is the lowercase output variable name the script must assign.
 fn exec_script(script: &str, names: &[String], arrays: &[&[f32]], n: usize, output: &str) -> Result<Vec<f32>, String> {
-    let header = serde_json::json!({ "n": n, "names": names, "output": output, "script": script }).to_string();
+    let python = find_python();
+    let header = serde_json::json!({
+        "n": n,
+        "names": names,
+        "output": output,
+        "script": script,
+        "scipy_remediation": installation::package_remediation("scipy", python.as_deref()),
+    })
+    .to_string();
     run_on_worker(&header, arrays, n)
 }
 
@@ -385,14 +414,15 @@ pub fn run_python_equation(
     progress: Option<&crate::jobs::JobHandle>,
 ) -> Vec<EquationRunResult> {
     if find_python().is_none() {
+        let no_python = no_python_message();
         if let Some(p) = progress {
             for w in well_ids {
-                p.finish_item(w, crate::jobs::ItemState::Failed, Some(NO_PYTHON.into()));
+                p.finish_item(w, crate::jobs::ItemState::Failed, Some(no_python.clone()));
             }
         }
         return well_ids
             .iter()
-            .map(|w| EquationRunResult::failed(w.clone(), NO_PYTHON.into()))
+            .map(|w| EquationRunResult::failed(w.clone(), no_python.clone()))
             .collect();
     }
 
@@ -499,13 +529,14 @@ mod env_name_tests {
     /// no message ever NAMES it.
     #[test]
     fn no_user_facing_message_names_the_pre_rename_variable() {
+        let message = no_python_message();
         assert!(
-            NO_PYTHON.contains(PYTHON_ENV),
-            "the message must name the current variable: {NO_PYTHON}"
+            message.contains(PYTHON_ENV),
+            "the message must name the current variable: {message}"
         );
         assert!(
-            !NO_PYTHON.contains(PYTHON_ENV_LEGACY),
-            "the message must not name the pre-rename variable: {NO_PYTHON}"
+            !message.contains(PYTHON_ENV_LEGACY),
+            "the message must not name the pre-rename variable: {message}"
         );
         assert_ne!(PYTHON_ENV, PYTHON_ENV_LEGACY);
     }

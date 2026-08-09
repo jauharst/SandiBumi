@@ -10,6 +10,7 @@
 //! Python) fails the import with a clear message and never affects anything else.
 
 use crate::db;
+use crate::installation;
 use crate::python_engine::{find_python, hide_console};
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -25,7 +26,7 @@ import numpy as np
 try:
     from dlisio import dlis
 except Exception as e:
-    print(f"dlisio not available: {e}", file=sys.stderr)
+    print(f"dlis-dependency-missing: {e}", file=sys.stderr)
     sys.exit(3)
 
 path = sys.argv[1]
@@ -868,8 +869,18 @@ pub fn import_dlis_file_with_unit_designation(
     let fail = |e: String| failed(path, e, Vec::new());
 
     let Some(python) = find_python() else {
-        return fail("no Python with numpy found — install Python 3.10+ with numpy and dlisio, or set SANDIBUMI_PYTHON".into());
+        return fail(installation::capability_message(
+            installation::CAPABILITY_DLIS_IMPORT,
+            None,
+            None,
+        ));
     };
+    if let Err(error) = installation::require_python_capability(
+        &python,
+        installation::CAPABILITY_DLIS_IMPORT,
+    ) {
+        return fail(error);
+    }
 
     let mut cmd = Command::new(&python);
     cmd.args(["-c", DLIS_RUNNER, path]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -881,7 +892,15 @@ pub fn import_dlis_file_with_unit_designation(
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("dlis import failed");
-        return fail(last.trim().to_string());
+        return fail(if last.contains("dlis-dependency-missing") {
+            installation::capability_message(
+                installation::CAPABILITY_DLIS_IMPORT,
+                Some(&python),
+                None,
+            )
+        } else {
+            last.trim().to_string()
+        });
     }
 
     // stdout = one JSON header line, then raw f32 payload (depth+values per curve).

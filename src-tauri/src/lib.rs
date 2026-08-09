@@ -590,11 +590,15 @@ async fn probe_plate_workbooks(paths: Vec<String>) -> Result<images::WorkbookPro
     .map_err(|e| e.to_string())?
 }
 
-/// Is Pillow reachable? Decides whether the wizard offers TIFF and whether it warns that
-/// pictures will print as labelled frames.
+/// Pillow status and manifest-derived remediation. The UI owns no second package message.
 #[tauri::command]
-async fn image_support() -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(images::pillow_available).await.map_err(|e| e.to_string())
+async fn image_support() -> Result<installation::PackageRuntimeSupport, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let python = python_engine::find_python();
+        installation::package_runtime_support("Pillow", python.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Commits a confirmed image delivery. Long-running (it shells out to Pillow and writes

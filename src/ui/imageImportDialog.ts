@@ -86,7 +86,14 @@ export async function openImageImportDialog(
     p.depth_top = cell.top;
     p.depth_base = cell.base;
   }
-  const pillow = await imageSupport().catch(() => false);
+  const pillowSupport = await imageSupport().catch(() => ({
+    distribution: "",
+    selected_interpreter: null,
+    available: false,
+    version: null,
+    message: "The image prerequisite probe failed.",
+  }));
+  const pillow = pillowSupport.available;
   const usable = probes.filter((p) => !p.error);
   if (usable.length === 0) {
     setStatus(`No usable image: ${probes[0]?.error ?? "unrecognised format"}`);
@@ -212,7 +219,7 @@ export async function openImageImportDialog(
     const warn = document.createElement("div");
     warn.className = "form-hint";
     warn.textContent =
-      "Pillow is not installed, so pictures are stored exactly as delivered (no resizing). TIFF cannot be read at all, and anything that is not a JPEG will print as a labelled frame. Install it with: pip install pillow";
+      `${pillowSupport.message} Pictures are therefore stored exactly as delivered (no resizing); TIFF cannot be read, and non-JPEG images print as labelled frames.`;
     wrap.appendChild(warn);
   }
 

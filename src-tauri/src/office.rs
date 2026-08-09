@@ -27,6 +27,7 @@
 //!   Excel's own AVERAGE and COUNT skip a blank and would have been dragged toward zero by a 0.
 
 use std::io::Write;
+use std::collections::BTreeMap;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
@@ -34,6 +35,7 @@ use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
 
 use crate::db;
+use crate::installation;
 use crate::python_engine::{find_python, hide_console};
 use crate::units;
 use crate::workflow::{run_pay_summary, PaySummaryRequest, PaySummaryRow};
@@ -55,58 +57,65 @@ pub struct OfficeSupport {
     pub docx: bool,
     pub pptx: bool,
     pub openpyxl: bool,
+    pub pillow: bool,
     /// The deck needs BOTH python-pptx and matplotlib: python-pptx assembles the slides,
     /// matplotlib draws the figures they carry.
     pub matplotlib: bool,
-}
-
-/// One subprocess for all four packages: starting Python is the expensive part, and asking
-/// four times over would cost four times as much to learn one answer.
-const SUPPORT_PROBE: &str = r#"
-import json, importlib
-out = {}
-for key, mod in (("xlsxwriter", "xlsxwriter"), ("docx", "docx"), ("pptx", "pptx"), ("openpyxl", "openpyxl"), ("matplotlib", "matplotlib")):
-    try:
-        importlib.import_module(mod)
-        out[key] = True
-    except Exception:
-        out[key] = False
-print(json.dumps(out))
-"#;
-
-#[derive(Deserialize, Default)]
-struct ProbeReply {
-    #[serde(default)]
-    xlsxwriter: bool,
-    #[serde(default)]
-    docx: bool,
-    #[serde(default)]
-    pptx: bool,
-    #[serde(default)]
-    openpyxl: bool,
-    #[serde(default)]
-    matplotlib: bool,
+    /// Manifest-derived status/remediation keyed by capability id.
+    pub messages: BTreeMap<String, String>,
+    /// Versions observed in the selected interpreter. Release support still comes from the
+    /// qualified lock; an observed version is evidence, not an invented minimum.
+    pub package_versions: BTreeMap<String, Option<String>>,
+    pub probe_error: Option<String>,
 }
 
 pub fn office_support() -> OfficeSupport {
-    let Some(python) = find_python() else { return OfficeSupport::default() };
-    let mut support = OfficeSupport {
-        python: Some(python.to_string_lossy().to_string()),
-        ..Default::default()
+    let python = find_python();
+    let probe = python
+        .as_deref()
+        .map(installation::probe_all_python_packages)
+        .transpose();
+    let observed = probe.as_ref().ok().and_then(Option::as_ref);
+    let available = |distribution: &str| {
+        observed.is_some_and(|result| installation::package_is_available(result, distribution))
     };
-    let mut cmd = Command::new(&python);
-    cmd.args(["-c", SUPPORT_PROBE]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
-    hide_console(&mut cmd);
-    if let Ok(out) = cmd.output() {
-        if let Ok(reply) = serde_json::from_slice::<ProbeReply>(&out.stdout) {
-            support.xlsxwriter = reply.xlsxwriter;
-            support.docx = reply.docx;
-            support.pptx = reply.pptx;
-            support.openpyxl = reply.openpyxl;
-            support.matplotlib = reply.matplotlib;
-        }
+    let mut messages = BTreeMap::new();
+    for capability_id in [
+        installation::CAPABILITY_WORKBOOK_EXPORT,
+        installation::CAPABILITY_DOCUMENT_EXPORT,
+        installation::CAPABILITY_DECK_EXPORT,
+        installation::CAPABILITY_PLATE_EXTRACTION,
+    ] {
+        messages.insert(
+            capability_id.to_string(),
+            installation::capability_status_message(
+                capability_id,
+                python.as_deref(),
+                observed,
+            ),
+        );
     }
-    support
+    let package_versions = observed
+        .map(|result| {
+            result
+                .packages
+                .iter()
+                .map(|package| (package.distribution.clone(), package.version.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    OfficeSupport {
+        python: python.map(|path| path.to_string_lossy().into_owned()),
+        xlsxwriter: available("xlsxwriter"),
+        docx: available("python-docx"),
+        pptx: available("python-pptx"),
+        openpyxl: available("openpyxl"),
+        pillow: available("Pillow"),
+        matplotlib: available("matplotlib"),
+        messages,
+        package_versions,
+        probe_error: probe.err(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +322,11 @@ struct RunnerReply {
 /// megabytes, and a pipe would carry every one of them through this process for no gain.
 fn write_workbook(sheets: &[Sheet], dest: &str) -> Result<usize, String> {
     let python = find_python().ok_or_else(|| {
-        "no Python found - install Python 3.10+ with xlsxwriter, or set SANDIBUMI_PYTHON".to_string()
+        installation::capability_message(
+            installation::CAPABILITY_WORKBOOK_EXPORT,
+            None,
+            None,
+        )
     })?;
     let mut cmd = Command::new(&python);
     cmd.args(["-c", XLSX_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -332,7 +345,11 @@ fn write_workbook(sheets: &[Sheet], dest: &str) -> Result<usize, String> {
         let err = String::from_utf8_lossy(&out.stderr);
         let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("workbook write failed");
         return Err(if last.contains("xlsxwriter-missing") {
-            "xlsxwriter is not installed in the Python SandiBumi found (pip install xlsxwriter)".to_string()
+            installation::capability_message(
+                installation::CAPABILITY_WORKBOOK_EXPORT,
+                Some(&python),
+                None,
+            )
         } else {
             last.trim().to_string()
         });
@@ -880,7 +897,11 @@ struct DocxReply {
 
 fn write_docx(blocks: &[Block], dest: &str) -> Result<usize, String> {
     let python = find_python().ok_or_else(|| {
-        "no Python found - install Python 3.10+ with python-docx, or set SANDIBUMI_PYTHON".to_string()
+        installation::capability_message(
+            installation::CAPABILITY_DOCUMENT_EXPORT,
+            None,
+            None,
+        )
     })?;
     let mut cmd = Command::new(&python);
     cmd.args(["-c", DOCX_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -898,7 +919,11 @@ fn write_docx(blocks: &[Block], dest: &str) -> Result<usize, String> {
         let err = String::from_utf8_lossy(&out.stderr);
         let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("document write failed");
         return Err(if last.contains("docx-missing") {
-            "python-docx is not installed in the Python SandiBumi found (pip install python-docx)".to_string()
+            installation::capability_message(
+                installation::CAPABILITY_DOCUMENT_EXPORT,
+                Some(&python),
+                None,
+            )
         } else {
             last.trim().to_string()
         });
@@ -1425,8 +1450,11 @@ struct DeckReply {
 
 fn write_deck(slides: &[Slide], dest: &str) -> Result<usize, String> {
     let python = find_python().ok_or_else(|| {
-        "no Python found - install Python 3.10+ with python-pptx and matplotlib, or set SANDIBUMI_PYTHON"
-            .to_string()
+        installation::capability_message(
+            installation::CAPABILITY_DECK_EXPORT,
+            None,
+            None,
+        )
     })?;
     let mut cmd = Command::new(&python);
     cmd.args(["-c", PPTX_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -1444,7 +1472,11 @@ fn write_deck(slides: &[Slide], dest: &str) -> Result<usize, String> {
         let err = String::from_utf8_lossy(&out.stderr);
         let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("deck write failed");
         return Err(if last.contains("deck-missing") {
-            "python-pptx and matplotlib are needed for the deck (pip install python-pptx matplotlib)".to_string()
+            installation::capability_message(
+                installation::CAPABILITY_DECK_EXPORT,
+                Some(&python),
+                None,
+            )
         } else {
             last.trim().to_string()
         });
