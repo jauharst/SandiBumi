@@ -1612,6 +1612,34 @@ mod tests {
         assert!(preflight < runner, "dependency refusal must precede the file parser subprocess");
     }
 
+    /// CORRECTNESS — SB-INS-007 / SB-INS-T07–T09 requires every missing-package
+    /// remediation to target the selected executable, name the exact distribution and
+    /// provide a re-probe action. The package population comes from the cited manifest.
+    #[test]
+    fn every_missing_package_remediation_targets_the_selected_interpreter_and_offers_reprobe() {
+        let python = Path::new("C:/Program Files/Qualified Runtime/python.exe");
+        let manifest = capability_manifest().expect("the capability manifest is valid");
+        let packages = manifest
+            .capabilities
+            .iter()
+            .flat_map(|capability| &capability.packages)
+            .map(|package| package.distribution.as_str())
+            .collect::<BTreeSet<_>>();
+
+        for distribution in packages {
+            let message = package_remediation(distribution, Some(python));
+            let command = format!(
+                "\"{}\" -m pip install {}",
+                python.display(),
+                distribution
+            );
+            assert!(message.contains(distribution), "{message}");
+            assert!(message.contains(&python.display().to_string()), "{message}");
+            assert!(message.contains(&command), "{message}");
+            assert!(message.contains("then re-probe"), "{message}");
+        }
+    }
+
     /// SB-INS-004 / SB-INS-T04. The interpreter minimum and exact package rows come from
     /// chapter section 5. The qualified release lock is the deployment-owner decision supplied
     /// 2026-08-09; package minimums remain absent until that qualification cites exact versions.

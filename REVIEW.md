@@ -7,6 +7,11 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-007: remediation targets the selected interpreter
+
+- [ ] For each unavailable optional package, copy the remediation command. Does it name the exact
+      selected executable and distribution, and offer a re-probe after installation?
+
 ## 2026-08-09 — SB-INS-006: missing packages fail at preflight
 
 - [ ] Open DLIS import with the selected interpreter missing `dlisio`. Is the exact package and
