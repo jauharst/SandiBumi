@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-018: missing unit spellings create no mapping
+
+- [ ] Load absent, empty, `-`, `?` and empty-to-empty unit fixtures. Do all remain unmapped rather
+      than creating a successful bridge? Confirm the current no-mapping state is not described as
+      the still-absent richer typed missing-unit record.
+
 ## 2026-08-09 — SB-INS-017: raw unit and encoding tokens remain observable
 
 - [ ] Import a Windows-1252 LAS carrying distinct `mV` and `mv` raw unit spellings. Are the chosen
