@@ -301,6 +301,56 @@ pub fn canonical_histogram(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PercentageKind {
+    PercentileP,
+    RangePositionPct,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PercentileP {
+    pub kind: PercentageKind,
+    value: f32,
+}
+
+impl TryFrom<f32> for PercentileP {
+    type Error = String;
+
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        if value.is_finite() && (0.0..=100.0).contains(&value) {
+            Ok(Self { kind: PercentageKind::PercentileP, value })
+        } else {
+            Err("PercentileP must be finite and inside [0,100]".into())
+        }
+    }
+}
+
+impl PercentileP {
+    pub fn value(self) -> f32 {
+        self.value
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RangePositionPct {
+    pub kind: PercentageKind,
+    value: f32,
+}
+
+impl RangePositionPct {
+    pub fn new(value: f32) -> Result<Self, String> {
+        if !value.is_finite() {
+            return Err("RangePositionPct must be finite".into());
+        }
+        Ok(Self { kind: PercentageKind::RangePositionPct, value })
+    }
+
+    pub fn value(self) -> f32 {
+        self.value
+    }
+}
+
 fn non_blank(value: &str, field: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         Err(format!("resolved plot curve is missing {field}"))
@@ -701,5 +751,17 @@ mod tests {
         assert_eq!(missing.displayed_total, 2);
         assert_eq!(missing.counts.iter().sum::<u32>(), 2);
         assert_eq!(missing.non_finite_excluded, 2);
+    }
+
+    #[test]
+    fn percentile_probability_rejects_130_while_range_position_preserves_130_and_minus_5() {
+        assert!(PercentileP::try_from(130.0).is_err());
+        assert_eq!(PercentileP::try_from(0.0).unwrap().value(), 0.0);
+        assert_eq!(PercentileP::try_from(100.0).unwrap().value(), 100.0);
+
+        let above = RangePositionPct::new(130.0).unwrap();
+        let below = RangePositionPct::new(-5.0).unwrap();
+        assert_eq!(above.value().to_bits(), 130.0f32.to_bits());
+        assert_eq!(below.value().to_bits(), (-5.0f32).to_bits());
     }
 }
