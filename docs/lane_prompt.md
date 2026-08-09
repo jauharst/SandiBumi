@@ -173,7 +173,15 @@ commit** → **Delete branch**. Three lines of body: which ids, which files, the
 
 ---
 
-## 4. The step no agent can do
+## 5. Which batch to run, and what to paste
+
+**`docs/P0_TRACKER.md`.** It holds all eight batches with their literal `SCOPE`/`SPEC` lines, the
+progress ledger, and the three paragraphs to append to §2's prompt for a batch.
+
+Deliberately not duplicated here: this file is the prompt and the check, the tracker is the
+sequence and the fill values. One home each.
+
+## 6. The step no agent can do
 
 **Field-verify each lane against real wells before starting the next**, and write the
 `REVIEW.md` mark yourself. PR #29 changed how LAS files are read — null recognition, index
