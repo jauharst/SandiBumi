@@ -1,4 +1,4 @@
-import { getCoreData, getCurveData, runNetFlag, setZoneParam, type NetFlagSpec, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { getCoreData, getCurveData, plotBindingSnapshot, runNetFlag, setZoneParam, type NetFlagSpec, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
 import { appState, bumpDataVersion, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
@@ -25,7 +25,7 @@ import {
   type ViewportRef,
 } from "./plotCanvas";
 import { parsePercentiles } from "./histogramPanel";
-import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type ChartOverlayDef } from "./chartOverlays";
+import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type AxisKind, type ChartOverlayDef } from "./chartOverlays";
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
@@ -493,15 +493,103 @@ export function matchOverlayAxes(def: ChartOverlayDef, xName: string, yName: str
   return null;
 }
 
+interface OverlayAxisDeclaration {
+  quantity: string;
+  canonicalUnit: string;
+  admissibleTransform: "identity" | "affine";
+}
+
+const OVERLAY_AXIS_DECLARATIONS: Record<AxisKind, OverlayAxisDeclaration> = {
+  neutron: { quantity: "fraction", canonicalUnit: "v/v", admissibleTransform: "affine" },
+  density: { quantity: "bulk_density", canonicalUnit: "g/cc", admissibleTransform: "affine" },
+  dt: { quantity: "slowness", canonicalUnit: "us/ft", admissibleTransform: "affine" },
+  pef: { quantity: "photoelectric_factor", canonicalUnit: "b/e", admissibleTransform: "identity" },
+  k: { quantity: "fraction", canonicalUnit: "%", admissibleTransform: "identity" },
+  th: { quantity: "thorium_concentration", canonicalUnit: "ppm", admissibleTransform: "identity" },
+  thk: { quantity: "thorium_potassium_ratio", canonicalUnit: "ratio", admissibleTransform: "identity" },
+  umaa: { quantity: "umaa", canonicalUnit: "chart_unit", admissibleTransform: "identity" },
+  rhomaa: { quantity: "bulk_density", canonicalUnit: "g/cc", admissibleTransform: "affine" },
+};
+
+interface OverlayUnitTransform {
+  sourceUnit: string;
+  displayUnit: string;
+  factor: number;
+  offset: number;
+  toSource: (displayValue: number) => number;
+}
+
+const normalizedUnit = (unit: string): string => unit.trim().toLowerCase().replace(/[._\s]/g, "");
+
+function overlayUnitTransform(sourceUnit: string, targetUnit: string): OverlayUnitTransform | null {
+  if (normalizedUnit(sourceUnit) === normalizedUnit(targetUnit)) {
+    return { sourceUnit, displayUnit: targetUnit, factor: 1, offset: 0, toSource: (value) => value };
+  }
+  // Exact reviewed transforms from curves.rs. The renderer uses their inverse to place a
+  // canonical chart coordinate on an axis that still displays the source unit.
+  const rules: Array<[string, string, number, number]> = [
+    ["us/m", "us/ft", 0.3048, 0],
+    ["kg/m3", "g/cc", 0.001, 0],
+    ["pu", "v/v", 0.01, 0],
+    ["%", "v/v", 0.01, 0],
+  ];
+  const rule = rules.find(([from, to]) => normalizedUnit(from) === normalizedUnit(sourceUnit)
+    && normalizedUnit(to) === normalizedUnit(targetUnit));
+  if (!rule) return null;
+  const [, , factor, offset] = rule;
+  return {
+    sourceUnit,
+    displayUnit: targetUnit,
+    factor,
+    offset,
+    toSource: (displayValue) => displayValue / factor - offset,
+  };
+}
+
+interface TypedOverlayAuthorization {
+  orientation: "normal" | "flipped";
+  x: OverlayUnitTransform;
+  y: OverlayUnitTransform;
+}
+
+function authorizeTypedOverlay(
+  def: ChartOverlayDef,
+  xName: string,
+  yName: string,
+  xSource: ResolvedPlotCurve | null,
+  ySource: ResolvedPlotCurve | null,
+): TypedOverlayAuthorization | null {
+  const orientation = matchOverlayAxes(def, xName, yName);
+  if (!orientation || !xSource || !ySource) return null;
+  const xKind = orientation === "normal" ? def.xAxis : def.yAxis;
+  const yKind = orientation === "normal" ? def.yAxis : def.xAxis;
+  const xDecl = OVERLAY_AXIS_DECLARATIONS[xKind];
+  const yDecl = OVERLAY_AXIS_DECLARATIONS[yKind];
+  if (xSource.quantity !== xDecl.quantity || ySource.quantity !== yDecl.quantity) return null;
+  const x = overlayUnitTransform(xSource.source_unit, xDecl.canonicalUnit);
+  const y = overlayUnitTransform(ySource.source_unit, yDecl.canonicalUnit);
+  if (!x || !y) return null;
+  if ((x.factor !== 1 && xDecl.admissibleTransform !== "affine")
+    || (y.factor !== 1 && yDecl.admissibleTransform !== "affine")) return null;
+  return { orientation, x, y };
+}
+
 /** Generic chartbook overlay renderer: matrix curves with graduation dots (every
  *  5) + numeric labels (every labelEvery) + along-slope names, dashed
  *  iso-graduation connectors, reference lines, mineral-region polygons, and
  *  labeled reference points. Everything is drawn in data space, so it stays
  *  registered under zoom/pan and on either axis orientation. */
-function drawChartOverlay(plot: PlotCanvas, def: ChartOverlayDef, flipped: boolean): void {
+function drawChartOverlay(
+  plot: PlotCanvas,
+  def: ChartOverlayDef,
+  authorization: TypedOverlayAuthorization,
+): void {
   const { ctx } = plot;
   const r = plot.plotRect;
-  const XY = (x: number, y: number): [number, number] => (flipped ? [y, x] : [x, y]);
+  const XY = (x: number, y: number): [number, number] => {
+    const oriented: [number, number] = authorization.orientation === "flipped" ? [y, x] : [x, y];
+    return [authorization.x.toSource(oriented[0]), authorization.y.toSource(oriented[1])];
+  };
 
   if (def.isoConnect && def.curves) {
     const maxT = Math.max(...def.curves.flatMap((c) => c.grads.map((g) => g[0])));
@@ -738,6 +826,7 @@ export function drawCrossplot(
   view: Viewport | null = null,
   precolors: CrossplotColors | null = null,
   context: CrossplotContext | null = null,
+  typedAxes: { x: ResolvedPlotCurve | null; y: ResolvedPlotCurve | null } | null = null,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
   const auto = (values: Float32Array): { min: number; max: number } | null => {
@@ -1009,13 +1098,13 @@ export function drawCrossplot(
   // axes only, except charts that themselves need a log axis (e.g. Th/K ratio).
   const overlayDef = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
   if (overlayDef) {
-    const orient = matchOverlayAxes(overlayDef, xName, yName);
-    if (orient) {
-      const flipped = orient === "flipped";
+    const authorization = authorizeTypedOverlay(overlayDef, xName, yName, typedAxes?.x ?? null, typedAxes?.y ?? null);
+    if (authorization) {
+      const flipped = authorization.orientation === "flipped";
       const logOk = overlayDef.xLogNeeded
         ? (flipped ? opts.yLog && !opts.xLog : opts.xLog && !opts.yLog)
         : !opts.xLog && !opts.yLog;
-      if (logOk) drawChartOverlay(plot, overlayDef, flipped);
+      if (logOk) drawChartOverlay(plot, overlayDef, authorization);
     }
   }
 
@@ -1234,6 +1323,7 @@ export async function buildCrossplotContent(
   let ys = new Float32Array(0);
   let zs = new Float32Array(0);
   let depths = new Float32Array(0);
+  let typedAxes: { x: ResolvedPlotCurve | null; y: ResolvedPlotCurve | null } = { x: null, y: null };
   let coreByName = new Map<string, TrackCurveSeries>();
   let plot: PlotCanvas | null = null;
   let marker: [number, number] | null = null;
@@ -1298,6 +1388,7 @@ export async function buildCrossplotContent(
       viewRef.current,
       zColors(),
       ctxLayers.length ? { activeName: well.well_name, layers: ctxLayers } : null,
+      typedAxes,
     );
     if (!p) return null;
     if (opts.showCore) {
@@ -1690,6 +1781,11 @@ export async function buildCrossplotContent(
       ys = byName.get(ySel.value.toUpperCase())?.value ?? new Float32Array(0);
       zs = zSel.value ? (byName.get(zSel.value.toUpperCase())?.value ?? new Float32Array(0)) : new Float32Array(0);
       depths = byName.get(xSel.value.toUpperCase())?.depth ?? new Float32Array(0);
+      const bindings = plotBindingSnapshot([well.well_id], [xSel.value, ySel.value]);
+      typedAxes = {
+        x: bindings.find((binding) => binding.intent.semantic_request === xSel.value)?.resolved[0] ?? null,
+        y: bindings.find((binding) => binding.intent.semantic_request === ySel.value)?.resolved[0] ?? null,
+      };
     } catch (err) {
       if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
       setStatus(`Crossplot data load failed: ${err}`);
