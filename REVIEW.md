@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-011: Pickett discloses only identifiable parameters
+
+- [ ] Fit a two-point Pickett water trend without separately sourced `a` or `Rw`. Does the
+      plot label `m` and `a·Rw`, state that `a` and `Rw` are not separately identified, omit
+      saturation guides, and avoid emitting either factor? Supply one factor with provenance:
+      is the other then derived without introducing a default?
+
 ## 2026-08-09 — SB-PLT-008: percentile probability is not range position
 
 - [ ] Load or export typed percentage values. Is `PercentileP=130` refused while
