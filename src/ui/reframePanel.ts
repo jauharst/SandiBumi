@@ -1,7 +1,7 @@
 import {
   deleteCurveSelection,
   listCurveSelections,
-  listGenericCurveCatalog,
+  listGenericCurveInventory,
   listLogSetNames,
   listWells,
   reframeSourceCurves,
@@ -349,7 +349,7 @@ export async function buildReframeContent(
       const well = appState.selectedWell.get();
       let deliveries: string[] = [];
       if (well) {
-        const cat = await listGenericCurveCatalog(well.well_id).catch(() => []);
+        const cat = await listGenericCurveInventory(well.well_id).catch(() => []);
         deliveries = [...new Set(cat.map((c) => c.set_name))].sort();
       }
       if (disposed) return;

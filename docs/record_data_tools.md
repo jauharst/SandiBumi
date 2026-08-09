@@ -143,6 +143,48 @@ flag that did nothing would pass — plus
 `regularize_adopts_the_sources_own_spacing_when_no_step_is_given` and
 `regularize_across_wells_refuses_rather_than_electing_one_wells_spacing`.
 
+### An imported LAS stays on its own sampling in the log view (2026-08-10)
+
+**Displaying a curve is not Reframe.** A set-qualified imported curve is fetched from
+`curve_samples` on that set's own stored depths (after intake's declared-unit reconciliation and
+chosen depth-sanitize policy). It is never projected onto `standard_curves` merely because the log
+view needs pixels. The curve identity is `(set_name, mnemonic)` all the way through layout,
+legend, visibility, readout, WebGPU renderer and composite SVG/PDF lookup, so `WIRE/GR` and
+`WIRE_1/GR` cannot silently select one another on screen or in a client deliverable. Old layouts
+with no set remain readable through the legacy resolved-curve path; a user can make the choice
+explicit in Layout Properties, whose Set list only offers sources carrying that mnemonic.
+
+**Decimation is viewport-only and disposable.** The first reduction carries the true source top and
+base as structural points even when neither value is a bucket extreme, so it establishes the exact
+whole-well depth extent. Once pan or zoom settles, the backend filters to that visible depth interval
+BEFORE display decimation and the renderer swaps only the visible series while retaining that
+extent. Zooming therefore requests denser source samples for the smaller interval instead of
+magnifying a coarse whole-well trace. Neither the display query nor its decimator writes a row or
+invents a sampling; Reframe remains the only tool allowed to create a new frame.
+
+**The catalog and tree now ask different database questions.** Curve Catalog reports total rows,
+finite valid rows, missing rows, and finite-only min/max/mean. A curve containing only missing
+values has counts but no invented statistics. Wells/Set expansion uses a metadata-only inventory
+and reuses its cache for a pure collapse/expand; it must not scan or group `curve_samples` just to
+draw a tree. A data-changing action invalidates that cache and fetches fresh inventory.
+
+**Normal LAS import is one decoded parse and one atomic columnar write.** The primary parse retains
+the WELL value and every non-index channel, so the file is not reopened for its name or a second
+full-curve parse. Concurrently live parsed deliveries are bounded to the Rayon worker count.
+The well row, stored unit, six-column standard projection, generic metadata and every native curve's
+samples commit in one outer transaction; samples are staged as Arrow vectors and inserted through
+DuckDB in bulk while the `(curve_id, depth)` primary key remains enforced. Length/cast/constraint
+failure rolls the whole delivery back instead of reporting a partial well as success. The
+real-delivery gate retained exactly 91,392 and 27,857 source depth rows; the first like-for-like
+debug measurement fell from 89.6 s to 61.2 s. That measurement is evidence of improvement, not a
+shipping-time promise: disk cache and primary-key maintenance still move the wall time, so the field
+checklist measures the release build on the target machine.
+
+**Declared STEP is audited before f32 storage.** Adjacent source depth tokens and the declared STEP
+are compared as exact decimals; missing/unparseable depth breaks adjacency. Deep measured depths
+therefore cannot acquire a false “possibly re-gridded” warning from f32 rounding, while a genuine
+source-token mismatch remains named with its first row pair.
+
 ### One Normalize, for any curve
 
 `condition::normalize` — any curve, three methods (percentile pair / min-max / z-score), LINEAR or

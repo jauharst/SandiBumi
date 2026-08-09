@@ -1,5 +1,13 @@
-use duckdb::{params, Appender, Connection};
+use duckdb::{
+    arrow::{
+        array::{ArrayRef, Float32Array, StringArray},
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    },
+    params, Appender, Connection,
+};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -9,6 +17,8 @@ pub enum DbError {
     DuckDb(#[from] duckdb::Error),
     #[error("column length mismatch: {0}")]
     LengthMismatch(String),
+    #[error("columnar import batch error: {0}")]
+    ColumnarBatch(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("{0}")]
@@ -4091,6 +4101,21 @@ mod inspector_tests {
         assert_eq!(gr.family.as_deref(), Some("GR"));
         assert_eq!(gr.unit.as_deref(), Some("gAPI"));
         assert_eq!(gr.n_samples, 3);
+        assert_eq!(
+            gr.n_valid, 2,
+            "finite samples are distinct from stored rows"
+        );
+        assert_eq!(gr.n_missing, 1, "the stored NaN is reported as missing");
+        assert_eq!(gr.min, Some(55.0));
+        assert_eq!(gr.max, Some(60.0));
+        assert_eq!(gr.mean, Some(57.5));
+        let inventory = list_generic_curve_inventory(&conn, &ids).unwrap();
+        let gr_inventory = inventory
+            .iter()
+            .find(|c| c.mnemonic == "GR")
+            .expect("GR inventoried");
+        assert_eq!(gr_inventory.set_name, "RAW");
+        assert_eq!(gr_inventory.unit.as_deref(), Some("gAPI"));
         let samples = get_curve_samples(&conn, &gr.curve_id).unwrap();
         assert_eq!(samples.len(), 3);
         assert!(samples[2].value.is_nan());
@@ -4114,6 +4139,97 @@ mod inspector_tests {
         // Re-upserting the same (well, set, mnemonic) reuses the curve_id, doesn't duplicate it.
         let pef_id2 = upsert_curve_meta(&conn, &ids, "RAW", "PEF", Some("b/e"), Some("PEF"), Some("LAS import"), None).unwrap();
         assert_eq!(pef_id, pef_id2);
+    }
+
+    /// A delivery is one write unit. Validation failure in any curve must leave every
+    /// existing sibling untouched; a valid batch replaces all siblings together.
+    #[test]
+    fn generic_curve_sample_batch_is_atomic_across_curves() {
+        let conn = mem_db();
+        let well = Uuid::new_v4();
+        insert_well(&conn, well, "SANDI-BATCH", None, None, None).unwrap();
+        let well = well.to_string();
+        let gr = upsert_curve_meta(
+            &conn,
+            &well,
+            "WIRE",
+            "GR",
+            Some("GAPI"),
+            Some("GR"),
+            None,
+            None,
+        )
+        .unwrap();
+        let pef = upsert_curve_meta(
+            &conn,
+            &well,
+            "WIRE",
+            "PEF",
+            Some("B/E"),
+            Some("PEF"),
+            None,
+            None,
+        )
+        .unwrap();
+        insert_curve_samples(&conn, &gr, &[1.0, 2.0], &[10.0, 20.0]).unwrap();
+        insert_curve_samples(&conn, &pef, &[1.0, 2.0], &[5.0, 6.0]).unwrap();
+
+        let bad = insert_curve_samples_batch(
+            &conn,
+            &[1.0, 2.0, 3.0],
+            &[(&gr, &[100.0, 200.0, 300.0][..]), (&pef, &[50.0, 60.0][..])],
+        );
+        assert!(bad.is_err());
+        assert_eq!(
+            get_curve_samples(&conn, &gr)
+                .unwrap()
+                .iter()
+                .map(|p| p.value)
+                .collect::<Vec<_>>(),
+            vec![10.0, 20.0]
+        );
+        assert_eq!(
+            get_curve_samples(&conn, &pef)
+                .unwrap()
+                .iter()
+                .map(|p| p.value)
+                .collect::<Vec<_>>(),
+            vec![5.0, 6.0]
+        );
+
+        insert_curve_samples_batch(
+            &conn,
+            &[1.0, 2.0, 3.0],
+            &[
+                (&gr, &[100.0, 200.0, 300.0][..]),
+                (&pef, &[50.0, 60.0, 70.0][..]),
+            ],
+        )
+        .unwrap();
+        assert_eq!(get_curve_samples(&conn, &gr).unwrap().len(), 3);
+        assert_eq!(get_curve_samples(&conn, &pef).unwrap()[2].value, 70.0);
+
+        // Reach a failure only after DELETE and Arrow staging: the duplicate curve id creates
+        // duplicate (curve_id, depth) keys in the final INSERT. Rollback must restore the
+        // complete previously committed delivery.
+        let staged_failure = insert_curve_samples_batch(
+            &conn,
+            &[1.0, 2.0, 3.0],
+            &[
+                (&gr, &[900.0, 901.0, 902.0][..]),
+                (&gr, &[800.0, 801.0, 802.0][..]),
+            ],
+        );
+        assert!(staged_failure.is_err(), "duplicate staged primary keys must fail");
+        assert_eq!(
+            get_curve_samples(&conn, &gr)
+                .unwrap()
+                .iter()
+                .map(|point| point.value)
+                .collect::<Vec<_>>(),
+            vec![100.0, 200.0, 300.0],
+            "post-staging failure rolls the prior curve back exactly"
+        );
     }
 
     /// Editing a curve's identity from the Wells pane: metadata changes, SAMPLES DO NOT, and
@@ -6769,10 +6885,57 @@ pub struct GenericCurveCatalogEntry {
     pub set_name: String,
     pub source: Option<String>,
     pub run_no: Option<i32>,
+    /// Every stored row, including missing/non-finite values.
     pub n_samples: i64,
+    /// Finite values eligible for numeric statistics.
+    pub n_valid: i64,
+    /// Stored rows excluded from numeric statistics because their value is non-finite.
+    pub n_missing: i64,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub mean: Option<f64>,
     /// True when the user has promoted this curve to win its (well, set, mnemonic) group in
     /// curve resolution (the DLIS/LAS same-mnemonic shadow tiebreak).
     pub pinned: bool,
+}
+
+/// Metadata-only curve identity for navigation surfaces. Deliberately has no sample count or
+/// statistics: Wells/Set expansion must never scan `curve_samples` merely to draw a tree.
+#[derive(Debug, Clone, Serialize)]
+pub struct GenericCurveInventoryEntry {
+    pub curve_id: String,
+    pub mnemonic: String,
+    pub unit: Option<String>,
+    pub family: Option<String>,
+    pub set_name: String,
+    pub source: Option<String>,
+    pub run_no: Option<i32>,
+    pub pinned: bool,
+}
+
+pub fn list_generic_curve_inventory(
+    conn: &Connection,
+    well_id: &str,
+) -> DbResult<Vec<GenericCurveInventoryEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT curve_id, mnemonic, unit, family, set_name, source, run_no, COALESCE(pinned, 0)
+         FROM curve_meta
+         WHERE well_id = ?1
+         ORDER BY set_name, family, mnemonic, run_no NULLS FIRST, curve_id",
+    )?;
+    let rows = stmt.query_map(params![well_id], |row| {
+        Ok(GenericCurveInventoryEntry {
+            curve_id: row.get(0)?,
+            mnemonic: row.get(1)?,
+            unit: row.get(2)?,
+            family: row.get(3)?,
+            set_name: row.get(4)?,
+            source: row.get(5)?,
+            run_no: row.get(6)?,
+            pinned: row.get::<_, i32>(7)? != 0,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 /// Lists every curve in the generic store for one well, across all sets — the data
@@ -6783,7 +6946,13 @@ pub struct GenericCurveCatalogEntry {
 pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<Vec<GenericCurveCatalogEntry>> {
     let mut stmt = conn.prepare(
         "SELECT m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no,
-                COUNT(s.depth), COALESCE(m.pinned, 0)
+                COUNT(s.depth),
+                COUNT(*) FILTER (WHERE s.depth IS NOT NULL AND isfinite(CAST(s.value AS DOUBLE))),
+                COUNT(s.depth) - COUNT(*) FILTER (WHERE s.depth IS NOT NULL AND isfinite(CAST(s.value AS DOUBLE))),
+                MIN(CAST(s.value AS DOUBLE)) FILTER (WHERE isfinite(CAST(s.value AS DOUBLE))),
+                MAX(CAST(s.value AS DOUBLE)) FILTER (WHERE isfinite(CAST(s.value AS DOUBLE))),
+                AVG(CAST(s.value AS DOUBLE)) FILTER (WHERE isfinite(CAST(s.value AS DOUBLE))),
+                COALESCE(m.pinned, 0)
          FROM curve_meta m
          LEFT JOIN curve_samples s ON s.curve_id = m.curve_id
          WHERE m.well_id = ?1
@@ -6800,7 +6969,12 @@ pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<
             source: row.get(5)?,
             run_no: row.get(6)?,
             n_samples: row.get(7)?,
-            pinned: row.get::<_, i32>(8)? != 0,
+            n_valid: row.get(8)?,
+            n_missing: row.get(9)?,
+            min: row.get(10)?,
+            max: row.get(11)?,
+            mean: row.get(12)?,
+            pinned: row.get::<_, i32>(13)? != 0,
         })
     })?;
     let mut out = Vec::new();
@@ -6929,22 +7103,75 @@ pub fn upsert_curve_meta(
 /// Bulk-replaces the samples for one curve (delete-then-append, mirroring
 /// `insert_core_data`'s replace-on-reimport semantics).
 pub fn insert_curve_samples(conn: &Connection, curve_id: &str, depths: &[f32], values: &[f32]) -> DbResult<()> {
-    if depths.len() != values.len() {
-        return Err(DbError::LengthMismatch(format!(
-            "depths ({}) and values ({}) must match",
-            depths.len(),
-            values.len()
-        )));
-    }
-    with_txn(conn, |conn| {
-        conn.execute("DELETE FROM curve_samples WHERE curve_id = ?1", params![curve_id])?;
-        let mut appender: Appender = conn.appender("curve_samples")?;
-        for i in 0..depths.len() {
-            appender.append_row(params![curve_id, depths[i], values[i]])?;
+    insert_curve_samples_batch(conn, depths, &[(curve_id, values)])
+}
+
+/// Atomically replaces every curve in one imported delivery using one transaction and one
+/// DuckDB appender. The complete batch is validated before any DELETE occurs.
+pub fn insert_curve_samples_batch(conn: &Connection, depths: &[f32], curves: &[(&str, &[f32])]) -> DbResult<()> {
+    with_txn(conn, |conn| insert_curve_samples_batch_in_transaction(conn, depths, curves))
+}
+
+/// Transaction-free inner form for callers already committing metadata and samples as one
+/// unit. DuckDB does not support nested transactions; callers must wrap this themselves.
+pub(crate) fn insert_curve_samples_batch_in_transaction(
+    conn: &Connection,
+    depths: &[f32],
+    curves: &[(&str, &[f32])],
+) -> DbResult<()> {
+    for (curve_id, values) in curves {
+        if depths.len() != values.len() {
+            return Err(DbError::LengthMismatch(format!(
+                "curve {curve_id}: depths ({}) and values ({}) must match",
+                depths.len(),
+                values.len()
+            )));
         }
-        appender.flush()?;
-        Ok(())
-    })
+    }
+    for (curve_id, _) in curves {
+        conn.execute("DELETE FROM curve_samples WHERE curve_id = ?1", params![curve_id])?;
+    }
+    // DuckDB's ordinary `append_row` API still crosses the Rust/C boundary once per
+    // sample. A field LAS can contain millions of long-table rows, so stage each curve
+    // as Arrow vectors and let DuckDB consume native-sized data chunks instead. The
+    // staging column is VARCHAR because Arrow has no UUID logical type; the final INSERT
+    // performs DuckDB's checked UUID cast inside the caller's transaction.
+    let staging_table = format!("curve_samples_import_{}", Uuid::new_v4().simple());
+    conn.execute_batch(&format!(
+        "CREATE TEMP TABLE {staging_table} (
+             curve_id VARCHAR NOT NULL,
+             depth FLOAT NOT NULL,
+             value FLOAT
+         )"
+    ))?;
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("curve_id", DataType::Utf8, false),
+        Field::new("depth", DataType::Float32, false),
+        Field::new("value", DataType::Float32, true),
+    ]));
+    let depth_array: ArrayRef = Arc::new(Float32Array::from_iter_values(depths.iter().copied()));
+    let mut appender: Appender = conn.appender(&staging_table)?;
+    for (curve_id, values) in curves {
+        let curve_id_array: ArrayRef = Arc::new(StringArray::from_iter_values(
+            std::iter::repeat(*curve_id).take(depths.len()),
+        ));
+        let value_array: ArrayRef = Arc::new(Float32Array::from_iter_values(values.iter().copied()));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![curve_id_array, Arc::clone(&depth_array), value_array],
+        )
+        .map_err(|err| DbError::ColumnarBatch(err.to_string()))?;
+        appender.append_record_batch(batch)?;
+    }
+    appender.flush()?;
+    drop(appender);
+    conn.execute_batch(&format!(
+        "INSERT INTO curve_samples (curve_id, depth, value)
+         SELECT CAST(curve_id AS UUID), depth, value FROM {staging_table};
+         DROP TABLE {staging_table};"
+    ))?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize)]

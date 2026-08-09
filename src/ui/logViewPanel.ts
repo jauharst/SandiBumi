@@ -7,12 +7,14 @@ import {
   listArrayCurves,
   listAuxData,
   listCurveCatalog,
+  listGenericCurveInventory,
   listWellImages,
   type ArrayLog,
   type ArrayStyle,
   type AuxRow,
   type ImageInfo,
   type ImageStyle,
+  type GenericCurveInventoryEntry,
   type Layout,
   type PointStyle,
   type TrackCurveSeries,
@@ -26,6 +28,8 @@ import { pushUndo } from "../undo";
 import type { ContextMenuEntry } from "./contextMenu";
 import { openCurveEditDialog } from "./curveEditDialog";
 import { openLayoutPropsDialog, type PointSuggestion } from "./layoutPropsDialog";
+import type { CurveSuggestion } from "./layoutPropsDialog";
+import { trackCurveKey, type TrackCurveRequest } from "../trackCurveRequest";
 import { formRow, openModal } from "./modal";
 import { canvasFont, readTheme } from "./plotCanvas";
 import { CORE_OVERLAY_MAP, loadCurveUnits } from "./plotCommon";
@@ -135,6 +139,8 @@ export class LogViewPanel {
   /** Curve name → unit, refreshed with each load (also on dataVersion). Feeds the cursor
    *  readout so RT shows "ohm.m", PHI "v/v", etc. Empty until the first successful load. */
   private curveUnits = new Map<string, string>();
+  private curveLabels = new Map<string, string>();
+  private curveInventory: GenericCurveInventoryEntry[] = [];
   private series: TrackCurveSeries[] = [];
   private trackWeights = new Map<string, number>();
   private hiddenCurves = new Set<string>();
@@ -158,6 +164,11 @@ export class LogViewPanel {
   /** Monotonic token so an out-of-order loadWell (fast well switching, or a dataVersion
    *  bump mid-load) can't render a stale well's series over a newer one. */
   private loadGen = 0;
+  /** Viewport refetches are independently generation-guarded from whole-well loads. */
+  private viewportGen = 0;
+  private viewportTimer: number | undefined;
+  private viewportSignature = "";
+  private depthRangeInitialized = false;
   /** Set in dispose(); the un-awaited initRenderer checks it so subscriptions/observers
    *  aren't registered after the panel already closed (they would leak forever). */
   private disposed = false;
@@ -368,6 +379,7 @@ export class LogViewPanel {
       this.refreshDepthAxis();
       this.positionCrosshair(this.lastHoverDepth);
       this.syncScaleReadout();
+      this.scheduleViewportReload();
     };
     // Redraw core points + tops lines after every rendered frame so they track pan/zoom.
     this.renderer.onFrameRendered = () => {
@@ -383,10 +395,10 @@ export class LogViewPanel {
       const track = focusTitle ? this.layout?.tracks.find((t) => t.title === focusTitle) : undefined;
       let shown = samples;
       if (track) {
-        const names = new Set(track.curves.map((c) => c.curve_name));
+        const names = new Set(track.curves.map(trackCurveKey));
         shown = samples.filter((s) => names.has(s.curveName));
       }
-      renderReadout(this.readoutEl, depth, shown, undefined, this.curveUnits);
+      renderReadout(this.readoutEl, depth, shown, undefined, this.curveUnits, this.curveLabels);
       this.highlightTrack(trackTitle);
       // Broadcast so every other open log view draws a synchronized crosshair.
       appState.hoverDepth.set(depth);
@@ -418,6 +430,7 @@ export class LogViewPanel {
       this.refreshDepthAxis();
       this.drawCoreOverlay();
       this.topsEditor.draw();
+      this.scheduleViewportReload();
     });
     this.resizeObserver.observe(body);
 
@@ -570,7 +583,9 @@ export class LogViewPanel {
     const title = this.trackTitleAtX(e.clientX);
     const track = title ? this.layout.tracks.find((t) => t.title === title) : undefined;
     if (!track) return [];
-    const editable = track.curves.filter((c) => c.fill !== "blocks");
+    // The curve editor writes current/computed values by mnemonic. An explicit imported set
+    // has a different identity, so its value-edit route remains the Curve Catalog.
+    const editable = track.curves.filter((c) => c.fill !== "blocks" && !c.set_name);
     if (editable.length === 0) return [];
     const [top, bottom] = this.renderer.getVisibleDepthRange();
     const depth = top + ((e.clientY - rect.top) / (rect.height || 1)) * (bottom - top);
@@ -638,10 +653,32 @@ export class LogViewPanel {
 
   private adoptLayout(layout: Layout): void {
     this.layout = structuredClone(layout);
+    this.syncCurveLabels();
     this.trackWeights.clear();
     for (const t of this.layout.tracks) this.trackWeights.set(t.title, t.width_weight * 150);
     this.widthScalePct = 100;
     this.hiddenCurves.clear();
+  }
+
+  private syncCurveLabels(): void {
+    const labels = new Map<string, string>();
+    for (const style of this.layout?.tracks.flatMap((track) => track.curves) ?? []) {
+      const mnemonic = style.curve_name.trim().toUpperCase();
+      labels.set(trackCurveKey(style), style.set_name ? `${mnemonic} [${style.set_name}]` : mnemonic);
+    }
+    this.curveLabels = labels;
+  }
+
+  private trackCurveRequests(): TrackCurveRequest[] {
+    const requests = new Map<string, TrackCurveRequest>();
+    for (const style of this.layout?.tracks.flatMap((track) => track.curves) ?? []) {
+      const request: TrackCurveRequest = {
+        curve_name: style.curve_name,
+        set_name: style.set_name,
+      };
+      requests.set(trackCurveKey(request), request);
+    }
+    return [...requests.values()];
   }
 
   /** Ribbon layout picker targets the active panel through this. */
@@ -657,23 +694,50 @@ export class LogViewPanel {
     // supersedes this one and we bail before writing this.series/coreByName. this.well is
     // set synchronously and NOT rolled back — a newer load already advanced it.
     const gen = ++this.loadGen;
+    this.viewportGen += 1;
+    if (this.viewportTimer !== undefined) window.clearTimeout(this.viewportTimer);
+    this.viewportTimer = undefined;
+    this.viewportSignature = "";
+    this.depthRangeInitialized = false;
     if (!keepView) this.viewResetPending = true;
     this.well = well;
     this.updateTitle();
-    const curveNames = Array.from(new Set(this.layout.tracks.flatMap((t) => t.curves.map((c) => c.curve_name))));
+    const curveRequests = this.trackCurveRequests();
     try {
-      const [series, units] = await Promise.all([
-        getTrackData(well.well_id, curveNames, this.canvas.clientHeight || 400),
+      const [series, units, inventory] = await Promise.all([
+        getTrackData(well.well_id, curveRequests, this.canvas.clientHeight || 400),
         loadCurveUnits().catch(() => new Map<string, string>()),
+        listGenericCurveInventory(well.well_id).catch(() => [] as GenericCurveInventoryEntry[]),
       ]);
       if (gen !== this.loadGen || !this.renderer) return; // superseded or disposed
       this.series = series;
+      this.curveInventory = inventory;
+      for (const request of curveRequests) {
+        const setName = request.set_name?.trim();
+        if (!setName) continue;
+        const candidates = inventory
+          .filter(
+            (entry) =>
+              entry.set_name === setName &&
+              entry.mnemonic.trim().toUpperCase() === request.curve_name.trim().toUpperCase(),
+          )
+          .sort((a, b) => {
+            if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+            if (a.run_no == null && b.run_no != null) return -1;
+            if (a.run_no != null && b.run_no == null) return 1;
+            if (a.run_no !== b.run_no) return (a.run_no ?? 0) - (b.run_no ?? 0);
+            return a.curve_id.localeCompare(b.curve_id);
+          });
+        if (candidates[0]?.unit) units.set(trackCurveKey(request), candidates[0].unit);
+      }
       this.curveUnits = units;
+      this.refresh(false);
+      this.depthRangeInitialized = true;
       if (this.viewResetPending) {
         this.renderer.resetView();
         this.viewResetPending = false;
       }
-      this.refresh();
+      this.scheduleViewportReload();
       setStatus(`Loaded well ${well.well_name}`);
     } catch (err) {
       if (gen !== this.loadGen) return;
@@ -682,11 +746,13 @@ export class LogViewPanel {
       // The winning load failed: drop the previous well's series so the (already updated)
       // title and the rendered curves can't diverge — show the well as empty instead.
       this.series = [];
+      this.curveInventory = [];
+      this.refresh(false);
+      this.depthRangeInitialized = true;
       if (this.viewResetPending) {
         this.renderer?.resetView();
         this.viewResetPending = false;
       }
-      this.refresh();
     }
     try {
       const core = await getCoreData(well.well_id);
@@ -772,7 +838,7 @@ export class LogViewPanel {
       const track = this.layout.tracks.find((t) => t.title === range.title);
       if (!track) continue;
       for (const curve of track.curves) {
-        if (this.hiddenCurves.has(curve.curve_name)) continue;
+        if (this.hiddenCurves.has(trackCurveKey(curve))) continue;
         const coreName = CORE_OVERLAY_MAP[curve.curve_name.toUpperCase()];
         const series = coreName ? this.coreByName.get(coreName) : undefined;
         if (!series || series.depth.length === 0) continue;
@@ -1569,7 +1635,69 @@ export class LogViewPanel {
     renderDepthAxis(this.depthAxisEl, top, bottom);
   }
 
-  refresh(): void {
+  private scheduleViewportReload(): void {
+    if (this.disposed || !this.well || !this.layout || !this.renderer) return;
+    if (this.viewportTimer !== undefined) window.clearTimeout(this.viewportTimer);
+    this.viewportTimer = window.setTimeout(() => {
+      this.viewportTimer = undefined;
+      void this.reloadViewport();
+    }, 100);
+  }
+
+  private async reloadViewport(): Promise<void> {
+    const well = this.well;
+    const renderer = this.renderer;
+    if (this.disposed || !well || !renderer || !this.layout) return;
+    const [depthMin, depthMax] = renderer.getVisibleDepthRange();
+    if (!Number.isFinite(depthMin) || !Number.isFinite(depthMax) || depthMax <= depthMin) return;
+    const targetPixelHeight = this.canvas.clientHeight || 400;
+    const requests = this.trackCurveRequests();
+    const signature = JSON.stringify([
+      well.well_id,
+      requests,
+      depthMin,
+      depthMax,
+      targetPixelHeight,
+    ]);
+    if (signature === this.viewportSignature) return;
+    this.viewportSignature = signature;
+    const viewportGen = ++this.viewportGen;
+    const loadGen = this.loadGen;
+    try {
+      const series = await getTrackData(
+        well.well_id,
+        requests,
+        targetPixelHeight,
+        depthMin,
+        depthMax,
+      );
+      if (
+        this.disposed ||
+        viewportGen !== this.viewportGen ||
+        loadGen !== this.loadGen ||
+        this.well?.well_id !== well.well_id ||
+        !this.renderer
+      ) {
+        return;
+      }
+      this.series = series;
+      this.applySeriesToRenderer(true);
+    } catch (error) {
+      if (viewportGen === this.viewportGen) this.viewportSignature = "";
+      console.error("Failed to refresh visible curve interval:", error);
+    }
+  }
+
+  private applySeriesToRenderer(preserveDepthRange: boolean): void {
+    if (!this.layout || !this.renderer) return;
+    this.renderer.loadLayout(this.layout, this.series, this.trackWeights, preserveDepthRange);
+    for (const curveKey of this.hiddenCurves) this.renderer.setCurveHidden(curveKey, true);
+    renderReportHeader(this.reportEl, this.well, this.renderer.getDataDepthRange());
+    this.refreshDepthAxis();
+    this.drawCoreOverlay();
+  }
+
+  refresh(preserveDepthRange = this.depthRangeInitialized): void {
     if (!this.layout || !this.renderer) return;
     // A selected track that no longer exists (renamed/removed in properties) unsticks.
     if (this.selectedTrack && !this.layout.tracks.some((t) => t.title === this.selectedTrack)) {
@@ -1595,11 +1723,7 @@ export class LogViewPanel {
       },
     });
     this.applyTrackSelection();
-    this.renderer.loadLayout(this.layout, this.series, this.trackWeights);
-    for (const curveName of this.hiddenCurves) this.renderer.setCurveHidden(curveName, true);
-    renderReportHeader(this.reportEl, this.well, this.renderer.getDataDepthRange());
-    this.refreshDepthAxis();
-    this.drawCoreOverlay();
+    this.applySeriesToRenderer(preserveDepthRange);
   }
 
   // --- Ribbon actions (routed to the active panel by the workspace) ---
@@ -1612,13 +1736,24 @@ export class LogViewPanel {
   /** Opens the Layout Properties dialog for this panel's private layout copy. */
   async openProperties(): Promise<void> {
     if (!this.layout) return;
-    let available: string[] = [];
+    let available: CurveSuggestion[] = [];
     try {
-      available = (await listCurveCatalog()).map((e) => e.name);
+      available = (await listCurveCatalog()).map((e) => ({ curve_name: e.name }));
     } catch {
       // No backend (or empty DB) — fall back to the curves the layout already references.
-      available = Array.from(new Set(this.layout.tracks.flatMap((t) => t.curves.map((c) => c.curve_name))));
+      available = this.layout.tracks.flatMap((t) =>
+        t.curves.map((c) => ({ curve_name: c.curve_name, set_name: c.set_name })),
+      );
     }
+    // Imported curves remain addressable by their exact source set. A WIRE/GR and a
+    // WIRE_1/GR are two distinct display requests even though the mnemonic matches.
+    available.push(
+      ...this.curveInventory.map((curve) => ({
+        curve_name: curve.mnemonic,
+        set_name: curve.set_name,
+      })),
+    );
+    available = [...new Map(available.map((curve) => [trackCurveKey(curve), curve])).values()];
     // What this well actually carries as measured samples, so the point-track editor
     // suggests real properties and datasets instead of asking you to remember mnemonics.
     const points: PointSuggestion[] = [
@@ -1653,6 +1788,7 @@ export class LogViewPanel {
     this.onUserEdit?.();
     const oldWeights = new Map(this.trackWeights);
     this.layout = edited;
+    this.syncCurveLabels();
     this.trackWeights.clear();
     for (const t of edited.tracks) {
       this.trackWeights.set(t.title, oldWeights.get(t.title) ?? t.width_weight * 150);
@@ -1723,6 +1859,11 @@ export class LogViewPanel {
 
   dispose(): void {
     this.disposed = true;
+    this.viewportGen += 1;
+    if (this.viewportTimer !== undefined) {
+      window.clearTimeout(this.viewportTimer);
+      this.viewportTimer = undefined;
+    }
     for (const unsub of this.unsubscribers) unsub();
     this.resizeObserver?.disconnect();
     this.topsEditor.dispose();

@@ -115,6 +115,24 @@ pub fn import_las_files(
     import_las_files_with(conn, paths, progress, &LasImportOptions::default())
 }
 
+fn cancelled_las_import(path: &str) -> ImportResult {
+    ImportResult {
+        path: path.to_string(),
+        well_id: None,
+        well_name: None,
+        rows: 0,
+        text_encoding: None,
+        warning: Some("cancelled before import".into()),
+        error: None,
+        attached_set: None,
+        alias_decisions: Vec::new(),
+        index_resolution: None,
+        unit_conversions: Vec::new(),
+        unconverted_units: Vec::new(),
+        unit_designations: Vec::new(),
+    }
+}
+
 /// Import-sets-aware batch import (Phase 9-3 / T-IMP-02): every curve of the batch lands
 /// under one named set; files whose well name matches an existing well attach instead of
 /// duplicating (when `opts.attach`).
@@ -124,50 +142,55 @@ pub fn import_las_files_with(
     progress: Option<&crate::jobs::JobHandle>,
     opts: &LasImportOptions,
 ) -> Vec<ImportResult> {
-    let parsed: Vec<(String, Result<(String, CurveColumns), ParseError>)> = paths
-        .par_iter()
-        .map(|path| {
-            let result = (|| {
-                let well_name = parsers::extract_well_name(path)?;
-                let columns = parsers::parse_las_2_with_unit_designation(
-                    path,
-                    &opts.channel_nulls,
-                    &opts.null_rules,
-                    opts.ms_per_ft_meanings.get(path).copied(),
-                )?;
-                Ok::<_, ParseError>((well_name, columns))
-            })();
-            (path.clone(), result)
-        })
-        .collect();
+    // The primary parse now retains every channel. Bound concurrently-live parsed files to
+    // the Rayon worker count instead of retaining the whole batch before the first write.
+    let batch_size = rayon::current_num_threads().max(1);
+    let mut imported = Vec::with_capacity(paths.len());
+    for (chunk_index, chunk) in paths.chunks(batch_size).enumerate() {
+        if progress.map_or(false, |p| p.is_cancelled()) {
+            for path in &paths[chunk_index * batch_size..] {
+                if let Some(p) = progress {
+                    p.finish_item(path, crate::jobs::ItemState::Warned, Some("cancelled".into()));
+                }
+                imported.push(cancelled_las_import(path));
+            }
+            break;
+        }
+        let parsed: Vec<(String, Result<(String, CurveColumns), ParseError>)> = chunk
+            .par_iter()
+            .map(|path| {
+                let result = (|| {
+                    let columns = parsers::parse_las_2_with_unit_designation(
+                        path,
+                        &opts.channel_nulls,
+                        &opts.null_rules,
+                        opts.ms_per_ft_meanings.get(path).copied(),
+                    )?;
+                    let well_name = columns.well_name.clone().unwrap_or_else(|| {
+                        std::path::Path::new(path)
+                            .file_stem()
+                            .map(|stem| stem.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "UNKNOWN".to_string())
+                    });
+                    Ok::<_, ParseError>((well_name, columns))
+                })();
+                (path.clone(), result)
+            })
+            .collect();
 
-    parsed
-        .into_iter()
-        .map(|(path, result)| {
+        for (path, result) in parsed {
             // Cancel before the DB write, so clicking Cancel actually stops wells being created.
             // Without this the flag was flipped, every remaining file was still inserted, and the
             // job was then labelled "Cancelled" — the user was told the import stopped while the
             // project filled up with unwanted wells. The parse pass above has already run by this
-            // point (it is one up-front par_iter), so cancel stops the writes, not the parsing.
+            // point (for this bounded chunk), so cancel stops its writes and prevents later
+            // chunks from being parsed.
             if progress.map_or(false, |p| p.is_cancelled()) {
                 if let Some(p) = progress {
                     p.finish_item(&path, crate::jobs::ItemState::Warned, Some("cancelled".into()));
                 }
-                return ImportResult {
-                    path: path.clone(),
-                    well_id: None,
-                    well_name: None,
-                    rows: 0,
-                    text_encoding: None,
-                    warning: Some("cancelled before import".into()),
-                    error: None,
-                    attached_set: None,
-                    alias_decisions: Vec::new(),
-                    index_resolution: None,
-                    unit_conversions: Vec::new(),
-                    unconverted_units: Vec::new(),
-                    unit_designations: Vec::new(),
-                };
+                imported.push(cancelled_las_import(&path));
+                continue;
             }
             if let Some(p) = progress {
                 let base = path.rsplit(['/', '\\']).next().unwrap_or(&path);
@@ -188,9 +211,24 @@ pub fn import_las_files_with(
                 };
                 p.finish_item(&path, state, msg);
             }
-            out
-        })
-        .collect()
+            imported.push(out);
+        }
+        if progress.map_or(false, |p| p.is_cancelled()) {
+            let next_path = ((chunk_index + 1) * batch_size).min(paths.len());
+            for path in &paths[next_path..] {
+                if let Some(p) = progress {
+                    p.finish_item(
+                        path,
+                        crate::jobs::ItemState::Warned,
+                        Some("cancelled".into()),
+                    );
+                }
+                imported.push(cancelled_las_import(path));
+            }
+            break;
+        }
+    }
+    imported
 }
 
 fn insert_parsed_well(
@@ -207,10 +245,7 @@ fn insert_parsed_well(
     let las_version = columns.las_version.clone();
     let unread_sections = columns.unread_sections.clone();
     let text_encoding = columns.text_encoding.clone();
-    let declared_step_note = parsers::declared_step_mismatch_note(
-        columns.declared_step.as_deref(),
-        &columns.depth,
-    );
+    let declared_step_note = columns.declared_step_mismatch_note.clone();
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
@@ -466,6 +501,7 @@ fn insert_parsed_well(
         }
     };
     if opts.attach && matches.len() == 1 {
+        let ms_per_ft_meaning = opts.ms_per_ft_meanings.get(&path).copied();
         let out = attach_curves_to_existing_well(
             conn,
             path,
@@ -477,6 +513,9 @@ fn insert_parsed_well(
             index_resolution.clone(),
             unit_designations.clone(),
             text_encoding.clone(),
+            &columns.depth,
+            &columns.raw_curves,
+            ms_per_ft_meaning,
         );
         if out.error.is_none() {
             if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
@@ -497,12 +536,34 @@ fn insert_parsed_well(
             "a well named '{well_name}' already exists — imported as a separate record"
         ));
     }
-    // `warning` is joined AFTER the generic-store load below, so its failure can be reported to
-    // the user as a note. It cannot be joined here and it cannot move the load earlier: the load
-    // writes curve_meta rows and must run after the well row is committed.
-
-    // Well row + standard curves as one transaction: a failure rolls the well row back
-    // instead of stranding a curve-less orphan (with_txn = BEGIN/COMMIT/ROLLBACK).
+    // Prepare every native curve before the transaction. The well row, standard projection,
+    // project-unit adoption, generic metadata, and every native sample then commit together.
+    let generic_depth = columns.depth.clone();
+    let generic_curves = std::mem::take(&mut columns.raw_curves);
+    let prepared = match prepare_generic_curves(
+        &generic_depth,
+        &generic_curves,
+        opts.ms_per_ft_meanings.get(&path).copied(),
+    ) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            return ImportResult {
+                path,
+                well_id: None,
+                well_name: None,
+                rows: 0,
+                text_encoding: Some(text_encoding),
+                warning: None,
+                error: Some(error.to_string()),
+                attached_set: None,
+                alias_decisions,
+                index_resolution,
+                unit_conversions: Vec::new(),
+                unconverted_units: Vec::new(),
+                unit_designations,
+            };
+        }
+    };
     let result: db::DbResult<()> = db::with_txn(conn, |conn| {
         db::insert_well(conn, well_id, &well_name, None, None, None)?;
         // Record the unit the stored depths are actually in, alongside the data itself so
@@ -522,55 +583,32 @@ fn insert_parsed_well(
             columns.dt,
             columns.sp,
         )?;
+        let set = resolve_set_name(
+            conn,
+            &well_id.to_string(),
+            &canonical_set_name(opts.set_name.as_deref()),
+        );
+        write_prepared_generic_curves_in_transaction(
+            conn,
+            &well_id.to_string(),
+            &generic_depth,
+            &set,
+            &prepared.curves,
+        )?;
+        if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
+            crate::units::set_project_depth_unit(conn, unit)?;
+        }
         Ok(())
     });
 
     match result {
         Ok(()) => {
-            // The project adopts this file's unit only once the well actually committed,
-            // so a failed import can't leave a project declaring a unit it holds no data in.
-            if let crate::units::IndexUnitAction::Adopted(u) = unit_action {
-                if let Err(e) = crate::units::set_project_depth_unit(conn, u) {
-                    eprintln!("warning: could not record the project depth unit: {e}");
-                }
-            }
-            // Phase 6: additionally load *every* curve from the file into the generic
-            // store (under the batch's set name, default RAW), so PEF/CALI/multiple-runs —
-            // anything beyond the fixed 6 — is available even though the legacy
-            // `standard_curves` path above still feeds the current UI. A failure here must
-            // not fail the whole import (the standard curves are already in), so it's
-            // logged, not propagated.
-            let set = resolve_set_name(conn, &well_id.to_string(), &canonical_set_name(opts.set_name.as_deref()));
-            let mut unit_conversions = Vec::new();
-            let mut unconverted_units = Vec::new();
-            match import_all_curves_into_generic_store_with_channel_nulls(
-                conn,
-                &well_id.to_string(),
-                &path,
-                &set,
-                confirmed_file_unit,
-                &opts.channel_nulls,
-                &opts.null_rules,
-                opts.duplicate_depth_policy,
-                opts.ms_per_ft_meanings.get(&path).copied(),
-            ) {
-                Ok(report) => {
-                    unit_conversions = report.unit_conversions;
-                    unconverted_units = report.unconverted_units;
-                    notes.extend(unit_conversions.iter().map(crate::curves::UnitConversion::note));
-                    notes.extend(unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
-                }
-                Err(e) => {
-                    eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
-                    // stderr alone is invisible in a release build, so the import used to report a
-                    // clean success while every curve beyond the fixed six — PEF, CALI, DTS, a second
-                    // run — was silently missing. Modules that later resolve those mnemonics just get
-                    // the all-NaN fallback, with no trace anywhere in the app of why.
-                    notes.push(format!(
-                        "only the six standard curves were loaded — the full-curve load failed: {e}"
-                    ));
-                }
-            }
+            let unit_conversions = prepared.unit_conversions;
+            let unconverted_units = prepared.unconverted_units;
+            // Conversion and unresolved-unit notes describe only values that committed with
+            // this complete delivery.
+            notes.extend(unit_conversions.iter().map(crate::curves::UnitConversion::note));
+            notes.extend(unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
             ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions, unconverted_units, unit_designations }
         }
@@ -594,19 +632,12 @@ fn attach_curves_to_existing_well(
     index_resolution: Option<parsers::IndexResolution>,
     unit_designations: Vec<crate::curves::UnitDesignation>,
     text_encoding: String,
+    depth: &[f32],
+    curves: &[parsers::RawLasCurve],
+    ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
 ) -> ImportResult {
     let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
-    match import_all_curves_into_generic_store_with_channel_nulls(
-        conn,
-        well_id,
-        &path,
-        &set,
-        opts.file_depth_unit.as_deref().and_then(crate::units::DepthUnit::parse),
-        &opts.channel_nulls,
-        &opts.null_rules,
-        opts.duplicate_depth_policy,
-        opts.ms_per_ft_meanings.get(&path).copied(),
-    ) {
+    match import_parsed_curves_into_generic_store(conn, well_id, depth, curves, &set, ms_per_ft_meaning) {
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
         // and the frontend reports it separately. Only genuine notes (unit reconciliation,
         // dropped rows) reach `warning`.
@@ -648,15 +679,32 @@ pub fn import_all_curves_into_generic_store(
     set_name: &str,
     confirmed_file_unit: Option<crate::units::DepthUnit>,
 ) -> db::DbResult<(usize, usize)> {
-    import_all_curves_into_generic_store_with_channel_nulls(
+    let mut frame = parsers::parse_las_2_all(path)
+        .map_err(|error| db::DbError::LengthMismatch(format!("parse_las_2_all: {error}")))?;
+    let declared = crate::units::project_depth_unit(conn)?;
+    let file_unit = frame
+        .depth_unit
+        .as_deref()
+        .and_then(crate::units::DepthUnit::parse)
+        .or(confirmed_file_unit);
+    let action = crate::units::resolve_index_unit(declared, file_unit)
+        .map_err(db::DbError::LengthMismatch)?;
+    if let crate::units::IndexUnitAction::Convert { from, to } = action {
+        crate::units::convert_depths(&mut frame.depth, from, to);
+    }
+    let duplicates = parsers::duplicate_depth_count(&frame.depth);
+    if duplicates > 0 {
+        return Err(db::DbError::LengthMismatch(format!(
+            "{duplicates} repeated depth row(s) have no resolving duplicate policy"
+        )));
+    }
+    parsers::sanitize_las_frame(&mut frame);
+    import_parsed_curves_into_generic_store(
         conn,
         well_id,
-        path,
+        &frame.depth,
+        &frame.curves,
         set_name,
-        confirmed_file_unit,
-        &parsers::ChannelNullValues::new(),
-        &[],
-        None,
         None,
     )
     .map(|report| (report.curves_written, report.rows))
@@ -669,59 +717,32 @@ struct GenericCurveImportReport {
     unconverted_units: Vec<crate::curves::UnconvertedUnit>,
 }
 
-fn import_all_curves_into_generic_store_with_channel_nulls(
+struct PreparedGenericCurve {
+    mnemonic: String,
+    unit: Option<String>,
+    family: Option<&'static str>,
+    values: Vec<f32>,
+}
+
+struct PreparedGenericImport {
+    curves: Vec<PreparedGenericCurve>,
+    unit_conversions: Vec<crate::curves::UnitConversion>,
+    unconverted_units: Vec<crate::curves::UnconvertedUnit>,
+}
+
+fn import_parsed_curves_into_generic_store(
     conn: &Connection,
     well_id: &str,
-    path: &str,
+    depth: &[f32],
+    curves: &[parsers::RawLasCurve],
     set_name: &str,
-    confirmed_file_unit: Option<crate::units::DepthUnit>,
-    channel_nulls: &parsers::ChannelNullValues,
-    null_rules: &[parsers::NullExceptionRule],
-    duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
 ) -> db::DbResult<GenericCurveImportReport> {
-    let mut frame = match parsers::parse_las_2_all_with_null_rules(path, channel_nulls, null_rules) {
-        Ok(f) => f,
-        Err(e) => return Err(db::DbError::LengthMismatch(format!("parse_las_2_all: {e}"))),
-    };
-    // This re-reads the same file the standard-curve path already imported, so it MUST
-    // apply the identical index conversion — otherwise the two stores would hold the same
-    // curves at depths 3.28x apart and every generic-store lookup would miss.
-    let declared = crate::units::project_depth_unit(conn)?;
-    let file_unit = frame
-        .depth_unit
-        .as_deref()
-        .and_then(crate::units::DepthUnit::parse)
-        .or(confirmed_file_unit);
-    let action = crate::units::resolve_index_unit(declared, file_unit)
-        .map_err(db::DbError::LengthMismatch)?;
-    match action {
-        crate::units::IndexUnitAction::Convert { from, to } => {
-            crate::units::convert_depths(&mut frame.depth, from, to);
-        }
-        crate::units::IndexUnitAction::Adopted(_)
-        | crate::units::IndexUnitAction::Matches(_) => {}
-    }
-    let duplicate_count = parsers::duplicate_depth_count(&frame.depth);
-    if duplicate_count > 0 {
-        match duplicate_depth_policy {
-            Some(parsers::DuplicateDepthPolicy::Refuse) | None => {
-                return Err(db::DbError::LengthMismatch(format!(
-                    "{duplicate_count} repeated depth row(s) have no resolving duplicate policy"
-                )))
-            }
-            Some(policy) => {
-                parsers::resolve_las_frame_duplicates(&mut frame, policy);
-            }
-        }
-    }
-    // curve_samples has PK (curve_id, depth) just like standard_curves, so the same non-finite
-    // / duplicate depths the standard-curves path drops would otherwise abort each curve's
-    // insert here — silently, since this whole import is best-effort (its Err is only logged).
-    // Sanitize depth + every curve in lockstep before writing (identical keep-set to the
-    // standard path, so both stores hold the same rows for the same file).
-    parsers::sanitize_las_frame(&mut frame);
-    if frame.depth.is_empty() {
+    // `depth` and `curves` came from the same primary parse and passed one shared unit,
+    // duplicate-depth, and sanitation decision. Keep that exact row alignment here: the
+    // generic store must hold the same source depths as the standard projection, never a
+    // separately parsed or independently cleaned approximation.
+    if depth.is_empty() {
         return Ok(GenericCurveImportReport {
             curves_written: 0,
             rows: 0,
@@ -730,14 +751,31 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
         });
     }
 
-    let mut curves_written = 0usize;
+    let prepared = prepare_generic_curves(depth, curves, ms_per_ft_meaning)?;
+    db::with_txn(conn, |conn| {
+        write_prepared_generic_curves_in_transaction(conn, well_id, depth, set_name, &prepared.curves)
+    })?;
+    Ok(GenericCurveImportReport {
+        curves_written: prepared.curves.len(),
+        rows: depth.len(),
+        unit_conversions: prepared.unit_conversions,
+        unconverted_units: prepared.unconverted_units,
+    })
+}
+
+fn prepare_generic_curves(
+    depth: &[f32],
+    curves: &[parsers::RawLasCurve],
+    ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+) -> db::DbResult<PreparedGenericImport> {
+    let mut prepared = Vec::with_capacity(curves.len());
     let mut unit_conversions = Vec::new();
     let mut unconverted_units = Vec::new();
-    for raw in &frame.curves {
+    for raw in curves {
         let mut values = raw.values.clone();
         // Align to the depth column length (defensive: malformed files can short a column).
-        if values.len() != frame.depth.len() {
-            values.resize(frame.depth.len(), f32::NAN);
+        if values.len() != depth.len() {
+            values.resize(depth.len(), f32::NAN);
         }
         let mut unit = raw.unit.clone();
         let resolved_ms_per_ft = crate::curves::is_ms_per_ft(raw.unit.as_deref());
@@ -787,17 +825,48 @@ fn import_all_curves_into_generic_store_with_channel_nulls(
         {
             unconverted_units.push(unconverted);
         }
-        let curve_id =
-            db::upsert_curve_meta(conn, well_id, set_name, &raw.mnemonic, unit.as_deref(), family, Some("LAS import"), None)?;
-        db::insert_curve_samples(conn, &curve_id, &frame.depth, &values)?;
-        curves_written += 1;
+        prepared.push(PreparedGenericCurve {
+            mnemonic: raw.mnemonic.clone(),
+            unit,
+            family,
+            values,
+        });
     }
-    Ok(GenericCurveImportReport {
-        curves_written,
-        rows: frame.depth.len(),
+    Ok(PreparedGenericImport {
+        curves: prepared,
         unit_conversions,
         unconverted_units,
     })
+}
+
+/// Transaction-free generic writer. The attach path wraps this as its whole delivery; the
+/// new-well path places it inside the same outer transaction as the well and standard view.
+fn write_prepared_generic_curves_in_transaction(
+    conn: &Connection,
+    well_id: &str,
+    depth: &[f32],
+    set_name: &str,
+    prepared: &[PreparedGenericCurve],
+) -> db::DbResult<()> {
+    let mut curve_ids = Vec::with_capacity(prepared.len());
+    for curve in prepared {
+        curve_ids.push(db::upsert_curve_meta(
+            conn,
+            well_id,
+            set_name,
+            &curve.mnemonic,
+            curve.unit.as_deref(),
+            curve.family,
+            Some("LAS import"),
+            None,
+        )?);
+    }
+    let batch: Vec<(&str, &[f32])> = curve_ids
+        .iter()
+        .zip(prepared.iter())
+        .map(|(curve_id, curve)| (curve_id.as_str(), curve.values.as_slice()))
+        .collect();
+    db::insert_curve_samples_batch_in_transaction(conn, depth, &batch)
 }
 
 /// Parses a deviation-survey CSV (columns MD/INC/AZI, alias-tolerant) and stores the
@@ -1981,6 +2050,67 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// A normal LAS delivery is one commit boundary. Duplicate source mnemonics force the
+    /// generic Arrow insert to fail on (curve_id, depth) only after the well row, standard
+    /// projection, metadata, and staged samples have all been touched. None may survive.
+    #[test]
+    fn new_well_rolls_back_when_all_channel_insert_fails() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let columns = CurveColumns {
+            well_name: Some("ROLLBACK-1".into()),
+            las_version: Some("2.0".into()),
+            unread_sections: Vec::new(),
+            text_encoding: "test fixture".into(),
+            depth_unit: Some("M".into()),
+            declared_step: Some("0.5".into()),
+            declared_step_mismatch_note: None,
+            depth: vec![1000.0, 1000.5],
+            gr: vec![40.0, 41.0],
+            res: vec![2.0, 2.1],
+            nphi: vec![0.2, 0.21],
+            rhob: vec![2.4, 2.41],
+            dt: vec![80.0, 81.0],
+            sp: vec![f32::NAN; 2],
+            raw_curves: vec![
+                parsers::RawLasCurve {
+                    mnemonic: "PEF".into(),
+                    unit: Some("B/E".into()),
+                    values: vec![4.0, 4.1],
+                },
+                parsers::RawLasCurve {
+                    mnemonic: "PEF".into(),
+                    unit: Some("B/E".into()),
+                    values: vec![5.0, 5.1],
+                },
+            ],
+            alias_decisions: Vec::new(),
+            index_resolution: None,
+            unit_designations: Vec::new(),
+        };
+
+        let result = insert_parsed_well(
+            &conn,
+            "duplicate-mnemonic.las".into(),
+            "ROLLBACK-1".into(),
+            columns,
+            &LasImportOptions::default(),
+        );
+
+        assert!(result.error.is_some(), "an incomplete delivery is an import failure");
+        for table in ["wells", "standard_curves", "curve_meta", "curve_samples"] {
+            let count: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(count, 0, "{table} must roll back with the delivery");
+        }
+        assert_eq!(
+            crate::units::project_depth_unit(&conn).unwrap(),
+            None,
+            "a failed first delivery cannot declare the project's depth unit"
+        );
+    }
+
     /// Core import round-trip + the SET discipline (T-IMP-08): a second delivery never
     /// overwrites the first, exactly one set is live, and every reader follows it.
     #[test]
@@ -2079,11 +2209,13 @@ mod tests {
         db::create_schema(&conn).unwrap();
 
         let cols = || CurveColumns {
+            well_name: None,
             las_version: None,
             unread_sections: Vec::new(),
             text_encoding: "test fixture".into(),
             depth_unit: Some("M".into()),
             declared_step: None,
+            declared_step_mismatch_note: None,
             depth: vec![1000.0, 1000.5, 1001.0],
             gr: vec![40.0, 45.0, 50.0],
             res: vec![f32::NAN; 3],
@@ -2091,6 +2223,7 @@ mod tests {
             rhob: vec![f32::NAN; 3],
             dt: vec![f32::NAN; 3],
             sp: vec![f32::NAN; 3],
+            raw_curves: Vec::new(),
             alias_decisions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
@@ -2404,6 +2537,60 @@ mod tests {
             "a declared step matching every interval must not be flagged: {:?}",
             matching.warning
         );
+
+        // The source decimals agree exactly. At this depth their f32 reductions do not:
+        // comparing the rounded values creates a false re-grid warning on a faithful LAS.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join("sandibumi-step-deep-decimal.las");
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\nWRAP. NO :\n~WELL\nSTEP.M 0.15240 : declared step\nNULL. -999.25 :\nWELL. STEP-DEEP :\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n10000.00000 50\n10000.15240 51\n10000.30480 52\n",
+        )
+        .unwrap();
+        let faithful =
+            import_las_files(&conn, &[path.to_str().unwrap().to_string()], None).remove(0);
+        std::fs::remove_file(&path).ok();
+        assert!(
+            faithful.error.is_none(),
+            "the exact-decimal source imports: {:?}",
+            faithful.error
+        );
+        assert!(
+            !faithful
+                .warning
+                .as_deref()
+                .unwrap_or("")
+                .contains("possibly re-gridded"),
+            "f32 reduction must not fabricate a STEP mismatch: {:?}",
+            faithful.warning
+        );
+
+        // A missing index row breaks adjacency. The next finite depth is not its neighbour,
+        // so the audit must restart there rather than compare across the null gap.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join("sandibumi-step-missing-depth.las");
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\nWRAP. NO :\n~WELL\nSTEP.M 0.5 : declared step\nNULL. -999.25 :\nWELL. STEP-GAP :\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n1000.0 50\n-999.25 51\n1001.0 52\n1001.5 53\n",
+        )
+        .unwrap();
+        let gap = import_las_files(&conn, &[path.to_str().unwrap().to_string()], None).remove(0);
+        std::fs::remove_file(&path).ok();
+        assert!(
+            gap.error.is_none(),
+            "the source with one missing index row still imports: {:?}",
+            gap.error
+        );
+        assert!(
+            !gap.warning
+                .as_deref()
+                .unwrap_or("")
+                .contains("possibly re-gridded"),
+            "STEP comparison must not bridge a missing index row: {:?}",
+            gap.warning
+        );
     }
 
     /// SB-DIO-020 / SB-DIO-T32..T33. The four policy names are the complete
@@ -2484,11 +2671,13 @@ mod tests {
         assert_eq!(first_gr, 10.0, "keep-first keeps the first sample, not the PK's accident");
 
         let make_columns = || CurveColumns {
+            well_name: None,
             las_version: None,
             unread_sections: Vec::new(),
             text_encoding: "test fixture".into(),
             depth_unit: Some("M".into()),
             declared_step: None,
+            declared_step_mismatch_note: None,
             depth: vec![1000.0, 1000.0, 1000.0, 1000.0, 1001.0],
             gr: vec![10.0, 20.0, 30.0, 40.0, 50.0],
             res: vec![f32::NAN; 5],
@@ -2496,6 +2685,7 @@ mod tests {
             rhob: vec![f32::NAN; 5],
             dt: vec![f32::NAN; 5],
             sp: vec![f32::NAN; 5],
+            raw_curves: Vec::new(),
             alias_decisions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
