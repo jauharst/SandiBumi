@@ -20,6 +20,8 @@ import {
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
+  contextReductionExport,
+  CONTEXT_LEGEND_ROWS,
   contextZoneWindow,
   curveSelect,
   describeContextOutcome,
@@ -36,10 +38,10 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { buildWellScope } from "./wellScope";
+import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
-import { reconcileDepthChannels } from "./plotTypes";
+import { reconcileDepthChannels, type PlotReductionExport } from "./plotTypes";
 
 /** Persisted Pickett v2 display settings (plotprops doc "pickett"). Axis ranges replace the
  *  old hard-coded 0.1–1000 / 0.01–1 defaults; Z-color paints each sample by a chosen log. */
@@ -177,7 +179,6 @@ export function drawPickett(
   if (hasCtx) {
     const { ctx } = plot;
     const r = plot.plotRect;
-    const MAX_ROWS = 10;
     const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
     ctx.save();
     ctx.beginPath();
@@ -208,10 +209,10 @@ export function drawPickett(
     // The active swatch only means something when the cloud is one color (no Z coloring).
     row(style?.colors ? null : plot.theme.accent, `${trunc(context!.activeName)} (active${style?.colors ? ", by Z" : ""})`);
     const layers = context!.layers;
-    for (const layer of layers.slice(0, MAX_ROWS)) row(layer.color, trunc(layer.name));
-    if (layers.length > MAX_ROWS) {
+    for (const layer of layers.slice(0, CONTEXT_LEGEND_ROWS)) row(layer.color, trunc(layer.name));
+    if (layers.length > CONTEXT_LEGEND_ROWS) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(`+${layers.length - MAX_ROWS} more`, boxX + 16, boxY + 10);
+      ctx.fillText(`context legend: ${CONTEXT_LEGEND_ROWS} of ${layers.length} wells`, boxX + 16, boxY + 10);
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);
@@ -348,7 +349,14 @@ export async function buildPickettContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(() => canvas, "Pickett", setStatus, () => getSvg(), () => getPdf()));
+  selRow.appendChild(buildImageExportButtons(
+    () => canvas,
+    "Pickett",
+    setStatus,
+    () => getSvg(),
+    () => getPdf(),
+    () => ctxReductionManifest,
+  ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);
 
@@ -440,6 +448,7 @@ export async function buildPickettContent(
   // --- Context-well data (multi-well overlay) — same budget rule as crossplot/histogram.
   const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: PickettContextLayer[] = [];
+  let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxInfo = "";
   let ctxGen = 0;
   const pickettContext = (): PickettContext | null =>
@@ -454,11 +463,18 @@ export async function buildPickettContent(
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
+      ctxReductionManifest = null;
       ctxInfo = "";
       updateScopeUi();
       if (had) redraw();
       return;
     }
+    ctxReductionManifest = contextReductionExport(
+      "pickett",
+      null,
+      scope.getWellIds().length,
+      WELL_SCOPE_NAME_PREVIEW_ROWS,
+    );
     setStatus(`Pickett: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
     const outcome = await fetchContextLayers({
       ids,
@@ -469,6 +485,12 @@ export async function buildPickettContent(
       isStale: () => gen !== ctxGen,
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
+    ctxReductionManifest = contextReductionExport(
+      "pickett",
+      outcome,
+      scope.getWellIds().length,
+      WELL_SCOPE_NAME_PREVIEW_ROWS,
+    );
     ctxLayers = outcome.layers.map((l) => ({
       name: l.name,
       color: l.color,

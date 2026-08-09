@@ -976,6 +976,17 @@ fn save_plot_pdf(dest_path: String, content: String, width_pt: f64, height_pt: f
     Ok(dest_path)
 }
 
+/// Writes only a schema-valid plot reduction manifest to the user-picked path.
+/// Counts and algorithms cross as JSON metadata; numerical sample arrays never do.
+#[tauri::command]
+fn save_plot_reduction_manifest(dest_path: String, content: String) -> Result<String, String> {
+    let manifest: plotting::PlotReductionExport =
+        serde_json::from_str(&content).map_err(|error| format!("bad plot reduction manifest: {error}"))?;
+    let canonical = plotting::serialize_reduction_export(&manifest)?;
+    std::fs::write(&dest_path, canonical.as_bytes()).map_err(|error| error.to_string())?;
+    Ok(dest_path)
+}
+
 /// Computes a net-reservoir flag curve from a free-form crossplot polygon (see `netflag.rs`) and
 /// writes it as a computed curve, returning the inside/evaluated/written counts for a status line.
 #[tauri::command]
@@ -3605,6 +3616,7 @@ pub fn run() {
             export_deck,
             save_png,
             save_plot_pdf,
+            save_plot_reduction_manifest,
             get_core_data
         ])
         .build(tauri::generate_context!())

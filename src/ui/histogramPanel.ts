@@ -21,6 +21,8 @@ import {
   buildPlotTemplateBar,
   buildZoneSelect,
   concatValues,
+  contextReductionExport,
+  CONTEXT_LEGEND_ROWS,
   contextZoneWindow,
   curveSelect,
   defaultPickParams,
@@ -38,10 +40,10 @@ import {
   type PlotWriteSource,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
-import { buildWellScope } from "./wellScope";
+import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
-import { parsePercentileP } from "./plotTypes";
+import { parsePercentileP, type PlotReductionExport } from "./plotTypes";
 
 export type HistogramMode = "bars" | "line";
 
@@ -108,7 +110,7 @@ export function parsePercentiles(text: string): number[] {
       out.add(parsePercentileP(Math.round(p * 100) / 100).value);
     }
   }
-  return [...out].sort((a, b) => a - b).slice(0, 8);
+  return [...out].sort((a, b) => a - b);
 }
 
 /** Fills defaults, migrates v1 settings (cumulative used to be a display mode, now an
@@ -424,7 +426,6 @@ export function drawHistogram(
   if (hasCtx) {
     const { ctx } = plot;
     const r = plot.plotRect;
-    const MAX_ROWS = 10;
     const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
     ctx.save();
     ctx.beginPath();
@@ -461,10 +462,10 @@ export function drawHistogram(
     };
     row(barColor, true, `${trunc(context!.activeName)} (active)`);
     const layers = context!.layers;
-    for (const layer of layers.slice(0, MAX_ROWS)) row(layer.color, false, trunc(layer.name));
-    if (layers.length > MAX_ROWS) {
+    for (const layer of layers.slice(0, CONTEXT_LEGEND_ROWS)) row(layer.color, false, trunc(layer.name));
+    if (layers.length > CONTEXT_LEGEND_ROWS) {
       ctx.fillStyle = plot.theme.text;
-      ctx.fillText(`+${layers.length - MAX_ROWS} more`, boxX + 16, boxY + 10);
+      ctx.fillText(`context legend: ${CONTEXT_LEGEND_ROWS} of ${layers.length} wells`, boxX + 16, boxY + 10);
       boxY += rowH;
     }
     ctx.font = canvasFont(plot.theme, 9);
@@ -559,7 +560,14 @@ export async function buildHistogramContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(() => canvas, "Histogram", setStatus, () => getSvg(), () => getPdf()));
+  selRow.appendChild(buildImageExportButtons(
+    () => canvas,
+    "Histogram",
+    setStatus,
+    () => getSvg(),
+    () => getPdf(),
+    () => ctxReductionManifest,
+  ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);
 
@@ -710,6 +718,7 @@ export async function buildHistogramContent(
   // --- Context-well data (multi-well overlay) — same budget rule as the crossplot.
   const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: HistogramContextLayer[] = [];
+  let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxInfo = "";
   let ctxGen = 0;
   const histContext = (): HistogramContext | null =>
@@ -724,11 +733,18 @@ export async function buildHistogramContent(
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
+      ctxReductionManifest = null;
       ctxInfo = "";
       updateScopeUi();
       if (had) redraw();
       return;
     }
+    ctxReductionManifest = contextReductionExport(
+      "histogram",
+      null,
+      scope.getWellIds().length,
+      WELL_SCOPE_NAME_PREVIEW_ROWS,
+    );
     setStatus(`Histogram: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
     const outcome = await fetchContextLayers({
       ids,
@@ -739,6 +755,12 @@ export async function buildHistogramContent(
       isStale: () => gen !== ctxGen,
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
+    ctxReductionManifest = contextReductionExport(
+      "histogram",
+      outcome,
+      scope.getWellIds().length,
+      WELL_SCOPE_NAME_PREVIEW_ROWS,
+    );
     ctxLayers = outcome.layers.map((l) => ({
       name: l.name,
       color: l.color,

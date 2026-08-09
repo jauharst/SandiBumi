@@ -132,6 +132,22 @@ export interface ReductionManifest {
   sourceIndices: number[];
 }
 
+export interface ReductionExportItem {
+  subject_kind: "points" | "wells" | "facets" | "legend" | "visual" | "load";
+  subject_id: string;
+  original_count: number;
+  displayed_count: number;
+  algorithm: string;
+}
+
+export interface PlotReductionExport {
+  schema_version: 1;
+  plot_type: string;
+  items: ReductionExportItem[];
+  absent: { subject_id: string; reason: string }[];
+  refusal: string | null;
+}
+
 export interface SharedChannelReduction {
   channels: Float32Array[];
   manifest: ReductionManifest;

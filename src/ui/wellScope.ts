@@ -16,6 +16,9 @@ import { appState } from "../state";
 
 export type ScopeMode = "active" | "group" | "pinned" | "selection" | "all" | "custom";
 
+/** Name rows shown in the compact hover preview; the total and remainder are always reported. */
+export const WELL_SCOPE_NAME_PREVIEW_ROWS = 40;
+
 export interface WellScope {
   /** The self-contained control block — append it straight into the dialog (it is its own row). */
   el: HTMLElement;
@@ -250,9 +253,11 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
     countEl.classList.toggle("well-scope-count-zero", ids.length === 0);
     // The names on hover give quick confidence without a big list.
     countEl.title = ids
-      .slice(0, 40)
+      .slice(0, WELL_SCOPE_NAME_PREVIEW_ROWS)
       .map((id) => wellById.get(id)?.well_name ?? id)
-      .join(", ") + (ids.length > 40 ? ` … (+${ids.length - 40})` : "");
+      .join(", ") + (ids.length > WELL_SCOPE_NAME_PREVIEW_ROWS
+        ? ` … (name preview: ${WELL_SCOPE_NAME_PREVIEW_ROWS} of ${ids.length} wells)`
+        : "");
   }
 
   function reflectMode(): void {
