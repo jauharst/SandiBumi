@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-028: partial layer separation is explicit
+
+- [ ] Pan, hover and change Z-colour options on a crossplot. Does the invariant draw remain
+      separate from transient redraw work, and does Z-colour recomputation follow data/options?
+      Confirm this does not imply that every required plot layer and transformed array is memoized.
+
 ## 2026-08-09 — SB-PLT-026: export-route labels are honestly classified
 
 - [ ] Open a canvas plot's export menu. Are SVG and PDF explicitly marked vector, and does Print
