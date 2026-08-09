@@ -4164,6 +4164,37 @@ export function pythonStatus(): Promise<PythonStatus> {
   return invoke<PythonStatus>("python_status");
 }
 
+export interface CapabilityPackageRequirement {
+  distribution: string;
+  import_name: string;
+  required: boolean;
+  /** Null until a qualified release lock supplies the supported version. */
+  minimum_supported_version: string | null;
+  version_source: string;
+}
+
+export interface CapabilitySupport {
+  id: string;
+  display_name: string;
+  owning_domain: string;
+  packages: CapabilityPackageRequirement[];
+  /** False = known unavailable; null = the interpreter exists but probing is pending. */
+  available: boolean | null;
+  reason: string;
+}
+
+export interface InstallationSupport {
+  manifest_schema_version: number;
+  interpreter_minimum_version: string;
+  selected_interpreter: string | null;
+  capabilities: CapabilitySupport[];
+}
+
+/** Capability-level prerequisite status generated from the bundled manifest. */
+export function installationSupport(): Promise<InstallationSupport> {
+  return invoke<InstallationSupport>("installation_support");
+}
+
 // ---------------------------------------------------------------------------
 // Phase 6: generic curve store (curve_meta/curve_samples), deviation surveys,
 // DLIS import. The generic store holds ANY curve (PEF, CALI, multiple runs, ...)

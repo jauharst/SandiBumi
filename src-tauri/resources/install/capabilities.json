@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "interpreter": {
+    "id": "python",
+    "execution": "subprocess",
+    "minimum_version": "3.10",
+    "selection_scope": "session"
+  },
+  "capabilities": [
+    {
+      "id": "python_equations",
+      "display_name": "Python equations",
+      "owning_domain": "SB-MLA",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "numpy",
+          "import_name": "numpy",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "scipy",
+          "import_name": "scipy",
+          "required": false,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "dlis_import",
+      "display_name": "DLIS import",
+      "owning_domain": "SB-DIO",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "dlisio",
+          "import_name": "dlisio",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "spreadsheet_plate_extraction",
+      "display_name": "Spreadsheet plate extraction",
+      "owning_domain": "SB-DIO",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "openpyxl",
+          "import_name": "openpyxl",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "Pillow",
+          "import_name": "PIL",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "workbook_export",
+      "display_name": "Workbook export",
+      "owning_domain": "SB-DIO",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "xlsxwriter",
+          "import_name": "xlsxwriter",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "document_export",
+      "display_name": "Document export",
+      "owning_domain": "SB-DIO",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "python-docx",
+          "import_name": "docx",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    },
+    {
+      "id": "deck_export",
+      "display_name": "Deck export",
+      "owning_domain": "SB-DIO",
+      "interpreter": "python",
+      "offline_route": "qualified_python_pack",
+      "packages": [
+        {
+          "distribution": "python-pptx",
+          "import_name": "pptx",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        },
+        {
+          "distribution": "matplotlib",
+          "import_name": "matplotlib",
+          "required": true,
+          "minimum_supported_version": null,
+          "version_source": "qualified_release_lock"
+        }
+      ]
+    }
+  ]
+}
