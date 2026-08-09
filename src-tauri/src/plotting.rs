@@ -84,6 +84,88 @@ pub fn resolve_axis_range(candidates: &AxisRangeCandidates) -> Result<AxisRangeR
         .ok_or_else(|| "no display range is available; validity limits are not display limits".into())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OverlayAxisContract {
+    pub quantity: String,
+    pub canonical_unit: String,
+    pub orientation: String,
+    pub admissible_transform: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlotAxisSource {
+    pub mnemonic: String,
+    pub quantity: String,
+    pub source_unit: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OverlayAxisBinding {
+    pub quantity: String,
+    pub source_unit: String,
+    pub display_unit: String,
+    pub orientation: String,
+    pub factor: f32,
+    pub offset: f32,
+    pub transform: String,
+}
+
+pub fn bind_overlay_axis(
+    contract: &OverlayAxisContract,
+    source: &PlotAxisSource,
+) -> Result<OverlayAxisBinding, String> {
+    if contract.quantity != source.quantity {
+        return Err(format!(
+            "overlay quantity {} is incompatible with plotted quantity {}",
+            contract.quantity, source.quantity
+        ));
+    }
+    let bridge = crate::curves::validate_unit_bridge(&source.source_unit, &contract.canonical_unit)
+        .map_err(|error| error.to_string())?;
+    if bridge.from_unit == bridge.to_unit {
+        return Ok(OverlayAxisBinding {
+            quantity: contract.quantity.clone(),
+            source_unit: bridge.from_unit.into(),
+            display_unit: bridge.to_unit.into(),
+            orientation: contract.orientation.clone(),
+            factor: 1.0,
+            offset: 0.0,
+            transform: "identity".into(),
+        });
+    }
+    if contract.admissible_transform != "affine" {
+        return Err(format!(
+            "overlay axis admits {}, not a unit conversion",
+            contract.admissible_transform
+        ));
+    }
+    let rule = crate::curves::UNIT_RULES.iter().find(|rule| {
+        crate::curves::validate_unit_bridge(rule.from_unit, rule.to_unit)
+            .map(|candidate| {
+                candidate.from_unit == bridge.from_unit && candidate.to_unit == bridge.to_unit
+            })
+            .unwrap_or(false)
+    });
+    let Some(rule) = rule else {
+        return Err(format!(
+            "no registered conversion from {} to {}",
+            bridge.from_unit, bridge.to_unit
+        ));
+    };
+    Ok(OverlayAxisBinding {
+        quantity: contract.quantity.clone(),
+        source_unit: bridge.from_unit.into(),
+        display_unit: bridge.to_unit.into(),
+        orientation: contract.orientation.clone(),
+        factor: rule.factor,
+        offset: rule.offset,
+        transform: format!(
+            "(source + {}) * {}; {}",
+            rule.offset, rule.factor, rule.derivation
+        ),
+    })
+}
+
 fn non_blank(value: &str, field: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         Err(format!("resolved plot curve is missing {field}"))
@@ -392,5 +474,43 @@ mod tests {
             validity: Some(DisplayRange { low: 100.0, high: 200.0 }),
         };
         assert!(resolve_axis_range(&validity_only).is_err());
+    }
+
+    #[test]
+    fn an_overlay_requires_quantity_compatible_units_and_records_any_registered_conversion() {
+        let incompatible = bind_overlay_axis(
+            &OverlayAxisContract {
+                quantity: "bulk_density".into(),
+                canonical_unit: "g/cc".into(),
+                orientation: "y".into(),
+                admissible_transform: "identity".into(),
+            },
+            &PlotAxisSource {
+                mnemonic: "RHOB".into(),
+                quantity: "gamma_ray".into(),
+                source_unit: "gAPI".into(),
+            },
+        );
+        assert!(incompatible.unwrap_err().contains("quantity"));
+
+        let converted = bind_overlay_axis(
+            &OverlayAxisContract {
+                quantity: "slowness".into(),
+                canonical_unit: "us/ft".into(),
+                orientation: "x".into(),
+                admissible_transform: "affine".into(),
+            },
+            &PlotAxisSource {
+                mnemonic: "DT".into(),
+                quantity: "slowness".into(),
+                source_unit: "us/m".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(converted.source_unit, "us/m");
+        assert_eq!(converted.display_unit, "us/ft");
+        assert_eq!(converted.factor, 0.3048);
+        assert_eq!(converted.offset, 0.0);
+        assert!(converted.transform.contains("0.3048"));
     }
 }

@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-003: chart overlays require typed quantity and units
+
+- [ ] Select a chart whose aliases match the chosen mnemonics but whose resolved quantity or unit
+      is incompatible. Is drawing refused? With a registered compatible conversion, is the chart
+      placed in the source-axis coordinates and are source/display units plus the affine transform
+      retained in the binding rather than treating a mnemonic match as authorization?
+
 ## 2026-08-09 — SB-PLT-002: axis ranges expose one precedence tier
 
 - [ ] Open a crossplot whose user, header, audited-family and finite-data ranges differ. Does the
