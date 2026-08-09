@@ -7,6 +7,13 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-INS-008: offline deployment is release-gated end to end
+
+- [ ] With public network access blocked, have IT silently deploy the application MSI and the
+      separately signed qualified Python pack per machine. Does the resolver select the pack's
+      application-local interpreter, do all six claimed capabilities pass, and does the release
+      gate retain a zero-request network trace plus the pack and release-lock digests?
+
 ## 2026-08-09 — SB-INS-005: one session interpreter has an explainable resolution
 
 - [ ] Configure a higher-priority Python without NumPy and a lower-priority Python with NumPy,

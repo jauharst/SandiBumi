@@ -27,7 +27,7 @@
   "bundle": {
     "active": true,
     "shortDescription": "Native desktop petrophysics with capability-level runtime prerequisites.",
-    "longDescription": "Native core runs without Python. Optional Python-backed capabilities use one session-resolved Python 3.10+ subprocess; their exact packages are listed in the bundled capability-prerequisites notice and versions come only from the qualified release lock.",
+    "longDescription": "Native core runs without Python. Offline Python-backed capabilities require the separately signed SandiBumi-qualified pack, silently deployed per machine by IT; exact packages are listed in the bundled capability-prerequisites notice and versions come only from the qualified release lock.",
     "targets": [
       "msi"
     ],
@@ -36,6 +36,9 @@
     ],
     "windows": {
       "digestAlgorithm": "sha256",
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      },
       "wix": {
         "upgradeCode": "ab826e11-4b0c-5bad-9c80-1b0bbc3e3be8"
       }

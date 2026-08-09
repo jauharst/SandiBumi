@@ -18,9 +18,10 @@ require Python. These optional capabilities use one session-resolved Python 3.10
 - **Document export** — requires python-docx (owner: `SB-DIO`).
 - **Deck export** — requires python-pptx, matplotlib (owner: `SB-DIO`).
 
-Package versions are never guessed here: each release takes them from the SandiBumi-qualified
-offline Python pack lock. Open **Project → Help → Prerequisites** to see availability on this
-machine.
+Offline deployment has one supported route: IT silently deploys the separately signed, versioned
+SandiBumi-qualified Python pack per machine. The pack configures `SANDIBUMI_PYTHON` to its
+application-local interpreter; qualification blocks public network access. Exact package versions
+come only from that release's lock. Open **Project → Help → Prerequisites** for local status.
 <!-- capability-prerequisites:end -->
 
 ## Highlights

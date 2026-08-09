@@ -10,5 +10,7 @@ Workbook export: requires xlsxwriter.
 Document export: requires python-docx.
 Deck export: requires python-pptx, matplotlib.
 
-Offline deployment uses the separately signed, versioned SandiBumi-qualified Python pack.
-Exact package versions come only from the qualified release lock.
+Offline deployment uses the separately signed, versioned SandiBumi-qualified Python pack, silently
+deployed per machine by IT. It configures SANDIBUMI_PYTHON to its application-local interpreter.
+Qualification blocks public network access and accepts zero observed requests. Exact package
+versions come only from the qualified release lock.

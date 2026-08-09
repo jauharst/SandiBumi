@@ -10,5 +10,7 @@ optional capabilities use one session-resolved Python 3.10+ subprocess:
 - **Document export** — requires python-docx (owner: `SB-DIO`).
 - **Deck export** — requires python-pptx, matplotlib (owner: `SB-DIO`).
 
-The supported offline route is the separately signed, versioned SandiBumi-qualified Python pack.
+The supported offline route is the separately signed, versioned SandiBumi-qualified Python pack,
+silently deployed per machine by IT. It configures `SANDIBUMI_PYTHON` to its application-local
+interpreter. The release gate blocks public network access and accepts zero observed requests.
 Exact package versions are supplied only by that release's qualification lock.
