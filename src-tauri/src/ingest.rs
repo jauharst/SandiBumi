@@ -2277,7 +2277,7 @@ mod tests {
         let path = std::env::temp_dir().join("sandibumi_non_increasing_row_400.las");
         let mut samples = String::new();
         for row in 1..=400 {
-            let depth = if row == 400 { 1300.0 } else { 1000.0 + (row - 1) as f32 };
+            let depth = if row == 400 { 1397.5 } else { 1000.0 + (row - 1) as f32 };
             samples.push_str(&format!("{depth:.1} {row}.0\n"));
         }
         std::fs::write(

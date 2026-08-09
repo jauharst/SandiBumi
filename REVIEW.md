@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-DIO-012: non-increasing index confirmation is tested independently
+
+- [ ] Import a 400-row LAS whose final depth decreases by half a depth unit without repeating
+      an earlier depth. Is row 400 refused until delivery order is explicitly accepted, then
+      imported with the accepted conflict retained in the audit result?
+
 ## 2026-08-09 — SB-DIO-013: unit-qualified depth headers remain explicit aliases
 
 - [ ] Import core tables whose second column is `Depth (m)`, `DEPTH (FT)` and bare `DEPTH`.
