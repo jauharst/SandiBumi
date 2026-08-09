@@ -51,3 +51,22 @@ test("characterizes_regression_as_coefficients_without_a_versioned_scientific_re
   assert.equal(fit.n, 5);
   assert.deepEqual(Object.keys(fit).sort(), ["a", "b", "n", "r2"]);
 });
+
+test("characterizes_linked_brushing_as_one_ephemeral_scope_with_exact_depth_membership", async () => {
+  // CHARACTERIZATION — SB-PLT-018 / SB-PLT-T29 requires two named persistent selections.
+  // The replacement and two-field shape below deliberately describe today's single
+  // in-memory BrushSelection; they are not presented as the specified coexistence contract.
+  const { appState, clearBrush, setBrushedDepths } = await load("/src/state.ts");
+  clearBrush();
+
+  setBrushedDepths("scope-a", new Set([100, 100.5]));
+  assert.deepEqual([...appState.brushedDepths.get().depths], [100, 100.5]);
+  setBrushedDepths("scope-b", new Set([200]));
+
+  const current = appState.brushedDepths.get();
+  assert.equal(current.wellId, "scope-b");
+  assert.deepEqual([...current.depths], [200], "the second selection replaces the first");
+  assert.deepEqual(Object.keys(current).sort(), ["depths", "wellId"]);
+  clearBrush();
+  assert.equal(appState.brushedDepths.get(), null);
+});

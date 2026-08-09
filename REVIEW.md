@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-018: linked-selection limits are explicit
+
+- [ ] Brush exact depths in one plot, then brush a different scope. Does the second brush replace
+      the first and clearing remove it? Confirm the current PARTIAL state is not described as the
+      required coexistence of named, coloured, revision-bound, persistable selections.
+
 ## 2026-08-09 — SB-PLT-010: regression coverage is honestly classified
 
 - [ ] Fit the arithmetic line `y=2+3x` for `x=1…5`. Does the panel still return intercept 2,
