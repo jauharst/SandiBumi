@@ -80,3 +80,24 @@ test("an_unknown_future_template_field_survives_crossplot_option_normalization",
 
   assert.deepEqual(normalized.future_template_field, future);
 });
+
+test("characterizes_vector_exports_as_labelled_while_the_png_print_path_is_not_labelled_raster", async () => {
+  // CHARACTERIZATION — SB-PLT-026 / SB-PLT-T37/T38 requires labelled vector exports
+  // and a raster-labelled print route. The unqualified Print label is today's PARTIAL
+  // behaviour and must not be mistaken for completion of the export contract.
+  const { imageExportMenuEntries, printCanvas } = await load("/src/ui/plotExport.ts");
+  const entries = imageExportMenuEntries(
+    () => null,
+    "plot",
+    () => {},
+    () => "<svg/>",
+    () => ({ width: 1, height: 1, commands: [] }),
+  );
+  const labels = entries.map((entry) => entry.label);
+
+  assert.ok(labels.includes("Export SVG (vector)…"));
+  assert.ok(labels.includes("Export PDF (vector)…"));
+  assert.ok(labels.includes("Print…"));
+  assert.ok(!labels.some((label) => /raster/i.test(label)));
+  assert.match(Function.prototype.toString.call(printCanvas), /image\/png/);
+});

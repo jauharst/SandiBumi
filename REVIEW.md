@@ -7,6 +7,12 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-PLT-026: export-route labels are honestly classified
+
+- [ ] Open a canvas plot's export menu. Are SVG and PDF explicitly marked vector, and does Print
+      still use a PNG image? Confirm the current Print label does not yet claim the required
+      explicit raster disclosure.
+
 ## 2026-08-09 — SB-PLT-025: future template fields survive normalization
 
 - [ ] Apply a crossplot template carrying an unknown future field. Is the field preserved rather
