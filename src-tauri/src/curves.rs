@@ -56,6 +56,134 @@ pub struct UnitRule {
     pub automatic: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QuantityKind {
+    GammaRay,
+    ElectricPotential,
+    Length,
+    BulkDensity,
+    PhotoelectricFactor,
+    Fraction,
+    Slowness,
+    Temperature,
+    Resistivity,
+    ChargePerVolume,
+    Permeability,
+}
+
+/// One recognised spelling and its typed canonical interpretation. This table carries no
+/// conversion factors; arithmetic remains exclusively in the independently derived UNIT_RULES.
+pub struct UnitTokenSpec {
+    pub token: &'static str,
+    pub quantity_kind: QuantityKind,
+    pub canonical_unit: &'static str,
+}
+
+pub const UNIT_TOKENS: &[UnitTokenSpec] = &[
+    UnitTokenSpec { token: "gAPI", quantity_kind: QuantityKind::GammaRay, canonical_unit: "gAPI" },
+    UnitTokenSpec { token: "mV", quantity_kind: QuantityKind::ElectricPotential, canonical_unit: "mV" },
+    UnitTokenSpec { token: "m", quantity_kind: QuantityKind::Length, canonical_unit: "m" },
+    UnitTokenSpec { token: "mm", quantity_kind: QuantityKind::Length, canonical_unit: "mm" },
+    UnitTokenSpec { token: "cm", quantity_kind: QuantityKind::Length, canonical_unit: "cm" },
+    UnitTokenSpec { token: "in", quantity_kind: QuantityKind::Length, canonical_unit: "in" },
+    UnitTokenSpec { token: "g/cc", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "g/cc" },
+    UnitTokenSpec { token: "kg/m3", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "kg/m3" },
+    UnitTokenSpec { token: "b/e", quantity_kind: QuantityKind::PhotoelectricFactor, canonical_unit: "b/e" },
+    UnitTokenSpec { token: "v/v", quantity_kind: QuantityKind::Fraction, canonical_unit: "v/v" },
+    UnitTokenSpec { token: "pu", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
+    UnitTokenSpec { token: "%", quantity_kind: QuantityKind::Fraction, canonical_unit: "%" },
+    UnitTokenSpec { token: "p.u.", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
+    UnitTokenSpec { token: "us/m", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
+    UnitTokenSpec { token: "usec/m", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
+    UnitTokenSpec { token: "us/ft", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/ft" },
+    UnitTokenSpec { token: "DEGF", quantity_kind: QuantityKind::Temperature, canonical_unit: "degF" },
+    UnitTokenSpec { token: "DEGC", quantity_kind: QuantityKind::Temperature, canonical_unit: "degC" },
+    UnitTokenSpec { token: "ohm.m", quantity_kind: QuantityKind::Resistivity, canonical_unit: "ohm.m" },
+    UnitTokenSpec { token: "MEQ/L", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/L" },
+    UnitTokenSpec { token: "meq/mL", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/mL" },
+    UnitTokenSpec { token: "md", quantity_kind: QuantityKind::Permeability, canonical_unit: "mD" },
+];
+
+pub fn resolve_unit_token(token: &str) -> Option<&'static UnitTokenSpec> {
+    let normalized = normalize_unit(token);
+    UNIT_TOKENS
+        .iter()
+        .find(|entry| normalize_unit(entry.token) == normalized)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedUnitBridge {
+    pub from_unit: &'static str,
+    pub to_unit: &'static str,
+    pub quantity_kind: QuantityKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnitRegistryError {
+    UnknownUnit { token: String },
+    QuantityKindMismatch {
+        from_unit: String,
+        from_kind: QuantityKind,
+        to_unit: String,
+        to_kind: QuantityKind,
+    },
+}
+
+impl std::fmt::Display for UnitRegistryError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownUnit { token } => write!(formatter, "unknown unit token {token}"),
+            Self::QuantityKindMismatch {
+                from_unit,
+                from_kind,
+                to_unit,
+                to_kind,
+            } => write!(
+                formatter,
+                "quantity-kind mismatch: {from_unit} is {from_kind:?}, but {to_unit} is {to_kind:?}"
+            ),
+        }
+    }
+}
+
+pub fn validate_unit_bridge(
+    from_unit: &str,
+    to_unit: &str,
+) -> Result<ValidatedUnitBridge, UnitRegistryError> {
+    let from = resolve_unit_token(from_unit).ok_or_else(|| UnitRegistryError::UnknownUnit {
+        token: from_unit.to_string(),
+    })?;
+    let to = resolve_unit_token(to_unit).ok_or_else(|| UnitRegistryError::UnknownUnit {
+        token: to_unit.to_string(),
+    })?;
+    if from.quantity_kind != to.quantity_kind {
+        return Err(UnitRegistryError::QuantityKindMismatch {
+            from_unit: from.canonical_unit.to_string(),
+            from_kind: from.quantity_kind,
+            to_unit: to.canonical_unit.to_string(),
+            to_kind: to.quantity_kind,
+        });
+    }
+    Ok(ValidatedUnitBridge {
+        from_unit: from.canonical_unit,
+        to_unit: to.canonical_unit,
+        quantity_kind: from.quantity_kind,
+    })
+}
+
+pub fn validate_unit_registry() -> Result<(), UnitRegistryError> {
+    for family in FAMILIES {
+        resolve_unit_token(family.canonical_unit).ok_or_else(|| UnitRegistryError::UnknownUnit {
+            token: family.canonical_unit.to_string(),
+        })?;
+    }
+    for rule in UNIT_RULES {
+        validate_unit_bridge(rule.from_unit, rule.to_unit)?;
+    }
+    Ok(())
+}
+
 pub const UNIT_RULES: &[UnitRule] = &[
     UnitRule {
         families: &["CALI", "BS"],
@@ -371,9 +499,14 @@ pub fn convert_to_canonical(
     values: &mut [f32],
 ) -> Option<UnitConversion> {
     let target = canonical_unit(family)?;
-    let src = src_unit.map(normalize_unit).unwrap_or_default();
+    let declared = src_unit?.trim();
+    if declared.is_empty() {
+        return None;
+    }
+    let typed_bridge = validate_unit_bridge(declared, target).ok()?;
+    let src = normalize_unit(declared);
     let tgt = normalize_unit(target);
-    if src.is_empty() || src == tgt {
+    if src == tgt {
         return None;
     }
 
@@ -382,6 +515,8 @@ pub fn convert_to_canonical(
             && rule.families.contains(&family)
             && normalize_unit(rule.from_unit) == src
             && normalize_unit(rule.to_unit) == tgt
+            && validate_unit_bridge(rule.from_unit, rule.to_unit)
+                .is_ok_and(|rule_bridge| rule_bridge.quantity_kind == typed_bridge.quantity_kind)
     })?;
     let (factor, offset) = (rule.factor, rule.offset);
     for v in values.iter_mut() {
@@ -496,5 +631,60 @@ mod tests {
         // Unknown unit → left alone.
         let mut x = [1.0_f32];
         assert!(convert_to_canonical("RHOB", "RHOB", Some("FURLONGS"), &mut x).is_none());
+    }
+
+    /// SB-INS-016 / SB-INS-T19. The demonstrated `md` permeability → `m` length bridge and its
+    /// required refusal come from dossier sections 2.13/2.16.1 and N-NEW-5. No factor exists in
+    /// this test because a cross-kind bridge must fail before numeric conversion is constructed.
+    #[test]
+    fn a_permeability_to_length_bridge_is_refused_before_any_numeric_conversion_exists() {
+        let permeability = resolve_unit_token("md").expect("millidarcy is recognised");
+        let length = resolve_unit_token("m").expect("metre is recognised");
+        assert_eq!(permeability.quantity_kind, QuantityKind::Permeability);
+        assert_eq!(length.quantity_kind, QuantityKind::Length);
+
+        let error = validate_unit_bridge("md", "m").unwrap_err();
+        assert!(matches!(
+            error,
+            UnitRegistryError::QuantityKindMismatch {
+                from_kind: QuantityKind::Permeability,
+                to_kind: QuantityKind::Length,
+                ..
+            }
+        ));
+        assert!(error.to_string().contains("quantity-kind mismatch"));
+    }
+
+    /// SB-INS-016 / SB-INS-T20. `1 in = 25.4 mm` and `1 ft = 0.3048 m` are the exact
+    /// derivations already cited on curves.rs rules 64-80. Both conversions must stay within
+    /// their declared quantity kind, and NaN remains missing.
+    #[test]
+    fn recognised_length_and_slowness_bridges_convert_only_within_their_quantity_kind() {
+        validate_unit_registry().expect("every runtime token and rule is typed");
+        assert_eq!(
+            validate_unit_bridge("mm", "in")
+                .unwrap()
+                .quantity_kind,
+            QuantityKind::Length
+        );
+        assert_eq!(
+            validate_unit_bridge("us/m", "us/ft")
+                .unwrap()
+                .quantity_kind,
+            QuantityKind::Slowness
+        );
+
+        let mut diameter = [25.4_f32, f32::NAN];
+        let length_conversion =
+            convert_to_canonical("CALI", "CALI", Some("mm"), &mut diameter).unwrap();
+        assert_eq!(length_conversion.factor, 1.0 / 25.4);
+        assert!((diameter[0] - 1.0).abs() < f32::EPSILON);
+        assert!(diameter[1].is_nan());
+
+        let mut slowness = [1.0_f32];
+        let slowness_conversion =
+            convert_to_canonical("DT", "DT", Some("us/m"), &mut slowness).unwrap();
+        assert_eq!(slowness_conversion.factor, 0.3048);
+        assert!((slowness[0] - 0.3048).abs() < f32::EPSILON);
     }
 }
