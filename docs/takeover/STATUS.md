@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-CORE-P — SB-CORE LIVE ADJUDICATION PLAN READY FOR APPROVAL; 0/25 SB-CORE rows adjudicated`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — G1-I006 atop dc88986 and GitHub-master anchor 02b59ea`
-- Automated gate: `GREEN — 2026-08-10 on the G1-DOM-CORE-P plan-only tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
+- Active increment: `G1-DOM-CORE — SB-CORE LIVE ADJUDICATION; 25/25 rows adjudicated and ready for Jauhar review`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only adjudication is recorded by the current topic-branch commit`
+- Automated gate: `GREEN — 2026-08-10 on the G1-DOM-CORE adjudication tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `931 live domain adjudications; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
-- Next increment: `after Jauhar approves docs/superpowers/plans/2026-08-10-sb-core-live-adjudication.md, execute the docs-only 25-row SB-CORE adjudication`
+- Open blockers: `906 live domain adjudications; 8 unresolved SB-CORE contracts dispositioned as pilot blockers, 13 SB-CORE release dispositions still need owner decisions, 2 are explicitly deferred; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
+- Next increment: `the next serial domain-adjudication plan selected after Jauhar reviews the SB-CORE dispositions`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 931 live adjudications, branch inventory, gate receipt, field-evidence and claims audits |
+| G1 — Baseline reconciliation | IN PROGRESS | 25/931 rows adjudicated; 906 remain, alongside branch, gate, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -30,6 +30,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 The generated summary is re-measured by `node tools/takeover-ledger.mjs --summary-json`.
 Do not replace it with an estimated percentage.
+
+- Consolidated requirements: `931`.
+- Adjudicated: `25`.
+- Unadjudicated: `906`.
+- SB-CORE release dispositions: `10` pilot blockers, `13` undecided, `2` deferred. Two of the
+  pilot-blocker contracts are already `PRESENT-OK`; disposition is not defect state.
 
 ## PRD structural integrity
 
@@ -68,7 +74,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-CORE-P — SB-CORE live-adjudication plan | READY FOR APPROVAL | exact 25-row evidence map, immutable-source boundary, executable checks and serial handoff; 0 rows adjudicated | current topic-branch commit |
+| G1-DOM-CORE — SB-CORE live adjudication | DONE; REVIEW REQUIRED | 25/25 rows: 5 absent, 12 partial, 4 divergent, 3 present-OK, 1 present-unverified; 10 pilot blockers, 13 undecided, 2 deferred; 906/931 rows remain | current topic-branch commit |
+| G1-DOM-CORE-P — SB-CORE live-adjudication plan | DONE | exact 25-row evidence map, immutable-source boundary, executable checks and serial handoff | `9539351` |
 | G1-I006 — Customer-facing claim inventory | DONE | 29 claims traced: 5 proven, 6 qualified, 3 unmeasured, 11 remove-recommended, 3 legal-review, 1 undecided; Gate 1 remains open | `b332026` |
 | G1-I005 — Manual and field-evidence baseline | DONE | 78/1,479 scenarios checked; 14/54 capabilities recorded; 1/54 fully exercised; pilot evidence remains open | `dc88986` |
 | G1-I004A — GitHub master baseline anchor | DONE | clean origin/master merge; SB-CORE-T04 atomic-import adjudication; checkout-stable PRD-audit bytes; full gate 946 passed, 0 failed, 36 ignored | `02b59ea` |
