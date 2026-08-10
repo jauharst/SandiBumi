@@ -9,12 +9,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-CORE — SB-CORE LIVE ADJUDICATION; 25/25 rows adjudicated and ready for Jauhar review`
+- Active increment: `G1-DOM-DIO-P — SB-DIO LIVE-ADJUDICATION PLAN; exact 63-row evidence map written and awaiting execution approval`
 - Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only adjudication is recorded by the current topic-branch commit`
-- Automated gate: `GREEN — 2026-08-10 on the G1-DOM-CORE adjudication tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
+- Automated gate: `GREEN — 2026-08-10 on the G1-DOM-DIO-P planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
 - Pilot field evidence: `OPEN`
 - Open blockers: `906 live domain adjudications; 8 unresolved SB-CORE contracts dispositioned as pilot blockers, 13 SB-CORE release dispositions still need owner decisions, 2 are explicitly deferred; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
-- Next increment: `the next serial domain-adjudication plan selected after Jauhar reviews the SB-CORE dispositions`
+- Next increment: `execute the 63-row SB-DIO live-adjudication plan after Jauhar approves it; no production behavior is authorized`
 
 ## Gate dashboard
 
@@ -74,6 +74,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-DOM-DIO-P — SB-DIO live-adjudication plan | DONE; APPROVAL REQUIRED | exact 63-row evidence map; immutable-source boundary; explicit O-4/O-5 parameter blocks; executable checks and serial handoff | current topic-branch commit |
 | G1-DOM-CORE — SB-CORE live adjudication | DONE; REVIEW REQUIRED | 25/25 rows: 5 absent, 12 partial, 4 divergent, 3 present-OK, 1 present-unverified; 10 pilot blockers, 13 undecided, 2 deferred; 906/931 rows remain | current topic-branch commit |
 | G1-DOM-CORE-P — SB-CORE live-adjudication plan | DONE | exact 25-row evidence map, immutable-source boundary, executable checks and serial handoff | `9539351` |
 | G1-I006 — Customer-facing claim inventory | DONE | 29 claims traced: 5 proven, 6 qualified, 3 unmeasured, 11 remove-recommended, 3 legal-review, 1 undecided; Gate 1 remains open | `b332026` |
