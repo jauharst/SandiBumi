@@ -796,6 +796,11 @@ RtC coefficients · the IMTS S-factor · fluid contacts and the two FWLs
 - **Regularize takes the source's OWN median spacing when no step is given** — the operation is "make
   this uniform", not "make this coarser". Combined with `align` across wells it REFUSES instead,
   because electing one well's spacing would silently make that well the standard for the field.
+- **A set-qualified imported curve plots and exports on that set's own stored depths.** Viewport
+  filtering comes before disposable display decimation, whose structural endpoints retain the true
+  whole-well extent, and neither screen nor SVG/PDF writes/resamples. Curve Catalog statistics scan
+  finite values, Wells/Set expansion uses metadata inventory, and a normal LAS delivery is one
+  decoded parse plus one atomic columnar transaction. The full contract is in the record below.
 - **LONG / WIDE / BLOCK is declared, never sniffed.** A depth is the number that carries a UNIT, and
   a label line is rejoined with the file's own DELIMITER — joined with a space, `4640,0 ft` becomes
   a depth of zero.

@@ -157,6 +157,10 @@ pub struct IndexResolution {
 /// Columnar curve data ready to be handed to the DuckDB Appender.
 #[derive(Debug, Clone, Default)]
 pub struct CurveColumns {
+    /// WELL value parsed from the same decoded LAS text as the curve data. Keeping it here
+    /// prevents normal import from reading and decoding a large file a second time merely
+    /// to recover its well name.
+    pub well_name: Option<String>,
     /// Declared LAS version, e.g. `2.0` or `3.0`.
     pub las_version: Option<String>,
     /// Section headers present in a LAS 3.0 delivery that this release did not consume.
@@ -171,6 +175,10 @@ pub struct CurveColumns {
     /// The `~W STEP` value as declared in the file. Kept as text so absence is not
     /// represented by `Option<f32>`; callers parse it only when performing the audit.
     pub declared_step: Option<String>,
+    /// First exact source-decimal disagreement between `STEP` and adjacent index tokens.
+    /// Computed before either token is reduced to f32, so storage precision cannot fabricate
+    /// a re-gridding warning at large measured depths.
+    pub declared_step_mismatch_note: Option<String>,
     pub depth: Vec<f32>,
     pub gr: Vec<f32>,
     pub res: Vec<f32>,
@@ -178,6 +186,9 @@ pub struct CurveColumns {
     pub rhob: Vec<f32>,
     pub dt: Vec<f32>,
     pub sp: Vec<f32>,
+    /// Every non-index LAS channel at source mnemonic/unit, sharing `depth`. The six standard
+    /// vectors above are selected views of these same parsed columns, not a second file read.
+    pub raw_curves: Vec<RawLasCurve>,
     /// Present where aliases compete or where one incoming mnemonic is renamed.
     pub alias_decisions: Vec<AliasDecision>,
     pub index_resolution: Option<IndexResolution>,
@@ -372,18 +383,81 @@ fn parse_well_value_text(trimmed: &str, wanted: &str) -> Option<String> {
 /// exact comparison deliberately: §5 supplies no tolerance for this read-side check, so
 /// introducing one here would be an uncited parameter. A mismatch is a warning, not an
 /// automatic rewrite or refusal.
-pub fn declared_step_mismatch_note(declared_step: Option<&str>, depth: &[f32]) -> Option<String> {
-    let raw = declared_step?;
-    let Ok(declared) = raw.parse::<f32>() else { return None };
-    let (pair_index, actual) = depth.windows(2).enumerate().find_map(|(index, pair)| {
-        let actual = pair[1] - pair[0];
-        (pair[0].is_finite() && pair[1].is_finite() && actual != declared).then_some((index, actual))
-    })?;
-    Some(format!(
-        "possibly re-gridded: declared STEP {raw} disagrees with actual spacing {actual} between data rows {} and {}",
-        pair_index + 1,
-        pair_index + 2
-    ))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ExactDecimal {
+    coefficient: i128,
+    exponent: i32,
+}
+
+impl ExactDecimal {
+    fn normalized(mut self) -> Self {
+        if self.coefficient == 0 {
+            self.exponent = 0;
+            return self;
+        }
+        while self.coefficient % 10 == 0 {
+            self.coefficient /= 10;
+            self.exponent += 1;
+        }
+        self
+    }
+
+    fn subtract(self, other: Self) -> Option<Self> {
+        let exponent = self.exponent.min(other.exponent);
+        let left_power = u32::try_from(self.exponent - exponent).ok()?;
+        let right_power = u32::try_from(other.exponent - exponent).ok()?;
+        let left = self.coefficient.checked_mul(10_i128.checked_pow(left_power)?)?;
+        let right = other.coefficient.checked_mul(10_i128.checked_pow(right_power)?)?;
+        Some(Self { coefficient: left.checked_sub(right)?, exponent }.normalized())
+    }
+
+    fn display(self) -> String {
+        let value = self.normalized();
+        let sign = if value.coefficient < 0 { "-" } else { "" };
+        let digits = value.coefficient.unsigned_abs().to_string();
+        if value.exponent >= 0 {
+            return format!("{sign}{digits}{}", "0".repeat(value.exponent as usize));
+        }
+        let decimals = (-value.exponent) as usize;
+        if digits.len() > decimals {
+            let split = digits.len() - decimals;
+            format!("{sign}{}.{}", &digits[..split], &digits[split..])
+        } else {
+            format!("{sign}0.{}{}", "0".repeat(decimals - digits.len()), digits)
+        }
+    }
+}
+
+fn parse_exact_decimal(raw: &str) -> Option<ExactDecimal> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let (mantissa, scientific_exponent) = match raw.find(['e', 'E']) {
+        Some(index) => (&raw[..index], raw[index + 1..].parse::<i32>().ok()?),
+        None => (raw, 0),
+    };
+    let (negative, unsigned) = match mantissa.as_bytes().first().copied() {
+        Some(b'-') => (true, &mantissa[1..]),
+        Some(b'+') => (false, &mantissa[1..]),
+        _ => (false, mantissa),
+    };
+    let (whole, fraction) = match unsigned.split_once('.') {
+        Some((whole, fraction)) if !fraction.contains('.') => (whole, fraction),
+        Some(_) => return None,
+        None => (unsigned, ""),
+    };
+    if whole.is_empty() && fraction.is_empty() {
+        return None;
+    }
+    let digits = format!("{whole}{fraction}");
+    if !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let magnitude = digits.parse::<i128>().ok()?;
+    let coefficient = if negative { magnitude.checked_neg()? } else { magnitude };
+    let exponent = scientific_exponent.checked_sub(i32::try_from(fraction.len()).ok()?)?;
+    Some(ExactDecimal { coefficient, exponent }.normalized())
 }
 
 fn las_section_header(trimmed: &str) -> Option<&str> {
@@ -545,6 +619,26 @@ pub fn parse_las_2_with_null_rules<P: AsRef<Path>>(
     parse_las_2_with_unit_designation(path, channel_nulls, null_rules, None)
 }
 
+fn parse_well_name_line(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let upper = trimmed.to_uppercase();
+    let well_line = upper.starts_with("WELL")
+        && matches!(upper.as_bytes().get(4), None | Some(b'.') | Some(b' ') | Some(b'\t'));
+    if !well_line {
+        return None;
+    }
+    let colon_idx = trimmed.rfind(':')?;
+    // "WELL .        SANDI SOUTH-01   : WELL" — the value is everything between
+    // the mnemonic(+unit) and the colon, so multi-word well names survive intact.
+    let after = trimmed[4..colon_idx].trim_start();
+    let after = after.strip_prefix('.').unwrap_or(after);
+    let value = match after.find(char::is_whitespace) {
+        Some(i) => after[i..].trim(),
+        None => after.trim(),
+    };
+    (!value.is_empty()).then(|| value.to_string())
+}
+
 pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     path: P,
     channel_nulls: &ChannelNullValues,
@@ -570,13 +664,15 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     // Per standard curve: the candidate column indices (alias-priority order) and a parallel
     // buffer of their sampled values.
     let mut cand: [Vec<usize>; 6] = Default::default();
-    let mut cand_buf: [Vec<Vec<f32>>; 6] = Default::default();
+    // Every source column is retained once. Standard aliases below select from these same
+    // buffers, so the normal import path can feed both stores without reopening the LAS.
+    let mut all_curve_buf: Vec<Vec<f32>> = Vec::new();
     let mut indices_resolved = false;
 
     // Some LAS exports (especially ones with many curves) wrap each logical depth row
     // across multiple physical lines rather than one line per row. Accumulate tokens and
     // drain a full row's worth at a time instead of assuming line == row.
-    let mut token_buffer: Vec<f32> = Vec::new();
+    let mut token_buffer: Vec<&str> = Vec::new();
     let mut buffer_start_line: Option<usize> = None;
     let mut declared_null: Option<f32> = None;
     let mut declared_step: Option<String> = None;
@@ -584,6 +680,9 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     let mut resolved_channel_nulls = channel_nulls.clone();
     let mut las_version: Option<String> = None;
     let mut encountered_unread_sections = Vec::new();
+    let mut previous_source_depth: Option<ExactDecimal> = None;
+    let mut source_depth_rows = 0usize;
+    let mut declared_step_mismatch_note = None;
 
     for (line_index, line) in text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -615,6 +714,9 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
                 continue;
             }
             LasSection::WellBlock => {
+                if cols.well_name.is_none() {
+                    cols.well_name = parse_well_name_line(trimmed);
+                }
                 if let Some(n) = parse_null_line(trimmed) {
                     declared_null = Some(n);
                 }
@@ -714,8 +816,8 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
                                 !crate::curves::is_ms_per_ft(curve_units[*index].as_deref())
                             });
                         }
-                        cand_buf[k] = vec![Vec::new(); cand[k].len()];
                     }
+                    all_curve_buf = vec![Vec::new(); curve_names.len()];
                     indices_resolved = true;
                 }
                 let expected_per_row = curve_names.len();
@@ -733,20 +835,23 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
                 if token_buffer.is_empty() && !tokens.is_empty() {
                     buffer_start_line = Some(line_number);
                 }
-                for tok in tokens {
-                    let v: f32 = tok
-                        .parse()
-                        .map_err(|e| ParseError::Las(format!("{source}: line {line_number}: bad numeric token '{tok}': {e}")))?;
-                    // `f32::from_str` accepts "inf"/"-inf" and overflows a cell like `1.0E+40` to
-                    // infinity. Everything downstream screens for missing with `is_nan()` only
-                    // (modules::is_missing), so an infinity survives into the compute cores and
-                    // poisons z-scores and comparison sorts. The DLIS path already strips exactly
-                    // this (dlis.rs); mirror it so both importers agree on what "missing" means.
-                    token_buffer.push(if v.is_finite() { v } else { f32::NAN });
-                }
+                token_buffer.extend(tokens);
 
                 while token_buffer.len() >= expected_per_row {
-                    let row: Vec<f32> = token_buffer.drain(0..expected_per_row).collect();
+                    let source_tokens: Vec<&str> = token_buffer.drain(0..expected_per_row).collect();
+                    let row: Vec<f32> = source_tokens
+                        .iter()
+                        .map(|tok| {
+                            let value: f32 = tok.parse().map_err(|e| {
+                                ParseError::Las(format!(
+                                    "{source}: line {line_number}: bad numeric token '{tok}': {e}"
+                                ))
+                            })?;
+                            // `f32::from_str` accepts infinities; every compute path treats only
+                            // NaN as missing, so normalize non-finite cells at the intake boundary.
+                            Ok(if value.is_finite() { value } else { f32::NAN })
+                        })
+                        .collect::<ParseResult<Vec<_>>>()?;
                     let get = |idx: Option<usize>| -> f32 {
                         idx.and_then(|i| row.get(i).copied())
                             .map(|v| {
@@ -761,9 +866,44 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
                     };
 
                     cols.depth.push(get(idx_depth));
-                    for k in 0..6 {
-                        for (j, &ci) in cand[k].iter().enumerate() {
-                            cand_buf[k][j].push(get(Some(ci)));
+                    for column in 0..expected_per_row {
+                        if Some(column) != idx_depth {
+                            all_curve_buf[column].push(get(Some(column)));
+                        }
+                    }
+                    source_depth_rows += 1;
+                    if declared_step_mismatch_note.is_none() {
+                        if let (Some(declared_raw), Some(depth_index)) =
+                            (declared_step.as_deref(), idx_depth)
+                        {
+                            let current = cols
+                                .depth
+                                .last()
+                                .copied()
+                                .filter(|depth| depth.is_finite())
+                                .and_then(|_| source_tokens.get(depth_index))
+                                .and_then(|token| parse_exact_decimal(token));
+                            if let (Some(declared), Some(current)) =
+                                (parse_exact_decimal(declared_raw), current)
+                            {
+                                if let Some(previous) = previous_source_depth {
+                                    if let Some(actual) = current.subtract(previous) {
+                                        if actual != declared {
+                                            declared_step_mismatch_note = Some(format!(
+                                                "possibly re-gridded: declared STEP {declared_raw} disagrees with actual spacing {} between data rows {} and {}",
+                                                actual.display(),
+                                                source_depth_rows - 1,
+                                                source_depth_rows
+                                            ));
+                                        }
+                                    }
+                                }
+                                previous_source_depth = Some(current);
+                            } else {
+                                // A missing/unparseable index breaks adjacency. Never compare
+                                // across that gap and invent a STEP mismatch from non-neighbours.
+                                previous_source_depth = None;
+                            }
                         }
                     }
                     if token_buffer.is_empty() {
@@ -790,11 +930,12 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     // broken by alias priority, since we scan in priority order and only replace on strictly
     // greater coverage). This skips all-null placeholder columns in favour of a populated one.
     let n = cols.depth.len();
-    let pick = |target: &str, indices: &[usize], cands: &[Vec<f32>]| -> (Vec<f32>, Option<AliasDecision>) {
+    let pick = |target: &str, indices: &[usize]| -> (Vec<f32>, Option<AliasDecision>) {
         let mut best: Option<usize> = None;
         let mut best_finite: i64 = -1;
-        let mut coverages = Vec::with_capacity(cands.len());
-        for (slot, c) in cands.iter().enumerate() {
+        let mut coverages = Vec::with_capacity(indices.len());
+        for (slot, index) in indices.iter().enumerate() {
+            let c = &all_curve_buf[*index];
             let finite = c.iter().filter(|v| !v.is_nan()).count() as i64;
             if finite > best_finite {
                 best_finite = finite;
@@ -802,7 +943,9 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
             }
             coverages.push(finite as usize);
         }
-        let values = best.map(|slot| cands[slot].clone()).unwrap_or_else(|| vec![f32::NAN; n]);
+        let values = best
+            .map(|slot| all_curve_buf[indices[slot]].clone())
+            .unwrap_or_else(|| vec![f32::NAN; n]);
         let chosen_slot = best;
         let renamed = chosen_slot.is_some_and(|slot| !curve_names[indices[slot]].eq_ignore_ascii_case(target));
         let decision = (indices.len() > 1 || renamed).then(|| {
@@ -835,7 +978,7 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     let targets = ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
     let mut picked = Vec::with_capacity(6);
     for k in 0..6 {
-        let (values, decision) = pick(targets[k], &cand[k], &cand_buf[k]);
+        let (values, decision) = pick(targets[k], &cand[k]);
         picked.push(values);
         if let Some(decision) = decision {
             cols.alias_decisions.push(decision);
@@ -848,6 +991,17 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     cols.dt = picked.remove(0);
     cols.sp = picked.remove(0);
     cols.declared_step = declared_step;
+    cols.declared_step_mismatch_note = declared_step_mismatch_note;
+    for index in 0..curve_names.len() {
+        if Some(index) == idx_depth {
+            continue;
+        }
+        cols.raw_curves.push(RawLasCurve {
+            mnemonic: curve_names[index].clone(),
+            unit: curve_units[index].clone(),
+            values: std::mem::take(&mut all_curve_buf[index]),
+        });
+    }
     cols.unread_sections = if las_version_is_3(las_version.as_deref()) {
         encountered_unread_sections
     } else {
@@ -964,7 +1118,7 @@ pub fn resolve_curve_column_duplicates(
     columns: &mut CurveColumns,
     policy: DuplicateDepthPolicy,
 ) -> usize {
-    let companions: [&[f32]; 6] = [
+    let mut companions: Vec<&[f32]> = vec![
         &columns.gr,
         &columns.res,
         &columns.nphi,
@@ -972,6 +1126,12 @@ pub fn resolve_curve_column_duplicates(
         &columns.dt,
         &columns.sp,
     ];
+    companions.extend(
+        columns
+            .raw_curves
+            .iter()
+            .map(|curve| curve.values.as_slice()),
+    );
     let (depth, mut resolved, duplicates) =
         resolve_duplicate_rows(&columns.depth, &companions, policy);
     columns.depth = depth;
@@ -981,6 +1141,9 @@ pub fn resolve_curve_column_duplicates(
     columns.rhob = resolved.remove(0);
     columns.dt = resolved.remove(0);
     columns.sp = resolved.remove(0);
+    for (curve, values) in columns.raw_curves.iter_mut().zip(resolved) {
+        curve.values = values;
+    }
     duplicates
 }
 
@@ -1040,6 +1203,9 @@ pub fn sanitize_curve_columns(cols: &mut CurveColumns) -> DepthSanitizeReport {
     cols.rhob = take(&cols.rhob);
     cols.dt = take(&cols.dt);
     cols.sp = take(&cols.sp);
+    for curve in &mut cols.raw_curves {
+        curve.values = take(&curve.values);
+    }
     report
 }
 
@@ -1306,6 +1472,7 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
 
 /// Reads just the ~W (Well Information) block to find the WELL mnemonic's value, falling
 /// back to the file's stem if the block is missing or the value is blank.
+#[cfg(test)]
 pub fn extract_well_name<P: AsRef<Path>>(path: P) -> ParseResult<String> {
     let path = path.as_ref();
     let text = read_text_file(path)?;
@@ -3233,11 +3400,13 @@ mod las_depth_tests {
     fn cols_from(depth: Vec<f32>) -> CurveColumns {
         let seq: Vec<f32> = (0..depth.len()).map(|i| i as f32).collect();
         CurveColumns {
+            well_name: None,
             las_version: None,
             unread_sections: Vec::new(),
             text_encoding: "test fixture".into(),
             depth_unit: None,
             declared_step: None,
+            declared_step_mismatch_note: None,
             depth,
             gr: seq.clone(),
             res: seq.clone(),
@@ -3245,6 +3414,7 @@ mod las_depth_tests {
             rhob: seq.clone(),
             dt: seq.clone(),
             sp: seq,
+            raw_curves: Vec::new(),
             alias_decisions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
@@ -3413,6 +3583,33 @@ mod las_depth_tests {
         );
         assert!((cols.gr[0] - 55.0).abs() < 1e-3, "good values are untouched");
         assert!((cols.gr[3] - 60.0).abs() < 1e-3);
+    }
+
+    /// The primary LAS parse is also the full-curve parse used by ingest. Retaining a
+    /// non-standard channel here prevents the normal import path from reopening a large file.
+    #[test]
+    fn primary_las_parse_retains_every_non_index_curve() {
+        let path = std::env::temp_dir().join("sandibumi-primary-full-curve.las");
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL .        JM-101 WEST : well name\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\nPEF.B/E : photoelectric\n~ASCII\n1000.0 50.0 5.1\n1000.5 51.0 -999.25\n",
+        )
+        .unwrap();
+        let parsed = parse_las_2(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(parsed.well_name.as_deref(), Some("JM-101 WEST"));
+        let pef = parsed
+            .raw_curves
+            .iter()
+            .find(|curve| curve.mnemonic == "PEF")
+            .expect("PEF retained");
+        assert_eq!(pef.unit.as_deref(), Some("B/E"));
+        assert_eq!(pef.values[0], 5.1);
+        assert!(
+            pef.values[1].is_nan(),
+            "LAS null semantics apply once in the primary parse"
+        );
     }
 
     #[test]

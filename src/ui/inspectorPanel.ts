@@ -436,6 +436,8 @@ export class InspectorPanel {
       source: string;
       when: string;
       samples: number;
+      validSamples: number | null;
+      missingSamples: number | null;
       min: number | null;
       max: number | null;
       mean: number | null;
@@ -507,9 +509,11 @@ export class InspectorPanel {
           source: e.source ?? "",
           when: "",
           samples: e.n_samples,
-          min: null,
-          max: null,
-          mean: null,
+          validSamples: e.n_valid,
+          missingSamples: e.n_missing,
+          min: e.min,
+          max: e.max,
+          mean: e.mean,
           curveId: e.curve_id,
           pinned: e.pinned,
           collision,
@@ -525,9 +529,11 @@ export class InspectorPanel {
         set: e.set_name ?? "—",
         ver: e.version,
         source: e.module ?? "",
-        when: e.created_at ?? "",
-        samples: e.n_samples,
-        min: e.min,
+          when: e.created_at ?? "",
+          samples: e.n_samples,
+          validSamples: null,
+          missingSamples: null,
+          min: e.min,
         max: e.max,
         mean: e.mean,
         curveId: null,
@@ -599,7 +605,9 @@ export class InspectorPanel {
           `<td>${escapeHtml(r.set)}${r.ver != null ? `<span class="catalog-run"> v${r.ver}</span>` : ""}</td>` +
           `<td>${escapeHtml(r.source)}</td>` +
           `<td>${escapeHtml(r.when || "—")}</td>` +
-          `<td>${r.samples}</td>` +
+          `<td title="${r.missingSamples == null ? "" : `${r.missingSamples} missing/non-finite stored row(s)`}">${
+            r.validSamples == null ? r.samples : `${r.validSamples} / ${r.samples}`
+          }</td>` +
           `<td>${fmt(r.min)}</td><td>${fmt(r.max)}</td><td>${fmt(r.mean)}</td>` +
           `<td class="catalog-actions">${actions(r)}</td></tr>`,
       )
@@ -612,7 +620,7 @@ export class InspectorPanel {
       ["set", "Set"],
       ["source", "Module / Source"],
       ["when", "When"],
-      ["samples", "n"],
+      ["samples", "Valid / Total"],
       ["min", "Min"],
       ["max", "Max"],
       ["mean", "Mean"],

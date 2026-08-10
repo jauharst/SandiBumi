@@ -1,4 +1,5 @@
 import type { CurveStyle, Layout, Track } from "../ipc";
+import { availableTrackSets, hasTrackCurve, trackCurveKey } from "../trackCurveRequest";
 import { openModal } from "./modal";
 
 /** One point series the loaded well actually carries — a core plug property, or an item of
@@ -9,13 +10,18 @@ export interface PointSuggestion {
   item: string;
 }
 
+export interface CurveSuggestion {
+  curve_name: string;
+  set_name?: string | null;
+}
+
 /** Layout Properties dialog (per the standard-layout prototype): a track list with
  *  insert/delete/duplicate/reorder on the left, and the selected track's settings +
  *  curve style table (color, scale, fill shading) on the right. Operates on a deep
  *  clone; the caller receives the edited layout on Apply/OK. */
 export function openLayoutPropsDialog(
   layout: Layout,
-  availableCurves: string[],
+  availableCurves: CurveSuggestion[],
   onApply: (edited: Layout) => void,
   /** What the loaded well actually carries as measured samples, for the point-track
    *  suggestion lists. Optional so callers that only edit curve tracks need not gather it. */
@@ -54,7 +60,7 @@ export function openLayoutPropsDialog(
   // Shared datalist of known curve names for the curve-name inputs.
   const datalist = document.createElement("datalist");
   datalist.id = `lp-curves-${Date.now().toString(36)}`;
-  for (const name of availableCurves) {
+  for (const name of new Set(availableCurves.map((curve) => curve.curve_name))) {
     const opt = document.createElement("option");
     opt.value = name;
     datalist.appendChild(opt);
@@ -315,7 +321,7 @@ export function openLayoutPropsDialog(
     const table = document.createElement("table");
     table.className = "lp-curvetable";
     table.innerHTML = `<thead><tr>
-      <th>Curve</th><th>Style</th><th>Color</th><th>Min</th><th>Max</th>
+      <th>Curve</th><th>Set</th><th>Style</th><th>Color</th><th>Min</th><th>Max</th>
       <th>Fill</th><th>To curve</th><th>Shading</th><th>Opacity</th><th></th>
     </tr></thead>`;
     const tbody = document.createElement("tbody");
@@ -332,9 +338,24 @@ export function openLayoutPropsDialog(
       const nameInput = textInput(c.curve_name, (v) => {
         c.curve_name = v.trim().toUpperCase();
         nameInput.value = c.curve_name;
+        if (c.set_name && !hasTrackCurve(availableCurves, c)) c.set_name = undefined;
+        // A mnemonic change changes the valid set list. Rebuild the row so a stale source
+        // cannot remain selected for a curve that source does not carry.
+        renderDetail();
       });
       nameInput.setAttribute("list", datalist.id);
       cell(nameInput);
+      const availableSets: [string, string][] = [
+        ["", "Current / resolved"],
+        ...availableTrackSets(availableCurves, c.curve_name, c.set_name).map(
+          (set): [string, string] => [set, set],
+        ),
+      ];
+      cell(
+        selectInput(c.set_name ?? "", availableSets, (v) => {
+          c.set_name = v || undefined;
+        }),
+      );
       cell(
         selectInput(c.draw_style ?? "line", [["line", "Continuous"], ["step", "Blocky"]], (v) => {
           c.draw_style = v;
@@ -433,8 +454,12 @@ export function openLayoutPropsDialog(
       // feeds <input type=color> and is stored), so new curves match the active palette
       // instead of always coming out light-theme terracotta.
       const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+      const suggestion = availableCurves.find(
+        (candidate) => !track.curves.some((curve) => trackCurveKey(curve) === trackCurveKey(candidate)),
+      );
       const style: CurveStyle = {
-        curve_name: availableCurves.find((n) => !track.curves.some((c) => c.curve_name === n)) ?? "GR",
+        curve_name: suggestion?.curve_name ?? "GR",
+        set_name: suggestion?.set_name ?? undefined,
         color: /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(accent) ? accent : "#b5651d",
         min: 0,
         max: 100,

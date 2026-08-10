@@ -1,7 +1,8 @@
 # Gate 1 branch and commit inventory
 
-Measured after `git fetch origin` on 2026-08-10. The checked-out branch remained
-`codex/sandibumi-takeover-gate1`; no branch was switched, moved, rebased, merged or deleted.
+The initial census was measured after `git fetch origin` on 2026-08-10. The checked-out branch
+remained `codex/sandibumi-takeover-gate1`; no branch was switched, moved, rebased, merged or deleted
+during that inventory. The later GitHub-master baseline integration is recorded separately below.
 
 ## Accepted baseline
 
@@ -9,8 +10,8 @@ Measured after `git fetch origin` on 2026-08-10. The checked-out branch remained
 - Fetched `origin/master`: `29833735816d9e5be954afafd9ceb71fd856e3f0`.
 - Takeover HEAD inspected: `32115dac3f6b20cc396c9a21c32c3731972c0326`.
 - Accepted tested source baseline: `706fe59d50fa673066a1dbfb87f0948074656f4e`.
-- Local `master` is one commit behind `origin/master`. The remote commit is classified below as an
-  `ACCEPTED-CANDIDATE`, not silently integrated.
+- Local `master` is one commit behind `origin/master`. The remote commit was classified below as an
+  `ACCEPTED-CANDIDATE` and was not silently integrated during the inventory.
 
 ## Ref census
 
@@ -116,7 +117,7 @@ local `master` but is patch-equivalent to fetched `origin/master`: both commits 
 | `bb807ca` | CORE branches and takeover | SB-CORE-001 depth units | CORE production/tests/docs | named requirement and tests; current full gate green | `ACCEPTED-CANDIDATE` | contained by takeover HEAD |
 | `78bd21d` | CORE branches and takeover | Adjudicate SB-CORE-002 reporting | PRD adjudication | explicit seven-surface adjudication | `ACCEPTED-CANDIDATE` | contained by takeover HEAD |
 | `d25c274` | CORE branches and takeover | Lock SB-CORE-002 reporting regressions | reporting production/tests/docs | named reporting regressions; current full gate green | `ACCEPTED-CANDIDATE` | contained by takeover HEAD |
-| `2983373` | `origin`, `origin/master` | Preserve imported LAS sets on native grids | 27 data/store/view/export paths | named Rust/frontend tests plus nine unchecked field scenarios | `ACCEPTED-CANDIDATE` | canonical remote commit; not yet integrated or field-accepted |
+| `2983373` | `origin`, `origin/master` | Preserve imported LAS sets on native grids | 27 data/store/view/export paths | named Rust/frontend tests plus nine unchecked field scenarios | `ACCEPTED-CANDIDATE` | canonical remote commit; integrated by the follow-up below, while its field scenarios remain unchecked |
 | `18da8b0` | old PRD/security refs | V1 scope, architecture and release suite | three legacy docs | `PRD_v2/00_INDEX.md:27-31` explicitly names this branch and says PRD v2 supersedes it | `SUPERSEDED` | authoritative PRD v2 absorbed the documents |
 | `82e56c9` | remote Kimi branch | Add Kimi delegation tier and launcher | `.gitignore`, `CLAUDE.md`, Kimi docs/tool | current `CLAUDE.md:1137-1162` delegates the tier ladder to machine-level policy | `SUPERSEDED` | provider-specific launcher is not the current collaboration contract |
 | `d1f0c1e` | old pre-strip refs | PRD and Architecture | machine `.vs` artifacts, AGENTS, SSC, design doc | no single requirement, owned test or clean scope | `REJECTED` | mixes large machine-local binaries with a protected numeric-module change |
@@ -131,19 +132,36 @@ local `master` but is patch-equivalent to fetched `origin/master`: both commits 
 - Patch-equivalent commits are not integration candidates merely because their hashes differ.
 - No classification asserts that an unchecked `REVIEW.md` scenario is complete.
 
-## Integration actions deferred
+## Baseline integration follow-up — 2026-08-10
 
-1. Integrate `2983373` only in a dedicated clean-baseline increment. It touches `db.rs`,
-   `equations.rs`, ingestion, parsing, rendering and the currently status-dirty `Cargo.toml`; this
-   inventory task does not merge it by implication.
+- Active development root: `D:\XX. SandiBumi`.
+- Takeover parent: `54bc93839dd24b54fa6646145073144c55783f5e`.
+- GitHub default-branch parent: `29833735816d9e5be954afafd9ceb71fd856e3f0` from
+  `origin/master` / `origin/HEAD`.
+- Integration method: one non-fast-forward merge without rebase or a checkout of `master`; Git's
+  three-way merge reported no textual conflicts.
+- The combined gate exposed a semantic conflict rather than a Git conflict: the earlier
+  `SB-CORE-T04` partial-success contract contradicted `2983373`'s deliberately atomic LAS delivery.
+  Jauhar authorized retaining atomicity. `04_CORE_REQUIREMENTS.md` and the named reporting-surface
+  test now require a named per-file error and no partial well; the production transaction was not
+  weakened or split.
+- The canonical Windows checkout also exposed CRLF conversion in the byte-current generated PRD
+  audit. The artifact is pinned to LF and the existing named test asserts checkout-stable bytes.
+- The exact adjudicated merge tree passed `tools/check.ps1`: 16 tracker, 13 frontend and 917 Rust
+  tests passed; 0 failed and 36 Rust tests remained ignored for their recorded reasons.
+
+## Integration actions and remaining follow-ups
+
+1. **CLOSED in the baseline integration follow-up:** `2983373` is a parent of the merge commit that
+   carries this record. Its unchecked field scenarios remain open evidence; integration is not field
+   acceptance.
 2. Re-adjudicate `0d5389e` as a current security contract and add a durable regression before
    porting it. Browser evidence in an old branch is not a maintained gate.
 3. Do not revive `18da8b0`, `82e56c9`, `d1f0c1e` or `fb01bc0` as whole commits.
-4. G1-I004 may audit PRD structure on the current takeover branch because `2983373` does not edit
-   `docs/PRD_v2/**`; source integration remains an open Gate 1 action before live domain
-   adjudication is accepted.
+4. Source integration is no longer the Gate 1 blocker. G1-I005 must re-measure the field-evidence
+   baseline after this merge, and live domain adjudication remains separate work.
 
-## Classification totals
+## Initial-census classification totals
 
 - `PATCH-EQUIVALENT`: `53`.
 - `ACCEPTED-CANDIDATE`: `8`.

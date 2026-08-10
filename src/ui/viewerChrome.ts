@@ -1,4 +1,5 @@
-import type { Layout, Track, WellSummary } from "../ipc";
+import type { CurveStyle, Layout, Track, WellSummary } from "../ipc";
+import { trackCurveKey } from "../trackCurveRequest";
 import { FACIES_PALETTE } from "./plotCanvas";
 import { formatValue } from "./plotCommon";
 import { appState } from "../state";
@@ -65,7 +66,7 @@ export function renderTrackHeaders(
 }
 
 function buildCurveRow(
-  curve: { curve_name: string; color: string; min: number; max: number; fill?: string },
+  curve: CurveStyle,
   track: Track,
   hiddenCurves: Set<string>,
   callbacks: TrackChromeCallbacks,
@@ -73,13 +74,14 @@ function buildCurveRow(
   const wrapper = document.createElement("div");
   wrapper.className = "curve-entry";
   const isBlocks = curve.fill === "blocks";
+  const curveKey = trackCurveKey(curve);
 
   const row = document.createElement("div");
-  row.className = "curve-row" + (hiddenCurves.has(curve.curve_name) ? " hidden" : "");
+  row.className = "curve-row" + (hiddenCurves.has(curveKey) ? " hidden" : "");
   // Drag a curve onto another track's header to MOVE it there (hold Ctrl to COPY).
   row.draggable = true;
   row.addEventListener("dragstart", (e) => {
-    e.dataTransfer?.setData(CURVE_DRAG_TYPE, JSON.stringify({ track: track.title, curve: curve.curve_name }));
+    e.dataTransfer?.setData(CURVE_DRAG_TYPE, JSON.stringify({ track: track.title, curveKey }));
     if (e.dataTransfer) e.dataTransfer.effectAllowed = "copyMove";
   });
 
@@ -98,14 +100,14 @@ function buildCurveRow(
 
   const name = document.createElement("span");
   name.className = "legend-name";
-  name.textContent = curve.curve_name;
+  name.textContent = `${curve.curve_name}${curve.set_name ? ` · ${curve.set_name}` : ""}`;
 
   const toggle = () => {
     row.classList.toggle("hidden");
     const nowHidden = row.classList.contains("hidden");
-    if (nowHidden) hiddenCurves.add(curve.curve_name);
-    else hiddenCurves.delete(curve.curve_name);
-    callbacks.onCurveToggle(curve.curve_name, nowHidden);
+    if (nowHidden) hiddenCurves.add(curveKey);
+    else hiddenCurves.delete(curveKey);
+    callbacks.onCurveToggle(curveKey, nowHidden);
   };
   swatch.addEventListener("click", toggle);
   name.addEventListener("click", toggle);
@@ -229,17 +231,17 @@ function attachHeaderDragReorder(
     // the original). The panel gets a pre-mutation snapshot for undo.
     const curvePayload = e.dataTransfer?.getData(CURVE_DRAG_TYPE);
     if (curvePayload) {
-      const { track: srcTitle, curve: curveName } = JSON.parse(curvePayload) as { track: string; curve: string };
+      const { track: srcTitle, curveKey } = JSON.parse(curvePayload) as { track: string; curveKey: string };
       if (srcTitle === track.title) return;
       const src = layout.tracks.find((t) => t.title === srcTitle);
-      const style = src?.curves.find((c) => c.curve_name === curveName);
+      const style = src?.curves.find((curve) => trackCurveKey(curve) === curveKey);
       if (!src || !style) return;
-      if (track.curves.some((c) => c.curve_name === curveName)) return; // already shown here
+      if (track.curves.some((curve) => trackCurveKey(curve) === curveKey)) return; // already shown here
       const before = structuredClone(layout);
       const copy = e.ctrlKey;
       if (!copy) src.curves.splice(src.curves.indexOf(style), 1);
       track.curves.push(copy ? structuredClone(style) : style);
-      callbacks.onCurveMoved?.(before, `${copy ? "copy" : "move"} ${curveName} → ${track.title}`);
+      callbacks.onCurveMoved?.(before, `${copy ? "copy" : "move"} ${style.curve_name} → ${track.title}`);
       callbacks.onLayoutMutated();
       return;
     }
@@ -275,6 +277,7 @@ export function renderReadout(
   samples: { curveName: string; value: number }[],
   emphasize?: Set<string>,
   units?: Map<string, string>,
+  labels?: Map<string, string>,
 ): void {
   if (depth === null) {
     container.hidden = true;
@@ -289,7 +292,7 @@ export function renderReadout(
   for (const s of samples) {
     const item = document.createElement("span");
     item.className = "readout-item" + (emphasize?.has(s.curveName) ? " em" : "");
-    item.textContent = `${s.curveName}: ${formatValue(s.value, { unit: units?.get(s.curveName) })}`;
+    item.textContent = `${labels?.get(s.curveName) ?? s.curveName}: ${formatValue(s.value, { unit: units?.get(s.curveName) })}`;
     container.appendChild(item);
   }
 }

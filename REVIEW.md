@@ -347,6 +347,36 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
       mnemonic, its original `PHIE`, its source set, and its `working` or `final` state? Does the
       visible result count both states?
 
+## 2026-08-10 — imported LAS native grid, catalog statistics, and interaction cost
+
+- [ ] Import two LAS deliveries for one well whose sets have visibly different source spacing.
+      Does Curve Catalog retain each file's exact source row count under its own set, without a
+      merged/common depth count?
+- [ ] In Layout Properties, select the set explicitly for each displayed curve. Does the legend
+      name that set, does the trace follow that delivery rather than the well's standard grid, and
+      does progressively zooming in reveal more source detail instead of magnifying a fixed coarse
+      whole-well reduction? Pan back out: does the whole-well depth extent remain unchanged?
+- [ ] Change the mnemonic in Layout Properties. Does its Set list contain only deliveries carrying
+      that mnemonic, and does an incompatible prior set clear instead of silently drawing nothing?
+- [ ] Export the set-qualified layout to SVG and PDF. Does each exported trace use the same source
+      set and native depths as the on-screen curve, including a set whose interval does not overlap
+      the well's standard frame?
+- [ ] For a curve containing finite and missing samples, does Curve Catalog show total rows plus
+      finite Valid/Missing counts, and do min/max/mean agree with an independent finite-only check?
+      For an all-missing curve, are the counts present while min/max/mean remain blank?
+- [ ] Expand and collapse the same well, set and data-set nodes repeatedly. Are pure toggles
+      immediate and free of a sample-table scan, while an import/edit/delete invalidates the cache
+      and shows the changed inventory on the next expansion?
+- [ ] On the same release build and the same local LAS copies, time import before and after this
+      repair. Record file count, depth rows, curve count, storage medium and both wall times; do not
+      substitute the 89.6 → 61.2 s debug observation for this machine-specific field result.
+- [ ] Import a deliberately invalid delivery that fails during the all-channel constraint write.
+      Is the result a failure, with no well, standard rows, generic metadata, native samples or
+      adopted project depth unit left behind?
+- [ ] Import a deep LAS whose source depth tokens advance exactly by its decimal STEP. Is there no
+      false **possibly re-gridded** warning from f32 rounding? Change one adjacent source token by a
+      real amount: does the warning name the declared spacing, actual spacing and first row pair?
+
 ## 2026-08-09 — SB-DIO-050: declared STEP is checked against the samples
 
 - [ ] Import a LAS declaring `STEP.M 0.5` whose actual index spacing is `1.0`. Does the import

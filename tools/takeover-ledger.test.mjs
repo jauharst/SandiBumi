@@ -321,8 +321,10 @@ test('the generated PRD integrity report is byte current', async () => {
     indexPath,
     prdDirectory: path.dirname(indexPath),
   }));
+  const actual = fs.readFileSync(reportPath, 'utf8');
 
-  assert.equal(fs.readFileSync(reportPath, 'utf8'), expected);
+  assert.doesNotMatch(actual, /\r/, 'the generated report must retain checkout-stable LF bytes');
+  assert.equal(actual, expected);
 });
 
 test('the complete tracker check rejects a stale PRD audit once the report exists', async () => {

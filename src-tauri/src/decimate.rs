@@ -61,5 +61,43 @@ pub fn min_max_decimate(depths: &[f32], values: &[f32], target_pixel_height: usi
         }
     }
 
+    // The initial viewer request uses this disposable reduction to establish the permanent
+    // whole-well extent. Min/max extrema alone do not necessarily include either end sample,
+    // so carry the true source endpoints as structural points. They are still original rows;
+    // no value or depth is synthesized, and the two extra points do not weaken spike retention.
+    if out_depths.first().copied() != Some(depths[0]) {
+        out_depths.insert(0, depths[0]);
+        out_values.insert(0, values[0]);
+    }
+    if out_depths.last().copied() != Some(depths[n - 1]) {
+        out_depths.push(depths[n - 1]);
+        out_values.push(values[n - 1]);
+    }
+
     (out_depths, out_values)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The viewer derives its persistent whole-well extent from the initial disposable
+    /// decimation. End samples therefore carry structural information even when neither is
+    /// a value extreme inside its bucket.
+    #[test]
+    fn decimation_retains_true_source_endpoints() {
+        let depths: Vec<f32> = (0..10).map(|index| 1000.0 + index as f32 * 0.5).collect();
+        let values = vec![5.0, 0.0, 10.0, 4.0, 3.0, 2.0, 1.0, 9.0, 0.0, 5.0];
+
+        let (reduced_depth, reduced_value) = min_max_decimate(&depths, &values, 1);
+
+        assert_eq!(reduced_depth.first(), depths.first(), "top extent is a source endpoint");
+        assert_eq!(reduced_value.first(), values.first());
+        assert_eq!(reduced_depth.last(), depths.last(), "base extent is a source endpoint");
+        assert_eq!(reduced_value.last(), values.last());
+        assert!(
+            reduced_value.contains(&0.0) && reduced_value.contains(&10.0),
+            "endpoint retention must not discard bucket extrema"
+        );
+    }
 }

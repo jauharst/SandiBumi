@@ -1,4 +1,8 @@
-import { updateCurveMeta, type GenericCurveCatalogEntry } from "../ipc";
+import {
+  updateCurveMeta,
+  type GenericCurveCatalogEntry,
+  type GenericCurveInventoryEntry,
+} from "../ipc";
 import { setStatus } from "../state";
 import { bumpDataVersion } from "../state";
 import { pushUndo } from "../undo";
@@ -14,7 +18,7 @@ import { formRow, openModal } from "./modal";
  *  mnemonics don't match the standard names is otherwise invisible to every module.
  */
 export function openCurveMetaDialog(
-  curve: GenericCurveCatalogEntry,
+  curve: GenericCurveInventoryEntry & Partial<Pick<GenericCurveCatalogEntry, "n_samples">>,
   onChanged: () => void,
 ): void {
   const content = document.createElement("div");
@@ -55,7 +59,9 @@ export function openCurveMetaDialog(
 
   const note = document.createElement("p");
   note.className = "modal-doc";
-  note.textContent = `Set ${curve.set_name} • ${curve.n_samples} samples${curve.source ? ` • ${curve.source}` : ""}`;
+  note.textContent = `Set ${curve.set_name}${curve.n_samples == null ? "" : ` • ${curve.n_samples} samples`}${
+    curve.source ? ` • ${curve.source}` : ""
+  }`;
   content.appendChild(note);
 
   const actions = document.createElement("div");
