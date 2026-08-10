@@ -9,12 +9,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-DIO - SB-DIO LIVE ADJUDICATION; DONE; 63/63 rows adjudicated; full gate green; review required`
+- Active increment: `G1-DOM-DBM-P - SB-DBM LIVE-ADJUDICATION PLAN; exact 43-row evidence map approved and execution underway`
 - Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only adjudication is recorded by the current topic-branch commit`
 - Automated gate: `GREEN — 2026-08-11 on the G1-DOM-DIO adjudication tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
 - Pilot field evidence: `OPEN`
 - Open blockers: `843 live domain adjudications; 56 total pilot-blocker dispositions (10 SB-CORE and 46 SB-DIO), including satisfied safety contracts that still need field evidence; SB-DIO has 7 absent, 2 partial, 6 divergent and 6 present-unverified rows, with 21 missing qualifying owned proofs; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
-- Next increment: `Jauhar selects the next Gate 1 domain or authorizes a separately scoped closure increment; this adjudication authorizes no production change`
+- Next increment: `execute the 43-row SB-DBM live-adjudication plan; no production behavior or database write-discipline change is authorized`
 
 ## Gate dashboard
 
@@ -79,6 +79,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-DOM-DBM-P - SB-DBM live-adjudication plan | DONE; EXECUTING | exact 43-row evidence map; PK-less write-discipline boundary; provenance, integrity, model-custody and scale evidence gates; serial handoff | current topic-branch commit |
 | G1-DOM-DIO - SB-DIO live adjudication | DONE; REVIEW REQUIRED | 63/63 rows: 7 absent, 2 partial, 6 divergent, 42 present-OK, 6 present-unverified; 46 pilot blockers, 14 undecided, 3 deferred; explicit O-4/O-5, RP66, LAS 3 and STEP-tolerance blocks; 843/931 rows remain | current topic-branch commit |
 | G1-DOM-DIO-P — SB-DIO live-adjudication plan | DONE; EXECUTED | exact 63-row evidence map; immutable-source boundary; explicit O-4/O-5 parameter blocks; executable checks and serial handoff | current topic-branch commit |
 | G1-DOM-CORE — SB-CORE live adjudication | DONE; REVIEW REQUIRED | 25/25 rows: 5 absent, 12 partial, 4 divergent, 3 present-OK, 1 present-unverified; 10 pilot blockers, 13 undecided, 2 deferred; 906/931 rows remain | current topic-branch commit |
