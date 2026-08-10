@@ -8,12 +8,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
-- Active increment: `G1-I003 — BRANCH RECONCILIATION`
+- Active increment: `G1-I004 — PRD STRUCTURAL INTEGRITY`
 - Accepted baseline: `706fe59d50fa673066a1dbfb87f0948074656f4e`
 - Automated gate: `GREEN — 2026-08-10 at 706fe59; 9 tracker + 12 frontend + 910 Rust passed, 0 failed, 36 ignored`
 - Pilot field evidence: `OPEN`
-- Open blockers: `UNMEASURED — baseline reconciliation not complete`
-- Next increment: `G1-I004 — PRD STRUCTURAL INTEGRITY`
+- Open blockers: `2 branch follow-ups — integrate origin/master candidate 2983373 in a dedicated clean-baseline increment; adjudicate unresolved Tops colour hardening 0d5389e`
+- Next increment: `G1-I005 — MANUAL AND FIELD-EVIDENCE BASELINE`
 
 ## Gate dashboard
 
@@ -34,7 +34,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-I002 — Dated baseline receipt | DONE | exact Git, ledger, manual-evidence, capability-matrix and gate measurements | this commit |
+| G1-I003 — Branch reconciliation | DONE | 62 refs and 66 distinct patches classified: 53 equivalent, 8 accepted candidates, 2 superseded, 2 rejected, 1 unresolved | this commit |
+| G1-I002 — Dated baseline receipt | DONE | exact Git, ledger, manual-evidence, capability-matrix and gate measurements | `32115da` |
 | G1-I001 — Tracker foundation | DONE | 931-row ledger; 9 named tracker tests; ledger check and full gate green | `706fe59` |
 
 ## Decisions needed from Jauhar
