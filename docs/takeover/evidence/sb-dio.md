@@ -1,0 +1,832 @@
+# Gate 1 SB-DIO live adjudication
+
+- Branch: `codex/g1-sb-dio-adjudication`
+- Adjudication start HEAD: `1587592afc8a101a604ca73474d22acc2e359bb4`
+- Accepted evidence anchor: `b332026cb498c105f36eade0bf7899bc0c1309f0`
+- `origin/master` at evidence freeze: `29833735816d9e5be954afafd9ceb71fd856e3f0`
+- Merge base with `origin/master`: `29833735816d9e5be954afafd9ceb71fd856e3f0`
+- Adjudication date: `2026-08-10`
+- Worktree at evidence freeze: clean; `D:\XX. SandiBumi` was the only registered Git worktree.
+- Row guard: passed - exactly 63 planned SB-DIO rows, all 63 initially `UNADJUDICATED`; priority mix P0 10, P1 41, P2 11 and P3 1.
+- Evidence boundary: this receipt classifies the accepted tree. It does not amend PRD v2, supply a missing parameter or format specification, promote automated evidence to field evidence, or approve pilot scope on Jauhar's behalf.
+- Source-navigation boundary: the codebase index was not callable in this task, so exact-file `rg` searches and direct source reads were used as the declared fallback. Consequential negative findings are checked against the expected directories, tests, Git history and generated verification matrix.
+- Verification boundary: focused tests named below and the final repository gate are recorded after adjudication. A passing existing worktree is not treated as fresh-clone or field evidence.
+
+## SB-DIO-001 - A single declared sentinel MUST reach every writer.
+
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T01`, `SB-DIO-T02`.
+- **Atomic obligations:** resolve one project sentinel; require it at every registered writer boundary; prevent a writer-owned fallback sentinel.
+- **Current source:** `src-tauri/src/export.rs` stores one project setting, makes `WriterSettings` a required non-optional registry argument and routes the sole registered LAS writer through it. `src-tauri/src/lib.rs` exposes only the whitelisted setting commands. No second registered data writer exists outside the registry.
+- **Qualifying acceptance tests:** `a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own` and `a_registered_writer_cannot_omit_the_required_sentinel_argument` are `CORRECTNESS`; the non-default control uses the Baker waveform sentinel cited in chapter section 5.2 and the compile-time contract pins the registry boundary.
+- **Supporting tests:** the LAS round trip and default-format test exercise the same setting but do not replace the writer-inventory assertions.
+- **Manual evidence:** `data-conventions` 0/45 and `las-export` 0/2 - unexercised.
+- **Git evidence:** reachable `55927c6` contains the closing writer-registry change.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the automated contract; field export remains unexercised.
+- **Next action:** preserve the required registry signature and make every future writer register before it can ship.
+
+## SB-DIO-002 - The default export path MUST NOT be the one that bypasses the sentinel.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-UNVERIFIED`; owned test `SB-DIO-T03`.
+- **Atomic obligations:** expose exactly one default writer; require that default to honour the project sentinel; label any incapable format instead of presenting it as equivalent.
+- **Current source:** `export.rs::default_writer` rejects an incapable default, the registry has exactly one default, and `export_formats` exposes the limitation field.
+- **Qualifying acceptance tests:** `the_default_export_format_honours_the_sentinel_and_an_incapable_format_is_marked` passed as `CORRECTNESS`; its non-default sentinel is sourced to chapter section 5.2.
+- **Supporting tests:** SB-DIO-001's two registry tests protect the required setting argument.
+- **Manual evidence:** `las-export` 0/2 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `9e55f06` contains the default-selection closure.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** keep the default uniqueness and capability declaration in the writer registry when another format is added.
+
+## SB-DIO-003 - "This channel has no null" MUST be a first-class state.
+
+- **Chapter evidence:** P2; chapter status `ABSENT`; owned tests `SB-DIO-T04`, `SB-DIO-T05`.
+- **Atomic obligations:** represent explicit no-null separately from an ordinary null list and from no declaration; preserve a genuine sentinel-shaped amplitude only in the explicit no-null case; expose the distinction in the import result.
+- **Current source:** `parsers.rs::ChannelNullMode` has distinct `Values` and `NoNull` variants, and `is_null_value_for_channel` preserves values under `NoNull` while an absent key uses normal LAS screening. The result model does not expose a dedicated per-channel no-null/unset record.
+- **Qualifying acceptance tests:** no tests are mapped to T04/T05; test class is `MISSING`.
+- **Supporting tests:** `one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset` proves the two screening outcomes, but it is owned by SB-DIO-006/T10 and does not assert a visible import-result distinction for SB-DIO-003.
+- **Manual evidence:** `data-conventions` 0/45 and `las-import` 0/57 - unexercised.
+- **Git evidence:** the first-class enum is integrated through reachable `23d6b28`; no separate result-surface closure exists.
+- **Verdict:** `PARTIAL`; `DEFERRED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** no numerical source is missing; the result-surface contract and its two owned tests are missing.
+- **Next action:** add a per-channel resolved-null-mode record to the import result and implement T04/T05 with explicit no-null and unset controls.
+
+## SB-DIO-004 - Null recognition MUST be one relative-tolerance transform, and recognition MUST NOT rewrite.
+
+- **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T06`, `SB-DIO-T07`, `SB-DIO-T08`.
+- **Atomic obligations:** use one relative comparison with the specified 1.0 floor; survive one f32/f64 representation cycle; convert a recognised sentinel only to internal missing; retain finite nonmatches unchanged.
+- **Current source:** `parsers.rs::matches_null` is the single comparison helper used by global, declared and per-channel screening; the former absolute comparison is gone.
+- **Qualifying acceptance tests:** `null_recognition_is_one_relative_tolerance_transform_and_recognition_never_rewrites` is `CORRECTNESS`; its tolerance and floor come from chapter section 5.2 and it pins both recognition and a surviving finite value.
+- **Supporting tests:** per-channel and malformed-input tests exercise the helper through full readers.
+- **Manual evidence:** `data-conventions` 0/45 and `las-import` 0/57 - unexercised.
+- **Git evidence:** reachable `29d6d7d` contains the closing transform.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied P0 contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** preserve the one-helper inventory and keep environment correction from rewriting values during import.
+
+## SB-DIO-005 - Null values MUST be per-channel and plural.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T09`.
+- **Atomic obligations:** allow multiple null values per channel and screen each channel only against its own override.
+- **Current source:** `ChannelNullValues` maps channel names to plural `ChannelNullMode::Values`, and both LAS parse paths merge and apply those per-channel modes.
+- **Qualifying acceptance tests:** `two_channels_with_different_plural_nulls_are_screened_against_their_own_values_only` is `CORRECTNESS`; the three sentinel values are cited in chapter section 5.2 and the test pins cross-channel non-screening from both sides.
+- **Supporting tests:** SB-DIO-006 exercises rule-derived per-channel modes.
+- **Manual evidence:** `data-conventions` 0/45 and `las-import` 0/57 - unexercised.
+- **Git evidence:** reachable `ff58416` contains the closing plural override.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** keep per-channel overrides attached to source channel identity through every new reader.
+
+## SB-DIO-006 - The null-exception rule shape MUST be many-to-many.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T10`.
+- **Atomic obligations:** retain every name pattern and every null value/no-null declaration in one rule; reject ambiguous or empty rules instead of truncating them.
+- **Current source:** `NullExceptionRule` stores `names: Vec<String>` plus one plural/no-null mode; resolution compiles all patterns, rejects overlaps and preserves all matches.
+- **Qualifying acceptance tests:** `one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset` is `CORRECTNESS`; the six-name shape and explicit no-null case are sourced to chapter section 5.2.
+- **Supporting tests:** SB-DIO-005 verifies plural values after resolution.
+- **Manual evidence:** `data-conventions` 0/45 and `las-import` 0/57 - unexercised.
+- **Git evidence:** reachable `23d6b28` contains the closing rule loader.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** require future rule loaders to deserialize this same shape rather than flattening it.
+
+## SB-DIO-007 - Absent MUST be distinguishable from nulled.
+
+- **Chapter evidence:** P2; chapter status `ABSENT`; owned test `SB-DIO-T11`.
+- **Atomic obligations:** preserve source empty-cell versus explicit-sentinel provenance through import and export while both remain `f32::NAN` for arithmetic.
+- **Current source:** CSV/LAS arithmetic values converge to `f32::NAN`; no sidecar bitset, cell-state column or export convention records which source state produced the NaN.
+- **Qualifying acceptance tests:** none; test class is `MISSING`.
+- **Supporting tests:** Intake can classify cells before commit, but that type is not carried into curve storage or a round-trip deliverable.
+- **Manual evidence:** `delimited-intake` 3/27 is partial; `data-conventions` 0/45 and `las-export` 0/2 are unexercised.
+- **Git evidence:** no implementation commit exists for the provenance half; commit state is `UNIMPLEMENTED`.
+- **Verdict:** `ABSENT`; `DEFERRED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** a storage/export representation for source cell state must be designed without changing the `f32::NAN` arithmetic contract.
+- **Next action:** design one compact provenance channel beside samples, then implement T11 as an import/export round trip without introducing `Option<f32>`.
+
+## SB-DIO-008 - Coverage-aware alias resolution MUST be preserved.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-OK`; owned tests `SB-DIO-T12`, `SB-DIO-T13` (characterization).
+- **Atomic obligations:** choose greatest finite coverage; retain alias-priority order on exact ties by replacing only on strict improvement; remain deterministic.
+- **Current source:** the LAS `pick` closure counts finite samples, replaces only when coverage is strictly greater and scans candidates in declared alias order.
+- **Qualifying acceptance tests:** no tests are mapped to T12/T13; test class is `MISSING`.
+- **Supporting tests:** SB-DIO-009's result test uses the all-null-versus-populated fixture and proves the greatest-coverage side, but no equal-coverage control pins the tie rule.
+- **Manual evidence:** `las-import` 0/57, `generic-curve-store` 0/18 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** the algorithm is integrated at the accepted anchor; no owned characterization closure was found.
+- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** no source parameter is missing; the equal-coverage contract is unpinned.
+- **Next action:** add one characterization test containing both the populated-later candidate and an exact-coverage tie, asserting the cited alias order.
+
+## SB-DIO-009 - The alias choice MUST be reported.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T14`.
+- **Atomic obligations:** report chosen and passed-over mnemonics plus each finite-coverage count whenever aliases compete.
+- **Current source:** `AliasDecision` and `AliasCandidateCoverage` travel from both LAS parsers through `ImportResult` and IPC.
+- **Qualifying acceptance tests:** `the_alias_result_names_the_chosen_and_passed_over_columns_with_both_coverage_counts` is `CORRECTNESS`; its fixture and expectation come from the chapter's T12/T14 contract.
+- **Supporting tests:** SB-DIO-030 tests the rename/table-entry arm of the same result model.
+- **Manual evidence:** `las-import` 0/57 and `generic-curve-store` 0/18 - unexercised.
+- **Git evidence:** reachable `ef5f222` contains the closing report surface.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied audit contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** keep the full candidate list in any future alias-based reader rather than emitting only the winner.
+
+## SB-DIO-010 - Prefer a structural index declaration; fall back to names; record which mechanism fired.
+
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T15`, `SB-DIO-T16`.
+- **Atomic obligations:** prefer a structural declaration where present; honour a format-owned positional guarantee before names; otherwise resolve by alias or explicit designation; report the mechanism.
+- **Current source:** `parsers.rs::resolve_index_column` implements the ordered mechanisms and returns `IndexResolution`; import results carry it through IPC.
+- **Qualifying acceptance tests:** `a_structural_index_wins_and_every_resolution_records_the_mechanism_that_fired` is `CORRECTNESS`; it pins structural and LAS positional controls from the chapter contract.
+- **Supporting tests:** SB-DIO-013 exercises the user-designation outcome.
+- **Manual evidence:** `las-import` 0/57, `delimited-intake` 3/27 and `data-conventions` 0/45.
+- **Git evidence:** reachable `4a6bc9f` contains the closing resolver/report change.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied index contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** register any new structural reader through the same result mechanism and add its positive and fallback controls.
+
+## SB-DIO-011 - Index aliases MUST be namespace-aware and MUST have one definition per path.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned test `SB-DIO-T17`.
+- **Atomic obligations:** define one sourced alias list per path; keep vendor namespaces separate; retain TVD only in its own reference namespace.
+- **Current source:** LAS, core and tops-MD lists are separate and source-commented; `TVD` exists only in `TOPS_TVD_ALIASES`, not any MD list.
+- **Qualifying acceptance tests:** `every_index_alias_list_cites_one_source_and_tvd_is_not_in_an_md_namespace` is `CORRECTNESS`; expected membership comes from chapter section 5.3 and the cited Geolog namespaces.
+- **Supporting tests:** unit-qualified depth header tests protect the MD lists without restoring positional guessing.
+- **Manual evidence:** `data-conventions` 0/45, `las-import` 0/57 and `core-point-import` 0/52 - unexercised.
+- **Git evidence:** reachable `8262c6b` contains the namespace split.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied namespace contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for alias membership; SB-DIO-014 still owns reference semantics after resolution.
+- **Next action:** keep the alias test and require every new list to name one source and one reference namespace.
+
+## SB-DIO-012 - A non-monotonic index MUST be detected and reported, never silently accepted.
+
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DIO-T18`.
+- **Atomic obligations:** locate the first non-increasing row; block before commit until a user decision; report acceptance without sorting or rewriting.
+- **Current source:** `ingest.rs` checks the parsed index before writes, returns the row and requires `NonMonotonicDecision`; accepted data remains in delivered order.
+- **Qualifying acceptance tests:** `a_non_increasing_index_is_blocked_at_the_reported_row_until_the_user_accepts_it` is `CORRECTNESS`; it pins refusal and explicit-accept controls from T18.
+- **Supporting tests:** duplicate-depth policy tests distinguish repeated from decreasing indexes.
+- **Manual evidence:** `las-import` 0/57 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `cc7c8f5` contains the pre-commit decision gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied structural guard); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** preserve the separate non-increasing and duplicate decisions when adding readers.
+
+## SB-DIO-013 - When neither structure nor name resolves an index, the user MUST designate it.
+
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DIO-T19`.
+- **Atomic obligations:** make designation mandatory for formats without a positional guarantee; commit nothing before it; record the chosen column and mechanism.
+- **Current source:** `resolve_index_column` refuses when structure/name fail and accepts only an explicit designated column; core import propagates the resolution.
+- **Qualifying acceptance tests:** `a_delimited_table_without_an_index_name_commits_nothing_until_the_user_designates_one` is `CORRECTNESS`; it pins both refusal and successful designation without positional guessing.
+- **Supporting tests:** `unit_qualified_and_bare_depth_aliases_resolve_while_an_unrelated_column_is_not_guessed` protects common headers and the negative side.
+- **Manual evidence:** `core-point-import` 0/52, `delimited-intake` 3/27 and `data-conventions` 0/45.
+- **Git evidence:** reachable `00c22c5`, with follow-up `f02571f`, contains the designation contract and qualified-header regression.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied index guard); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** route every non-positional delimited reader through this resolver and its no-write refusal.
+
+## SB-DIO-014 - TVD MUST NOT be read as an MD index.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T20`, `SB-DIO-T21`.
+- **Atomic obligations:** retain the TVD alias; mark TVD-referenced data as TVD; refuse MD joins/plots/comparisons until a deviation survey exists.
+- **Current source:** `TOPS_TVD_ALIASES` correctly retains TVD separately, but `parse_tops_file` immediately folds the MD and TVD matches into one untyped `TopsRecord.depth`. The importer therefore has no reference flag with which to block an MD join or require a survey.
+- **Qualifying acceptance tests:** none; test class is `MISSING`.
+- **Supporting tests:** SB-DIO-011 proves only namespace membership; it cannot prove stored reference semantics or the no-survey refusal.
+- **Manual evidence:** `correlation-tops` 0/36 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `8262c6b` closed the alias-list half; the accepted source still contains the untyped tops path.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** no new numeric parameter is required; a depth-reference field and survey-aware join guard are missing.
+- **Next action:** carry MD/TVD reference through tops parse, storage and IPC; refuse TVD-to-MD use without a deviation survey; implement T20/T21 without deleting the TVD alias.
+
+## SB-DIO-015 - An index with no declared unit anywhere MUST refuse.
+
+- **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DIO-T22`, `SB-DIO-T23`, `SB-DIO-T24`.
+- **Atomic obligations:** refuse when both project and file units are absent; when only the file unit is absent, require a per-import declaration rather than inheriting the project unit; name both possible sources; commit nothing before resolution.
+- **Current source:** `units.rs::resolve_index_unit` returns errors for both absent-file cases, and LAS/core import accepts an explicit file-unit confirmation before applying the normal adopted/matched/converted action.
+- **Qualifying acceptance tests:** `an_undeclared_index_unit_refuses_until_the_files_unit_is_explicitly_confirmed` is `CORRECTNESS`; it pins both refusal arms and the explicit-confirmation success arm against the chapter contract.
+- **Supporting tests:** unit spelling and DLIS reconciliation tests exercise the shared resolver.
+- **Manual evidence:** `data-conventions` 0/45, `las-import` 0/57, `dlis-import` 0/11 and `core-point-import` 0/52 - unexercised.
+- **Git evidence:** reachable `a98c154` contains the closing refusal.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied P0 contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** require every new index-bearing reader to call the shared resolver before writes.
+
+## SB-DIO-016 - The DLIS index unit MUST be read and reconciled.
+
+- **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DIO-T25`, `SB-DIO-T26`.
+- **Atomic obligations:** emit the index channel's `UNITS` from the DLIS sidecar; reconcile it through the shared unit resolver; convert with the cited foot factor or refuse an undeclared index under SB-DIO-015.
+- **Current source:** `DLIS_RUNNER` emits `index_unit` for each scalar channel, `resolve_dlis_index_actions` requires consistent per-file units and calls `resolve_index_unit`, and `apply_index_action` converts the depth buffers before commit.
+- **Qualifying acceptance tests:** `the_dlis_index_unit_is_read_reconciled_and_an_undeclared_one_is_refused` is `CORRECTNESS`; its 0.3048 factor is the exact NIST SP 811 conversion cited in chapter section 5.1, and it pins convert, refuse and explicit-confirm paths.
+- **Supporting tests:** SB-DIO-015 pins the common resolver independently of the sidecar.
+- **Manual evidence:** `dlis-import` 0/11 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `189cceb` contains the closing index-unit sidecar and import path.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied P0 contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** runtime field exercise still depends on a qualified `dlisio` environment, but the automated contract is closed.
+- **Next action:** field-exercise metric and feet DLIS files under Gate 4 without weakening the no-unit refusal.
+
+## SB-DIO-017 - The LAS writer MUST write the depth unit it actually used.
+
+- **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T27`, `SB-DIO-T28`.
+- **Atomic obligations:** obtain the stored/project depth unit from the unit model; write it on STRT, STOP, STEP and the index curve; prohibit a writer-owned unit literal; survive metre and feet round trips.
+- **Current source:** `export.rs::write_las` resolves the project depth unit and writes its code to every depth declaration; the output validator checks the same declared unit before success.
+- **Qualifying acceptance tests:** `the_las_writer_declares_the_unit_it_wrote_for_both_feet_and_metres` is `CORRECTNESS`; the conversion/round-trip expectation is sourced to NIST SP 811 and pins both units.
+- **Supporting tests:** `a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success` protects the failure surface.
+- **Manual evidence:** `las-export` 0/2, `las-import` 0/57 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `f536578` contains the closing writer change.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied P0 contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** keep all future depth-writing formats on the shared unit model and preserve both-unit round trips.
+
+## SB-DIO-018 - Canonical units MUST have exactly one definition.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T29`, `SB-DIO-T30`.
+- **Atomic obligations:** define each canonical family unit once in `curves.rs`; delete the export duplicate; make writers query the canonical table.
+- **Current source:** `curves.rs` owns the family registry and `canonical_unit`; `export.rs` calls it and no longer contains `standard_units`.
+- **Qualifying acceptance tests:** `every_exported_family_unit_comes_from_the_one_canonical_table` is `CORRECTNESS`; the fourteen-family expectation is the code-resident T1 table cited in chapter section 5.1 and the static negative pins deletion of the duplicate.
+- **Supporting tests:** LAS unit round trips exercise actual file output.
+- **Manual evidence:** `data-conventions` 0/45 and `las-export` 0/2 - unexercised.
+- **Git evidence:** reachable `34652cd` contains the single-definition closure.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied unit contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** register any new family only in `curves.rs` and keep writer-side duplicate-definition checks.
+
+## SB-DIO-019 - Changing the project depth unit MUST NOT silently rescale stored data.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-UNVERIFIED`; owned test `SB-DIO-T31`.
+- **Atomic obligations:** either perform an explicit counted migration or refuse a declaration change while committed data exists; never reinterpret or rescale silently.
+- **Current source:** `units.rs::set_project_depth_unit_checked` permits no-op/safe empty-project declarations and refuses a changed unit once any well exists; the Tauri command uses this guarded entry point.
+- **Qualifying acceptance tests:** `changing_the_project_depth_unit_is_refused_while_committed_curves_exist_and_nothing_is_rescaled` is `CORRECTNESS`; it pins the permitted refusal alternative and verifies stored depths remain byte-for-byte equal.
+- **Supporting tests:** project-unit resolver tests cover the empty-project/adoption path.
+- **Manual evidence:** `project-lifecycle` 3/24 is partial; `data-conventions` 0/45 is unexercised.
+- **Git evidence:** reachable `4776c9d` contains the guarded declaration path.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied mutation guard); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none; an actual bulk migration remains outside this requirement because refusal is an explicitly permitted implementation.
+- **Next action:** preserve the guarded entry point and keep display-unit changes separate from stored-unit declarations.
+
+## SB-DIO-020 - Duplicate depths MUST be resolved by a declared policy, and the count reported.
+
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T32`, `SB-DIO-T33`.
+- **Atomic obligations:** detect duplicates before writes; require refuse/keep-first/keep-last/mean; apply the chosen policy in lockstep to every column; report affected-row count.
+- **Current source:** `DuplicateDepthPolicy` and the shared row resolver handle standard LAS, generic curves and DLIS frames; ingest refuses without a decision and carries the count/note after resolution.
+- **Qualifying acceptance tests:** `duplicate_depths_wait_for_a_declared_policy_and_report_the_count_for_each_resolution` is `CORRECTNESS`; it pins undecided refusal and each four-policy outcome, including companion-column alignment.
+- **Supporting tests:** the non-increasing-index test uses duplicate-free data so these decisions cannot accidentally discharge each other.
+- **Manual evidence:** `las-import` 0/57, `dlis-import` 0/11 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `82a0448`, with follow-up `86b4b5c`, contains the policy gate and focused fixture correction.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied structural guard); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** make every new indexed reader use the shared policy resolver before its transaction.
+
+## SB-DIO-021 - Resampling on read MUST be explicit, named, and off by default.
+
+- **Chapter evidence:** P2; chapter status `PRESENT-OK`; owned test `SB-DIO-T34` (characterization).
+- **Atomic obligations:** preserve incoming sample intervals by default; allow a change only through an explicit operation named decimate/interpolate/average/nearest.
+- **Current source:** LAS generic curves are committed on their delivered depths under `(set_name, mnemonic)`; explicit Reframe is the separate operation that changes sampling and records a named method. No reader-side Reframe call was found. The legacy six-column standard projection shares the source LAS index rather than creating a new interval.
+- **Qualifying acceptance tests:** no test is mapped to T34 and no registry test proves the word "every" across all readers; test class is `MISSING`.
+- **Supporting tests:** explicit-set viewer/composite tests prove native generic samples are later read on their owning grids, and SB-DIO-022 proves writer defaults, but neither inventories all importers.
+- **Manual evidence:** `las-import` 0/57, `dlis-import` 0/11, `data-conventions` 0/45 and `reframe` 0/34 - unexercised.
+- **Git evidence:** reachable `2983373` preserves imported LAS sets on native grids; no owned universal characterization exists.
+- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** no numeric source is missing; the reader inventory and exact native-spacing acceptance test are absent.
+- **Next action:** register every index-bearing reader and run one irregular-spacing fixture through each, asserting stored depths unchanged and no implicit operation record.
+
+## SB-DIO-022 - Re-grid on write MUST be named correctly and default OFF.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T35`.
+- **Atomic obligations:** default writer-side regridding off; emit stored irregular samples exactly; if later enabled, name it as output resampling and record the changed-sample provenance.
+- **Current source:** the writer has no regrid option and writes the fetched depth rows directly; therefore the permitted default-off implementation is active.
+- **Qualifying acceptance tests:** `an_export_at_defaults_writes_the_irregular_stored_samples_without_regridding` is `CORRECTNESS`; its expected output is the independently seeded irregular stored index, not a value produced by the writer.
+- **Supporting tests:** LAS self-read validation checks row and curve counts after writing.
+- **Manual evidence:** `las-export` 0/2, `data-conventions` 0/45 and `reframe` 0/34 - unexercised.
+- **Git evidence:** reachable `3291921` contains the default-off lock.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied output-fidelity contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none while no writer regrid option ships.
+- **Next action:** if output regridding is ever requested, add explicit UI/provenance and a non-default test before implementing it.
+
+## SB-DIO-023 - Numeric columns MUST be validated against physical bounds, not against their labels.
+
+- **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DIO-T36`, `SB-DIO-T37`, `SB-DIO-T38`.
+- **Atomic obligations:** bind a known family, evaluate every finite value against that family's cited plausible bounds, and block for confirmation even when the mnemonic matches perfectly.
+- **Current source:** no import-time physical-family bound registry or blocking question exists. Numeric range checks elsewhere are method-specific and cannot be promoted to this contract.
+- **Qualifying acceptance tests:** none. T36-T38 are deliberately not implemented or executed because their expected bounds are absent; test class is `MISSING`.
+- **Supporting tests:** alias, unit and structural checks cannot catch a correctly labelled but shifted numeric column.
+- **Manual evidence:** `data-conventions` 0/45, `las-import` 0/57, `dlis-import` 0/11 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** no implementation commit exists; commit state is `UNIMPLEMENTED`.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** chapter section 5.6 deliberately ships physical-family ranges absent and section 7.1 O-4 records the block. Only a cited SB-ENV range table can unblock it; no plausible numbers may be supplied here.
+- **Next action:** obtain and adjudicate cited family bounds in SB-ENV, then implement a pre-commit report and T36-T38 from those exact sources.
+
+## SB-DIO-024 - Unit conversion MUST NOT be applied silently by default.
+
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DIO-T39`.
+- **Atomic obligations:** either disable automatic conversion or report every converted curve with source unit, destination unit and factor.
+- **Current source:** conversion remains automatic, but `UnitConversion` records the curve, from/to units, factor and offset; LAS import returns the records and user-visible notes only after the transaction succeeds.
+- **Qualifying acceptance tests:** `a_converted_sonic_reports_its_from_unit_to_unit_and_factor` is `CORRECTNESS`; its microseconds-per-metre to microseconds-per-foot factor is independently derived from the NIST exact foot conversion cited in section 5.1.
+- **Supporting tests:** affine and conversion-table tests protect offset and family coverage.
+- **Manual evidence:** `data-conventions` 0/45, `las-import` 0/57 and `dlis-import` 0/11 - unexercised.
+- **Git evidence:** reachable `66a5c0b` contains the conversion audit record.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied conversion-honesty contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** keep conversion records transaction-coupled and add every new reader to the same result surface.
+
+## SB-DIO-025 - Conversion coverage MUST be declared, and an unconvertible unit MUST be reported rather than passed through.
+
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T40`, `SB-DIO-T41`.
+- **Atomic obligations:** expose the exact convertible-family set; retain an unknown declared unit verbatim; flag it as unconverted rather than relabelling it canonical.
+- **Current source:** `curves::convertible_unit_families` is queryable through IPC; `prepare_generic_curves` records `UnconvertedUnit` while preserving the source unit and values.
+- **Qualifying acceptance tests:** `an_unknown_declared_unit_is_stored_verbatim_and_flagged_unconverted` and `the_unit_system_reports_the_exact_families_it_can_convert` are `CORRECTNESS`; family membership comes from the chapter-cited code-resident transform table.
+- **Supporting tests:** SB-DIO-024 exercises a supported transform end to end.
+- **Manual evidence:** `data-conventions` 0/45, `generic-curve-store` 0/18 and `las-import` 0/57 - unexercised.
+- **Git evidence:** reachable `a19d0a2` contains the declared-coverage and unconverted report.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied unit boundary); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** require a sourced transform before adding a family to the queryable set; otherwise retain and flag the source unit.
+
+## SB-DIO-026 - Unit conversion MUST support affine transforms.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T42`.
+- **Atomic obligations:** represent conversion as factor plus offset and apply the offset before/with the factor as specified; never treat an affine unit as multiplicative.
+- **Current source:** `UnitTransform` carries factor, offset and derivation; temperature conversion applies `(value + offset) * factor`, and audit records include both fields.
+- **Qualifying acceptance tests:** `a_fahrenheit_temperature_applies_its_affine_offset_before_its_factor` is `CORRECTNESS`; 32 degrees Fahrenheit to 0 degrees Celsius is the independently checkable fixed point cited in chapter section 5.1.
+- **Supporting tests:** the conversion derivation registry tests every transform's arithmetic.
+- **Manual evidence:** `data-conventions` 0/45 and `generic-curve-store` 0/18 - unexercised.
+- **Git evidence:** reachable `a3c8257` contains the affine representation and path.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied conversion contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** prohibit factor-only additions for any unit whose cited transform has a non-zero offset.
+
+## SB-DIO-027 - A vendor alias that is wrong or ambiguous MUST NOT be inherited.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T43`.
+- **Atomic obligations:** review aliases against physical quantity; reject a wrong/ambiguous vendor entry; record that designation is required while retaining source data.
+- **Current source:** the unit table explicitly rejects `PPG` as density, leaves the curve familyless, records the pressure-gradient ambiguity and retains the delivered samples/unit for a later decision.
+- **Qualifying acceptance tests:** `a_ppg_column_is_not_bound_to_density_and_is_flagged_for_designation` is `CORRECTNESS`; PPG's pressure-gradient meaning is independently derived in chapter section 5.1 rather than copied from the vendor table.
+- **Supporting tests:** unit-ambiguity and unconverted-unit tests protect neighbouring cases.
+- **Manual evidence:** `data-conventions` 0/45 and `generic-curve-store` 0/18 - unexercised.
+- **Git evidence:** reachable `7bd9966` contains the recorded rejection.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied alias-safety contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the cited instance; future aliases still require per-entry sources.
+- **Next action:** keep a review/source field on every added alias and ship ambiguous entries familyless until designated.
+
+## SB-DIO-028 - A conversion factor MUST be correct and MUST show its derivation.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T44`.
+- **Atomic obligations:** carry an independent derivation with every factor/offset and verify the table arithmetically; never treat a vendor file as the authority for arithmetic.
+- **Current source:** every `UnitTransform` includes a derivation string; `curves.rs` keeps the transform table and exposes no source-less factor entry.
+- **Qualifying acceptance tests:** `every_conversion_factor_carries_an_independent_arithmetic_derivation` is `CORRECTNESS`; expected factors are re-derived from NIST exact length/mass/temperature identities and the chapter's explicit arithmetic rather than from the implementation output.
+- **Supporting tests:** concrete sonic, Fahrenheit and PPG tests exercise high-risk rows end to end.
+- **Manual evidence:** `data-conventions` 0/45 and `verification-stewardship` 0/24 - unexercised.
+- **Git evidence:** reachable `bbd43bd` contains the derivation-bearing registry.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied source discipline); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for current transforms.
+- **Next action:** make a missing derivation a registry-test failure for every future transform.
+
+## SB-DIO-029 - An unadjudicable unit ambiguity MUST ship with no default.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T45`.
+- **Atomic obligations:** ship no default for `MS/FT`; require a per-file sonic-versus-conductivity answer; record it; never populate the wrong standard family.
+- **Current source:** `UnitDesignation` detects the symbol, import refuses before commit without an answer, and the two explicit meanings either convert sonic or retain familyless conductivity under its source unit.
+- **Qualifying acceptance tests:** `an_ms_per_ft_curve_waits_for_a_per_file_quantity_answer_and_records_either_answer` is `CORRECTNESS`; both meanings and the absence of a default come directly from chapter sections 4.5 and 5.1.
+- **Supporting tests:** unconverted-unit tests prove source retention outside known families.
+- **Manual evidence:** `data-conventions` 0/45, `las-import` 0/57 and `generic-curve-store` 0/18 - unexercised.
+- **Git evidence:** reachable `f20b87e` contains the no-default designation flow.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied ambiguity refusal); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** keep the answer scoped per file and never introduce a project-wide default for this symbol.
+
+## SB-DIO-030 - An alias rename MUST be reported.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T46`.
+- **Atomic obligations:** preserve source and applied mnemonics and identify the exact alias-table entry that fired.
+- **Current source:** `AliasDecision` records target, chosen source and `table_entry`; ingest results and warning text carry the rename without changing generic-store source identity.
+- **Qualifying acceptance tests:** `an_alias_rename_keeps_both_names_and_records_the_table_entry_that_fired` is `CORRECTNESS`; the expected mapping is the code-resident alias entry cited by the chapter.
+- **Supporting tests:** SB-DIO-009 covers competed aliases and coverage counts.
+- **Manual evidence:** `las-import` 0/57 and `generic-curve-store` 0/18 - unexercised.
+- **Git evidence:** reachable `0f545cf` contains the rename audit record.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied audit contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none.
+- **Next action:** require any future rename mechanism to emit this same three-part record.
+
+## SB-DIO-031 - A different curve's data MUST NOT be supplied under a requested name.
+
+- **Chapter evidence:** P0; chapter status `ABSENT`; owned test `SB-DIO-T47`.
+- **Atomic obligations:** return unavailable for an absent exact request; never return another curve's samples keyed as the request under any configuration.
+- **Current source:** the explicit Reframe substitution path is safe, but the general `equations.rs::fetch_generic_curve_aligned` query matches `upper(mnemonic) = request OR upper(family) = request`; callers then store the returned values under the requested key. Workflow tests deliberately rely on `HDRA -> DRHO` and `HCAL -> CALI` family fallback. `plotting.rs` also resolves a typed-family match, although it at least records the concrete mnemonic. The universal MUST NOT therefore remains violated.
+- **Qualifying acceptance tests:** none; test class is `MISSING`.
+- **Supporting tests:** `an_accepted_named_substitute_is_recorded_on_the_resulting_curve_as_provenance` proves one explicit path and explicitly keeps the substitute's own name; it cannot prove the general resolver.
+- **Manual evidence:** `generic-curve-store` 0/18, `workflow` 0/23, `log-view` 5/37 and `security-integrity` 0/63.
+- **Git evidence:** the family-fallback behavior is integrated at the accepted anchor; no universal closing commit or T47 mapping exists.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** Jauhar must adjudicate semantic family requests versus exact mnemonic requests; the current API conflates them. No silent fallback can remain under an exact-request key.
+- **Next action:** split request types, make exact-mnemonic absence explicit, return concrete identity for semantic family resolution, and implement T47 across every resolver.
+
+## SB-DIO-032 - A substitution offered to the user MUST be explicit and recorded.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T48`.
+- **Atomic obligations:** allow substitution only for an unavailable explicitly requested curve; require named substitute and explicit acceptance; write it under its own name; record the mapping in ancestry.
+- **Current source:** `reframe.rs::resolve_substitutions` enforces every precondition and stores the accepted mapping in the resulting log-set parameters while the output curve keeps the substitute mnemonic.
+- **Qualifying acceptance tests:** `an_accepted_named_substitute_is_recorded_on_the_resulting_curve_as_provenance` is `CORRECTNESS`; it pins refusal/no-write and accepted/provenance controls from D-15 and T48.
+- **Supporting tests:** SB-DIO-033 proves the requested selection is itself explicit and saved.
+- **Manual evidence:** `reframe` 0/34 and `processing-history` 0/7 - unexercised.
+- **Git evidence:** reachable `f417ea7` contains the explicit substitution flow.
+- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** `DEC-003` has not established whether Reframe substitution is in the first pilot workflow; the contract itself is automated and closed.
+- **Next action:** preserve the test and field-exercise the flow if Reframe enters the named pilot workflow.
+
+## SB-DIO-033 - Curve-selection state MUST be explicit and inspectable.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T49`.
+- **Atomic obligations:** save a named ordered selection with explicit mode; reload and inspect it; reject hidden blank-means-all or type-implied defaults.
+- **Current source:** `CurveSelection` requires `name`, `mode` and ordered exact members; documents persist it, the UI requires a saved selection, and blank selection names refuse.
+- **Qualifying acceptance tests:** `a_saved_curve_selection_reloads_as_a_named_object_listing_its_members` is `CORRECTNESS`; it pins persisted order/mode and the missing-mode negative side.
+- **Supporting tests:** Reframe request tests consume the saved object rather than an implicit list.
+- **Manual evidence:** `reframe` 0/34 and `project-lifecycle` 3/24.
+- **Git evidence:** reachable `216af9d` contains the saved selection object.
+- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** `DEC-003` has not placed this operation in or out of pilot scope.
+- **Next action:** retain exact ordered members and exercise save/reload in the pilot only if the workflow uses Reframe.
+
+## SB-DIO-034 - Curves MUST NOT be auto-selected by curve type on read.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T50`.
+- **Atomic obligations:** no read API may choose a concrete curve from a type/family classification without stating that concrete choice.
+- **Current source:** `equations.rs::fetch_generic_curve_aligned` silently widens an exact-looking request to `family = request` and returns only values, not the chosen curve identity. `plotting.rs` performs a similar typed-family resolution but records its reason and mnemonic. The unreported workflow/read path violates the universal contract.
+- **Qualifying acceptance tests:** none; test class is `MISSING`.
+- **Supporting tests:** current workflow tests characterize family fallback as useful behavior but do not expose the chosen identity, so they defend neither the specified reporting contract nor an exact-name refusal.
+- **Manual evidence:** `generic-curve-store` 0/18, `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
+- **Git evidence:** family-based read resolution is integrated at the accepted anchor; no T50 closure exists.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** the same request-type adjudication as SB-DIO-031 is required; silently returning a family member is not acceptable.
+- **Next action:** make family resolution an explicit semantic request returning concrete identity/reason, keep exact requests exact, and add T50 across all read resolvers.
+
+## SB-DIO-035 - An import MUST NOT extend an existing object's declared interval.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T51`.
+- **Atomic obligations:** detect an incoming DLIS interval outside the held well/set interval; stop before writes; require an explicit decision; leave the existing interval unchanged on refusal.
+- **Current source:** `dlis.rs::interval_preflight` computes stored/incoming extents and returns a confirmation-required result before any prepared curve is written; the explicit accept path records the decision.
+- **Qualifying acceptance tests:** `a_dlis_outside_an_existing_wells_declared_range_requires_confirmation_before_any_write` is `CORRECTNESS`; it pins refusal/no-write and explicit-confirm controls from D-34/T51.
+- **Supporting tests:** DLIS index-unit and multi-well tests protect upstream interval identity.
+- **Manual evidence:** `dlis-import` 0/11, `delivery-sets` 0/33 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `0b0a1d5` contains the interval preflight.
+- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** `DEC-003` has not established whether DLIS is in the first pilot workflow; the automated contract is closed.
+- **Next action:** field-exercise refusal and confirmation if DLIS enters the named pilot corpus.
+
+## SB-DIO-036 - The duplicate-name policy MUST NOT default to merge.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T52`.
+- **Atomic obligations:** stop on every existing mnemonic/frame conflict; offer only explicit keep-separate or skip decisions; record each choice; provide no merge default/path.
+- **Current source:** `duplicate_preflight` requires one decision per conflict, records it, and exposes no merge enum variant; keep-separate writes a new set and skip is named.
+- **Qualifying acceptance tests:** `an_incoming_dlis_mnemonic_requires_a_recorded_per_curve_choice_and_never_defaults_to_merge` is `CORRECTNESS`; it pins the undecided refusal, both permitted choices and the absence of a merge action.
+- **Supporting tests:** import-set tests confirm separate set identity is retained.
+- **Manual evidence:** `dlis-import` 0/11, `delivery-sets` 0/33 and `generic-curve-store` 0/18 - unexercised.
+- **Git evidence:** reachable `eb6f219` contains the duplicate-name preflight.
+- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** pilot relevance depends on `DEC-003`; no engineering blocker remains.
+- **Next action:** keep merge absent from the enum/API and field-exercise both permitted choices if DLIS is selected.
+
+## SB-DIO-037 - Channels that could not be loaded MUST be named, and a partial load MUST NOT be reported as success.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned test `SB-DIO-T53`.
+- **Atomic obligations:** name every unreadable/unsupported/encrypted channel and report partial when fewer payload channels load; distinguish a retained attribute warning from omitted data.
+- **Current source:** the DLIS sidecar emits structured `DlisSkip` records with `omitted`; `import_status` compares declared and loaded channels; results expose complete/partial/failed plus named skips.
+- **Qualifying acceptance tests:** `a_dlis_with_one_unreadable_and_one_readable_channel_is_partial_and_names_the_unreadable_channel` is `CORRECTNESS`; it pins both omitted-partial and retained-warning-complete sides.
+- **Supporting tests:** SB-DIO-054 covers all-skipped failure and every skip-kind inventory.
+- **Manual evidence:** `dlis-import` 0/11 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** reachable `19bc678` contains the partial-status closure.
+- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** pilot relevance depends on `DEC-003`; field behavior still needs a qualified `dlisio` environment.
+- **Next action:** preserve complete/partial/failed semantics and exercise one real partial file if DLIS enters Gate 4.
+
+## SB-DIO-038 - Multi-dimensional channels MUST be imported through the published RP66 container.
+
+- **Chapter evidence:** P2; chapter status `ABSENT`; owned tests `SB-DIO-T54`, `SB-DIO-T55`.
+- **Atomic obligations:** parse RP66 multidimensional channels with frame shape and per-axis labels/units; import an all-array delivery as non-empty; use no proprietary tile/model encoding; support the published-container round trip described by section 7.4 D-1.
+- **Current source:** `DLIS_RUNNER` accepts only one-dimensional scalar columns and emits a skip for every other shape. No array shape/axis schema or bytemuck IPC/storage path is connected to DLIS arrays; an all-array file is now an honest error under SB-DIO-054, not the required import capability.
+- **Qualifying acceptance tests:** none; test class is `MISSING`.
+- **Supporting tests:** SB-DIO-054 proves arrays are named rather than silently lost, but a correct refusal is not multidimensional support.
+- **Manual evidence:** `array-logs` 0/16 and `dlis-import` 0/11 - unexercised.
+- **Git evidence:** no implementation commit exists; scalar skip reporting is integrated but does not satisfy this requirement.
+- **Verdict:** `ABSENT`; `UNDECIDED`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** section 7.4 A-1 says the normative API RP66 V1 multidimensional-channel sections are not held locally. The read half may be independently built from the public specification once acquired; the write half must not be inferred from `dlisio` behavior.
+- **Next action:** Jauhar decides pilot need under `DEC-003`; if in scope, acquire API RP66 V1, design bytemuck array storage/IPC from it, then implement T54/T55 without proprietary encodings.
+
+## SB-DIO-039 - The DLIS sentinel screen MUST be per-channel overridable and MUST count what it deleted.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T56`, `SB-DIO-T57`.
+- **Atomic obligations:** retain default LAS-style sentinel screening for DLIS scalar channels; allow named per-channel disable; count screened samples and identify the rule per channel.
+- **Current source:** DLIS import builds per-channel modes, honours explicit no-null exceptions, and returns `DlisSentinelScreen` records with channel, count and rule.
+- **Qualifying acceptance tests:** `a_named_dlis_sentinel_exception_preserves_minus_999_25_while_the_default_screens_and_counts_it` is `CORRECTNESS`; the sentinel and override behavior come from D-5 and chapter section 5.2, with override and default controls.
+- **Supporting tests:** common plural/no-null tests exercise the underlying null-mode representation.
+- **Manual evidence:** `dlis-import` 0/11 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `9b1a37b` contains the per-channel screen record.
+- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** pilot relevance depends on `DEC-003`; no source gap remains.
+- **Next action:** exercise the default and exception paths on controlled DLIS data if selected for Gate 4.
+
+## SB-DIO-040 - Wrapped LAS MUST be read; the writer MUST emit unwrapped.
+
+- **Chapter evidence:** P2; chapter status `PRESENT-OK`; owned test `SB-DIO-T58` (characterization).
+- **Atomic obligations:** honour `WRAP.YES` by assembling complete logical rows regardless of physical line breaks; keep columns aligned; emit `WRAP.NO` and one row per depth on write.
+- **Current source:** both LAS parse paths buffer tokens when wrapped and reject incomplete logical rows; `export.rs` always declares `WRAP.NO` and writes one complete line per depth.
+- **Qualifying acceptance tests:** no test is mapped to T58's 30-curve fixture; test class is `MISSING`.
+- **Supporting tests:** SB-DIO-054's malformed-row test includes a three-column `WRAP.YES` positive control, and LAS export source makes the unwrapped declaration explicit. Neither pins the 30-curve alignment or writer half as one owned contract.
+- **Manual evidence:** `las-import` 0/57 and `las-export` 0/2 - unexercised.
+- **Git evidence:** wrapped reader and unwrapped writer are integrated at the accepted anchor; no owned T58 closure was found.
+- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** no source parameter is missing; the full-width characterization test is absent.
+- **Next action:** implement T58 with 30 uniquely valued curves, assert every column after import, then export and assert `WRAP.NO` plus complete logical rows.
+
+## SB-DIO-041 - A LAS 3.0 file MUST be recognised, and what is not read MUST be named.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T59`.
+- **Atomic obligations:** recognise version 3.0; continue reading supported well/curve/ASCII content; list each encountered unsupported section in the import result.
+- **Current source:** both LAS parsers capture `VERS`, classify 3.0, record unknown/associated section headers and return them through `ImportResult.warning`.
+- **Qualifying acceptance tests:** `a_las_3_file_is_recognised_as_3_0_and_every_unread_section_is_named_in_the_result` is `CORRECTNESS`; the expected section names are seeded independently from the chapter T59 fixture.
+- **Supporting tests:** the malformed corpus exercises section and row failures through both LAS readers.
+- **Manual evidence:** `las-import` 0/57 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `7ee9e97` contains LAS 3 recognition and unread-section reporting.
+- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** `DEC-003` has not established LAS 3.0 as a pilot input; associated-section capability remains SB-DIO-042.
+- **Next action:** preserve the named-degradation result and field-exercise it only if LAS 3.0 enters the pilot corpus.
+
+## SB-DIO-042 - LAS 3.0 associated sections MUST be read.
+
+- **Chapter evidence:** P3; chapter status `ABSENT`; owned test `SB-DIO-T60`.
+- **Atomic obligations:** parse associated-section definitions, `|`-delimited sub-sections and multi-array data into the appropriate core/tops/array models.
+- **Current source:** LAS 3.0 associated sections are recorded as unread names and their payloads are not parsed.
+- **Qualifying acceptance tests:** none; test class is `MISSING`.
+- **Supporting tests:** SB-DIO-041 proves honest recognition/refusal, not associated-section support.
+- **Manual evidence:** `las-import` 0/57, `core-point-import` 0/52 and `array-logs` 0/16 - unexercised.
+- **Git evidence:** no implementation commit exists; commit state is `UNIMPLEMENTED`.
+- **Verdict:** `ABSENT`; `DEFERRED`; `LATER`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** section 7.4 A-2 records the CWLS LAS 3.0 specification as not held locally. Implementation may not be derived from another product's parser.
+- **Next action:** keep the named unread-section behavior; acquire the CWLS LAS 3.0 specification before a separately authorized later increment.
+
+## SB-DIO-043 - LAS 1.2 MUST be readable and MUST NOT be writable.
+
+- **Chapter evidence:** P2; chapter status `ABSENT`; owned test `SB-DIO-T61`.
+- **Atomic obligations:** accept a valid 1.2 delivery; never expose a 1.2 writer option.
+- **Current source:** the LAS readers accept non-3.0 version strings using the common scalar parser, so a normal 1.2 structure is not rejected; `REGISTERED_WRITERS` offers only LAS 2.0. No explicit 1.2 branch documents or tests the supported subset.
+- **Qualifying acceptance tests:** no T61 mapping exists; test class is `MISSING`.
+- **Supporting tests:** the writer registry proves 1.2 is not offered, but no legacy fixture proves the read half.
+- **Manual evidence:** `las-import` 0/57 and `las-export` 0/2 - unexercised.
+- **Git evidence:** the generic reader and 2.0-only writer are integrated; no owned 1.2 closure exists.
+- **Verdict:** `PRESENT-UNVERIFIED`; `UNDECIDED`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `DEC-003` must determine whether a legacy 1.2 delivery belongs in the representative corpus.
+- **Next action:** add one source-conformant 1.2 fixture, pin successful read and absence from `export_formats`, then field-exercise if selected.
+
+## SB-DIO-044 - Section-parse strictness MUST be declared and consistent.
+
+- **Chapter evidence:** P2; chapter status `PARTIAL`; owned test `SB-DIO-T62`.
+- **Atomic obligations:** declare one policy for malformed headers, unknown sections and out-of-order sections across LAS versions; report every tolerance/refusal outcome.
+- **Current source:** section classification is shared by both LAS parse paths, but unknown sections are reported only when `VERS` is recognised as 3.0; non-3.0 unknown sections fall back to a generic header state. Out-of-order sections alter the active parser state without a dedicated diagnostic. No user-facing strictness policy or T62 fixture was found.
+- **Qualifying acceptance tests:** none; test class is `MISSING`.
+- **Supporting tests:** malformed short-row and LAS 3 unread-section tests cover isolated cases, not uniform section policy.
+- **Manual evidence:** `las-import` 0/57 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** shared section helpers are integrated; the reporting/policy closure is absent.
+- **Verdict:** `PARTIAL`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** the policy can be specified without a petrophysical parameter, but `DEC-003` has not made malformed legacy/version coverage a pilot condition.
+- **Next action:** write one explicit version-independent strictness table, return structured outcomes from both parsers, and implement T62 with accepted/refused controls.
+
+## SB-DIO-045 - A multi-well container MUST produce multiple wells, never one merged well.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned tests `SB-DIO-T63`, `SB-DIO-T64`.
+- **Atomic obligations:** derive one project well per source well in a multi-well container; never merge those sources; show the source-to-project mapping before commit.
+- **Current source:** `src-tauri/src/dlis.rs` groups logical files by source well identity, refuses logical files that cannot be separated, returns the mapping in preview and commits each resolved group to a distinct well.
+- **Qualifying acceptance tests:** `a_three_well_dlis_shows_its_logical_file_mapping_before_commit_and_creates_three_wells_without_merging` is `CORRECTNESS`; one fixture pins both the visible pre-commit mapping and the three separate committed wells.
+- **Supporting tests:** the skipped-frame accounting tests prove per-frame degradation but do not replace the cross-logical-file identity assertion.
+- **Manual evidence:** `dlis-import` 0/11 and `delivery-sets` 0/33 - unexercised.
+- **Git evidence:** reachable `da40d16` contains the multi-logical-file grouping, preview and regression test.
+- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** `DEC-003` has not selected a multi-well DLIS for the pilot corpus; this does not diminish the automated contract.
+- **Next action:** field-exercise a representative multi-well container if `DEC-003` selects one, preserving the pre-commit mapping evidence.
+
+## SB-DIO-046 - A missing interpreter or library MUST produce a named, actionable, per-format refusal.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-OK`; owned test `SB-DIO-T65`.
+- **Atomic obligations:** disable only the affected format; name the missing interpreter or library and the remedy; refuse before a partial import or write.
+- **Current source:** `src-tauri/src/dlis.rs` resolves `CAPABILITY_DLIS_IMPORT` through the shared Python capability manifest; `src-tauri/src/office.rs` does the same for workbook/document/deck export, and the resolver supplies capability-specific installation text.
+- **Qualifying acceptance tests:** no T65 mapping simulates both missing Python and missing per-format packages for DLIS and workbook export; test class is `MISSING`.
+- **Supporting tests:** capability-manifest and installation tests validate individual messages and the interpreter probe, but they do not execute both format boundaries under the T65 absence conditions.
+- **Manual evidence:** `dlis-import` 0/11 and `office-deliverables` 0/39 are unexercised; the matrix has no dedicated installer-capability row.
+- **Git evidence:** the per-capability resolver is integrated; no owned end-to-end refusal proof was found.
+- **Verdict:** `PRESENT-UNVERIFIED`; `UNDECIDED`; `DEPLOYMENT`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** no source parameter is missing; the gap is an owned boundary test, while release packaging remains an SB-INS decision.
+- **Next action:** add T65 with an isolated capability environment and assert distinct DLIS and workbook refusals name their package and remedy before work starts.
+
+## SB-DIO-047 - Storage precision MUST be declared and MUST NOT silently truncate.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned test `SB-DIO-T66`.
+- **Atomic obligations:** declare internal sample precision; surface every import or export precision reduction in the operation result.
+- **Current source:** `src-tauri/src/ingest.rs` records float64-to-f32 import reduction and `src-tauri/src/export.rs` reports the LAS text writer's four-decimal representation rather than presenting either as lossless.
+- **Qualifying acceptance tests:** `a_float64_core_import_and_a_four_decimal_las_export_state_their_precision_reductions` is `CORRECTNESS`; it independently pins both sides of the precision boundary.
+- **Supporting tests:** ordinary core import and LAS export tests exercise the paths but do not prove the disclosure text.
+- **Manual evidence:** `core-point-import` 0/52, `las-export` 0/2 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `173c7d2` contains the precision disclosures and the owned test.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the automated contract; manual deliverable review remains open.
+- **Next action:** retain the declarations and confirm both messages in pilot import/export evidence.
+
+## SB-DIO-048 - Well identity in a container MUST come from the container, never from the filename.
+
+- **Chapter evidence:** P2; chapter status `PARTIAL`; owned test `SB-DIO-T67`.
+- **Atomic obligations:** use the container's well-identifying field; offer a filename only as a user-confirmable default; never select it silently.
+- **Current source:** `src-tauri/src/parsers.rs::read_las_well_name` returns the LAS `~W WELL` value when present but silently falls back to the file stem, and `src-tauri/src/ingest.rs` consumes that returned identity during LAS import.
+- **Qualifying acceptance tests:** none pins the confirmation boundary; test class is `MISSING`.
+- **Supporting tests:** LAS-header parsing proves that `~W WELL` wins when present, but does not prove that a missing header refuses or asks before using the filename.
+- **Manual evidence:** `las-import` 0/57, `data-conventions` 0/45 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** container-first parsing is integrated, but the silent filename fallback remains reachable.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** no parameter is missing; the current fallback violates the explicit confirmation contract.
+- **Next action:** separate `source identity absent` from a proposed filename default, require confirmation before commit, and add T67 with both disagreeing and missing-header controls.
+
+## SB-DIO-049 - Writing a file our own reader would reject MUST be an error, not a warning.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned tests `SB-DIO-T68`, `SB-DIO-T69`.
+- **Atomic obligations:** route every registered writer's artifact through its own registered reader before success; make rejection fatal; catch a misdeclared depth unit before success.
+- **Current source:** `src-tauri/src/export.rs` performs a reader round trip for every registered writer, validates declared depth units against the source unit, and returns an error on either failure.
+- **Qualifying acceptance tests:** `every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error` and `a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success` are `CORRECTNESS`; the writer inventory and wrong-unit control pin both obligations.
+- **Supporting tests:** ordinary LAS export success is not counted as proof because it cannot show that rejection is fatal.
+- **Manual evidence:** `las-export` 0/2, `las-import` 0/57 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** reachable `2f4d4a2` contains the round-trip and unit self-check closure.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the only registered writer; adding a writer must extend the same inventory test.
+- **Next action:** preserve the registry-wide test and capture one successful pilot artifact/read-back pair.
+
+## SB-DIO-050 - A re-gridded input MUST be detectable at import.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T70`.
+- **Atomic obligations:** compare declared step with actual finite adjacent spacing; flag disagreement; do not flag a matching declaration.
+- **Current source:** `src-tauri/src/ingest.rs` calculates actual LAS spacing from the imported index and adds a possible-regridding warning when it disagrees with declared `STEP`.
+- **Qualifying acceptance tests:** `a_declared_step_that_disagrees_with_actual_spacing_is_flagged_as_possibly_regridded_and_a_matching_step_is_not` is `CORRECTNESS`; the mismatch and matching control prevent an unconditional warning from passing.
+- **Supporting tests:** deep-index and null-depth cases exercise the same comparison but do not replace the two-sided contract test.
+- **Manual evidence:** `las-import` 0/57, `data-conventions` 0/45 and `reframe` 0/34 - unexercised.
+- **Git evidence:** reachable `29d7504` contains the import warning and owned test.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** the automated declared-versus-actual case is closed; the chapter's separate acquisition-consistency phrase has no universal acquisition step source and is not inferred.
+- **Next action:** retain the two-sided test and capture the warning against a representative re-gridded delivery if one enters the pilot corpus.
+
+## SB-DIO-051 - Provenance MUST be carried into the deliverable.
+
+- **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DIO-T71`, `SB-DIO-T72`, `SB-DIO-T73`.
+- **Atomic obligations:** classify every exported curve as measured, computed or model-derived; record method plus parameter values for computed curves; carry the saved-model record; encode the record inside LAS `~O`.
+- **Current source:** `src-tauri/src/export.rs` builds a provenance record for every selected curve, requires a saved model for model-derived output, and writes the complete record into `~O` before its own-reader validation.
+- **Qualifying acceptance tests:** `every_las_export_carries_measured_computed_and_model_provenance_in_the_file` is `CORRECTNESS`; its measured, computed and saved-model cases collectively map T71-T73 and inspect the file rather than only the return value.
+- **Supporting tests:** the final/working-curve test proves status marking, not method/model provenance.
+- **Manual evidence:** `las-export` 0/2, `processing-history` 0/7 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** reachable `b940fcb` contains the in-file provenance record and owned test.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** a model curve without a saved model is deliberately refused; weakening that refusal would violate the record contract.
+- **Next action:** preserve the refusal and verify the `~O` record in a representative client-facing pilot deliverable.
+
+## SB-DIO-052 - Final and working curves MUST be distinguishable in an export.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T74`.
+- **Atomic obligations:** allow both working and final curves to be exported while marking each status inside the file.
+- **Current source:** `src-tauri/src/export.rs` carries the curve-status metadata into the LAS provenance section for every exported curve.
+- **Qualifying acceptance tests:** `a_working_and_final_phie_are_both_exported_and_each_is_marked_in_the_file` is `CORRECTNESS`; it proves both curves are present and differently labelled, so omission or one default label cannot pass.
+- **Supporting tests:** general provenance coverage exercises the same writer but does not substitute for the paired status assertion.
+- **Manual evidence:** `las-export` 0/2 and `processing-history` 0/7 - unexercised.
+- **Git evidence:** reachable `ba53311` contains the working/final status closure.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the automated file contract.
+- **Next action:** include a paired working/final export in pilot deliverable review.
+
+## SB-DIO-053 - Well-header fields MUST be mapped explicitly and identity MUST NOT be invented.
+
+- **Chapter evidence:** P2; chapter status `PARTIAL`; owned tests `SB-DIO-T75`, `SB-DIO-T76`.
+- **Atomic obligations:** use a documented header mapping; preserve unmapped headers verbatim; never synthesise any identity field.
+- **Current source:** `src-tauri/src/parsers.rs` maps a selected subset of LAS well fields into typed metadata but does not carry all unmapped `~W` records verbatim. When `WELL` is missing, `read_las_well_name` synthesises the file stem as the well identity.
+- **Qualifying acceptance tests:** none maps T75 or T76; test class is `MISSING`.
+- **Supporting tests:** known-header parsing and alias tests prove selected mappings only and cannot prove preservation of unknown fields or absence of invented identity.
+- **Manual evidence:** `las-import` 0/57, `data-conventions` 0/45 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** the partial typed mapping is integrated; verbatim preservation and no-synthesis closure are absent.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** no source parameter is missing; the file-stem identity fallback is the same explicit contract violation recorded under SB-DIO-048.
+- **Next action:** preserve the complete raw `~W` map alongside typed fields, remove silent identity synthesis, and add T75/T76 with unknown-header and no-UWI controls.
+
+## SB-DIO-054 - Every skipped frame, channel, curve and row MUST be counted and named.
+
+- **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T77`, `SB-DIO-T78`, `SB-DIO-T79`.
+- **Atomic obligations:** name and count every skipped frame/channel/curve/row with its rule; allow partial success only with that record; turn all-skipped input into an error.
+- **Current source:** `src-tauri/src/dlis.rs` accumulates structured skip records through logical files, frames, channels, curves and rows; its LAS bridge reports malformed short rows with location, and all-skipped input returns an error.
+- **Qualifying acceptance tests:** `every_skipped_frame_channel_curve_and_row_is_counted_named_and_all_skipped_is_an_error` is `CORRECTNESS`; it covers the good-plus-bad, all-bad and short-row obligations rather than asserting only a summary count.
+- **Supporting tests:** malformed-corpus coverage checks reader behavior broadly but does not replace the DLIS item-level inventory.
+- **Manual evidence:** `dlis-import` 0/11, `las-import` 0/57 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** reachable `d922ba8` contains the named skip accounting and owned test.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated degradation reporting; real malformed deliveries remain unexercised.
+- **Next action:** retain the all-skipped refusal and capture partial-import notes against a representative malformed pilot artifact if available.
+
+## SB-DIO-055 - An export that omits data MUST say what it omitted.
+
+- **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T80`, `SB-DIO-T81`.
+- **Atomic obligations:** write every held curve or name every omitted curve and reason in both the user result and file; report written and held counts.
+- **Current source:** `src-tauri/src/export.rs` inventories all held curves, writes every eligible curve, and serialises any held item with the same reason into the operation result and LAS `~O` section.
+- **Qualifying acceptance tests:** `every_held_curve_is_written_or_named_with_the_same_reason_in_the_file_and_result` is `CORRECTNESS`; it uses more curves than the old fixed selection and cross-checks names, reasons and counts across both reporting surfaces.
+- **Supporting tests:** the writer round trip proves readability, not completeness or disclosed omission.
+- **Manual evidence:** `las-export` 0/2, `generic-curve-store` 0/18 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** reachable `3276f27` contains the all-held-curve inventory and disclosure test.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated completeness reporting.
+- **Next action:** verify the written/held inventory in a many-curve pilot export.
+
+## SB-DIO-056 - A declared `STEP` MUST be verified across the whole index.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T82`, `SB-DIO-T83`.
+- **Atomic obligations:** compare every adjacent interval; emit the uniform step only when all intervals agree within the stated tolerance; otherwise write zero; never infer `STEP` from only the first pair.
+- **Current source:** `src-tauri/src/export.rs` still calculates `STEP` as `depth[1] - depth[0]` and does not inspect the remaining index, so a later interval change is silently misdeclared.
+- **Qualifying acceptance tests:** none maps T82/T83; test class is `MISSING`.
+- **Supporting tests:** export round trips use uniform grids and therefore cannot expose the first-interval defect.
+- **Manual evidence:** `las-export` 0/2, `reframe` 0/34 and `data-conventions` 0/45 - unexercised.
+- **Git evidence:** the divergent first-interval implementation is integrated; no closure commit exists.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** the requirement says `within the stated tolerance`, but chapter section 5 supplies no STEP-uniformity tolerance. CONTRACT section 2 forbids selecting one by plausibility; an explicit exact-equality rule or cited tolerance is required before implementation.
+- **Next action:** adjudicate and cite the tolerance (or explicitly specify exact equality), then scan the full finite index and add uniform/irregular T82-T83 controls.
+
+## SB-DIO-057 - A zero on a log-scale curve MUST NOT be committed as a reading.
+
+- **Chapter evidence:** P1; chapter status `ABSENT`; owned tests `SB-DIO-T84`, `SB-DIO-T85`.
+- **Atomic obligations:** identify logarithmic curve families; count exact zeros before commit; require an explicit keep/convert decision; never rewrite automatically; record the decision.
+- **Current source:** intake can report suspicious values generically, but no authoritative log-family registry classifies gas, resistivity and permeability families for this contract and no zero-decision commit record exists.
+- **Qualifying acceptance tests:** none; T84/T85 are intentionally absent because testing them would require inventing the family membership; test class is `MISSING`.
+- **Supporting tests:** generic missing-value and null-policy tests do not establish logarithmic family membership.
+- **Manual evidence:** `delimited-intake` 3/27, `data-conventions` 0/45 and `security-integrity` 0/63 - unexercised for this decision.
+- **Git evidence:** no implementation commit exists; commit state is `UNIMPLEMENTED`.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** chapter section 7.1 O-5 explicitly records log-family membership as unclassified. A family registry is a cited parameter and cannot be inferred from mnemonic intuition.
+- **Next action:** supply an authoritative, versioned log-family registry and sources; then implement pre-commit counting, explicit keep/convert recording and T84-T85.
+
+## SB-DIO-058 - Old `.xls` plate workbooks MUST be read from the published specification.
+
+- **Chapter evidence:** P2; chapter status `PARTIAL`; owned tests `SB-DIO-T86`, `SB-DIO-T87`.
+- **Atomic obligations:** read BIFF cell and drawing records from `[MS-XLS]`; preserve worksheet-to-picture association; drop and name an unresolved anchor; never guess its depth.
+- **Current source:** `src-tauri/src/intake.rs` recognises BIFF signatures, while `src-tauri/src/images.rs` deliberately refuses legacy `.xls` plate extraction because the cell/drawing parser and anchor resolution do not exist.
+- **Qualifying acceptance tests:** none; test class is `MISSING`.
+- **Supporting tests:** signature detection proves recognition only, and the correct refusal proves no guessed association; neither reads a plate workbook.
+- **Manual evidence:** `image-data` 0/30, `office-deliverables` 0/39 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** the safe refusal is integrated; the requested reader is unimplemented.
+- **Verdict:** `ABSENT`; `UNDECIDED`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** the published `[MS-XLS]` route is named, but `DEC-003` has not selected legacy plate workbooks for the pilot and no implementation is present.
+- **Next action:** if `DEC-003` selects the capability, implement from `[MS-XLS]` in a separate authorized increment and add T86/T87 without weakening the existing refusal first.
+
+## SB-DIO-059 - Tabular `.xls` MUST be readable without the drawing layer.
+
+- **Chapter evidence:** P2; chapter status `ABSENT`; owned test `SB-DIO-T88`.
+- **Atomic obligations:** parse legacy BIFF cell records for a table without requiring any drawing-layer support.
+- **Current source:** Intake can identify a BIFF stream but has no BIFF worksheet/cell-record parser; office readers support modern ZIP-based workbooks instead.
+- **Qualifying acceptance tests:** none; test class is `MISSING`.
+- **Supporting tests:** BIFF signature disambiguation does not extract cell values.
+- **Manual evidence:** `office-deliverables` 0/39, `core-point-import` 0/52 and `delimited-intake` 3/27 - the legacy table path is unexercised.
+- **Git evidence:** no tabular BIFF reader commit exists; commit state is `UNIMPLEMENTED`.
+- **Verdict:** `ABSENT`; `UNDECIDED`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** `DEC-003` must decide whether legacy tabular `.xls` belongs in the paid pilot; the requirement already names `[MS-XLS]`, so no substitute decoder may be improvised.
+- **Next action:** if selected, implement the smaller cell-record reader independently of drawings and add T88 against a licence-safe fixture.
+
+## SB-DIO-060 - Format MUST be recognised by signature, and signature collisions MUST be handled.
+
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T89`, `SB-DIO-T90`.
+- **Atomic obligations:** choose readers from content signatures; report extension disagreement; disambiguate shared signatures using structure and report the selected format.
+- **Current source:** `src-tauri/src/intake.rs` recognises BIFF stream variants, inspects shared ZIP containers by structure and routes text that is misnamed `.las` to the delimited reader while preserving a disagreement note.
+- **Qualifying acceptance tests:** `a_biff5_stream_named_xls_is_chosen_by_signature_and_a_shared_zip_signature_is_disambiguated_by_structure` and `a_delimited_text_file_named_las_is_read_as_delimited_and_the_extension_disagreement_is_reported` are `CORRECTNESS`; together they pin a collision and an extension mismatch.
+- **Supporting tests:** generic intake probes exercise ordinary extensions but do not replace the adverse controls.
+- **Manual evidence:** `delimited-intake` 3/27, `workbooks` 0/19 and `las-import` 0/57.
+- **Git evidence:** reachable `0a7281f` contains the signature-first routing and both owned tests.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the registered signature inventory; newly supported colliding containers must extend it.
+- **Next action:** preserve signature-first routing and capture one extension-disagreement result in pilot intake evidence.
+
+## SB-DIO-061 - Malformed input MUST be located, counted, named, and regression-tested against a corpus.
+
+- **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DIO-T91`, `SB-DIO-T92`, `SB-DIO-T93`, `SB-DIO-T94`.
+- **Atomic obligations:** locate file plus line/record plus failed rule; count affected items; forbid silent drop/coercion, panic, hang and unbounded allocation; run every registered reader over the in-repo malformed corpus in CI.
+- **Current source:** `src-tauri/src/example_data_test.rs` derives the reader inventory from source adapters and drives every malformed fixture through each applicable reader with bounded truncation cases and diagnostic assertions.
+- **Qualifying acceptance tests:** `malformed_input_is_located_counted_named_bounded_and_every_reader_runs_the_corpus_in_ci` is `CORRECTNESS`; it maps T91-T94 and fails when a reader is added without a corpus adapter.
+- **Supporting tests:** individual parser refusals add local detail but do not replace the cross-reader inventory.
+- **Manual evidence:** `security-integrity` 0/63, `las-import` 0/57, `dlis-import` 0/11 and `delimited-intake` 3/27.
+- **Git evidence:** reachable `3b7b654` introduced the corpus contract; reachable follow-ups `aaa4172`, `f02571f`, `9f99e69` and `86b4b5c` keep the adapter inventory aligned with later readers.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the current registered-reader inventory; real-delivery malformed evidence remains separate from CI proof.
+- **Next action:** keep the source-derived inventory mandatory and add every future malformed recurrence to the corpus before closing its defect.
+
+## SB-DIO-062 - Text encoding MUST be detected, not assumed.
+
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DIO-T95`.
+- **Atomic obligations:** detect UTF-8, UTF-16LE/BE with and without BOM, and Windows single-byte text; decode without rejecting a whole delivery for one stray byte; report the selected encoding.
+- **Current source:** `src-tauri/src/parsers.rs::read_text_file_with_encoding` performs the shared byte-level detection and fallback, and all text-import paths route through `read_text_file` rather than direct UTF-8 file reads.
+- **Qualifying acceptance tests:** `utf8_utf16_in_both_byte_orders_with_and_without_boms_and_windows_1252_are_imported_and_reported` is `CORRECTNESS`; it covers both BOM sides, no-BOM controls and Windows-1252 while checking the reported choice.
+- **Supporting tests:** lower-level parser encoding tests exercise decoder details but do not replace the full import/result assertion.
+- **Manual evidence:** `las-import` 0/57, `delimited-intake` 3/27 and `data-conventions` 0/45.
+- **Git evidence:** reachable `e8b88a3` contains the shared detector, path migration and owned test.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the required encoding inventory.
+- **Next action:** preserve the universal reader inventory and record detected encoding for representative Windows-origin pilot files.
+
+## SB-DIO-063 - Non-ASCII paths and payloads MUST survive every sidecar boundary.
+
+- **Chapter evidence:** P1; chapter status `PRESENT-OK`; owned test `SB-DIO-T96`.
+- **Atomic obligations:** preserve non-ASCII path and payload bytes unchanged through every Python-backed DLIS, office and image boundary; never decode piped stdin with the Windows ANSI code page.
+- **Current source:** `src-tauri/src/office.rs` and `src-tauri/src/images.rs` parse requests from `sys.stdin.buffer`; the shared engine uses byte streams; the DLIS sidecar receives the source path as an argument rather than through text stdin. No embedded Python path exists.
+- **Qualifying acceptance tests:** no T96 test sends the same non-ASCII path and payload through all three named boundaries; test class is `MISSING`.
+- **Supporting tests:** `a_word_document_keeps_non_ascii_text_intact` proves the office payload path, and static runner tests require `sys.stdin.buffer`, but neither proves the DLIS and images end-to-end halves.
+- **Manual evidence:** `dlis-import` 0/11, `office-deliverables` 0/39, `image-data` 0/30 and `security-integrity` 0/63 - unexercised.
+- **Git evidence:** the byte-safe runner implementations are integrated; the cross-sidecar owned proof is absent.
+- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DEPLOYMENT`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** no parameter is missing; the remaining gap is end-to-end proof across the complete sidecar inventory.
+- **Next action:** add T96 with a non-ASCII temporary path and payload through DLIS, office and images, ignoring only an optional-package subcase under the repository's package rule.

@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-DIO-P — SB-DIO LIVE-ADJUDICATION PLAN; exact 63-row evidence map written and awaiting execution approval`
+- Active increment: `G1-DOM-DIO - SB-DIO LIVE ADJUDICATION; DONE; 63/63 rows adjudicated; full gate green; review required`
 - Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only adjudication is recorded by the current topic-branch commit`
-- Automated gate: `GREEN — 2026-08-10 on the G1-DOM-DIO-P planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
+- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-DIO adjudication tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `906 live domain adjudications; 8 unresolved SB-CORE contracts dispositioned as pilot blockers, 13 SB-CORE release dispositions still need owner decisions, 2 are explicitly deferred; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
-- Next increment: `execute the 63-row SB-DIO live-adjudication plan after Jauhar approves it; no production behavior is authorized`
+- Open blockers: `843 live domain adjudications; 56 total pilot-blocker dispositions (10 SB-CORE and 46 SB-DIO), including satisfied safety contracts that still need field evidence; SB-DIO has 7 absent, 2 partial, 6 divergent and 6 present-unverified rows, with 21 missing qualifying owned proofs; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
+- Next increment: `Jauhar selects the next Gate 1 domain or authorizes a separately scoped closure increment; this adjudication authorizes no production change`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 25/931 rows adjudicated; 906 remain, alongside branch, gate, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 88/931 rows adjudicated; 843 remain, alongside branch, gate, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -32,10 +32,15 @@ The generated summary is re-measured by `node tools/takeover-ledger.mjs --summar
 Do not replace it with an estimated percentage.
 
 - Consolidated requirements: `931`.
-- Adjudicated: `25`.
-- Unadjudicated: `906`.
-- SB-CORE release dispositions: `10` pilot blockers, `13` undecided, `2` deferred. Two of the
-  pilot-blocker contracts are already `PRESENT-OK`; disposition is not defect state.
+- Adjudicated: `88`.
+- Unadjudicated: `843`.
+- As-built states: `45` present-OK, `7` present-unverified, `10` present-divergent, `14` partial,
+  `12` absent and `843` unadjudicated.
+- Release dispositions: `56` pilot blockers, `870` undecided and `5` deferred. Disposition is not
+  defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
+- SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
+  `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
+  correctness-tested and `21` missing qualifying owned proof.
 
 ## PRD structural integrity
 
@@ -74,7 +79,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-DIO-P — SB-DIO live-adjudication plan | DONE; APPROVAL REQUIRED | exact 63-row evidence map; immutable-source boundary; explicit O-4/O-5 parameter blocks; executable checks and serial handoff | current topic-branch commit |
+| G1-DOM-DIO - SB-DIO live adjudication | DONE; REVIEW REQUIRED | 63/63 rows: 7 absent, 2 partial, 6 divergent, 42 present-OK, 6 present-unverified; 46 pilot blockers, 14 undecided, 3 deferred; explicit O-4/O-5, RP66, LAS 3 and STEP-tolerance blocks; 843/931 rows remain | current topic-branch commit |
+| G1-DOM-DIO-P — SB-DIO live-adjudication plan | DONE; EXECUTED | exact 63-row evidence map; immutable-source boundary; explicit O-4/O-5 parameter blocks; executable checks and serial handoff | current topic-branch commit |
 | G1-DOM-CORE — SB-CORE live adjudication | DONE; REVIEW REQUIRED | 25/25 rows: 5 absent, 12 partial, 4 divergent, 3 present-OK, 1 present-unverified; 10 pilot blockers, 13 undecided, 2 deferred; 906/931 rows remain | current topic-branch commit |
 | G1-DOM-CORE-P — SB-CORE live-adjudication plan | DONE | exact 25-row evidence map, immutable-source boundary, executable checks and serial handoff | `9539351` |
 | G1-I006 — Customer-facing claim inventory | DONE | 29 claims traced: 5 proven, 6 qualified, 3 unmeasured, 11 remove-recommended, 3 legal-review, 1 undecided; Gate 1 remains open | `b332026` |
