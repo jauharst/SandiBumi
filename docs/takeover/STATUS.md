@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-PLT-P - SB-PLT LIVE-ADJUDICATION PLAN; exact 35-row scope and evidence map prepared, execution approval required, no verdicts changed`
+- Active increment: `G1-DOM-PLT - SB-PLT LIVE ADJUDICATION; 35/35 rows adjudicated, receipt complete, review required`
 - Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only planning increment is recorded by the current topic-branch commit`
-- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-PLT-P planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
+- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-PLT adjudication tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `800 live domain adjudications; 88 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO and 32 SB-DBM), including satisfied safety contracts that still need field evidence; SB-DBM has 15 absent, 13 partial, 11 divergent and 3 present-unverified rows, with 42 missing qualifying owned proofs and 1 optional-package proof; the 35-row SB-PLT execution is planned but not yet adjudicated, and its named evidence gates include chart-payload legal disposition, absent Pickett/ternary/regression parameters and unmeasured release-hardware performance; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
-- Next increment: `recommended only after this plan commit is reviewed and explicitly approved: execute the 35-row SB-PLT live adjudication; do not start it automatically`
+- Open blockers: `765 live domain adjudications; 117 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO, 32 SB-DBM and 29 SB-PLT), including satisfied safety contracts that still need field evidence; SB-PLT has 7 absent, 14 partial, 10 divergent and 4 present-unverified rows, with 29 missing qualifying proofs and 6 characterization tests; its named release gates include chart-payload legal disposition, absent Pickett/ternary/regression parameters and unmeasured release-hardware performance; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
+- Next increment: `recommended only after this adjudication commit is reviewed and explicitly approved: prepare G1-DOM-GEO-P, because SB-GEO has the largest remaining P0 concentration at 33 of 52 rows; do not start it automatically`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 131/931 rows adjudicated; 800 remain, alongside branch, gate, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 166/931 rows adjudicated; 765 remain, alongside branch, gate, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -32,11 +32,11 @@ The generated summary is re-measured by `node tools/takeover-ledger.mjs --summar
 Do not replace it with an estimated percentage.
 
 - Consolidated requirements: `931`.
-- Adjudicated: `131`.
-- Unadjudicated: `800`.
-- As-built states: `46` present-OK, `10` present-unverified, `21` present-divergent, `27` partial,
-  `27` absent and `800` unadjudicated.
-- Release dispositions: `88` pilot blockers, `835` undecided and `8` deferred. Disposition is not
+- Adjudicated: `166`.
+- Unadjudicated: `765`.
+- As-built states: `46` present-OK, `14` present-unverified, `31` present-divergent, `41` partial,
+  `34` absent and `765` unadjudicated.
+- Release dispositions: `117` pilot blockers, `804` undecided and `10` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
@@ -44,6 +44,9 @@ Do not replace it with an estimated percentage.
 - SB-DBM: `43/43` adjudicated - `1` present-OK, `3` present-unverified, `11` present-divergent,
   `13` partial and `15` absent; `32` pilot blockers, `8` undecided and `3` deferred; `1`
   optional-package proof and `42` missing qualifying whole-contract proofs.
+- SB-PLT: `35/35` adjudicated - `4` present-unverified, `10` present-divergent, `14` partial and
+  `7` absent; `29` pilot blockers, `4` undecided and `2` deferred; `6` characterization tests and
+  `29` missing qualifying whole-contract proofs.
 
 ## PRD structural integrity
 
@@ -82,7 +85,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-PLT-P - SB-PLT live-adjudication plan | DONE; AWAITING EXECUTION APPROVAL | exact 35-row map: 18 P0, 13 P1, 4 P2; 43 chapter test intentions but 35 blank source-owned test fields; observable-integration, absent-parameter, performance and chart-rights gates preserved; ledger remains 131/931 adjudicated | current topic-branch commit |
+| G1-DOM-PLT - SB-PLT live adjudication | DONE; REVIEW REQUIRED | 35/35 rows: 7 absent, 14 partial, 10 divergent, 4 present-unverified; 29 pilot blockers, 4 undecided, 2 deferred; 29 missing qualifying proofs and 6 characterizations; 765/931 rows remain | current topic-branch commit |
+| G1-DOM-PLT-P - SB-PLT live-adjudication plan | DONE; EXECUTED | exact 35-row map: 18 P0, 13 P1, 4 P2; 43 chapter test intentions but 35 blank source-owned test fields; observable-integration, absent-parameter, performance and chart-rights gates preserved | current topic-branch commit |
 | G1-DOM-DBM - SB-DBM live adjudication | DONE; REVIEW REQUIRED | 43/43 rows: 15 absent, 13 partial, 11 divergent, 1 present-OK, 3 present-unverified; 32 pilot blockers, 8 undecided, 3 deferred; source/tolerance/UTC/real-scale gaps preserved; 800/931 rows remain | current topic-branch commit |
 | G1-DOM-DBM-P - SB-DBM live-adjudication plan | DONE; EXECUTED | exact 43-row evidence map; PK-less write-discipline boundary; provenance, integrity, model-custody and scale evidence gates; serial handoff | `c283f47` |
 | G1-DOM-DIO - SB-DIO live adjudication | DONE; REVIEW REQUIRED | 63/63 rows: 7 absent, 2 partial, 6 divergent, 42 present-OK, 6 present-unverified; 46 pilot blockers, 14 undecided, 3 deferred; explicit O-4/O-5, RP66, LAS 3 and STEP-tolerance blocks; 843/931 rows remain | current topic-branch commit |
