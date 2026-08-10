@@ -9,12 +9,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-DBM - SB-DBM LIVE ADJUDICATION; 43/43 rows classified, full gate green, review required`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only adjudication is recorded by the current topic-branch commit`
-- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-DBM adjudication tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
+- Active increment: `G1-DOM-PLT-P - SB-PLT LIVE-ADJUDICATION PLAN; exact 35-row scope and evidence map prepared, execution approval required, no verdicts changed`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only planning increment is recorded by the current topic-branch commit`
+- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-PLT-P planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `800 live domain adjudications; 88 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO and 32 SB-DBM), including satisfied safety contracts that still need field evidence; SB-DBM has 15 absent, 13 partial, 11 divergent and 3 present-unverified rows, with 42 missing qualifying owned proofs and 1 optional-package proof; named gaps remain for module identity, model artifact hash, sampling-style tolerance, UTC migration and the real-well interactive-scale curve; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
-- Next increment: `recommended only after this commit is reviewed: plan the 35-row SB-PLT live adjudication (18 historical P0); do not start it automatically`
+- Open blockers: `800 live domain adjudications; 88 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO and 32 SB-DBM), including satisfied safety contracts that still need field evidence; SB-DBM has 15 absent, 13 partial, 11 divergent and 3 present-unverified rows, with 42 missing qualifying owned proofs and 1 optional-package proof; the 35-row SB-PLT execution is planned but not yet adjudicated, and its named evidence gates include chart-payload legal disposition, absent Pickett/ternary/regression parameters and unmeasured release-hardware performance; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
+- Next increment: `recommended only after this plan commit is reviewed and explicitly approved: execute the 35-row SB-PLT live adjudication; do not start it automatically`
 
 ## Gate dashboard
 
@@ -82,6 +82,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-DOM-PLT-P - SB-PLT live-adjudication plan | DONE; AWAITING EXECUTION APPROVAL | exact 35-row map: 18 P0, 13 P1, 4 P2; 43 chapter test intentions but 35 blank source-owned test fields; observable-integration, absent-parameter, performance and chart-rights gates preserved; ledger remains 131/931 adjudicated | current topic-branch commit |
 | G1-DOM-DBM - SB-DBM live adjudication | DONE; REVIEW REQUIRED | 43/43 rows: 15 absent, 13 partial, 11 divergent, 1 present-OK, 3 present-unverified; 32 pilot blockers, 8 undecided, 3 deferred; source/tolerance/UTC/real-scale gaps preserved; 800/931 rows remain | current topic-branch commit |
 | G1-DOM-DBM-P - SB-DBM live-adjudication plan | DONE; EXECUTED | exact 43-row evidence map; PK-less write-discipline boundary; provenance, integrity, model-custody and scale evidence gates; serial handoff | `c283f47` |
 | G1-DOM-DIO - SB-DIO live adjudication | DONE; REVIEW REQUIRED | 63/63 rows: 7 absent, 2 partial, 6 divergent, 42 present-OK, 6 present-unverified; 46 pilot blockers, 14 undecided, 3 deferred; explicit O-4/O-5, RP66, LAS 3 and STEP-tolerance blocks; 843/931 rows remain | current topic-branch commit |
