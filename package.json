@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test:frontend": "node --test tools/frontend-acceptance.test.mjs",
+    "test:takeover-ledger": "node --test tools/takeover-ledger.test.mjs",
+    "check:takeover-ledger": "node tools/takeover-ledger.mjs --check",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:e2e": "node e2e/run.mjs"
