@@ -6,8 +6,18 @@ import { fileURLToPath } from 'node:url';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourcePath = path.join(repo, 'docs', 'PRD_v2', '91_REQUIREMENTS_INDEX.md');
+const prdDirectory = path.dirname(sourcePath);
 const ledgerPath = path.join(repo, 'docs', 'takeover', 'requirements.csv');
 const statusPath = path.join(repo, 'docs', 'takeover', 'STATUS.md');
+const prdAuditPath = path.join(repo, 'docs', 'takeover', 'evidence', 'prd-integrity.md');
+
+const CHAPTER_STATUSES = new Set([
+  'ABSENT',
+  'PARTIAL',
+  'PRESENT-OK',
+  'PRESENT-DIVERGENT',
+  'PRESENT-UNVERIFIED',
+]);
 
 export const LEDGER_COLUMNS = [
   'requirement_id',
@@ -325,6 +335,360 @@ export function summarizeLedger(rows) {
   };
 }
 
+function countBy(rows, fieldName) {
+  const counts = {};
+  for (const row of rows) {
+    const value = row[fieldName] || '';
+    counts[value] = (counts[value] || 0) + 1;
+  }
+  return counts;
+}
+
+function normalizeRollupLabel(value) {
+  const codeMatch = /\x60([^\x60]+)\x60/u.exec(value);
+  if (codeMatch) return codeMatch[1];
+  const plain = value.replaceAll('*', '').trim();
+  if (plain === 'Total') return null;
+  if (plain === 'Not stated by chapter') return '';
+  return plain;
+}
+
+function parseRollupTable(lines, heading) {
+  const headingIndex = lines.findIndex((line) => line.trim() === heading);
+  if (headingIndex < 0) return {};
+  const counts = {};
+  let tableStarted = false;
+  for (const line of lines.slice(headingIndex + 1)) {
+    if (!line.trimStart().startsWith('|')) {
+      if (tableStarted) break;
+      continue;
+    }
+    tableStarted = true;
+    const cells = splitMarkdownRow(line);
+    if (cells.length !== 2 || /^[-: ]+$/u.test(cells[0])) continue;
+    const label = normalizeRollupLabel(cells[0]);
+    if (label === null || label === 'Priority' || label === 'Status') continue;
+    const count = Number(cells[1].replace(/[^0-9-]/gu, ''));
+    if (!Number.isInteger(count)) throw new Error('invalid roll-up count for ' + cells[0]);
+    counts[label] = count;
+  }
+  return counts;
+}
+
+export function parseRollups(markdown) {
+  const text = String(markdown);
+  const totalMatch = /\*\*Total:\s*([0-9,]+) requirements\.\*\*/u.exec(text);
+  return {
+    total: totalMatch ? Number(totalMatch[1].replaceAll(',', '')) : null,
+    priority: parseRollupTable(text.split(/\r?\n/u), '### By priority'),
+    status: parseRollupTable(text.split(/\r?\n/u), '### By status'),
+  };
+}
+
+function compareCounts(declared, derived) {
+  const values = [...new Set([...Object.keys(declared), ...Object.keys(derived)])].sort();
+  return values
+    .filter((value) => (declared[value] || 0) !== (derived[value] || 0))
+    .map((value) => ({
+      value,
+      declared: declared[value] || 0,
+      derived: derived[value] || 0,
+    }));
+}
+
+function readOptional(filePath) {
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+}
+
+function parseDocumentMap(markdown) {
+  const start = String(markdown).split('### 0.2 Document map')[1] || '';
+  const section = start.split('### 0.3 Reading routes')[0];
+  return [...section.matchAll(/\x60([^\x60]+\.md)\x60/gu)]
+    .map((match) => match[1])
+    .filter((file, index, files) => files.indexOf(file) === index);
+}
+
+function parseSpineItems(markdown) {
+  const text = String(markdown);
+  const matches = [...text.matchAll(/^## (SP-[0-9]+) — ([^\r\n]+)/gmu)];
+  return matches.map((match, index) => {
+    const end = matches[index + 1]?.index ?? text.length;
+    const block = text.slice(match.index, end);
+    const closed = /\b(?:CLOSED|RESOLVED)\b/iu.test(block);
+    return {
+      id: match[1],
+      title: match[2],
+      state: closed ? 'CLOSED-AS-RECORDED' : 'OPEN',
+    };
+  });
+}
+
+function domainChapterFiles(files) {
+  return files.filter((file) => /^(?:1[0-9]|2[0-7])_.+\.md$/u.test(file)).sort();
+}
+
+export function auditPrd({
+  indexMarkdown,
+  indexPath,
+  prdDirectory: auditDirectory,
+  documentMapMarkdown,
+  resumeMarkdown,
+  spinePendingMarkdown,
+}) {
+  const rows = parseConsolidatedRequirements(indexMarkdown);
+  const files = fs.readdirSync(auditDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort();
+  const fileSet = new Set(files);
+  const rollups = parseRollups(indexMarkdown);
+  const derivedPriority = countBy(rows, 'original_priority');
+  const derivedStatus = countBy(rows, 'chapter_status');
+  const priorityMismatches = compareCounts(rollups.priority, derivedPriority);
+  const statusMismatches = compareCounts(rollups.status, derivedStatus);
+  const chapterCounts = countBy(rows, 'chapter');
+  const chapterReferences = Object.keys(chapterCounts).sort().map((chapter) => ({
+    chapter,
+    requirementCount: chapterCounts[chapter],
+    matches: files.filter((file) => file === chapter).length,
+  }));
+  const domainsOnDisk = domainChapterFiles(files);
+  const representedDomains = new Set(rows.map((row) => row.chapter)
+    .filter((chapter) => /^(?:1[0-9]|2[0-7])_.+\.md$/u.test(chapter)));
+  const unrepresentedDomainFiles = domainsOnDisk.filter((file) => !representedDomains.has(file));
+  const mapMarkdown = documentMapMarkdown
+    ?? readOptional(path.join(auditDirectory, '00_INDEX.md'));
+  const documentMapArtifacts = parseDocumentMap(mapMarkdown).map((file) => ({
+    file,
+    present: file.includes('/')
+      ? fs.existsSync(path.resolve(auditDirectory, file))
+      : fileSet.has(file),
+  }));
+  const missingDocumentMapArtifacts = documentMapArtifacts
+    .filter((entry) => !entry.present)
+    .map((entry) => entry.file);
+  const resume = resumeMarkdown ?? readOptional(path.join(auditDirectory, 'RESUME.md'));
+  const resumeMatch = /### Chapters\s+[—-]\s+([0-9]+) of ([0-9]+) written/u.exec(resume);
+  const resumeChapterCount = resumeMatch
+    ? {
+        claimedWritten: Number(resumeMatch[1]),
+        claimedTotal: Number(resumeMatch[2]),
+        filesOnDisk: domainsOnDisk.length,
+        status: Number(resumeMatch[1]) === domainsOnDisk.length
+          && Number(resumeMatch[2]) === domainsOnDisk.length
+          ? 'CLOSED-AS-RECORDED'
+          : 'INCONSISTENT',
+      }
+    : null;
+  const pending = spinePendingMarkdown
+    ?? readOptional(path.join(auditDirectory, '_SPINE_PENDING.md'));
+  const blankPriorities = rows.filter((row) => row.original_priority === '')
+    .map((row) => row.requirement_id);
+  const blankStatuses = rows.filter((row) => row.chapter_status === '')
+    .map((row) => row.requirement_id);
+  const invalidStatuses = rows
+    .filter((row) => row.chapter_status !== '' && !CHAPTER_STATUSES.has(row.chapter_status))
+    .map((row) => ({ requirementId: row.requirement_id, value: row.chapter_status }));
+  const withoutOwnedTests = rows.filter((row) => row.owned_tests === '')
+    .map((row) => row.requirement_id);
+  const totalMismatch = rollups.total !== null && rollups.total !== rows.length;
+
+  return {
+    indexPath,
+    consolidatedRowCount: rows.length,
+    uniqueIdCount: new Set(rows.map((row) => row.requirement_id)).size,
+    rollups: {
+      declaredTotal: rollups.total,
+      totalMismatch,
+      priority: {
+        declared: rollups.priority,
+        derived: derivedPriority,
+        mismatches: priorityMismatches,
+      },
+      status: {
+        declared: rollups.status,
+        derived: derivedStatus,
+        mismatches: statusMismatches,
+      },
+    },
+    blankPriorities,
+    blankStatuses,
+    invalidStatuses,
+    withoutOwnedTests,
+    chapterReferences,
+    domainFilesOnDisk: domainsOnDisk,
+    unrepresentedDomainFiles,
+    documentMapArtifacts,
+    missingDocumentMapArtifacts,
+    resumeChapterCount,
+    spineItems: parseSpineItems(pending),
+    summary: {
+      consolidatedRequirements: rows.length,
+      rollupMismatches: priorityMismatches.length + statusMismatches.length + (totalMismatch ? 1 : 0),
+      blankPriorities: blankPriorities.length,
+      blankStatuses: blankStatuses.length,
+      invalidStatuses: invalidStatuses.length,
+      requirementsWithoutOwnedTest: withoutOwnedTests.length,
+      missingPromisedArtifacts: missingDocumentMapArtifacts.length,
+      staleResumeClaims: resumeChapterCount?.status === 'INCONSISTENT' ? 1 : 0,
+    },
+  };
+}
+
+function code(value) {
+  const tick = String.fromCharCode(96);
+  return tick + String(value) + tick;
+}
+
+function displayRollupValue(value) {
+  return value === '' ? '(blank)' : value;
+}
+
+function idList(values) {
+  return values.length === 0 ? 'None.' : values.map(code).join(', ') + '.';
+}
+
+export function renderPrdAudit(audit) {
+  const lines = [
+    '# Gate 1 PRD structural-integrity audit',
+    '',
+    'Generated from ' + code(path.basename(audit.indexPath)) + ' and the checked-out ' + code('docs/PRD_v2') + ' directory.',
+    'A recorded discrepancy remains open; generation does not resolve or amend its source.',
+    '',
+    '## Consolidated requirements',
+    '',
+    '- Rows: ' + code(audit.consolidatedRowCount) + '.',
+    '- Unique IDs: ' + code(audit.uniqueIdCount) + '.',
+    '- Declared roll-up total: ' + code(audit.rollups.declaredTotal ?? 'ABSENT') + '.',
+    '- Total status: ' + code(audit.rollups.totalMismatch ? 'INCONSISTENT' : 'CLOSED-AS-RECORDED') + '.',
+    '',
+    '## Roll-up comparisons',
+    '',
+    '| Dimension | Value | Declared | Derived | State |',
+    '|---|---|---:|---:|---|',
+  ];
+  const mismatchRows = [
+    ...audit.rollups.priority.mismatches.map((entry) => ({ dimension: 'Priority', ...entry })),
+    ...audit.rollups.status.mismatches.map((entry) => ({ dimension: 'Status', ...entry })),
+  ];
+  if (mismatchRows.length === 0) {
+    lines.push('| All | — | — | — | ' + code('CLOSED-AS-RECORDED') + ' |');
+  } else {
+    for (const entry of mismatchRows) {
+      lines.push('| ' + entry.dimension + ' | ' + code(displayRollupValue(entry.value))
+        + ' | ' + entry.declared + ' | ' + entry.derived + ' | ' + code('INCONSISTENT') + ' |');
+    }
+  }
+  lines.push(
+    '',
+    '## Requirement-shape findings',
+    '',
+    '- Blank priorities (' + audit.blankPriorities.length + '): ' + idList(audit.blankPriorities),
+    '- Blank statuses (' + audit.blankStatuses.length + '): ' + idList(audit.blankStatuses),
+    '- Contract-invalid statuses (' + audit.invalidStatuses.length + '): '
+      + (audit.invalidStatuses.length === 0
+        ? 'None.'
+        : audit.invalidStatuses.map((entry) => code(entry.requirementId) + ' = ' + code(entry.value)).join(', ') + '.'),
+    '- Requirements without an owned acceptance-test ID (' + audit.withoutOwnedTests.length + '): '
+      + idList(audit.withoutOwnedTests),
+    '',
+    '## Chapter references',
+    '',
+    '| Chapter | Requirements | Files resolved | State |',
+    '|---|---:|---:|---|',
+  );
+  for (const entry of audit.chapterReferences) {
+    lines.push('| ' + code(entry.chapter) + ' | ' + entry.requirementCount + ' | ' + entry.matches
+      + ' | ' + code(entry.matches === 1 ? 'CLOSED-AS-RECORDED' : 'OPEN') + ' |');
+  }
+  lines.push(
+    '',
+    '- Domain chapter files on disk: ' + code(audit.domainFilesOnDisk.length) + '.',
+    '- Domain chapter files not represented by consolidated rows: ' + idList(audit.unrepresentedDomainFiles),
+    '',
+    '## Document-map artifacts',
+    '',
+    '| Artifact | Present | State |',
+    '|---|---|---|',
+  );
+  for (const entry of audit.documentMapArtifacts) {
+    lines.push('| ' + code(entry.file) + ' | ' + (entry.present ? 'yes' : 'no') + ' | '
+      + code(entry.present ? 'CLOSED-AS-RECORDED' : 'OPEN') + ' |');
+  }
+  lines.push(
+    '',
+    'Missing promised artifacts: ' + idList(audit.missingDocumentMapArtifacts),
+    '',
+    '## RESUME chapter-count claim',
+    '',
+  );
+  if (audit.resumeChapterCount) {
+    lines.push(
+      '- Claimed written: ' + code(audit.resumeChapterCount.claimedWritten) + '.',
+      '- Claimed total: ' + code(audit.resumeChapterCount.claimedTotal) + '.',
+      '- Domain chapter files on disk: ' + code(audit.resumeChapterCount.filesOnDisk) + '.',
+      '- State: ' + code(audit.resumeChapterCount.status) + '.',
+    );
+  } else {
+    lines.push('- State: ' + code('OPEN') + ' — no parseable chapter-count claim.');
+  }
+  lines.push(
+    '',
+    '## Spine-pending register',
+    '',
+    '| Item | Title | State |',
+    '|---|---|---|',
+  );
+  for (const item of audit.spineItems) {
+    lines.push('| ' + code(item.id) + ' | ' + item.title.replaceAll('|', '\\|') + ' | ' + code(item.state) + ' |');
+  }
+  lines.push(
+    '',
+    '## Dashboard counts',
+    '',
+    '- Consolidated requirements: ' + code(audit.summary.consolidatedRequirements) + '.',
+    '- Roll-up mismatches: ' + code(audit.summary.rollupMismatches) + '.',
+    '- Blank priorities: ' + code(audit.summary.blankPriorities) + '.',
+    '- Blank statuses: ' + code(audit.summary.blankStatuses) + '.',
+    '- Invalid statuses: ' + code(audit.summary.invalidStatuses) + '.',
+    '- Requirements without an owned test ID: ' + code(audit.summary.requirementsWithoutOwnedTest) + '.',
+    '- Missing promised artifacts: ' + code(audit.summary.missingPromisedArtifacts) + '.',
+    '- Stale RESUME claims: ' + code(audit.summary.staleResumeClaims) + '.',
+    '',
+    '## Interpretation boundary',
+    '',
+    'This audit reports structural agreement and disagreement. It does not repair PRD text, infer a',
+    'missing priority or status, supply a test, or convert an open spine item into a closed one.',
+    '',
+  );
+  return lines.join('\n');
+}
+
+function buildPrdAudit(options = {}) {
+  const auditSourcePath = options.sourcePath ?? sourcePath;
+  const auditDirectory = options.prdDirectory ?? path.dirname(auditSourcePath);
+  return auditPrd({
+    indexMarkdown: fs.readFileSync(auditSourcePath, 'utf8'),
+    indexPath: auditSourcePath,
+    prdDirectory: auditDirectory,
+  });
+}
+
+export function checkPrdAudit(options = {}) {
+  const reportPath = options.prdAuditPath ?? prdAuditPath;
+  if (!fs.existsSync(reportPath)) throw new Error('missing PRD integrity report: ' + reportPath);
+  const expected = renderPrdAudit(buildPrdAudit(options));
+  const actual = fs.readFileSync(reportPath, 'utf8');
+  if (actual !== expected) throw new Error('PRD integrity report is stale');
+  return true;
+}
+
+function writePrdAudit(options = {}) {
+  const reportPath = options.prdAuditPath ?? prdAuditPath;
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  fs.writeFileSync(reportPath, renderPrdAudit(buildPrdAudit(options)), 'utf8');
+}
+
 function readSourceRows() {
   return parseConsolidatedRequirements(fs.readFileSync(sourcePath, 'utf8'));
 }
@@ -342,16 +706,37 @@ export function initializeLedger(rows, targetPath = ledgerPath) {
   fs.writeFileSync(targetPath, renderCsv(rows), 'utf8');
 }
 
-function checkTracker() {
-  validateLedger(readSourceRows(), readLedgerRows());
-  if (!fs.existsSync(statusPath)) throw new Error(`missing dashboard: ${statusPath}`);
-  validateStatus(fs.readFileSync(statusPath, 'utf8'));
+export function checkTracker(options = {}) {
+  const trackerSourcePath = options.sourcePath ?? sourcePath;
+  const trackerLedgerPath = options.ledgerPath ?? ledgerPath;
+  const trackerStatusPath = options.statusPath ?? statusPath;
+  const trackerPrdAuditPath = options.prdAuditPath ?? prdAuditPath;
+  const trackerPrdDirectory = options.prdDirectory ?? path.dirname(trackerSourcePath);
+  const sourceRows = parseConsolidatedRequirements(fs.readFileSync(trackerSourcePath, 'utf8'));
+  if (!fs.existsSync(trackerLedgerPath)) throw new Error(`missing ledger: ${trackerLedgerPath}`);
+  validateLedger(sourceRows, parseCsv(fs.readFileSync(trackerLedgerPath, 'utf8')));
+  if (!fs.existsSync(trackerStatusPath)) throw new Error(`missing dashboard: ${trackerStatusPath}`);
+  validateStatus(fs.readFileSync(trackerStatusPath, 'utf8'));
+  if (fs.existsSync(trackerPrdAuditPath)) {
+    checkPrdAudit({
+      sourcePath: trackerSourcePath,
+      prdAuditPath: trackerPrdAuditPath,
+      prdDirectory: trackerPrdDirectory,
+    });
+  }
+  return true;
 }
 
 function parseArgs(argv) {
-  const supported = new Set(['--initialize', '--check', '--summary-json']);
+  const supported = new Set([
+    '--initialize',
+    '--check',
+    '--summary-json',
+    '--write-prd-audit',
+    '--check-prd-audit',
+  ]);
   if (argv.length !== 1 || !supported.has(argv[0])) {
-    throw new Error('use exactly one of --initialize, --check or --summary-json');
+    throw new Error('use exactly one supported takeover-ledger mode');
   }
   return argv[0];
 }
@@ -364,6 +749,14 @@ function main() {
   }
   if (mode === '--check') {
     checkTracker();
+    return;
+  }
+  if (mode === '--write-prd-audit') {
+    writePrdAudit();
+    return;
+  }
+  if (mode === '--check-prd-audit') {
+    checkPrdAudit();
     return;
   }
   process.stdout.write(`${JSON.stringify(summarizeLedger(readLedgerRows()), null, 2)}\n`);
