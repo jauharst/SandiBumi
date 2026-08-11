@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-ENV-P - SB-ENV LIVE-ADJUDICATION PLAN COMPLETE; exact 58-row evidence map and all 70 test intentions routed; execution approval required; no verdicts changed`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only planning increment is recorded by the current topic-branch commit`
-- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-ENV-P planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
+- Active increment: `G1-DOM-ENV - SB-ENV LIVE ADJUDICATION COMPLETE; all 58 rows have receipt-backed verdicts; full gate green; recorded by the current topic-branch commit`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only adjudication increment is recorded by the current topic-branch commit`
+- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-ENV adjudication tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `765 live domain adjudications; 117 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO, 32 SB-DBM and 29 SB-PLT), including satisfied safety contracts that still need field evidence; 58 SB-ENV rows are frozen for live adjudication (23 P0, 23 P1, 11 P2, 1 P3; historical states 23 absent, 8 partial, 13 divergent, 10 present-OK and 4 present-unverified); the chapter carries 32 ABSENT, 29 SHIPPED-UNCITED and 16 NON-ADOPTABLE parameter findings plus open correction-order, chart-rights, uncertainty, preset and primary-source gates; 52 SB-GEO rows remain unadjudicated but are outside current-version execution by DEC-011; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
-- Next increment: `only after the G1-DOM-ENV-P plan is reviewed and explicitly approved: execute G1-DOM-ENV as a documentation-only live adjudication of all 58 rows; do not change production code, choose a parameter, read protected chart data or start G1-DOM-CLY-P automatically`
+- Open blockers: `707 live domain adjudications; 167 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO, 32 SB-DBM, 29 SB-PLT and 50 SB-ENV), including satisfied safety contracts that still need field evidence; SB-ENV now measures 19 absent, 15 partial, 15 divergent, 4 present-unverified and 5 present-OK, with 49 missing qualifying proofs; its 32 specified-ABSENT, 29 SHIPPED-UNCITED and 16 NON-ADOPTABLE parameter findings remain fenced, along with correction order, chart rights, uncertainty, preset, primary-source and manual-evidence gates; 52 SB-GEO rows remain unadjudicated but are outside current-version execution by DEC-011; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
+- Next increment: `recommended, not started: G1-DOM-CLY-P — plan the clay-volume domain against the now-adjudicated correction/conditioning inputs; require separate approval before preparing or executing it`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 166/931 rows adjudicated; 765 remain, alongside branch, gate, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 224/931 rows adjudicated; 707 remain, alongside branch, gate, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -32,11 +32,11 @@ The generated summary is re-measured by `node tools/takeover-ledger.mjs --summar
 Do not replace it with an estimated percentage.
 
 - Consolidated requirements: `931`.
-- Adjudicated: `166`.
-- Unadjudicated: `765`.
-- As-built states: `46` present-OK, `14` present-unverified, `31` present-divergent, `41` partial,
-  `34` absent and `765` unadjudicated.
-- Release dispositions: `117` pilot blockers, `804` undecided and `10` deferred. Disposition is not
+- Adjudicated: `224`.
+- Unadjudicated: `707`.
+- As-built states: `51` present-OK, `18` present-unverified, `46` present-divergent, `56` partial,
+  `53` absent and `707` unadjudicated.
+- Release dispositions: `167` pilot blockers, `753` undecided and `11` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
@@ -47,6 +47,9 @@ Do not replace it with an estimated percentage.
 - SB-PLT: `35/35` adjudicated - `4` present-unverified, `10` present-divergent, `14` partial and
   `7` absent; `29` pilot blockers, `4` undecided and `2` deferred; `6` characterization tests and
   `29` missing qualifying whole-contract proofs.
+- SB-ENV: `58/58` adjudicated - `5` present-OK, `4` present-unverified, `15` present-divergent,
+  `15` partial and `19` absent; `50` pilot blockers, `7` undecided and `1` deferred; `5`
+  correctness tests, `4` characterizations and `49` missing qualifying whole-contract proofs.
 
 ## PRD structural integrity
 
@@ -85,7 +88,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-ENV-P - SB-ENV live-adjudication plan | DONE; AWAITING EXECUTION APPROVAL | exact 58-row map: 23 P0, 23 P1, 11 P2, 1 P3; 70 test intentions routed once; 32 ABSENT, 29 SHIPPED-UNCITED and 16 NON-ADOPTABLE parameter findings preserved; protected chart data and open order/source/legal decisions fenced; no verdict changed | current topic-branch commit |
+| G1-DOM-ENV - SB-ENV live adjudication | DONE; REVIEW REQUIRED | 58/58 rows: 19 absent, 15 partial, 15 divergent, 4 present-unverified, 5 present-OK; 50 pilot blockers, 7 undecided, 1 deferred; 49 missing qualifying proofs and 4 characterizations; 707/931 rows remain; no production, PRD or protected chart data changed | current topic-branch commit |
+| G1-DOM-ENV-P - SB-ENV live-adjudication plan | DONE; EXECUTED | exact 58-row map: 23 P0, 23 P1, 11 P2, 1 P3; 70 test intentions routed once; 32 ABSENT, 29 SHIPPED-UNCITED and 16 NON-ADOPTABLE parameter findings preserved; protected chart data and open order/source/legal decisions fenced; no verdict changed | current topic-branch commit |
 | G1-SCOPE-PETRO - Petrophysics-first scope remap | DONE; REVIEW REQUIRED | explicit product-owner direction defers SB-GEO execution to the next product version; existing v1 scope doctrine identifies open-hole petrophysics as the current product; dependency evidence orders the next planning sequence ENV → CLY → POR → SAT; no requirement verdict changed | current topic-branch commit |
 | G1-DOM-GEO-P - SB-GEO live-adjudication plan | DONE; EXECUTION DEFERRED TO NEXT PRODUCT VERSION | exact 52-row map retained as evidence: 33 P0, 17 P1, 2 P2; 73 named test intentions; historical chapter state 50 absent and 2 partial; no row-level verdict changed | `e5e86b8` |
 | G1-DOM-PLT - SB-PLT live adjudication | DONE; REVIEW REQUIRED | 35/35 rows: 7 absent, 14 partial, 10 divergent, 4 present-unverified; 29 pilot blockers, 4 undecided, 2 deferred; 29 missing qualifying proofs and 6 characterizations; 765/931 rows remain | current topic-branch commit |
