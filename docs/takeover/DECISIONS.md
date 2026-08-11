@@ -15,3 +15,4 @@ been inferred. A decision row changes only from explicit Jauhar direction or nam
 | DEC-008 | Portfolio benchmark operations and thresholds | NEEDS-JAUHAR | OPEN | Named operations, fixture and hardware profile | later scale claim |
 | DEC-009 | Lineage granularity beyond the pilot audit need | NEEDS-JAUHAR | OPEN | Audit requirement from the pilot or buyer | later lineage design |
 | DEC-010 | Linux product timing and support contract | DEFERRED | Revisit after the Windows pilot | Named opportunity and support capacity | no Windows-pilot block |
+| DEC-011 | Geomechanics / PPFG product timing | DEFERRED | Hold SB-GEO for the next product version; keep the current Windows pilot focused on open-hole petrophysics | Revisit after the petrophysics pilot scope is accepted | no current-pilot block |
