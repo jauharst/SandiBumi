@@ -9,12 +9,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-CLY - SB-CLY LIVE ADJUDICATION COMPLETE; 55/55 rows evidence-backed; 27 absent, 15 partial and 13 divergent; 40 pilot blockers; review required`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only adjudication is recorded by the current topic-branch commit`
-- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-CLY adjudication tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
+- Active increment: `G1-DOM-POR-P - SB-POR LIVE-ADJUDICATION PLAN COMPLETE; exact 62-row evidence map and all 41 real test intentions routed; execution approval required; no verdicts changed`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only planning increment is recorded by the current topic-branch commit`
+- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-POR-P planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `652 live domain adjudications; 207 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO, 32 SB-DBM, 29 SB-PLT, 50 SB-ENV and 40 SB-CLY), including satisfied safety contracts that still need field evidence; SB-CLY is 55/55 adjudicated at 27 absent, 15 partial and 13 divergent, with 52 missing qualifying whole-contract proofs and 3 characterizations; the chapter's 15 ABSENT and 1 NON-ADOPTABLE parameter findings remain fenced alongside open transform-source, clamp-epsilon, endpoint, selector-compatibility, vendor-session, type/provenance, null-discipline and manual-evidence gates; 52 SB-GEO rows remain unadjudicated but are outside current-version execution by DEC-011; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
-- Next increment: `recommend G1-DOM-POR-P as the next serial planning increment because porosity consumes the clay-volume outputs; do not start it automatically or treat the SB-CLY adjudication as manual/UI acceptance evidence`
+- Open blockers: `652 live domain adjudications; 207 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO, 32 SB-DBM, 29 SB-PLT, 50 SB-ENV and 40 SB-CLY), including satisfied safety contracts that still need field evidence; all 62 SB-POR rows remain unadjudicated and frozen for the planned execution pass at 17 P0, 25 P1, 17 P2 and 3 P3, with all 62 chapter-status and owned-test fields blank; the chapter defines 41 real test IDs while numeric T26/T27 are intentionally absent, and its 74-row parameter table mechanically contains 15 ABSENT-bearing and 8 NON-ADOPTABLE rows while chapter prose claims 18 ABSENT; SP-009, SP-012 through SP-014, the SP-015 citation follow-up, the PHIE-floor evidence conflict, the compaction clamp-versus-refusal choice, the approximation rename-versus-RHG80 choice, source escalations ESC-1/2/3/5/7/POR-8 and all manual-evidence gates remain open; 52 SB-GEO rows remain unadjudicated but are outside current-version execution by DEC-011; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
+- Next increment: `after Jauhar reviews and explicitly approves the plan, execute G1-DOM-POR as the next serial docs-only live adjudication; do not start it automatically, change porosity code, select a parameter, resolve an open product decision, or treat automated evidence as manual/UI acceptance`
 
 ## Gate dashboard
 
@@ -53,6 +53,9 @@ Do not replace it with an estimated percentage.
 - SB-CLY: `55/55` adjudicated - `13` present-divergent, `15` partial and `27` absent; `40` pilot
   blockers, `8` undecided and `7` deferred; `3` characterizations and `52` missing qualifying
   whole-contract proofs.
+- SB-POR: `0/62` adjudicated - all rows remain `UNADJUDICATED`; `17` P0, `25` P1, `17` P2 and
+  `3` P3; all `62` chapter-status and owned-test fields remain blank; the execution plan routes all
+  `41` real chapter test intentions without inventing numeric `T26` or `T27`.
 
 ## PRD structural integrity
 
@@ -91,6 +94,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-DOM-POR-P - SB-POR live-adjudication plan | DONE; AWAITING EXECUTION APPROVAL | exact 62-row map: 17 P0, 25 P1, 17 P2, 3 P3; all 41 real test intentions routed once and numeric T26/T27 left absent; blank source-owned status/test fields, 74-row parameter inventory, ABSENT-count discrepancy, source escalations, sonic/PHIE-floor product decisions and manual-evidence boundaries fenced; no verdict changed | current topic-branch commit |
 | G1-DOM-CLY - SB-CLY live adjudication | DONE; REVIEW REQUIRED | 55/55 rows: 27 absent, 15 partial, 13 divergent; 40 blockers, 8 undecided, 7 deferred; 52 missing qualifying proofs and 3 characterizations; 652/931 remain; no production, PRD, protected vendor data or manual evidence changed | current topic-branch commit |
 | G1-DOM-CLY-P - SB-CLY live-adjudication plan | DONE; EXECUTED | exact 55-row map: 13 P0, 15 P1, 19 P2, 6 P3, 2 P4; 44 test intentions routed once; 15 ABSENT and 1 NON-ADOPTABLE parameter findings preserved; transform, endpoint, type, provenance, sentinel and protected-source boundaries fenced; no verdict changed | current topic-branch commit |
 | G1-DOM-ENV - SB-ENV live adjudication | DONE; REVIEW REQUIRED | 58/58 rows: 19 absent, 15 partial, 15 divergent, 4 present-unverified, 5 present-OK; 50 pilot blockers, 7 undecided, 1 deferred; 49 missing qualifying proofs and 4 characterizations; 707/931 rows remain; no production, PRD or protected chart data changed | current topic-branch commit |
