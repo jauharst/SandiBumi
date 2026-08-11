@@ -9,12 +9,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-SCOPE-PETRO - PETROPHYSICS-FIRST REMAP COMPLETE; SB-GEO plan retained as evidence but execution deferred to the next product version by DEC-011; no verdicts changed`
+- Active increment: `G1-DOM-ENV-P - SB-ENV LIVE-ADJUDICATION PLAN COMPLETE; exact 58-row evidence map and all 70 test intentions routed; execution approval required; no verdicts changed`
 - Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only planning increment is recorded by the current topic-branch commit`
-- Automated gate: `GREEN — 2026-08-11 on the G1-SCOPE-PETRO decision tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
+- Automated gate: `GREEN — 2026-08-11 on the G1-DOM-ENV-P planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `765 live domain adjudications; 117 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO, 32 SB-DBM and 29 SB-PLT), including satisfied safety contracts that still need field evidence; 52 SB-GEO rows remain unadjudicated in the consolidated ledger but are outside current-version execution by DEC-011; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
-- Next increment: `only after this decision commit is reviewed and explicitly approved: prepare G1-DOM-ENV-P, the documentation-only SB-ENV live-adjudication plan; ENV is first because it owns corrected inputs, validity preconditions and QC evidence consumed by CLY, POR and SAT; do not start adjudication or production implementation automatically`
+- Open blockers: `765 live domain adjudications; 117 total pilot-blocker dispositions (10 SB-CORE, 46 SB-DIO, 32 SB-DBM and 29 SB-PLT), including satisfied safety contracts that still need field evidence; 58 SB-ENV rows are frozen for live adjudication (23 P0, 23 P1, 11 P2, 1 P3; historical states 23 absent, 8 partial, 13 divergent, 10 present-OK and 4 present-unverified); the chapter carries 32 ABSENT, 29 SHIPPED-UNCITED and 16 NON-ADOPTABLE parameter findings plus open correction-order, chart-rights, uncertainty, preset and primary-source gates; 52 SB-GEO rows remain unadjudicated but are outside current-version execution by DEC-011; 1 branch follow-up; PRD structural findings — 2 roll-up mismatches, 15 blank priorities, 62 blank statuses, 2 invalid statuses, 137 missing owned-test IDs, 1 missing promised artifact, 1 stale RESUME claim; 24 of 29 release claims are not PROVEN`
+- Next increment: `only after the G1-DOM-ENV-P plan is reviewed and explicitly approved: execute G1-DOM-ENV as a documentation-only live adjudication of all 58 rows; do not change production code, choose a parameter, read protected chart data or start G1-DOM-CLY-P automatically`
 
 ## Gate dashboard
 
@@ -85,6 +85,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-DOM-ENV-P - SB-ENV live-adjudication plan | DONE; AWAITING EXECUTION APPROVAL | exact 58-row map: 23 P0, 23 P1, 11 P2, 1 P3; 70 test intentions routed once; 32 ABSENT, 29 SHIPPED-UNCITED and 16 NON-ADOPTABLE parameter findings preserved; protected chart data and open order/source/legal decisions fenced; no verdict changed | current topic-branch commit |
 | G1-SCOPE-PETRO - Petrophysics-first scope remap | DONE; REVIEW REQUIRED | explicit product-owner direction defers SB-GEO execution to the next product version; existing v1 scope doctrine identifies open-hole petrophysics as the current product; dependency evidence orders the next planning sequence ENV → CLY → POR → SAT; no requirement verdict changed | current topic-branch commit |
 | G1-DOM-GEO-P - SB-GEO live-adjudication plan | DONE; EXECUTION DEFERRED TO NEXT PRODUCT VERSION | exact 52-row map retained as evidence: 33 P0, 17 P1, 2 P2; 73 named test intentions; historical chapter state 50 absent and 2 partial; no row-level verdict changed | `e5e86b8` |
 | G1-DOM-PLT - SB-PLT live adjudication | DONE; REVIEW REQUIRED | 35/35 rows: 7 absent, 14 partial, 10 divergent, 4 present-unverified; 29 pilot blockers, 4 undecided, 2 deferred; 29 missing qualifying proofs and 6 characterizations; 765/931 rows remain | current topic-branch commit |
