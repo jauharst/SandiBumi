@@ -17,15 +17,55 @@
 - Retrieval boundary: Clauding retrieval returned a weak chapter-only match. The live repository, immutable chapter, independently sourced tests, generated manual matrix and reachable history are the evidence; the retrieval gap is not filled from model memory.
 - Navigation boundary: the codebase-index MCP server is not callable in this task. Consequential negative findings are therefore confirmed with targeted current-source, exact-test and reachable-history searches.
 
+## Product-owner adjudication addendum - 2026-08-11
+
+This addendum records the product direction supplied after review of the 62-row receipt. It changes
+release intent and closes named product decisions; it does not claim any production behavior, test
+or manual scenario changed.
+
+| Decision | Current stand | Engineering consequence |
+|---|---|---|
+| `DEC-012` - invalid Wyllie compaction factor | **DECIDED:** refuse when `Cp < 1` | SB-POR-017 stays `PRESENT-DIVERGENT` and a pilot blocker until the refusal is observable and T29 pins invalid and valid controls. Help text is explanatory only. |
+| `DEC-013` - POR output names | **DECIDED:** user-configurable names; intentional same-name reuse is explicit replacement, never silent collision | Distinct user names must preserve parallel POR results. Explicit replacement must preserve version/undo custody. Imported and computed identities remain distinguishable. |
+| `DEC-014` - POR method separation | **DECIDED:** Arithmetic and RMS remain available; Gaymard-Poupon HC response and coupled porosity-`Sxo`/`Sw` iteration are mandatory separate contracts | The five roles below must be separately named, selected, proven and recorded. Exact equations, parameters, tolerances and endpoints remain governed by the chapter and cited sources. |
+| `DEC-015` - SB-POR-001 envelope | **NEEDS-JAUHAR:** literal common limiting contract versus method-specific numerical limits under a common typed envelope | No wording is inferred from the reply labelled `805`, because that reply unambiguously selected the separate `Cp < 1` refusal. SB-POR-001 through 003 remain blocked on this boundary. |
+| `DEC-016` - required POR capability set | **DECIDED:** analytic N-D, HC response, excavation and neutron-sonic belong in the product | Inclusion does not close ESC-POR-8, tool/source custody, any absent parameter, an implementation, a test or a separately deferred pilot-timing row. |
+
+### Distinct POR contracts now carried
+
+1. **Arithmetic comparison output** - available as an explicitly labelled comparison quantity; it is not an authoritative analytic crossplot method or pay default.
+2. **RMS comparison output** - available under the same comparison/pay-exclusion boundary; it is not silently promoted to the analytic N-D answer.
+3. **SSC/SSPW RMS conditioning** - the narrow parity contract already specified by SB-POR-059; this internal role is not evidence that RMS is an authoritative crossplot method.
+4. **Gaymard-Poupon hydrocarbon response** - mandatory, with the source-bound electron-density, hydrogen-index, validity, provenance and double-correction protections of SB-POR-029 through 038. The UI and provenance must use the full method identity because `Gaymard` alone is also used in the literature for an RMS quick rule.
+5. **Coupled porosity-`Sxo`/`Sw` iterative solve** - mandatory and separate from all three shortcut/conditioning roles, with no partial iterate on failure and with explicit convergence, precedence and configuration refusal under SB-POR-035 and SB-POR-050 through 052.
+
+Current measured stand after this addendum: 62/62 POR rows remain adjudicated; 21 are
+`PRESENT-DIVERGENT`, 15 `PARTIAL`, 25 `ABSENT` and 1 `PRESENT-UNVERIFIED`. Promoting the two
+solver-discipline rows made mandatory by `DEC-014` changes the POR release split to 44
+`PILOT-BLOCKER`, 13 `UNDECIDED` and 5 `DEFERRED`. Test evidence remains 6
+`CHARACTERIZATION`, 56 `MISSING`, 0 `CORRECTNESS`; manual POR evidence remains 0/33.
+
+### Current stand at a glance
+
+- **Architecture:** a POR quantity family and complete method/convention/run provenance are required. User-configurable output names are settled by `DEC-013`. The exact common-limit boundary remains open under `DEC-015`.
+- **Numerical limits and flags:** method-specific physics is not automatically an error, but a silent branch or clamp is. Existing hard bounds become cited, visible parameters and binding is observable; an uncited endpoint remains absent.
+- **Sonic:** the chapter's truthful naming and per-method shale conventions remain the adopted target. `Cp < 1` is now a hard refusal. SP-013 still needs the separate rename-with-source versus true-RHG80 choice.
+- **N-D and gas:** Arithmetic and RMS remain available only in their explicitly named roles. Gaymard-Poupon HC response and the coupled porosity-`Sxo`/`Sw` iteration are mandatory separate contracts. SB-POR-059's RMS parity fix remains narrow and does not implement either rigorous contract.
+- **Missing capability:** analytic N-D, HC response, excavation and neutron-sonic are required product capabilities under `DEC-016`; no missing source or parameter is supplied by that inclusion decision.
+- **Proof:** every atomic contract still needs an independent correctness oracle. No implementation-derived snapshot is promoted. Automated evidence remains 0 qualifying POR correctness tests, and Jauhar retains ownership of all 33 manual POR checks.
+
 ## Chapter and cross-domain findings carried into every row
 
 - SP-009 remains open: all source-owned POR status and test fields stay blank, and numeric T26/T27 stay absent.
-- SP-012 remains open: the shipped Wyllie compaction path accepts `Cp < 1` and can inflate porosity. Clamp versus refusal is a product-owner decision, not made here.
+- SP-012's product decision is closed by `DEC-012`: `Cp < 1` is refused. The shipped Wyllie path remains divergent until the refusal and its regression test are implemented.
 - SP-013 remains open: the shipped `RHG` option is a one-segment approximation under a three-segment published name. Rename-with-source versus implementing RHG80 is not chosen here.
 - SP-014 remains open: one user-visible sonic description contains a prohibited geographic parenthetical. This receipt names the surface without reproducing the proper name.
 - SP-015 supplies primary-source citations for the compaction estimator and RHG's no-compaction-correction property; it does not authorize an implementation choice.
 - The chapter's 18-ABSENT claim does not mechanically match its 15 ABSENT-bearing rows. The mismatch is not normalized and every parameter is adjudicated from its own row.
 - Current `PHIE_FLOOR = 0.001` implements a later direct product decision, while SB-POR-045 requires the conflicting vendor values to ship with no default. Current behavior, chapter contract and later decision remain separate pending product-owner precedence.
+- `DEC-013` permits user-configurable POR output names and intentional, versioned replacement; it does not permit a silent collision or loss of imported/computed identity.
+- `DEC-014` makes Gaymard-Poupon HC response and the coupled porosity-`Sxo`/`Sw` iterative path mandatory separate contracts. Arithmetic, RMS comparison and SSC/SSPW RMS conditioning remain separately identified roles.
+- `DEC-015` remains open for the exact SB-POR-001 common-contract boundary; no answer is inferred from a mismatched line reference.
 - ESC-1, ESC-2, ESC-3, ESC-5, ESC-7 and ESC-POR-8 remain source/custody boundaries. Protected vendor charts and binaries are not opened or copied, and non-adoptable constants do not become defaults.
 - Manual capability baseline: porosity 0/33, generic-curve-store 0/18, conditioning 0/27, workflow 0/23, las-export 0/2 and processing-history 0/7; histogram 5/22 and crossplot 6/13 do not prove POR custody or correctness.
 
@@ -39,8 +79,8 @@
 - **Source/parameter boundary:** no new value is needed; this is an architecture contract.
 - **History/reachability:** all current paths are integrated at the accepted anchor; current and reachable-history searches found no unified POR contract.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** implementation dependency on a single POR result contract; no product-value decision is made here.
-- **Next action:** define the common POR result and inventory every registered method against it before migrating any individual method.
+- **Blocker or decision:** `DEC-015` remains open: literal common numerical limiting versus method-specific limits beneath one common family/provenance/flag envelope.
+- **Next action:** Jauhar selects that boundary; then define the common POR result and inventory every registered method against it before migrating any individual method.
 
 ## SB-POR-002 - Unlimited and limited pairs for every method
 
@@ -78,8 +118,8 @@
 - **Source/parameter boundary:** not numeric; imported and computed identity must remain distinct.
 - **History/reachability:** no POR family, `MTH_PHI`, convention field or collision-free sequential scheme was found in current or reachable source.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** requires a canonical POR naming/type/provenance policy before migration.
-- **Next action:** add POR family metadata and stable method-qualified storage names, then prove two sequential methods and one imported PHIE remain separately addressable.
+- **Blocker or decision:** `DEC-013` settles the policy: names are user-configurable; distinct names preserve parallel results; intentional same-name reuse is explicit, versioned replacement; silent collision remains forbidden.
+- **Next action:** add POR family metadata, method/convention provenance and user-configurable output names; prove distinct-name preservation, explicit same-name replacement plus restore, and imported-versus-computed identity.
 
 ## SB-POR-005 - Separately named correction and forward functions
 
@@ -244,11 +284,11 @@
 - **Qualifying acceptance tests:** none for specified behavior. Test class `CHARACTERIZATION`: `phi_son_wyllie_cp_opt_in_only_scales_wyllie` explicitly expects the current inflation and therefore records the divergence rather than proving correctness.
 - **Supporting tests:** the characterization passed exactly once and also proves the option does not affect the current `RHG` branch.
 - **Manual evidence:** porosity 0/33.
-- **Source/parameter boundary:** SP-012 records the direction and SP-015 the source; clamp versus refusal remains unchosen.
+- **Source/parameter boundary:** SP-012 records the direction, SP-015 the source and `DEC-012` selects refusal; no threshold or parameter is introduced by this adjudication.
 - **History/reachability:** the silent inflation path and defending test are integrated.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** Jauhar must choose hard refusal versus a visible hard flag; no remedy is selected here.
-- **Next action:** after that decision, implement the invalid-side observable behavior and retain a `Cp >= 1` control that cannot inflate.
+- **Blocker or decision:** `DEC-012` closes the product choice in favor of hard refusal; implementation and proof remain open.
+- **Next action:** refuse `Cp < 1` before evaluation and any computed write, then retain a `Cp >= 1` control proving the accepted branch cannot inflate porosity.
 
 ## SB-POR-018 - Floor shale-corrected slowness before every transform
 
@@ -688,9 +728,9 @@
 - **Manual evidence:** porosity 0/33; workflow 0/23.
 - **Source/parameter boundary:** no ordering is inferred from current module catalog order.
 - **History/reachability:** no current or reachable POR solver-precedence implementation was found.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** product/method architecture must define admissible combinations before implementation.
-- **Next action:** specify one explicit precedence graph with forbidden combinations, then make it part of validated run configuration.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `REQUESTED-CAPABILITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** `DEC-014` makes the coupled porosity-`Sxo`/`Sw` solver mandatory and separate; its admissible unknowns and deterministic precedence remain source/configuration work, not an inferred ordering.
+- **Next action:** specify one source-faithful precedence graph with forbidden combinations, then make it part of the validated iterative run configuration.
 
 ## SB-POR-052 - Invalid POR configurations refuse observably
 
@@ -701,9 +741,9 @@
 - **Manual evidence:** porosity 0/33; workflow 0/23; generic-curve-store 0/18.
 - **Source/parameter boundary:** an absent source-bound value must remain a refusal, never be auto-filled.
 - **History/reachability:** no complete POR configuration validator was found.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on completing the typed POR configuration schema and solver precedence.
-- **Next action:** validate the full resolved request before calculation/write and test wrong-family, missing-source, conflicting-method and invalid-solver controls.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** `DEC-014` makes the iterative path mandatory; it still depends on the typed POR configuration schema and a source-faithful solver precedence.
+- **Next action:** validate the full resolved request before calculation/write and test wrong-family, missing-source, conflicting-method and invalid-iterative controls.
 
 ## SB-POR-053 - Canonical neutron-sonic shale porosity
 
@@ -861,24 +901,28 @@
 - Every ABSENT value remains absent. Current literals, familiar values, neighboring vendors, ranges, means and test fixtures are not citations.
 - The nine Bateman-Konen constants remain non-adoptable until ESC-POR-8 is closed with admissible custody.
 - PHIE floor remains a three-way evidence conflict: chapter no-default contract, current compile-time `0.001`, and later direct product decision `0.001`. No precedence is chosen here.
-- SP-012 remains open for `Cp < 1`: hard refusal versus hard flag is unchosen.
+- SP-012's product choice is closed by `DEC-012`: `Cp < 1` is refused. The production refusal and qualifying regression remain open.
 - SP-013 remains open: rename the current approximation with a source versus implement true RHG80 is unchosen.
 - SP-014 remains open for the user-visible sonic wording surface; the prohibited proper name is not repeated in this receipt.
 - ESC-1, ESC-2, ESC-3, ESC-5, ESC-7 and ESC-POR-8 remain hard custody boundaries. No protected chart, binary or confidential delivery was opened.
 
-## Product-owner decisions preserved
+## Product-owner decisions and current stand
 
 - Decide PHIE-floor evidence precedence and its visible run-configuration form.
-- Decide SP-012 hard refusal versus hard flag for `Cp < 1`.
+- `DEC-012` is decided: refuse `Cp < 1`; Help text is supplementary, never the guard.
+- `DEC-013` is decided: POR output names are user-configurable; distinct names preserve parallel results, while intentional same-name reuse is explicit, versioned and undoable replacement.
+- `DEC-014` is decided: Arithmetic comparison, RMS comparison, SSC/SSPW RMS conditioning, Gaymard-Poupon HC response and coupled porosity-`Sxo`/`Sw` iteration are separately identified contracts; the last two are mandatory.
+- `DEC-015` remains `NEEDS-JAUHAR`: literal common limiting contract versus method-specific numerical limits under one common POR family/provenance/flag envelope.
+- `DEC-016` is decided: analytic N-D, HC response, excavation and neutron-sonic belong in the product; source custody and any separately deferred pilot timing remain explicit.
 - Decide SP-013 rename-with-source versus implementing RHG80.
 - Decide whether CSR, chart validation, salinity interpolation, force-wet, HC physical ceiling and smooth roll-off belong in the pilot; all remain without invented defaults.
-- Keep neutron-sonic, source-gated excavation constants, vendor parameter-set import, POR audit report and core comparison deferred as recorded; this receipt does not pull later scope into the pilot.
+- Neutron-sonic inclusion is settled by `DEC-016`, but its existing deferred pilot timing is not silently promoted. Keep vendor parameter-set import, POR audit report and core comparison deferred as recorded; no decision supplies a missing source or pulls every neighboring POR item into the pilot.
 
 ## Measured totals and completeness guard
 
 - Receipt coverage: 62/62 IDs exactly once, from `SB-POR-001` through `SB-POR-062`; no duplicate or gap.
 - As-built classification: 21 `PRESENT-DIVERGENT`, 15 `PARTIAL`, 25 `ABSENT`, 1 `PRESENT-UNVERIFIED`, 0 `PRESENT-OK`.
-- Release disposition: 42 `PILOT-BLOCKER`, 15 `UNDECIDED`, 5 `DEFERRED`.
+- Release disposition: 44 `PILOT-BLOCKER`, 13 `UNDECIDED`, 5 `DEFERRED`.
 - Test class: 6 `CHARACTERIZATION`, 56 `MISSING`, 0 `CORRECTNESS`.
 - Commit state: 37 `INTEGRATED`, 25 `UNIMPLEMENTED`.
 - Ledger target after the atomic row update: 341/931 adjudicated and 590 unadjudicated. Exact cross-domain totals are reported from the validator rather than inferred here.
