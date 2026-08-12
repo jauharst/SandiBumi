@@ -122,7 +122,7 @@ local `master` but is patch-equivalent to fetched `origin/master`: both commits 
 | `82e56c9` | remote Kimi branch | Add Kimi delegation tier and launcher | `.gitignore`, `CLAUDE.md`, Kimi docs/tool | current `CLAUDE.md:1137-1162` delegates the tier ladder to machine-level policy | `SUPERSEDED` | provider-specific launcher is not the current collaboration contract |
 | `d1f0c1e` | old pre-strip refs | PRD and Architecture | machine `.vs` artifacts, AGENTS, SSC, design doc | no single requirement, owned test or clean scope | `REJECTED` | mixes large machine-local binaries with a protected numeric-module change |
 | `fb01bc0` | remote worktree ref | Remove numeric NEVER TOUCH block | `docs/lane_prompt.md` | current lines 91-100 retain that guard explicitly | `REJECTED` | weakens a safety boundary without replacement evidence |
-| `0d5389e` | old Claude ref | Remove raw Tops colour interpolation | Tops UI, safe DOM, REVIEW/progress | recorded 19/19 browser evidence but no durable owned regression in current tree | `UNRESOLVED` | valid hardening candidate requires a current requirement/test and port review |
+| `0d5389e` | old Claude ref | Remove raw Tops colour interpolation | Tops UI, safe DOM, REVIEW/progress | current `topsPanel.ts` still interpolates stored `tops.color` into an `innerHTML` style attribute; old 19/19 browser evidence is not a maintained regression | `ACCEPTED-CANDIDATE` | port only the narrow DOM-construction fix in Gate 2 after a current observable regression fails; do not cherry-pick the stale whole commit |
 
 ## Explicit exclusions
 
@@ -155,8 +155,13 @@ local `master` but is patch-equivalent to fetched `origin/master`: both commits 
 1. **CLOSED in the baseline integration follow-up:** `2983373` is a parent of the merge commit that
    carries this record. Its unchecked field scenarios remain open evidence; integration is not field
    acceptance.
-2. Re-adjudicate `0d5389e` as a current security contract and add a durable regression before
-   porting it. Browser evidence in an old branch is not a maintained gate.
+2. **CLOSED as a Gate 1 classification, not as a production fix:** current source still contains
+   `style="background:${t.color ?? "#8b8f96"}"` inside `topsPanel.ts`'s row `innerHTML`; `tops.color`
+   remains writable as text through the Inspector, and no maintained frontend acceptance test
+   exercises the DOM-parser boundary. `0d5389e` is therefore an `ACCEPTED-CANDIDATE` for Gate 2.
+   Port only the narrow safe-DOM construction after a current observable regression fails. Do not
+   cherry-pick the whole commit: its `REVIEW.md`, progress narrative and null-CSP premise are stale,
+   and the old browser transcript is evidence history rather than an executable gate.
 3. Do not revive `18da8b0`, `82e56c9`, `d1f0c1e` or `fb01bc0` as whole commits.
 4. Source integration is no longer the Gate 1 blocker. G1-I005 must re-measure the field-evidence
    baseline after this merge, and live domain adjudication remains separate work.
@@ -164,8 +169,8 @@ local `master` but is patch-equivalent to fetched `origin/master`: both commits 
 ## Initial-census classification totals
 
 - `PATCH-EQUIVALENT`: `53`.
-- `ACCEPTED-CANDIDATE`: `8`.
+- `ACCEPTED-CANDIDATE`: `9`.
 - `SUPERSEDED`: `2`.
 - `REJECTED`: `2`.
-- `UNRESOLVED`: `1`.
+- `UNRESOLVED`: `0`.
 - Total distinct patch records: `66`.

@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-SCOPE-GEO-D - DONE; REVIEW REQUIRED; DEC-011 is applied to all 52 SB-GEO release dispositions as next-version DEFERRED while every row truthfully remains as-built UNADJUDICATED; no GEO source, test, parameter or production behavior was adjudicated or changed`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; GEO deferral is on codex/g1-sb-geo-deferral from committed SB-INS execution b2d74030d32b12a53c8800a5957702044a76e400 in the sole worktree`
-- Automated gate: `GREEN - GEO deferral gate 946 passed / 0 failed / 36 ignored in 69s; ledger reports 879 adjudicated / 52 scope-deferred unadjudicated / 584 pilot blockers; all 931 rows now have a release disposition`
+- Active increment: `G1-BRANCH-FOLLOWUP - DONE; REVIEW REQUIRED; the sole unresolved patch 0d5389e is now an accepted bounded Gate 2 candidate, not an authorized whole-commit cherry-pick or a production closure`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; branch follow-up is on codex/g1-branch-followup from committed GEO deferral 7e0da1375719e82efdfdb4d80586a61fd696ef99 in the sole worktree`
+- Automated gate: `GREEN - branch-classification checkpoint 946 passed / 0 failed / 36 ignored in 60s; ledger remains 879 adjudicated / 52 scope-deferred unadjudicated / 584 pilot blockers`
 - Pilot field evidence: `OPEN`
-- Open blockers: `584 pilot-blocker dispositions remain in the current-pilot evidence set; 52 SB-GEO rows are explicitly next-version DEFERRED but still lack live as-built adjudication; SB-INS retains 22 blockers including absent final MSI/pack/lock/network/legal/lifecycle/matrix evidence; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
+- Open blockers: `584 pilot-blocker dispositions remain in the current-pilot evidence set; 52 SB-GEO rows are explicitly next-version DEFERRED but still lack live as-built adjudication; SB-INS retains 22 blockers including absent final MSI/pack/lock/network/legal/lifecycle/matrix evidence; recorded PRD structural and release-claim findings remain open`
 - Next increment: `switch to Sol max for the final all-931 Gate 1 audit; report the formal 879-adjudicated / 52-scope-deferred boundary and do not claim the original all-931 as-built exit criterion is satisfied without a GEO evidence pass or explicit gate-criterion amendment.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 879/931 rows live-adjudicated; all 931 release-timed; 52 SB-GEO rows are next-version deferred but still as-built unadjudicated; final audit, branch, field-evidence and claims receipts remain |
+| G1 — Baseline reconciliation | IN PROGRESS | 879/931 rows live-adjudicated; all 931 release-timed; 52 SB-GEO rows are next-version deferred but still as-built unadjudicated; final audit, field-evidence and claims boundaries remain |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -153,6 +153,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-BRANCH-FOLLOWUP - sole unresolved patch disposition | DONE; REVIEW REQUIRED | current source confirms the raw Tops colour still reaches an `innerHTML` style attribute and no maintained observable regression owns the boundary; `0d5389e` is reclassified from UNRESOLVED to ACCEPTED-CANDIDATE for a narrow Gate 2 TDD port; stale docs/CSP claims make whole-commit cherry-pick forbidden; full gate 946 passed / 0 failed / 36 ignored in 60s; no production, test, PRD, parameter or manual evidence changed | current topic-branch worktree |
 | G1-SCOPE-GEO-D - SB-GEO next-version deferral | DONE; REVIEW REQUIRED; NOT LIVE-ADJUDICATED | DEC-011 applied to all 52 release dispositions as DEFERRED/LATER with next-version action; every row remains UNADJUDICATED/MISSING-OR-UNCLASSIFIED/UNVERIFIED with blank last-reverified and evidence fields; all 931 rows now have release timing, but the original all-931 as-built Gate 1 criterion remains formally open; full gate 946 passed / 0 failed / 36 ignored in 69s; no source-owned field, production, test, PRD, parameter or manual evidence changed | current topic-branch worktree |
 | G1-DOM-INS - SB-INS live adjudication | DONE; REVIEW REQUIRED | 26/26 rows: 6 absent, 12 partial, 4 present-OK, 3 divergent and 1 present-unverified; 22 blockers and 4 undecided; 4 correctness proofs, 3 characterizations and 19 missing qualifying whole-contract proofs; all 30 tests, 18 parameters, 6 opens, 4 escalations, 6 refusals and 95 traceability rows routed; product-owner Windows/MSI/offline-pack direction retained but real artifact/network/matrix/legal/lifecycle evidence remains absent; full gate 946 passed / 0 failed / 36 ignored in 73s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
 | G1-DOM-INS-P - SB-INS live-adjudication plan | DONE; EXECUTED; COLUMN CONTRACT CORRECTED | exact 26-row map: 11 P0 and 15 blank-priority rows; all 30 test intentions, 18 parameters with 5 deliberate ABSENT values, 6 opens, 4 escalations, 6 refusals and 95 traceability rows routed; real MSI/pack/network/matrix evidence separated from fixture validators; parameter-pack loader reachability, unit-token drift, incomplete capability inventory, lifecycle/legal and manual-evidence boundaries explicit; full planning gate 946 passed / 0 failed / 36 ignored in 71s; a follow-up commit corrected receipt concepts that were mistakenly named as CSV columns; no verdict or production behavior changed | `57bf948`; correction `d1df1b5` |
