@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-NMR-P - PLANNED; exact 38-row NMR evidence map and all 57 chapter test intentions routed, including six source-index owned-test gaps; 42 parameter rows, 11 open items, 18 active escalation identifiers, 15 refusals, zero Tier-C items and every section 8 traceability block retained under source custody; execution has not started and no verdict changed`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-TBD execution is committed at 4082926 and the serial SB-NMR planning branch is the current sole worktree`
-- Automated gate: `GREEN — 2026-08-12 on unchanged post-TBD production bytes; 16 takeover-ledger + 13 frontend + 917 Rust passed = 946 passed, 0 failed, 36 ignored; production build and verification matrix green; focused NMR array/intake/display candidates pass 10, fail 0, ignore 0; the 38-row frozen source-owned hash is a6bdd774779db3db04e0f32706a2023caf97bc22cf03126e7f6f037350021670; the planning-only full gate is freshly green on these bytes using the established isolated Cargo target`
+- Active increment: `G1-DOM-NMR - DONE; 38/38 requirements adjudicated, all 57 chapter test intentions routed exactly once, and all 42 parameters, 11 open items, 18 active escalation identifiers, 15 refusals and section 8 traceability blocks retained; structural checks and the full execution gate are green; local commit pending`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-TBD execution is committed at 4082926, the SB-NMR plan is committed at 7515309, and codex/g1-sb-nmr-adjudication is the current sole worktree`
+- Automated gate: `GREEN — 2026-08-12 execution refresh; 16 takeover-ledger + 13 frontend + 917 Rust passed = 946 passed, 0 failed, 36 ignored; production build and verification matrix green; the ledger reports 645 adjudicated / 286 unadjudicated / 432 pilot blockers and preserves frozen source-owned hash a6bdd774779db3db04e0f32706a2023caf97bc22cf03126e7f6f037350021670`
 - Pilot field evidence: `OPEN`
-- Open blockers: `324 live domain adjudications and 432 total pilot-blocker dispositions before SB-NMR execution; the NMR plan preserves 16 absent parameters, six source-index test-ownership gaps, axis-loss and value-heatmap divergence, missing NMR interpretation/provenance/QC capability, 11 open items, 18 active escalations, 15 refusals, the distribution-consumer-only inversion boundary and an unmeasured device/performance gate; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
-- Next increment: `after the planning gate and local commit, create codex/g1-sb-nmr-adjudication serially in D:\XX. SandiBumi and execute the 38-row evidence pass without production, test, PRD, parameter or manual-evidence changes.`
+- Open blockers: `286 live domain adjudications and 432 total pilot-blocker dispositions; all 38 NMR rows are deferred after first sale, but the receipt preserves 16 absent parameters, six source-index test-ownership gaps, axis-loss and value-heatmap divergence, missing NMR interpretation/provenance/QC capability, 11 open items, 18 active escalations, 15 refusals, the distribution-consumer-only inversion boundary and an unmeasured device/performance gate; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
+- Next increment: `finish the SB-NMR execution gate and local commit, then recompute the remaining petrophysics inventory and create the next serial domain planning branch in D:\XX. SandiBumi; do not begin Gate 2 remediation while Gate 1 evidence reconciliation remains open.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 607/931 rows adjudicated; 324 remain, alongside branch, gate, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 645/931 rows adjudicated; 286 remain, alongside branch, gate, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -32,11 +32,11 @@ The generated summary is re-measured by `node tools/takeover-ledger.mjs --summar
 Do not replace it with an estimated percentage.
 
 - Consolidated requirements: `931`.
-- Adjudicated: `607`.
-- Unadjudicated: `324`.
-- As-built states: `72` present-OK, `22` present-unverified, `129` present-divergent, `136` partial,
-  `248` absent and `324` unadjudicated.
-- Release dispositions: `432` pilot blockers, `416` undecided and `83` deferred. Disposition is not
+- Adjudicated: `645`.
+- Unadjudicated: `286`.
+- As-built states: `72` present-OK, `22` present-unverified, `131` present-divergent, `137` partial,
+  `283` absent and `286` unadjudicated.
+- Release dispositions: `432` pilot blockers, `378` undecided and `121` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
@@ -80,6 +80,10 @@ Do not replace it with an estimated percentage.
   proofs; all `66` test intentions, `52` parameter rows, `11` open items, `6` escalations, `15`
   refusals, `4` derivation/legal items and `327` traceability dispositions are routed, while manual
   thin-bed evidence remains `0/1` and Thomas-Stieber remains `0/0` and not listed.
+- SB-NMR: `38/38` adjudicated - `2` present-divergent, `1` partial and `35` absent; all `38` are
+  deferred after first sale; `3` characterizations and `35` missing qualifying whole-contract
+  proofs; all `57` test intentions, `42` parameter rows, `11` open items, `18` active escalation
+  identifiers and `15` refusals are routed, while manual array-log evidence remains `0/16`.
 
 ## PRD structural integrity
 
@@ -118,7 +122,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-NMR-P - SB-NMR live-adjudication plan | PLANNED; REVIEW REQUIRED; NOT EXECUTED | exact 38-row map: 26 P1, 10 P2, 2 P3 and no P0; all 57 chapter tests routed, including six source-index owned-test gaps; 42 parameter rows with 16 ABSENT entries fenced; 11 opens, 18 active escalation identifiers, 15 refusals, zero Tier-C items and all section 8 blocks preserved; axis-loss, geometry, amplitude-heatmap, interpretation, unit, provenance, inversion and manual-evidence boundaries explicit; focused candidates 10 passed / 0 failed / 0 ignored; full gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | current topic-branch worktree |
+| G1-DOM-NMR - SB-NMR live adjudication | DONE; REVIEW REQUIRED | 38/38 rows: 35 absent, 1 partial and 2 divergent; all 38 deferred after first sale; 3 characterizations and 35 missing qualifying whole-contract proofs; all 57 test intentions, 42 parameters, 11 opens, 18 active escalation identifiers and 15 refusals routed; source-owned hash preserved; full gate 946 passed / 0 failed / 36 ignored; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
+| G1-DOM-NMR-P - SB-NMR live-adjudication plan | DONE; EXECUTED | exact 38-row map: 26 P1, 10 P2, 2 P3 and no P0; all 57 chapter tests routed, including six source-index owned-test gaps; 42 parameter rows with 16 ABSENT entries fenced; 11 opens, 18 active escalation identifiers, 15 refusals, zero Tier-C items and all section 8 blocks preserved; axis-loss, geometry, amplitude-heatmap, interpretation, unit, provenance, inversion and manual-evidence boundaries explicit; focused candidates 10 passed / 0 failed / 0 ignored; full planning gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | `7515309` |
 | G1-DOM-TBD - SB-TBD live adjudication | DONE; REVIEW REQUIRED | 66/66 rows: 51 absent, 7 partial, 8 divergent; 30 blockers and 36 deferred; 11 characterizations and 55 missing qualifying whole-contract proofs; all 66 tests, 52 parameters, 11 opens, 6 escalations, 15 refusals, 4 derivation/legal items and 327 traceability dispositions routed; source-owned hash preserved; full gate 946 passed / 0 failed / 36 ignored; no production, test, PRD, parameter or manual-evidence state changed | `4082926` |
 | G1-DOM-TBD-P - SB-TBD live-adjudication plan | DONE; EXECUTED | exact 66-row map: 4 P0, 45 P1, 14 P2, 3 P3; all 66 named test intentions routed; 52 parameter rows with 9 ABSENT, 2 WITHDRAWN, 1 SEAM and 0 NON-ADOPTABLE entries fenced; 11 opens, 6 escalations, 15 refusals, 4 derivation/legal items and 327 traceability dispositions preserved; live picker-provenance partial closure, formula/range divergence, absent tensor/dip/sand-reference capability, naming and patent boundaries explicit; focused candidates 30 passed / 0 failed / 0 ignored; full gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | `9c868d8` |
 | G1-DOM-SHR - SB-SHR live adjudication | DONE; REVIEW REQUIRED | 42/42 rows: 18 absent, 14 partial, 10 divergent; 34 blockers and 8 deferred; 17 characterizations and 25 missing qualifying whole-contract proofs; all 44 tests and 61 parameters routed; source-owned hash preserved; full gate 946 passed / 0 failed / 36 ignored; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
