@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-RPH-P - DONE; READY TO EXECUTE; the exact 52-row SB-RPH plan routes all 77 chapter test intentions, 76 parameters, 5 open items, 12 escalation bullets, 11 refusals, 2 C-3 items and section 8.1-8.6 traceability blocks; no verdict or production behavior changed`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-TOC execution is committed at a7b9a01, and codex/g1-sb-rph-plan is the current sole worktree`
-- Automated gate: `GREEN — 2026-08-12 SB-RPH planning refresh; 16 takeover-ledger + 13 frontend + 917 Rust/governance/matrix passed = 946 passed, 0 failed, 36 ignored; production build and verification matrix green in 269s; the ledger remains 688 adjudicated / 243 unadjudicated / 455 pilot blockers and the frozen 52-row source-owned hash is 245bf0aac65e0beb80895972623958f96aa8e167084a7c731e8d961e00aaf2ef`
+- Active increment: `G1-DOM-RPH - DONE; REVIEW REQUIRED; all 52 SB-RPH rows, 77 chapter test intentions, 76 parameters, 5 open items, 12 escalation bullets, 11 refusals, 2 C-3 items and section 8.1-8.6 traceability blocks have live custody; production behavior remains unchanged`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-RPH planning is committed at 23efced, and codex/g1-sb-rph-adjudication is the current sole worktree`
+- Automated gate: `GREEN - 946 passed / 0 failed / 36 ignored in 264s; focused core-photo evidence is 24 passed / 0 failed / 8 ignored plus 8 optional-package tests passed separately; the ledger reports 740 adjudicated / 191 unadjudicated / 477 pilot blockers and preserves frozen source-owned hash 245bf0aac65e0beb80895972623958f96aa8e167084a7c731e8d961e00aaf2ef`
 - Pilot field evidence: `OPEN`
-- Open blockers: `243 live domain adjudications and 455 total pilot-blocker dispositions; SB-RPH still has 52 unadjudicated rows, most non-core-photo methods are absent, current core-photo defaults/provenance/flat-scan behavior conflict with the current contract, and manual core-photo calibration is not listed; all 38 NMR rows remain deferred after first sale; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
-- Next increment: `create codex/g1-sb-rph-adjudication serially from the committed plan and execute all 52 SB-RPH rows at Sol xhigh; preserve every absent/non-adoptable parameter and keep production remediation out of Gate 1.`
+- Open blockers: `191 live domain adjudications and 477 total pilot-blocker dispositions; SB-RPH is 52/52 adjudicated but retains 22 pilot blockers, including absent P0 capability, active uncited core-photo defaults/thresholds, flat-scan proposal, incomplete/failed provenance custody, accepted-unused inputs, and manual core-photo calibration at 0/0 not listed; all 38 NMR rows remain deferred after first sale; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
+- Next increment: `after the SB-RPH execution commit, recompute the 191-row unadjudicated inventory and continue the next non-GEO Gate 1 domain serially at Sol xhigh; keep Gate 2 remediation out until Gate 1 closes.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 688/931 rows adjudicated; 243 remain, alongside branch, gate, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 740/931 rows adjudicated; 191 remain, alongside branch, gate, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -32,11 +32,11 @@ The generated summary is re-measured by `node tools/takeover-ledger.mjs --summar
 Do not replace it with an estimated percentage.
 
 - Consolidated requirements: `931`.
-- Adjudicated: `688`.
-- Unadjudicated: `243`.
-- As-built states: `73` present-OK, `22` present-unverified, `143` present-divergent, `145` partial,
-  `305` absent and `243` unadjudicated.
-- Release dispositions: `455` pilot blockers, `345` undecided and `131` deferred. Disposition is not
+- Adjudicated: `740`.
+- Unadjudicated: `191`.
+- As-built states: `74` present-OK, `22` present-unverified, `149` present-divergent, `149` partial,
+  `346` absent and `191` unadjudicated.
+- Release dispositions: `477` pilot blockers, `310` undecided and `144` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
@@ -89,6 +89,11 @@ Do not replace it with an estimated percentage.
   characterizations and `27` missing qualifying whole-contract proofs; all `58` test intentions,
   `76` parameter rows, `9` open items, `7` escalation bullets and `10` refusals are routed, while
   manual unconventional evidence remains `0/4`.
+- SB-RPH: `52/52` adjudicated - `1` present-OK, `6` present-divergent, `4` partial and `41` absent;
+  `22` pilot blockers, `17` undecided and `13` deferred; `1` optional-package proof, `8`
+  characterizations and `43` missing qualifying whole-contract proofs; all `77` test intentions,
+  `76` parameter rows, `5` open items, `12` escalation bullets, `11` refusals and `2` C-3 items are
+  routed, while core-photo calibration remains `0/0` and not listed.
 
 ## PRD structural integrity
 
@@ -127,7 +132,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-RPH-P - SB-RPH live-adjudication plan | DONE; READY TO EXECUTE | exact 52-row map: 15 P0, 24 P1, 11 P2 and 2 P3; all 77 named test intentions routed; 76 parameter rows with 43 ABSENT and 1 NON-ADOPTABLE family fenced; 5 opens, 12 escalation bullets, 11 refusals, 2 C-3 items and section 8.1-8.6 custody preserved; absent generic RPH modules separated from shipped core-photo behavior; illumination/lane defaults, uncited thresholds, flat-scan proposal, provenance fallback, accepted-unused inputs and manual-evidence boundaries explicit; focused core-photo candidates 24 passed / 0 failed / 8 ignored plus 8 optional-package tests passed separately; full planning gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | current topic-branch commit |
+| G1-DOM-RPH - SB-RPH live adjudication | DONE; REVIEW REQUIRED | 52/52 rows: 41 absent, 4 partial, 6 divergent and 1 present-OK; 22 blockers, 17 undecided and 13 deferred; 1 optional-package proof, 8 characterizations and 43 missing whole-contract proofs; all 77 tests, 76 parameters, 5 opens, 12 escalation bullets, 11 refusals, 2 C-3 items and section 8.1-8.6 custody routed; core-photo calibration remains 0/0 and not listed; full gate 946 passed / 0 failed / 36 ignored in 264s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
+| G1-DOM-RPH-P - SB-RPH live-adjudication plan | DONE; EXECUTED | exact 52-row map: 15 P0, 24 P1, 11 P2 and 2 P3; all 77 named test intentions routed; 76 parameter rows with 43 ABSENT and 1 NON-ADOPTABLE family fenced; 5 opens, 12 escalation bullets, 11 refusals, 2 C-3 items and section 8.1-8.6 custody preserved; absent generic RPH modules separated from shipped core-photo behavior; illumination/lane defaults, uncited thresholds, flat-scan proposal, provenance fallback, accepted-unused inputs and manual-evidence boundaries explicit; focused core-photo candidates 24 passed / 0 failed / 8 ignored plus 8 optional-package tests passed separately; full planning gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | `23efced` |
 | G1-DOM-TOC - SB-TOC live adjudication | DONE; REVIEW REQUIRED | 43/43 rows: 22 absent, 8 partial, 12 divergent and 1 present-OK; 23 blockers, 10 undecided and 10 deferred; 1 correctness proof, 15 characterizations and 27 missing qualifying whole-contract proofs; all 58 tests, 76 parameters, 9 opens, 7 escalation bullets, 10 refusals and section 8.1-8.6 custody routed; manual unconventional evidence remains 0/4; full gate 946 passed / 0 failed / 36 ignored; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
 | G1-DOM-TOC-P - SB-TOC live-adjudication plan | DONE; EXECUTED | exact 43-row map: 18 P0, 15 P1, 8 P2 and 2 P3; all 58 chapter tests routed, including two source-index owned-test gaps; 76 parameter rows with 23 ABSENT entries fenced; 9 opens, 7 escalation bullets, 10 refusals, zero Tier-C items and section 8.1-8.6 custody; typed-unit, baseline, maturity, calibration, gas-property, content/GIP naming, UI-parameter, QC, migration, provenance and manual-evidence boundaries explicit; focused candidates 26 passed / 0 failed / 0 ignored; full planning gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | `ef970bf` |
 | G1-DOM-NMR - SB-NMR live adjudication | DONE; REVIEW REQUIRED | 38/38 rows: 35 absent, 1 partial and 2 divergent; all 38 deferred after first sale; 3 characterizations and 35 missing qualifying whole-contract proofs; all 57 test intentions, 42 parameters, 11 opens, 18 active escalation identifiers and 15 refusals routed; source-owned hash preserved; full gate 946 passed / 0 failed / 36 ignored; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
