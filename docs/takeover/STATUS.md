@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-INS-P - DONE; READY TO EXECUTE; the exact 26-row SB-INS plan separates real installer/deployment evidence from fixture-populated validators and routes 30 tests, 18 parameters, 6 opens, 4 escalations, 6 refusals and 95 traceability rows without changing production behavior`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-INS planning is on codex/g1-sb-ins-plan from committed SB-PLG execution 86dae286e0cff1313532b7af879ba4937c588621 in the sole worktree`
-- Automated gate: `GREEN - SB-INS planning gate 946 passed / 0 failed / 36 ignored in 71s; fresh focused evidence is installation 10/0/0, parameter-pack 3/0/0, Python environment 3/0/0, unit registry 7/0/0 and encoding 4/0/1; the ledger remains 853 adjudicated / 78 unadjudicated / 562 pilot blockers because planning changed no verdict`
+- Active increment: `G1-DOM-INS - DONE; REVIEW REQUIRED; all 26 SB-INS rows, 30 test intentions, 18 parameters, 6 opens, 4 escalations, 6 refusals and 95 traceability rows are routed; fixture validators are separated from real release evidence and production behavior remains unchanged`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-INS execution is on codex/g1-sb-ins-adjudication from plan 57bf948fd4f10179dcc1e48e60f1491904702375 plus ledger-column correction d1df1b59dbd6f535b971858f36e5a07bf91cecc3 in the sole worktree`
+- Automated gate: `GREEN - SB-INS execution gate 946 passed / 0 failed / 36 ignored in 73s; focused evidence is installation 10/0/0, parameter-pack 3/0/0, Python environment 3/0/0, unit registry 7/0/0 and encoding 4/0/1; ledger validation reports 879 adjudicated / 52 unadjudicated / 584 pilot blockers`
 - Pilot field evidence: `OPEN`
-- Open blockers: `78 live domain adjudications and 562 total pilot-blocker dispositions; SB-PLG is 48/48 adjudicated but retains 41 blockers, with no domain implementation or listed manual scenarios and one present-divergent array-axis read/IPC path; all 38 NMR rows remain deferred after first sale; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
-- Next increment: `verify and commit the SB-INS plan, then adjudicate all 26 SB-INS rows serially at Sol xhigh; keep installer remediation and Gate 2 production work out until Gate 1 closes.`
+- Open blockers: `52 live rows remain, all in SB-GEO and held for the next product version; 584 total pilot-blocker dispositions remain; SB-INS retains 22 blockers, including absent final MSI/pack/lock/network/legal/lifecycle/matrix evidence; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
+- Next increment: `verify and commit the SB-INS execution, record the truthful SB-GEO next-version deferral without pretending its 52 rows were live-adjudicated, then switch to Sol max for the final all-931 Gate 1 audit.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 853/931 rows adjudicated; 78 remain, alongside branch, gate, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 879/931 rows adjudicated; 52 SB-GEO rows remain next-version deferred, alongside branch, final-audit, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -32,12 +32,18 @@ The generated summary is re-measured by `node tools/takeover-ledger.mjs --summar
 Do not replace it with an estimated percentage.
 
 - Consolidated requirements: `931`.
-- Adjudicated: `853`.
-- Unadjudicated: `78`.
-- As-built states: `98` present-OK, `23` present-unverified, `168` present-divergent, `169` partial,
-  `395` absent and `78` unadjudicated.
-- Release dispositions: `562` pilot blockers, `220` undecided and `149` deferred. Disposition is not
+- Adjudicated: `879`.
+- Unadjudicated: `52`.
+- As-built states: `102` present-OK, `24` present-unverified, `171` present-divergent, `181` partial,
+  `401` absent and `52` unadjudicated.
+- Release dispositions: `584` pilot blockers, `198` undecided and `149` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
+- SB-INS: `26/26` adjudicated - `4` present-OK, `1` present-unverified, `3` present-divergent,
+  `12` partial and `6` absent; `22` pilot blockers and `4` undecided; `4` correctness proofs, `3`
+  characterizations and `19` missing qualifying whole-contract proofs; all `30` test intentions,
+  `18` parameter rows, `6` opens, `4` escalations, `6` refusals and `95` traceability rows are
+  routed, while all `16` SB-INS manual scenarios remain unchecked and installation/deployment is
+  `0/0` and not listed.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
   correctness-tested and `21` missing qualifying owned proof.
@@ -143,7 +149,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-INS-P - SB-INS live-adjudication plan | DONE; READY TO EXECUTE | exact 26-row map: 11 P0 and 15 blank-priority rows; all 30 test intentions, 18 parameters with 5 deliberate ABSENT values, 6 opens, 4 escalations, 6 refusals and 95 traceability rows routed; real MSI/pack/network/matrix evidence separated from fixture validators; parameter-pack loader reachability, unit-token drift, incomplete capability inventory, lifecycle/legal and manual-evidence boundaries explicit; full planning gate 946 passed / 0 failed / 36 ignored in 71s; no verdict or production behavior changed | current topic-branch worktree |
+| G1-DOM-INS - SB-INS live adjudication | DONE; REVIEW REQUIRED | 26/26 rows: 6 absent, 12 partial, 4 present-OK, 3 divergent and 1 present-unverified; 22 blockers and 4 undecided; 4 correctness proofs, 3 characterizations and 19 missing qualifying whole-contract proofs; all 30 tests, 18 parameters, 6 opens, 4 escalations, 6 refusals and 95 traceability rows routed; product-owner Windows/MSI/offline-pack direction retained but real artifact/network/matrix/legal/lifecycle evidence remains absent; full gate 946 passed / 0 failed / 36 ignored in 73s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
+| G1-DOM-INS-P - SB-INS live-adjudication plan | DONE; EXECUTED; COLUMN CONTRACT CORRECTED | exact 26-row map: 11 P0 and 15 blank-priority rows; all 30 test intentions, 18 parameters with 5 deliberate ABSENT values, 6 opens, 4 escalations, 6 refusals and 95 traceability rows routed; real MSI/pack/network/matrix evidence separated from fixture validators; parameter-pack loader reachability, unit-token drift, incomplete capability inventory, lifecycle/legal and manual-evidence boundaries explicit; full planning gate 946 passed / 0 failed / 36 ignored in 71s; a follow-up commit corrected receipt concepts that were mistakenly named as CSV columns; no verdict or production behavior changed | `57bf948`; correction `d1df1b5` |
 | G1-DOM-PLG - SB-PLG live adjudication | DONE; REVIEW REQUIRED | 48/48 rows: 41 absent, 6 partial and 1 divergent; 41 blockers, 6 undecided and 1 deferred; all 48 qualifying whole-contract proofs missing; all 68 tests, 132 parameters, 10 opens, 10 escalations, 18 refusals and 239 traceability rows routed; source-owned hash and non-PLG records preserved; production/cement/casing remains 0/0 and not listed; full gate 946 passed / 0 failed / 36 ignored in 68s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
 | G1-DOM-PLG-P - SB-PLG live-adjudication plan | DONE; EXECUTED | exact 48-row map: 24 P0, 17 P1 and 7 P2; all 68 unique test intentions routed across 69 ownership references; 132 parameter rows with 32 deliberate ABSENT values fenced; 10 opens, 10 escalations, 18 refusals and 239 traceability rows preserved; no production-specific source/history candidate found; generic array storage is separated from the live axis-loss divergence; five supporting seam tests passed but prove no whole PLG contract; full planning gate 946 passed / 0 failed / 36 ignored in 278s; no verdict or production behavior changed | `279347d` |
 | G1-DOM-MLA - SB-MLA live adjudication | DONE; REVIEW REQUIRED | 65/65 rows: 8 absent, 14 partial, 18 divergent, 24 present-OK and 1 present-unverified; 44 blockers, 17 undecided and 4 deferred; 16 correctness proofs, 8 characterizations, 2 optional-package proofs and 39 missing whole-contract proofs; all 61 tests, 105 parameters, 6 opens, 12 escalations, 13 refusals, 24 no-antecedent requirements and 218 traceability rows routed; source-owned hash preserved; manual ML evidence remains 7/189 and electrofacies 2/26; full gate 946 passed / 0 failed / 36 ignored in 73s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
