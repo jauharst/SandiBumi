@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-PLG-P - DONE; READY TO EXECUTE; the exact 48-row documentation-only adjudication map separates absent production capability from generic carriage and records the array-axis read/IPC divergence without changing a ledger verdict`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-PLG planning starts from committed SB-MLA execution 6f3a52e9caf82dccfc203e17b1d1263a2e4cef68 in the sole worktree`
-- Automated gate: `GREEN - SB-PLG planning gate 946 passed / 0 failed / 36 ignored in 278s; five focused generic seams each passed once, but none is promoted into a whole-contract PLG proof; the unchanged ledger reports 805 adjudicated / 126 unadjudicated / 521 pilot blockers and preserves frozen source-owned hash 437fc033b9ff179a4a85f8aeaa91677b6934d4ec9df86d95d35e7b8a4f352b31`
+- Active increment: `G1-DOM-PLG - DONE; REVIEW REQUIRED; all 48 SB-PLG rows, 68 test intentions, 132 parameters, 10 opens, 10 escalations, 18 refusals and 239 traceability rows are routed in the documentation-only receipt; production behavior remains unchanged`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-PLG execution is on codex/g1-sb-plg-adjudication from committed plan 279347dcddb3da2376b2c9ade8fce74a96a86c19 in the sole worktree`
+- Automated gate: `GREEN - SB-PLG execution gate 946 passed / 0 failed / 36 ignored in 68s; five focused generic seams each passed once but prove no whole PLG contract; the ledger reports 853 adjudicated / 78 unadjudicated / 562 pilot blockers and preserves frozen source-owned hash 437fc033b9ff179a4a85f8aeaa91677b6934d4ec9df86d95d35e7b8a4f352b31`
 - Pilot field evidence: `OPEN`
-- Open blockers: `126 live domain adjudications and 521 total pilot-blocker dispositions; all 48 SB-PLG rows remain unadjudicated until plan execution, production logging/cement/casing has no domain implementation or listed manual scenarios, and the generic array axis is written but discarded by the normal read/IPC path; all 38 NMR rows remain deferred after first sale; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
-- Next increment: `verify and commit the SB-PLG plan, then create codex/g1-sb-plg-adjudication and execute all 48 rows serially at Sol xhigh; keep Gate 2 remediation out until Gate 1 closes.`
+- Open blockers: `78 live domain adjudications and 562 total pilot-blocker dispositions; SB-PLG is 48/48 adjudicated but retains 41 blockers, with no domain implementation or listed manual scenarios and one present-divergent array-axis read/IPC path; all 38 NMR rows remain deferred after first sale; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
+- Next increment: `verify and commit the SB-PLG execution, then plan and adjudicate all 26 SB-INS rows serially at Sol xhigh; keep Gate 2 remediation out until Gate 1 closes.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 805/931 rows adjudicated; 126 remain, alongside branch, gate, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 853/931 rows adjudicated; 78 remain, alongside branch, gate, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -32,11 +32,11 @@ The generated summary is re-measured by `node tools/takeover-ledger.mjs --summar
 Do not replace it with an estimated percentage.
 
 - Consolidated requirements: `931`.
-- Adjudicated: `805`.
-- Unadjudicated: `126`.
-- As-built states: `98` present-OK, `23` present-unverified, `167` present-divergent, `163` partial,
-  `354` absent and `126` unadjudicated.
-- Release dispositions: `521` pilot blockers, `262` undecided and `148` deferred. Disposition is not
+- Adjudicated: `853`.
+- Unadjudicated: `78`.
+- As-built states: `98` present-OK, `23` present-unverified, `168` present-divergent, `169` partial,
+  `395` absent and `78` unadjudicated.
+- Release dispositions: `562` pilot blockers, `220` undecided and `149` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
@@ -100,6 +100,11 @@ Do not replace it with an estimated percentage.
   whole-contract proofs; all `61` test intentions, `105` parameter rows, `6` open items, `12`
   escalations, `13` refusals, `24` no-antecedent requirements and `218` traceability rows are routed,
   while manual machine-learning evidence remains `7/189` and electrofacies remains `2/26`.
+- SB-PLG: `48/48` adjudicated - `1` present-divergent, `6` partial and `41` absent; `41` pilot
+  blockers, `6` undecided and `1` deferred; all `48` whole-contract proof classes are missing; all
+  `68` test intentions, `132` parameter rows, `10` open items, `10` escalations, `18` refusals and
+  `239` traceability rows are routed, while production logging/cement evaluation/casing integrity
+  remains `0/0` and not listed and the stored array axis is discarded by the normal read/IPC path.
 
 ## PRD structural integrity
 
@@ -138,7 +143,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-PLG-P - SB-PLG live-adjudication plan | DONE; READY TO EXECUTE | exact 48-row map: 24 P0, 17 P1 and 7 P2; all 68 unique test intentions routed across 69 ownership references; 132 parameter rows with 32 deliberate ABSENT values fenced; 10 opens, 10 escalations, 18 refusals and 239 traceability rows preserved; no production-specific source/history candidate found; generic array storage is separated from the live axis-loss divergence; five supporting seam tests passed but prove no whole PLG contract; full planning gate 946 passed / 0 failed / 36 ignored in 278s; no verdict or production behavior changed | current topic-branch commit |
+| G1-DOM-PLG - SB-PLG live adjudication | DONE; REVIEW REQUIRED | 48/48 rows: 41 absent, 6 partial and 1 divergent; 41 blockers, 6 undecided and 1 deferred; all 48 qualifying whole-contract proofs missing; all 68 tests, 132 parameters, 10 opens, 10 escalations, 18 refusals and 239 traceability rows routed; source-owned hash and non-PLG records preserved; production/cement/casing remains 0/0 and not listed; full gate 946 passed / 0 failed / 36 ignored in 68s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
+| G1-DOM-PLG-P - SB-PLG live-adjudication plan | DONE; EXECUTED | exact 48-row map: 24 P0, 17 P1 and 7 P2; all 68 unique test intentions routed across 69 ownership references; 132 parameter rows with 32 deliberate ABSENT values fenced; 10 opens, 10 escalations, 18 refusals and 239 traceability rows preserved; no production-specific source/history candidate found; generic array storage is separated from the live axis-loss divergence; five supporting seam tests passed but prove no whole PLG contract; full planning gate 946 passed / 0 failed / 36 ignored in 278s; no verdict or production behavior changed | `279347d` |
 | G1-DOM-MLA - SB-MLA live adjudication | DONE; REVIEW REQUIRED | 65/65 rows: 8 absent, 14 partial, 18 divergent, 24 present-OK and 1 present-unverified; 44 blockers, 17 undecided and 4 deferred; 16 correctness proofs, 8 characterizations, 2 optional-package proofs and 39 missing whole-contract proofs; all 61 tests, 105 parameters, 6 opens, 12 escalations, 13 refusals, 24 no-antecedent requirements and 218 traceability rows routed; source-owned hash preserved; manual ML evidence remains 7/189 and electrofacies 2/26; full gate 946 passed / 0 failed / 36 ignored in 73s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
 | G1-DOM-MLA-P - SB-MLA live-adjudication plan | DONE; EXECUTED | exact 65-row map: 10 P0, 34 P1, 17 P2 and 4 P3; all 61 unique chapter test intentions routed across 73 ownership references; 105 parameter rows with 15 ABSENT, 5 NON-ADOPTABLE and 3 SB-SHR cross-references fenced; 6 opens, 12 escalations, 13 refusals, 24 no-antecedent requirements and 218 traceability rows preserved; focused default suites 67/0/7, 13/0/0 and 7/0/0 plus all 7 optional ML tests passed separately; full planning gate 946 passed / 0 failed / 36 ignored in 277s; no verdict or production behavior changed | `3bfb5a2` |
 | G1-DOM-RPH - SB-RPH live adjudication | DONE; REVIEW REQUIRED | 52/52 rows: 41 absent, 4 partial, 6 divergent and 1 present-OK; 22 blockers, 17 undecided and 13 deferred; 1 optional-package proof, 8 characterizations and 43 missing whole-contract proofs; all 77 tests, 76 parameters, 5 opens, 12 escalation bullets, 11 refusals, 2 C-3 items and section 8.1-8.6 custody routed; core-photo calibration remains 0/0 and not listed; full gate 946 passed / 0 failed / 36 ignored in 264s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
