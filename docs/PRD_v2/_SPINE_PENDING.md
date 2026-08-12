@@ -79,13 +79,17 @@ lanes do not edit the spine directly.
   and `SB-CORE-037`–`039`.
 - **Disposition:** unassigned only; no number is filled, reused, or renumbered in this lane.
 
-## SP-008 — `SB-CORE` test-number gaps
+## SP-008 — `SB-CORE` test-number gaps — CLOSED 2026-08-09
 
 - **Chapter location:** `docs/PRD_v2/04_CORE_REQUIREMENTS.md` §15, the per-requirement **Verified
   by** clauses; also recorded in `docs/PRD_v2/RESUME.md` §5.
-- **Discrepancy:** `SB-CORE-T04` through `SB-CORE-T08` are unassigned between defined `T03` and
-  `T09`.
-- **Disposition:** left open for the spine-maintenance sweep, exactly as `RESUME.md` directs.
+- **Discrepancy:** `SB-CORE-T04` through `SB-CORE-T08` were unassigned between defined `T03` and
+  `T09`, and the shorthand index entry obscured the seven-test ownership.
+- **Disposition:** closed by the `SB-CORE-002` adjudication and implementation. `SB-CORE-T03`
+  through `T09` each own one explicit, non-overlapping reporting-surface contract for one of the
+  seven recorded R4/R18/R19/R21 violations, and all seven named regressions now pass. `T07` also
+  closes the remaining production defect by carrying a Pay Summary degradation into the batch/run
+  result beside the still-written PDF.
 
 ## SP-009 — Porosity requirements omit status and tests omit T26–T27
 

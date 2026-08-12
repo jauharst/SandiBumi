@@ -70,7 +70,7 @@ export async function buildSummaryContent(
         perm_min: Number.isNaN(permRaw) ? null : permRaw,
         input_set: setPicker.inputSet(),
       });
-      renderTable(resultBox, rows);
+      renderPaySummaryTable(resultBox, rows);
       setStatus(`Pay summary: ${rows.length} rows; FLAG curves written`);
       // The explicit Compute Summary versions FLAG_SAND/RESERVOIR/PAY into a PAYFLAG log set —
       // a persisting write, so it earns a History entry like every other module output.
@@ -96,7 +96,7 @@ function fmt(v: number | null | undefined, digits = 2): string {
   return typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : "—";
 }
 
-function renderTable(container: HTMLElement, rows: PaySummaryRow[]): void {
+export function renderPaySummaryTable(container: HTMLElement, rows: PaySummaryRow[]): void {
   container.innerHTML = "";
   if (rows.length === 0) {
     container.textContent = "No results — check that VSH/PHIE/SWE have been computed for the selected wells.";

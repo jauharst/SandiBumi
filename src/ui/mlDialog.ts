@@ -33,6 +33,7 @@ import { buildParamSources } from "./paramSources";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { buildImageExportButtons } from "./plotExport";
+import { reportMlWriteOutcome } from "./reportingHonesty";
 
 /** Machine-learning dialog (Phase 10-4): one entry point for the whole catalog —
  *  supervised regression/classification (fit on labelled train wells, predict on apply
@@ -2485,19 +2486,15 @@ export async function buildMlContent(
         // with no complete samples gets an all-NaN curve — both flagged per-well by the backend.
         // Reporting the scope count made the status line and, worse, the permanent History entry
         // claim every well was written. moduleDialog already reports "ok/total"; match it.
-        const total = res.wells.length || applyIds.length;
-        const ok = res.wells.filter((w) => !w.error).length;
-        const outs = res.outputs.join(", ");
-        const scope = ok === total ? `${total} well(s)` : `${ok}/${total} well(s)`;
-        const needAttention = total - ok;
-        statusLine.textContent =
-          `Done in ${ms} ms → ${outs}` +
-          (needAttention > 0 ? ` — ${needAttention} well(s) need attention` : "");
-        setStatus(`${algo.label}: wrote ${outs} to ${scope}`);
-        // A run that wrote nothing is not a process worth recording as if it had succeeded.
-        if (ok > 0) {
-          recordProcess("ML", `${algo.label}: wrote ${outs} to ${scope}`);
-        }
+        reportMlWriteOutcome({
+          statusLine,
+          setStatus,
+          algorithmLabel: algo.label,
+          outputs: res.outputs,
+          wells: res.wells,
+          fallbackTotal: applyIds.length,
+          elapsedMs: ms,
+        });
         if (res.model_name) {
           statusLine.textContent += ` · model saved as '${res.model_name}'`;
           recordProcess("ML", `Saved model '${res.model_name}' (${algo.label} on ${req.target_curve ?? "-"})`);

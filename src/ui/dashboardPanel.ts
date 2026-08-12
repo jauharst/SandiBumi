@@ -1,6 +1,7 @@
 import { listWells, runPaySummary, type PaySummaryRow } from "../ipc";
 import { appState, filterByActiveGroup } from "../state";
 import { escapeHtml } from "./safeDom";
+import { reportDashboardCompletion } from "./reportingHonesty";
 
 /** Field Dashboard: multi-well × zone pay statistics in one panel.
  *  Reuses the existing pay-summary engine (`run_pay_summary`) across every well, then
@@ -386,7 +387,7 @@ export async function buildDashboardContent(
         stats_only: true,
       });
       const flags = new Set(allRows.map((r) => r.flag));
-      statusEl.textContent = `${wellIds.length} well(s) · ${allRows.length} zone-rows across ${flags.size} flag level(s). Stats only — no FLAG curves written; run Cutoffs & Summary to persist flags.`;
+      reportDashboardCompletion(statusEl, wellIds.length, allRows.length, flags.size);
       setStatus(`Field dashboard: ${allRows.length} rows over ${wellIds.length} wells`);
       // Scope tag (design 1b): which group these numbers describe, and how many
       // wells actually went in — set only once a Compute has made that true.

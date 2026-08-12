@@ -3445,6 +3445,99 @@ mod tests {
         assert_eq!(pef.n_samples, 2, "generic PEF deduped to 2 rows, not aborted");
     }
 
+    /// SB-CORE-002 / SB-CORE-T04. CORRECTNESS: `04_CORE_REQUIREMENTS.md` assigns R4's
+    /// import reporting surface to the atomic all-channel contract recorded in
+    /// `docs/record_data_tools.md`. The clean control and failed delivery pin both sides:
+    /// neither an always-failing importer nor a partial-success fallback can satisfy it.
+    #[test]
+    fn an_all_channel_import_failure_returns_a_named_error_and_commits_no_partial_well() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let write_las = |well: &str| {
+            let path = std::env::temp_dir().join(format!(
+                "sandibumi-core002-{}-{}.las",
+                std::process::id(),
+                Uuid::new_v4()
+            ));
+            let las = format!(
+                "~Version\nVERS. 2.0 :\n~Well\nWELL. {well} :\nNULL. -999.25 :\n\
+                 ~Curve\nDEPT.M : depth\nGR.GAPI : gamma\nILD.OHMM : resistivity\n\
+                 NPHI.V/V : neutron\nRHOB.G/CC : density\nDT.US/FT : sonic\nSP.MV : spontaneous potential\n\
+                 PEF.B/E : photoelectric\n~ASCII\n\
+                 1000.0 45.0 20.0 0.18 2.35 80.0 -10.0 3.0\n\
+                 1000.5 47.0 22.0 0.19 2.34 79.0 -11.0 3.1\n"
+            );
+            std::fs::write(&path, las).unwrap();
+            path
+        };
+
+        let clean_path = write_las("FULL_CURVE_CONTROL");
+        let clean = import_las_files_with(
+            &conn,
+            &[clean_path.to_string_lossy().into_owned()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&clean_path).ok();
+        assert!(clean.error.is_none(), "clean control import failed: {:?}", clean.error);
+        assert!(
+            !clean.warning.as_deref().unwrap_or("").contains("only the six standard curves were loaded"),
+            "a complete import must not be labelled partial: {:?}",
+            clean.warning
+        );
+
+        let wells_before: i64 = conn.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get(0)).unwrap();
+        let standard_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM standard_curves", [], |row| row.get(0))
+            .unwrap();
+        let metadata_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM curve_meta", [], |row| row.get(0))
+            .unwrap();
+
+        conn.execute_batch("DROP TABLE curve_samples").unwrap();
+        let failed_path = write_las("FULL_CURVE_DEPENDENCY_MISSING");
+        let failed = import_las_files_with(
+            &conn,
+            &[failed_path.to_string_lossy().into_owned()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&failed_path).ok();
+
+        let error = failed.error.as_deref().expect("the failed delivery must be reported as an error");
+        assert!(error.contains("curve_samples"), "the underlying cause must remain actionable: {error}");
+        assert!(failed.warning.is_none(), "a failed delivery must not be downgraded to a warning: {:?}", failed.warning);
+        assert!(failed.well_id.is_none(), "a rolled-back delivery must not return a committed well id");
+        assert_eq!(failed.rows, 0, "a rolled-back delivery must report no committed rows");
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get::<_, i64>(0)).unwrap(),
+            wells_before,
+            "the failed delivery must not leave a partial well"
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM standard_curves", [], |row| row.get::<_, i64>(0)).unwrap(),
+            standard_before,
+            "the failed delivery must not leave a standard projection"
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM curve_meta", [], |row| row.get::<_, i64>(0)).unwrap(),
+            metadata_before,
+            "the failed delivery must not leave generic metadata"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM wells WHERE well_name = 'FULL_CURVE_DEPENDENCY_MISSING'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0,
+            "the failed delivery name must not appear as a committed well"
+        );
+    }
+
     /// Core import v2 (T-IMP-07): a real delivery shape end-to-end — WN well column,
     /// units row, feet depths, percent porosity, an unmatched name, an ambiguous name,
     /// and a blank well cell. Probe must SEE all of it; commit must route, convert, and

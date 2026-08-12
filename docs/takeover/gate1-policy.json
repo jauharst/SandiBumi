@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "accepted_baseline": "b332026cb498c105f36eade0bf7899bc0c1309f0",
+  "full_gate_receipt": "docs/takeover/evidence/gate1-full-gate.json",
+  "geo_boundary": {
+    "state": "APPROVED",
+    "decision_id": "DEC-011",
+    "requirement_ids_sha256": "e1eed8f713f5449926b7e5c840d06d9c061eef8c7f420a868434dc57c2978ffc",
+    "proposed_on": "2026-08-12",
+    "approved_by": "Jauhar",
+    "approved_on": "2026-08-12"
+  },
+  "pilot_program": {
+    "state": "APPROVED",
+    "manifest_path": "docs/takeover/pilot-scope.json",
+    "requirement_ids_sha256": "0412de0cc43fabbe0c5e32d4c831d65e90536ee1c348802ab67cb0f3dcd70b6b",
+    "disposition_sha256": "295e48ecf3b661c75e3aacf677867098287b2c6264d63daa8eab1e27d5b82319",
+    "approved_blocker_count": 242,
+    "proposed_on": "2026-08-12",
+    "approved_by": "Jauhar",
+    "approved_on": "2026-08-12"
+  }
+}

@@ -7,6 +7,20 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-09 — SB-CORE-002: degraded results remain visibly degraded
+
+- [ ] Exercise one failed Monte Carlo chain, one partial full-curve import, uninterpreted and true
+      zero pay rows, partial and all-failed ML runs, a Pay Summary section failure during batch PDF
+      export, the stats-only Dashboard, and a zero-contributor training selection. Does each visible
+      surface name its degradation without a clean success or false zero, and does the batch PDF
+      remain written while its Pay Summary failure also appears in the run record?
+
+## 2026-08-09 — SB-CORE-001: depth-dependent saturation-height maths carries the project unit
+
+- [ ] Run the same physical Skelt–Harrison case in metre- and foot-declared projects. Does SWH
+      remain identical and does HAFWL remain recorded in metres? In a project whose depth unit is
+      undeclared, does Saturation-Height refuse before attempting to resolve its input curves?
+
 ## 2026-08-09 — SB-PLT-035: clay-overlay parity is characterized, not overstated
 
 - [ ] Compare the interactive Thomas–Stieber overlay endpoints with the batch module equations.

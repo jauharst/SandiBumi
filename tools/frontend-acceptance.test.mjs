@@ -3,8 +3,91 @@ import { after, before, test } from "node:test";
 import { createServer } from "vite";
 
 let server;
+let originalDocument;
+let originalWindow;
+
+class FakeClassList {
+  constructor(owner) {
+    this.owner = owner;
+  }
+
+  add(...names) {
+    const classes = new Set(this.owner.className.split(/\s+/).filter(Boolean));
+    for (const name of names) classes.add(name);
+    this.owner.className = [...classes].join(" ");
+  }
+
+  contains(name) {
+    return this.owner.className.split(/\s+/).filter(Boolean).includes(name);
+  }
+}
+
+class FakeElement {
+  constructor(tagName) {
+    this.tagName = String(tagName).toUpperCase();
+    this.children = [];
+    this.className = "";
+    this.classList = new FakeClassList(this);
+    this.style = {};
+    this.dataset = {};
+    this.attributes = new Map();
+    this.title = "";
+    this.hidden = false;
+    this.disabled = false;
+    this._textContent = "";
+    this._innerHTML = "";
+  }
+
+  set textContent(value) {
+    this._textContent = value == null ? "" : String(value);
+    this._innerHTML = "";
+    this.children = [];
+  }
+
+  get textContent() {
+    if (this._textContent) return this._textContent;
+    return this.children.map((child) => child.textContent ?? "").join("");
+  }
+
+  set innerHTML(value) {
+    this._innerHTML = value == null ? "" : String(value);
+    this._textContent = "";
+    this.children = [];
+  }
+
+  get innerHTML() {
+    return this._innerHTML;
+  }
+
+  appendChild(child) {
+    this.children.push(child);
+    return child;
+  }
+
+  append(...children) {
+    for (const child of children) this.appendChild(child);
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  addEventListener() {}
+  removeEventListener() {}
+}
 
 before(async () => {
+  originalDocument = globalThis.document;
+  originalWindow = globalThis.window;
+  globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+  globalThis.window = {
+    setTimeout: () => 1,
+    clearTimeout: () => {},
+  };
   server = await createServer({
     server: { middlewareMode: true },
     appType: "custom",
@@ -14,6 +97,8 @@ before(async () => {
 
 after(async () => {
   await server?.close();
+  globalThis.document = originalDocument;
+  globalThis.window = originalWindow;
 });
 
 async function load(path) {
@@ -215,4 +300,126 @@ test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handl
   assert.equal(attributes.get("aria-label"), "Current finite-pair crossplot");
   detach();
   assert.equal(listeners.has("keydown"), false);
+});
+
+test("an_uninterpreted_pay_summary_renders_absent_values_while_a_real_zero_net_zone_renders_zero", async () => {
+  // CORRECTNESS — SB-CORE-002 / SB-CORE-T05 cites the R4 reporting contract in
+  // 04_CORE_REQUIREMENTS.md: n_classified=0 is absent interpretation, while a classified
+  // zero is a real result. Both rows are required so substituting either for both cannot pass.
+  const { renderPaySummaryTable } = await load("/src/ui/summaryDialog.ts");
+  const host = document.createElement("div");
+  const base = {
+    well_id: "reporting-surface",
+    zone: "WHOLE",
+    flag: "PAY",
+    top: 1000,
+    bottom: 1001,
+    gross: 1,
+    net: 0,
+    ntg: 0,
+    avg_vsh: 0.8,
+    avg_phie: 0.05,
+    avg_swe: 1,
+    hpv: 0,
+    perm_cutoff_no_data: false,
+  };
+  renderPaySummaryTable(host, [
+    { ...base, well_name: "UNINTERPRETED_INTERVAL", n_classified: 0 },
+    { ...base, well_name: "CLASSIFIED_ZERO_NET", n_classified: 2, avg_vsh: 0.8, avg_phie: 0.05, avg_swe: 1 },
+  ]);
+
+  const table = host.children[0].children[0];
+  const tbody = table.children[0];
+  const [absentRow, zeroRow] = tbody.children;
+  assert.equal(absentRow.classList.contains("row-uninterpreted"), true);
+  assert.equal((absentRow.innerHTML.match(/<td>—<\/td>/g) ?? []).length, 3, "Net, N/G and HPV must be absent");
+  assert.equal(zeroRow.classList.contains("row-uninterpreted"), false);
+  assert.match(zeroRow.innerHTML, /<td>0\.0<\/td>/, "classified zero Net must render numerically");
+  assert.match(zeroRow.innerHTML, /<td>0\.00<\/td>/, "classified zero N/G and HPV must render numerically");
+  assert.match(host.children[1].textContent, /1 of 2 row\(s\).*no sample could be classified/);
+});
+
+test("a_partial_ml_run_reports_the_written_count_and_an_all_failed_run_writes_no_success_history", async () => {
+  // CORRECTNESS — SB-CORE-002 / SB-CORE-T06 cites R18 in 04_CORE_REQUIREMENTS.md:
+  // visible status and persistent History count successful well outcomes, never requested scope.
+  const { reportMlWriteOutcome } = await load("/src/ui/reportingHonesty.ts");
+  const { clearProcessLog, getProcessLog } = await load("/src/processLog.ts");
+  const statusLine = document.createElement("div");
+  let globalStatus = "";
+  clearProcessLog();
+  reportMlWriteOutcome({
+    statusLine,
+    setStatus: (text) => {
+      globalStatus = text;
+    },
+    algorithmLabel: "Regression",
+    outputs: ["PREDICTED_CURVE"],
+    wells: [
+      { well_id: "finite-input", rows_predicted: 2, error: null },
+      { well_id: "missing-input", rows_predicted: 0, error: "no usable samples" },
+    ],
+    fallbackTotal: 2,
+    elapsedMs: 12,
+  });
+  assert.match(statusLine.textContent, /1 well\(s\) need attention/);
+  assert.match(globalStatus, /wrote PREDICTED_CURVE to 1\/2 well\(s\)/);
+  assert.equal(getProcessLog().length, 1);
+  assert.match(getProcessLog()[0].detail, /1\/2 well\(s\)/);
+
+  clearProcessLog();
+  reportMlWriteOutcome({
+    statusLine,
+    setStatus: (text) => {
+      globalStatus = text;
+    },
+    algorithmLabel: "Regression",
+    outputs: ["PREDICTED_CURVE"],
+    wells: [
+      { well_id: "missing-a", rows_predicted: 0, error: "no usable samples" },
+      { well_id: "missing-b", rows_predicted: 0, error: "no usable samples" },
+    ],
+    fallbackTotal: 2,
+    elapsedMs: 13,
+  });
+  assert.match(statusLine.textContent, /2 well\(s\) need attention/);
+  assert.match(globalStatus, /wrote PREDICTED_CURVE to 0\/2 well\(s\)/);
+  assert.equal(getProcessLog().length, 0, "an all-failed run must not become a success-history entry");
+});
+
+test("a_stats_only_dashboard_run_says_no_flag_curves_were_written", async () => {
+  // CORRECTNESS — SB-CORE-002 / SB-CORE-T08 cites R19 in 04_CORE_REQUIREMENTS.md:
+  // the stats-only path must deny a write and name the separate action that persists flags.
+  const { reportDashboardCompletion } = await load("/src/ui/reportingHonesty.ts");
+  const status = document.createElement("div");
+  reportDashboardCompletion(status, 3, 9, 3);
+  assert.match(status.textContent, /Stats only — no FLAG curves written/);
+  assert.match(status.textContent, /run Cutoffs & Summary to persist flags/);
+  assert.doesNotMatch(status.textContent, /\. FLAG curves written\./);
+});
+
+test("a_training_well_that_contributes_no_samples_is_warned_in_the_rendered_ml_result", async () => {
+  // CORRECTNESS — SB-CORE-002 / SB-CORE-T09 cites R21 in 04_CORE_REQUIREMENTS.md:
+  // a zero-contributor advisory is a rendered warning, while a clean result renders none.
+  const { renderResults } = await load("/src/ui/mlDialog.ts");
+  const result = {
+    outputs: ["PREDICTED_CURVE"],
+    metrics: null,
+    wells: [],
+    notes: [
+      "1 of 2 training well(s) contributed no usable samples; the model was fit on remaining 1",
+    ],
+    model_id: null,
+    model_name: null,
+    split: null,
+    error: null,
+  };
+  const warned = document.createElement("div");
+  renderResults(warned, result);
+  assert.equal(warned.children[0].className, "mc-note mc-note-err");
+  assert.match(warned.children[0].textContent, /1 of 2 training well\(s\) contributed no usable samples/);
+  assert.match(warned.children[0].textContent, /model was fit on remaining 1/);
+
+  const clean = document.createElement("div");
+  renderResults(clean, { ...result, notes: [] });
+  assert.equal(clean.children.some((child) => child.classList.contains("mc-note-err")), false);
 });

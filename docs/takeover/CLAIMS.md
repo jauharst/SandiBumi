@@ -1,0 +1,83 @@
+# SandiBumi customer-facing claim register
+
+Measured on 2026-08-10 from the GitHub-master-anchored takeover baseline. This register inventories
+claims; it does not approve them, edit their source surfaces or make a paid-release representation.
+
+## Rules
+
+- `PROVEN` means the narrow sentence is backed by current source plus a directly exercising named
+  test or runtime observation. It does **not** mean field-verified or pilot-ready.
+- `QUALIFIED` means the claim may survive only with the boundary recorded in this table.
+- `UNMEASURED` means a numerical, scale or repeatability claim lacks the defined benchmark needed
+  to demonstrate it.
+- `REMOVE-RECOMMENDED` means the present absolute, stale or unsupported wording should not reach a
+  release surface. This increment records that recommendation but does not edit the surface.
+- `LEGAL-REVIEW` means factual engineering evidence exists, but commercial redistribution,
+  trademark, licence or provenance clearance remains a lawyer's decision.
+- `UNDECIDED` means the evidence cannot settle a product-owner or competitive-intelligence choice.
+- Stable IDs follow the primary source path and line order. Where generated or release-facing
+  mirrors repeat the same claim, one row lists every mirror so the later release action cannot fix
+  one copy and leave another behind.
+- Algorithmic uses of words such as `best`, structural identifiers such as Tauri's `windows` array,
+  and definitions of evidence vocabulary are not product claims and are excluded.
+
+## Claims
+
+| ID | Claim | Surface | Audience | Evidence | State | Release action | Owner/blocker |
+|---|---|---|---|---|---|---|---|
+| CLAIM-001 | The application is suitable for `2000+` wells. | `CLAUDE.md:6` | Engineering/onboarding; potentially publishable copy | `SB-CORE-030`, `DEC-004` and `DEC-008`: no defined 2,000-well benchmark exists; the 100-well chain and 540-well project observation prove different claims. | UNMEASURED | Keep absent from customer copy until named operations, fixture, hardware and thresholds pass. | Jauhar; `DEC-004`, `DEC-008` |
+| CLAIM-002 | Everything in the build record shipped and was field-verified. | `CLAUDE.md:694` | Engineering/onboarding | Current evidence is 78/1,479 checked scenarios, 14/54 capabilities with any recorded exercise and 1/54 fully exercised. | REMOVE-RECOMMENDED | Replace any publishable use with capability-specific automated and field evidence; never repeat the blanket sentence. | Gate 4; representative workflow and actual review checks |
+| CLAIM-003 | SandiBumi is a Windows desktop application. | `README.md:3`; mirrored by `src-tauri/tauri.conf.json:29-30` | Prospective users, developers and installer metadata readers | Current Tauri desktop configuration, Windows MSI target and repeated green Windows build/test gate establish the narrow platform statement. They do not establish a supported release matrix. | PROVEN | Retain the narrow desktop-platform claim; keep clean-machine editions/releases under Gate 3. | Release engineering; Gate 3 for support matrix |
+| CLAIM-004 | The product is built for named regional real-field workflows. | `README.md:4` | Prospective users | Real-data checks exist, but the representative pilot workflow is still `DEC-003`, only 5.3% of manual scenarios are checked, and the repository rule forbids committing basin/field identifiers. | REMOVE-RECOMMENDED | Remove the named geography and do not claim representative workflow coverage until Gate 4 evidence exists. | Jauhar; `DEC-003`, provenance rule |
+| CLAIM-005 | The product handles field-scale well counts. | `README.md:4` | Prospective users | The checked-in evidence has isolated 100-well and 540-well observations but no portfolio benchmark or accepted threshold. | UNMEASURED | State only a disclosed measured scenario, or omit the scale claim until `DEC-008` is settled and demonstrated. | Jauhar; `DEC-008` |
+| CLAIM-006 | The product has a full deterministic petrophysical module library. | `README.md:5` | Prospective users | The manifest and tests establish many modules, but `full` has no declared comparison universe and live domain adjudication is not complete. | REMOVE-RECOMMENDED | Replace `full` with an enumerated, versioned capability list and availability status. | G1 domain adjudication |
+| CLAIM-007 | The product produces print-quality deliverables. | `README.md:5`; repeated in `docs/PRD_v2/01_PRODUCT.md:18` | Prospective users | Vector/PDF and physical-scale contracts have automated tests, but `print-quality` is subjective and has no accepted visual/print criterion. | QUALIFIED | Replace the subjective phrase with exact formats, vector status and proven scale behavior; reserve visual quality for pilot acceptance. | Plot/report owners; Gate 4/G5 visual acceptance |
+| CLAIM-008 | Native project open, native computation, plotting and native export remain available without Python. | `README.md:11-12`; `src-tauri/resources/install/capability-prerequisites.txt:3`; `src-tauri/tauri.conf.json:30`; `src/ui/installationSupportDialog.ts:23` | Users, IT and installer readers | `missing_python_does_not_block_project_open_native_computation_plotting_or_native_export` directly pins the sentence. | PROVEN | Retain this capability-scoped wording; never shorten it to a blanket `no Python required`. | `SB-INS-002` |
+| CLAIM-009 | Every Python-backed capability maps to one declared package set and one session interpreter. | `README.md:12-18`; `src-tauri/resources/install/capability-prerequisites.txt:4-10` | Users and IT | `each_optional_capability_maps_to_the_cited_packages_and_no_detector_carries_a_second_package_list` and the bundled manifest pin the inventory; exact package versions remain release-lock data. | PROVEN | Retain the capability-level inventory and generate all mirrors from the manifest. | `SB-INS-003`, `SB-INS-004` |
+| CLAIM-010 | A signed, versioned SandiBumi-qualified Python pack is a currently supported offline deployment route. | `README.md:21-24`; `src-tauri/tauri.conf.json:30`; `src-tauri/resources/install/capability-prerequisites.txt:13-15`; `src/ui/installationSupportDialog.ts:71` | Users, IT and installer readers | Source and fixture tests define and validate the evidence schema, but no actual pack, release lock, signature receipt or clean-machine network trace is checked in. Gate 3 has not started. | QUALIFIED | Treat this as the approved release route, not a demonstrated current artifact; block release wording until the real pack passes the Gate 3 matrix. | Gate 3; qualified pack and clean-machine evidence |
+| CLAIM-011 | Undo is available everywhere. | `README.md:31` | Prospective users | `CLAUDE.md` rule 8 says edits are undoable but module runs are re-runnable, not undone; imports and other operations also use different recovery contracts. | REMOVE-RECOMMENDED | Replace the absolute with an enumerated edit/undo boundary. | G1 domain adjudication; UX/data-edit owners |
+| CLAIM-012 | SandiMin ships a 27-component multi-mineral library. | `README.md:35` | Prospective users | The count and implementation are inspectable, but `docs/IP_PROVENANCE.md` section 2.2 records a vendor-merged curated endpoint library and requires primary citations/legal disposition before sale. | LEGAL-REVIEW | Do not market the shipped library until source-by-row work and counsel's disposition are complete. | Jauhar plus legal counsel; first-sale blocker |
+| CLAIM-013 | The product ships 19 vector-digitized Schlumberger-2013 chart overlays. | `README.md:40` | Prospective users | The generated inventory establishes 19 definitions; `docs/IP_PROVENANCE.md` section 2.1 calls redistribution of the extracted chart coordinates the product's highest-exposure legal item. | LEGAL-REVIEW | Keep the count factual but do not make it a paid-release claim until counsel selects a permitted route. | Legal counsel; first-sale blocker |
+| CLAIM-014 | Composite log outputs are rendered at true print scale. | `README.md:42`; repeated in product and UI copy | Prospective users and report users | `print_scale_is_physically_exact`, `a_metre_of_formation_occupies_its_declared_millimetres_on_the_page` and `the_page_count_follows_the_print_scale_and_the_page_size` exercise the artwork and pagination contracts. | PROVEN | Retain the narrow scale claim with the supported formats/scales; field print inspection remains separate evidence. | `SB-REP`/plotting release owner |
+| CLAIM-015 | Client-branded themes ship as a product feature. | `README.md:44`; implementation names are recorded in `docs/IP_PROVENANCE.md:91-96` | Prospective users | The themes exist, but the legal register records unresolved third-party trademark and client-permission questions. | LEGAL-REVIEW | Use only a counsel-approved naming/distribution route before first sale. | Jauhar plus legal counsel; first-sale blocker |
+| CLAIM-016 | Incumbent audit trails are activity logs rather than lineage graphs. | `docs/FUTURE_PLAN.md:89-90` | Internal strategy; possible future sales copy | The checked-out tree contains no current independent comparative study proving this claim across named competitor versions. | UNDECIDED | Keep internal and source it through lawful, versioned competitor evidence before any external comparison. | Product strategy/legal review |
+| CLAIM-017 | A whole field can be rerun to byte-identical numbers with every parameter and source diffable. | `docs/FUTURE_PLAN.md:96-103` | Internal strategy | The document itself routes the lineage feature to future roadmap work; `DEC-009` remains open and no whole-field repeatability benchmark exists. | UNMEASURED | Keep as a future acceptance target, never present behavior. | `DEC-009`; lineage implementation and benchmark |
+| CLAIM-018 | SandiBumi is the most complete low-contrast-pay suite in existence. | `docs/FUTURE_PLAN.md:148-150` | Internal strategy; possible future sales copy | No defined competitor/version matrix or complete passing SandiBumi capability matrix establishes the superlative. | REMOVE-RECOMMENDED | Do not publish the absolute; replace it only with sourced, bounded feature comparisons after legal review. | Product strategy; Gate 2/G4 evidence |
+| CLAIM-019 | SandiBumi would be the only tool pushing results with full computational lineage. | `docs/FUTURE_PLAN.md:251-252` | Internal strategy | Lineage is future work and no current competitor study proves exclusivity. | REMOVE-RECOMMENDED | Keep as an internal hypothesis; never use `only` in release copy without contemporary comparative evidence. | `DEC-009`; product/legal review |
+| CLAIM-020 | SandiBumi is the only product that can prove how a number was made. | `docs/FUTURE_PLAN.md:345`; repeated in `docs/PRD_v2/06_SEQUENCING_AND_GATES.md:18` | Internal release ladder | The prerequisite lineage requirements are not yet live-adjudicated and exclusivity is not independently evidenced. | REMOVE-RECOMMENDED | Preserve as a tier aspiration only; do not promote to customer copy until the capability and comparison are proven. | `SB-CORE-010..012`, `DEC-009` |
+| CLAIM-021 | SandiBumi is the best low-contrast-pay tool in existence. | `docs/FUTURE_PLAN.md:347`; repeated in `docs/PRD_v2/06_SEQUENCING_AND_GATES.md:20` | Internal release ladder | Neither the full `SB-LRL`/thin-bed contract nor an independent comparative matrix supports the absolute. | REMOVE-RECOMMENDED | Keep as an internal tier label only; any future comparison must name versions, workflow and evidence. | Gate 2/G4 plus product/legal review |
+| CLAIM-022 | The review checklist is 19.5% field-verified. | `docs/FUTURE_PLAN.md:437` | Internal strategy | The current generated baseline is 78/1,479, or 5.3%; the quoted 370-item denominator is obsolete. | REMOVE-RECOMMENDED | Never quote this stale percentage; use the dated generated baseline. | Gate 1 evidence maintenance |
+| CLAIM-023 | The review checklist is 72/370, or 19.5%, field-verified. | `docs/PRD.md:28`; repeated at `docs/PRD.md:138,561,611` | Internal legacy product document | The current generated baseline is 78/1,479, or 5.3%; this older PRD is not the live evidence source. | REMOVE-RECOMMENDED | Treat as historical only and never reuse in release copy. | Gate 1 evidence maintenance |
+| CLAIM-024 | The application is fully offline-capable. | `docs/PRD.md:409` | Internal legacy product document | Static network-surface checks support a narrower no-configured-network statement, but the signed optional-runtime pack and full clean-machine matrix do not yet exist as release evidence. | QUALIFIED | Replace `fully` with the exact native/runtime/licensing boundary; require Gate 3 evidence before release. | Gate 3; licensing/update decisions at Gate 5 |
+| CLAIM-025 | Print-quality reports work for one well or hundreds from one installer. | `docs/PRD_v2/01_PRODUCT.md:18` | Product governance; possible future copy | Individual render contracts exist, but `hundreds`, visual quality and one-installer clean-machine delivery are not jointly demonstrated. | QUALIFIED | Split into separately evidenced scale, format, visual and installer claims. | Gate 3/G4; `DEC-008` for scale |
+| CLAIM-026 | The application is fully offline-capable and no feature needs connectivity. | `docs/PRD_v2/01_PRODUCT.md:436-437` | Product governance | No HTTP client/updater path is a useful static observation; optional-runtime deployment, licensing and release update policy remain unresolved or unqualified. | QUALIFIED | Claim only the evidenced network boundary and declared offline feature manifest; do not use `fully` before Gate 3/G5. | Gate 3; `DEC-005`, `DEC-007` |
+| CLAIM-027 | The current product is a single-user Windows desktop application using one project file and one writer. | `docs/PRD_v2/01_PRODUCT.md:498` | Product governance | Current architecture and storage code support this as-built description; Linux timing is separately deferred by `DEC-010`. | PROVEN | Retain as the current deployment model without implying a qualified Windows release matrix. | Architecture owner; Gate 3 for supported releases |
+| CLAIM-028 | Processing History is a timestamped audit trail of every meaningful operation. | `src/processLog.ts:3-5` | Developers; behavior behind the in-app history surface | Source records selected imports, runs, edits, exports and pins, but no owned test or completeness audit proves every meaningful operation is captured. It is an activity log, not computational lineage. | QUALIFIED | Describe it as a timestamped log of recorded operations and enumerate coverage; do not call it complete lineage. | Processing-history owner; `DEC-009` |
+| CLAIM-029 | Processing History is the audit trail of everything done in a project. | `src/ui/workspace.ts:1437` | In-app users | The absolute exceeds `processLog.ts`'s selected meaningful-operation scope and `docs/FUTURE_PLAN.md:89-103` explicitly distinguishes activity history from lineage. | REMOVE-RECOMMENDED | Replace `everything` with the bounded recorded-operation description before release. | Processing-history owner; `DEC-009` |
+
+State totals: `5 PROVEN`, `6 QUALIFIED`, `3 UNMEASURED`, `11 REMOVE-RECOMMENDED`,
+`3 LEGAL-REVIEW`, `1 UNDECIDED` (`29` claims total).
+
+## Claims deliberately absent
+
+- **Linux support** is absent from customer and installer claims. `DEC-010` deliberately defers its
+  timing and support contract until after the Windows pilot.
+- **The 2,000-well number** is absent from `README.md`; it remains in internal engineering text and
+  stays unmeasured under `CLAIM-001` until Jauhar resolves `DEC-004` and `DEC-008`.
+- **A blanket no-Python claim** is absent. Release surfaces correctly distinguish native paths from
+  the six Python-backed capability families.
+- **A blanket field-verified claim** is absent from the public README. The internal blanket in
+  `CLAUDE.md` is registered for removal rather than silently treated as release evidence.
+- **Linux parity, service levels, online activation, update cadence and supported-version windows**
+  remain absent because their product decisions are deferred or open in `DECISIONS.md`.
+
+## Legal-review claims
+
+- `CLAIM-012`: the curated 27-component SandiMin endpoint library — `docs/IP_PROVENANCE.md` section
+  2.2 requires primary-source improvement and a legal disposition.
+- `CLAIM-013`: the 19 digitized chart overlays — section 2.1 calls this the highest-exposure shipped
+  asset and a first-sale blocker.
+- `CLAIM-015`: client-branded theme names — section 2.5 records unresolved trademark/permission
+  routes and a first-sale blocker.
+- Dependency and optional-runtime licence evidence remains a release legal task. This register is a
+  factual inventory and must not be cited as legal clearance.

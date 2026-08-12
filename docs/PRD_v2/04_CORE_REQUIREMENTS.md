@@ -110,7 +110,7 @@ carry), `23_plotting-interactivity.md` (the renderer constant).
 
 ---
 
-### `SB-CORE-002` — A degraded or failed result is never presented as a clean one   [P0] [PRESENT-DIVERGENT]
+### `SB-CORE-002` — A degraded or failed result is never presented as a clean one   [P0] [PRESENT-OK]
 
 **Requirement.** Every computation path MUST propagate failure to the surface that reports it. A
 batch operation MUST report per-item failure counts. A result composed of NaN MUST NOT be reported as
@@ -120,39 +120,47 @@ omitted, in the deliverable and in the run record.
 **Rationale.** This is the product's own stated cardinal rule, and the 2026-08 as-built audit found it
 violated in seven shipped paths (R15).
 
-**Correction, 2026-08-07 — three of the seven are already closed, and this document had them wrong.**
-`14_cutoffs-summation-mc.md` escalated that the three violations falling in its domain were fixed
-after the audit was written, and that the `file.rs:line` pointers quoted here no longer resolve to the
-cited behaviour. Re-verified at source:
+**Adjudication, 2026-08-09.** The original seven are recoverable without inference from the recorded
+R4, R18, R19 and R21 findings in `docs/playbook_build_progress.md`. Current source and existing tests
+were then checked against those seven exact paths. A test counts here only when it asserts the
+reported artefact; a test of an internal helper, an internal `Result`, or the persistence side effect
+alone is supporting coverage, not the acceptance test for this requirement.
 
-- **Monte Carlo no longer swallows module errors.** `montecarlo.rs:1300-1301` pushes a per-well error
-  and marks the item `Failed`; `montecarlo.rs:1824-1828` carries an explicit guard against what its
-  own comment calls *"a confident P10=P50=P90 table of zeros"* and reports *"chain step failed on
-  every realization"*.
-- **The report no longer drops a Pay Summary silently.** `report.rs:458` names the case in a comment
-  as *"exactly the cardinal-rule failure the report path must not allow"*, and `report.rs:546` emits
-  **"Pay Summary unavailable — {e}"** into the section rather than omitting it.
+The earlier claim that **four remain open** is not supported by current evidence. All seven recorded
+behaviors are now closed and regression-locked at their reporting surfaces. Six named tests pin the
+already-shipped corrections; `SB-CORE-T07` first reproduced the remaining report-batch defect, then
+closed it by carrying the Pay Summary degradation beside the still-written PDF in the batch result.
+The requirement is therefore `PRESENT-OK`.
 
-**The requirement stands at P0 and the status stays `PRESENT-DIVERGENT`**, because the remaining four
-violations lie outside that chapter's domain and are untouched by this finding. What changes is the
-evidence: this requirement is now carried by the four open cases, not by the three closed ones. The
-closed three become regression-lock targets — `SB-CUT-T37`, `T37b`, `T37c` — and the requirement may
-be re-scoped to `PRESENT-OK, regression-locked` **for this domain only** once those are green.
+**Follow-up adjudication, 2026-08-10.** The native-grid import increment replaced the old two-stage
+LAS write with one atomic transaction covering the well, standard projection, generic metadata and
+every native sample. That deliberately eliminated the partial-delivery state originally assigned to
+`SB-CORE-T04`: an all-channel failure now rolls the whole delivery back and returns a per-file error.
+The reporting-surface contract below pins that named refusal and the absence of partial rows; it does
+not restore the superseded partial-success path.
 
-**Note on how this correction arose**, because it is the pattern `02_RISKS_AND_CONTRADICTIONS.md` §11
-names and this document had just committed it: the original rationale quoted a *measurement* — three
-`file.rs:line` pointers — taken from an audit, and the code moved underneath it in under two days. A
-requirement is durable; the line numbers evidencing it are not. Chapters must re-verify a cited
-pointer at the source before repeating it, and this one was caught only because a chapter refused to
-edit this file and escalated instead.
+Each original path now owns exactly one non-overlapping reporting-surface contract:
+
+| Test | Original recorded violation | Reporting-surface acceptance contract | Current adjudication and evidence |
+|---|---|---|---|
+| `SB-CORE-T03` — `a_monte_carlo_chain_failure_is_reported_in_the_job_and_never_as_a_zero_uncertainty_result` | R4: Monte Carlo swallowed module errors and presented an all-NaN/all-zero uncertainty result as success. | Given one selected well whose chain step fails on every realization, the returned Monte Carlo result MUST name that well and the underlying module error, and the job item MUST be `Failed`; no clean P10/P50/P90 zero table may be reported. | **CLOSED — regression test present.** `core_reporting_tests.rs` asserts the returned error and failed job item, with an explicit successful-gate control. |
+| `SB-CORE-T04` — `an_all_channel_import_failure_returns_a_named_error_and_commits_no_partial_well` | R4: a failed generic-store full-curve import was written only to stderr and omitted from `ImportResult`. | Given a clean sibling delivery and an all-channel delivery whose generic-sample dependency fails, the clean delivery MUST succeed, while the failed delivery's per-file `ImportResult` MUST name the cause as an error and the transaction MUST leave no partial well, standard projection or generic metadata. | **CLOSED — regression test present.** `ingest.rs` asserts the clean control, the named `curve_samples` error, the absence of a warning or committed well ID, and unchanged well, standard-row and generic-metadata counts; `new_well_rolls_back_when_all_channel_insert_fails` independently pins rollback after staged writes. |
+| `SB-CORE-T05` — `an_uninterpreted_pay_summary_renders_absent_values_while_a_real_zero_net_zone_renders_zero` | R4: the pay summary fabricated Net, N/G and HPV zeros for a well with no classified samples. | Given one uninterpreted row and one evaluated row whose genuine result is zero, the rendered summary MUST show absent marks plus the not-classified explanation for the first and numeric zeros for the second. | **CLOSED — regression test present.** `frontend-acceptance.test.mjs` drives `renderPaySummaryTable` and inspects both rendered rows plus the explanation. |
+| `SB-CORE-T06` — `a_partial_ml_run_reports_the_written_count_and_an_all_failed_run_writes_no_success_history` | R4: the ML dialog claimed every scoped well when only a subset was written. | Given two scoped wells with one successful write, the visible status and permanent History MUST report one of two written and one needing attention; given zero successful writes, no success History entry may be recorded. | **CLOSED — regression test present.** `frontend-acceptance.test.mjs` inspects the visible status, global status and real process-history store for partial and all-failed runs. |
+| `SB-CORE-T07` — `a_failed_pay_summary_is_named_in_the_pdf_and_in_the_batch_run_record` | R18: report generation silently omitted the Pay Summary on error and reported zero batch errors. | Given a forced Pay Summary error for one well, the emitted PDF MUST contain the Pay Summary heading and its error note, while the returned batch/run record MUST name that well's degraded section and report one failure; the composite PDF may still be listed as written. | **CLOSED — regression test present.** `report.rs` forces a write-only Pay Summary failure, inspects the emitted PDF, and asserts one named degradation beside the written file in the returned batch record. |
+| `SB-CORE-T08` — `a_stats_only_dashboard_run_says_no_flag_curves_were_written` | R19: the Field Dashboard claimed `FLAG_*` curves were written on its stats-only, write-nothing path. | After a stats-only Dashboard computation, the visible status MUST say that no `FLAG_*` curves were written and MUST name the action that persists them; it MUST NOT claim that curves were written. | **CLOSED — regression test present.** `frontend-acceptance.test.mjs` inspects the Dashboard status element for the refusal and the separate persistence action. |
+| `SB-CORE-T09` — `a_training_well_that_contributes_no_samples_is_warned_in_the_rendered_ml_result` | R21: supervised ML silently dropped selected training wells that contributed zero usable samples. | Given two selected training wells where one contributes no usable samples, the rendered ML result MUST warn that one of two contributed nothing, name the no-usable-samples condition, and say that the model used the remaining one; when both contribute, that warning MUST be absent. | **CLOSED — regression test present.** `frontend-acceptance.test.mjs` drives `renderResults`, inspects the rendered warning, and asserts the clean control has none. |
+
+The contracts above derive only from the seven recorded violations. They do not extend
+`SB-CORE-002` to new failure classes, and none treats today's internal behavior as the expected
+reporting artefact.
 
 `03_EVIDENCE_BASE.md` §14.3 cannot be claimed as a differentiator while these stand. Selling
 "fail-loud where the incumbents fail silent" from a product that fabricates zeros is the single
 fastest way to convert a strength into a credibility loss.
 
-**Verified by.** `SB-CORE-T03` … `SB-CORE-T09`, one per named violation, each asserting the error
-reaches the reporting surface. Each test MUST assert on the *reported* artefact — the summary row,
-the PDF, the job result — never only on the internal `Result`.
+**Verified by.** `SB-CORE-T03`, `SB-CORE-T04`, `SB-CORE-T05`, `SB-CORE-T06`, `SB-CORE-T07`,
+`SB-CORE-T08`, `SB-CORE-T09`, as assigned above.
 
 **Owning chapters.** `14_cutoffs-summation-mc.md` (Monte Carlo, pay summary), `22_database-model.md`
 (job results), `23_plotting-interactivity.md` (report emission).
@@ -671,7 +679,7 @@ policy a buyer's counsel can be shown.
 | ID | Title | Priority | Status |
 |---|---|---|---|
 | `SB-CORE-001` | Depth unit carried and enforced | **P0** | PARTIAL — Leverett closed, Skelt-Harrison open |
-| `SB-CORE-002` | No degraded result presented as clean | **P0** | PRESENT-DIVERGENT |
+| `SB-CORE-002` | No degraded result presented as clean | **P0** | PRESENT-OK — seven reporting surfaces regression-locked |
 | `SB-CORE-003` | Validity conditions are enforced preconditions | P1 | ABSENT |
 | `SB-CORE-004` | No parameter ships without a source | **P0** | PARTIAL |
 | `SB-CORE-006` | One name, one equation | **P0** | PRESENT-DIVERGENT |

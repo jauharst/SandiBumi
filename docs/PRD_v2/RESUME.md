@@ -165,8 +165,12 @@ Deliberately **not** filed under `SB-CORE-006`: both modules compute the same li
 `SB-CORE-T17`'s shared fixture would pass. The divergence lives entirely in the defaults, which is
 why `SB-CORE-T23` forbids the fixture from supplying parameters.
 
-**Note.** `SB-CORE-T04` … `SB-CORE-T08` are unassigned gaps in the spine's test numbering. Not an
-error, but worth closing during the `91_REQUIREMENTS_INDEX.md` sweep.
+**Closed 2026-08-09 — SP-008 / `SB-CORE-002`.** The original seven degraded-result paths were
+recovered from recorded R4/R18/R19/R21 evidence and assigned one-for-one to `SB-CORE-T03` through
+`T09`. The stale claim that four violations remain open was corrected, all seven reporting surfaces
+now have their named regression, and `SB-CORE-T07` closes the remaining production defect by naming
+the Pay Summary degradation in both the PDF and batch/run record. Tests of internal helpers,
+internal `Result` values, or persistence alone were deliberately not counted.
 
 ---
 
