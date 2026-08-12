@@ -126,7 +126,7 @@ Preliminary as-built totals are six `ABSENT`, 12 `PARTIAL`, four `PRESENT-OK`, t
 - Modify: `docs/takeover/requirements.csv`
 - Modify: `docs/takeover/STATUS.md`
 
-- [ ] Update only mutable evidence fields for the 26 SB-INS rows: `as_built_status`, `release_disposition`, `risk_class`, `implementation_paths`, `automated_evidence`, `automated_test_class`, `manual_evidence`, `source_parameter_state`, `ui_ipc_surface`, `provenance_state`, `history_reachability`, `blocking_decision`, `next_action`, `notes`, `evidence_receipt`, `last_reverified`, and `commit_state`.
+- [ ] Update only the ledger's actual mutable evidence fields for the 26 SB-INS rows: `as_built_status`, `release_disposition`, `risk_class`, `implementation_paths`, `test_class`, `expected_value_source`, `manual_evidence`, `dependencies`, `commit_state`, `blocking_decision`, `next_action`, and `last_reverified`. Keep the richer automated-evidence, source/parameter, UI/IPC, provenance, history/reachability, and notes detail in `docs/takeover/evidence/sb-ins.md`; those are receipt concepts, not CSV columns.
 - [ ] Preserve all source-owned fields byte-for-byte and recompute the frozen source hash.
 - [ ] Recompute all ledger totals from the CSV. Expected only if row evidence remains as mapped: `879/931` adjudicated, `52` unadjudicated, `584` pilot blockers, `198` undecided, and `149` deferred.
 - [ ] Update `docs/takeover/STATUS.md` with the SB-INS result, exact as-built/test/disposition totals, focused evidence, manual boundary, next serial increment, and current commit language without implying Gate 1 completion.
