@@ -49,7 +49,7 @@ solver-discipline rows made mandatory by `DEC-014` changes the POR release split
 
 - **Architecture:** a POR quantity family and complete method/convention/run provenance are required. User-configurable output names are settled by `DEC-013`. `DEC-015` settles a common typed custody/observability envelope with method-specific correction limits and validity rules.
 - **Numerical limits and flags:** method-specific physics is not automatically an error, but a silent branch or clamp is. Existing hard bounds become cited, visible parameters and binding is observable; an uncited endpoint remains absent.
-- **Sonic:** the chapter's truthful naming and per-method shale conventions remain the adopted target. `Cp < 1` is now a hard refusal. SP-013 still needs the separate rename-with-source versus true-RHG80 choice.
+- **Sonic:** the chapter's truthful naming and per-method shale conventions remain the adopted target. `Cp < 1` is a hard refusal. `DEC-017` closes SP-013's product choice on the genuine original three-segment RHG80 route, not rename-only; exact equation typography still requires verification against the original scan, and SB-POR-020's separate vendor-rendering choice remains open.
 - **N-D and gas:** Arithmetic and RMS remain available only in their explicitly named roles. Gaymard-Poupon HC response and the coupled porosity-`Sxo`/`Sw` iteration are mandatory separate contracts. SB-POR-059's RMS parity fix remains narrow and does not implement either rigorous contract.
 - **Missing capability:** analytic N-D, HC response, excavation and neutron-sonic are required product capabilities under `DEC-016`; no missing source or parameter is supplied by that inclusion decision.
 - **Proof:** every atomic contract still needs an independent correctness oracle. No implementation-derived snapshot is promoted. Automated evidence remains 0 qualifying POR correctness tests, and Jauhar retains ownership of all 33 manual POR checks.
@@ -73,7 +73,7 @@ absent and the method refuses rather than falling back to a neighboring method.
 
 - SP-009 remains open: all source-owned POR status and test fields stay blank, and numeric T26/T27 stay absent.
 - SP-012's product decision is closed by `DEC-012`: `Cp < 1` is refused. The shipped Wyllie path remains divergent until the refusal and its regression test are implemented.
-- SP-013 remains open: the shipped `RHG` option is a one-segment approximation under a three-segment published name. Rename-with-source versus implementing RHG80 is not chosen here.
+- SP-013's product choice is closed by `DEC-017`: the shipped one-segment approximation is not retained as SandiBumi's RHG method; the product direction is the original three-segment RHG80 transform. Production remains blocked until the exact scanned equation typography is reverified. This does not choose IP, Geolog or Techlog as SB-POR-020's authoritative vendor rendering.
 - SP-014 remains open: one user-visible sonic description contains a prohibited geographic parenthetical. This receipt names the surface without reproducing the proper name.
 - SP-015 supplies primary-source citations for the compaction estimator and RHG's no-compaction-correction property; it does not authorize an implementation choice.
 - The chapter's 18-ABSENT claim does not mechanically match its 15 ABSENT-bearing rows. The mismatch is not normalized and every parameter is adjudicated from its own row.
@@ -260,11 +260,11 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Qualifying acceptance tests:** none for the specified identity contract. Test class `CHARACTERIZATION`: `phi_son_wyllie_cp_opt_in_only_scales_wyllie` pins the current fixed branch and its immunity to `OPT_CP`, not published RHG correctness.
 - **Supporting tests:** that characterization passed exactly once.
 - **Manual evidence:** porosity 0/33; workflow 0/23.
-- **Source/parameter boundary:** SP-013 and SP-015 distinguish the current approximation, proposed field-observed form and RHG80 source; no coefficient or rename decision is inferred.
+- **Source/parameter boundary:** SP-013 and SP-015 distinguish the current approximation, proposed field-observed form and RHG80 source. `DEC-017` chooses the original three-segment RHG80 product route; no coefficient, vendor-specific rendering or scan typography is inferred.
 - **History/reachability:** the misnamed branch is integrated; no true RHG80 or `FIELD_OBSERVED` path was found.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** Jauhar must choose rename-with-source versus implementing RHG80; SP-014's wording cleanup is also open.
-- **Next action:** adjudicate SP-013, then expose only names backed by their actual equations and prove label, formula, parameter and run provenance together.
+- **Blocker or decision:** the rename-versus-RHG80 choice is closed by `DEC-017`. Exact paper typography must be verified before code; SB-POR-020's vendor-rendering choice and SP-014's wording cleanup remain open.
+- **Next action:** verify the original scan, implement the three-segment RHG80 path without borrowing a vendor closed form, keep any field-observed route separately sourced, and prove label, formula, parameter and run provenance together.
 
 ## SB-POR-015 - Method-correct sonic shale treatment
 
@@ -276,7 +276,7 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Source/parameter boundary:** SP-015 supplies newer primary-source direction; it does not choose a method or coefficient.
 - **History/reachability:** no compliant non-Wyllie reduction/rescale branch was found in current source, tests or reachable history.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** depends on SB-POR-013 conventions and the SP-013 method identity decision.
+- **Blocker or decision:** the RHG80 identity choice is closed by `DEC-017`; the method-specific shale-convention implementation and original-scan verification remain open.
 - **Next action:** separate Wyllie and non-Wyllie preprocessing explicitly and prove raw-DT and stale shared-subtraction controls fail.
 
 ## SB-POR-016 - Cited lithology-selected matrix transit time
@@ -338,11 +338,11 @@ absent and the method refuses rather than falling back to a neighboring method.
 - **Qualifying acceptance tests:** none; T28 is not executable for the specified method. Test class `MISSING`.
 - **Supporting tests:** the sonic characterization proves only current approximation behavior.
 - **Manual evidence:** porosity 0/33; generic-curve-store 0/18.
-- **Source/parameter boundary:** SP-013 leaves rename versus RHG80 open; SP-015's source does not authorize an adjudication-time default choice.
+- **Source/parameter boundary:** `DEC-017` selects the original three-segment RHG80 product route, while SP-015's source still does not authorize a vendor rendering, an unverified transcription or an inferred default.
 - **History/reachability:** no published RHG implementation or comparison-curve mechanism was found.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** Jauhar must decide the SP-013 method disposition before an authoritative rendering can be named.
-- **Next action:** implement that decision with one source-bound authoritative method, distinctly typed comparisons, and a label/formula/provenance acceptance test.
+- **Blocker or decision:** SP-013's method disposition is closed by `DEC-017`; SB-POR-020 still separately requires an explicit vendor-rendering disposition, and the original scan must be verified before RHG80 code.
+- **Next action:** implement the verified original RHG80 route, keep vendor renderings distinctly labelled if later selected, and add a label/formula/provenance acceptance test that cannot pass on the current approximation.
 
 ## SB-POR-021 - Chart-free analytic neutron-density method
 
@@ -917,7 +917,7 @@ absent and the method refuses rather than falling back to a neighboring method.
 - The nine Bateman-Konen constants remain non-adoptable until ESC-POR-8 is closed with admissible custody.
 - PHIE floor remains a three-way evidence conflict: chapter no-default contract, current compile-time `0.001`, and later direct product decision `0.001`. No precedence is chosen here.
 - SP-012's product choice is closed by `DEC-012`: `Cp < 1` is refused. The production refusal and qualifying regression remain open.
-- SP-013 remains open: rename the current approximation with a source versus implement true RHG80 is unchosen.
+- SP-013's product choice is closed by `DEC-017` on true, original three-segment RHG80. The exact scan-verification gate and the separate SB-POR-020 vendor-rendering choice remain open.
 - SP-014 remains open for the user-visible sonic wording surface; the prohibited proper name is not repeated in this receipt.
 - ESC-1, ESC-2, ESC-3, ESC-5, ESC-7 and ESC-POR-8 remain hard custody boundaries. No protected chart, binary or confidential delivery was opened.
 
@@ -929,7 +929,7 @@ absent and the method refuses rather than falling back to a neighboring method.
 - `DEC-014` is decided: Arithmetic comparison, RMS comparison, SSC/SSPW RMS conditioning, Gaymard-Poupon HC response and coupled porosity-`Sxo`/`Sw` iteration are separately identified contracts; the last two are mandatory.
 - `DEC-015` is decided: method-specific correction limits and validity rules operate beneath one common POR family/provenance/output-role/flag envelope; no method inherits another method's bound.
 - `DEC-016` is decided: analytic N-D, HC response, excavation and neutron-sonic belong in the product; source custody and any separately deferred pilot timing remain explicit.
-- Decide SP-013 rename-with-source versus implementing RHG80.
+- `DEC-017` is decided: implement the original three-segment RHG80 product path rather than relabelling the current approximation; verify the original scan before code and keep SB-POR-020's vendor-rendering choice separate.
 - Decide whether CSR, chart validation, salinity interpolation, force-wet, HC physical ceiling and smooth roll-off belong in the pilot; all remain without invented defaults.
 - Neutron-sonic inclusion is settled by `DEC-016`, but its existing deferred pilot timing is not silently promoted. Keep vendor parameter-set import, POR audit report and core comparison deferred as recorded; no decision supplies a missing source or pulls every neighboring POR item into the pilot.
 
