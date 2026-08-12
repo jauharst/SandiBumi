@@ -77,7 +77,12 @@ pub struct CompositeResult {
     pub page_width_mm: f64,
     pub page_height_mm: f64,
     pub scale: u32,
-    pub well_name: String,
+    pub well_name: String
+,
+    /// Complete ancestry for every current computed curve carried by this well's
+    /// number-bearing composite deliverable. The same JSON is embedded in SVG/PDF
+    /// exports so it survives outside the application.
+    pub ancestry: Vec<equations::CurveAncestryDisclosure>,
 }
 
 pub(crate) struct WellHeader {
@@ -357,24 +362,139 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
 /// Renders the composite to one vector SVG per page.
 pub fn render_composite(conn: &Connection, spec: &CompositeSpec) -> Result<CompositeResult, String> {
     let (pages, pw, ph, well_name) = render_pages(conn, spec)?;
+    let ancestry =
+        equations::curve_ancestry_disclosures(conn, std::slice::from_ref(&spec.well_id), None)?;
+    let ancestry_json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
     let out = pages
         .into_iter()
-        .map(|p| CompositePage {
-            svg: svg_page(&p.ops, pw, ph),
+        .map(|p| -> Result<CompositePage , String> {
+            let mut svg= svg_page(&p.ops, pw, ph);
+            if !ancestry.is_empty() {
+                svg = embed_ancestry_json_in_svg(&svg, &ancestry_json)?;
+            }
+            Ok(CompositePage {
+                svg,
             top_depth: p.top,
             bottom_depth: p.bot,
             index: p.idx,
         })
-        .collect();
-    Ok(CompositeResult { pages: out, page_width_mm: pw, page_height_mm: ph, scale: spec.scale, well_name })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(CompositeResult { pages: out, page_width_mm: pw, page_height_mm: ph, scale: spec.scale, well_name ,
+        ancestry,
+    })
 }
 
 /// Renders the composite to a single multi-page PDF (bytes).
 pub fn render_composite_pdf(conn: &Connection, spec: &CompositeSpec) -> Result<Vec<u8>, String> {
     let (pages, pw, ph, _) = render_pages(conn, spec)?;
+    let ancestry =
+        equations::curve_ancestry_disclosures(conn, std::slice::from_ref(&spec.well_id), None)?;
     let streams: Vec<String> = pages.iter().map(|p| pdf_content(&p.ops, pw, ph)).collect();
     let op_pages: Vec<&[DrawOp]> = pages.iter().map(|p| p.ops.as_slice()).collect();
-    Ok(assemble_pdf_with_images(&streams, pw, ph, &collect_images(&op_pages)))
+    let mut pdf = assemble_pdf_with_images(&streams, pw, ph, &collect_images(&op_pages));
+    if !ancestry.is_empty() {
+        let json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
+        pdf = embed_ancestry_json_in_pdf(pdf, &json)?;
+    }
+    Ok(pdf)
+}
+
+/// Embeds the complete record inside SVG bytes. The metadata is machine-readable and does not
+/// alter the rendered chart; XML escaping keeps arbitrary source notes from breaking the file.
+pub(crate) fn embed_ancestry_json_in_svg(svg: &str, ancestry_json: &str) -> Result<String, String> {
+    let insert_at = svg
+        .find('>')
+        .map(|index| index + 1)
+        .ok_or_else(|| "cannot embed ancestry: SVG has no root element".to_string())?;
+    let mut out = svg.to_string();
+    out.insert_str(
+        insert_at,
+        &format!(
+            "<metadata id=\"sandibumi-curve-ancestry-v1\">{}</metadata>",
+            esc(ancestry_json)
+        ),
+    );
+    Ok(out)
+}
+
+/// Embeds the complete record in a PDF comment immediately before EOF. This preserves every xref
+/// offset in the already-assembled document and is the same durable marker used by composites.
+pub(crate) fn embed_ancestry_json_in_pdf(
+    mut pdf: Vec<u8>,
+    ancestry_json: &str,
+) -> Result<Vec<u8>, String> {
+    let marker = format!(
+        "% SANDIBUMI_CURVE_ANCESTRY_V1_BASE64:{}\n",
+        B64.encode(ancestry_json.as_bytes())
+    );
+    let eof = pdf
+        .windows(5)
+        .rposition(|window| window == b"%%EOF")
+        .ok_or_else(|| "cannot embed ancestry: generated PDF has no EOF marker".to_string())?;
+    pdf.splice(eof..eof, marker.bytes());
+    Ok(pdf)
+}
+
+fn png_crc32(bytes: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for &byte in bytes {
+        crc ^= byte as u32;
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
+/// Adds one standards-compliant PNG `tEXt` chunk before IEND. A raster export therefore keeps the
+/// complete record even when copied into a slide or detached from the project database.
+pub(crate) fn embed_ancestry_json_in_png(
+    png: &[u8],
+    ancestry_json: &str,
+) -> Result<Vec<u8>, String> {
+    const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    if png.get(..8) != Some(SIGNATURE) {
+        return Err("cannot embed ancestry: payload is not a PNG".into());
+    }
+    let mut iend = None;
+    let mut offset = 8usize;
+    while offset + 12 <= png.len() {
+        let length = u32::from_be_bytes(png[offset..offset + 4].try_into().unwrap()) as usize;
+        let end = offset
+            .checked_add(12 + length)
+            .filter(|end| *end <= png.len())
+            .ok_or_else(|| "cannot embed ancestry: malformed PNG chunk length".to_string())?;
+        if &png[offset + 4..offset + 8] == b"IEND" {
+            iend = Some(offset);
+            break;
+        }
+        offset = end;
+    }
+    let iend = iend.ok_or_else(|| "cannot embed ancestry: PNG has no IEND chunk".to_string())?;
+    let mut data = b"SandiBumiCurveAncestry\0".to_vec();
+    data.extend_from_slice(ancestry_json.as_bytes());
+    let length: u32 = data
+        .len()
+        .try_into()
+        .map_err(|_| "cannot embed ancestry: PNG metadata is too large".to_string())?;
+    let mut chunk = Vec::with_capacity(data.len() + 12);
+    chunk.extend_from_slice(&length.to_be_bytes());
+    chunk.extend_from_slice(b"tEXt");
+    chunk.extend_from_slice(&data);
+    let mut crc_bytes = b"tEXt".to_vec();
+    crc_bytes.extend_from_slice(&data);
+    chunk.extend_from_slice(&png_crc32(&crc_bytes).to_be_bytes());
+
+    let mut out = Vec::with_capacity(png.len() + chunk.len());
+    out.extend_from_slice(&png[..iend]);
+    out.extend_from_slice(&chunk);
+    out.extend_from_slice(&png[iend..]);
+    Ok(out)
 }
 
 /// Writes the rendered pages to disk as SVG. A single page goes to `dest_path` as given;
@@ -558,7 +678,8 @@ fn build_page(
                     curve_name: cs.curve_name.clone(),
                     set_name: cs.set_name.clone(),
                 };
-                let Some(frame) = curve_frames.get(&equations::track_curve_key(&request)) else { continue };
+                let Some(frame) = curve_frames.get(&equations::track_curve_key(&request)) else { continue ;
+                };
                 // Crossover shading needs the reference curve's samples AND its own min/max,
                 // taken from the same track — compatible scaling is the whole point.
                 let xover = cs.fill_to.as_deref().and_then(|to| {
@@ -959,13 +1080,15 @@ fn draw_crossover(
         if d0 < page_top || d0 > page_bot || d1 < page_top || d1 > page_bot {
             continue;
         }
-        let (Some(a0), Some(b0)) = (x_a(vals[i]), x_b(aligned_reference[i])) else { continue };
+        let (Some(a0), Some(b0)) = (x_a(vals[i]), x_b(aligned_reference[i])) else { continue ;
+        };
         // A stepped curve holds its value across the interval, so both edges stay vertical
         // and the pair can never cross inside one interval.
         let (a1, b1) = if step {
             (a0, b0)
         } else {
-            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(aligned_reference[i + 1])) else { continue };
+            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(aligned_reference[i + 1])) else { continue ;
+            };
             (a1, b1)
         };
         let (y0, y1) = (y_of(d0), y_of(d1));
@@ -1351,7 +1474,8 @@ fn draw_point_series(
                     continue;
                 }
                 let (blo, bhi) = ps.box_edges();
-                let Some(st) = box_stats(&vals, blo, bhi, ps.whisker_rule()) else { continue };
+                let Some(st) = box_stats(&vals, blo, bhi, ps.whisker_rule()) else { continue ;
+                };
                 let box_h = (h * 0.6).clamp(1.0, 4.0);
                 if let (Some(wl), Some(wh)) = (x_at(st.whisker_lo), x_at(st.whisker_hi)) {
                     ops.push(DrawOp::Line { x1: wl, y1: mid, x2: wh, y2: mid, stroke: "#555555".into(), sw: 0.2 });

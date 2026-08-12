@@ -1,6 +1,7 @@
 import { getCoreData, getCurveData, plotBindingSnapshot, runNetFlag, type NetFlagSpec, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
 import { appState, bumpDataVersion, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
+import { requestRunCustody } from "./runCustody";
 import {
   attachKeyboardPanZoom,
   attachResizeRedraw,
@@ -1524,6 +1525,10 @@ export async function buildCrossplotContent(
     () => getSvg(),
     () => getPdf(),
     () => ctxReductionManifest,
+    () => ({
+      wellIds: scope.getWellIds(),
+      curves: [xSel.value, ySel.value, ...(zSel.value ? [zSel.value] : [])],
+    }),
   ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);
@@ -2058,13 +2063,15 @@ export async function buildCrossplotContent(
     go.style.marginTop = "10px";
     body.appendChild(go);
     const close = openModal("Write Net Flag", body, 380);
-    go.addEventListener("click", () => {
+    go.addEventListener("click", async () => {
       const name = nameIn.value.trim();
       if (!name) {
         setStatus("Net-flag curve needs a name");
         return;
       }
       const z = zoneSel.current();
+      const custody = await requestRunCustody("Write net flag");
+      if (!custody) return;
       const spec: NetFlagSpec = {
         well_id: well.well_id,
         x_curve: xSel.value,
@@ -2075,6 +2082,7 @@ export async function buildCrossplotContent(
         output_curve: name,
         depth_top: z.depthMin,
         depth_bottom: z.depthMax,
+        custody,
       };
       go.disabled = true;
       void runNetFlag(spec)

@@ -111,7 +111,8 @@ pub fn project_null_sentinel(conn: &Connection) -> Result<f32, String> {
             |row| row.get(0),
         )
         .ok();
-    let Some(json) = json else { return Ok(DEFAULT_NULL_SENTINEL) };
+    let Some(json) = json else { return Ok(DEFAULT_NULL_SENTINEL) ;
+    };
     let settings: DataIoSettings = serde_json::from_str(&json)
         .map_err(|e| format!("invalid project data-I/O settings: {e}"))?;
     if !settings.null_sentinel.is_finite() {
@@ -279,6 +280,9 @@ fn provenance_lines(
                 .map_err(|e| format!("computed curve '{name}' has invalid input JSON: {e}"))?,
             _ => serde_json::Value::Array(Vec::new()),
         };
+        let ancestry = crate::equations::curve_ancestry(conn, well_id, &upper).map_err(|error| {
+            format!("computed curve '{name}' cannot be exported without its complete ancestry: {error}")
+        })?;
         let state = curve_state_for_set(&set_name);
         lines.push(format!(
             "{PROVENANCE_PREFIX}{}",
@@ -291,7 +295,9 @@ fn provenance_lines(
                 "log_set": set_name,
                 "version": version,
                 "run_date": created_at,
-                "state": state,
+                "state": state
+            ,
+                "ancestry": ancestry,
             })
         ));
 
@@ -696,23 +702,29 @@ mod tests {
 
         // Deliberately mixed case — see the regression note below.
         let vsh = vec![0.1f32, 0.25, 0.5, f32::NAN, 0.75, 0.9];
-        let set = crate::equations::create_log_set(
+        let custody = crate::workflow::test_run_custody();
+        let spec = crate::equations::complete_curve_run_spec(
             conn,
             &id.to_string(),
-            &crate::equations::LogSetSpec {
-                set_name: "INTERP".into(),
-                module: "vsh_gr".into(),
-                params_json: serde_json::json!({ "gr_clean": 25.0, "gr_shale": 125.0 }).to_string(),
-                inputs_json: serde_json::json!(["GR"]).to_string(),
-            },
-        )
+            "INTERP",
+                "vsh_gr",
+            &custody,
+            &[(id.to_string(), "GR".into(),
+                "GR".into())],
+            None,
+            serde_json::json!({ "gr_clean": 25.0, "gr_shale": 125.0 }),
+                crate::equations::AncestryZoneScope::WholeWell,
+            &["Vsh_final".into()]).unwrap();
+        let (set_id, _) =
+            crate::equations::create_complete_log_set(conn, &id.to_string()
+            , &spec)
         .unwrap();
-        crate::equations::write_computed_curves_versioned(
+        crate::equations::write_computed_curves_with_ancestry(
             conn,
             &id.to_string(),
             &depth,
             &[("Vsh_final", &vsh)],
-            &set.0,
+            &set_id,
         )
         .unwrap();
 
@@ -1286,20 +1298,27 @@ mod tests {
             "train_hash": "training-row-hash",
             "trained_on": ["TRAIN-A", "TRAIN-B"],
         });
-        let (set_id, _) = crate::equations::create_log_set(
+        let custody = crate::workflow::test_run_custody() ;
+        let spec = crate::equations::complete_curve_run_spec(
             &conn,
             &well_id,
-            &crate::equations::LogSetSpec {
-                set_name: "PREDICTED".into(),
-                module: "ml:rf".into(),
-                params_json: run_params.to_string(),
-                inputs_json: serde_json::json!(["GR", "RHOB"]).to_string(),
-            },
-        )
+            "PREDICTED",
+                "ml:rf",
+                &custody,
+                &[(well_id.clone(), "feature_1".into(), "GR".into()),
+                (well_id.clone(), "feature_2".into(), "RHOB".into()),
+            ],
+            None,
+            run_params,
+            crate::equations::AncestryZoneScope::WholeWell,
+            &["VSH_PRED".into()]).unwrap()
+            ;
+        let (set_id, _) =
+            crate::equations::create_complete_log_set(&conn, &well_id, &spec)
         .unwrap();
         let depth: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
         let predicted = vec![0.2_f32; depth.len()];
-        crate::equations::write_computed_curves_versioned(
+        crate::equations::write_computed_curves_with_ancestry(
             &conn,
             &well_id,
             &depth,
@@ -1333,12 +1352,19 @@ mod tests {
 
         // The refusal side: a legacy/unversioned computed curve cannot be relabelled as measured
         // or exported with invented ancestry merely to make the file complete.
-        crate::equations::write_computed_curves_batch(
-            &conn,
-            &well_id,
-            &depth,
-            &[("LEGACY_NO_PROVENANCE", &predicted)],
+        let mut appender = conn.appender("computed_curves").unwrap();
+        for (sample_depth,
+            value) in depth.iter().zip(predicted.iter()) {
+            appender
+                .append_row(params![well_id,
+                    sample_depth,
+                    "LEGACY_NO_PROVENANCE", value,
+                    None::<String>
+                ],
         )
+                .unwrap();
+        }
+        appender.flush()
         .unwrap();
         let refused_dest = tmp_path("missing-provenance");
         let _ = std::fs::remove_file(&refused_dest);

@@ -11,8 +11,12 @@
 //! `edit_curve` returns the PREVIOUS (depth, value) pairs of every changed sample so
 //! the frontend can push an exact undo; `restore_curve_values` writes such pairs back.
 
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine as _;
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
+
+use crate::equations;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CurveEditRequest {
@@ -35,7 +39,12 @@ pub struct CurveEditRequest {
     #[serde(default = "one")]
     pub mul: f32,
     #[serde(default)]
-    pub add: f32,
+    pub add: f32
+,
+    /// Explicit actor and source/reference custody. It is required when the target is a
+    /// computed curve because that edit creates a new derived-curve version.
+    #[serde(default)]
+    pub custody: Option<equations::RunCustody>,
 }
 
 fn one() -> f32 {
@@ -220,6 +229,11 @@ fn write_curve(
     depth: &[f32],
     new_values: &[f32],
 ) -> Result<(), String> {
+    if matches!(store, CurveStore::Computed(_)) {
+        return Err(
+            "computed curve edit refused: a new ancestry-bearing version is required".into(),
+        );
+    }
     conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
     let result = write_curve_inner(conn, store, well_id, depth, new_values);
     match result {
@@ -282,33 +296,8 @@ fn write_curve_inner(
             }
             appender.flush().map_err(|e| e.to_string())?;
         }
-        CurveStore::Computed(name) => {
-            // Keep each row's set_id (P1-c versioning tag) across the rewrite.
-            let mut stmt = conn
-                .prepare("SELECT depth, set_id FROM computed_curves WHERE well_id = ?1 AND curve_name = ?2 ORDER BY depth")
-                .map_err(|e| e.to_string())?;
-            let rows: Vec<(f32, Option<String>)> = stmt
-                .query_map(params![well_id, name], |row| Ok((row.get(0)?, row.get(1)?)))
-                .map_err(|e| e.to_string())?
-                .collect::<Result<_, _>>()
-                .map_err(|e| e.to_string())?;
-            if rows.len() != depth.len() {
-                return Err("curve changed while editing — retry".into());
-            }
-            conn.execute(
-                "DELETE FROM computed_curves WHERE well_id = ?1 AND curve_name = ?2",
-                params![well_id, name],
-            )
-            .map_err(|e| e.to_string())?;
-            let mut appender = conn.appender("computed_curves").map_err(|e| e.to_string())?;
-            for (i, (d, set_id)) in rows.into_iter().enumerate() {
-                appender
-                    .append_row(params![well_id, d, name, new_values[i], set_id])
-                    .map_err(|e| e.to_string())?;
-            }
-            appender.flush().map_err(|e| e.to_string())?;
-        }
-        CurveStore::Generic(curve_id) => {
+        CurveStore::Computed(_) => unreachable!("computed writers require complete ancestry")
+                , CurveStore::Generic(curve_id) => {
             let mut stmt = conn
                 .prepare("SELECT depth FROM curve_samples WHERE curve_id = ?1 ORDER BY depth")
                 .map_err(|e| e.to_string())?;
@@ -332,6 +321,99 @@ fn write_curve_inner(
         }
     }
     Ok(())
+}
+
+fn write_computed_revision(
+    conn: &Connection,
+    well_id: &str,
+    curve_name: &str,
+    depth: &[f32],
+    new_values: &[f32],
+    custody: &equations::RunCustody,
+    parameters: serde_json::Value,
+    zone_scope: equations::AncestryZoneScope,
+) -> Result<(), String> {
+    let output = curve_name.to_string();
+    let spec = equations::complete_curve_run_spec(
+        conn,
+        well_id,
+        "CURVE_EDIT",
+        "CURVE_EDIT",
+        custody,
+        &[(
+            well_id.to_string(),
+            "edited_curve".into(),
+            curve_name.to_string(),
+        )],
+        None,
+        parameters,
+        zone_scope,
+        std::slice::from_ref(&output),
+    )?;
+    let (set_id, _) = equations::create_complete_log_set(conn, well_id, &spec)?;
+    equations::write_computed_curves_with_ancestry(
+        conn,
+        well_id,
+        depth,
+        &[(curve_name, new_values)],
+        &set_id,
+    )
+}
+
+fn edit_parameters(req: &CurveEditRequest) -> serde_json::Value {
+    let (top, bottom) = if req.top <= req.bottom {
+        (req.top, req.bottom)
+    } else {
+        (req.bottom, req.top)
+    };
+    match req.op.as_str() {
+        "shift" => serde_json::json!({ "operation": "shift", "delta": req.delta }),
+        "set" => serde_json::json!({
+            "operation": "set",
+            "top": top,
+            "bottom": bottom,
+            "value": req.value,
+        }),
+        "blank" | "interpolate" => serde_json::json!({
+            "operation": req.op,
+            "top": top,
+            "bottom": bottom,
+        }),
+        "scale" => serde_json::json!({
+            "operation": "scale",
+            "top": top,
+            "bottom": bottom,
+            "multiplier": req.mul,
+            "offset": req.add,
+        }),
+        _ => serde_json::json!({ "operation": req.op }),
+    }
+}
+
+fn edit_zone_scope(
+    req: &CurveEditRequest,
+    custody: &equations::RunCustody,
+) -> equations::AncestryZoneScope {
+    if req.op == "shift" {
+        return equations::AncestryZoneScope::WholeWell;
+    }
+    let (top, bottom) = if req.top <= req.bottom {
+        (req.top, req.bottom)
+    } else {
+        (req.bottom, req.top)
+    };
+    if top < bottom {
+        equations::AncestryZoneScope::Defined(vec![equations::AncestryZone {
+            name: "CURVE_EDIT_INTERVAL".into(),
+            top,
+            base: bottom,
+            source: custody.source_note.trim().to_string(),
+        }])
+    } else {
+        // A single-sample edit has no non-zero interval. Its exact depth remains a sourced
+        // parameter; labelling it as a geological zone would be false custody.
+        equations::AncestryZoneScope::WholeWell
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +533,24 @@ pub fn edit_curve(conn: &Connection, req: &CurveEditRequest) -> Result<CurveEdit
         return Ok(CurveEditResult { affected: 0, store: store.label().into(), point_count: 0, data: vec![] });
     }
 
-    write_curve(conn, &store, &req.well_id, &depth, &new)?;
+    match &store {
+        CurveStore::Computed(name) => {
+            let custody = req.custody.as_ref().ok_or_else(|| {
+                "computed curve edit refused: enter the session operator and source/reference"
+                    .to_string()
+            })?;
+            write_computed_revision(
+                conn,
+                &req.well_id,
+                name,
+                &depth,
+                &new,
+                custody,
+                edit_parameters(req),
+                edit_zone_scope(req, custody),
+            )?;
+        }
+        _ => write_curve(conn, &store, &req.well_id, &depth, &new)?}
     let prev_depth: Vec<f32> = changed.iter().map(|&i| depth[i]).collect();
     let prev_value: Vec<f32> = changed.iter().map(|&i| old[i]).collect();
     Ok(CurveEditResult {
@@ -470,7 +569,9 @@ pub fn restore_curve_values(
     well_id: &str,
     curve: &str,
     depths: &[f32],
-    values: &[f32],
+    values: &[f32]
+,
+    custody: Option<&equations::RunCustody>,
 ) -> Result<usize, String> {
     if depths.len() != values.len() {
         return Err("depth/value length mismatch".into());
@@ -483,17 +584,91 @@ pub fn restore_curve_values(
         .map(|(d, v)| (d.to_bits(), *v))
         .collect();
     let mut n = 0usize;
+    let mut matched_depth = Vec::new();
+    let mut matched_value = Vec::new();
     for (i, d) in depth.iter().enumerate() {
         if let Some(&v) = restore.get(&d.to_bits()) {
             value[i] = v;
             n += 1;
+        matched_depth.push(*d);
+            matched_value.push(v);
         }
     }
     if n == 0 {
         return Ok(0);
     }
-    write_curve(conn, &store, well_id, &depth, &value)?;
+    match &store {
+        CurveStore::Computed(name) => {
+            let custody = custody.ok_or_else(|| {
+                "computed curve undo refused: enter the session operator and source/reference"
+                    .to_string()
+            })?;
+            let payload = B64.encode(pack_pairs(&matched_depth, &matched_value));
+            write_computed_revision(
+                conn,
+                well_id,
+                name,
+                &depth,
+                &value,
+                custody,
+                serde_json::json!({
+                    "operation": "undo",
+                    "restored_samples": n,
+                    "restored_pairs_f32_le_base64": payload,
+                }),
+                equations::AncestryZoneScope::WholeWell,
+            )?;
+        }
+        _ => write_curve(conn, &store, well_id, &depth, &value)?}
     Ok(n)
+}
+
+/// Replaces one sample by writing a complete new version of the computed curve. The exact
+/// prior curve is the ancestry input; a spreadsheet edit never mutates a historical run in place.
+pub fn update_computed_sample(
+    conn: &Connection,
+    well_id: &str,
+    requested_depth: f32,
+    curve_name: &str,
+    new_value: f32,
+    custody: &equations::RunCustody,
+) -> Result<(), String> {
+    if !requested_depth.is_finite() {
+        return Err("computed sample edit refused: depth must be finite".into());
+    }
+    let store = locate_curve(conn, well_id, curve_name)?;
+    let CurveStore::Computed(stored_name) = &store else {
+        return Err(format!("curve '{curve_name}' is not a computed curve"));
+    };
+    let (depth, mut values) = read_curve(conn, &store, well_id)?;
+    let index = depth
+        .iter()
+        .position(|value| value.to_bits() == requested_depth.to_bits())
+        .ok_or_else(|| {
+            format!("computed curve '{curve_name}' has no sample at depth {requested_depth}")
+        })?;
+    values[index] = new_value;
+    let recorded_value = if new_value.is_nan() {
+        serde_json::json!("NaN (missing)")
+    } else if new_value.is_finite() {
+        serde_json::json!(new_value)
+    } else {
+        return Err("computed sample edit refused: value must be finite or NaN (missing)".into());
+    };
+    write_computed_revision(
+        conn,
+        well_id,
+        stored_name,
+        &depth,
+        &values,
+        custody,
+        serde_json::json!({
+            "operation": "sample_edit",
+            "depth": requested_depth,
+            "value": recorded_value,
+        }),
+        equations::AncestryZoneScope::WholeWell,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -527,6 +702,39 @@ mod tests {
         read_curve(conn, &store, well_id).unwrap()
     }
 
+    fn write_test_computed(
+        conn: &Connection,
+        well_id: &str,
+        depth: &[f32],
+        curve: &str,
+        values: &[f32],
+        fixture_step: &str,
+    ) {
+        let custody = crate::workflow::test_run_custody();
+        let spec = equations::complete_curve_run_spec(
+            conn,
+            well_id,
+            "TEST_COMPUTED",
+            "TEST_COMPUTED",
+            &custody,
+            &[(well_id.to_string(), "fixture_input".into(), "GR".into())],
+            None,
+            serde_json::json!({ "fixture_step": fixture_step }),
+            equations::AncestryZoneScope::WholeWell,
+            &[curve.to_string()],
+        )
+        .unwrap();
+        let (set_id, _) = equations::create_complete_log_set(conn, well_id, &spec).unwrap();
+        equations::write_computed_curves_with_ancestry(
+            conn,
+            well_id,
+            depth,
+            &[(curve, values)],
+            &set_id,
+        )
+        .unwrap();
+    }
+
     #[test]
     fn shift_moves_curve_and_restore_undoes_it() {
         let conn = open_db();
@@ -541,7 +749,9 @@ mod tests {
             bottom: 0.0,
             value: 0.0,
             mul: 1.0,
-            add: 0.0,
+            add: 0.0
+        ,
+            custody: None,
         };
         let res = edit_curve(&conn, &req).unwrap();
         assert_eq!(res.store, "standard");
@@ -556,7 +766,7 @@ mod tests {
 
         // Undo: restore the returned previous samples → exact original ramp.
         let (prev_depth, prev_value) = unpack_pairs(res.point_count, &res.data).unwrap();
-        let n = restore_curve_values(&conn, &w, "GR", &prev_depth, &prev_value).unwrap();
+        let n = restore_curve_values(&conn, &w, "GR", &prev_depth, &prev_value, None).unwrap();
         assert_eq!(n, res.affected);
         let (depth, gr) = read_gr(&conn, &w);
         for (d, v) in depth.iter().zip(gr.iter()) {
@@ -588,7 +798,9 @@ mod tests {
             bottom: 1020.0,
             value: 0.0,
             mul: 1.0,
-            add: 0.0,
+            add: 0.0
+        ,
+            custody: None,
         };
         for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             let req = CurveEditRequest { value: bad, ..base.clone() };
@@ -633,7 +845,7 @@ mod tests {
         // re-appended on every run, so its sampling can genuinely change under an undo entry.
         let vsh: Vec<f32> = (0..21).map(|i| 0.10 + i as f32 * 0.01).collect();
         let depth: Vec<f32> = (0..21).map(|i| 1000.0 + i as f32 * 0.5).collect();
-        crate::equations::write_computed_curve(&conn, &w, &depth, "VSH", &vsh).unwrap();
+        write_test_computed(&conn, &w, &depth, "VSH", &vsh, "initial");
         let read_vsh = |conn: &Connection| -> (Vec<f32>, Vec<f32>) {
             let store = locate_curve(conn, &w, "VSH").unwrap();
             read_curve(conn, &store, &w).unwrap()
@@ -651,7 +863,9 @@ mod tests {
                 bottom: 1006.0,
                 value: 0.99,
                 mul: 1.0,
-                add: 0.0,
+                add: 0.0
+            ,
+                custody: Some(crate::workflow::test_run_custody()),
             },
         )
         .unwrap();
@@ -659,11 +873,15 @@ mod tests {
         let (undo_depth, undo_value) = unpack_pairs(res.point_count, &res.data).unwrap();
 
         // The module is now RE-RUN: same grid, every sample recomputed to a new answer.
-        crate::equations::write_computed_curve(&conn, &w, &depth, "VSH", &vec![0.77f32; depth.len()])
-            .unwrap();
+        write_test_computed(&conn, &w, &depth, "VSH", &vec![0.77f32; depth.len()],
+            "same-grid rerun",
+        );
 
         // Now the stale undo runs. It reports success and a full match count.
-        let n = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value).unwrap();
+        let undo_custody = crate::workflow::test_run_custody();
+        let n = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value,
+            Some(&undo_custody),
+        ).unwrap();
         assert_eq!(n, res.affected, "pinned AS-IS, not endorsed: the stale undo matches and writes");
 
         let (d, v) = read_vsh(&conn);
@@ -688,9 +906,12 @@ mod tests {
         // show this: 0.25 m contains every 0.5 m depth, so the stale splice above still lands —
         // into a curve that now has twice as many samples.)
         let offset: Vec<f32> = (0..21).map(|i| 1000.25 + i as f32 * 0.5).collect();
-        crate::equations::write_computed_curve(&conn, &w, &offset, "VSH", &vec![0.77f32; offset.len()])
-            .unwrap();
-        let n = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value)
+        write_test_computed(&conn, &w, &offset, "VSH", &vec![0.77f32; offset.len()],
+            "offset-grid rerun",
+        );
+        let n = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value,
+            Some(&undo_custody),
+        )
             .expect("pinned AS-IS: a depth mismatch is not reported as an error either");
         assert_eq!(n, 0, "nothing matched, and the only sign of it is a zero count");
     }
@@ -708,7 +929,9 @@ mod tests {
             bottom: 1020.0,
             value: 0.0,
             mul: 1.0,
-            add: 0.0,
+            add: 0.0
+        ,
+            custody: None,
         };
         let res = edit_curve(&conn, &base).unwrap();
         assert_eq!(res.affected, 21); // inclusive 1010..1020 at 0.5 m step
@@ -732,11 +955,19 @@ mod tests {
         let conn = open_db();
         let w = seed_ramp_well(&conn);
 
-        // Computed curve with a set_id tag that must survive the rewrite.
-        conn.execute_batch(&format!(
-            "INSERT INTO computed_curves VALUES ('{w}', 1000.0, 'VSH', 0.30, 'aaaaaaaa-0000-0000-0000-000000000000');
-             INSERT INTO computed_curves VALUES ('{w}', 1001.0, 'VSH', 0.40, 'aaaaaaaa-0000-0000-0000-000000000000');"
-        ))
+        // A computed edit is a new run, never a rewrite under the producer's old set identity.
+        write_test_computed(
+            &conn,
+            &w,
+            &[1000.0, 1001.0],
+            "VSH",
+            &[0.30, 0.40],
+            "route fixture",
+        );
+        let prior_set_id: String = conn.query_row("SELECT CAST(set_id AS VARCHAR) FROM computed_curves WHERE well_id = ?1 AND curve_name = 'VSH' LIMIT 1",
+                params![w],
+                |row| row.get(
+            0))
         .unwrap();
         let req = CurveEditRequest {
             well_id: w.clone(),
@@ -747,7 +978,9 @@ mod tests {
             bottom: 1002.0,
             value: 0.99,
             mul: 1.0,
-            add: 0.0,
+            add: 0.0
+        ,
+            custody: Some(crate::workflow::test_run_custody()),
         };
         let res = edit_curve(&conn, &req).unwrap();
         assert_eq!((res.store.as_str(), res.affected), ("computed", 1));
@@ -759,7 +992,14 @@ mod tests {
             )
             .unwrap();
         assert!((v - 0.99).abs() < 1e-6);
-        assert_eq!(set_id.as_deref(), Some("aaaaaaaa-0000-0000-0000-000000000000"));
+        let edited_set_id = set_id.expect("the edit must have a complete ancestry identity");
+        assert_ne!(
+            edited_set_id, prior_set_id,
+            "an edit must create a new version rather than falsify the old run"
+        );
+        assert_eq!(
+            equations::curve_ancestry(&conn, &w, "VSH").unwrap().module, "CURVE_EDIT"
+        );
 
         // Generic-store curve, addressed by FAMILY (PEF ← mnemonic PEFZ).
         let curve_id = db::upsert_curve_meta(&conn, &w, "RAW", "PEFZ", Some("b/e"), Some("PEF"), None, None).unwrap();
@@ -786,7 +1026,9 @@ mod tests {
             bottom: 0.0,
             value: 0.0,
             mul: 1.0,
-            add: 0.0,
+            add: 0.0
+        ,
+            custody: None,
         };
         assert!(edit_curve(&conn, &req).is_err());
         let req = CurveEditRequest { curve: "GR".into(), op: "explode".into(), ..req };

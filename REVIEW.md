@@ -7,6 +7,26 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-010: every computed curve carries complete ancestry
+
+- [x] **Automated:** every production computed-curve writer now requires a validated, per-well,
+      versioned ancestry record: module/version; effective input curve, well and log-set identities;
+      parameter values and named sources; zone scope; explicit HUMAN/AUTOMATED session actor;
+      timestamp; and output derivation. A missing actor/source or an ancestry-free writer refuses
+      before allocating a version or replacing current rows. Computed edits and undos create new
+      versions; raw edits remain reversible in their own store. T14 inventories production Rust
+      writers and proves both complete-record success and missing-custody refusal; T15 proves the
+      exact record survives Save As/reopen. Full gate: 979 passed / 0 failed / 36 ignored.
+- [x] **Automated deliverables:** Curve Catalog/Inspector exposes the record on demand. LAS,
+      standalone and ordinary PNG/SVG/PDF plots, report PDFs and Office exports embed or print the
+      backend-resolved record; no frontend-supplied ancestry can replace project truth. The same
+      complete record remains attached to current and archived curve versions.
+- [ ] **Visual/manual and field:** in the desktop app, enter one HUMAN and one AUTOMATED session
+      operator, run the approved raw-to-pay chain, inspect ancestry in Curve Catalog/Inspector, then
+      open the delivered LAS, plot, report and Office files and a reopened Save As project. Confirm
+      the values are readable and identical. This remains Jauhar's review; no manual or field pass is
+      inferred from the automated gate.
+
 ## 2026-08-13 — G2 SB-CORE-007: universal parity is blocked on two contract boundaries
 
 - [ ] **Automated implementation:** blocked, not partially declared green. RED discovery against the

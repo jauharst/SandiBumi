@@ -2,9 +2,11 @@ mod chain;
 mod composite;
 mod condition;
 mod contacts;
-mod coreimage;
+#[cfg(test)]
+mod core_ancestry_tests;
 #[cfg(test)]
 mod core_reporting_tests;
+mod coreimage;
 mod curve_edit;
 mod curves;
 mod db;
@@ -16,21 +18,17 @@ mod equations;
 #[cfg(test)]
 mod example_data_test;
 mod export;
+mod facies;
+mod facies_tie;
 #[cfg(test)]
 mod field_fixtures;
 mod frame;
-mod reframe;
-mod facies;
-mod facies_tie;
 mod geo;
 mod health;
 mod hfu;
 mod images;
-pub mod installation;
-mod petrography;
-mod plugqc;
-mod plotting;
 mod ingest;
+pub mod installation;
 mod intake;
 mod jobs;
 mod layout;
@@ -48,19 +46,23 @@ mod office;
 mod param_sources;
 pub mod parameter_pack;
 mod parsers;
+mod petrography;
 #[cfg(test)]
 mod pipeline_field_test;
+mod plotting;
+mod plugqc;
 mod project;
+mod python_engine;
+mod reframe;
 mod registration;
 mod report;
 mod resultsqc;
 mod rocktyping;
 mod satheight;
 mod shf_fit;
-mod thomeer;
 mod ssc;
 mod statistics;
-mod python_engine;
+mod thomeer;
 mod tops;
 mod unconventional;
 mod units;
@@ -957,12 +959,87 @@ async fn export_workbook(
 /// Writes a base64-encoded PNG (rasterized by the frontend from a report/composite SVG
 /// page) to the user-picked `dest_path` — same whitelisted-write pattern as the PDF/SVG
 /// exports.
+fn scoped_curve_ancestry(
+    conn: &duckdb::Connection,
+    ancestry_well_ids: Option<Vec<String>>,
+    ancestry_curve_names: Option<Vec<String>>,
+    ancestry_all_project: bool,
+) -> Result<Option<Vec<equations::CurveAncestryDisclosure>>, String> {
+    let scoped =
+        ancestry_all_project || ancestry_well_ids.is_some() || ancestry_curve_names.is_some();
+    if !scoped {
+        return Ok(None);
+    }
+    if ancestry_curve_names.as_ref().is_some_and(Vec::is_empty) {
+        return Ok(Some(Vec::new()));
+    }
+    let well_ids = if ancestry_all_project {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT CAST(well_id AS VARCHAR) FROM computed_curves ORDER BY 1")
+            .map_err(|error| error.to_string())?;
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?
+            .collect::<duckdb::Result<Vec<_>>>()
+            .map_err(|error| error.to_string())?
+    } else {
+        ancestry_well_ids.unwrap_or_default()
+    };
+    let mut disclosures = equations::curve_ancestry_disclosures(conn, &well_ids, None)?;
+    if let Some(curves) = ancestry_curve_names {
+        let curves = curves
+            .into_iter()
+            .map(|curve| curve.trim().to_uppercase())
+            .collect::<std::collections::BTreeSet<_>>();
+        disclosures.retain(|entry| curves.contains(&entry.curve_name.to_uppercase()));
+    }
+    Ok(Some(disclosures))
+}
+
 #[tauri::command]
-fn save_png(dest_path: String, data_base64: String) -> Result<String, String> {
+fn get_curve_ancestry_disclosures(
+    db: tauri::State<DbState>,
+    ancestry_well_ids: Option<Vec<String>>,
+    ancestry_curve_names: Option<Vec<String>>,
+    ancestry_all_project: bool,
+) -> Result<Vec<equations::CurveAncestryDisclosure>, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(scoped_curve_ancestry(
+        &conn,
+        ancestry_well_ids,
+        ancestry_curve_names,
+        ancestry_all_project,
+    )?
+    .unwrap_or_default())
+}
+
+#[tauri::command]
+fn save_png(db: tauri::State<DbState>,
+    dest_path: String, data_base64: String,
+    ancestry_well_ids: Option<Vec<String>>,
+    ancestry_curve_names: Option<Vec<String>>,
+    ancestry_all_project: bool,
+) -> Result<String, String> {
     use base64::Engine as _;
-    let bytes = base64::engine::general_purpose::STANDARD
+    let mut bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64.as_bytes())
         .map_err(|e| format!("bad PNG payload: {e}"))?;
+    let conn = db.0.lock().unwrap();
+    if let Some(ancestry) = scoped_curve_ancestry(
+        &conn,
+        ancestry_well_ids,
+        ancestry_curve_names,
+        ancestry_all_project,
+    )? {
+        let json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            bytes = composite::embed_ancestry_json_in_png(&bytes, &json)?;
+        } else {
+            let svg = String::from_utf8(bytes).map_err(|_| {
+                "ancestry-scoped image export is neither PNG nor UTF-8 SVG".to_string()
+            })?;
+            bytes = composite::embed_ancestry_json_in_svg(&svg, &json)?.into_bytes();
+        }
+    }
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
 }
@@ -972,8 +1049,23 @@ fn save_png(dest_path: String, data_base64: String) -> Result<String, String> {
 /// `dest_path`. Same whitelisted-write pattern as `save_png`; the PDF document scaffolding is
 /// shared with the composite-log exporter (`composite::assemble_single_page_pdf`).
 #[tauri::command]
-fn save_plot_pdf(dest_path: String, content: String, width_pt: f64, height_pt: f64) -> Result<String, String> {
-    let bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
+fn save_plot_pdf(db: tauri::State<DbState>,
+    dest_path: String, content: String, width_pt: f64, height_pt: f64,
+    ancestry_well_ids: Option<Vec<String>>,
+    ancestry_curve_names: Option<Vec<String>>,
+    ancestry_all_project: bool,
+) -> Result<String, String> {
+    let mut bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
+    let conn = db.0.lock().unwrap();
+    if let Some(ancestry) = scoped_curve_ancestry(
+        &conn,
+        ancestry_well_ids,
+        ancestry_curve_names,
+        ancestry_all_project,
+    )? {
+        let json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
+        bytes = composite::embed_ancestry_json_in_pdf(bytes, &json)?;
+    }
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
 }
@@ -1104,7 +1196,9 @@ async fn run_equation(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     equation_id: String,
-    well_ids: Vec<String>,
+    well_ids: Vec<String>
+,
+    custody: equations::RunCustody,
 ) -> Result<Vec<equations::EquationRunResult>, String> {
     let (equation, items) = {
         let conn = db.0.lock().unwrap();
@@ -1122,9 +1216,9 @@ async fn run_equation(
     let label = format!("equation: {}", equation.name);
     jobs::run_job(reg, "Equation", label, items, total, true, move |job| {
         if equation.language == "python" {
-            python_engine::run_python_equation(&conn, &equation, &well_ids, Some(&job))
+            python_engine::run_python_equation(&conn, &equation, &well_ids, &custody, Some(&job))
         } else {
-            equations::run_equation(&conn, &equation, &well_ids, Some(&job))
+            equations::run_equation(&conn, &equation, &well_ids, &custody, Some(&job))
         }
     })
     .await
@@ -2474,11 +2568,13 @@ fn update_standard_sample(db: tauri::State<DbState>, well_id: String, depth: f32
     db::update_standard_sample(&conn, &well_id, depth, &column, value)
 }
 
-/// Edits one computed-curve sample.
+/// Edits one computed-curve sample as a new ancestry-bearing curve version.
 #[tauri::command]
-fn update_computed_sample(db: tauri::State<DbState>, well_id: String, depth: f32, curve_name: String, value: f32) -> Result<(), String> {
+fn update_computed_sample(db: tauri::State<DbState>, well_id: String, depth: f32, curve_name: String, value: f32,
+    custody: equations::RunCustody,
+) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    db::update_computed_sample(&conn, &well_id, depth, &curve_name, value)
+    curve_edit::update_computed_sample(&conn, &well_id, depth, &curve_name, value, &custody)
 }
 
 /// Edits one core-plug sample (NaN = missing).
@@ -2885,11 +2981,13 @@ fn restore_curve_values(
     well_id: String,
     curve: String,
     point_count: usize,
-    data: Vec<u8>,
+    data: Vec<u8>
+,
+    custody: equations::RunCustody,
 ) -> Result<usize, String> {
     let (depth, values) = curve_edit::unpack_pairs(point_count, &data)?;
     let conn = db.0.lock().unwrap();
-    curve_edit::restore_curve_values(&conn, &well_id, &curve, &depth, &values)
+    curve_edit::restore_curve_values(&conn, &well_id, &curve, &depth, &values, Some(&custody))
 }
 
 /// Creates or updates a formation top.
@@ -3071,7 +3169,9 @@ fn run_workflow_chain(
     steps: Vec<chain::ChainStep>,
     well_ids: Vec<String>,
     output_set: Option<String>,
-    input_set: Option<String>,
+    input_set: Option<String>
+,
+    custody: equations::RunCustody,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&job_id).map_err(|e| format!("bad job id: {e}"))?;
     if steps.is_empty() {
@@ -3140,6 +3240,7 @@ fn run_workflow_chain(
                 &well_ids,
                 output_set.as_deref(),
                 input_set.as_deref(),
+                &custody,
                 Some(&job),
             );
         }));
@@ -3645,6 +3746,7 @@ pub fn run() {
             export_report_docx,
             export_report_docx_batch,
             export_deck,
+            get_curve_ancestry_disclosures,
             save_png,
             save_plot_pdf,
             save_plot_reduction_manifest,

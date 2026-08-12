@@ -22,6 +22,7 @@ import { appState, bumpDataVersion } from "../state";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { attachResizeRedraw, canvasFont, faciesColor, readTheme } from "./plotCanvas";
+import { requestRunCustody } from "./runCustody";
 
 /** Generalized Multimin dialog — commercial mineral-solver style.
  *
@@ -1131,6 +1132,8 @@ export async function buildMultiminContent(
       setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
       return;
     }
+    const custody = await requestRunCustody("Run SandiMin");
+    if (!custody) return;
     const req: MultiminRequest = {
       components: comps,
       tools: activeTools,
@@ -1148,6 +1151,7 @@ export async function buildMultiminContent(
       enforce_bndwat: bndwatCb.checked,
       enforce_water_mud: waterMudCb.checked,
       sigma_constraint: Number(sigmaInp.value) || 0.01,
+      custody,
     };
     runBtn.disabled = true;
     setStatus("SandiMin: running…");

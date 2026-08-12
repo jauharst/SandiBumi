@@ -127,6 +127,200 @@ pub(crate) fn cancel(registry: &ChainRegistry, job_id: Uuid) {
     }
 }
 
+fn complete_chain_sets(
+    conn: &Connection,
+    steps: &[ChainStep],
+    well_ids: &[String],
+    set_name: &str,
+    input_set: Option<&str>,
+    custody: &crate::equations::RunCustody,
+) -> Result<HashMap<String, crate::equations::CompleteSetId>, String> {
+    let manifests: HashMap<String, crate::modules::ModuleSpec> = crate::modules::list_modules()
+        .into_iter()
+        .map(|spec| (spec.name.clone(), spec))
+        .collect();
+    let modules: Vec<&str> = steps.iter().map(|step| step.module.as_str()).collect();
+    let module_identity = format!("workflow: {}", modules.join(" -> "));
+    let mut complete = Vec::with_capacity(well_ids.len());
+
+    for well_id in well_ids {
+        let zone_params =
+            crate::db::list_zone_params(conn, well_id).map_err(|error| error.to_string())?;
+        let mut produced = std::collections::HashSet::new();
+        let mut inputs = Vec::new();
+        let mut parameters = Vec::new();
+        let mut outputs = Vec::new();
+
+        for (index, step) in steps.iter().enumerate() {
+            let manifest = manifests
+                .get(&step.module)
+                .ok_or_else(|| format!("unknown module '{}'", step.module))?;
+            let opts = workflow::build_opts(manifest, &step.opts, &step.log_inputs);
+
+            for arg in &manifest.args {
+                if arg.kind == crate::modules::ArgKind::Param {
+                    let (value, source) = if let Some(value) = step.params.get(&arg.name) {
+                        (serde_json::json!(value), custody.source_note.clone())
+                    } else if let Ok(value) = arg.default.parse::<f64>() {
+                        (serde_json::json!(value), arg.default_source.clone())
+                    } else {
+                        (
+                            serde_json::json!("ABSENT"),
+                            crate::modules::ABSENT_DEFAULT_SOURCE.to_string(),
+                        )
+                    };
+                    parameters.push(crate::equations::AncestryParameter {
+                        name: format!("step[{}].{}", index + 1, arg.name),
+                        value,
+                        source,
+                    });
+                    for zone in zone_params
+                        .iter()
+                        .filter(|entry| entry.param_name == arg.name)
+                    {
+                        let Some(value) = zone.value_num else {
+                            continue;
+                        };
+                        let source = zone
+                            .value_text
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|text| !text.is_empty())
+                            .unwrap_or(custody.source_note.trim());
+                        parameters.push(crate::equations::AncestryParameter {
+                            name: format!("step[{}].{}@{}", index + 1, arg.name, zone.zone_name),
+                            value: serde_json::json!(value),
+                            source: source.to_string(),
+                        });
+                    }
+                } else if arg.kind == crate::modules::ArgKind::Option
+                    || arg.kind == crate::modules::ArgKind::Text
+                {
+                    if let Some(value) = opts.get(&arg.name) {
+                        parameters.push(crate::equations::AncestryParameter {
+                            name: format!("step[{}].{}", index + 1, arg.name),
+                            value: serde_json::json!(value),
+                            source: custody.source_note.clone(),
+                        });
+                    }
+                }
+            }
+
+            let mut present_arguments = std::collections::HashSet::new();
+            let mut missing_arguments = HashMap::new();
+            for arg in manifest
+                .args
+                .iter()
+                .filter(|arg| arg.kind == crate::modules::ArgKind::LogIn)
+            {
+                let curve = step
+                    .log_inputs
+                    .get(&arg.name)
+                    .cloned()
+                    .unwrap_or_else(|| arg.default.clone())
+                    .trim()
+                    .to_uppercase();
+                if curve.is_empty() {
+                    continue;
+                }
+                let argument = format!("step[{}].{}", index + 1, arg.name);
+                if produced.contains(&curve) {
+                    inputs.push(crate::equations::AncestryInput {
+                        well_id: well_id.to_string(),
+                        argument,
+                        curve,
+                        log_set: set_name.to_string(),
+                        set_version: None,
+                        set_id: "SELF".into(),
+                    });
+                    present_arguments.insert(arg.name.clone());
+                } else {
+                    match crate::equations::resolve_ancestry_input(
+                        conn, well_id, &argument, &curve, input_set, None,
+                    ) {
+                        Ok(input) => {
+                            inputs.push(input);
+                            present_arguments.insert(arg.name.clone());
+                        }
+                        Err(error) => {
+                            missing_arguments.insert(arg.name.clone(), error);
+                        }
+                    }
+                }
+            }
+            for arg in manifest
+                .args
+                .iter()
+                .filter(|arg| arg.kind == crate::modules::ArgKind::LogIn && arg.required)
+            {
+                let present = present_arguments.contains(&arg.name)
+                    || arg
+                        .required_any_of
+                        .iter()
+                        .any(|alternate| present_arguments.contains(alternate));
+                if !present {
+                    return Err(missing_arguments.remove(&arg.name).unwrap_or_else(|| {
+                        format!("required input '{}' was not selected", arg.name)
+                    }));
+                }
+            }
+
+            for output in
+                workflow::preview_output_names(&step.module, &step.log_inputs, &step.opts)?
+            {
+                let curve = output.name.to_uppercase();
+                produced.insert(curve.clone());
+                outputs.push(crate::equations::AncestryOutput {
+                    derivation: format!("step[{}] {}:{}", index + 1, step.module, output.arg),
+                    curve,
+                });
+            }
+        }
+
+        outputs.sort_by(|left, right| left.curve.cmp(&right.curve));
+        outputs.dedup_by(|left, right| left.curve == right.curve);
+        let zones = crate::db::list_zones(conn, well_id).map_err(|error| error.to_string())?;
+        let zone_scope = if zones.is_empty() {
+            crate::equations::AncestryZoneScope::WholeWell
+        } else {
+            crate::equations::AncestryZoneScope::Defined(
+                zones
+                    .into_iter()
+                    .map(|zone| crate::equations::AncestryZone {
+                        name: zone.zone_name,
+                        top: zone.top_depth,
+                        base: zone.bottom_depth,
+                        source: custody.source_note.clone(),
+                    })
+                    .collect(),
+            )
+        };
+        let inputs_json = serde_json::to_string(&inputs).map_err(|error| error.to_string())?;
+        let ancestry = crate::equations::CurveAncestry {
+            schema_version: 1,
+            module: module_identity.clone(),
+            module_version: env!("CARGO_PKG_VERSION").into(),
+            inputs,
+            parameters,
+            zone_scope,
+            actor: custody.actor.clone(),
+            timestamp_utc_ms: crate::equations::ancestry_timestamp_utc_ms()?,
+            outputs,
+        };
+        let spec = crate::equations::CompleteLogSetSpec::try_new_with_legacy(
+            set_name,
+            ancestry,
+            serde_json::to_value(steps).map_err(|error| error.to_string())?,
+            &inputs_json,
+        )?;
+        complete.push(crate::equations::CompleteWellLogSet {
+            well_id: well_id.clone(),
+            spec,
+        });
+    }
+    crate::equations::create_complete_log_sets_batch(conn, &complete)
+}
+
 /// Runs the chain to completion, updating the registry between steps. Intended to be called
 /// on a command worker thread while the UI polls `status`. The job must already be
 /// [`register`]ed; `cancel` is that job's shared flag.
@@ -139,6 +333,7 @@ pub(crate) fn run_chain(
     well_ids: &[String],
     output_set: Option<&str>,
     input_set: Option<&str>,
+    custody: &crate::equations::RunCustody,
     // Universal Processing panel handle (same `cancel` flag). Reports per-well progress in
     // addition to the chain-specific `ChainStatus` the Workflow Builder polls.
     job: Option<&crate::jobs::JobHandle>,
@@ -152,24 +347,41 @@ pub(crate) fn run_chain(
     let mut curves_written = 0usize;
     let mut errors: Vec<String> = Vec::new();
 
+    if let Err(error) = custody.validate() {
+        set_status(
+            registry,
+            job_id,
+            ChainStatus::Failed {
+                error: error.clone(),
+            },
+        );
+        if let Some(job) = job {
+            job.failed(error);
+        }
+        return;
+    }
+
     // ONE set event per well for the whole chain run: every step writes into the same
     // version, so re-running the chain bumps the set to N+1 (never overwrites history).
     let set_name = output_set.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("INTERP");
-    let modules_list: Vec<&str> = steps.iter().map(|s| s.module.as_str()).collect();
-    let preset_sets: HashMap<String, String> = {
+    let preset_sets: HashMap<String, crate::equations::CompleteSetId> = {
         let conn = db.lock().unwrap();
-        let spec = crate::equations::LogSetSpec {
-            set_name: set_name.to_string(),
-            module: format!("workflow: {}", modules_list.join(" → ")),
-            params_json: serde_json::to_string(&modules_list).unwrap_or_default(),
-            inputs_json: input_set
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| format!("[[\"input_set\",{}]]", serde_json::to_string(s).unwrap_or_default()))
-                .unwrap_or_default(),
-        };
-        // One transaction for every well's set event (was one auto-committed INSERT + fsync each).
-        crate::equations::create_log_sets_batch(&conn, well_ids, &spec).unwrap_or_default()
+        match complete_chain_sets(&conn, steps, well_ids, set_name, input_set, custody){
+            Ok(sets) => sets,
+            Err(error) => {
+                set_status(
+                    registry,
+                    job_id,
+                    ChainStatus::Failed {
+                        error: error.clone()
+    },
+                );
+                if let Some(job) = job {
+                    job.failed(error);
+                }
+                return;
+            }
+        }
     };
 
     for (i, step) in steps.iter().enumerate() {
@@ -204,7 +416,9 @@ pub(crate) fn run_chain(
             output_set: None, // preset_sets carries the chain-level set event
             // Curves a later step consumes from an earlier one are never in the input
             // set's archive, so they still resolve from the current store — chaining works.
-            input_set: input_set.map(str::to_string),
+            input_set: input_set.map(str::to_string)
+        ,
+            custody: custody.clone(),
         };
         let results = workflow::run_workflow_module_into(db, &req, Some(&preset_sets), Some(cancel), job);
         for r in &results {
@@ -313,6 +527,16 @@ mod tests {
         }
     }
 
+    fn test_custody() -> crate::equations::RunCustody {
+        crate::equations::RunCustody {
+            actor: crate::equations::AncestryActor {
+                kind: crate::equations::AncestryActorKind::Human,
+                identity: "chain-acceptance-fixture".into(),
+            },
+            source_note: "characterization fixture values declared in this test".into(),
+        }
+    }
+
     #[test]
     fn chain_runs_steps_in_order_and_completes() {
         let path = std::env::temp_dir().join("arshilla_chain_test.duckdb");
@@ -327,7 +551,8 @@ mod tests {
         let db = Mutex::new(conn);
         let steps = vec![step("vsh_gr"), step("phi_dn"), step("sw_indo")];
 
-        run_chain(&db, &reg, job, &cancel, &steps, &[well.clone()], None, None, None);
+        run_chain(&db, &reg, job, &cancel, &steps, &[well.clone()], None, None, &test_custody(),
+            None);
 
         match status(&reg, job).unwrap() {
             ChainStatus::Completed { steps_run, curves_written, wells, errors } => {
@@ -360,7 +585,8 @@ mod tests {
         cancel.store(true, Ordering::SeqCst); // cancel before it starts
         let db = Mutex::new(conn);
 
-        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, None);
+        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, &test_custody(),
+            None);
 
         match status(&reg, job).unwrap() {
             ChainStatus::Cancelled { at_step } => assert_eq!(at_step, 0),
@@ -408,7 +634,8 @@ mod tests {
              worker thread has run a single step"
         );
 
-        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, None);
+        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, &test_custody(),
+            None);
 
         assert!(matches!(status(&reg, job).unwrap(), ChainStatus::Completed { .. }));
         assert!(
@@ -422,7 +649,8 @@ mod tests {
         let job2 = U::new_v4();
         let cancel2 = register(&reg, job2);
         cancel2.store(true, Ordering::SeqCst);
-        run_chain(&db, &reg, job2, &cancel2, &[step("vsh_gr")], &[well.clone()], None, None, None);
+        run_chain(&db, &reg, job2, &cancel2, &[step("vsh_gr")], &[well.clone()], None, None,
+            &test_custody(), None);
         assert!(matches!(status(&reg, job2).unwrap(), ChainStatus::Cancelled { .. }));
         assert!(!any_active(&reg), "a cancelled chain must release the guard");
 

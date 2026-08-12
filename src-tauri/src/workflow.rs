@@ -30,7 +30,22 @@ pub struct RunModuleRequest {
     /// come from its archived values; anything else falls back to normal resolution.
     /// None/empty = current values (the default, same as before P1-c).
     #[serde(default)]
-    pub input_set: Option<String>,
+    pub input_set: Option<String>
+,
+    /// Explicit operator and source/reference note. The operator is entered once per frontend
+    /// session and attached to every run; it is never inferred from the Windows account.
+    pub custody: equations::RunCustody,
+}
+
+#[cfg(test)]
+pub(crate) fn test_run_custody() -> equations::RunCustody {
+    equations::RunCustody {
+        actor: equations::AncestryActor {
+            kind: equations::AncestryActorKind::Human,
+            identity: "automated-test-fixture".to_string(),
+        },
+        source_note: "test fixture values declared in the owning test".to_string(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -380,9 +395,10 @@ pub(crate) fn build_opts(
     opts
 }
 
-/// Flat, human-readable provenance for one module run. Numeric parameters retain the historical
-/// object shape; declared choices are added under their argument names, and saturation modules
-/// also emit the equation identity explicitly so a run never needs a vendor adjective decoded.
+/// Test-only view of the legacy flat parameter payload. Existing module tests pin the
+/// stable saturation method identifiers through this view; production persistence uses
+/// `complete_module_log_spec`, which adds a source to every recorded value.
+#[cfg(test)]
 pub(crate) fn recorded_module_params(
     req: &RunModuleRequest,
     spec: &modules::ModuleSpec,
@@ -407,6 +423,175 @@ pub(crate) fn recorded_module_params(
         recorded.insert("method_id".into(), serde_json::json!(id));
     }
     serde_json::Value::Object(recorded).to_string()
+}
+
+fn complete_module_log_spec(
+    conn: &Connection,
+    well_id: &str,
+    req: &RunModuleRequest,
+    spec: &modules::ModuleSpec,
+    opts: &HashMap<String, String>,
+    log_args: &[(String, String)],
+    output_names: &[String],
+) -> Result<equations::CompleteLogSetSpec, String> {
+    req.custody.validate()?;
+
+    let zone_params = db::list_zone_params(conn, well_id).map_err(|error| error.to_string())?;
+    let mut parameters = Vec::new();
+    let mut legacy = serde_json::Map::new();
+    for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Param) {
+        let (value, source) = if let Some(value) = req.params.get(&arg.name) {
+            (serde_json::json!(value), req.custody.source_note.clone())
+        } else if let Ok(value) = arg.default.parse::<f64>() {
+            (serde_json::json!(value), arg.default_source.clone())
+        } else {
+            (
+                serde_json::json!("ABSENT"),
+                modules::ABSENT_DEFAULT_SOURCE.to_string(),
+            )
+        };
+        legacy.insert(arg.name.clone(), value.clone());
+        parameters.push(equations::AncestryParameter {
+            name: arg.name.clone(),
+            value,
+            source,
+        });
+
+        for zone_value in zone_params
+            .iter()
+            .filter(|entry| entry.param_name == arg.name)
+        {
+            let Some(value) = zone_value.value_num else {
+                continue;
+            };
+            let source = zone_value
+                .value_text
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .unwrap_or(req.custody.source_note.trim());
+            parameters.push(equations::AncestryParameter {
+                name: format!("{}@{}", arg.name, zone_value.zone_name),
+                value: serde_json::json!(value),
+                source: source.to_string(),
+            });
+        }
+    }
+    for arg in spec
+        .args
+        .iter()
+        .filter(|arg| arg.kind == ArgKind::Option || arg.kind == ArgKind::Text)
+    {
+        if let Some(value) = opts.get(&arg.name) {
+            legacy.insert(arg.name.clone(), serde_json::json!(value));
+            parameters.push(equations::AncestryParameter {
+                name: arg.name.clone(),
+                value: serde_json::json!(value),
+                source: req.custody.source_note.clone(),
+            });
+        }
+    }
+    // Saturation outputs retain the stable equation identity in addition to the
+    // selected option. This is deliberately explicit: a downstream reviewer must
+    // not need to decode a vendor adjective to know which equation produced SWE.
+    let method_id = match req.module.as_str() {
+        "sw_arch" => Some("archie_total"),
+        "sw_indo" => Some("indonesia"),
+        "sw_sim" => opts.get("OPT_SIM").map(String::as_str),
+        _ => None,
+    };
+    if let Some(method_id) = method_id {
+        legacy.insert("method_id".into(), serde_json::json!(method_id));
+        parameters.push(equations::AncestryParameter {
+            name: "method_id".into(),
+            value: serde_json::json!(method_id),
+            source: req.custody.source_note.clone(),
+        });
+    }
+
+    let mut inputs = Vec::new();
+    let mut missing = HashMap::new();
+    for (argument, curve) in log_args
+        .iter()
+        .filter(|(_, curve)| !curve.trim().is_empty())
+    {
+        match equations::resolve_ancestry_input(
+            conn,
+            well_id,
+            argument,
+            curve,
+            req.input_set.as_deref(),
+            None,
+        ) {
+            Ok(input) => inputs.push(input),
+            Err(error) => {
+                missing.insert(argument.as_str(), error);
+            }
+        }
+    }
+    for arg in spec
+        .args
+        .iter()
+        .filter(|arg| arg.kind == ArgKind::LogIn && arg.required)
+    {
+        let present = inputs.iter().any(|input| input.argument == arg.name)
+            || arg
+                .required_any_of
+                .iter()
+                .any(|alternate| inputs.iter().any(|input| input.argument == *alternate));
+        if !present {
+            let detail = missing
+                .get(arg.name.as_str())
+                .cloned()
+                .unwrap_or_else(|| format!("required input '{}' was not selected", arg.name));
+            return Err(detail);
+        }
+    }
+
+    let zones = db::list_zones(conn, well_id).map_err(|error| error.to_string())?;
+    let zone_scope = if zones.is_empty() {
+        equations::AncestryZoneScope::WholeWell
+    } else {
+        equations::AncestryZoneScope::Defined(
+            zones
+                .into_iter()
+                .map(|zone| equations::AncestryZone {
+                    name: zone.zone_name,
+                    top: zone.top_depth,
+                    base: zone.bottom_depth,
+                    source: req.custody.source_note.clone(),
+                })
+                .collect(),
+        )
+    };
+    let outputs = output_names
+        .iter()
+        .map(|curve| equations::AncestryOutput {
+            curve: curve.clone(),
+            derivation: format!("{}:{curve}", req.module),
+        })
+        .collect();
+    let ancestry = equations::CurveAncestry {
+        schema_version: 1,
+        module: req.module.clone(),
+        module_version: env!("CARGO_PKG_VERSION").into(),
+        inputs,
+        parameters,
+        zone_scope,
+        actor: req.custody.actor.clone(),
+        timestamp_utc_ms: equations::ancestry_timestamp_utc_ms()?,
+        outputs,
+    };
+    equations::CompleteLogSetSpec::try_new_with_legacy(
+        req.output_set
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("INTERP"),
+        ancestry,
+        serde_json::Value::Object(legacy),
+        &serde_json::to_string(log_args).map_err(|error| error.to_string())?,
+    )
 }
 
 /// One declared output and the curve name a run with these settings would write it under.
@@ -504,10 +689,22 @@ pub fn run_workflow_module(db: &Mutex<Connection>, req: &RunModuleRequest) -> Ve
 pub fn run_workflow_module_into(
     db: &Mutex<Connection>,
     req: &RunModuleRequest,
-    preset_sets: Option<&HashMap<String, String>>,
+    preset_sets: Option<&HashMap<String, equations::CompleteSetId>>,
     cancel: Option<&std::sync::atomic::AtomicBool>,
     progress: Option<&crate::jobs::JobHandle>,
 ) -> Vec<ModuleRunResult> {
+    if let Err(error) = req.custody.validate() {
+        return req
+            .well_ids
+            .iter()
+            .map(|well_id| ModuleRunResult {
+                well_id: well_id.clone(),
+                rows_written: 0,
+                output_curves: vec![],
+                error: Some(error.clone()),
+            })
+            .collect();
+    }
     let spec = match modules::list_modules().into_iter().find(|m| m.name == req.module) {
         Some(s) => s,
         None => {
@@ -838,42 +1035,54 @@ pub fn run_workflow_module_into(
         .collect();
 
     let mut set_err: Option<String> = None;
-    let set_ids: HashMap<String, String> = if succ_ids.is_empty() {
+    let set_ids: HashMap<String, equations::CompleteSetId> = if succ_ids.is_empty() {
         HashMap::new()
     } else if let Some(preset) = preset_sets {
         succ_ids.iter().filter_map(|w| preset.get(w).map(|s| (w.clone(), s.clone()))).collect()
     } else {
-        let set_spec = equations::LogSetSpec {
-            set_name: req.output_set.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "INTERP".into()),
-            module: req.module.clone(),
-            params_json: recorded_module_params(req, &spec, &opts),
-            inputs_json: {
-                // Provenance records where inputs were read from too.
-                let mut prov = log_args.clone();
-                if let Some(s) = req.input_set.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                    prov.push(("input_set".into(), s.to_string()));
-                }
-                serde_json::to_string(&prov).unwrap_or_default()
-            },
-        };
         let conn = db.lock().unwrap();
-        match equations::create_log_sets_batch(&conn, &succ_ids, &set_spec) {
+        let mut complete = Vec::with_capacity(succ_ids.len());
+        let mut build_error = None;
+        for (well_id, outcome) in req.well_ids.iter().zip(outcomes.iter()) {
+            let Outcome::Computed { outputs, .. } = outcome else {
+                continue;
+            };
+            if !answered(outputs) {
+                continue;
+            }
+            let mut names: Vec<String> = outputs.keys().cloned().collect();
+            names.sort();
+            match complete_module_log_spec(&conn, well_id, req, &spec, &opts, &log_args, &names) {
+                Ok(spec) => complete.push(equations::CompleteWellLogSet {
+                    well_id: well_id.clone(),
+                    spec,
+                }),
+                Err(error) => {
+                    build_error = Some(error);
+                    break;
+                }
+            }
+        }
+        match build_error.map_or_else(
+            || equations::create_complete_log_sets_batch(&conn, &complete),
+            |error| Err(error),
+        ) {
             Ok(m) => m,
-            Err(e) => {
-                set_err = Some(e.to_string());
+            Err(error) => {
+                set_err = Some(error);
                 HashMap::new()
             }
         }
     };
 
-    let mut writes: Vec<equations::WellWrite> = Vec::with_capacity(succ_ids.len());
+    let mut writes: Vec<equations::CompleteWellWrite> = Vec::with_capacity(succ_ids.len());
     for (well_id, o) in req.well_ids.iter().zip(outcomes.iter()) {
         if let Outcome::Computed { depth, outputs } = o {
             if !answered(outputs) {
                 continue;
             }
             if let Some(set_id) = set_ids.get(well_id) {
-                writes.push(equations::WellWrite {
+                writes.push(equations::CompleteWellWrite {
                     well_id: well_id.clone(),
                     depth: depth.clone(),
                     curves: outputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
@@ -896,7 +1105,7 @@ pub fn run_workflow_module_into(
         None
     } else {
         let conn = db.lock().unwrap();
-        let err = equations::write_computed_curves_versioned_batch(&conn, &writes).err().map(|e| e.to_string());
+        let err = equations::write_computed_curves_with_ancestry_batch(&conn, &writes).err();
         // SB-MLA-055. Record which of these curves hold CLASS CODES, so a later re-frame or block
         // cannot average them into a value that is not any class. Declared from the manifest's
         // output keys and resolved through the same rename + prefix the write itself used, so a
@@ -1009,7 +1218,10 @@ pub struct PaySummaryRequest {
     /// (~1,600 delete+append+flush transactions on 540 wells) was pure waste that dominated
     /// its runtime. Persisting flags stays the job of the explicit Cutoffs & Summary run.
     #[serde(default)]
-    pub stats_only: bool,
+    pub stats_only: bool
+,
+    #[serde(default)]
+    pub custody: Option<equations::RunCustody>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1119,6 +1331,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         };
         drop(conn);
 
+        let had_declared_zones = !zones.is_empty();
         if zones.is_empty() {
             zones.push(db::ZoneEntry {
                 zone_name: "ALL".into(),
@@ -1170,12 +1383,9 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
             let conn = db.lock().unwrap();
             if req.skip_version {
                 // Render side-effect (report/composite): overwrite FLAG_* in place, no version churn.
-                for (name, values) in
-                    [("FLAG_SAND", &flag_sand), ("FLAG_RESERVOIR", &flag_res), ("FLAG_PAY", &flag_pay)]
-                {
-                    equations::write_computed_curve(&conn, well_id, &depth, name, values).map_err(|e| e.to_string())?;
-                }
-            } else {
+                return Err("pay-summary write refused: skip_version would create ancestry-free FLAG curves; use a versioned run"
+                        .into());
+                } else {
                 // Version the pay flags into a log set with provenance — module + the CUTOFFS
                 // that produced them + the inputs — like any other module output, so a re-run
                 // keeps history, any version is restorable/prunable from the catalog, and the
@@ -1193,15 +1403,71 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     params_json,
                     inputs_json: serde_json::to_string(&curve_names).unwrap_or_default(),
                 };
-                let (set_id, _) =
-                    equations::create_log_set(&conn, well_id, &spec).map_err(|e| e.to_string())?;
+                let custody = req.custody.as_ref().ok_or_else(|| {
+                    "pay-summary write refused: explicit run custody is required".to_string()
+                })?;
+                let mut ancestry_curves =
+                    vec!["VSH".to_string(), "PHIE".to_string(), "SWE".to_string()];
+                if req.perm_min.is_some() && perm.iter().any(|value| value.is_finite()) {
+                    ancestry_curves.push("PERM".into());
+                }
+                let inputs = ancestry_curves
+                    .iter()
+                    .map(|curve| (well_id.clone(), curve.clone(), curve.clone()))
+                    .collect::<Vec<_>>() ;
+                let zone_scope = if had_declared_zones {
+                    equations::AncestryZoneScope::Defined(
+                        zones
+                            .iter()
+                            .filter(|zone| zone.top_depth < zone.bottom_depth)
+                            .map(|zone| equations::AncestryZone {
+                                name: zone.zone_name.clone(),
+                                top: zone.top_depth,
+                                base: zone.bottom_depth,
+                                source: custody.source_note.clone(),
+                            })
+                            .collect(),
+                    )
+                } else {
+                    equations::AncestryZoneScope::WholeWell
+                };
+                let output_names = vec![
+                    "FLAG_SAND".into(),
+                    "FLAG_RESERVOIR".into(),
+                    "FLAG_PAY".into(),
+                ];
+                let complete =
+                    equations::complete_curve_run_spec(&conn, well_id, &spec.set_name,
+                    &spec.module,
+                    custody,
+                    &inputs,
+                    req.input_set.as_deref(),
+                    serde_json::from_str(&spec.params_json).map_err(|error| {
+                        format!("cannot record pay-summary parameters: {error}")
+                    })?,
+                    zone_scope,
+                    &output_names,
+                )?;
+                // Previewing and then exporting the same report must not create two
+                // indistinguishable PAYFLAG versions. Reuse is allowed only when every
+                // material part of the live record matches; a changed input version,
+                // value/source, zone/source, operator, output, or implementation creates
+                // a new append-only version as usual.
+                let already_current = output_names.iter().all(|curve| {
+                    equations::curve_ancestry(&conn, well_id, curve)
+                        .is_ok_and(|existing| existing.same_computation(complete.ancestry()))
+                });
+                if !already_current {
+                    let (set_id, _) =
+                        equations::create_complete_log_set(&conn, well_id, &complete)?;
                 let batch: Vec<(&str, &[f32])> = vec![
                     ("FLAG_SAND", flag_sand.as_slice()),
                     ("FLAG_RESERVOIR", flag_res.as_slice()),
                     ("FLAG_PAY", flag_pay.as_slice()),
                 ];
-                equations::write_computed_curves_versioned(&conn, well_id, &depth, &batch, &set_id)
-                    .map_err(|e| e.to_string())?;
+                equations::write_computed_curves_with_ancestry(&conn, well_id, &depth, &batch, &set_id)
+                    ?;
+            }
             }
         }
 
@@ -1860,7 +2126,9 @@ mod tests {
             skip_version: false,
             // Stats only: the point of the test is the returned rows, and this keeps it from
             // writing FLAG_* curves as a side effect.
-            stats_only: true,
+            stats_only: true
+        ,
+            custody: None,
         };
         let rows = run_pay_summary(&dbm, &req).expect("summary runs on an uninterpreted well");
         assert!(!rows.is_empty(), "rows are still emitted — the well and its zone exist");
@@ -1941,7 +2209,9 @@ mod tests {
                     swe_max: 0.6,
                     perm_min,
                     skip_version: false,
-                    stats_only: true,
+                    stats_only: true
+                ,
+                    custody: None,
                 },
             )
             .expect("summary runs")
@@ -2029,7 +2299,9 @@ mod tests {
                     params: HashMap::new(),
                     opts: HashMap::new(),
                     output_set: None,
-                    input_set: None,
+                    input_set: None
+                ,
+                    custody: test_run_custody(),
                 },
             )
         };
@@ -2149,7 +2421,9 @@ mod tests {
                     params,
                     opts: HashMap::new(),
                     output_set: None,
-                    input_set: None,
+                    input_set: None
+                ,
+                    custody: test_run_custody(),
                 },
             )
         };
@@ -2199,7 +2473,9 @@ mod tests {
                 swe_max: 0.6,
                 perm_min: None,
                 skip_version: false,
-                stats_only: true,
+                stats_only: true
+            ,
+                custody: None,
             },
         )
         .expect("a bare well must not fail the batch");
@@ -2539,8 +2815,10 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
                 output_set: None,
-                input_set: None,
-            };
+                input_set: None
+            ,
+                    custody: test_run_custody(),
+                };
             run_workflow_module(&dbm, &req)
         };
 
@@ -2623,7 +2901,9 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: HashMap::new(),
                 output_set: None,
-                input_set: None,
+                input_set: None
+            ,
+                custody: test_run_custody(),
             };
             run_workflow_module(&dbm, &req)
         };
@@ -2693,7 +2973,9 @@ mod tests {
                 .into_iter()
                 .collect(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: test_run_custody(),
         };
         let r = run_workflow_module(&dbm, &req);
         assert!(r[0].error.is_none(), "gr_normalize masked: {:?}", r[0].error);
@@ -2751,8 +3033,10 @@ mod tests {
             phie_min: 0.1,
             swe_max: 0.5,
             perm_min: None,
-            skip_version: true,
-            stats_only: false,
+            skip_version: false
+        ,
+            stats_only: true,
+            custody: None,
         };
         let rows = run_pay_summary(&dbm, &req).unwrap();
         let sand = rows.iter().find(|r| r.zone == "Z1" && r.flag == "SAND").expect("SAND row");
@@ -2783,10 +3067,29 @@ mod tests {
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
         )
         .unwrap();
-        equations::write_computed_curve(&conn, &w, &depths, "VSH", &[0.1; 4]).unwrap();
-        equations::write_computed_curve(&conn, &w, &depths, "PHIE", &[0.2; 4]).unwrap();
-        equations::write_computed_curve(&conn, &w, &depths, "SWE", &[0.3; 4]).unwrap();
-        equations::write_computed_curve(&conn, &w, &depths, "PERM", &[f32::NAN; 4]).unwrap();
+        let vsh = [0.1; 4];
+        let phie = [0.2; 4];
+        let swe = [0.3; 4];
+        let perm = [f32::NAN; 4];
+        let input_spec = equations::LogSetSpec {
+            set_name: "TEST_INPUTS".into(),
+            module: "test_fixture".into(),
+            params_json: "{}".into(),
+            inputs_json: "[]".into(),
+        };
+        let (input_set_id, _) = equations::create_log_set(&conn, &w, &input_spec).unwrap();
+        equations::write_computed_curves_versioned(
+            &conn,
+            &w,
+            &depths,
+            &[
+                ("VSH", &vsh),
+                ("PHIE", &phie),
+                ("SWE", &swe),
+                ("PERM", &perm),
+            ],
+            &input_set_id,
+        ).unwrap();
         db::upsert_zone(&conn, &w, "Z1", 1000.0, 1003.0).unwrap();
         let dbm = Mutex::new(conn);
 
@@ -2799,7 +3102,9 @@ mod tests {
             swe_max: 0.5,
             perm_min: None,
             skip_version: false,
-            stats_only: false,
+            stats_only: false
+        ,
+            custody: Some(test_run_custody()),
         };
         run_pay_summary(&dbm, &req).unwrap();
         {
@@ -2817,7 +3122,8 @@ mod tests {
             assert!(params.contains("\"swe_max\":0.5"), "cutoffs in provenance: {params}");
         }
 
-        // skip_version (report/composite render side-effect): writes FLAG_* in place, no new version.
+        // `skip_version` is retained only so an older caller receives an explicit refusal instead
+        // of silently writing ancestry-free curves.
         let req_skip = PaySummaryRequest {
             input_set: None,
             well_ids: vec![w.clone()],
@@ -2826,9 +3132,16 @@ mod tests {
             swe_max: 0.5,
             perm_min: None,
             skip_version: true,
-            stats_only: false,
+            stats_only: false
+        ,
+            custody: Some(test_run_custody()),
         };
-        run_pay_summary(&dbm, &req_skip).unwrap();
+        let refusal =
+            run_pay_summary(&dbm, &req_skip).expect_err("skip_version must not bypass ancestry");
+        assert!(
+            refusal.contains("ancestry-free"),
+            "the refusal names the broken custody contract: {refusal}"
+        );
         {
             let conn = dbm.lock().unwrap();
             let versions: i64 = conn
@@ -2838,7 +3151,8 @@ mod tests {
                     |r| r.get(0),
                 )
                 .unwrap();
-            assert_eq!(versions, 1, "skip_version must not add a PAYFLAG version");
+            assert_eq!(versions, 1, "the refused bypass must not add a PAYFLAG version"
+            );
         }
     }
 
@@ -2860,10 +3174,29 @@ mod tests {
             vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
         )
         .unwrap();
-        equations::write_computed_curve(&conn, &w, &depths, "VSH", &[0.1; 4]).unwrap();
-        equations::write_computed_curve(&conn, &w, &depths, "PHIE", &[0.2; 4]).unwrap();
-        equations::write_computed_curve(&conn, &w, &depths, "SWE", &[0.3; 4]).unwrap();
-        equations::write_computed_curve(&conn, &w, &depths, "PERM", &[f32::NAN; 4]).unwrap();
+        let vsh = [0.1; 4];
+        let phie = [0.2; 4];
+        let swe = [0.3; 4];
+        let perm = [f32::NAN; 4];
+        let input_spec = equations::LogSetSpec {
+            set_name: "TEST_INPUTS".into(),
+            module: "test_fixture".into(),
+            params_json: "{}".into(),
+            inputs_json: "[]".into(),
+        };
+        let (input_set_id, _) = equations::create_log_set(&conn, &w, &input_spec).unwrap();
+        equations::write_computed_curves_versioned(
+            &conn,
+            &w,
+            &depths,
+            &[
+                ("VSH", &vsh),
+                ("PHIE", &phie),
+                ("SWE", &swe),
+                ("PERM", &perm),
+            ],
+            &input_set_id,
+        ).unwrap();
         db::upsert_zone(&conn, &w, "Z1", 1000.0, 1003.0).unwrap();
         let dbm = Mutex::new(conn);
 
@@ -2875,7 +3208,9 @@ mod tests {
             swe_max: 0.5,
             perm_min: None,
             skip_version: false,
-            stats_only: true,
+            stats_only: true
+        ,
+            custody: None,
         };
         let rows_stats = run_pay_summary(&dbm, &base).unwrap();
         assert!(!rows_stats.is_empty(), "stats_only must still return the summary rows");
@@ -2903,7 +3238,8 @@ mod tests {
 
         // Same cutoffs, now writing in place: identical row count + matching PAY net, and
         // FLAG_* curves now exist — confirming stats_only changed persistence only, not math.
-        let writing = PaySummaryRequest { stats_only: false, skip_version: true, ..base.clone() };
+        let writing = PaySummaryRequest { stats_only: false, skip_version: false,
+            custody: Some(test_run_custody()), ..base.clone() };
         let rows_write = run_pay_summary(&dbm, &writing).unwrap();
         assert_eq!(rows_stats.len(), rows_write.len(), "stats_only must not change the rows returned");
         let pay_a = rows_stats.iter().find(|r| r.flag == "PAY").expect("PAY row (stats)");
@@ -3004,7 +3340,9 @@ mod tests {
             ]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: test_run_custody(),
         };
         let results = run_workflow_module_into(&dbm, &req, None, None, None);
         assert_eq!(results.len(), 2);
@@ -3115,7 +3453,9 @@ mod tests {
                 params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
                 opts,
                 output_set: None,
-                input_set: None,
+                input_set: None
+            ,
+                custody: test_run_custody(),
             };
             let r = run_workflow_module(&dbm, &req);
             assert!(r[0].error.is_none(), "vsh_gr: {:?}", r[0].error);
@@ -3193,7 +3533,8 @@ mod tests {
             let ctx = ModuleContext { n, logs, params, opts, depth_unit: Default::default() };
             // A module is free to REFUSE this synthetic frame — a despike window of zero, a bed
             // definition with no beds. What it may not do is answer under a name of its own.
-            let Ok(out) = modules::run_module(&spec.name, &ctx) else { continue };
+            let Ok(out) = modules::run_module(&spec.name, &ctx) else { continue ;
+            };
             checked += 1;
             for key in out.keys() {
                 assert!(
@@ -3348,7 +3689,9 @@ mod tests {
             ]),
             opts: [("OPT_TU".to_string(), "degC".to_string())].into_iter().collect(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: test_run_custody(),
         };
         let r = run_workflow_module(&dbm, &req);
         assert!(r[0].error.is_none(), "precalc: {:?}", r[0].error);
@@ -3472,7 +3815,9 @@ mod tests {
                     params: [("K".to_string(), 5.0)].into_iter().collect(),
                     opts,
                     output_set: None,
-                    input_set: None,
+                    input_set: None
+                ,
+                    custody: test_run_custody(),
                 },
             )
         };
@@ -3620,7 +3965,9 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: HashMap::new(),
                 output_set: None,
-                input_set: None,
+                input_set: None
+            ,
+                custody: test_run_custody(),
             };
             run_workflow_module(&dbm, &req)
         };
@@ -3765,7 +4112,9 @@ mod tests {
             ]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: test_run_custody(),
         };
         let phie_at = |d: f32| -> f32 {
             let c = dbm.lock().unwrap();
@@ -3873,7 +4222,9 @@ mod tests {
                 params: HashMap::new(),
                 opts: HashMap::new(),
                 output_set: None,
-                input_set: None,
+                input_set: None
+            ,
+                custody: test_run_custody(),
             },
             None,
             None,
@@ -3894,7 +4245,9 @@ mod tests {
                 params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
                 opts: HashMap::new(),
                 output_set: None,
-                input_set: None,
+                input_set: None
+            ,
+                custody: test_run_custody(),
             },
             None,
             None,
@@ -3942,7 +4295,9 @@ mod tests {
             params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: test_run_custody(),
         };
 
         // Flag already set → every well is a no-op, nothing written.
@@ -4041,7 +4396,9 @@ mod tests {
             ]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: test_run_custody(),
         };
         let results = run_workflow_module(&dbm, &req);
         assert!(results.iter().all(|r| r.error.is_none()), "run errored: {results:?}");
@@ -4142,7 +4499,9 @@ mod tests {
                 ]),
                 opts: HashMap::from([("OPT_RW".to_string(), "CONSTANT".to_string())]),
                 output_set: None,
-                input_set: None,
+                input_set: None
+            ,
+                custody: test_run_custody(),
             };
             let r = run_workflow_module(&dbm, &req);
             assert!(r[0].error.is_none(), "sw_arch failed: {:?}", r[0].error);
@@ -4222,7 +4581,9 @@ mod tests {
             params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: test_run_custody(),
         };
         let results = run_workflow_module(&dbm, &req);
         assert_eq!(results.len(), 2);
@@ -4276,7 +4637,9 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
                 output_set: None,
-                input_set: None,
+                input_set: None
+            ,
+                custody: test_run_custody(),
             };
             let results = run_workflow_module(&db, &req);
             for r in &results {
@@ -4327,7 +4690,9 @@ mod tests {
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
-            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, input_set: None, skip_version: true, stats_only: false },
+            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+                custody: Some(test_run_custody()),
+            },
         )
         .expect("pay summary failed");
         assert_eq!(rows.len(), well_ids.len() * 3); // SAND/RESERVOIR/PAY per well

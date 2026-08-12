@@ -41,7 +41,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 /// Distribution attached to one uncertain parameter.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Distribution {
     Normal { mean: f64, sd: f64 },
@@ -128,7 +128,7 @@ fn probit(p: f64) -> f64 {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McParam {
     /// Module parameter name to vary (e.g. "GR_MA"); applies to every step that has it.
     pub param: String,
@@ -143,7 +143,7 @@ pub struct McParam {
 }
 
 /// How the N×P draw matrix is generated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Sampling {
     /// Latin Hypercube (default): N equal-probability strata per parameter, one jittered draw
@@ -158,7 +158,7 @@ pub enum Sampling {
 /// Target Spearman rank correlation between two Monte Carlo parameters, induced with the
 /// Iman–Conover method. `rho` is clamped to ±0.995; pairs naming unknown parameters are
 /// reported in `McResult.notes` and skipped.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McCorrelation {
     pub param_a: String,
     pub param_b: String,
@@ -183,6 +183,8 @@ pub struct McRequest {
     pub mc_params: Vec<McParam>,
     pub iterations: usize,
     pub seed: u64,
+    #[serde(default)]
+    pub custody: Option<equations::RunCustody>,
     // Pay/HPV cutoffs (same semantics as the pay summary).
     pub vsh_max: f64,
     pub phie_min: f64,
@@ -989,6 +991,7 @@ fn metrics_for_values(
 struct WellPlan {
     plans: Vec<StepPlan>,
     raw_pool: HashMap<String, Vec<f32>>,
+    ancestry_inputs: Vec<(String, String, String)>,
     depth: Vec<f32>,
     step_thick: Vec<f32>,
     zones: Vec<ZoneEntry>,
@@ -1014,13 +1017,18 @@ fn build_plans(
 
     // External inputs = LogIn mnemonics not produced by any step.
     let mut external: HashSet<String> = HashSet::new();
-    for step in steps {
+    let mut ancestry_candidates = Vec::new();
+    for (step_index, step ) in steps .iter().enumerate() {
         let spec = &specs[&step.module];
         for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogIn) {
             let mnem = step.log_inputs.get(&a.name).cloned().unwrap_or_else(|| a.default.clone());
             let up = mnem.trim().to_uppercase();
             if !produced.contains(&up) {
-                external.insert(up);
+                external.insert(up.clone());
+                ancestry_candidates.push((
+                    format!("step_{}:{}:{}", step_index + 1, step.module, a.name),
+                    up,
+                ));
             }
         }
     }
@@ -1037,6 +1045,15 @@ fn build_plans(
     for name in &names {
         let v = columns.get(&name.to_uppercase()).cloned().unwrap_or_else(|| vec![f32::NAN; n]);
         raw_pool.insert(name.to_uppercase(), v);
+    }
+
+    let mut ancestry_inputs = Vec::new();
+    for (argument, curve) in ancestry_candidates {
+        if equations::try_resolve_ancestry_input(conn, well_id, &argument, &curve, None, None)?
+            .is_some()
+        {
+            ancestry_inputs.push((well_id.to_string(), argument, curve));
+        }
     }
 
     let zones_raw = db::list_zones(conn, well_id).map_err(|e| e.to_string())?;
@@ -1125,7 +1142,8 @@ fn build_plans(
         });
     }
 
-    Ok(WellPlan { plans, raw_pool, depth, step_thick, zones: zones_raw, produced })
+    Ok(WellPlan { plans, raw_pool, ancestry_inputs,
+        depth, step_thick, zones: zones_raw, produced })
 }
 
 /// Contiguous index span of a zone-scoped MC parameter on the well's depth grid; None = the
@@ -1297,7 +1315,8 @@ fn fraction_output_curves(
 ) -> (Vec<String>, Vec<String>) {
     let (mut poro, mut sat) = (Vec::new(), Vec::new());
     for step in steps {
-        let Some(spec) = specs.get(&step.module) else { continue };
+        let Some(spec) = specs.get(&step.module) else { continue ;
+        };
         for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogOut) {
             if !a.unit.eq_ignore_ascii_case("v/v") {
                 continue;
@@ -1327,6 +1346,33 @@ pub fn run_monte_carlo(
     // the whole study stays consistent. Clamp to a sane open interval and keep lo < hi.
     let lo_p = req.low_pctl.clamp(0.001, 0.499);
     let hi_p = req.high_pctl.clamp(0.501, 0.999);
+    if req.persist {
+        let validation = req
+            .custody
+            .as_ref()
+            .ok_or_else(|| {
+                "run refused: enter custody before persisting Monte Carlo curves".to_string()
+            })
+            .and_then(equations::RunCustody::validate);
+        if let Err(error) = validation {
+            return McResult {
+                zones: Vec::new(),
+                sensitivity: Vec::new(),
+                low_pctl: lo_p,
+                high_pctl: hi_p,
+                sampling: match req.sampling {
+                    Sampling::Lhs => "lhs",
+                    Sampling::Random => "random",
+                }
+                .into(),
+                convergence: Vec::new(),
+                persisted: Vec::new(),
+                plausibility: Vec::new(),
+                notes: Vec::new(),
+                errors: vec![error],
+            };
+        }
+    }
     let specs: HashMap<String, modules::ModuleSpec> =
         modules::list_modules().into_iter().map(|s| (s.name.clone(), s)).collect();
     let cut = Cutoffs {
@@ -1386,8 +1432,10 @@ pub fn run_monte_carlo(
                 }
             }
         };
-        let WellPlan { plans, raw_pool, depth, step_thick, mut zones, produced } = wp;
+        let WellPlan { plans, raw_pool, ancestry_inputs,
+            depth, step_thick, mut zones, produced } = wp;
         let n = depth.len();
+        let had_declared_zones = !zones.is_empty();
         if zones.is_empty() {
             zones.push(ZoneEntry { zone_name: "ALL".into(), top_depth: depth[0], bottom_depth: *depth.last().unwrap() });
         }
@@ -1781,26 +1829,63 @@ pub fn run_monte_carlo(
             if out.is_empty() {
                 notes.push(format!("{well_name}: nothing to persist — no tracked output curve had finite values"));
             } else {
-                let spec = equations::LogSetSpec {
-                    set_name: "MONTECARLO".into(),
-                    module: "montecarlo".into(),
-                    params_json: serde_json::json!({
+                let conn = db.lock().unwrap();
+                let parameters = serde_json::json!({
                         "iterations": used_iterations,
-                        "seed": req.seed,
-                        "sampling": match req.sampling { Sampling::Lhs => "lhs", Sampling::Random => "random" },
+                        "requested_iterations": req.iterations,
+                    "seed": req.seed,
+                        "sampling": req.sampling ,
                         "low_pctl": lo_p,
                         "high_pctl": hi_p,
                         "kept_realizations": kept,
-                        "params": req.mc_params.iter().map(|p| match &p.zone {
-                            Some(z) => format!("{} @ {}", p.param, z),
-                            None => p.param.clone(),
-                        }).collect::<Vec<_>>(),
-                    })
-                    .to_string(),
-                    inputs_json: serde_json::json!(req.steps.iter().map(|s| s.module.clone()).collect::<Vec<_>>())
-                        .to_string(),
+                        "mc_params": req.mc_params,
+                    "correlations": req.correlations, "steps":req.steps,
+                    "vsh_max": req.vsh_max,
+                    "phie_min": req.phie_min,
+                    "swe_max": req.swe_max,
+                    "perm_min": req.perm_min.map(serde_json::Value::from).unwrap_or_else(|| serde_json::json!("ABSENT")),
+                    "bins": req.bins,
+                    "sensitivity": req.sensitivity,
+                    "tornado": req.tornado,
+                    "converge": req.converge,
+                    "converge_tol": req.converge_tol,
+                    "persist_realizations": req.persist_realizations,
+                    "realization_cap": req.realization_cap.map(serde_json::Value::from).unwrap_or_else(|| serde_json::json!("ABSENT")),
+                });
+                let zone_scope = if had_declared_zones {
+                    equations::AncestryZoneScope::Defined(
+                        zones
+                            .iter()
+                            .filter(|zone| zone.top_depth < zone.bottom_depth)
+                            .map(|zone| equations::AncestryZone {
+                                name: zone.zone_name.clone(),
+                                top: zone.top_depth,
+                                base: zone.bottom_depth,
+                                source: req
+                                    .custody
+                                    .as_ref()
+                                    .expect("persistence custody validated")
+                                    .source_note
+                                    .clone(),
+                            })
+                            .collect(),
+                    )
+                } else {
+                    equations::AncestryZoneScope::WholeWell
                 };
-                let conn = db.lock().unwrap();
+                let output_names = out.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
+                let spec = equations::complete_curve_run_spec(
+                    &conn ,
+                    well_id,
+                    "MONTECARLO",
+                    "montecarlo",
+                    req.custody.as_ref().expect("persistence custody validated"),
+                    &ancestry_inputs,
+                    None,
+                    parameters,
+                    zone_scope,
+                    &output_names,
+                );
                 // Reclaim the ENTIRE MC_* family in the current store first: a previous
                 // MONTECARLO version may have written keys this run doesn't (e.g. PERM dropped
                 // from the chain), and the versioned writer deletes only the names it writes —
@@ -1809,22 +1894,16 @@ pub fn run_monte_carlo(
                 // version restorable.
                 let family: Vec<String> = TRACKED
                     .iter()
-                    .flat_map(|k| ["LOW", "P50", "HIGH", "BASE"].into_iter().map(move |s| format!("MC_{k}_{s}")))
+                    .flat_map(|k| {
+                        ["LOW", "P50", "HIGH", "BASE"].into_iter().map(move |s| format!("MC_{k}_{s}"))})
                     .collect();
-                let ph = std::iter::repeat("?").take(family.len()).collect::<Vec<_>>().join(", ");
-                let mut del_params: Vec<String> = Vec::with_capacity(family.len() + 1);
-                del_params.push(well_id.clone());
-                del_params.extend(family);
-                let write = conn
-                    .execute(
-                        &format!("DELETE FROM computed_curves WHERE well_id = ? AND upper(curve_name) IN ({ph})"),
-                        duckdb::params_from_iter(del_params),
-                    )
-                    .and_then(|_| equations::create_log_set(&conn, well_id, &spec))
-                    .and_then(|(set_id, version)| {
-                        let refs: Vec<(&str, &[f32])> = out.iter().map(|(k, v)| (k.as_str(), v.as_slice())).collect();
-                        equations::write_computed_curves_versioned(&conn, well_id, &depth, &refs, &set_id)
-                            .map(|()| version)
+                let write = spec.and_then(|spec| {
+                        let (set_id, version) =
+                        equations::create_complete_log_set(&conn, well_id, &spec)?;
+                    let refs: Vec<(&str, &[f32])> = out.iter().map(|(k, v)| (k.as_str(), v.as_slice())).collect();
+                        equations::write_computed_curves_with_ancestry_clearing(&conn, well_id, &depth, &refs, &family, &set_id)
+                            ?;
+                    Ok(version)
                     });
                 match write {
                     Ok(version) => {
@@ -1858,8 +1937,10 @@ pub fn run_monte_carlo(
                                         persisted.push(name.clone());
                                     }
                                 }
-                                Err(e) => notes.push(format!("{well_name}: {name} not stored — {e}")),
+                                Err(e) => {
+                            notes.push(format!("{well_name}: {name} not stored — {e}"));
                             }
+                        }
                         }
                         if !arrays.is_empty() && kept > real_cap {
                             notes.push(format!(
@@ -1986,6 +2067,7 @@ mod tests {
             mc_params: mc,
             iterations,
             seed,
+            custody: Some(crate::workflow::test_run_custody()),
             vsh_max: 0.5,
             phie_min: 0.08,
             swe_max: 0.6,
@@ -2131,7 +2213,9 @@ mod tests {
                     params,
                     opts: masked(),
                     output_set: None,
-                    input_set: None,
+                    input_set: None
+                ,
+                    custody: crate::workflow::test_run_custody(),
                 },
             );
             assert!(res[0].error.is_none(), "{m} failed: {:?}", res[0].error);
@@ -2146,7 +2230,9 @@ mod tests {
                 swe_max: 0.6,
                 perm_min: None,
                 skip_version: false,
-                stats_only: true,
+                stats_only: true
+            ,
+                custody: None,
             },
         )
         .expect("pay summary runs");
@@ -2529,14 +2615,11 @@ mod tests {
     }
 
     fn seed_computed(conn: &Connection, well: &str, name: &str, value: f32) {
-        for i in 0..300 {
-            let d = 1000.0 + i as f32 * 0.5;
-            conn.execute(
-                "INSERT INTO computed_curves (well_id, depth, curve_name, value) VALUES (?1, ?2, ?3, ?4)",
-                duckdb::params![well, d, name, value],
-            )
-            .unwrap();
-        }
+        let depth = (0..300)
+            .map(|i| 1000.0 + i as f32 * 0.5)
+            .collect::<Vec<_>>();
+        let values = vec![value; depth.len()];
+        equations::write_computed_curves_batch(conn, well, &depth, &[(name, &values)]).unwrap();
     }
 
     #[test]

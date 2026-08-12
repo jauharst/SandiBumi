@@ -217,6 +217,54 @@ impl Sheet {
     }
 }
 
+/// Human-readable SB-CORE-010 ancestry shared by the spreadsheet, editable report,
+/// and presentation exports. Keeping one row builder prevents those deliverables
+/// from silently presenting different custody detail for the same computed curve.
+fn ancestry_sheet(
+    disclosures: &[crate::equations::CurveAncestryDisclosure],
+    wells: &[(String, String)],
+) -> Sheet {
+    let mut sheet = Sheet::new(
+        "Curve ancestry",
+        "Computed curve ancestry",
+        vec![
+            Column::new("Well", 20.0, CellFormat::Text),
+            Column::new("Curve / set", 24.0, CellFormat::Text),
+            Column::new("Ancestry field", 24.0, CellFormat::Text),
+            Column::new("Recorded value", 70.0, CellFormat::Text),
+        ],
+    );
+    let labels = [
+        "Curve / set",
+        "Module",
+        "Inputs",
+        "Parameters / source",
+        "Zones / source",
+        "Operator / time",
+        "Derivation",
+    ];
+    for disclosure in disclosures {
+        let well = wells
+            .iter()
+            .find(|(id, _)| id == &disclosure.well_id)
+            .map(|(_, name)| name.as_str())
+            .unwrap_or(&disclosure.well_id);
+        let curve_set = format!(
+            "{} / {} v{}",
+            disclosure.curve_name, disclosure.set_name, disclosure.version
+        );
+        for (label, value) in labels.iter().zip(disclosure.cells()) {
+            sheet.rows.push(vec![
+                text(well),
+                text(&curve_set),
+                text(*label),
+                text(value),
+            ]);
+        }
+    }
+    sheet
+}
+
 // ---------------------------------------------------------------------------
 // The xlsxwriter runner
 // ---------------------------------------------------------------------------
@@ -675,14 +723,16 @@ pub fn export_workbook(
                 perm_min: spec.perm_min,
                 input_set: spec.input_set.clone(),
                 skip_version: true,
-                stats_only: true,
+                stats_only: true
+            ,
+                custody: None,
             },
         )?
     } else {
         Vec::new()
     };
 
-    let (stamp, unit, wells) = {
+    let (stamp, unit, wells, ancestry) = {
         let conn = db_lock.lock().map_err(|e| e.to_string())?;
         let stamp: String = conn
             .query_row("SELECT strftime(now(), '%Y-%m-%d %H:%M')", [], |r| r.get(0))
@@ -695,7 +745,12 @@ pub fn export_workbook(
                 .unwrap_or_else(|_| id.clone());
             wells.push((id.clone(), name));
         }
-        (stamp, unit, wells)
+        let ancestry = crate::equations::curve_ancestry_disclosures(
+            &conn,
+            &spec.well_ids,
+            spec.input_set.as_deref(),
+        )?;
+        (stamp, unit, wells, ancestry)
     };
 
     let with_results: Vec<&str> = {
@@ -721,6 +776,9 @@ pub fn export_workbook(
     if spec.include_zone_params {
         let conn = db_lock.lock().map_err(|e| e.to_string())?;
         sheets.push(zone_param_sheet(&conn, &wells)?);
+    }
+    if !ancestry.is_empty() {
+        sheets.push(ancestry_sheet(&ancestry, &wells));
     }
 
     let written = write_workbook(&sheets, dest)?;
@@ -1008,7 +1066,9 @@ pub fn build_report_blocks(
             perm_min: spec.perm_min,
             input_set: spec.input_set.clone(),
             skip_version: true,
-            stats_only: true,
+            stats_only: true
+        ,
+            custody: None,
         },
     )
     .unwrap_or_default();
@@ -1017,6 +1077,12 @@ pub fn build_report_blocks(
     let header = crate::composite::fetch_header(&conn, &well_id)?;
     let unit = units::require_project_depth_unit(&conn, "report export")?.label().to_string();
     let zones = db::list_zones(&conn, &well_id).map_err(|e| e.to_string())?;
+
+    let ancestry = crate::equations::curve_ancestry_disclosures(
+        &conn,
+        std::slice::from_ref(&well_id),
+        spec.input_set.as_deref(),
+    )?;
 
     // The evaluated interval comes from the well's own zones rather than from a composite
     // render: this document carries no log plots, so paginating one just to print a depth
@@ -1069,6 +1135,13 @@ pub fn build_report_blocks(
         m.rows.push(vec![text(&r.parameter), text(&r.method), text(&r.remarks)]);
     }
     blocks.push(table(m));
+
+    if !ancestry.is_empty() {
+        blocks.push(table(ancestry_sheet(
+            &ancestry,
+            &[(well_id.clone(), header.name.clone())],
+        )));
+    }
 
     // 1b — ML provenance (SB-MLA-010), the twin of the PDF's section and built from the SAME rows,
     // headers and caveat (`crate::ml::ML_PROV_*`). The editable document is the one a client
@@ -1756,11 +1829,13 @@ pub fn export_deck(
             perm_min: spec.perm_min,
             input_set: spec.input_set.clone(),
             skip_version: true,
-            stats_only: true,
+            stats_only: true
+        ,
+            custody: None,
         },
     )?;
 
-    let (stamp, unit, wells) = {
+    let (stamp, unit, wells, ancestry) = {
         let conn = db_lock.lock().map_err(|e| e.to_string())?;
         let stamp: String = conn
             .query_row("SELECT strftime(now(), '%Y-%m-%d')", [], |r| r.get(0))
@@ -1773,10 +1848,21 @@ pub fn export_deck(
                 .unwrap_or_else(|_| id.clone());
             wells.push((id.clone(), name));
         }
-        (stamp, unit, wells)
+        let ancestry = crate::equations::curve_ancestry_disclosures(
+            &conn,
+            &spec.well_ids,
+            spec.input_set.as_deref(),
+        )?;
+        (stamp, unit, wells, ancestry)
     };
 
-    let slides = build_deck_slides(&rows, spec, &unit, &stamp, &wells);
+    let mut slides = build_deck_slides(&rows, spec, &unit, &stamp, &wells);
+    if !ancestry.is_empty() {
+        slides.extend(table_slides(
+            "Computed curve ancestry",
+            &ancestry_sheet(&ancestry, &wells),
+        ));
+    }
     let written = write_deck(&slides, dest)?;
     let mut with_results: Vec<&str> = rows
         .iter()

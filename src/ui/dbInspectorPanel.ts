@@ -13,6 +13,7 @@ import {
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { messageNode } from "./safeDom";
 import { pushUndo } from "../undo";
+import { requestRunCustody } from "./runCustody";
 
 const PAGE_SIZE = 200;
 
@@ -268,6 +269,7 @@ export class DbInspectorPanel {
 
     // apply(value) writes one value; called with newValue now and oldValue on undo.
     let apply: (value: string) => Promise<void>;
+    let undoApply: ((value: string) => Promise<void>) | null = null;
     switch (def.key) {
       case "wells":
         apply = (v) => updateWellField(wellId, column, v === "" ? null : v);
@@ -280,7 +282,14 @@ export class DbInspectorPanel {
       case "computed_curves": {
         const depth = num(cell("depth"));
         const curve = cell("curve_name");
-        apply = (v) => updateComputedSample(wellId, depth, curve, v === "" ? NaN : num(v));
+        const custody = await requestRunCustody(`Edit ${curve} sample`);
+        if (!custody) throw new Error("computed curve edit cancelled — nothing was written");
+        const undoCustody = {
+          actor: custody.actor,
+          source_note: `Undo of prior computed-sample edit; original source/reference: ${custody.source_note}`,
+        };
+        apply = (v) => updateComputedSample(wellId, depth, curve, v === "" ? NaN : num(v), custody);
+        undoApply = (v) => updateComputedSample(wellId, depth, curve, v === "" ? NaN : num(v), undoCustody);
         break;
       }
       case "tops": {
@@ -325,7 +334,7 @@ export class DbInspectorPanel {
     pushUndo({
       label,
       undo: async () => {
-        await apply(oldValue);
+        await (undoApply ?? apply)(oldValue);
         bumpDataVersion();
       },
       redo: async () => {
@@ -337,4 +346,3 @@ export class DbInspectorPanel {
     bumpDataVersion();
   }
 }
-

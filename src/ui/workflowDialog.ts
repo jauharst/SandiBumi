@@ -16,6 +16,7 @@ import {
 } from "../ipc";
 import { bumpDataVersion } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
+import { buildRunCustodyControls } from "./runCustody";
 import { formRow } from "./modal";
 import { maskCurveNames } from "./moduleDialog";
 import { recordProcess } from "../processLog";
@@ -800,6 +801,8 @@ export async function buildWorkflowContent(
       "existing one or type a new name. Manage versions in the Curve Catalog.",
   });
   for (const row of setPicker.rows) content.appendChild(row);
+  const custodyControls = buildRunCustodyControls();
+  for (const row of custodyControls.rows) content.appendChild(row);
 
   // --- Run bar -------------------------------------------------------------
   // No inline progress bar here — the universal Processing panel owns the live bar, per-well
@@ -878,6 +881,13 @@ export async function buildWorkflowContent(
       return;
     }
     const jobId = crypto.randomUUID();
+    let custody;
+    try {
+      custody = custodyControls.collect();
+    } catch (error) {
+      statusLine.textContent = String(error);
+      return;
+    }
     currentJob = jobId;
     running = true;
     runBtn.disabled = true;
@@ -893,6 +903,7 @@ export async function buildWorkflowContent(
       jobId,
       steps,
       wellIds,
+      custody,
       setPicker.outputSet(),
       setPicker.inputSet(),
     ).catch((e) => {

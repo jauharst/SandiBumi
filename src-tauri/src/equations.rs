@@ -1,4 +1,4 @@
-use duckdb::{params, params_from_iter, Connection};
+use duckdb::{params, params_from_iter, Connection, OptionalExt};
 use rayon::prelude::*;
 use rhai::{Engine, Scope, AST};
 use serde::{Deserialize, Serialize};
@@ -858,6 +858,9 @@ pub(crate) fn fetch_computed_only_aligned(
 }
 
 /// Replaces any prior values for (well_id, curve_name) with the freshly computed ones.
+/// Test fixtures may still seed a raw current curve through this helper; production code must
+/// create and write a complete ancestry set instead.
+#[cfg(test)]
 pub(crate) fn write_computed_curve(conn: &Connection, well_id: &str, depth: &[f32], curve_name: &str, values: &[f32]) -> duckdb::Result<()> {
     write_computed_curves_batch(conn, well_id, depth, &[(curve_name, values)])
 }
@@ -887,6 +890,527 @@ pub struct LogSetSpec {
     pub inputs_json: String,
 }
 
+/// Stable schema key embedded in `log_sets.params_json` without adding a second write path or
+/// changing the deliberately PK-less `computed_curves` table. Existing top-level parameter keys
+/// remain readable; the complete record travels with the same log-set row every current/archive
+/// curve already cites.
+pub(crate) const CURVE_ANCESTRY_KEY: &str = "_sandibumi_curve_ancestry_v1";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AncestryActorKind {
+    Human,
+    Automated,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AncestryActor {
+    pub kind: AncestryActorKind,
+    /// Explicit session identity. It is never inferred from a Windows account and is separate
+    /// from a report's optional "Prepared by" field.
+    pub identity: String,
+}
+
+/// User-supplied custody attached to a computation request. The backend supplies the timestamp and
+/// resolves curve/set identities from the project; the frontend cannot fabricate either. One
+/// source/reference note may cover the explicit values in a run, while manifest defaults and
+/// stored zone/plot values retain their own more specific sources.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RunCustody {
+    pub actor: AncestryActor,
+    pub source_note: String,
+}
+
+impl RunCustody {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.actor.identity.trim().is_empty() {
+            return Err("run refused: enter the session operator identity before computing".into());
+        }
+        if self.source_note.trim().is_empty() {
+            return Err(
+                "run refused: enter a source/reference note for the explicit run values".into(),
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AncestryInput {
+    pub well_id: String,
+    pub argument: String,
+    pub curve: String,
+    pub log_set: String,
+    pub set_version: Option<i64>,
+    pub set_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AncestryParameter {
+    pub name: String,
+    pub value: serde_json::Value,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AncestryZone {
+    pub name: String,
+    pub top: f32,
+    pub base: f32,
+    /// Source/reference note for the numeric zone definition. A blank note is not silently
+    /// replaced by "operator input" because that would fabricate custody.
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(
+    tag = "kind",
+    content = "definitions",
+    rename_all = "SCREAMING_SNAKE_CASE"
+)]
+pub enum AncestryZoneScope {
+    WholeWell,
+    Defined(Vec<AncestryZone>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AncestryOutput {
+    pub curve: String,
+    pub derivation: String,
+}
+
+/// Complete SB-CORE-010 record attached to one per-well log-set version.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CurveAncestry {
+    pub schema_version: u32,
+    pub module: String,
+    pub module_version: String,
+    pub inputs: Vec<AncestryInput>,
+    pub parameters: Vec<AncestryParameter>,
+    pub zone_scope: AncestryZoneScope,
+    pub actor: AncestryActor,
+    pub timestamp_utc_ms: u64,
+    pub outputs: Vec<AncestryOutput>,
+}
+
+impl CurveAncestry {
+    fn validate(&self) -> Result<(), String> {
+        let required = [
+            ("module", self.module.as_str()),
+            ("module version", self.module_version.as_str()),
+            ("actor identity", self.actor.identity.as_str()),
+        ];
+        for (field, value) in required {
+            if value.trim().is_empty() {
+                return Err(format!("complete curve ancestry is missing {field}"));
+            }
+        }
+        if self.schema_version != 1 {
+            return Err(format!(
+                "unsupported curve ancestry schema version {}",
+                self.schema_version
+            ));
+        }
+        if self.timestamp_utc_ms == 0 {
+            return Err("complete curve ancestry is missing its timestamp".into());
+        }
+        for input in &self.inputs {
+            for (field, value) in [
+                ("input well identity", input.well_id.as_str()),
+                ("input argument", input.argument.as_str()),
+                ("input curve", input.curve.as_str()),
+                ("input log set", input.log_set.as_str()),
+                ("input set identity", input.set_id.as_str()),
+            ] {
+                if value.trim().is_empty() {
+                    return Err(format!("complete curve ancestry is missing {field}"));
+                }
+            }
+            if input.set_version.is_some_and(|version| version < 1) {
+                return Err(format!(
+                    "input '{}' has an invalid log-set version",
+                    input.curve
+                ));
+            }
+        }
+        for parameter in &self.parameters {
+            if parameter.name.trim().is_empty() {
+                return Err("complete curve ancestry contains an unnamed parameter".into());
+            }
+            if parameter.value.is_null() {
+                return Err(format!(
+                    "parameter '{}' has no recorded value",
+                    parameter.name
+                ));
+            }
+            if parameter.source.trim().is_empty() {
+                return Err(format!(
+                    "parameter '{}' has no source string",
+                    parameter.name
+                ));
+            }
+            if parameter
+                .value
+                .as_f64()
+                .is_some_and(|value| !value.is_finite())
+            {
+                return Err(format!(
+                    "parameter '{}' has a non-finite recorded value",
+                    parameter.name
+                ));
+            }
+        }
+        if let AncestryZoneScope::Defined(zones) = &self.zone_scope {
+            if zones.is_empty() {
+                return Err("defined zone ancestry contains no zone definitions".into());
+            }
+            for zone in zones {
+                if zone.name.trim().is_empty()
+                    || !zone.top.is_finite()
+                    || !zone.base.is_finite()
+                    || zone.top >= zone.base
+                {
+                    return Err(
+                        "complete curve ancestry contains an invalid zone definition".into(),
+                    );
+                }
+                if zone.source.trim().is_empty() {
+                    return Err(format!("zone '{}' has no source string", zone.name));
+                }
+            }
+        }
+        if self.outputs.is_empty() {
+            return Err("complete curve ancestry has no output derivations".into());
+        }
+        for output in &self.outputs {
+            if output.curve.trim().is_empty() || output.derivation.trim().is_empty() {
+                return Err(
+                    "complete curve ancestry contains an incomplete output derivation".into(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether two records describe the same deterministic computation. The timestamp
+    /// identifies the event and is intentionally excluded; every scientifically material
+    /// input, value/source, zone/source, actor, output, and implementation identity remains.
+    pub(crate) fn same_computation(&self, other: &Self) -> bool {
+        self.schema_version == other.schema_version
+            && self.module == other.module
+            && self.module_version == other.module_version
+            && self.inputs == other.inputs
+            && self.parameters == other.parameters
+            && self.zone_scope == other.zone_scope
+            && self.actor == other.actor
+            && self.outputs == other.outputs
+    }
+}
+
+pub(crate) fn ancestry_timestamp_utc_ms() -> Result<u64, String> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("cannot record curve ancestry timestamp: {error}"))?
+        .as_millis()
+        .try_into()
+        .map_err(|_| "curve ancestry timestamp exceeds u64".to_string())
+}
+
+/// Resolves one effective input using the same precedence as `fetch_curve_frame`: the current
+/// chain/run set, then an explicitly named input set, then the current computed store, then the
+/// imported generic store. A standard-only legacy project is migrated through the existing
+/// idempotent generic-store migration before the final lookup; no invented RAW identity is used.
+pub(crate) fn try_resolve_ancestry_input(
+    conn: &Connection,
+    well_id: &str,
+    argument: &str,
+    curve: &str,
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+) -> Result<Option<AncestryInput>, String> {
+    let upper = curve.trim().to_uppercase();
+    let from_log_set = |set_id: &str| -> Result<AncestryInput, String> {
+        let (set_name, version): (String, i64) = conn
+            .query_row(
+                "SELECT set_name, version FROM log_sets WHERE set_id = ?1",
+                params![set_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|error| {
+                format!("input curve '{curve}' cites a missing log-set record: {error}")
+            })?;
+        Ok(AncestryInput {
+            well_id: well_id.to_string(),
+            argument: argument.to_string(),
+            curve: upper.clone(),
+            log_set: set_name,
+            set_version: Some(version),
+            set_id: set_id.to_string(),
+        })
+    };
+
+    if let Some(set_id) = own_set_id {
+        let found = conn
+            .query_row(
+                "SELECT 1 FROM computed_curves_archive WHERE set_id = ?1 AND upper(curve_name) = ?2 LIMIT 1",
+                params![set_id, upper],
+                |_| Ok(()),
+            )
+            .is_ok();
+        if found {
+            return from_log_set(set_id).map(Some);
+        }
+    }
+    if let Some(set_name) = input_set.map(str::trim).filter(|value| !value.is_empty()) {
+        let set_id: Option<String> = conn
+            .query_row(
+                "SELECT s.set_id FROM log_sets s
+                 WHERE s.well_id = ?1 AND upper(s.set_name) = upper(?2)
+                   AND EXISTS (SELECT 1 FROM computed_curves_archive a
+                               WHERE a.set_id = s.set_id AND upper(a.curve_name) = ?3)
+                 ORDER BY s.version DESC LIMIT 1",
+                params![well_id, set_name, upper],
+                |row| row.get(0),
+            )
+            .ok();
+        if let Some(set_id) = set_id {
+            return from_log_set(&set_id).map(Some);
+        }
+    }
+
+    let set_ids: Vec<Option<String>> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT CAST(set_id AS VARCHAR) FROM computed_curves
+                 WHERE well_id = ?1 AND upper(curve_name) = ?2",
+            )
+            .map_err(|error| error.to_string())?;
+        stmt.query_map(params![well_id, upper], |row| row.get(0))
+            .map_err(|error| error.to_string())?
+            .collect::<duckdb::Result<_>>()
+            .map_err(|error| error.to_string())?
+    };
+    if !set_ids.is_empty() {
+        if set_ids.len() != 1 || set_ids[0].is_none() {
+            return Err(format!(
+                "input computed curve '{curve}' has no single live ancestry record"
+            ));
+        }
+        return from_log_set(set_ids[0].as_deref().expect("checked above")).map(Some);
+    }
+
+    let find_import = || -> Result<Option<(String, String, Option<i64>)>, String> {
+        conn.query_row(
+            "SELECT curve_id, set_name, run_no FROM curve_meta
+             WHERE well_id = ?1 AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
+             ORDER BY (set_name = 'RAW') DESC,
+                      (upper(mnemonic) = ?2) DESC,
+                      (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
+                      set_name, run_no NULLS FIRST, curve_id
+             LIMIT 1",
+            params![well_id, upper],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map(Some)
+        .or_else(|error| match error {
+            duckdb::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+        .map_err(|error| error.to_string())
+    };
+    let mut imported = find_import()?;
+    if imported.is_none() {
+        crate::db::migrate_standard_curves_to_generic_store(conn)
+            .map_err(|error| error.to_string())?;
+        imported = find_import()?;
+    }
+    let Some((curve_id, set_name, run_no)) = imported else {
+        return Ok(None);
+    };
+    Ok(Some(AncestryInput {
+        well_id: well_id.to_string(),
+        argument: argument.to_string(),
+        curve: upper,
+        log_set: set_name,
+        set_version: run_no,
+        set_id: curve_id,
+    }))
+}
+
+/// Strict ancestry resolution for a curve that materially participated in a computation.
+/// Optional module inputs use [`try_resolve_ancestry_input`] so a declared-but-absent input is
+/// not falsely recorded as project data; a present curve with malformed ancestry still errors.
+pub(crate) fn resolve_ancestry_input(
+    conn: &Connection,
+    well_id: &str,
+    argument: &str,
+    curve: &str,
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+) -> Result<AncestryInput, String> {
+    try_resolve_ancestry_input(conn, well_id, argument, curve, input_set, own_set_id)?
+        .ok_or_else(|| format!("input curve '{curve}' has no resolvable log-set identity"))
+}
+
+/// A log-set specification that cannot be constructed until the complete record validates.
+/// Production writers accept this type, not raw JSON strings.
+#[derive(Debug, Clone)]
+pub struct CompleteLogSetSpec {
+    storage: LogSetSpec,
+    ancestry: CurveAncestry,
+}
+
+impl CompleteLogSetSpec {
+    #[cfg(test)]
+    pub fn try_new(set_name: &str, ancestry: CurveAncestry) -> Result<Self, String> {
+        Self::try_new_with_legacy(
+            set_name,
+            ancestry,
+            serde_json::Value::Object(Default::default()),
+            "[]",
+        )
+    }
+
+    pub fn try_new_with_legacy(
+        set_name: &str,
+        ancestry: CurveAncestry,
+        legacy_parameters: serde_json::Value,
+        legacy_inputs_json: &str,
+    ) -> Result<Self, String> {
+        ancestry.validate()?;
+        if set_name.trim().is_empty() {
+            return Err("complete curve ancestry is missing its output log-set name".into());
+        }
+        let mut parameters = match legacy_parameters {
+            serde_json::Value::Object(map) => map,
+            other => {
+                let mut map = serde_json::Map::new();
+                map.insert("legacy_parameters".into(), other);
+                map
+            }
+        };
+        if parameters.contains_key(CURVE_ANCESTRY_KEY) {
+            return Err(format!(
+                "legacy parameters may not replace reserved key '{CURVE_ANCESTRY_KEY}'"
+            ));
+        }
+        parameters.insert(
+            CURVE_ANCESTRY_KEY.into(),
+            serde_json::to_value(&ancestry)
+                .map_err(|error| format!("cannot serialize curve ancestry: {error}"))?,
+        );
+        let inputs: serde_json::Value = serde_json::from_str(legacy_inputs_json)
+            .map_err(|error| format!("cannot record invalid input JSON: {error}"))?;
+        let storage = LogSetSpec {
+            set_name: set_name.trim().to_string(),
+            module: ancestry.module.clone(),
+            params_json: serde_json::Value::Object(parameters).to_string(),
+            inputs_json: inputs.to_string(),
+        };
+        Ok(Self { storage, ancestry })
+    }
+
+    pub fn ancestry(&self) -> &CurveAncestry {
+        &self.ancestry
+    }
+}
+
+/// Builds the complete record for a run whose inputs are project curves and whose explicit
+/// controls share one user-supplied source/reference note. More specialized producers (for
+/// example, a photograph or deviation survey) construct [`CurveAncestry`] directly so their
+/// non-curve input identity is recorded truthfully instead of being disguised as a log curve.
+pub(crate) fn complete_curve_run_spec(
+    conn: &Connection,
+    output_well_id: &str,
+    set_name: &str,
+    module: &str,
+    custody: &RunCustody,
+    inputs: &[(String, String, String)],
+    input_set: Option<&str>,
+    legacy_parameters: serde_json::Value,
+    zone_scope: AncestryZoneScope,
+    outputs: &[String],
+) -> Result<CompleteLogSetSpec, String> {
+    custody.validate()?;
+    if output_well_id.trim().is_empty() {
+        return Err("complete curve ancestry is missing its output well identity".into());
+    }
+    let resolved_inputs = inputs
+        .iter()
+        .map(|(well_id, argument, curve)| {
+            resolve_ancestry_input(conn, well_id, argument, curve, input_set, None)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let parameters = match &legacy_parameters {
+        serde_json::Value::Object(values) => values
+            .iter()
+            .map(|(name, value)| AncestryParameter {
+                name: name.clone(),
+                value: if value.is_null() {
+                    serde_json::json!("ABSENT")
+                } else {
+                    value.clone()
+                },
+                source: custody.source_note.trim().to_string(),
+            })
+            .collect(),
+        serde_json::Value::Null => Vec::new(),
+        value => vec![AncestryParameter {
+            name: "request".into(),
+            value: value.clone(),
+            source: custody.source_note.trim().to_string(),
+        }],
+    };
+    let ancestry = CurveAncestry {
+        schema_version: 1,
+        module: module.trim().to_string(),
+        module_version: env!("CARGO_PKG_VERSION").to_string(),
+        inputs: resolved_inputs,
+        parameters,
+        zone_scope,
+        actor: custody.actor.clone(),
+        timestamp_utc_ms: ancestry_timestamp_utc_ms()?,
+        outputs: outputs
+            .iter()
+            .map(|curve| AncestryOutput {
+                curve: curve.clone(),
+                derivation: format!("{}:{}", module.trim(), curve),
+            })
+            .collect(),
+    };
+    let legacy_inputs =
+        serde_json::to_string(&inputs.iter().map(|(_, _, curve)| curve).collect::<Vec<_>>())
+            .map_err(|error| format!("cannot record run inputs: {error}"))?;
+    CompleteLogSetSpec::try_new_with_legacy(set_name, ancestry, legacy_parameters, &legacy_inputs)
+}
+
+/// Opaque proof that a stored set has a complete, validated record. No production writer accepts
+/// an arbitrary string as a set id.
+#[derive(Debug, Clone)]
+pub struct CompleteSetId {
+    value: String,
+    well_id: String,
+    outputs: Vec<String>,
+}
+
+impl CompleteSetId {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.value
+    }
+}
+
+pub(crate) struct CompleteWellLogSet {
+    pub well_id: String,
+    pub spec: CompleteLogSetSpec,
+}
+
+pub(crate) struct CompleteWellWrite {
+    pub well_id: String,
+    pub depth: Vec<f32>,
+    pub curves: Vec<(String, Vec<f32>)>,
+    pub set_id: CompleteSetId,
+}
+
 /// One version of a log set as listed in the catalog / Sets manager.
 #[derive(Debug, Clone, Serialize)]
 pub struct LogSetEntry {
@@ -898,12 +1422,14 @@ pub struct LogSetEntry {
     pub inputs_json: Option<String>,
     pub created_at: String,
     pub curve_names: Vec<String>,
-    pub is_current: bool,
+    pub is_current: bool
+,
+    pub ancestry: Option<CurveAncestry>,
 }
 
 /// Registers a new run event: version = 1 + the well's highest version of `set_name`
 /// (so a re-run NEVER replaces — it becomes version N+1). Returns (set_id, version).
-pub(crate) fn create_log_set(conn: &Connection, well_id: &str, spec: &LogSetSpec) -> duckdb::Result<(String, i64)> {
+fn create_log_set_raw(conn: &Connection, well_id: &str, spec: &LogSetSpec) -> duckdb::Result<(String, i64)> {
     let version: i64 = conn.query_row(
         "SELECT COALESCE(MAX(version), 0) + 1 FROM log_sets WHERE well_id = ?1 AND set_name = ?2",
         params![well_id, spec.set_name],
@@ -918,11 +1444,45 @@ pub(crate) fn create_log_set(conn: &Connection, well_id: &str, spec: &LogSetSpec
     Ok((set_id, version))
 }
 
+/// Legacy test-fixture entry point. Production code is inventoried by SB-CORE-T14 and must use
+/// [`create_complete_log_set`] so it cannot obtain a writable set id from partial JSON.
+#[cfg(test)]
+pub(crate) fn create_log_set(
+    conn: &Connection,
+    well_id: &str,
+    spec: &LogSetSpec,
+) -> duckdb::Result<(String, i64)> {
+    create_log_set_raw(conn, well_id, spec)
+}
+
+pub(crate) fn create_complete_log_set(
+    conn: &Connection,
+    well_id: &str,
+    spec: &CompleteLogSetSpec,
+) -> Result<(CompleteSetId, i64), String> {
+    spec.ancestry.validate()?;
+    let (value, version) =
+        create_log_set_raw(conn, well_id, &spec.storage).map_err(|error| error.to_string())?;
+    Ok((
+        CompleteSetId {
+            value,
+            well_id: well_id.to_string(),
+            outputs: spec
+                .ancestry
+                .outputs
+                .iter()
+                .map(|output| output.curve.to_uppercase())
+                .collect(),
+        },
+        version,
+    ))
+}
+
 /// Versioned batch write: refreshes the CURRENT store (same delete-then-append discipline
 /// as `write_computed_curves_batch`, rows tagged with `set_id`) and appends the identical
 /// rows to the append-only archive. Prior versions' archive rows are untouched — that is
 /// the "never overwrite" guarantee; any version can be restored via `restore_log_set`.
-pub(crate) fn write_computed_curves_versioned(
+fn write_versioned_rows_raw(
     conn: &Connection,
     well_id: &str,
     depth: &[f32],
@@ -966,6 +1526,438 @@ pub(crate) fn write_computed_curves_versioned(
     })
 }
 
+/// Legacy test-fixture entry point. A production caller would be able to pair arbitrary rows with
+/// arbitrary partial metadata, so SB-CORE-T14 forbids calls outside test code.
+#[cfg(test)]
+pub(crate) fn write_computed_curves_versioned(
+    conn: &Connection,
+    well_id: &str,
+    depth: &[f32],
+    curves: &[(&str, &[f32])],
+    set_id: &str,
+) -> duckdb::Result<()> {
+    write_versioned_rows_raw(conn, well_id, depth, curves, set_id)
+}
+
+pub(crate) fn write_computed_curves_with_ancestry(
+    conn: &Connection,
+    well_id: &str,
+    depth: &[f32],
+    curves: &[(&str, &[f32])],
+    set_id: &CompleteSetId,
+) -> Result<(), String> {
+    if set_id.well_id != well_id {
+        return Err("complete ancestry set belongs to a different well".into());
+    }
+    for (name, _) in curves {
+        if !set_id
+            .outputs
+            .iter()
+            .any(|output| output.eq_ignore_ascii_case(name))
+        {
+            return Err(format!(
+                "computed curve '{name}' has no output derivation in its ancestry record"
+            ));
+        }
+    }
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT params_json FROM log_sets WHERE set_id = ?1 AND well_id = ?2",
+            params![set_id.value, well_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("complete ancestry set is not live: {error}"))?;
+    parse_curve_ancestry(stored.as_deref().unwrap_or_default())?;
+    write_versioned_rows_raw(conn, well_id, depth, curves, &set_id.value)
+        .map_err(|error| error.to_string())
+}
+
+/// Complete write that also retires a declared family of stale current curves in the same
+/// transaction. Monte Carlo uses this when a later run stops producing one previously persisted
+/// key; the archive remains append-only and no duplicate-tolerant/upsert path is introduced.
+pub(crate) fn write_computed_curves_with_ancestry_clearing(
+    conn: &Connection,
+    well_id: &str,
+    depth: &[f32],
+    curves: &[(&str, &[f32])],
+    clear_names: &[String],
+    set_id: &CompleteSetId,
+) -> Result<(), String> {
+    if set_id.well_id != well_id {
+        return Err("complete ancestry set belongs to a different well".into());
+    }
+    for (name, _) in curves {
+        if !set_id
+            .outputs
+            .iter()
+            .any(|output| output.eq_ignore_ascii_case(name))
+        {
+            return Err(format!(
+                "computed curve '{name}' has no output derivation in its ancestry record"
+            ));
+        }
+    }
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT params_json FROM log_sets WHERE set_id = ?1 AND well_id = ?2",
+            params![set_id.value, well_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("complete ancestry set is not live: {error}"))?;
+    parse_curve_ancestry(stored.as_deref().unwrap_or_default())?;
+    crate::db::with_txn(conn, |conn| {
+        if !clear_names.is_empty() {
+            let placeholders = std::iter::repeat("?").take(clear_names.len()).collect::<Vec<_>>().join(", ");
+            let sql = format!(
+                "DELETE FROM computed_curves WHERE well_id = ? AND upper(curve_name) IN ({placeholders})"
+            );
+            let mut values = Vec::with_capacity(clear_names.len() + 1);
+            values.push(well_id.to_string());
+            values.extend(clear_names.iter().map(|name| name.to_uppercase()));
+            conn.execute(&sql, params_from_iter(values))?;
+        }
+        let mut current = conn.appender("computed_curves")?;
+        for (name, values) in curves {
+            for (d, value) in depth.iter().zip(values.iter()) {
+                current.append_row(params![well_id, d, name, value, set_id.value])?;
+            }
+        }
+        current.flush()?;
+        let mut archive = conn.appender("computed_curves_archive")?;
+        for (name, values) in curves {
+            for (d, value) in depth.iter().zip(values.iter()) {
+                archive.append_row(params![set_id.value, well_id, d, name, value])?;
+            }
+        }
+        archive.flush()?;
+        Ok::<(), duckdb::Error>(())
+    })
+    .map_err(|error| error.to_string())
+}
+
+/// Writes a complete version whose archive carries an independent depth frame. Reframe sets must
+/// not enter `computed_curves`: that table is aligned to the well's live frame, so doing so would
+/// replace a readable interpretation with rows that no current-frame reader can align.
+pub(crate) fn write_complete_own_frame(
+    conn: &Connection,
+    well_id: &str,
+    spec: &CompleteLogSetSpec,
+    depth: &[f32],
+    curves: &[(String, Vec<f32>)],
+) -> Result<i64, String> {
+    spec.ancestry.validate()?;
+    for (curve, _) in curves {
+        if !spec
+            .ancestry
+            .outputs
+            .iter()
+            .any(|output| output.curve.eq_ignore_ascii_case(curve))
+        {
+            return Err(format!(
+                "computed curve '{curve}' has no output derivation in its ancestry record"
+            ));
+        }
+    }
+    crate::db::with_txn(conn, |conn| {
+        let (set_id, version) = create_log_set_raw(conn, well_id, &spec.storage)?;
+        conn.execute(
+            "UPDATE log_sets SET frame = 'OWN' WHERE set_id = ?1",
+            params![set_id],
+        )?;
+        let mut archive = conn.appender("computed_curves_archive")?;
+        for (name, values) in curves {
+            for (d, value) in depth.iter().zip(values.iter()) {
+                archive.append_row(params![set_id, well_id, d, name, value])?;
+            }
+        }
+        archive.flush()?;
+        Ok::<i64, duckdb::Error>(version)
+    })
+    .map_err(|error| error.to_string())
+}
+
+fn parse_curve_ancestry(params_json: &str) -> Result<CurveAncestry, String> {
+    let parameters: serde_json::Value = serde_json::from_str(params_json)
+        .map_err(|error| format!("curve ancestry parameter JSON is invalid: {error}"))?;
+    let record = parameters
+        .get(CURVE_ANCESTRY_KEY)
+        .ok_or_else(|| "computed curve has no complete ancestry record".to_string())?;
+    let ancestry: CurveAncestry = serde_json::from_value(record.clone())
+        .map_err(|error| format!("curve ancestry record is invalid: {error}"))?;
+    ancestry.validate()?;
+    Ok(ancestry)
+}
+
+/// Resolves the one live record attached to a computed curve. Multiple or NULL set identities are
+/// refused rather than selecting whichever row DuckDB happens to return first.
+pub(crate) fn curve_ancestry(
+    conn: &Connection,
+    well_id: &str,
+    curve_name: &str,
+) -> Result<CurveAncestry, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT CAST(set_id AS VARCHAR) FROM computed_curves
+             WHERE well_id = ?1 AND upper(curve_name) = upper(?2)",
+        )
+        .map_err(|error| error.to_string())?;
+    let ids: Vec<Option<String>> = stmt
+        .query_map(params![well_id, curve_name], |row| row.get(0))
+        .map_err(|error| error.to_string())?
+        .collect::<duckdb::Result<_>>()
+        .map_err(|error| error.to_string())?;
+    if ids.len() != 1 || ids[0].is_none() {
+        return Err(format!(
+            "computed curve '{curve_name}' has no single live ancestry record"
+        ));
+    }
+    let set_id = ids[0].as_deref().expect("checked above");
+    let params_json: Option<String> = conn
+        .query_row(
+            "SELECT params_json FROM log_sets WHERE set_id = ?1",
+            params![set_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| {
+            format!("computed curve '{curve_name}' cites a missing ancestry record: {error}")
+        })?;
+    parse_curve_ancestry(params_json.as_deref().unwrap_or_default())
+}
+
+/// One complete, human-readable ancestry record ready for a catalog or number-carrying
+/// deliverable. `set_id` is retained internally by the query but deliberately not exposed here:
+/// downstream files need the stable set name/version plus the complete input identities, not an
+/// opaque database implementation detail as their only explanation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CurveAncestryDisclosure {
+    pub well_id: String,
+    pub curve_name: String,
+    pub set_name: String,
+    pub version: i64,
+    pub ancestry: CurveAncestry,
+}
+
+impl CurveAncestryDisclosure {
+    /// Full disclosure columns shared by PDF, Word, workbook and deck surfaces. No field is
+    /// summarized away: an input's well/set identity, a value's source, and a zone's source all
+    /// remain in the exported text.
+    pub(crate) fn cells(&self) -> [String; 7] {
+        let inputs = self
+            .ancestry
+            .inputs
+            .iter()
+            .map(|input| {
+                format!(
+                    "{}={} [well {}; set {}{}; id {}]",
+                    input.argument,
+                    input.curve,
+                    input.well_id,
+                    input.log_set,
+                    input
+                        .set_version
+                        .map(|version| format!(" v{version}"))
+                        .unwrap_or_default(),
+                    input.set_id,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let parameters = self
+            .ancestry
+            .parameters
+            .iter()
+            .map(|parameter| {
+                format!(
+                    "{}={} [source: {}]",
+                    parameter.name, parameter.value, parameter.source
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let zones = match &self.ancestry.zone_scope {
+            AncestryZoneScope::WholeWell => "WHOLE WELL".to_string(),
+            AncestryZoneScope::Defined(zones) => zones
+                .iter()
+                .map(|zone| {
+                    format!(
+                        "{} {}-{} [source: {}]",
+                        zone.name, zone.top, zone.base, zone.source
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; "),
+        };
+        let actor_kind = match self.ancestry.actor.kind {
+            AncestryActorKind::Human => "HUMAN",
+            AncestryActorKind::Automated => "AUTOMATED",
+        };
+        let custody = format!(
+            "{} {} at {} UTC-ms",
+            actor_kind, self.ancestry.actor.identity, self.ancestry.timestamp_utc_ms
+        );
+        let derivation = self
+            .ancestry
+            .outputs
+            .iter()
+            .find(|output| output.curve.eq_ignore_ascii_case(&self.curve_name))
+            .map(|output| output.derivation.clone())
+            .unwrap_or_else(|| {
+                self.ancestry
+                    .outputs
+                    .iter()
+                    .map(|output| format!("{}={}", output.curve, output.derivation))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            });
+        [
+            format!("{} / {} v{}", self.curve_name, self.set_name, self.version),
+            format!(
+                "{} @ {}",
+                self.ancestry.module, self.ancestry.module_version
+            ),
+            if inputs.is_empty() {
+                "NO CURVE INPUTS".into()
+            } else {
+                inputs
+            },
+            if parameters.is_empty() {
+                "NO EXPLICIT PARAMETERS".into()
+            } else {
+                parameters
+            },
+            zones,
+            custody,
+            derivation,
+        ]
+    }
+}
+
+/// Returns complete ancestry for every current computed curve in `well_ids`. When a deliverable
+/// names an input set, its latest version is included too because those archived values may replace
+/// current values while rendering. Any incomplete legacy record refuses the disclosure instead of
+/// being relabelled as measured or silently omitted.
+pub(crate) fn curve_ancestry_disclosures(
+    conn: &Connection,
+    well_ids: &[String],
+    input_set: Option<&str>,
+) -> Result<Vec<CurveAncestryDisclosure>, String> {
+    let mut disclosures = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+
+    let mut add_set = |well_id: &str,
+                       set_id: String,
+                       set_name: String,
+                       version: i64,
+                       params_json: Option<String>,
+                       curve_names: Vec<String>|
+     -> Result<(), String> {
+        let ancestry = parse_curve_ancestry(params_json.as_deref().unwrap_or_default()).map_err(|error| {
+            format!("computed set '{set_name}' v{version} for well '{well_id}' cannot travel into a deliverable: {error}")
+        })?;
+        for curve_name in curve_names {
+            let key = (
+                well_id.to_string(),
+                curve_name.to_uppercase(),
+                set_id.clone(),
+            );
+            if seen.insert(key) {
+                if !ancestry
+                    .outputs
+                    .iter()
+                    .any(|output| output.curve.eq_ignore_ascii_case(&curve_name))
+                {
+                    return Err(format!(
+                        "computed curve '{curve_name}' is absent from its set ancestry output derivations"
+                    ));
+                }
+                disclosures.push(CurveAncestryDisclosure {
+                    well_id: well_id.to_string(),
+                    curve_name,
+                    set_name: set_name.clone(),
+                    version,
+                    ancestry: ancestry.clone(),
+                });
+            }
+        }
+        Ok(())
+    };
+
+    for well_id in well_ids {
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.set_id, s.set_name, s.version, s.params_json, cc.curve_name
+                 FROM computed_curves cc
+                 JOIN log_sets s ON s.set_id = cc.set_id
+                 WHERE cc.well_id = ?1
+                 GROUP BY s.set_id, s.set_name, s.version, s.params_json, cc.curve_name
+                 ORDER BY cc.curve_name, s.set_name, s.version",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = stmt
+            .query_map(params![well_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        let mut by_set: std::collections::BTreeMap<
+            (String, String, i64, Option<String>),
+            Vec<String>,
+        > = std::collections::BTreeMap::new();
+        for row in rows {
+            let (set_id, set_name, version, params_json, curve_name) =
+                row.map_err(|error| error.to_string())?;
+            by_set
+                .entry((set_id, set_name, version, params_json))
+                .or_default()
+                .push(curve_name);
+        }
+        for ((set_id, set_name, version, params_json), curves) in by_set {
+            add_set(well_id, set_id, set_name, version, params_json, curves)?;
+        }
+
+        if let Some(input_set) = input_set.map(str::trim).filter(|value| !value.is_empty()) {
+            let selected: Option<(String, String, i64, Option<String>)> = conn
+                .query_row(
+                    "SELECT set_id, set_name, version, params_json FROM log_sets
+                     WHERE well_id = ?1 AND upper(set_name) = upper(?2)
+                     ORDER BY version DESC LIMIT 1",
+                    params![well_id, input_set],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()
+                .map_err(|error| error.to_string())?;
+            if let Some((set_id, set_name, version, params_json)) = selected {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT DISTINCT curve_name FROM computed_curves_archive
+                         WHERE set_id = ?1 ORDER BY curve_name",
+                    )
+                    .map_err(|error| error.to_string())?;
+                let curves = stmt
+                    .query_map(params![set_id], |row| row.get::<_, String>(0))
+                    .map_err(|error| error.to_string())?
+                    .collect::<duckdb::Result<Vec<_>>>()
+                    .map_err(|error| error.to_string())?;
+                add_set(well_id, set_id, set_name, version, params_json, curves)?;
+            }
+        }
+    }
+    disclosures.sort_by(|a, b| {
+        (&a.well_id, &a.curve_name, &a.set_name, a.version).cmp(&(
+            &b.well_id,
+            &b.curve_name,
+            &b.set_name,
+            b.version,
+        ))
+    });
+    Ok(disclosures)
+}
+
 /// One well's versioned output, for the batched multi-well writer.
 pub(crate) struct WellWrite {
     pub well_id: String,
@@ -977,6 +1969,7 @@ pub(crate) struct WellWrite {
 /// Batched [`create_log_set`]: registers one run event per well inside a SINGLE transaction
 /// instead of one auto-committed INSERT (= one WAL fsync) per well. Returns well_id → set_id.
 /// Versioning is identical (each well gets 1 + its own MAX(version) for `set_name`).
+#[cfg(test)]
 pub(crate) fn create_log_sets_batch(
     conn: &Connection,
     well_ids: &[String],
@@ -1008,6 +2001,70 @@ pub(crate) fn create_log_sets_batch(
     Ok(planned.into_iter().map(|(w, _, s)| (w, s)).collect())
 }
 
+/// Per-well complete batch registration. Unlike the legacy batch API, every well carries its own
+/// zone/input resolution snapshot while the inserts still share one transaction.
+pub(crate) fn create_complete_log_sets_batch(
+    conn: &Connection,
+    wells: &[CompleteWellLogSet],
+) -> Result<HashMap<String, CompleteSetId>, String> {
+    let mut planned: Vec<(String, i64, String, &CompleteLogSetSpec)> =
+        Vec::with_capacity(wells.len());
+    for well in wells {
+        well.spec.ancestry.validate()?;
+        let version: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) + 1 FROM log_sets WHERE well_id = ?1 AND set_name = ?2",
+                params![well.well_id, well.spec.storage.set_name],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        planned.push((
+            well.well_id.clone(),
+            version,
+            Uuid::new_v4().to_string(),
+            &well.spec,
+        ));
+    }
+    crate::db::with_txn(conn, |conn| {
+        for (well_id, version, set_id, spec) in &planned {
+            conn.execute(
+                "INSERT INTO log_sets (set_id, well_id, set_name, version, module, params_json, inputs_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    set_id,
+                    well_id,
+                    spec.storage.set_name,
+                    version,
+                    spec.storage.module,
+                    spec.storage.params_json,
+                    spec.storage.inputs_json
+                ],
+            )?;
+        }
+        Ok::<(), duckdb::Error>(())
+    })
+    .map_err(|error| error.to_string())?;
+    Ok(planned
+        .into_iter()
+        .map(|(well_id, _, value, spec)| {
+            let outputs = spec
+                .ancestry
+                .outputs
+                .iter()
+                .map(|output| output.curve.to_uppercase())
+                .collect();
+            (
+                well_id.clone(),
+                CompleteSetId {
+                    value,
+                    well_id,
+                    outputs,
+                },
+            )
+        })
+        .collect())
+}
+
 /// Batched [`write_computed_curves_versioned`]: writes MANY wells' outputs in ONE transaction.
 ///
 /// The earlier version mirrored the single-well path per well — one DELETE + a fresh current
@@ -1026,7 +2083,7 @@ pub(crate) fn create_log_sets_batch(
 ///   Phase 2/3 — append. With every DELETE already done, ONE appender per table may span all
 ///   wells: the DuckDB "appender can't span DML on the same table" constraint only forbids
 ///   interleaving a DELETE while an appender is open, which never happens here.
-pub(crate) fn write_computed_curves_versioned_batch(conn: &Connection, wells: &[WellWrite]) -> duckdb::Result<()> {
+fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> duckdb::Result<()> {
     if wells.iter().all(|w| w.curves.is_empty()) {
         return Ok(());
     }
@@ -1082,6 +2139,53 @@ pub(crate) fn write_computed_curves_versioned_batch(conn: &Connection, wells: &[
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+pub(crate) fn write_computed_curves_versioned_batch(
+    conn: &Connection,
+    wells: &[WellWrite],
+) -> duckdb::Result<()> {
+    write_versioned_rows_batch_raw(conn, wells)
+}
+
+pub(crate) fn write_computed_curves_with_ancestry_batch(
+    conn: &Connection,
+    wells: &[CompleteWellWrite],
+) -> Result<(), String> {
+    let mut raw = Vec::with_capacity(wells.len());
+    for well in wells {
+        if well.set_id.well_id != well.well_id {
+            return Err("complete ancestry set belongs to a different well".into());
+        }
+        for (curve, _) in &well.curves {
+            if !well
+                .set_id
+                .outputs
+                .iter()
+                .any(|output| output.eq_ignore_ascii_case(curve))
+            {
+                return Err(format!(
+                    "computed curve '{curve}' has no output derivation in its ancestry record"
+                ));
+            }
+        }
+        let params_json: Option<String> = conn
+            .query_row(
+                "SELECT params_json FROM log_sets WHERE set_id = ?1 AND well_id = ?2",
+                params![well.set_id.value, well.well_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("complete ancestry set is not live: {error}"))?;
+        parse_curve_ancestry(params_json.as_deref().unwrap_or_default())?;
+        raw.push(WellWrite {
+            well_id: well.well_id.clone(),
+            depth: well.depth.clone(),
+            curves: well.curves.clone(),
+            set_id: well.set_id.value.clone(),
+        });
+    }
+    write_versioned_rows_batch_raw(conn, &raw).map_err(|error| error.to_string())
 }
 
 /// Input-set selection: like [`fetch_curve_frame`], but any requested curve that the named
@@ -1185,16 +2289,22 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
          ORDER BY s.set_name, s.version DESC",
     )?;
     let rows = stmt.query_map(params![well_id], |r| {
+        let params_json: Option<String> = r.get(4)?;
+        let ancestry = params_json
+            .as_deref()
+            .and_then(|text| parse_curve_ancestry(text).ok());
         Ok(LogSetEntry {
             set_id: r.get(0)?,
             set_name: r.get(1)?,
             version: r.get(2)?,
             module: r.get(3)?,
-            params_json: r.get(4)?,
+            params_json,
             inputs_json: r.get(5)?,
             created_at: r.get(6)?,
             curve_names: Vec::new(),
-            is_current: r.get(7)?,
+            is_current: r.get(7)?
+        ,
+            ancestry,
         })
     })?;
     let mut entries = Vec::new();
@@ -1279,7 +2389,9 @@ pub struct ComputedCatalogEntry {
     pub n_samples: i64,
     pub min: Option<f64>,
     pub max: Option<f64>,
-    pub mean: Option<f64>,
+    pub mean: Option<f64>
+,
+    pub ancestry: Option<CurveAncestry>,
 }
 
 pub(crate) fn list_computed_catalog(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<ComputedCatalogEntry>> {
@@ -1289,14 +2401,16 @@ pub(crate) fn list_computed_catalog(conn: &Connection, well_id: &str) -> duckdb:
                 COUNT(*) FILTER (WHERE NOT isnan(cc.value)),
                 MIN(cc.value) FILTER (WHERE NOT isnan(cc.value)),
                 MAX(cc.value) FILTER (WHERE NOT isnan(cc.value)),
-                AVG(cc.value) FILTER (WHERE NOT isnan(cc.value))
+                AVG(cc.value) FILTER (WHERE NOT isnan(cc.value)),
+                s.params_json
          FROM computed_curves cc
          LEFT JOIN log_sets s ON s.set_id = cc.set_id
          WHERE cc.well_id = ?1
-         GROUP BY cc.curve_name, s.set_name, s.version, s.module, s.created_at
+         GROUP BY cc.curve_name, s.set_name, s.version, s.module, s.created_at, s.params_json
          ORDER BY cc.curve_name",
     )?;
     let rows = stmt.query_map(params![well_id], |r| {
+        let params_json: Option<String> = r.get(9)?;
         Ok(ComputedCatalogEntry {
             curve_name: r.get(0)?,
             set_name: r.get(1)?,
@@ -1306,7 +2420,11 @@ pub(crate) fn list_computed_catalog(conn: &Connection, well_id: &str) -> duckdb:
             n_samples: r.get(5)?,
             min: r.get(6)?,
             max: r.get(7)?,
-            mean: r.get(8)?,
+            mean: r.get(8)?
+        ,
+            ancestry: params_json
+                .as_deref()
+                .and_then(|text| parse_curve_ancestry(text).ok()),
         })
     })?;
     let mut entries = Vec::new();
@@ -1324,6 +2442,7 @@ pub(crate) fn list_computed_catalog(conn: &Connection, well_id: &str) -> duckdb:
 /// `computed_curves` carries no uniqueness index (see `db::create_schema`), the delete-then-
 /// append IS what keeps (well_id, depth, curve_name) unique. Depth/values are zipped, so a
 /// short `values` slice simply writes fewer rows (matching the old per-curve behaviour).
+#[cfg(test)]
 pub(crate) fn write_computed_curves_batch(
     conn: &Connection,
     well_id: &str,
@@ -1333,32 +2452,33 @@ pub(crate) fn write_computed_curves_batch(
     if curves.is_empty() {
         return Ok(());
     }
-    // Atomic delete-then-append: an unclean kill mid-write must not leave the DELETE committed
-    // with the never-flushed append lost (this unversioned path has no archive to recover from).
-    crate::db::with_txn(conn, |conn| {
-        // One DELETE covering exactly the curve names about to be rewritten.
-        let placeholders = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
-        let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND upper(curve_name) IN ({placeholders})");
-        // Bind UPPERCASED names so a re-cased write reclaims any prior-casing rows: every reader
-        // resolves curve_name case-insensitively via upper(), but an exact-case DELETE would leave
-        // a stale shadow row (e.g. old 'phie' after a rewrite to 'PHIE') that can silently win.
-        let mut del_params: Vec<String> = Vec::with_capacity(curves.len() + 1);
-        del_params.push(well_id.to_string());
-        for (name, _) in curves {
-            del_params.push(name.to_uppercase());
-        }
-        conn.execute(&sql, params_from_iter(del_params))?;
-
-        let mut appender = conn.appender("computed_curves")?;
-        for (name, values) in curves {
-            for (d, v) in depth.iter().zip(values.iter()) {
-                // 5th column: no set_id — this is the legacy/unversioned write path.
-                appender.append_row(params![well_id, d, name, v, None::<String>])?;
-            }
-        }
-        appender.flush()?;
-        Ok(())
-    })
+    let ancestry = CurveAncestry {
+        schema_version: 1,
+        module: "TEST_FIXTURE".into(),
+        module_version: env!("CARGO_PKG_VERSION").into(),
+        inputs: Vec::new(),
+        parameters: Vec::new(),
+        zone_scope: AncestryZoneScope::WholeWell,
+        actor: AncestryActor {
+            kind: AncestryActorKind::Automated,
+            identity: "rust-test-fixture".into(),
+        },
+        timestamp_utc_ms: ancestry_timestamp_utc_ms().expect("test fixture timestamp"),
+        outputs: curves
+            .iter()
+            .map(|(name, _)| AncestryOutput {
+                curve: (*name).to_string(),
+                derivation: format!("test_fixture:{name}"),
+            })
+            .collect(),
+    };
+    let spec = CompleteLogSetSpec::try_new("TEST_FIXTURE", ancestry)
+        .expect("complete test fixture ancestry");
+    let (set_id, _) =
+        create_complete_log_set(conn, well_id, &spec).expect("create test fixture set");
+    write_computed_curves_with_ancestry(conn, well_id, depth, curves, &set_id)
+        .expect("write complete test fixture");
+    Ok(())
 }
 
 /// Runs `equation` across every well in `well_ids` concurrently via `rayon`. The Rhai
@@ -1370,8 +2490,15 @@ pub fn run_equation(
     db: &Mutex<Connection>,
     equation: &EquationDef,
     well_ids: &[String],
+    custody: &RunCustody,
     progress: Option<&crate::jobs::JobHandle>,
 ) -> Vec<EquationRunResult> {
+    if let Err(error) = custody.validate() {
+        return well_ids
+            .iter()
+            .map(|well_id| EquationRunResult::failed(well_id.clone(), error.clone()))
+            .collect();
+    }
     let engine = Engine::new();
     let ast: AST = match engine.compile(&equation.script) {
         Ok(ast) => ast,
@@ -1484,7 +2611,7 @@ pub fn run_equation(
             }
 
             let conn = db.lock().unwrap();
-            if let Err(e) = write_equation_output(&conn, well_id, &depth, equation, &output) {
+            if let Err(e) = write_equation_output(&conn, well_id, &depth, equation, &output, custody) {
                 if let Some(p) = progress {
                     p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
                 }
@@ -1521,16 +2648,35 @@ pub(crate) fn write_equation_output(
     well_id: &str,
     depth: &[f32],
     equation: &EquationDef,
-    values: &[f32],
-) -> duckdb::Result<()> {
-    let spec = LogSetSpec {
-        set_name: "EQUATION".into(),
-        module: format!("equation:{}", equation.name),
-        params_json: String::new(),
-        inputs_json: serde_json::to_string(&equation.input_curves).unwrap_or_default(),
-    };
-    let (set_id, _) = create_log_set(conn, well_id, &spec)?;
-    write_computed_curves_versioned(conn, well_id, depth, &[(equation.output_curve.as_str(), values)], &set_id)
+    values: &[f32]
+,
+    custody: &RunCustody,
+) -> Result<(), String> {
+    let module= format!("equation:{}", equation.name);
+    let inputs = equation.input_curves.iter().map(|curve| (well_id.to_string()
+    , curve.clone(), curve.clone()))
+        .collect::<Vec<_>>();
+    let parameters = serde_json::json!({
+        "equation_id": equation.equation_id,
+        "language": equation.language,
+        "script": equation.script,
+        "output_units": equation.output_units,
+    });
+    let outputs = vec![equation.output_curve.clone()];
+    let spec = complete_curve_run_spec(
+        conn,
+        well_id,
+        "EQUATION",
+        &module,
+        custody,
+        &inputs,
+        None,
+        parameters,
+        AncestryZoneScope::WholeWell,
+        &outputs,
+    )?;
+    let (set_id, _) = create_complete_log_set(conn, well_id, &spec)?;
+    write_computed_curves_with_ancestry(conn, well_id, depth, &[(equation.output_curve.as_str(), values)], &set_id)
 }
 
 #[cfg(test)]
@@ -2005,12 +3151,14 @@ mod tests {
 
         // Typo'd input "GRX" resolves to an all-NaN column → output all-NaN → error.
         let bad = eq("bad", "GRX", "VSHX", "grx / 100.0");
-        let r = run_equation(&dbm, &bad, &[w.clone()], None);
+        let r = run_equation(&dbm, &bad, &[w.clone()], &crate::workflow::test_run_custody(),
+            None);
         assert!(r[0].error.is_some(), "all-NaN equation must report an error");
 
         // A resolvable input computes a real value → success with the full sample count.
         let good = eq("good", "GR", "GRSCALE", "gr / 100.0");
-        let r = run_equation(&dbm, &good, &[w], None);
+        let r = run_equation(&dbm, &good, &[w], &crate::workflow::test_run_custody(),
+            None);
         assert!(r[0].error.is_none(), "good equation: {:?}", r[0].error);
         assert_eq!(r[0].rows_written, n);
     }
@@ -2065,7 +3213,8 @@ mod tests {
             language: "rhai".into(),
         };
         let wells = [no_nphi.clone(), good_a.clone(), good_b.clone()];
-        let res = run_equation(&dbm, &eq, &wells, None);
+        let res = run_equation(&dbm, &eq, &wells, &crate::workflow::test_run_custody(),
+            None);
 
         assert_eq!(res.len(), 3);
         let bare = &res[0];
@@ -2150,7 +3299,8 @@ mod tests {
             output_units: None,
             language: "rhai".into(),
         };
-        let res = run_equation(&dbm, &eq, &[w.clone()], None);
+        let res = run_equation(&dbm, &eq, &[w.clone()], &crate::workflow::test_run_custody(),
+            None);
 
         assert!(res[0].error.is_none(), "the curve WAS written, so this is not a failure: {:?}", res[0].error);
         assert_eq!(res[0].rows_written, n, "every depth still gets a row — half of them MISSING");
@@ -2181,7 +3331,7 @@ mod tests {
         // is refused. The difference between "reported" and "silent" is only ever coverage.
         let all = EquationDef { script: "throw \"boom\"".into(), ..eq.clone() };
         drop(conn);
-        let res = run_equation(&dbm, &all, &[w], None);
+        let res = run_equation(&dbm, &all, &[w], &crate::workflow::test_run_custody(), None);
         assert!(
             res[0].error.as_ref().is_some_and(|e| e.contains("no finite output")),
             "a script that raises everywhere IS caught: {:?}",
@@ -2233,7 +3383,7 @@ mod tests {
             output_units: None,
             language: "rhai".into(),
         };
-        let res = run_equation(&dbm, &eq, &[w], None);
+        let res = run_equation(&dbm, &eq, &[w], &crate::workflow::test_run_custody(), None);
 
         assert!(res[0].error.is_none(), "{:?}", res[0].error);
         assert_eq!(res[0].rows_written, n);

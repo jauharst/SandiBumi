@@ -383,7 +383,8 @@ pub fn bake_core_images(conn: &Connection, items: &[BakeItem]) -> Result<BakeRes
         });
         let out = run_runner(&python, &header, &blobs)?;
         for row in out.results {
-            let Some(it) = batch.iter().find(|i| i.image_id == row.image_id) else { continue };
+            let Some(it) = batch.iter().find(|i| i.image_id == row.image_id) else { continue ;
+            };
             if let Some(e) = row.error {
                 res.skipped.push(format!("{}: {}", it.image_id, e));
                 continue;
@@ -1030,7 +1031,10 @@ pub struct CoreLogSpec {
     /// carries no bedding contrast to find one from, and the two are the same number with
     /// completely different meanings.
     #[serde(default)]
-    pub unfold_scan: Option<f32>,
+    pub unfold_scan: Option<f32>
+,
+    #[serde(default)]
+    pub custody: Option<crate::equations::RunCustody>,
 }
 
 impl CoreLogSpec {
@@ -1425,7 +1429,8 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             serde_json::from_slice(&output.stdout).map_err(|e| format!("bad scan result: {e}"))?
         };
         for row in out.results {
-            let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue };
+            let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue ;
+            };
             if let Some(e) = row.error {
                 res.skipped.push(format!("{}: {}", info.name, e));
                 continue;
@@ -1838,35 +1843,95 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .unwrap_or(DEFAULT_TRACE_SET);
-        let log_spec = crate::equations::LogSetSpec {
-            set_name: set_name.to_string(),
-            module: format!("cphoto:{}", spec.light),
-            params_json: serde_json::to_string(&serde_json::json!({
-                "dataset": spec.dataset, "axis": spec.axis, "reverse": spec.reverse,
-                "lanes": spec.lanes, "light": spec.light,
-            }))
-            .unwrap_or_default(),
-            inputs_json: serde_json::to_string(&res.curves.iter().map(|c| &c.name).collect::<Vec<_>>())
-                .unwrap_or_default(),
+        let custody = spec.custody.as_ref().ok_or_else(|| {
+            "run refused: enter custody before writing core-photo curves".to_string()
+        })?;
+        custody.validate()?;
+        let (image_set, image_source): (String, Option<String>) = conn
+            .query_row(
+                "SELECT set_name, source FROM image_sets
+                 WHERE well_id = ?1 AND dataset = ?2 AND active = 1 LIMIT 1",
+                duckdb::params![spec.well_id, spec.dataset],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|error| {
+                format!("the active photograph delivery has no set identity: {error}")
+            })?;
+        let mut inputs = vec![crate::equations::AncestryInput {
+            well_id: spec.well_id.clone(),
+            argument: "photograph delivery".into(),
+            curve: spec.dataset.clone(),
+            log_set: image_set.clone(),
+            set_version: None,
+            set_id: format!("image:{}:{}:{}", spec.well_id, spec.dataset, image_set)}];
+        if let Some(compare) = spec
+            .compare_curve
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            inputs.push(crate::equations::resolve_ancestry_input(
+                conn,
+                &spec.well_id,
+                "comparison curve",
+                compare,
+                None,
+                None,
+            )?);
+        }
+        let legacy_parameters = serde_json::json!({
+                "dataset": spec.dataset, "image_source": image_source,
+            "axis": spec.axis, "reverse": spec.reverse,
+                "lanes": spec.lanes, "layouts": spec.layouts,
+            "step": spec.step,
+            "light": spec.light
+            ,
+            "fluor": spec.fluor,
+            "lith": spec.lith,
+            "lith_cut": spec.lith_cut,
+            "unfold": spec.unfold,
+            "lith_min_bed": spec.lith_min_bed,
+            "unfold_scan": spec.unfold_scan,
+        });
+        let parameters = legacy_parameters
+            .as_object()
+            .expect("constructed as an object")
+            .iter()
+            .map(|(name, value)| crate::equations::AncestryParameter {
+                name: name.clone(),
+            value: value.clone(),
+                source: custody.source_note.clone(),
+            })
+            .collect();
+        let module = format!("cphoto:{}", spec.light);
+        let ancestry = crate::equations::CurveAncestry {
+            schema_version: 1,
+            module: module.clone(),
+            module_version: env!("CARGO_PKG_VERSION").into(),
+            inputs,
+            parameters,
+            zone_scope: crate::equations::AncestryZoneScope::WholeWell,
+            actor: custody.actor.clone(),
+            timestamp_utc_ms: crate::equations::ancestry_timestamp_utc_ms()?,
+            outputs: res.curves.iter().map(|curve| crate::equations::AncestryOutput {
+                    curve: curve.name.clone(),
+                    derivation: format!("{module}:{}", curve.name),
+                }).collect(),
         };
+        let log_spec = crate::equations::CompleteLogSetSpec::try_new_with_legacy(
+            set_name,
+            ancestry,
+            legacy_parameters,
+            "[]",
+        )?;
         // A storage problem must cost the VERSION, not the work — the curves are written either
         // way, the same discipline `ml.rs` follows when a model artifact cannot be stored.
-        match crate::equations::create_log_set(conn, &spec.well_id, &log_spec) {
-            Ok((set_id, _)) => {
-                crate::equations::write_computed_curves_versioned(
+        let (set_id, _)=crate::equations::create_complete_log_set(conn, &spec.well_id, &log_spec)?;
+        crate::equations::write_computed_curves_with_ancestry(
                     conn, &spec.well_id, &out_depth, &refs, &set_id,
                 )
-                .map_err(|e| e.to_string())?;
-            }
-            Err(e) => {
-                crate::equations::write_computed_curves_batch(conn, &spec.well_id, &out_depth, &refs)
-                    .map_err(|e| e.to_string())?;
-                res.notes.push(format!(
-                    "The curves were written, but no log-set version could be recorded ({e}), so                      this run leaves no provenance."
-                ));
-            }
-        }
-        res.written = res.curves.iter().map(|c| c.name.clone()).collect();
+                ?;
+            res.written = res.curves.iter().map(|c| c.name.clone()).collect();
     }
     Ok(res)
 }
@@ -2661,7 +2726,8 @@ pub fn build_core_strips(conn: &Connection, spec: &StripSpec) -> Result<StripRes
             serde_json::from_slice(&output.stdout).map_err(|e| format!("bad strip result: {e}"))?
         };
         for row in out.results {
-            let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue };
+            let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue ;
+            };
             if let Some(e) = row.error {
                 res.skipped.push(format!("{}: {}", info.name, e));
                 continue;
@@ -3270,6 +3336,7 @@ mod tests {
         }
         CoreLogSpec {
             output_set: None,
+            custody: Some(crate::workflow::test_run_custody()),
             well_id: "w1".into(),
             dataset: "CORE PHOTO".into(),
             axis: "y".into(),
@@ -3936,6 +4003,7 @@ mod tests {
 
         let spec = CoreLogSpec {
             output_set: None,
+            custody: Some(crate::workflow::test_run_custody()),
             well_id: w.clone(),
             dataset: "CORE PHOTO".into(),
             axis: "y".into(),
@@ -4058,6 +4126,7 @@ mod tests {
 
         let spec = |reverse: bool| CoreLogSpec {
             output_set: None,
+            custody: Some(crate::workflow::test_run_custody()),
             well_id: w.clone(),
             dataset: "CORE PHOTO".into(),
             axis: "x".into(),
@@ -4181,6 +4250,7 @@ mod tests {
                 &conn,
                 &CoreLogSpec {
                     output_set: None,
+                    custody: Some(crate::workflow::test_run_custody()),
                     well_id: w.clone(),
                     dataset: dataset.into(),
                     axis: axis.into(),
@@ -4379,6 +4449,7 @@ mod tests {
 
         let spec = |reverse: bool| CoreLogSpec {
             output_set: None,
+            custody: Some(crate::workflow::test_run_custody()),
             well_id: w.clone(),
             dataset: "CORE PHOTO".into(),
             axis: "y".into(),
@@ -4494,6 +4565,7 @@ mod tests {
     fn uv_spec(w: &str, classes: Vec<FluorClass>) -> CoreLogSpec {
         CoreLogSpec {
             output_set: None,
+            custody: Some(crate::workflow::test_run_custody()),
             well_id: w.into(),
             dataset: "CORE PHOTO UV".into(),
             axis: "x".into(),
@@ -4982,6 +5054,7 @@ mod tests {
         .unwrap();
 
         let spec = |unfold: Option<f32>| CoreLogSpec {
+            custody: Some(crate::workflow::test_run_custody()),
             well_id: w.clone(),
             dataset: "CORE PHOTO".into(),
             axis: "y".into(),

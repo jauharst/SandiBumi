@@ -30,7 +30,7 @@ import { SqlQueryPanel } from "./sqlQueryPanel";
 import { HistoryPanel } from "./historyPanel";
 import { buildStartSheet } from "./startSheet";
 import { showContextMenu, type ContextMenuEntry } from "./contextMenu";
-import { imageExportMenuEntries } from "./plotExport";
+import { imageExportMenuEntries, plotAncestryScope } from "./plotExport";
 import { forgetViewer, isWorkingPane, markActiveViewer } from "./activeViewer";
 
 const LAYOUT_STORAGE_KEY = "sandibumi.workspace";
@@ -919,7 +919,15 @@ export class Workspace {
       const openProps = this.plotProps.get(panelId);
       if (openProps) items.push({ label: "Properties…", onClick: () => openProps() }, "sep");
       items.push(
-        ...imageExportMenuEntries(() => host.querySelector<HTMLCanvasElement>("canvas.plot-canvas"), nice, setStatus),
+        ...imageExportMenuEntries(
+          () => host.querySelector<HTMLCanvasElement>("canvas.plot-canvas"),
+          nice,
+          setStatus,
+          undefined,
+          undefined,
+          undefined,
+          () => plotAncestryScope(host.querySelector<HTMLCanvasElement>("canvas.plot-canvas")),
+        ),
         "sep",
         { label: `New ${kind} window`, onClick: () => this.openPlot(kind as PlotKind, group) },
       );

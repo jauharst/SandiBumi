@@ -21,6 +21,7 @@ import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
+import { requestRunCustody } from "./runCustody";
 
 const TEMPLATE_DOC_TYPE = "report_template";
 const TEMPLATE_NAME = "default";
@@ -314,6 +315,12 @@ export async function buildReportContent(
       status.textContent = spec;
       return;
     }
+    const custody = await requestRunCustody("render the report and compute its pay-summary flags");
+    if (!custody) {
+      status.textContent = "Report render cancelled — run custody was not supplied.";
+      return;
+    }
+    spec.custody = custody;
     renderBtn.disabled = true;
     status.textContent = "Rendering report…";
     try {
@@ -354,6 +361,12 @@ export async function buildReportContent(
       return;
     }
     if (!dest) return;
+    const custody = await requestRunCustody("export the PDF and compute its pay-summary flags");
+    if (!custody) {
+      status.textContent = "PDF export cancelled — run custody was not supplied.";
+      return;
+    }
+    spec.custody = custody;
     pdfBtn.disabled = true;
     status.textContent = "Writing PDF…";
     try {
@@ -438,7 +451,7 @@ export async function buildReportContent(
       g.drawImage(img, 0, 0, w, h);
       URL.revokeObjectURL(url);
       const base64 = canvas.toDataURL("image/png").split(",")[1];
-      const path = await savePng(dest, base64);
+      const path = await savePng(dest, base64, { wellIds: [well.well_id] });
       status.textContent = `Wrote ${path.split(/[\\/]/).pop()}`;
       setStatus(`Report page PNG exported for ${well.well_name}.`);
     } catch (err) {
@@ -469,6 +482,16 @@ export async function buildReportContent(
     }
     if (!dir) return;
     const asWord = batchFmt.value === "docx";
+    if (!asWord) {
+      const custody = await requestRunCustody(
+        `export ${wellIds.length} PDF report(s) and compute their pay-summary flags`,
+      );
+      if (!custody) {
+        status.textContent = "Batch PDF export cancelled — run custody was not supplied.";
+        return;
+      }
+      spec.custody = custody;
+    }
     batchBtn.disabled = true;
     status.textContent = `Exporting ${wellIds.length} ${asWord ? "Word document" : "report"}(s)…`;
     try {

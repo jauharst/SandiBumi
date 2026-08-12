@@ -983,7 +983,7 @@ export async function buildVegaContent(
     }
     try {
       const svg = await current.view.toSVG();
-      const path = await saveSvg(svg, "Vega chart");
+      const path = await saveSvg(svg, "Vega chart", { wellIds: [], allProject: true });
       if (path) {
         setStatus(`Vega chart SVG saved to ${path}`);
         recordProcess("Export", `Vega chart SVG (vector) → ${path}`);
@@ -992,7 +992,15 @@ export async function buildVegaContent(
       setStatus(`SVG export failed: ${err}`);
     }
   };
-  const exportGroup = buildImageExportButtons(getCanvas, "Vega chart", setStatus);
+  const exportGroup = buildImageExportButtons(
+    getCanvas,
+    "Vega chart",
+    setStatus,
+    undefined,
+    undefined,
+    undefined,
+    () => ({ wellIds: [], allProject: true }),
+  );
   const svgBtn = document.createElement("button");
   svgBtn.className = "plot-export-btn";
   svgBtn.textContent = "⭳ SVG";

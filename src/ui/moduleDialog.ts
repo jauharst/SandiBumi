@@ -10,6 +10,7 @@ import { appState } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow, openModal } from "./modal";
 import { buildParamSources } from "./paramSources";
+import { buildRunCustodyControls } from "./runCustody";
 import { buildWellScope } from "./wellScope";
 
 export interface ModulePaneCallbacks {
@@ -63,6 +64,7 @@ export async function buildModuleContent(
   let curveNames = catalog.map((c) => c.name);
   let disposed = false;
   const scope = await buildWellScope();
+  const custodyControls = buildRunCustodyControls();
 
   const content = document.createElement("div");
   content.className = "module-pane";
@@ -250,6 +252,7 @@ export async function buildModuleContent(
   // say LOG SET, and only this UI said constellation, which is why the word did not connect.
   const setPicker = buildLogSetPicker({ write: "INTERP" });
   for (const row of setPicker.rows) argsGrid.appendChild(row);
+  for (const row of custodyControls.rows) argsGrid.appendChild(row);
 
   content.appendChild(argsGrid);
 
@@ -447,6 +450,13 @@ export async function buildModuleContent(
       }
       params[name] = v;
     }
+    let custody;
+    try {
+      custody = custodyControls.collect();
+    } catch (error) {
+      resultBox.textContent = String(error);
+      return;
+    }
     const req: RunModuleRequest = {
       module: spec.name,
       well_ids: wellIds,
@@ -455,6 +465,7 @@ export async function buildModuleContent(
       opts: collectOpts(),
       output_set: setPicker.outputSet(),
       input_set: setPicker.inputSet(),
+      custody,
     };
     runBtn.disabled = true;
     // Live progress and the per-well ✓/⚠/✗ breakdown now live in the Processing panel (this

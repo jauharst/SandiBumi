@@ -356,6 +356,7 @@ export async function buildPickettContent(
     () => getSvg(),
     () => getPdf(),
     () => ctxReductionManifest,
+    () => ({ wellIds: scope.getWellIds(), curves: [rtSel.value, phiSel.value] }),
   ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);

@@ -20,6 +20,7 @@ import {
   pythonStatus,
   restoreLogSet,
   type ComputedCatalogEntry,
+  type CurveAncestry,
   type EquationDef,
   type EquationRunResult,
   type GenericCurveCatalogEntry,
@@ -27,6 +28,26 @@ import {
   type PythonStatus,
 } from "../ipc";
 import { escapeAttr, escapeHtml } from "./safeDom";
+import { requestRunCustody } from "./runCustody";
+import { openModal } from "./modal";
+
+function showCurveAncestry(label: string, ancestry: CurveAncestry): void {
+  const content = document.createElement("div");
+  const summary = document.createElement("p");
+  summary.className = "modal-hint";
+  summary.textContent =
+    `${ancestry.module} @ ${ancestry.module_version} · ${ancestry.actor.kind.toLowerCase()} ` +
+    `${ancestry.actor.identity} · ${new Date(ancestry.timestamp_utc_ms).toISOString()}`;
+  const note = document.createElement("p");
+  note.className = "modal-hint";
+  note.textContent =
+    "Complete stored record: input well/set identities, every value and source, zone scope, custody, timestamp, and output derivations.";
+  const record = document.createElement("pre");
+  record.className = "ancestry-record";
+  record.textContent = JSON.stringify(ancestry, null, 2);
+  content.append(summary, note, record);
+  openModal(`Curve ancestry — ${label}`, content, 760);
+}
 
 const BLANK_EQUATION: EquationDef = {
   equation_id: "",
@@ -391,7 +412,12 @@ export class InspectorPanel {
 
     this.setStatus(`Running on ${wellIds.length} well(s)...`);
     try {
-      const results = await runEquation(this.current.equation_id, wellIds);
+      const custody = await requestRunCustody("Run equation");
+      if (!custody) {
+        this.setStatus("Equation run cancelled before any curve was written.");
+        return;
+      }
+      const results = await runEquation(this.current.equation_id, wellIds, custody);
       this.setStatus(summarizeRun(results));
       recordProcess("Equation", `Ran "${this.current.name}" on ${wellIds.length} well(s)`);
       await this.refreshCatalog();
@@ -449,6 +475,7 @@ export class InspectorPanel {
       // promote/pin has no effect on what modules/plots read (fetch_curve_frame resolves
       // standard column → computed → generic). Neutralises the promote lie for those cases.
       overriddenBy: "log" | "computed" | null;
+      ancestry: CurveAncestry | null;
     };
 
     // Detect same-mnemonic shadowing within the generic store (a DLIS import can collide with a
@@ -519,6 +546,7 @@ export class InspectorPanel {
           collision,
           winner: collision && winnerId.get(gk) === e.curve_id,
           overriddenBy: overrideFor(e.set_name, mnemUpper),
+          ancestry: null,
         };
       }),
       ...this.computedEntries.map((e) => ({
@@ -541,6 +569,7 @@ export class InspectorPanel {
         collision: false,
         winner: false,
         overriddenBy: null,
+        ancestry: e.ancestry,
       })),
     ];
 
@@ -593,7 +622,9 @@ export class InspectorPanel {
             : "";
     const actions = (r: Row) =>
       r.curveId == null
-        ? ""
+        ? `<button class="catalog-set-btn" data-curve-ancestry="${escapeAttr(r.name)}"${
+            r.ancestry ? "" : ' disabled title="This pre-contract curve has no complete ancestry record"'
+          }>Ancestry</button>`
         : `<button class="catalog-set-btn" data-promote="${escapeAttr(r.curveId)}"${promoteBlock(r)}>Promote</button>` +
           `<button class="catalog-set-btn danger" data-del-curve="${escapeAttr(r.curveId)}">Delete</button>`;
     const bodyRows = shown
@@ -647,6 +678,9 @@ export class InspectorPanel {
           `<span class="catalog-set-info">${escapeHtml(s.module)} · ${escapeHtml(s.created_at)} · ${escapeHtml(
             s.curve_names.join(", ") || "(no curves)",
           )}${s.is_current ? " · current" : ""}</span>` +
+          `<button class="catalog-set-btn" data-set-ancestry="${escapeAttr(s.set_id)}"${
+            s.ancestry ? "" : ' disabled title="This pre-contract version has no complete ancestry record"'
+          }>Ancestry</button>` +
           `<button class="catalog-set-btn" data-restore="${escapeAttr(s.set_id)}">Restore</button>` +
           `<button class="catalog-set-btn danger" data-del="${escapeAttr(s.set_id)}">Delete</button>` +
           `</div>`
@@ -686,6 +720,20 @@ export class InspectorPanel {
           this.catalogSortAsc = true;
         }
         this.renderGenericCatalog();
+      });
+    }
+    for (const btn of this.catalogTab.querySelectorAll<HTMLButtonElement>("[data-curve-ancestry]")) {
+      btn.addEventListener("click", () => {
+        const entry = this.computedEntries.find(
+          (candidate) => candidate.curve_name.toUpperCase() === btn.dataset.curveAncestry!.toUpperCase(),
+        );
+        if (entry?.ancestry) showCurveAncestry(entry.curve_name, entry.ancestry);
+      });
+    }
+    for (const btn of this.catalogTab.querySelectorAll<HTMLButtonElement>("[data-set-ancestry]")) {
+      btn.addEventListener("click", () => {
+        const entry = this.logSets.find((candidate) => candidate.set_id === btn.dataset.setAncestry);
+        if (entry?.ancestry) showCurveAncestry(`${entry.set_name} v${entry.version}`, entry.ancestry);
       });
     }
     for (const btn of this.catalogTab.querySelectorAll<HTMLButtonElement>("[data-restore]")) {

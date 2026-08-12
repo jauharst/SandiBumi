@@ -43,6 +43,7 @@ pub struct NetFlagSpec {
     pub depth_top: Option<f32>,
     #[serde(default)]
     pub depth_bottom: Option<f32>,
+    pub custody: equations::RunCustody,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -130,7 +131,11 @@ pub fn run_net_flag(conn: &Connection, spec: &NetFlagSpec) -> Result<NetFlagResu
     for &(vx, vy) in &spec.polygon {
         match (tf(vx, spec.x_log), tf(vy, spec.y_log)) {
             (Some(px), Some(py)) => poly.push((px, py)),
-            _ => return Err("a polygon vertex is off the log axis (≤ 0) — redraw it in range".into()),
+            _ => {
+                return Err(
+                    "a polygon vertex is off the log axis (≤ 0) — redraw it in range".into(),
+                );
+            }
         }
     }
 
@@ -172,8 +177,46 @@ pub fn run_net_flag(conn: &Connection, spec: &NetFlagSpec) -> Result<NetFlagResu
         return Err("no samples in the selected depth window".into());
     }
 
-    equations::write_computed_curve(conn, &spec.well_id, &w_depth, &out_name, &flags)
-        .map_err(|e| e.to_string())?;
+    let parameters = serde_json::json!({
+        "x_log": spec.x_log,
+        "y_log": spec.y_log,
+        "polygon": spec.polygon,
+        "depth_top": spec.depth_top,
+        "depth_bottom": spec.depth_bottom,
+    });
+    let inputs = vec![
+        (spec.well_id.clone(), "X".to_string(), x_key),
+        (spec.well_id.clone(), "Y".to_string(), y_key),
+    ];
+    let zone_scope = match (spec.depth_top, spec.depth_bottom) {
+        (Some(a), Some(b)) if a.is_finite() && b.is_finite() && a != b => {
+            let (top, base) = if a < b { (a, b) } else { (b, a) };
+            equations::AncestryZoneScope::Defined(vec![equations::AncestryZone {
+                name: "selected depth window".into(),
+                top,
+                base,
+                source: spec.custody.source_note.clone(),
+            }])
+        }
+        _ => equations::AncestryZoneScope::WholeWell,
+    };
+    let outputs = vec![out_name.clone()];
+    let run_spec = equations::complete_curve_run_spec(
+        conn,
+        &spec.well_id,
+        "NETFLAG",
+        "netflag:polygon",
+        &spec.custody,
+        &inputs,
+        spec.input_set.as_deref(),
+        parameters,
+        zone_scope,
+        &outputs,
+    )?;
+    let (set_id, _) = equations::create_complete_log_set(conn, &spec.well_id, &run_spec)?;
+    equations::write_computed_curves_with_ancestry(conn, &spec.well_id, &w_depth, &[(out_name.as_str(), flags.as_slice())],
+        &set_id,
+    )?;
     Ok(NetFlagResult { output_curve: out_name, inside, evaluated, written: w_depth.len() })
 }
 
@@ -218,7 +261,11 @@ mod tests {
             "polygon": [[0.1, 2.4], [0.3, 2.4], [0.3, 2.7]],
             "output_curve": "NET_FLAG",
             "depth_top": 2000.0,
-            "depth_bottom": 2050.0
+            "depth_bottom": 2050.0,
+            "custody": {
+                "actor": {"kind": "HUMAN", "identity": "automated-test-fixture"},
+                "source_note": "test fixture values declared in the owning test"
+            }
         }"#;
         let spec: NetFlagSpec = serde_json::from_str(sent).expect("frontend JSON must deserialize");
         assert_eq!(spec.well_id, "W-1");
@@ -243,7 +290,9 @@ mod tests {
         // A zone-less run omits the depth window entirely (serde(default) → None), which is the
         // whole-well path; it must still parse.
         let no_window = r#"{"well_id":"W-1","x_curve":"NPHI","y_curve":"RHOB",
-                            "polygon":[[0.0,0.0],[1.0,0.0],[1.0,1.0]],"output_curve":"NF"}"#;
+                            "polygon":[[0.0,0.0],[1.0,0.0],[1.0,1.0]],"output_curve":"NF",
+                            "custody":{"actor":{"kind":"HUMAN","identity":"automated-test-fixture"},
+                            "source_note":"test fixture values declared in the owning test"}}"#;
         let w: NetFlagSpec = serde_json::from_str(no_window).expect("whole-well request parses");
         assert_eq!((w.depth_top, w.depth_bottom), (None, None));
         assert!(!w.x_log && !w.y_log, "omitted axis flags default to linear");
@@ -269,7 +318,8 @@ mod tests {
 
     /// The canonical wire contract, stated once. Both sides are asserted against it below, so a
     /// rename on either side fails a test instead of silently disabling the feature.
-    const SPEC_FIELDS: [&str; 10] = [
+    const SPEC_FIELDS: [&str; 11] = [
+        "custody",
         "depth_bottom", "depth_top", "input_set", "output_curve", "polygon",
         "well_id", "x_curve", "x_log", "y_curve", "y_log",
     ];
@@ -382,6 +432,7 @@ mod tests {
         // A box around the low-NPHI / high-RHOB corner (the first several samples).
         let spec = NetFlagSpec {
             input_set: None,
+            custody: crate::workflow::test_run_custody(),
             well_id: w.clone(),
             x_curve: "NPHI".into(),
             y_curve: "RHOB".into(),
@@ -419,6 +470,7 @@ mod tests {
         let w = seed(&conn);
         let spec = NetFlagSpec {
             input_set: None,
+            custody: crate::workflow::test_run_custody(),
             well_id: w.clone(),
             x_curve: "NPHI".into(),
             y_curve: "RHOB".into(),
@@ -453,6 +505,7 @@ mod tests {
         // = 0.70..2.30, so only res=10 and res=100 fall inside — NOT res=1 (log 0) or 1000 (log 3).
         let spec = NetFlagSpec {
             input_set: None,
+            custody: crate::workflow::test_run_custody(),
             well_id: w,
             x_curve: "RES_DEEP".into(),
             y_curve: "NPHI".into(),
@@ -477,6 +530,7 @@ mod tests {
         let w = seed(&conn);
         let base = NetFlagSpec {
             input_set: None,
+            custody: crate::workflow::test_run_custody(),
             well_id: w,
             x_curve: "NPHI".into(),
             y_curve: "RHOB".into(),

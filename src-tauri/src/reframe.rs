@@ -105,7 +105,7 @@ pub struct SourceSpec {
 }
 
 /// The frame to land on.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TargetSpec {
     /// `"step"` (a uniform sampling), `"regularize"` (the source's OWN spacing, made uniform),
     /// `"match_well"` (another well's standard grid) or `"match_set"` (another set's frame, in the
@@ -166,7 +166,10 @@ pub struct ReframeRequest {
     pub output_set: String,
     /// Probe only: compute and report, write nothing.
     #[serde(default)]
-    pub preview: bool,
+    pub preview: bool
+,
+    #[serde(default)]
+    pub custody: Option<equations::RunCustody>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -681,7 +684,8 @@ pub(crate) fn set_frame(conn: &Connection, well_id: &str, set_name: &str) -> duc
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .ok();
-    let Some((set_id, frame)) = row else { return Ok(None) };
+    let Some((set_id, frame)) = row else { return Ok(None) ;
+    };
     if frame != "OWN" {
         return Ok(None);
     }
@@ -1235,24 +1239,66 @@ fn one_well(
         return res;
     }
 
-    let spec = equations::LogSetSpec {
-        set_name: req.output_set.trim().to_uppercase(),
-        module: "reframe".into(),
-        params_json: serde_json::to_string(&serde_json::json!({
+    let custody = match req.custody.as_ref(){
+        Some(custody)=> custody,
+        None => {
+            res.error = Some("run refused: enter custody before writing a reframed set".into());
+            return res;
+        }
+    };
+
+    let parameters = serde_json::json!({
             "source": req.source.kind,
             "source_set": req.source.name,
             "curve_selection": selection,
-            "target_step": res.target_step,
+            "target": req.target,
+        "target_step": res.target_step,
             "source_step": res.source_step,
-            "substitutions": substitutions,
-        }))
-        .unwrap_or_default(),
-        inputs_json: serde_json::to_string(&res.curves.iter().map(|c| &c.name).collect::<Vec<_>>())
-            .unwrap_or_default(),
+            "methods": req.methods,
+        "default_method": req.default_method,
+        "substitutions": substitutions,
+        });
+    let inputs = res.curves.iter().map(|curve| (well_id.to_string(), curve.name.clone(), curve.name.clone())).collect::<Vec<_>>();
+    let zone_scope = match (req.target.top, req.target.base)
+            {
+        (Some(a), Some(b)) if a.is_finite() && b.is_finite() && a != b => {
+            let (top, base) = if a < b {
+                (a as f32, b as f32)
+            } else {
+                (b as f32, a as f32)
+            };
+            equations::AncestryZoneScope::Defined(vec![equations::AncestryZone {
+                name: "reframe target interval".into(),
+                top,
+                base,
+                source: custody.source_note.clone(),
+    }])
+        }
+        _ => equations::AncestryZoneScope::WholeWell,
     };
-    match write_own_frame(conn, well_id, &spec, &out_depth, &written) {
+    let outputs = written
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<Vec<_>>();
+    let input_set = (req.source.kind == "logset")
+        .then_some(req.source.name.as_deref())
+        .flatten();
+    let spec = equations::complete_curve_run_spec(
+        conn,
+        well_id,
+        &req.output_set.trim().to_uppercase(),
+        "reframe",
+        custody,
+        &inputs,
+        input_set,
+        parameters,
+        zone_scope,
+        &outputs,
+    );
+    match spec.and_then(|spec| {
+        equations::write_complete_own_frame(conn, well_id, &spec, &out_depth, &written) }) {
         Ok(version) => res.version = Some(version),
-        Err(e) => res.error = Some(e.to_string()),
+        Err(e) => res.error = Some(e),
     }
     res
 }
@@ -1265,6 +1311,7 @@ fn one_well(
 /// `write_computed_curves_versioned` would DELETE the curve's current rows before appending, which
 /// on a re-frame means blanking the interpretation and replacing it with rows that align with
 /// nothing. Silently: the run would report success and the log view would go empty.
+#[cfg(test)]
 fn write_own_frame(
     conn: &Connection,
     well_id: &str,
@@ -1499,7 +1546,9 @@ mod tests {
             methods: HashMap::new(),
             default_method: Method::Auto,
             output_set: "FIELD_05".into(),
-            preview: false,
+            preview: false
+        ,
+            custody: Some(crate::workflow::test_run_custody()),
         };
         let res = run_reframe(&conn, &req);
         assert!(res[0].error.is_none(), "{:?}", res[0].error);
@@ -1582,7 +1631,9 @@ mod tests {
             methods: Default::default(),
             default_method: Method::Mean,
             output_set: "SUBSTITUTED".into(),
-            preview: false,
+            preview: false
+        ,
+            custody: Some(crate::workflow::test_run_custody()),
         };
 
         let refused = run_reframe(&conn, &req);
@@ -1767,7 +1818,9 @@ mod tests {
             methods: Default::default(),
             default_method: Method::default(),
             output_set: "R".into(),
-            preview: true,
+            preview: true
+        ,
+            custody: Some(crate::workflow::test_run_custody()),
         };
         let out = run_reframe(&conn, &req);
         assert_eq!(out.len(), 2, "every well still gets a row saying why");

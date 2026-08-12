@@ -1,5 +1,5 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { savePlotPdf } from "../ipc";
+import { savePlotPdf, type PlotAncestryScope } from "../ipc";
 import { readTheme, type PlotCanvas } from "./plotCanvas";
 
 /** True-vector PDF export for the Canvas-2D plots, a sibling of svgExport.ts. It drives the
@@ -429,12 +429,12 @@ export function renderPlotToPdf(
 /** Writes a chart PDF to a user-picked path: the content stream is assembled into a one-page PDF
  *  document by the backend (`save_plot_pdf` → `composite::assemble_single_page_pdf`). Returns the
  *  path, or null if the dialog was cancelled. */
-export async function savePdf(pdf: PlotPdf, defaultName: string): Promise<string | null> {
+export async function savePdf(pdf: PlotPdf, defaultName: string, scope?: PlotAncestryScope): Promise<string | null> {
   const dest = await save({
     title: "Export plot as PDF (vector)",
     defaultPath: `${defaultName.replace(/[^\w.-]+/g, "_")}.pdf`,
     filters: [{ name: "PDF document", extensions: ["pdf"] }],
   });
   if (!dest) return null;
-  return savePlotPdf(dest, pdf.content, pdf.widthPt, pdf.heightPt);
+  return savePlotPdf(dest, pdf.content, pdf.widthPt, pdf.heightPt, scope);
 }

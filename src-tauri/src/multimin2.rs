@@ -33,7 +33,7 @@
 //! user can see WHICH log the model fails to honour. The reconstruction only discriminates when the
 //! system is over-determined — the reported `dof` says whether that holds.
 
-use crate::equations::{fetch_curve_frame, write_computed_curves_versioned};
+use crate::equations::fetch_curve_frame;
 
 /// The log set SandiMin output lands in when the caller names none — the value that used to be
 /// hardcoded, so an older payload writes exactly where it always did.
@@ -83,7 +83,7 @@ fn default_one() -> f64 {
 /// is a RESISTIVITY curve (ohmm) converted to conductivity (mho/m) per sample; their
 /// endpoints come from the fluid properties, not from the endpoints table. `sigma <= 0`
 /// on CT/CXO means "auto" (0.03·C^(1/w)).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpec {
     pub key: String,
     pub curve: String,
@@ -98,7 +98,7 @@ pub struct ToolSpec {
 /// runs on the lithology tools with NO conductivity row, then Sw is computed from the closed form
 /// using the solved effective porosity + shale volume and the deep resistivity, and the U-zone
 /// water/HC volumes are redistributed to honour it (so PHIE is unchanged and SWE = the model Sw).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SwModel {
     /// Linearised dual-water, in-inversion. Default — nothing moves.
@@ -244,7 +244,7 @@ pub(crate) fn saturation_method_flag_curve(
 }
 
 /// What drives the clay bound-water (BNDWAT) constraint (Jauhar field review, image 2 "Porosity Source").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PorositySource {
     /// Cation exchange capacity: v_bw = α·96·CEC·ρ/(T+298)·v_dryclay. Default — nothing moves.
@@ -497,7 +497,7 @@ pub fn waxman_b(t_c: f64, rw: f64) -> f64 {
 }
 
 /// Fluid / saturation parameters (needed when CT or CXO participates).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FluidProps {
     /// Formation water resistivity sample (ohmm) + its temperature (°F).
     pub rw: f64,
@@ -599,6 +599,7 @@ pub struct MultiminRequest {
     /// hardcoded — so an older payload writes exactly where it always did.
     #[serde(default)]
     pub output_set: Option<String>,
+    pub custody: crate::equations::RunCustody,
     #[serde(default = "default_true")]
     pub unity: bool,
     /// Required when CT or CXO is among the tools.
@@ -1171,7 +1172,8 @@ fn core_fit(depth: &[f32], model: &[f32], plugs: &[(f32, f32)]) -> Option<CoreFi
     let mut sse = 0.0f64;
     let mut sum = 0.0f64;
     for &(d, cv) in plugs {
-        let Some(i) = nearest_solved(depth, model, d) else { continue };
+        let Some(i) = nearest_solved(depth, model, d) else { continue ;
+        };
         let e = model[i] as f64 - cv as f64;
         sse += e * e;
         sum += e;
@@ -1906,28 +1908,64 @@ pub fn run_multimin(
             out_names = curves.iter().map(|(n, _)| n.clone()).collect();
         }
         let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
-        let spec = crate::equations::LogSetSpec {
-            set_name: req
+        let set_name= req
                 .output_set
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .unwrap_or(DEFAULT_SANDIMIN_SET)
-                .to_string(),
-            module: "sandimin".into(),
-            params_json: serde_json::to_string(&serde_json::json!({
-                "components": req.components.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
-                "prefix": prefix,
-                "sw_model": model.id(),
-            }))
-            .unwrap_or_default(),
-            inputs_json: serde_json::to_string(&req.tools.iter().map(|t| t.curve.as_str()).collect::<Vec<_>>())
-                .unwrap_or_default(),
-        };
-        let write_err = crate::equations::create_log_set(&conn, well_id, &spec)
-            .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, well_id, &depth, &refs, &set_id))
-            .err()
-            .map(|e| e.to_string());
+                ;
+        let mut inputs = req
+            .tools
+            .iter()
+            .filter(|tool| !tool.curve.trim().is_empty())
+            .map(|tool| (well_id.clone(),
+            tool.key.clone(), tool.curve.clone()))
+            .collect::<Vec<_>>();
+        if let Some(curve) = req
+            .ftemp_curve
+            .as_deref()
+            .map(str::trim)
+            .filter(|curve| !curve.is_empty())
+        {
+            inputs.push((well_id.clone(), "FTEMP".into(),
+            curve.to_string()));
+        }
+        let parameters = serde_json::json!({
+                "components": req.components,
+            "tools": req.tools,
+                "output_prefix": prefix,
+            "unity": req.unity,
+            "fluid": req.fluid.as_ref().map(serde_json::to_value).transpose().ok().flatten().unwrap_or_else(|| serde_json::json!("ABSENT")),
+            "ftemp_curve": req.ftemp_curve.clone().unwrap_or_else(|| "ABSENT".into()),
+            "recon_qc": req.recon_qc,
+                "sw_model": req.sw_model,
+            "porosity_source": req.porosity_source,
+            "enforce_porosity": req.enforce_porosity,
+            "enforce_bndwat": req.enforce_bndwat,
+            "enforce_water_mud": req.enforce_water_mud,
+            "sigma_constraint": req.sigma_constraint,
+        });
+        let spec = crate::equations::complete_curve_run_spec(
+            &conn,
+            well_id,
+            set_name,
+            "sandimin",
+            &req.custody,
+            &inputs,
+            req.input_set.as_deref(),
+            parameters,
+            crate::equations::AncestryZoneScope::WholeWell,
+            &out_names,
+        );
+        let write_err = spec
+            .and_then(|spec| {
+                crate::equations::create_complete_log_set(&conn, well_id, &spec)
+            .map(|(id, _)| id)
+            })
+            .and_then(|set_id| {
+                crate::equations::write_computed_curves_with_ancestry(&conn, well_id, &depth, &refs, &set_id)})
+            .err();
         if write_err.is_none() && has_u_fluids {
             let method_flag_name = format!("{prefix}_SW_METHOD");
             let _ = crate::db::declare_class_curves(
@@ -2447,6 +2485,7 @@ mod tests {
                 &MultiminRequest {
                     input_set: None,
                     output_set: None,
+                    custody: crate::workflow::test_run_custody(),
                     components: comps,
                     tools: vec![
                         ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -2590,6 +2629,7 @@ mod tests {
                 &MultiminRequest {
                     input_set: None,
                     output_set: None,
+                    custody: crate::workflow::test_run_custody(),
                     components: comps,
                     tools: tools(),
                     apply_well_ids: vec![ids.clone()],
@@ -2673,6 +2713,7 @@ mod tests {
             &MultiminRequest {
                 input_set: None,
                 output_set: None,
+                custody: crate::workflow::test_run_custody(),
                 components: vec![q, ill, wat],
                 tools: vec![
                     ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -2753,6 +2794,7 @@ mod tests {
                 &MultiminRequest {
                     input_set: None,
                     output_set: None,
+                    custody: crate::workflow::test_run_custody(),
                     components: comps,
                     tools,
                     apply_well_ids: vec![wid.to_string()],
@@ -3088,7 +3130,8 @@ mod tests {
         // (and every reviewed number) solves exactly as before. This guards the "absent = unchanged"
         // invariant the whole increment rests on.
         let req: MultiminRequest =
-            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[]}"#).unwrap();
+            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[],"custody":{"actor":{"kind":"HUMAN","identity":"automated-test-fixture"},"source_note":"test fixture values declared in the owning test"}}"#,
+        ).unwrap();
         assert!(req.unity, "UNITY defaults on");
         assert!(req.enforce_porosity, "POROSITY defaults on");
         assert!(req.enforce_bndwat, "BNDWAT defaults on");
@@ -3097,7 +3140,8 @@ mod tests {
         assert_eq!(req.porosity_source, PorositySource::Cec);
         // A stray non-positive σ must not blow up the row weight; the solver falls back to the default.
         let bad: MultiminRequest =
-            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[],"sigma_constraint":0}"#).unwrap();
+            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[],"sigma_constraint":0,"custody":{"actor":{"kind":"HUMAN","identity":"automated-test-fixture"},"source_note":"test fixture values declared in the owning test"}}"#,
+        ).unwrap();
         let sigma = if bad.sigma_constraint > 0.0 { bad.sigma_constraint } else { SIGMA_CONSTRAINT };
         assert!((sigma - SIGMA_CONSTRAINT).abs() < 1e-12, "non-positive σ falls back to default");
     }
@@ -3200,6 +3244,7 @@ mod tests {
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, ill, cal, wat],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -3256,6 +3301,7 @@ mod tests {
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, ill, wx],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
@@ -3434,6 +3480,7 @@ mod tests {
             let req = MultiminRequest {
                 input_set: None,
                 output_set: None,
+                custody: crate::workflow::test_run_custody(),
                 components: comps.clone(),
                 tools,
                 apply_well_ids: vec![well_id.clone()],
@@ -3781,6 +3828,7 @@ mod tests {
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -3903,6 +3951,7 @@ mod tests {
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q.clone(), w.clone()],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -4132,6 +4181,7 @@ mod tests {
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -4225,6 +4275,7 @@ mod tests {
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -4329,6 +4380,7 @@ mod tests {
         let req = MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![q, clay, wsxo, osxo, wsw, osw],
             tools: vec![
                 ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
@@ -4468,6 +4520,7 @@ mod tests {
         MultiminRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             components: vec![
                 lib_get("Quartz"),
                 lib_get("Water Sxo"),

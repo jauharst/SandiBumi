@@ -207,6 +207,8 @@ test("characterizes_vector_exports_as_labelled_while_the_png_print_path_is_not_l
     () => {},
     () => "<svg/>",
     () => ({ width: 1, height: 1, commands: [] }),
+    undefined,
+    () => ({ wellIds: [], curves: [] }),
   );
   const labels = entries.map((entry) => entry.label);
 

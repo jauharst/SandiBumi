@@ -1,5 +1,5 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { savePng } from "../ipc";
+import { savePng, type PlotAncestryScope } from "../ipc";
 import type { PlotCanvas } from "./plotCanvas";
 
 /** True-vector export for the Canvas-2D plots (crossplot, histogram, Pickett). Rather than
@@ -308,7 +308,7 @@ export function renderPlotToSvg(
 /** Writes an SVG string to a user-picked path (Tauri save dialog + backend). savePng writes
  *  the decoded bytes verbatim, so it serves for any text payload. Returns the path or null if
  *  the dialog was cancelled. */
-export async function saveSvg(svg: string, defaultName: string): Promise<string | null> {
+export async function saveSvg(svg: string, defaultName: string, scope?: PlotAncestryScope): Promise<string | null> {
   const dest = await save({
     title: "Export plot as SVG (vector)",
     defaultPath: `${defaultName.replace(/[^\w.-]+/g, "_")}.svg`,
@@ -319,5 +319,5 @@ export async function saveSvg(svg: string, defaultName: string): Promise<string 
   const bytes = new TextEncoder().encode(svg);
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);
-  return savePng(dest, btoa(bin));
+  return savePng(dest, btoa(bin), scope);
 }

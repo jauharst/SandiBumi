@@ -964,7 +964,7 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
     // recourse via the Curve Catalog's Promote (it is disabled on a "served by computed" row).
     // So: only materialize a name the well does NOT already resolve from an import, and clear
     // any prior survey-derived computed curve when an import IS present, so the import wins.
-    let mut written = 0usize;
+    let mut output_curves: Vec<(String, Vec<f32>)> = Vec::new();
     for (name, values) in [("TVD", &tvd), ("TVDSS", &tvdss)] {
         let imported: bool = conn
             .query_row(
@@ -977,11 +977,97 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
         if imported {
             crate::equations::delete_computed_curve(conn, well_id, name)?;
         } else {
-            crate::equations::write_computed_curve(conn, well_id, &depth, name, values)?;
-            written = depth.len();
+            output_curves.push((name.to_string(), values.clone()));
         }
     }
-    Ok(written)
+    if output_curves.is_empty() {
+        return Ok(0);
+    }
+    let survey = db::list_surveys(conn, well_id)?
+        .into_iter()
+        .find(|survey| survey.active)
+        .ok_or_else(|| {
+            db::DbError::LengthMismatch("the active deviation survey has no custody record".into())
+        })?;
+    let source = survey
+        .source
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            db::DbError::LengthMismatch("the active deviation survey has no source string".into())
+        })?;
+    let imported_at = survey
+        .imported_at
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            db::DbError::LengthMismatch(
+                "the active deviation survey has no import timestamp".into(),
+            )
+        })?;
+    let actor = crate::equations::AncestryActor {
+        kind: crate::equations::AncestryActorKind::Automated,
+        identity: "SANDIBUMI_DEVIATION_SURVEY".into(),
+    };
+    let parameters_json = serde_json::json!({
+        "survey_name": survey.survey_name,
+        "datum": survey.datum.map(serde_json::Value::from).unwrap_or_else(|| serde_json::json!("ABSENT")),
+        "interpolation": "linear_between_stored_minimum_curvature_stations",
+    });
+    let parameters = parameters_json
+        .as_object()
+        .expect("constructed as an object")
+        .iter()
+        .map(|(name, value)| crate::equations::AncestryParameter {
+            name: name.clone(),
+            value: value.clone(),
+            source: source.to_string(),
+        })
+        .collect();
+    let module = "deviation:materialize_tvd";
+    let ancestry = crate::equations::CurveAncestry {
+        schema_version: 1,
+        module: module.into(),
+        module_version: env!("CARGO_PKG_VERSION").into(),
+        inputs: vec![crate::equations::AncestryInput {
+            well_id: well_id.to_string(),
+            argument: "active deviation survey".into(),
+            curve: "MD/INC/AZI/TVD/TVDSS".into(),
+            log_set: survey.survey_name.clone(),
+            set_version: None,
+            set_id: format!("survey:{}:{}:{}", well_id, survey.survey_name, imported_at),
+        }],
+        parameters,
+        zone_scope: crate::equations::AncestryZoneScope::WholeWell,
+        actor,
+        timestamp_utc_ms: crate::equations::ancestry_timestamp_utc_ms()
+            .map_err(db::DbError::LengthMismatch)?,
+        outputs: output_curves
+            .iter()
+            .map(|(curve, _)| crate::equations::AncestryOutput {
+                curve: curve.clone(),
+                derivation: format!("{module}:{curve}"),
+            })
+            .collect(),
+    };
+    let log_spec = crate::equations::CompleteLogSetSpec::try_new_with_legacy(
+        "DEVIATION",
+        ancestry,
+        parameters_json,
+        "[]",
+    )
+    .map_err(db::DbError::LengthMismatch)?;
+    let (set_id, _) = crate::equations::create_complete_log_set(conn, well_id, &log_spec)
+        .map_err(db::DbError::LengthMismatch)?;
+    let refs = output_curves
+        .iter()
+        .map(|(name, values)| (name.as_str(), values.as_slice()))
+        .collect::<Vec<_>>();
+    crate::equations::write_computed_curves_with_ancestry(conn, well_id, &depth, &refs, &set_id)
+        .map_err(db::DbError::LengthMismatch)?;
+            Ok(depth.len())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1015,8 +1101,9 @@ pub fn import_core_csv_with_depth_column(
 
     let columns = match parsers::parse_core_csv_with_depth_column(path, designated_depth_column) {
         Ok(c) => c,
-        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None },
-    };
+        Err(e) => {
+            return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()), index_resolution: None };
+    }};
     let rows = columns.depth.len();
     let index_resolution = columns.index_resolution.clone();
     let set = match db::resolve_core_set_name(conn, well_id, "CORE") {

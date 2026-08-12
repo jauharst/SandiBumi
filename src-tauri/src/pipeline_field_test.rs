@@ -219,7 +219,9 @@ fn pipeline_field_full_run() {
             params: HashMap::new(),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: crate::workflow::test_run_custody(),
         };
         let t = Instant::now();
         let runs = run_workflow_module(&db, &req);
@@ -294,8 +296,10 @@ fn pipeline_field_full_run() {
         phie_min: 0.10,
         swe_max: 0.60,
         perm_min: None,
-        skip_version: true,
-        stats_only: false,
+        skip_version: false,
+        stats_only: false
+    ,
+        custody: Some(crate::workflow::test_run_custody()),
     };
     match run_pay_summary(&db, &pay_req) {
         Ok(rows) => {
@@ -314,6 +318,7 @@ fn pipeline_field_full_run() {
     println!("\n=== REPORT RENDER ===");
     let spec = crate::report::ReportSpec {
         input_set: None,
+        custody: Some(crate::workflow::test_run_custody()),
         composite: CompositeSpec {
             well_id: well_ids[0].clone(),
             layout: crate::layout::standard_layout(),
@@ -354,7 +359,9 @@ fn pipeline_field_full_run() {
             params: HashMap::new(),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: crate::workflow::test_run_custody(),
         };
         let runs = run_workflow_module(&db, &req);
         assert!(
@@ -487,7 +494,9 @@ fn pipeline_field_100well_stress() {
             params: HashMap::new(),
             opts: HashMap::new(),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: crate::workflow::test_run_custody(),
         };
         let t = Instant::now();
         let runs = run_workflow_module(&db, &req);
@@ -513,7 +522,9 @@ fn pipeline_field_100well_stress() {
     let t = Instant::now();
     let pay = run_pay_summary(
         &db,
-        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: 0.5, phie_min: 0.10, swe_max: 0.60, perm_min: None, input_set: None, skip_version: true, stats_only: false },
+        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: 0.5, phie_min: 0.10, swe_max: 0.60, perm_min: None, input_set: None, skip_version: false, stats_only: false ,
+            custody: Some(crate::workflow::test_run_custody()),
+        },
     );
     println!("  pay_summary(100 wells) {:?} → {} rows", t.elapsed(), pay.map(|r| r.len()).unwrap_or(0));
 

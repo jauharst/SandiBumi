@@ -22,6 +22,7 @@ import { formRow } from "./modal";
 import { canvasFont, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
+import { requestRunCustody } from "./runCustody";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const DEFAULT_STEPS = ["vsh_gr", "phi_dn", "sw_indo"];
@@ -556,6 +557,9 @@ export async function buildMonteCarloContent(
       .map((r) => ({ param_a: r.a, param_b: r.b, rho: r.rho }));
     const pm = permMin.value();
     const [loP, hiP] = pctlSel.value();
+    const persist = persistChk.checked();
+    const custody = persist ? await requestRunCustody("Persist Monte Carlo curves") : null;
+    if (persist && !custody) return;
     const req: McRequest = {
       well_ids: wellIds,
       steps,
@@ -574,8 +578,9 @@ export async function buildMonteCarloContent(
       sampling: sampSel.value as "lhs" | "random",
       correlations,
       converge: convChk.checked(),
-      persist: persistChk.checked(),
-      persist_realizations: persistChk.checked() && realChk.checked(),
+      persist,
+      persist_realizations: persist && realChk.checked(),
+      custody,
     };
     runBtn.disabled = true;
     statusLine.textContent = `Running ${req.iterations.toLocaleString()} realizations × ${wellIds.length} well(s)…`;

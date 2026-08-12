@@ -370,6 +370,7 @@ export function buildFitScatter(spec: FitScatterSpec): FitScatter {
     undefined,
     undefined,
     () => fitScatterReductionExport(spec),
+    () => ({ wellIds: [], curves: [] }),
   ));
   wrap.appendChild(head);
   wrap.appendChild(canvas);

@@ -66,8 +66,12 @@ export function listEquations(): Promise<EquationDef[]> {
   return invoke<EquationDef[]>("list_equations");
 }
 
-export function runEquation(equationId: string, wellIds: string[]): Promise<EquationRunResult[]> {
-  return invoke<EquationRunResult[]>("run_equation", { equationId, wellIds });
+export function runEquation(
+  equationId: string,
+  wellIds: string[],
+  custody: RunCustody,
+): Promise<EquationRunResult[]> {
+  return invoke<EquationRunResult[]>("run_equation", { equationId, wellIds, custody });
 }
 
 export function listCurveCatalog(): Promise<CurveCatalogEntry[]> {
@@ -459,6 +463,7 @@ export interface CompositeResult {
   page_height_mm: number;
   scale: number;
   well_name: string;
+  ancestry: CurveAncestryDisclosure[];
 }
 
 /** Renders a composite log plot at a true print scale, returning one vector SVG per page. */
@@ -491,6 +496,8 @@ export interface MethodRow {
 export interface ReportSpec {
   /** Read this run's input curves from this log set (latest version per well); omit for the current values. */
   input_set?: string;
+  /** Explicit operator and source/reference for the PDF pay-summary run. */
+  custody?: RunCustody;
   composite: CompositeSpec;
   title: string;
   author: string;
@@ -610,15 +617,43 @@ export function exportWorkbook(spec: WorkbookSpec, destPath: string): Promise<Wo
   return invoke<WorkbookResult>("export_workbook", { spec, destPath });
 }
 
-/** Writes a base64-encoded PNG (rasterized in the frontend) to a user-picked path. */
-export function savePng(destPath: string, dataBase64: string): Promise<string> {
-  return invoke<string>("save_png", { destPath, dataBase64 });
+/** Exact project scope whose current computed curves contribute numbers to an exported plot.
+ *  `curves: []` explicitly means the plot carries no project curve; `allProject` is reserved for
+ *  free-form charts whose query cannot be narrowed without inventing a binding. */
+export interface PlotAncestryScope {
+  wellIds: string[];
+  curves?: string[];
+  allProject?: boolean;
+}
+
+function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
+  return {
+    ancestryWellIds: scope ? scope.wellIds : null,
+    ancestryCurveNames: scope?.curves ?? null,
+    ancestryAllProject: scope?.allProject ?? false,
+  };
+}
+
+/** Writes a base64-encoded PNG or SVG. When scoped, the backend resolves and embeds ancestry. */
+export function savePng(destPath: string, dataBase64: string, scope?: PlotAncestryScope): Promise<string> {
+  return invoke<string>("save_png", { destPath, dataBase64, ...ancestryArgs(scope) });
 }
 
 /** Assembles a single-chart PDF from a frontend-built content stream (points, bottom-left origin;
  *  see pdfExport.ts) and writes it to `destPath`. Returns the written path. */
-export function savePlotPdf(destPath: string, content: string, widthPt: number, heightPt: number): Promise<string> {
-  return invoke<string>("save_plot_pdf", { destPath, content, widthPt, heightPt });
+export function savePlotPdf(
+  destPath: string,
+  content: string,
+  widthPt: number,
+  heightPt: number,
+  scope?: PlotAncestryScope,
+): Promise<string> {
+  return invoke<string>("save_plot_pdf", { destPath, content, widthPt, heightPt, ...ancestryArgs(scope) });
+}
+
+/** Resolves the same backend-owned metadata for clipboard and print artifacts. */
+export function getCurveAncestryDisclosures(scope: PlotAncestryScope): Promise<CurveAncestryDisclosure[]> {
+  return invoke<CurveAncestryDisclosure[]>("get_curve_ancestry_disclosures", ancestryArgs(scope));
 }
 
 /** Writes a backend-validated plot reduction manifest to a user-picked path. */
@@ -645,6 +680,7 @@ export interface NetFlagSpec {
   output_curve: string;
   depth_top: number | null;
   depth_bottom: number | null;
+  custody: RunCustody;
 }
 
 export interface NetFlagResult {
@@ -895,6 +931,56 @@ export interface RunModuleRequest {
   /** Log set the INPUTS are read from (latest version per well); curves that set wrote
    *  come from its archived values, others fall back. Omitted = current values. */
   input_set?: string;
+  custody: RunCustody;
+}
+
+export type AncestryActorKind = "HUMAN" | "AUTOMATED";
+
+export interface RunCustody {
+  actor: {
+    kind: AncestryActorKind;
+    identity: string;
+  };
+  source_note: string;
+}
+
+export interface AncestryInput {
+  well_id: string;
+  argument: string;
+  curve: string;
+  log_set: string;
+  set_version: number | null;
+  set_id: string;
+}
+
+export interface AncestryParameter {
+  name: string;
+  value: unknown;
+  source: string;
+}
+
+export type AncestryZoneScope =
+  | { kind: "WHOLE_WELL" }
+  | { kind: "DEFINED"; definitions: Array<{ name: string; top: number; base: number; source: string }> };
+
+export interface CurveAncestry {
+  schema_version: number;
+  module: string;
+  module_version: string;
+  inputs: AncestryInput[];
+  parameters: AncestryParameter[];
+  zone_scope: AncestryZoneScope;
+  actor: { kind: AncestryActorKind; identity: string };
+  timestamp_utc_ms: number;
+  outputs: Array<{ curve: string; derivation: string }>;
+}
+
+export interface CurveAncestryDisclosure {
+  well_id: string;
+  curve_name: string;
+  set_name: string;
+  version: number;
+  ancestry: CurveAncestry;
 }
 
 export interface ModuleRunResult {
@@ -956,10 +1042,18 @@ export async function runWorkflowChain(
   jobId: string,
   steps: ChainStep[],
   wellIds: string[],
+  custody: RunCustody,
   outputSet?: string,
   inputSet?: string,
 ): Promise<void> {
-  return invoke<void>("run_workflow_chain", { jobId, steps, wellIds, outputSet: outputSet ?? null, inputSet: inputSet ?? null });
+  return invoke<void>("run_workflow_chain", {
+    jobId,
+    steps,
+    wellIds,
+    custody,
+    outputSet: outputSet ?? null,
+    inputSet: inputSet ?? null,
+  });
 }
 
 // --- P1-c log-set versioning (never overwrite) ------------------------------
@@ -976,6 +1070,8 @@ export interface LogSetEntry {
   curve_names: string[];
   /** True while any current curve value still comes from this version. */
   is_current: boolean;
+  /** Complete SB-CORE-010 record; null only for a pre-contract legacy project. */
+  ancestry: CurveAncestry | null;
 }
 
 /** A well's version history, newest first per set. */
@@ -1010,6 +1106,8 @@ export interface ComputedCatalogEntry {
   min: number | null;
   max: number | null;
   mean: number | null;
+  /** Complete SB-CORE-010 record exposed on demand in the catalog. */
+  ancestry: CurveAncestry | null;
 }
 
 export function listComputedCatalog(wellId: string): Promise<ComputedCatalogEntry[]> {
@@ -1136,6 +1234,8 @@ export interface McRequest {
   persist_realizations?: boolean;
   /** How many realizations to store per depth (default 256, clamped 8..1024). */
   realization_cap?: number;
+  /** Required only when `persist` writes computed curves. */
+  custody?: RunCustody | null;
 }
 
 /** Target rank correlation between two MC parameters (rho clamped to ±0.995 backend-side). */
@@ -1350,6 +1450,7 @@ export interface MlRequest {
    *  resolved feature order by the backend. Send only the curves actually changed — an omitted
    *  curve means "as measured", which keeps every payload written before this existed identical. */
   feature_transforms?: CurveTransform[];
+  custody: RunCustody;
 }
 
 /** One input's transform. `transform` is `none` | `log10` | `ln` | `sqrt`.
@@ -1527,6 +1628,7 @@ export interface MlApplyRequest {
   /** Confine the prediction to this depth window. NOT inherited from the model: where a model
    *  LEARNED and where you choose to propagate it are separate decisions. */
   interval?: DepthWindow;
+  custody: RunCustody;
 }
 
 export function listMlModels(): Promise<MlModelInfo[]> {
@@ -2071,6 +2173,7 @@ export interface MultiminRequest {
   enforce_water_mud?: boolean;
   /** Soft-constraint tolerance σ (row weight = 1/σ). Default 0.01; non-positive falls back to it. */
   sigma_constraint?: number;
+  custody: RunCustody;
 }
 
 /** Agreement between a solved output and a routine-core-analysis measurement, over the plugs that
@@ -2497,6 +2600,8 @@ export interface PaySummaryRequest {
    *  Dashboard sets this: it only reads the returned rows, so writing flags per well on every
    *  cutoff tweak was the dominant cost. Flag persistence stays with Cutoffs & Summary. */
   stats_only?: boolean;
+  /** Required for the explicit flag-writing run; read-only summaries omit it. */
+  custody?: RunCustody | null;
 }
 
 export interface PaySummaryRow {
@@ -3634,6 +3739,8 @@ export interface CoreLogSpec {
   unfold_scan?: number | null;
   /** Write the curves. Omit to measure without writing, so a lay-out can be tried first. */
   write?: boolean;
+  /** Required only when `write` persists CPHOTO curves. */
+  custody?: RunCustody | null;
 }
 
 /**
@@ -4019,6 +4126,8 @@ export interface CurveEditRequest {
   value?: number;
   mul?: number;
   add?: number;
+  /** Required by the backend when the target resolves to a computed curve. */
+  custody?: RunCustody;
 }
 
 /** `data` holds the CHANGED rows' previous samples as packed `depth[n] + value[n]`
@@ -4034,8 +4143,14 @@ export function editCurve(req: CurveEditRequest): Promise<CurveEditResult> {
   return invoke<CurveEditResult>("edit_curve", { req });
 }
 
-export function restoreCurveValues(wellId: string, curve: string, pointCount: number, data: number[]): Promise<number> {
-  return invoke<number>("restore_curve_values", { wellId, curve, pointCount, data });
+export function restoreCurveValues(
+  wellId: string,
+  curve: string,
+  pointCount: number,
+  data: number[],
+  custody: RunCustody,
+): Promise<number> {
+  return invoke<number>("restore_curve_values", { wellId, curve, pointCount, data, custody });
 }
 
 /** Engine-copies the project database to `destPath` (live rows only, so the export is
@@ -4155,8 +4270,14 @@ export function updateStandardSample(wellId: string, depth: number, column: stri
   return invoke("update_standard_sample", { wellId, depth, column, value });
 }
 
-export function updateComputedSample(wellId: string, depth: number, curveName: string, value: number): Promise<void> {
-  return invoke("update_computed_sample", { wellId, depth, curveName, value });
+export function updateComputedSample(
+  wellId: string,
+  depth: number,
+  curveName: string,
+  value: number,
+  custody: RunCustody,
+): Promise<void> {
+  return invoke("update_computed_sample", { wellId, depth, curveName, value, custody });
 }
 
 export function upsertTop(wellId: string, topName: string, depth: number, color: string | null): Promise<void> {
@@ -5293,6 +5414,38 @@ export interface ReframeSourceSpec {
   name: string | null;
 }
 
+export type ReframeMethod =
+  | "Mean"
+  | "Geometric"
+  | "Harmonic"
+  | "Median"
+  | "Interpolate"
+  | "Nearest"
+  | "Mode"
+  | "Auto";
+
+export interface ReframeRequest {
+  well_ids: string[];
+  source: ReframeSourceSpec;
+  selection_name: string;
+  substitutions: Array<{ requested: string; substitute: string; accepted: boolean }>;
+  target: {
+    kind: "step" | "regularize" | "match_well" | "match_set";
+    step: number | null;
+    align: boolean;
+    well_id: string | null;
+    set_name: string | null;
+    top: number | null;
+    base: number | null;
+  };
+  methods: Record<string, ReframeMethod>;
+  default_method: ReframeMethod;
+  output_set: string;
+  preview: boolean;
+  /** Required only when `preview` is false and a new set is written. */
+  custody?: RunCustody | null;
+}
+
 export interface CurveSelection {
   name: string;
   mode: "selected";
@@ -5318,7 +5471,7 @@ export function reframeSourceCurves(wellId: string, source: ReframeSourceSpec): 
 }
 
 /** Resamples a set onto a different sampling as a NEW set. `preview: true` reports without writing. */
-export function runReframe(req: Record<string, unknown>): Promise<ReframeResult[]> {
+export function runReframe(req: ReframeRequest): Promise<ReframeResult[]> {
   return invoke<ReframeResult[]>("run_reframe", { req });
 }
 

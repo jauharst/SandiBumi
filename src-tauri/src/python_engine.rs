@@ -29,7 +29,8 @@
 //! state leaks between wells); if the worker process dies (broken pipe) it is respawned and
 //! the request retried once. The worker exits on its own when the app closes its stdin (EOF).
 
-use crate::equations::{fetch_curve_frame, write_equation_output, EquationDef, EquationRunResult};
+use crate::equations::{fetch_curve_frame, write_equation_output, EquationDef, EquationRunResult, RunCustody,
+};
 use crate::installation;
 use duckdb::Connection;
 use std::io::{Read, Write};
@@ -604,8 +605,15 @@ pub fn run_python_equation(
     db: &Mutex<Connection>,
     equation: &EquationDef,
     well_ids: &[String],
+    custody: &RunCustody,
     progress: Option<&crate::jobs::JobHandle>,
 ) -> Vec<EquationRunResult> {
+    if let Err(error) = custody.validate() {
+        return well_ids
+            .iter()
+            .map(|well_id| EquationRunResult::failed(well_id.clone(), error.clone()))
+            .collect();
+    }
     if find_python().is_none() {
         let no_python = no_python_message();
         if let Some(p) = progress {
@@ -683,7 +691,7 @@ pub fn run_python_equation(
                     // silent success left the bar at 0% with the well stuck amber "Running" under a
                     // "Completed" card, and a silent write/script error was visually identical to a
                     // success — no failure surface for the commonest authoring mistake (a bad script).
-                    match write_equation_output(&conn, well_id, &depth, equation, &result) {
+                    match write_equation_output(&conn, well_id, &depth, equation, &result, custody) {
                         Ok(()) => {
                             if let Some(p) = progress {
                                 p.finish_item(well_id, crate::jobs::ItemState::Ok, None);
@@ -1034,7 +1042,8 @@ mod tests {
                 true,
             );
             h.running(1);
-            let _ = run_python_equation(&dbm, equation, std::slice::from_ref(&w), Some(&h));
+            let _ = run_python_equation(&dbm, equation, std::slice::from_ref(&w), &crate::workflow::test_run_custody(),
+                Some(&h));
             let v = jobs::list(&reg).remove(0);
             (v.done, v.items[0].state)
         };
@@ -1206,7 +1215,8 @@ mod tests {
             language: "python".into(),
         };
         let wells = [no_nphi.clone(), good_a.clone(), good_b.clone()];
-        let res = run_python_equation(&dbm, &eq, &wells, None);
+        let res = run_python_equation(&dbm, &eq, &wells,
+            &crate::workflow::test_run_custody(), None);
 
         assert_eq!(res.len(), 3);
         let bare = res[0].error.as_ref().expect("the NPHI-less well must fail");

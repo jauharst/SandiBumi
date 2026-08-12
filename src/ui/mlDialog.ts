@@ -34,6 +34,7 @@ import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { buildImageExportButtons } from "./plotExport";
 import { reportMlWriteOutcome } from "./reportingHonesty";
+import { requestRunCustody } from "./runCustody";
 
 /** Machine-learning dialog (Phase 10-4): one entry point for the whole catalog —
  *  supervised regression/classification (fit on labelled train wells, predict on apply
@@ -2102,6 +2103,8 @@ export async function buildMlContent(
       distStatus.textContent = "Give the distributed curve a name.";
       return;
     }
+    const custody = await requestRunCustody("Distribute saved model");
+    if (!custody) return;
     distBtn.disabled = true;
     distStatus.textContent = `Distributing '${m.name}' to ${wellIds.length} well(s)…`;
     const t0 = performance.now();
@@ -2114,6 +2117,7 @@ export async function buildMlContent(
         output_set: distSetPicker.outputSet(),
         mask_curve: distMask.value || null,
         interval: distInterval.getWindow(),
+        custody,
       });
       const ms = Math.round(performance.now() - t0);
       if (res.error) {
@@ -2261,6 +2265,8 @@ export async function buildMlContent(
           setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
           return;
         }
+        const custody = await requestRunCustody("Apply saved model");
+        if (!custody) return;
         applyBtn.disabled = true;
         statusLine.textContent = `Applying '${m.name}' to ${applyIds.length} well(s)…`;
         try {
@@ -2271,6 +2277,7 @@ export async function buildMlContent(
             input_set: setPicker.inputSet(),
             output_set: setPicker.outputSet(),
             mask_curve: maskSel.value || null,
+            custody,
           });
           if (res.error) {
             statusLine.textContent = `Failed: ${res.error}`;
@@ -2389,6 +2396,8 @@ export async function buildMlContent(
         return;
       }
     }
+    const custody = await requestRunCustody("Run machine-learning model");
+    if (!custody) return;
     const req: MlRequest = {
       task: task.id,
       algorithm: algo.id,
@@ -2425,6 +2434,7 @@ export async function buildMlContent(
       feature_transforms: features
         .filter((curve) => (featTransforms.get(curve) ?? "none") !== "none")
         .map((curve) => ({ curve, transform: featTransforms.get(curve) as string })),
+      custody,
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
@@ -4444,6 +4454,9 @@ function attachChartExport(host: HTMLElement, svg: SVGSVGElement, name: string):
     name,
     setStatus,
     () => inlineSvgPaint(svg),
+    undefined,
+    undefined,
+    () => ({ wellIds: [], curves: [] }),
   );
   const refresh = () => {
     void svgToCanvas(svg).then((c) => (lastRaster = c)).catch(() => undefined);

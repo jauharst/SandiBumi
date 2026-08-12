@@ -999,7 +999,15 @@ export async function buildCorrelationContent(
   props.appendChild(mkBtn("−", "Zoom out", () => {
     zoomAtCenter(1 / 1.25);
   }));
-  props.appendChild(buildImageExportButtons(() => canvas, "Correlation", setStatus));
+  props.appendChild(buildImageExportButtons(
+    () => canvas,
+    "Correlation",
+    setStatus,
+    undefined,
+    undefined,
+    undefined,
+    () => ({ wellIds: wells.filter((candidate) => included.has(candidate.well_id)).map((candidate) => candidate.well_id), curves: [opts.curve] }),
+  ));
 
   function zoomAtCenter(factor: number): void {
     const plotH = Math.max(50, canvas.clientHeight - HEADER_H);

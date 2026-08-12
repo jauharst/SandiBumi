@@ -5,6 +5,7 @@ import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
+import { requestRunCustody } from "./runCustody";
 
 /** Cutoffs & Pay Summary (pay-summary model): VSH/PHIE/SWE (+ optional PERM)
  *  cutoffs → SAND / RESERVOIR / PAY flags → per-well per-zone statistics table.
@@ -59,6 +60,8 @@ export async function buildSummaryContent(
       return;
     }
     const permRaw = parseFloat(permIn.value);
+    const custody = await requestRunCustody("Compute and write pay flags");
+    if (!custody) return;
     runBtn.disabled = true;
     resultBox.textContent = "Computing…";
     try {
@@ -69,6 +72,7 @@ export async function buildSummaryContent(
         swe_max: parseFloat(sweIn.value),
         perm_min: Number.isNaN(permRaw) ? null : permRaw,
         input_set: setPicker.inputSet(),
+        custody,
       });
       renderPaySummaryTable(resultBox, rows);
       setStatus(`Pay summary: ${rows.length} rows; FLAG curves written`);

@@ -13,7 +13,7 @@
 //! Cluster ids are reordered by ascending mean of the FIRST feature curve, matching the
 //! native k-means/GMM facies modules (put GR first → class 0 = cleanest).
 
-use crate::equations::{fetch_curve_frame_from_set, write_computed_curves_versioned};
+use crate::equations::fetch_curve_frame_from_set;
 
 /// The log set ML output lands in when the caller names none — the value that used to be
 /// hardcoded, so an older payload writes exactly where it always did.
@@ -1836,7 +1836,7 @@ for _, arr in outs:
     sys.stdout.buffer.write(np.ascontiguousarray(arr, dtype=np.float32).tobytes())
 "#;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MlRequest {
     /// "regression" | "classification" | "clustering" | "reduction"
     pub task: String,
@@ -1920,6 +1920,7 @@ pub struct MlRequest {
     /// before — so an older payload behaves identically.
     #[serde(default)]
     pub output_set: Option<String>,
+    pub custody: crate::equations::RunCustody,
     /// Fit a separate model per pattern of AVAILABLE inputs, instead of one model over the rows
     /// where every input exists.
     ///
@@ -1998,7 +1999,7 @@ pub struct CurveLimit {
 /// Resistivity and permeability span decades; a fit on the raw column is dominated by the few
 /// largest values, and standardising a lognormal variable does not fix its skew — it only recentres
 /// it. Both incumbents let an input be logged before a fit, and SandiBumi could not.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CurveTransform {
     pub curve: String,
     /// `none` | `log10` | `ln` | `sqrt`.
@@ -2223,7 +2224,7 @@ fn basis_shift_note(
 /// Applying an already-fitted model. Deliberately NOT an `MlRequest`: there is no training
 /// well, no algorithm and no parameter here — those are properties of the saved model, and
 /// letting a caller restate them would invite them to differ.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MlApplyRequest {
     /// Read the model's feature curves from this log set (see [`MlRequest::input_set`]).
     #[serde(default)]
@@ -2238,11 +2239,90 @@ pub struct MlApplyRequest {
     /// Version the applied curves into this log set (default `ML`).
     #[serde(default)]
     pub output_set: Option<String>,
+    pub custody: crate::equations::RunCustody,
     pub model_id: String,
     pub apply_well_ids: Vec<String>,
     pub output_curve: String,
     #[serde(default)]
     pub mask_curve: Option<String>,
+}
+
+fn ml_fit_ancestry_inputs(
+    req: &MlRequest,
+    output_well: &str,
+    features: &[String],
+) -> Vec<(String, String, String)> {
+    let mut inputs = Vec::new();
+    let mut push = |well_id: &str, argument: String, curve: &str| {
+        let item = (well_id.to_string(), argument, curve.to_string());
+        if !inputs.contains(&item) {
+            inputs.push(item);
+        }
+    };
+    for feature in features {
+        push(output_well, format!("apply feature {feature}"), feature);
+    }
+    if let Some(mask) = req
+        .mask_curve
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        push(output_well, "apply mask".into(), mask);
+    }
+    for well_id in &req.train_well_ids {
+        for feature in features {
+            push(well_id, format!("training feature {feature}"), feature);
+        }
+        if let Some(target) = req
+            .target_curve
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            push(well_id, "training target".into(), target);
+        }
+        if let Some(mask) = req
+            .mask_curve
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            push(well_id, "training mask".into(), mask);
+        }
+    }
+    inputs
+}
+
+fn ml_request_parameters<T: Serialize>(request: &T) -> Result<serde_json::Value, String> {
+    let mut value = serde_json::to_value(request)
+        .map_err(|error| format!("cannot record ML request: {error}"))?;
+    if let Some(object) = value.as_object_mut() {
+        object.remove("custody");
+    }
+    Ok(value)
+}
+
+fn ml_zone_scope(
+    interval: DepthWindow,
+    custody: &crate::equations::RunCustody,
+) -> crate::equations::AncestryZoneScope {
+    match (interval.top, interval.base) {
+        (Some(a), Some(b)) if a.is_finite() && b.is_finite() && a != b => {
+            let (top, base) = if a < b {
+                (a as f32, b as f32)
+            } else {
+                (b as f32, a as f32)
+            };
+            crate::equations::AncestryZoneScope::Defined(vec![crate::equations::AncestryZone {
+                name: "ML run interval".into(),
+                top,
+                base,
+                source: custody.source_note.clone(),
+            }])
+        }
+        _ => crate::equations::AncestryZoneScope::WholeWell,
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -2705,7 +2785,8 @@ pub fn ml_runtime() -> serde_json::Value {
     static RUNTIME: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
     RUNTIME
         .get_or_init(|| {
-            let Some(python) = find_python() else { return serde_json::Value::Null };
+            let Some(python) = find_python() else { return serde_json::Value::Null ;
+            };
             // The SAME `_runtime()` the runners use — a second probe naming its components
             // differently would report a mismatch between `scikit-learn` and `sklearn` on one
             // machine, which is the failure mode this whole comparison exists to avoid.
@@ -3508,24 +3589,40 @@ fn run_ml_coverage(
             } else {
                 blocked.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect()
             };
-            let spec = crate::equations::LogSetSpec {
-                set_name: out_set.clone(),
-                module: format!("ml:{}:{}", req.task, req.algorithm),
-                // The provenance records EVERY segment, because the curve genuinely was made by
-                // several models and "which model produced this curve" has more than one answer
-                // along its length. A single model reference here would name one of them and be
-                // wrong about the rest.
-                params_json: serde_json::to_string(&serde_json::json!({
-                    "algorithm": req.algorithm,
-                    "params": req.params,
-                    "coverage_segments": segments,
-                }))
-                .unwrap_or_default(),
-                inputs_json: serde_json::to_string(&features).unwrap_or_default(),
-            };
-            let done = crate::equations::create_log_set(&conn, &w.well_id, &spec).and_then(|(set_id, _)| {
-                write_computed_curves_versioned(&conn, &w.well_id, &w.depth, &curves, &set_id)
-            });
+            let module= format!("ml:{}:{}", req.task, req.algorithm);
+            let done = (|| -> Result<(),
+                String> {
+                    let mut parameters = ml_request_parameters(req)?;
+                parameters
+                    .as_object_mut()
+                    .expect("ML request serializes as an object")
+                    .insert(
+                        "coverage_segments_record".into(),
+                        serde_json::to_value(&segments,
+                ).map_err(|error| {
+                            format!("cannot record ML coverage segments: {error}")
+                        })?,
+                    )
+                ;
+                let inputs = ml_fit_ancestry_inputs(req, &w.well_id,
+                &features);
+                let outputs = curves
+                    .iter()
+            .map(|(name, _)| (*name).to_string())
+                    .collect::<Vec<_>>();
+            let spec = crate::equations::complete_curve_run_spec(&conn, &w.well_id, &out_set,
+                    &module,
+                    &req.custody,
+                    &inputs,
+                    req.input_set.as_deref(),
+                    parameters,
+                    ml_zone_scope(req.interval, &req.custody),
+                    &outputs,
+                )?;
+                let (set_id, _)=
+                    crate::equations::create_complete_log_set(&conn, &w.well_id, &spec)?;
+                crate::equations::write_computed_curves_with_ancestry(&conn, &w.well_id, &w.depth, &curves, &set_id)
+            })();
             match done {
                 Ok(()) => {
                     if !units.is_empty() {
@@ -4769,9 +4866,40 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                     },
                     inputs_json: serde_json::to_string(&req.feature_curves).unwrap_or_default(),
                 };
-                let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec).and_then(|(set_id, _)| {
-                    write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id).map(|()| set_id)
-                });
+                let versioned = (|| -> Result<String, String> {
+                    let mut parameters = ml_request_parameters(req)?;
+                    let legacy: serde_json::Value = serde_json::from_str(&spec.params_json).map_err(|error| format!("cannot preserve ML fit provenance: {error}"))?;
+                    if let (Some(target), Some(extra)) =
+                        (parameters.as_object_mut(), legacy.as_object())
+                    {
+                    target.extend(extra.clone());
+                    }
+                    let inputs = ml_fit_ancestry_inputs(req, &aw.well_id, &features);
+                    let outputs = refs.iter().map(|(name, _)| (*name).to_string())
+                        .collect::<Vec<_>>();
+                    let complete = crate::equations::complete_curve_run_spec(
+                        &conn,
+                        &aw.well_id,
+                        &out_set,
+                        &spec.module,
+                        &req.custody,
+                        &inputs,
+                        req.input_set.as_deref(),
+                        parameters,
+                        ml_zone_scope(req.interval, &req.custody),
+                        &outputs,
+                    )?;
+                    let (set_id, _) =
+                        crate::equations::create_complete_log_set(&conn, &aw.well_id, &complete)?;
+                    crate::equations::write_computed_curves_with_ancestry(
+                        &conn,
+                        &aw.well_id,
+                        &aw.depth,
+                        &refs,
+                        &set_id,
+                    )?;
+                    Ok(set_id.as_str().to_string())
+                })();
                 match versioned {
                     Ok(set_id) => {
                         // SB-MLA-017. Kept so a cancel arriving later can stamp the sets this run
@@ -4947,7 +5075,8 @@ fn mark_incomplete_sets(
             // curve, not only by code deciding whether to show a badge.
             "note": note,
         });
-        let Ok(text) = serde_json::to_string(&rec) else { continue };
+        let Ok(text) = serde_json::to_string(&rec) else { continue ;
+        };
         if conn
             .execute("UPDATE log_sets SET params_json = ?1 WHERE set_id = ?2", duckdb::params![text, set_id])
             .is_ok()
@@ -5108,8 +5237,9 @@ pub fn apply_ml_model(
     });
     let script = match ScriptFile::new("apply", &ml_apply_runner()) {
         Ok(s) => s,
-        Err(e) => return fail(&format!("could not write the runner to a temporary file: {e}")),
-    };
+        Err(e) => {
+            return fail(&format!("could not write the runner to a temporary file: {e}"));
+    }};
     let mut cmd = Command::new(&python);
     cmd.arg(script.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     hide_console(&mut cmd);
@@ -5118,7 +5248,8 @@ pub fn apply_ml_model(
         Err(e) => return fail(&format!("failed to start python: {e}")),
     };
     {
-        let Some(stdin) = child.stdin.as_mut() else { return fail("failed to open python stdin") };
+        let Some(stdin) = child.stdin.as_mut() else { return fail("failed to open python stdin") ;
+        };
         let mut write = || -> std::io::Result<()> {
             stdin.write_all(header.to_string().as_bytes())?;
             stdin.write_all(b"\n")?;
@@ -5235,8 +5366,48 @@ pub fn apply_ml_model(
             .unwrap_or_default(),
             inputs_json: serde_json::to_string(&features).unwrap_or_default(),
         };
-        let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec)
-            .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id));
+        let versioned = (|| -> Result<(), String> {
+            let mut parameters = ml_request_parameters(req)?;
+            let legacy: serde_json::Value = serde_json::from_str(&spec.params_json)
+                .map_err(|error| format!("cannot preserve saved-model provenance: {error}"))?;
+            if let (Some(target), Some(extra)) = (parameters.as_object_mut(), legacy.as_object()) {
+                target.extend(extra.clone());
+            }
+            let mut inputs = features
+                .iter()
+                .map(|curve| {
+                    (
+                        aw.well_id.clone(),
+                        format!("apply feature {curve}"),
+                        curve.clone(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            if let Some(mask) = req
+                .mask_curve
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                inputs.push((aw.well_id.clone(), "apply mask".into(), mask.to_string()));
+            }
+            let outputs = refs
+                .iter()
+                .map(|(name, _)| (*name).to_string())
+                .collect::<Vec<_>>();
+            let complete = crate::equations::complete_curve_run_spec(&conn, &aw.well_id, &spec.set_name,
+                &spec.module,
+                &req.custody,
+                &inputs,
+                req.input_set.as_deref()
+            ,
+                parameters,
+                ml_zone_scope(req.interval, &req.custody),
+                &outputs,
+            )?;
+            let (set_id, _)=
+                crate::equations::create_complete_log_set(&conn, &aw.well_id, &complete)?;
+            crate::equations::write_computed_curves_with_ancestry(&conn, &aw.well_id, &aw.depth, &refs, &set_id)})();
         match versioned {
             Ok(()) => {
                 if let Some(p) = progress {
@@ -6256,9 +6427,12 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
             fetch_names.push(mk.clone());
         }
         for (g, well_id) in req.train_well_ids.iter().enumerate() {
-            let Ok((depth, cols)) = fetch_curve_frame_from_set(&conn, well_id, &fetch_names, req.input_set.as_deref(), None) else { continue };
-            let Some(tv) = cols.get(&target) else { continue };
-            let Some(fcols) = features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>() else { continue };
+            let Ok((depth, cols)) = fetch_curve_frame_from_set(&conn, well_id, &fetch_names, req.input_set.as_deref(), None) else { continue ;
+            };
+            let Some(tv) = cols.get(&target) else { continue ;
+            };
+            let Some(fcols) = features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>() else { continue ;
+            };
             let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
             for i in 0..depth.len() {
                 // Exclude masked (== 1.0) samples from the CV pool, matching run_ml.
@@ -6829,6 +7003,7 @@ mod tests {
         MlRequest {
             input_set: None,
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             blind_fraction: None,
             split_seed: None,
             split_mode: None,
@@ -7747,14 +7922,16 @@ mod tests {
         //    first one would arrive: the reader gets written because the picker already offers it.
         let mut offenders: Vec<String> = Vec::new();
         let scan = |dir: std::path::PathBuf, ext: &str, out: &mut Vec<String>| -> usize {
-            let Ok(entries) = std::fs::read_dir(&dir) else { return 0 };
+            let Ok(entries) = std::fs::read_dir(&dir) else { return 0 ;
+            };
             let mut seen = 0usize;
             for e in entries.flatten() {
                 let p = e.path();
                 if !p.extension().map(|x| x == ext).unwrap_or(false) {
                     continue;
                 }
-                let Ok(text) = std::fs::read_to_string(&p) else { continue };
+                let Ok(text) = std::fs::read_to_string(&p) else { continue ;
+                };
                 seen += 1;
                 for bad in [".onnx", ".hdf5", ".caffemodel", ".tflite", ".safetensors", ".ckpt", ".pth"] {
                     // This very test names them, so it cannot be its own offender.
@@ -9147,6 +9324,7 @@ mod tests {
             input_set: None,
             interval: DepthWindow::default(),
             output_set: None,
+            custody: crate::workflow::test_run_custody(),
             model_id: "m-1".into(),
             apply_well_ids: vec!["w-1".into()],
             output_curve: "PERM_ML".into(),
@@ -9159,7 +9337,9 @@ mod tests {
             "model_id": "m-1",
             "apply_well_ids": ["w-1"],
             "output_curve": "PERM_ML",
-            "feature_curves": ["RHOB", "GR"],
+            "feature_curves": ["RHOB", "GR"]
+        ,
+            "custody": crate::workflow::test_run_custody(),
         });
         let req: MlApplyRequest =
             serde_json::from_value(json).expect("an unknown feature list must be ignored, not fatal");
@@ -9215,6 +9395,7 @@ mod tests {
             &MlApplyRequest {
                 input_set: None,
                 output_set: None,
+                custody: crate::workflow::test_run_custody(),
                 model_id,
                 apply_well_ids: vec![blind.clone()],
                 output_curve: "PHIT_ML".into(),
@@ -9386,6 +9567,7 @@ mod tests {
             &MlApplyRequest {
                 input_set: None,
                 output_set: None,
+                custody: crate::workflow::test_run_custody(),
                 model_id: three.model_id.clone(),
                 apply_well_ids: vec![blind.clone()],
                 output_curve: "PHIT_DIST".into(),

@@ -3,6 +3,7 @@ import { recordProcess } from "../processLog";
 import { bumpDataVersion, setStatus } from "../state";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
+import { requestRunCustody } from "./runCustody";
 
 const OPS: { id: CurveEditRequest["op"]; label: string; hint: string }[] = [
   { id: "shift", label: "Wireline shift", hint: "Move the whole curve in depth (resampled onto its own grid; + is down hole)" },
@@ -125,6 +126,8 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
         return;
       }
       errEl.style.display = "none";
+      const custody = await requestRunCustody(`Apply ${curveName} edit`);
+      if (!custody) return;
       const req: CurveEditRequest = {
         well_id: wellId,
         curve: curveName,
@@ -135,6 +138,7 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
         value: num(valueInput.value),
         mul: num(mulInput.value, 1),
         add: num(addInput.value),
+        custody,
       };
       applyBtn.disabled = true;
       try {
@@ -149,10 +153,14 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
         const pointCount = res.point_count;
         const opLabel = OPS.find((o) => o.id === op)?.label ?? op;
         const label = `${opLabel} ${curveName} (${wellName})`;
+        const undoCustody = {
+          actor: custody.actor,
+          source_note: `Undo of prior curve edit; original source/reference: ${custody.source_note}`,
+        };
         pushUndo({
           label,
           undo: async () => {
-            await restoreCurveValues(wellId, curveName, pointCount, prevBytes);
+            await restoreCurveValues(wellId, curveName, pointCount, prevBytes, undoCustody);
             bumpDataVersion();
           },
           redo: async () => {

@@ -567,6 +567,7 @@ export async function buildHistogramContent(
     () => getSvg(),
     () => getPdf(),
     () => ctxReductionManifest,
+    () => ({ wellIds: scope.getWellIds(), curves: [curveSel.value] }),
   ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);

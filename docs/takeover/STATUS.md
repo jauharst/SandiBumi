@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `7 / 222 handled — 4 DONE, 3 BLOCKED, 215 remaining`
+- Gate 2 requirement progress: `8 / 222 handled — 5 DONE, 3 BLOCKED, 214 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T01 / SB-CORE-007 - BLOCKED; T23 does not define how a no-parameter own-default run can execute a producer with required ABSENT parameters, and it does not distinguish canonical method outputs from explicit user-selected working-curve replacement or categorical method flags`
+- Active increment: `G2-T01 / SB-CORE-010 - DONE; complete per-well computed-curve ancestry is enforced at every production writer, visible on demand, embedded in deliverables and preserved through Save As/reopen`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-CORE-007 evidence-only blocked increment is green at 977 passed / 0 failed / 36 ignored; two RED discovery tests enumerated the live constant/output conflicts and were removed rather than weakened or committed failing; Rust retains the owned 56-warning inventory`
+- Automated gate: `SB-CORE-010 is green at 979 passed / 0 failed / 36 ignored; universal T14 and Save As/reopen T15 are active; Rust retains the owned 56-warning inventory`
 - Pilot field evidence: `OPEN`
-- Open blockers: `215 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Start G2-T01 / SB-CORE-010 from the verified SB-CORE-007 evidence boundary; every computed curve must retain sufficient ancestry to answer how it was made.`
+- Open blockers: `214 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Start G2-T01 / SB-CORE-011 from the verified SB-CORE-010 evidence boundary; the approved raw-import-to-pay workflow must re-run byte-identically with its record.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 121 remediate / 19 prove / 46 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 120 remediate / 19 prove / 47 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |

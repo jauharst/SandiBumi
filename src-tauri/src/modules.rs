@@ -835,7 +835,8 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                 }
                 ValidityRule::NumericRange { min, max, unit, .. } => {
                     for index in 0..ctx.n {
-                        let Some(value) = numeric_at(&arg.name, index) else { continue };
+                        let Some(value) = numeric_at(&arg.name, index) else { continue ;
+                        };
                         if !value.is_finite() {
                             continue;
                         }
@@ -5505,7 +5506,9 @@ mod tests {
             params: HashMap::new(),
             opts: HashMap::from([("OPT_SIM".into(), "SCHLUM".into())]),
             output_set: None,
-            input_set: None,
+            input_set: None
+        ,
+            custody: crate::workflow::test_run_custody(),
         };
         let built = crate::workflow::build_opts(&spec, &request.opts, &request.log_inputs);
         assert_eq!(built["OPT_SIM"], "simandoux_modified_slb");

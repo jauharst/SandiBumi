@@ -6828,6 +6828,7 @@ pub fn update_core_sample(conn: &Connection, well_id: &str, depth: f32, column: 
 }
 
 /// Edits one computed-curve sample value.
+#[cfg(test)]
 pub fn update_computed_sample(conn: &Connection, well_id: &str, depth: f32, curve_name: &str, value: f32) -> Result<(), String> {
     let n = conn
         .execute(
