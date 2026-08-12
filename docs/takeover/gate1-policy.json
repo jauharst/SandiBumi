@@ -3,12 +3,12 @@
   "accepted_baseline": "b332026cb498c105f36eade0bf7899bc0c1309f0",
   "full_gate_receipt": "docs/takeover/evidence/gate1-full-gate.json",
   "geo_boundary": {
-    "state": "PROPOSED",
+    "state": "APPROVED",
     "decision_id": "DEC-011",
     "requirement_ids_sha256": "e1eed8f713f5449926b7e5c840d06d9c061eef8c7f420a868434dc57c2978ffc",
     "proposed_on": "2026-08-12",
-    "approved_by": "",
-    "approved_on": ""
+    "approved_by": "Jauhar",
+    "approved_on": "2026-08-12"
   },
   "pilot_program": {
     "state": "PROPOSED",

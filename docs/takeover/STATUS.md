@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-SCOPE-CONSISTENCY - DONE; SB-CORE-010 now takes its minimum ancestry record from its own requirement, while DEC-009 remains correctly limited to later lineage beyond that minimum; DEC-018 and DEC-019 remain proposed, not approved`
+- Active increment: `G1-SCOPE-GEO-APPROVAL - DONE; DEC-019 approves only the exact hashed 52-row SB-GEO exception for Gate 1; DEC-018 remains pending revision and no pilot-manifest disposition has changed`
 - Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — verified ancestor and implementation evidence anchor; final-audit tooling is based on exact-evidence commit 232c1d8f6db9c5c85dc5f18581d1ecf17fbe9152 in the sole worktree`
 - Automated gate: `LAST FULL CHECKPOINT GREEN - 946 passed / 0 failed / 36 ignored; exact-proof verifier 27 passed / 0 failed, Gate 1 exit-verifier 28 passed / 0 failed, tracker check green; a fresh final full gate remains mandatory`
 - Pilot field evidence: `OPEN`
-- Open blockers: `G1-C2, G1-C5 and G1-C6 are OPEN: DEC-019's exact 52-row SB-GEO exception and DEC-018's exact 242-row pilot program await owner approval; the committed ledger still carries 584 provisional blockers and 146 UNDECIDED until that approval is applied; no fresh full-gate receipt is tied to the final audit commit`
-- Next increment: `Jauhar approves or revises DEC-018 and DEC-019; then apply the exact 242 PILOT-BLOCKER / 689 DEFERRED ledger, hash the approval, run the fresh full gate and require all seven Gate 1 criteria to PASS.`
+- Open blockers: `G1-C5 and G1-C6 are OPEN: DEC-019 closes G1-C2 with the exact approved 52-row SB-GEO exception; DEC-018 still requires the exact capability or requirement-ID revision, so the committed ledger remains at 584 provisional blockers and 146 UNDECIDED; no fresh full-gate receipt is tied to the final audit commit`
+- Next increment: `Jauhar names the exact DEC-018 capability or requirement IDs to restore to or remove from the first-pilot manifest; then regenerate and approve that exact boundary, apply its ledger dispositions, run the fresh full gate and require all seven Gate 1 criteria to PASS.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | Exit verifier: G1-C1/C3/C4/C7 PASS; G1-C2/C5/C6 OPEN; 879 rows live-adjudicated, exact 52-row GEO boundary proposed, exact 242/689 pilot program proposed but not yet applied, fresh gate pending |
+| G1 — Baseline reconciliation | IN PROGRESS | Exit verifier: G1-C1/C2/C3/C4/C7 PASS; G1-C5/C6 OPEN; 879 rows live-adjudicated plus the approved exact 52-row GEO exception, while DEC-018 remains pending revision and the fresh gate remains pending |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -153,6 +153,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-SCOPE-GEO-APPROVAL - exact SB-GEO exception | DONE; OWNER APPROVED | DEC-019 permits only the exact 52 DEC-011-deferred SB-GEO rows hashed as `e1eed8f713f5449926b7e5c840d06d9c061eef8c7f420a868434dc57c2978ffc` to remain visibly unadjudicated for Gate 1; all remain mandatory next-version work; DEC-018 and the pilot ledger are unchanged | current topic-branch worktree |
 | G1-SCOPE-CONSISTENCY - pilot-minimum versus later-lineage boundary | DONE; REVIEW REQUIRED | live DEC-009 says lineage beyond the pilot audit need, while the SB-CORE-010 ledger row incorrectly made it co-author the pilot minimum; the requirement itself enumerates that minimum, DEC-003 selects the representative workflow and DEC-009 now governs only additional lineage; ledger and CORE receipt corrected with no verdict, scope, production, PRD, parameter or manual-evidence change; 27/27 ledger tests and 28/28 Gate 1 verifier tests pass, tracker/PRD audit green and live collector has no diagnostics | current topic-branch worktree |
 | G1-PILOT-SCOPE-PROPOSAL - exact first-pilot and GEO owner boundary | READY FOR OWNER DECISION | `pilot-scope.json` names exactly 242 unique, known, live-adjudicated requirements across 10 capability groups and defaults the other 689 to explicit deferral; the test-first validator rejects duplicate, unknown, unadjudicated, structurally ambiguous, count-drifted, ledger-mismatched, hash-drifted or approval-mismatched scope; 28/28 focused verifier tests pass and the live collector reports no diagnostics; DEC-018 and DEC-019 remain NEEDS-JAUHAR; no production, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
 | G1-BRANCH-FOLLOWUP - sole unresolved patch disposition | DONE; REVIEW REQUIRED | current source confirms the raw Tops colour still reaches an `innerHTML` style attribute and no maintained observable regression owns the boundary; `0d5389e` is reclassified from UNRESOLVED to ACCEPTED-CANDIDATE for a narrow Gate 2 TDD port; stale docs/CSP claims make whole-commit cherry-pick forbidden; full gate 946 passed / 0 failed / 36 ignored in 60s; no production, test, PRD, parameter or manual evidence changed | current topic-branch worktree |
