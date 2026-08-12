@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "tested_commit": "b4ebe09f73101dff19c83baf26d2b43a12676f1d",
+  "tested_on": "2026-08-12",
+  "commands": [
+    {
+      "command": "npx tsc --noEmit",
+      "workdir": ".",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo check",
+      "workdir": "src-tauri",
+      "exit_code": 0
+    },
+    {
+      "command": "powershell -ExecutionPolicy Bypass -File tools\\check.ps1",
+      "workdir": ".",
+      "exit_code": 0
+    }
+  ],
+  "full_gate": {
+    "passed": 957,
+    "failed": 0,
+    "ignored": 36,
+    "duration_seconds": 254
+  },
+  "breakdown": {
+    "takeover_ledger": {
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0
+    },
+    "frontend_acceptance": {
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0
+    },
+    "rust": {
+      "passed": 917,
+      "failed": 0,
+      "ignored": 36
+    }
+  }
+}
