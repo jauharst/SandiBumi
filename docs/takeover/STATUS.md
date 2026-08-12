@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-SCOPE-GEO-APPROVAL - DONE; DEC-019 approves only the exact hashed 52-row SB-GEO exception for Gate 1; DEC-018 remains pending revision and no pilot-manifest disposition has changed`
+- Active increment: `G1-SCOPE-PILOT-APPROVAL - DONE; DEC-018 approves the unchanged exact 242-row manifest, the ledger is 242 PILOT-BLOCKER / 689 DEFERRED / 0 UNDECIDED, 28/28 Gate 1 tests and 27/27 ledger tests pass, TypeScript and Rust checks are green, and the fresh full gate is next`
 - Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — verified ancestor and implementation evidence anchor; final-audit tooling is based on exact-evidence commit 232c1d8f6db9c5c85dc5f18581d1ecf17fbe9152 in the sole worktree`
 - Automated gate: `LAST FULL CHECKPOINT GREEN - 946 passed / 0 failed / 36 ignored; exact-proof verifier 27 passed / 0 failed, Gate 1 exit-verifier 28 passed / 0 failed, tracker check green; a fresh final full gate remains mandatory`
 - Pilot field evidence: `OPEN`
-- Open blockers: `G1-C5 and G1-C6 are OPEN: DEC-019 closes G1-C2 with the exact approved 52-row SB-GEO exception; DEC-018 still requires the exact capability or requirement-ID revision, so the committed ledger remains at 584 provisional blockers and 146 UNDECIDED; no fresh full-gate receipt is tied to the final audit commit`
-- Next increment: `Jauhar names the exact DEC-018 capability or requirement IDs to restore to or remove from the first-pilot manifest; then regenerate and approve that exact boundary, apply its ledger dispositions, run the fresh full gate and require all seven Gate 1 criteria to PASS.`
+- Open blockers: `G1-C5 is the only remaining Gate 1 exit criterion: DEC-018 and DEC-019 close the owner boundaries exactly, while a fresh full-gate receipt still must be tied to the clean approval commit`
+- Next increment: `Run the focused verifiers plus TypeScript and Rust checks, commit the approved scope, run the fresh full gate on that clean commit, record only the evidence receipt, and require all seven Gate 1 criteria to PASS.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | Exit verifier: G1-C1/C2/C3/C4/C7 PASS; G1-C5/C6 OPEN; 879 rows live-adjudicated plus the approved exact 52-row GEO exception, while DEC-018 remains pending revision and the fresh gate remains pending |
+| G1 — Baseline reconciliation | IN PROGRESS | Exit verifier target after this approval: G1-C1/C2/C3/C4/C6/C7 PASS and only G1-C5 OPEN; 879 rows are live-adjudicated, the exact 52-row GEO exception is approved, the exact 242/689 pilot boundary is approved, and the fresh gate remains pending |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -36,10 +36,10 @@ Do not replace it with an estimated percentage.
 - Unadjudicated: `52`.
 - As-built states: `102` present-OK, `24` present-unverified, `171` present-divergent, `181` partial,
   `401` absent and `52` unadjudicated.
-- Release dispositions: `584` pilot blockers, `146` undecided and `201` deferred. Disposition is not
+- Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-INS: `26/26` adjudicated - `4` present-OK, `1` present-unverified, `3` present-divergent,
-  `12` partial and `6` absent; `22` pilot blockers and `4` undecided; `4` correctness proofs, `3`
+  `12` partial and `6` absent; `22` pilot blockers and `4` deferred; `4` correctness proofs, `3`
   characterizations and `19` missing qualifying whole-contract proofs; all `30` test intentions,
   `18` parameter rows, `6` opens, `4` escalations, `6` refusals and `95` traceability rows are
   routed, while all `16` SB-INS manual scenarios remain unchecked and installation/deployment is
@@ -48,45 +48,48 @@ Do not replace it with an estimated percentage.
   version under DEC-011 and risk-classed `LATER`; all remain as-built `UNADJUDICATED`, test class
   `MISSING-OR-UNCLASSIFIED`, commit state `UNVERIFIED`, with no last-reverified date. The preserved
   plan records `33` P0, `17` P1, `2` P2 and `73` test intentions, but was deliberately not executed.
+- SB-CORE: `25/25` adjudicated - `3` present-OK, `1` present-unverified, `4` present-divergent,
+  `12` partial and `5` absent; `17` pilot blockers and `8` deferred; `4` correctness proofs and
+  `21` missing qualifying whole-contract proofs.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
-  `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
+  `2` partial and `7` absent; `49` pilot blockers and `14` deferred; `42`
   correctness-tested and `21` missing qualifying owned proof.
 - SB-DBM: `43/43` adjudicated - `1` present-OK, `3` present-unverified, `11` present-divergent,
-  `13` partial and `15` absent; `32` pilot blockers, `8` undecided and `3` deferred; `1`
+  `13` partial and `15` absent; `30` pilot blockers and `13` deferred; `1`
   optional-package proof and `42` missing qualifying whole-contract proofs.
 - SB-PLT: `35/35` adjudicated - `4` present-unverified, `10` present-divergent, `14` partial and
-  `7` absent; `29` pilot blockers, `4` undecided and `2` deferred; `6` characterization tests and
+  `7` absent; `18` pilot blockers and `17` deferred; `6` characterization tests and
   `29` missing qualifying whole-contract proofs.
 - SB-ENV: `58/58` adjudicated - `5` present-OK, `4` present-unverified, `15` present-divergent,
-  `15` partial and `19` absent; `50` pilot blockers, `7` undecided and `1` deferred; `5`
+  `15` partial and `19` absent; `31` pilot blockers and `27` deferred; `5`
   correctness tests, `4` characterizations and `49` missing qualifying whole-contract proofs.
-- SB-CLY: `55/55` adjudicated - `13` present-divergent, `15` partial and `27` absent; `40` pilot
-  blockers, `8` undecided and `7` deferred; `3` characterizations and `52` missing qualifying
+- SB-CLY: `55/55` adjudicated - `13` present-divergent, `15` partial and `27` absent; `11` pilot
+  blockers and `44` deferred; `3` characterizations and `52` missing qualifying
   whole-contract proofs.
 - SB-POR: `62/62` adjudicated - `21` present-divergent, `15` partial, `25` absent and `1`
-  present-unverified; `44` pilot blockers, `13` undecided and `5` deferred; `6` characterizations
+  present-unverified; `26` pilot blockers and `36` deferred; `6` characterizations
   and `56` missing qualifying whole-contract proofs; all `62` chapter-status and owned-test fields
   remain blank, all `41` real test intentions are routed, and numeric `T26`/`T27` remain absent.
 - SB-SAT: `51/51` adjudicated - `6` present-OK, `1` present-unverified, `16` present-divergent,
-  `9` partial and `19` absent; `41` pilot blockers, `8` undecided and `2` deferred; `14`
+  `9` partial and `19` absent; `15` pilot blockers and `36` deferred; `14`
   characterizations, `37` missing qualifying proofs and `0` correctness proofs; all `63` test
   intentions are routed, all `71` parameter rows remain source-fenced, and manual saturation
   evidence remains `2/97`.
 - SB-MIN: `46/46` adjudicated - `5` present-OK, `1` present-unverified, `7` present-divergent,
-  `6` partial and `27` absent; `34` pilot blockers, `8` undecided and `4` deferred; `1` correctness
+  `6` partial and `27` absent; all `46` deferred; `1` correctness
   proof, `14` characterizations and `31` missing qualifying whole-contract proofs; all `44` test
   intentions and `78` parameter rows are routed, while manual SandiMin evidence remains `0/28`.
 - SB-CUT: `61/61` adjudicated - `10` present-OK, `1` present-unverified, `8` present-divergent,
-  `14` partial and `28` absent; `42` pilot blockers, `9` undecided and `10` deferred; `4`
+  `14` partial and `28` absent; `23` pilot blockers and `38` deferred; `4`
   correctness proofs, `11` characterizations and `46` missing qualifying whole-contract proofs;
   all `44` test intentions and `44` parameter rows are routed, while manual cutoffs/pay evidence
   remains `0/23` and Monte Carlo remains `2/14`.
-- SB-SHR: `42/42` adjudicated - `10` present-divergent, `14` partial and `18` absent; `34` pilot
-  blockers and `8` deferred; `17` characterizations and `25` missing qualifying whole-contract
+- SB-SHR: `42/42` adjudicated - `10` present-divergent, `14` partial and `18` absent; all `42`
+  deferred; `17` characterizations and `25` missing qualifying whole-contract
   proofs; all `44` test intentions and `61` parameter rows are routed, five escalations remain open,
   and manual saturation-height and rock-typing evidence remains `0/6` and `0/26` respectively.
-- SB-TBD: `66/66` adjudicated - `8` present-divergent, `7` partial and `51` absent; `30` pilot
-  blockers and `36` deferred; `8` characterizations and `58` missing qualifying whole-contract
+- SB-TBD: `66/66` adjudicated - `8` present-divergent, `7` partial and `51` absent; all `66`
+  deferred; `8` characterizations and `58` missing qualifying whole-contract
   proofs; all `66` test intentions, `52` parameter rows, `11` open items, `6` escalations, `15`
   refusals, `4` derivation/legal items and `327` traceability dispositions are routed, while manual
   thin-bed evidence remains `0/1` and Thomas-Stieber remains `0/0` and not listed.
@@ -95,23 +98,23 @@ Do not replace it with an estimated percentage.
   proofs; all `57` test intentions, `42` parameter rows, `11` open items, `18` active escalation
   identifiers and `15` refusals are routed, while manual array-log evidence remains `0/16`.
 - SB-TOC: `43/43` adjudicated - `1` present-OK, `12` present-divergent, `8` partial and `22` absent;
-  `23` pilot blockers, `10` undecided and `10` deferred; `1` correctness proof, `15`
+  all `43` deferred; `1` correctness proof, `15`
   characterizations and `27` missing qualifying whole-contract proofs; all `58` test intentions,
   `76` parameter rows, `9` open items, `7` escalation bullets and `10` refusals are routed, while
   manual unconventional evidence remains `0/4`.
 - SB-RPH: `52/52` adjudicated - `1` present-OK, `6` present-divergent, `4` partial and `41` absent;
-  `22` pilot blockers, `17` undecided and `13` deferred; `1` optional-package proof, `8`
+  all `52` deferred; `1` optional-package proof, `8`
   characterizations and `43` missing qualifying whole-contract proofs; all `77` test intentions,
   `76` parameter rows, `5` open items, `12` escalation bullets, `11` refusals and `2` C-3 items are
   routed, while core-photo calibration remains `0/0` and not listed.
 - SB-MLA: `65/65` adjudicated - `24` present-OK, `1` present-unverified, `18` present-divergent,
-  `14` partial and `8` absent; `44` pilot blockers, `17` undecided and `4` deferred; `14`
+  `14` partial and `8` absent; all `65` deferred; `14`
   correctness proofs, `8` characterizations, `2` optional-package proofs and `41` missing qualifying
   whole-contract proofs; all `61` test intentions, `105` parameter rows, `6` open items, `12`
   escalations, `13` refusals, `24` no-antecedent requirements and `218` traceability rows are routed,
   while manual machine-learning evidence remains `7/189` and electrofacies remains `2/26`.
-- SB-PLG: `48/48` adjudicated - `1` present-divergent, `6` partial and `41` absent; `41` pilot
-  blockers, `6` undecided and `1` deferred; all `48` whole-contract proof classes are missing; all
+- SB-PLG: `48/48` adjudicated - `1` present-divergent, `6` partial and `41` absent; all `48`
+  deferred; all `48` whole-contract proof classes are missing; all
   `68` test intentions, `132` parameter rows, `10` open items, `10` escalations, `18` refusals and
   `239` traceability rows are routed, while production logging/cement evaluation/casing integrity
   remains `0/0` and not listed and the stored array axis is discarded by the normal read/IPC path.
@@ -153,9 +156,10 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-SCOPE-PILOT-APPROVAL - exact first-pilot boundary | DONE; OWNER APPROVED; FOCUSED CHECKS GREEN | DEC-018 approves the unchanged exact 242-ID manifest at SHA-256 `0412de0cc43fabbe0c5e32d4c831d65e90536ee1c348802ab67cb0f3dcd70b6b`; the ledger is exactly 242 PILOT-BLOCKER / 689 DEFERRED / 0 UNDECIDED with disposition SHA-256 `295e48ecf3b661c75e3aacf677867098287b2c6264d63daa8eab1e27d5b82319`; 28/28 Gate 1 verifier tests and 27/27 ledger tests pass, TypeScript and Rust checks are green, and approval changes no product-inclusion decision, scientific value, evidence verdict or production behavior | current topic-branch commit |
 | G1-SCOPE-GEO-APPROVAL - exact SB-GEO exception | DONE; OWNER APPROVED | DEC-019 permits only the exact 52 DEC-011-deferred SB-GEO rows hashed as `e1eed8f713f5449926b7e5c840d06d9c061eef8c7f420a868434dc57c2978ffc` to remain visibly unadjudicated for Gate 1; all remain mandatory next-version work; DEC-018 and the pilot ledger are unchanged | current topic-branch worktree |
 | G1-SCOPE-CONSISTENCY - pilot-minimum versus later-lineage boundary | DONE; REVIEW REQUIRED | live DEC-009 says lineage beyond the pilot audit need, while the SB-CORE-010 ledger row incorrectly made it co-author the pilot minimum; the requirement itself enumerates that minimum, DEC-003 selects the representative workflow and DEC-009 now governs only additional lineage; ledger and CORE receipt corrected with no verdict, scope, production, PRD, parameter or manual-evidence change; 27/27 ledger tests and 28/28 Gate 1 verifier tests pass, tracker/PRD audit green and live collector has no diagnostics | current topic-branch worktree |
-| G1-PILOT-SCOPE-PROPOSAL - exact first-pilot and GEO owner boundary | READY FOR OWNER DECISION | `pilot-scope.json` names exactly 242 unique, known, live-adjudicated requirements across 10 capability groups and defaults the other 689 to explicit deferral; the test-first validator rejects duplicate, unknown, unadjudicated, structurally ambiguous, count-drifted, ledger-mismatched, hash-drifted or approval-mismatched scope; 28/28 focused verifier tests pass and the live collector reports no diagnostics; DEC-018 and DEC-019 remain NEEDS-JAUHAR; no production, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
+| G1-PILOT-SCOPE-PROPOSAL - exact first-pilot and GEO owner boundary | DONE; SUPERSEDED BY OWNER APPROVAL | `pilot-scope.json` names exactly 242 unique, known, live-adjudicated requirements across 10 capability groups and defaults the other 689 to explicit deferral; the test-first validator rejects duplicate, unknown, unadjudicated, structurally ambiguous, count-drifted, ledger-mismatched, hash-drifted or approval-mismatched scope; DEC-018 and DEC-019 subsequently approved the exact hashes without changing production, PRD, parameters or manual evidence | current topic-branch worktree |
 | G1-BRANCH-FOLLOWUP - sole unresolved patch disposition | DONE; REVIEW REQUIRED | current source confirms the raw Tops colour still reaches an `innerHTML` style attribute and no maintained observable regression owns the boundary; `0d5389e` is reclassified from UNRESOLVED to ACCEPTED-CANDIDATE for a narrow Gate 2 TDD port; stale docs/CSP claims make whole-commit cherry-pick forbidden; full gate 946 passed / 0 failed / 36 ignored in 60s; no production, test, PRD, parameter or manual evidence changed | current topic-branch worktree |
 | G1-SCOPE-GEO-D - SB-GEO next-version deferral | DONE; REVIEW REQUIRED; NOT LIVE-ADJUDICATED | DEC-011 applied to all 52 release dispositions as DEFERRED/LATER with next-version action; every row remains UNADJUDICATED/MISSING-OR-UNCLASSIFIED/UNVERIFIED with blank last-reverified and evidence fields; all 931 rows now have release timing, but the original all-931 as-built Gate 1 criterion remains formally open; full gate 946 passed / 0 failed / 36 ignored in 69s; no source-owned field, production, test, PRD, parameter or manual evidence changed | current topic-branch worktree |
 | G1-DOM-INS - SB-INS live adjudication | DONE; REVIEW REQUIRED | 26/26 rows: 6 absent, 12 partial, 4 present-OK, 3 divergent and 1 present-unverified; 22 blockers and 4 undecided; 4 correctness proofs, 3 characterizations and 19 missing qualifying whole-contract proofs; all 30 tests, 18 parameters, 6 opens, 4 escalations, 6 refusals and 95 traceability rows routed; product-owner Windows/MSI/offline-pack direction retained but real artifact/network/matrix/legal/lifecycle evidence remains absent; full gate 946 passed / 0 failed / 36 ignored in 73s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch worktree |

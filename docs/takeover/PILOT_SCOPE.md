@@ -1,8 +1,8 @@
-# Proposed first-pilot capability manifest
+# Approved first-pilot capability manifest
 
-This is a Gate 1 proposal, not an approval and not a release claim. The exact machine-readable
-requirement set is `docs/takeover/pilot-scope.json`. Every requirement not listed there is proposed
-`DEFERRED`, not deleted and not implied unimportant.
+This is Jauhar's approved Gate 1 first-pilot boundary, not a release or completion claim. The exact
+machine-readable requirement set is `docs/takeover/pilot-scope.json`. Every requirement not listed
+there is `DEFERRED`, not deleted and not implied unimportant.
 
 ## Pilot promise
 
@@ -71,7 +71,7 @@ One paid, offline, device-wide Windows vertical slice:
 
 ## Evidence and work reality
 
-The proposed 242-row program currently contains:
+The approved 242-row program currently contains:
 
 - 40 `ABSENT`, 74 `PARTIAL`, 61 `PRESENT-DIVERGENT`, 14
   `PRESENT-UNVERIFIED`, and 53 `PRESENT-OK` rows;
@@ -86,7 +86,7 @@ an ABSENT or PRESENT-DIVERGENT row generally needs bounded production work or an
 ## Harsh review
 
 - **Founder risk:** competing with Geolog by breadth before proving one trustworthy workflow would
-  recreate the current 584-blocker problem at release time. A pilot proves trust, not catalogue
+  recreate the pre-boundary 584-blocker problem at release time. A pilot proves trust, not catalogue
   parity.
 - **Engineering risk:** 242 requirement blockers are still a large solo-developer program. Calling
   this “small” would be dishonest; it is only bounded and serializable. If speed is more important,
@@ -96,17 +96,22 @@ an ABSENT or PRESENT-DIVERGENT row generally needs bounded production work or an
   evidence inflation already found in the exact-test audit. Gate 2 must close silent wrongness at the
   reporting surface, and Gate 4 remains Jauhar-owned real-data confirmation.
 
-## Approval boundary
+## Approval record
 
-Approval means all 242 listed requirements become the exact first-pilot blocker program and all
-other 689 requirements are explicitly deferred. It does **not** approve a parameter, endpoint,
+Jauhar approved this exact manifest on 2026-08-12. All 242 listed requirements are the exact
+first-pilot blocker program and all other 689 requirements are explicitly deferred. It does **not** approve a parameter, endpoint,
 cutoff, unit convention, scientific equation or manual checkbox. Those remain source- and
 evidence-bound.
+
+For rows outside this manifest, older action text such as “if included” or “decide pilot inclusion”
+now applies only to a later-version reconsideration. The dedicated `release_disposition` column is
+authoritative for this first pilot. Product-inclusion decisions such as DEC-012 through DEC-017
+remain intact.
 
 The exact 242-ID set has SHA-256
 `0412de0cc43fabbe0c5e32d4c831d65e90536ee1c348802ab67cb0f3dcd70b6b`. Any ID or hash drift
 invalidates approval and requires a new owner decision.
 
-Separately, Gate 1 needs approval to amend its all-931 live-as-built criterion narrowly: the exact
-52 hashed `SB-GEO` rows may remain visibly `UNADJUDICATED` because DEC-011 defers that domain.
-They remain accounted for, release-dispositioned, and mandatory for next-version live adjudication.
+Separately, DEC-019 approves the narrow all-931 live-as-built exception: the exact 52 hashed
+`SB-GEO` rows may remain visibly `UNADJUDICATED` because DEC-011 defers that domain. They remain
+accounted for, release-dispositioned, and mandatory for next-version live adjudication.

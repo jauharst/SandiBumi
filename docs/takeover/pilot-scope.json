@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "program_id": "G1-PILOT-PETRO-V1",
-  "state": "PROPOSED",
+  "state": "APPROVED",
   "title": "First paid Windows offline open-hole petrophysics vertical slice",
   "proposed_on": "2026-08-12",
   "owner": "Jauhar",
   "approval": {
-    "state": "PENDING",
-    "approved_by": "",
-    "approved_on": ""
+    "state": "APPROVED",
+    "approved_by": "Jauhar",
+    "approved_on": "2026-08-12"
   },
   "default_excluded_disposition": "DEFERRED",
   "included_requirement_count": 242,
