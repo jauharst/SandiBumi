@@ -1,9 +1,9 @@
 # SB-RPH live adjudication evidence
 
-Date: 2026-08-12  
-Branch: `codex/g1-sb-rph-adjudication`  
-Plan commit: `23efceda8e3eb3e178aee706ae1754c724b85e8d`  
-Accepted implementation anchor: `b332026cb498c105f36eade0bf7899bc0c1309f0` (reachable)  
+Date: 2026-08-12
+Branch: `codex/g1-sb-rph-adjudication`
+Plan commit: `23efceda8e3eb3e178aee706ae1754c724b85e8d`
+Accepted implementation anchor: `b332026cb498c105f36eade0bf7899bc0c1309f0` (reachable)
 Origin/merge-base anchor: `29833735816d9e5be954afafd9ceb71fd856e3f0`
 
 ## Scope and immutable custody
