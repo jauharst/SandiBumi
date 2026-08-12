@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-EXACT-TEST-EVIDENCE - DONE; REVIEW REQUIRED; 199 claimed proof rows resolve to 249 exact executable references and 12 unsupported proof classifications were conservatively downgraded`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; final audit continues on codex/g1-final-audit from branch-follow-up commit 84281343bd0c507b2b2ed75a8b6547093df1b346 in the sole worktree`
-- Automated gate: `LAST FULL CHECKPOINT GREEN - 946 passed / 0 failed / 36 ignored; exact-proof verifier 27 passed / 0 failed and tracker check is green; a fresh final full gate remains mandatory`
+- Active increment: `G1-EXIT-VERIFIER - DONE; REVIEW REQUIRED; the test-first live audit reports four of seven criteria PASS and keeps GEO approval, pilot-program approval and a fresh full-gate receipt OPEN`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — verified ancestor and implementation evidence anchor; final-audit tooling is based on exact-evidence commit 232c1d8f6db9c5c85dc5f18581d1ecf17fbe9152 in the sole worktree`
+- Automated gate: `LAST FULL CHECKPOINT GREEN - 946 passed / 0 failed / 36 ignored; exact-proof verifier 27 passed / 0 failed, Gate 1 exit-verifier 20 passed / 0 failed, tracker check green; a fresh final full gate remains mandatory`
 - Pilot field evidence: `OPEN`
-- Open blockers: `584 pilot-blocker dispositions remain in the current-pilot evidence set; 52 SB-GEO rows are explicitly next-version DEFERRED but still lack live as-built adjudication; SB-INS retains 22 blockers including absent final MSI/pack/lock/network/legal/lifecycle/matrix evidence; recorded PRD structural and release-claim findings remain open`
-- Next increment: `build the test-first seven-criterion Gate 1 exit verifier, then present the formal 879-adjudicated / 52-scope-deferred boundary and first-pilot capability manifest for explicit owner approval.`
+- Open blockers: `G1-C2, G1-C5 and G1-C6 are OPEN: the exact 52-row SB-GEO exception is proposed but not approved; 584 blockers remain provisional and 146 requirements remain UNDECIDED; no fresh full-gate receipt is tied to the final audit commit`
+- Next increment: `draft an exact first-pilot capability manifest, reclassify all 146 UNDECIDED rows without inventing a method or parameter, and present the hashed pilot program plus SB-GEO criterion amendment for explicit owner approval.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 879/931 rows live-adjudicated; all 931 release-timed; 52 SB-GEO rows are next-version deferred but still as-built unadjudicated; final audit, field-evidence and claims boundaries remain |
+| G1 — Baseline reconciliation | IN PROGRESS | Exit verifier: G1-C1/C3/C4/C7 PASS; G1-C2/C5/C6 OPEN; 879 rows live-adjudicated, exact 52-row GEO boundary proposed, 146 release dispositions undecided, fresh gate pending |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "accepted_baseline": "b332026cb498c105f36eade0bf7899bc0c1309f0",
+  "full_gate_receipt": "docs/takeover/evidence/gate1-full-gate.json",
+  "geo_boundary": {
+    "state": "PROPOSED",
+    "decision_id": "DEC-011",
+    "requirement_ids_sha256": "e1eed8f713f5449926b7e5c840d06d9c061eef8c7f420a868434dc57c2978ffc",
+    "proposed_on": "2026-08-12",
+    "approved_by": "",
+    "approved_on": ""
+  },
+  "pilot_program": {
+    "state": "PROPOSED",
+    "manifest_path": "docs/takeover/PILOT_SCOPE.md",
+    "disposition_sha256": "4c4b73ac1a835a6289bdc3919b0c2bb01d290dcd0d61b8483adeb8b6ff841ac4",
+    "approved_blocker_count": 584,
+    "proposed_on": "2026-08-12",
+    "approved_by": "",
+    "approved_on": ""
+  }
+}
