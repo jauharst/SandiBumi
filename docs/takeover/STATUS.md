@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-MIN-P - SERIAL SB-MIN LIVE-ADJUDICATION PLAN COMPLETE; the executable plan maps all 46 requirements, all 44 acceptance-test intentions, all 78 parameter rows, eight escalations, ten acquisition gaps, ten open items, live source/test/history surfaces and the 0/28 manual SandiMin baseline; no ledger verdict, production behavior, PRD content, parameter value or manual evidence changed`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only planning increment is recorded by the current topic-branch commit`
-- Automated gate: `GREEN — 2026-08-12 on the G1-DOM-MIN-P docs-only planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed, 0 failed, 36 ignored; production build and verification matrix green; Cargo used an isolated temporary target because the live Tauri development app correctly held the default debug executable open`
+- Active increment: `G1-DOM-MIN - COMPLETE; 46/46 SB-MIN requirements adjudicated from live source, tests, history, UI/IPC/provenance and source custody; 44 test intentions routed; 78 parameter rows fenced; eight escalations, eleven acquisition gaps and ten open items recorded; no production, test, PRD, parameter or manual-evidence state changed`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only SB-MIN execution is recorded by the current topic-branch commit`
+- Automated gate: `GREEN — 2026-08-12 on the G1-DOM-MIN execution tree; 16 takeover-ledger + 13 frontend + 917 Rust passed = 946 passed, 0 failed, 36 ignored; production build and verification matrix green; Cargo used an isolated target because the live Tauri app held the default debug executable open`
 - Pilot field evidence: `OPEN`
-- Open blockers: `539 live domain adjudications; 292 total pilot-blocker dispositions, including 41 SB-SAT blockers; all 46 SB-MIN rows remain unadjudicated pending execution of the frozen plan; four source-absent mineral-solver values currently ship, the CEC/WCLP library default and conductivity convention remain unresolved, no manual SandiMin scenario is checked, and the current candidate tests do not automatically close the 44 chapter contracts; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
-- Next increment: `G1-DOM-MIN — execute the frozen 46-row SB-MIN live adjudication, route all 44 acceptance-test intentions, preserve all source/product fences, update the ledger and status from measured evidence, run the full gate, commit locally, then continue to the next serial petrophysics domain.`
+- Open blockers: `493 live domain adjudications; 326 total pilot-blocker dispositions, including 34 SB-MIN blockers; four source-absent mineral-solver values currently ship, CEC/WCLP library and conductivity convention decisions remain unresolved, only one SB-MIN whole contract has qualifying correctness proof, no manual SandiMin scenario is checked, and the committed planning artifact under-counted the live acquisition gaps by one; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
+- Next increment: `G1-DOM-CUT-P — plan the 61-row cutoffs/summation/Monte-Carlo live adjudication as the next dependency-relevant open-hole-petrophysics domain; keep production remediation, parameter adoption and manual evidence outside Gate 1.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 392/931 rows adjudicated; 539 remain, alongside branch, gate, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 438/931 rows adjudicated; 493 remain, alongside branch, gate, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -32,11 +32,11 @@ The generated summary is re-measured by `node tools/takeover-ledger.mjs --summar
 Do not replace it with an estimated percentage.
 
 - Consolidated requirements: `931`.
-- Adjudicated: `392`.
-- Unadjudicated: `539`.
-- As-built states: `57` present-OK, `20` present-unverified, `96` present-divergent, `95` partial,
-  `124` absent and `539` unadjudicated.
-- Release dispositions: `292` pilot blockers, `614` undecided and `25` deferred. Disposition is not
+- Adjudicated: `438`.
+- Unadjudicated: `493`.
+- As-built states: `62` present-OK, `21` present-unverified, `103` present-divergent, `101` partial,
+  `151` absent and `493` unadjudicated.
+- Release dispositions: `326` pilot blockers, `576` undecided and `29` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
@@ -62,6 +62,10 @@ Do not replace it with an estimated percentage.
   characterizations, `37` missing qualifying proofs and `0` correctness proofs; all `63` test
   intentions are routed, all `71` parameter rows remain source-fenced, and manual saturation
   evidence remains `2/97`.
+- SB-MIN: `46/46` adjudicated - `5` present-OK, `1` present-unverified, `7` present-divergent,
+  `6` partial and `27` absent; `34` pilot blockers, `8` undecided and `4` deferred; `1` correctness
+  proof, `16` characterizations and `29` missing qualifying whole-contract proofs; all `44` test
+  intentions and `78` parameter rows are routed, while manual SandiMin evidence remains `0/28`.
 
 ## PRD structural integrity
 
@@ -100,7 +104,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-MIN-P - SB-MIN live-adjudication plan | DONE; EXECUTION NEXT | exact 46-row map: 10 P0, 11 P1, 16 P2, 9 P3; all 44 acceptance-test intentions routed once; 78 parameter rows with 10 absent and 5 non-adoptable entries fenced; eight escalations, ten acquisition gaps, ten open items, four live source-absent literals, UI/IPC/provenance/history and 0/28 manual evidence made explicit; no verdict, production, PRD, parameter or manual-evidence change | current topic-branch commit |
+| G1-DOM-MIN - SB-MIN live adjudication | DONE; REVIEW REQUIRED | 46/46 rows: 27 absent, 6 partial, 7 divergent, 5 present-OK, 1 present-unverified; 34 blockers, 8 undecided, 4 deferred; 1 correctness proof, 16 characterizations and 29 missing whole-contract proofs; full gate 946 passed / 0 failed / 36 ignored; 438/931 adjudicated and 493 remain; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
+| G1-DOM-MIN-P - SB-MIN live-adjudication plan | DONE; EXECUTED; COUNT DEFECT RECORDED | exact 46-row/44-test/78-parameter plan, but it stated ten acquisition gaps while execution reverified eleven in the immutable chapter; the execution receipt preserves all eleven and does not rewrite the historical plan or PRD | `f409928` |
 | G1-DOM-SAT - SB-SAT live adjudication | DONE; REVIEW REQUIRED | 51/51 rows: 19 absent, 9 partial, 16 divergent, 6 present-OK, 1 present-unverified; 41 blockers, 8 undecided, 2 deferred; 52 exact candidate tests passed, but only 14 characterizations and 37 missing qualifying whole-contract proofs; 539/931 remain; no production, PRD, parameter or manual-evidence change | current topic-branch commit |
 | G1-DOM-SAT-P - SB-SAT live-adjudication plan | DONE; REVIEW REQUIRED; NOT EXECUTED | exact 51-row map: 13 P0, 18 P1, 12 P2, 6 P3, 2 P4; all 63 named test intentions routed; 71 parameter rows with 20 ABSENT-bearing and 8 tierless rows fenced; two-engine parity, source, unit, calibration, export, legal and manual-evidence boundaries explicit; section 7.1's ten escalations versus section 8.16's nine recorded without PRD edit; no verdict or production behavior changed | current topic-branch commit |
 | G1-DOM-POR-D3/RP - RHG80 direction and serial remediation plan | DONE; REVIEW REQUIRED; PRODUCTION NOT STARTED | DEC-017 closes SP-013's product choice on the original three-segment RHG80 route; original-scan verification and the separate SB-POR-020 vendor-rendering disposition remain open; the Gate-2 plan serializes 44 POR pilot blockers behind source, TDD, UI/provenance and full-gate boundaries; full gate 946 passed / 0 failed / 36 ignored; no production, PRD, ledger verdict, parameter value or manual evidence changed | current topic-branch commit |
