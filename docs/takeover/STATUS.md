@@ -9,12 +9,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-MIN - COMPLETE; 46/46 SB-MIN requirements adjudicated from live source, tests, history, UI/IPC/provenance and source custody; 44 test intentions routed; 78 parameter rows fenced; eight escalations, eleven acquisition gaps and ten open items recorded; no production, test, PRD, parameter or manual-evidence state changed`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only SB-MIN execution is recorded by the current topic-branch commit`
-- Automated gate: `GREEN — 2026-08-12 on the G1-DOM-MIN execution tree; 16 takeover-ledger + 13 frontend + 917 Rust passed = 946 passed, 0 failed, 36 ignored; production build and verification matrix green; Cargo used an isolated target because the live Tauri app held the default debug executable open`
+- Active increment: `G1-DOM-CUT-P - COMPLETE; exact 61-row cutoffs/summation/Monte-Carlo adjudication plan frozen from live source, tests, history, UI/IPC/provenance and source custody; 44 test intentions, 44 parameter rows, 12 opens, 6 escalations and 13 refusals mapped; no verdict, production, test, PRD, parameter or manual-evidence state changed`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; this docs-only SB-CUT planning increment is recorded by the current topic-branch commit`
+- Automated gate: `GREEN — 2026-08-12 on the G1-DOM-CUT-P planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed = 946 passed, 0 failed, 36 ignored; production build and verification matrix green; Cargo used an isolated target because the live Tauri app held the default debug executable open`
 - Pilot field evidence: `OPEN`
 - Open blockers: `493 live domain adjudications; 326 total pilot-blocker dispositions, including 34 SB-MIN blockers; four source-absent mineral-solver values currently ship, CEC/WCLP library and conductivity convention decisions remain unresolved, only one SB-MIN whole contract has qualifying correctness proof, no manual SandiMin scenario is checked, and the committed planning artifact under-counted the live acquisition gaps by one; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
-- Next increment: `G1-DOM-CUT-P — plan the 61-row cutoffs/summation/Monte-Carlo live adjudication as the next dependency-relevant open-hole-petrophysics domain; keep production remediation, parameter adoption and manual evidence outside Gate 1.`
+- Next increment: `G1-DOM-CUT - execute the 61-row cutoffs/summation/Monte-Carlo live adjudication after the planning tree passes TypeScript, Rust and full repository gates; keep production remediation, parameter adoption and manual evidence outside Gate 1.`
 
 ## Gate dashboard
 
@@ -104,6 +104,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-DOM-CUT-P - SB-CUT live-adjudication plan | DONE; READY TO EXECUTE; REVIEW REQUIRED | exact 61-row map: 9 P0, 23 P1, 22 P2, 7 P3; all 44 named test intentions routed; 44 parameter rows with 8 ABSENT and 11 NON-ADOPTABLE entries fenced; 12 opens, 6 escalations and 13 refusals preserved; live no-default, SD_MULT, discretisation, result-custody, reporting, IPC and manual-evidence boundaries explicit; full gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | current topic-branch commit |
 | G1-DOM-MIN - SB-MIN live adjudication | DONE; REVIEW REQUIRED | 46/46 rows: 27 absent, 6 partial, 7 divergent, 5 present-OK, 1 present-unverified; 34 blockers, 8 undecided, 4 deferred; 1 correctness proof, 16 characterizations and 29 missing whole-contract proofs; full gate 946 passed / 0 failed / 36 ignored; 438/931 adjudicated and 493 remain; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
 | G1-DOM-MIN-P - SB-MIN live-adjudication plan | DONE; EXECUTED; COUNT DEFECT RECORDED | exact 46-row/44-test/78-parameter plan, but it stated ten acquisition gaps while execution reverified eleven in the immutable chapter; the execution receipt preserves all eleven and does not rewrite the historical plan or PRD | `f409928` |
 | G1-DOM-SAT - SB-SAT live adjudication | DONE; REVIEW REQUIRED | 51/51 rows: 19 absent, 9 partial, 16 divergent, 6 present-OK, 1 present-unverified; 41 blockers, 8 undecided, 2 deferred; 52 exact candidate tests passed, but only 14 characterizations and 37 missing qualifying whole-contract proofs; 539/931 remain; no production, PRD, parameter or manual-evidence change | current topic-branch commit |
