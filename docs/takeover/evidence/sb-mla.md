@@ -30,7 +30,7 @@ This receipt adjudicates all 65 contiguous requirements, SB-MLA-001 through SB-M
 
 - As built: ABSENT=8, PARTIAL=14, PRESENT-DIVERGENT=18, PRESENT-OK=24, PRESENT-UNVERIFIED=1.
 - Release: DEFERRED=4, PILOT-BLOCKER=44, UNDECIDED=17.
-- Test class: CHARACTERIZATION=8, CORRECTNESS=16, MISSING=39, OPTIONAL-PACKAGE-IGNORED=2.
+- Test class after the exact-test audit: CHARACTERIZATION=8, CORRECTNESS=14, MISSING=41, OPTIONAL-PACKAGE-IGNORED=2.
 - Risk: DATA-INTEGRITY=30, DEGRADED-RESULT=7, DEPLOYMENT=1, FIELD-EVIDENCE=1, LATER=1, REQUESTED-CAPABILITY=7, SILENT-WRONGNESS=18.
 - Mechanically after this receipt: 805 adjudicated, 126 unadjudicated, 521 pilot blockers, 262 undecided, 148 deferred.
 
@@ -346,9 +346,9 @@ O-1 through O-6, E-1 through E-12, R-1 through R-13, all 24 no-antecedent requir
 ### SB-MLA-018
 
 - Specified contract: UI progress declares non-interruptible fit and cancellable write phase. Immutable ownership: SB-MLA-T18.
-- Current implementation: Backend comments/phase text exist, but the job is registered cancellable and the UI exposes Cancel without a phase-specific capability state. T18 is explicitly characterization.
+- Current implementation: Backend comments/phase text exist, but the job is registered cancellable and the UI exposes Cancel without a phase-specific capability state.
 - Verdict: `PRESENT-DIVERGENT`; release `UNDECIDED`; risk `DEGRADED-RESULT`.
-- Automated evidence: `CHARACTERIZATION` — SB-MLA-T18; expected behavior is what the current implementation does and is not an independent scientific or product proof. Test class CHARACTERIZATION. Backend comments/phase text exist, but the job is registered cancellable and the UI exposes Cancel without a phase-specific capability state. T18 is explicitly characterization.
+- Automated evidence: `MISSING` — SB-MLA-T18 has no executable phase-observability test. Backend comments, source strings and a visible Cancel control are source evidence only, not a characterization test.
 - Manual evidence: electrofacies 2/26; machine-learning 7/189; workflow 0/23; report 6/53; office-deliverables 0/39; LAS-export 0/2; portfolio-performance 0/50; processing-history 0/7; workspace-shell 0/159; security-integrity 0/63; verification-stewardship 0/24. Automated evidence closes none of these manual scenarios.
 - Source/parameter boundary: The shipped path conflicts with a specified limb and requires a Gate 2 remediation decision/test, not a documentation reinterpretation. Backend comments/phase text exist, but the job is registered cancellable and the UI exposes Cancel without a phase-specific capability state. T18 is explicitly characterization.
 - UI/IPC/provenance surface: The row was checked across every applicable runner, native engine, saved-model, UI, persisted curve/log-set, report/export, and default-gate surface named above; helper-only evidence was not promoted.
@@ -556,7 +556,7 @@ O-1 through O-6, E-1 through E-12, R-1 through R-13, all 24 no-antecedent requir
 - Specified contract: Every automatic transform announced per curve, including none. Immutable ownership: SB-MLA-T35.
 - Current implementation: Feature-transform records and run notes. Distinguish explicit user transforms from automatic family behavior and verify the no-transform side.
 - Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
-- Automated evidence: `CORRECTNESS` — SB-MLA-T35; expected behavior/value comes from the chapter's named input, expected result and cited source, independently asserted at the relevant stored/output surface. Test class CORRECTNESS.
+- Automated evidence: `MISSING` — transform-resolution tests do not assert both the enabled and disabled announcements on the run's reporting surface required by SB-MLA-T35.
 - Manual evidence: electrofacies 2/26; machine-learning 7/189; workflow 0/23; report 6/53; office-deliverables 0/39; LAS-export 0/2; portfolio-performance 0/50; processing-history 0/7; workspace-shell 0/159; security-integrity 0/63; verification-stewardship 0/24. Automated evidence closes none of these manual scenarios.
 - Source/parameter boundary: The current contract is implemented, but automated evidence does not replace the domain's open manual and field evidence. Feature-transform records and run notes. Distinguish explicit user transforms from automatic family behavior and verify the no-transform side.
 - UI/IPC/provenance surface: The row was checked across every applicable runner, native engine, saved-model, UI, persisted curve/log-set, report/export, and default-gate surface named above; helper-only evidence was not promoted.
@@ -868,7 +868,7 @@ O-1 through O-6, E-1 through E-12, R-1 through R-13, all 24 no-antecedent requir
 - Specified contract: Tier-C capabilities named and never approximated. Immutable ownership: SB-MLA-T57.
 - Current implementation: Static dependency/source boundary test. A name search is supporting evidence; preserve all register semantics and primary-source requirements.
 - Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
-- Automated evidence: `CORRECTNESS` — SB-MLA-T57; expected behavior/value comes from the chapter's named input, expected result and cited source, independently asserted at the relevant stored/output surface. Test class CORRECTNESS.
+- Automated evidence: `CHARACTERIZATION` — the executable governance test explicitly characterizes the shipped Tier-C register policy; it does not independently prove every named capability or design-around route.
 - Manual evidence: electrofacies 2/26; machine-learning 7/189; workflow 0/23; report 6/53; office-deliverables 0/39; LAS-export 0/2; portfolio-performance 0/50; processing-history 0/7; workspace-shell 0/159; security-integrity 0/63; verification-stewardship 0/24. Automated evidence closes none of these manual scenarios.
 - Source/parameter boundary: The current contract is implemented, but automated evidence does not replace the domain's open manual and field evidence. Static dependency/source boundary test. A name search is supporting evidence; preserve all register semantics and primary-source requirements.
 - UI/IPC/provenance surface: The row was checked across every applicable runner, native engine, saved-model, UI, persisted curve/log-set, report/export, and default-gate surface named above; helper-only evidence was not promoted.

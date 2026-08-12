@@ -352,3 +352,231 @@ test('the complete tracker check rejects a stale PRD audit once the report exist
     assert.throws(() => checkTracker(options), /PRD integrity report is stale/u);
   });
 });
+
+test('the_complete_tracker_check_requires_the_exact_test_evidence_map', async () => {
+  // CORRECTNESS — Gate 1 exit criterion 3 makes the exact map part of the enforced tracker.
+  const { checkTracker } = await loadAuditApi();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sandibumi-missing-evidence-'));
+
+  try {
+    assert.throws(
+      () => checkTracker({
+        testEvidencePath: path.join(directory, 'does-not-exist.csv'),
+      }),
+      /missing exact test evidence map/u,
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true });
+  }
+});
+
+test('a claimed proof without an exact executable test reference makes the tracker invalid', async () => {
+  // CORRECTNESS — Gate 1 exit criterion 3 requires every claimed test to resolve to evidence.
+  const api = await import('./takeover-ledger.mjs');
+  assert.equal(typeof api.validateTestEvidence, 'function');
+
+  assert.throws(
+    () => api.validateTestEvidence({
+      ledgerRows: [{ requirement_id: 'SB-TST-001', test_class: 'CORRECTNESS' }],
+      evidenceRows: [],
+      executableTests: new Map(),
+    }),
+    /SB-TST-001 claims CORRECTNESS but has no exact executable test evidence/u,
+  );
+});
+
+test('a mapped proof name that is not executable at its exact path makes the tracker invalid', async () => {
+  // CORRECTNESS — Gate 1 resolves executable evidence, not a plausible name written into a receipt.
+  const { validateTestEvidence } = await import('./takeover-ledger.mjs');
+
+  assert.throws(
+    () => validateTestEvidence({
+      ledgerRows: [{ requirement_id: 'SB-TST-001', test_class: 'CORRECTNESS' }],
+      evidenceRows: [{
+        requirement_id: 'SB-TST-001',
+        test_class: 'CORRECTNESS',
+        test_path: 'src-tauri/src/example.rs',
+        test_name: 'the_reporting_surface_tells_the_truth',
+      }],
+      executableTests: new Map(),
+    }),
+    /SB-TST-001 evidence does not resolve to executable test src-tauri\/src\/example.rs::the_reporting_surface_tells_the_truth/u,
+  );
+});
+
+test('a characterization cannot be mapped as correctness evidence', async () => {
+  // CORRECTNESS — CONTRACT.md §6 forbids a snapshot from wearing the costume of correctness.
+  const { validateTestEvidence } = await import('./takeover-ledger.mjs');
+  const testPath = 'src-tauri/src/example.rs';
+  const testName = 'characterizes_the_current_reporting_shape';
+
+  assert.throws(
+    () => validateTestEvidence({
+      ledgerRows: [{ requirement_id: 'SB-TST-001', test_class: 'CHARACTERIZATION' }],
+      evidenceRows: [{
+        requirement_id: 'SB-TST-001',
+        test_class: 'CORRECTNESS',
+        test_path: testPath,
+        test_name: testName,
+      }],
+      executableTests: new Map([[`${testPath}::${testName}`, { ignored: false }]]),
+    }),
+    /SB-TST-001 evidence class CORRECTNESS does not match ledger class CHARACTERIZATION/u,
+  );
+});
+
+test('a missing test classification cannot retain a stale executable evidence row', async () => {
+  // CORRECTNESS — the evidence map must be an exact projection of current proof claims.
+  const { validateTestEvidence } = await import('./takeover-ledger.mjs');
+  const testPath = 'src-tauri/src/example.rs';
+  const testName = 'an_old_test_that_no_longer_qualifies';
+
+  assert.throws(
+    () => validateTestEvidence({
+      ledgerRows: [{ requirement_id: 'SB-TST-001', test_class: 'MISSING' }],
+      evidenceRows: [{
+        requirement_id: 'SB-TST-001',
+        test_class: 'MISSING',
+        test_path: testPath,
+        test_name: testName,
+      }],
+      executableTests: new Map([[`${testPath}::${testName}`, { ignored: false }]]),
+    }),
+    /SB-TST-001 has executable evidence while ledger class is MISSING/u,
+  );
+});
+
+test('an optional package proof must resolve to an actually ignored executable test', async () => {
+  // CORRECTNESS — CONTRACT.md reserves this class for tests excluded from the default package-free gate.
+  const { validateTestEvidence } = await import('./takeover-ledger.mjs');
+  const testPath = 'src-tauri/src/example.rs';
+  const testName = 'the_optional_python_path_round_trips';
+
+  assert.throws(
+    () => validateTestEvidence({
+      ledgerRows: [{ requirement_id: 'SB-TST-001', test_class: 'OPTIONAL-PACKAGE-IGNORED' }],
+      evidenceRows: [{
+        requirement_id: 'SB-TST-001',
+        test_class: 'OPTIONAL-PACKAGE-IGNORED',
+        test_path: testPath,
+        test_name: testName,
+      }],
+      executableTests: new Map([[`${testPath}::${testName}`, { ignored: false }]]),
+    }),
+    /SB-TST-001 claims OPTIONAL-PACKAGE-IGNORED but src-tauri\/src\/example.rs::the_optional_python_path_round_trips is not ignored/u,
+  );
+});
+
+test('a_default_gate_proof_cannot_resolve_only_to_an_ignored_test', async () => {
+  // CORRECTNESS — ordinary proof classes claim evidence exercised by the default gate.
+  const { validateTestEvidence } = await import('./takeover-ledger.mjs');
+  const testPath = 'src-tauri/src/example.rs';
+  const testName = 'the_only_assertion_needs_an_optional_package';
+
+  assert.throws(
+    () => validateTestEvidence({
+      ledgerRows: [{ requirement_id: 'SB-TST-001', test_class: 'CORRECTNESS' }],
+      evidenceRows: [{
+        requirement_id: 'SB-TST-001',
+        test_class: 'CORRECTNESS',
+        test_path: testPath,
+        test_name: testName,
+      }],
+      executableTests: new Map([[`${testPath}::${testName}`, { ignored: true }]]),
+    }),
+    /SB-TST-001 claims CORRECTNESS but src-tauri\/src\/example.rs::the_only_assertion_needs_an_optional_package is ignored/u,
+  );
+});
+
+test('a_spec_divergence_proof_must_resolve_to_an_actually_ignored_test', async () => {
+  // CORRECTNESS — a specified-behaviour test can remain green-excluded only when it is truly ignored.
+  const { validateTestEvidence } = await import('./takeover-ledger.mjs');
+  const testPath = 'src-tauri/src/example.rs';
+  const testName = 'the_specified_behavior_that_the_current_code_diverges_from';
+
+  assert.throws(
+    () => validateTestEvidence({
+      ledgerRows: [{ requirement_id: 'SB-TST-001', test_class: 'SPEC-DIVERGENCE-IGNORED' }],
+      evidenceRows: [{
+        requirement_id: 'SB-TST-001',
+        test_class: 'SPEC-DIVERGENCE-IGNORED',
+        test_path: testPath,
+        test_name: testName,
+      }],
+      executableTests: new Map([[`${testPath}::${testName}`, { ignored: false }]]),
+    }),
+    /SB-TST-001 claims SPEC-DIVERGENCE-IGNORED but src-tauri\/src\/example.rs::the_specified_behavior_that_the_current_code_diverges_from is not ignored/u,
+  );
+});
+
+test('the_exact_test_evidence_map_rejects_duplicate_rows', async () => {
+  // CORRECTNESS — one exact assertion is one evidence fact, not two inflated entries.
+  const { validateTestEvidence } = await import('./takeover-ledger.mjs');
+  const evidence = {
+    requirement_id: 'SB-TST-001',
+    test_class: 'CORRECTNESS',
+    test_path: 'src-tauri/src/example.rs',
+    test_name: 'the_reporting_surface_tells_the_truth',
+  };
+
+  assert.throws(
+    () => validateTestEvidence({
+      ledgerRows: [{ requirement_id: 'SB-TST-001', test_class: 'CORRECTNESS' }],
+      evidenceRows: [evidence, { ...evidence }],
+      executableTests: new Map([[
+        `${evidence.test_path}::${evidence.test_name}`,
+        { ignored: false },
+      ]]),
+    }),
+    /duplicate exact test evidence for SB-TST-001/u,
+  );
+});
+
+test('the_exact_test_evidence_map_has_one_fixed_column_contract', async () => {
+  // CORRECTNESS — an unvalidated side column can otherwise become an unaudited second ledger.
+  const api = await import('./takeover-ledger.mjs');
+  assert.equal(typeof api.parseTestEvidence, 'function');
+  assert.throws(
+    () => api.parseTestEvidence([
+      'requirement_id,test_class,test_path,test_name,comment',
+      'SB-TST-001,CORRECTNESS,src-tauri/src/example.rs,the_contract,looks_good',
+    ].join('\n')),
+    /exact test evidence header must be requirement_id,test_class,test_path,test_name/u,
+  );
+});
+
+test('the executable test catalog distinguishes default tests from ignored package tests', async () => {
+  // CORRECTNESS — executable syntax and ignore attributes are independently supplied fixture inputs.
+  const api = await import('./takeover-ledger.mjs');
+  assert.equal(typeof api.discoverExecutableTests, 'function');
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sandibumi-test-catalog-'));
+
+  try {
+    fs.mkdirSync(path.join(directory, 'src-tauri', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(directory, 'tools'), { recursive: true });
+    fs.writeFileSync(path.join(directory, 'src-tauri', 'src', 'example.rs'), [
+      '#[test]',
+      'fn the_default_rust_contract_is_executable() {}',
+      '',
+      '#[test]',
+      '#[ignore = "needs numpy"]',
+      'fn the_optional_rust_contract_is_ignored() {}',
+    ].join('\n'), 'utf8');
+    fs.writeFileSync(path.join(directory, 'tools', 'example.test.mjs'), [
+      "test('the_node_contract_is_executable', () => {});",
+    ].join('\n'), 'utf8');
+
+    const catalog = api.discoverExecutableTests(directory);
+    assert.deepEqual(catalog.get(
+      'src-tauri/src/example.rs::the_default_rust_contract_is_executable',
+    ), { ignored: false });
+    assert.deepEqual(catalog.get(
+      'src-tauri/src/example.rs::the_optional_rust_contract_is_ignored',
+    ), { ignored: true });
+    assert.deepEqual(catalog.get(
+      'tools/example.test.mjs::the_node_contract_is_executable',
+    ), { ignored: false });
+  } finally {
+    fs.rmSync(directory, { recursive: true });
+  }
+});

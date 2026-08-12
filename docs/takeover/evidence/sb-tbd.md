@@ -184,7 +184,7 @@ Shared ownership is recorded in the ledger's immutable `owned_tests` column. In 
 - **Current implementation:** `thin_bed_ts` clamps bulk VSH, derived dispersed fraction, and derived sand porosity; out-of-model geometry therefore becomes a plausible in-range answer.
 - **As-built status:** `PRESENT-DIVERGENT`; a stricter classification would credit prose, a vacuous absence, a helper, or only one limb of the compound contract.
 - **Release disposition and risk:** `PILOT-BLOCKER`; `SILENT-WRONGNESS`.
-- **Automated evidence:** `CHARACTERIZATION`. `SB-TBD-T07`, `SB-TBD-T08` remain unimplemented as named whole-contract tests; current focused tests characterize only the live supporting seam described above.
+- **Automated evidence:** `MISSING`. `SB-TBD-T07`, `SB-TBD-T08` remain unimplemented and no executable test submits out-of-model geometry and observes the derived clamp.
 - **Manual evidence:** thin-beds `0/1`; Thomas-Stieber `0/0` and not listed; workflow `0/23`; no checked manual scenario closes this row.
 - **Source/parameter boundary:** Chapter §5 and §6 own the geometry, identities, flags, cutoffs, and test oracles; withdrawn endpoint defaults remain absent and no plausible replacement is adopted.
 - **UI/IPC/provenance surface:** `thin_bed_ts` clamps bulk VSH, derived dispersed fraction, and derived sand porosity; out-of-model geometry therefore becomes a plausible in-range answer.
@@ -268,7 +268,7 @@ Shared ownership is recorded in the ledger's immutable `owned_tests` column. In 
 - **Current implementation:** `ArgSpec` declares module ranges and workflow rejects out-of-range zone values, while the T-S drag handler independently hard-clamps both endpoints to `[0,0.5]`.
 - **As-built status:** `PRESENT-DIVERGENT`; a stricter classification would credit prose, a vacuous absence, a helper, or only one limb of the compound contract.
 - **Release disposition and risk:** `PILOT-BLOCKER`; `DATA-INTEGRITY`.
-- **Automated evidence:** `CHARACTERIZATION`. SB-TBD-T14 remain unimplemented as named whole-contract tests; current focused tests characterize only the live supporting seam described above.
+- **Automated evidence:** `MISSING`. SB-TBD-T14 remains unimplemented; source inspection finds both range authorities but no executable test compares them or drives the UI boundary.
 - **Manual evidence:** thin-beds `0/1`; Thomas-Stieber `0/0` and not listed; workflow `0/23`; no checked manual scenario closes this row.
 - **Source/parameter boundary:** Chapter §5 and §6 own the geometry, identities, flags, cutoffs, and test oracles; withdrawn endpoint defaults remain absent and no plausible replacement is adopted.
 - **UI/IPC/provenance surface:** `ArgSpec` declares module ranges and workflow rejects out-of-range zone values, while the T-S drag handler independently hard-clamps both endpoints to `[0,0.5]`.
@@ -1012,7 +1012,7 @@ Shared ownership is recorded in the ledger's immutable `owned_tests` column. In 
 - **Current implementation:** `thin_bed_ts_spec` still ships uncited defaults `PHI_SD_MAX=0.30` and `PHI_SH=0.15`; interactive picks can overwrite them with provenance, but a fresh run still begins from the two withdrawn values.
 - **As-built status:** `PRESENT-DIVERGENT`; a stricter classification would confuse generic infrastructure, bulk quantities, or one safe preservation limb with the full sand-reference contract.
 - **Release disposition and risk:** `PILOT-BLOCKER`; `SILENT-WRONGNESS`.
-- **Automated evidence:** `CHARACTERIZATION`. `SB-TBD-T23`, `SB-TBD-T24` remain absent as named whole-contract tests; current full-gate tests prove or characterize only the supporting live seam identified above.
+- **Automated evidence:** `MISSING`. `SB-TBD-T23`, `SB-TBD-T24` remain absent and no executable test asserts that a fresh run still receives either withdrawn default.
 - **Manual evidence:** thin-beds `0/1`; Thomas-Stieber `0/0` and not listed; saturation `2/97`; cutoffs-pay `0/23`; report `6/53`; workflow `0/23`; processing-history `0/7`; no checked manual scenario closes this row.
 - **Source/parameter boundary:** The two live defaults are WITHDRAWN. Replacement values ship absent; only a cited/imported/picked value with provenance may enter a run.
 - **UI/IPC/provenance surface:** `thin_bed_ts_spec` still ships uncited defaults `PHI_SD_MAX=0.30` and `PHI_SH=0.15`; interactive picks can overwrite them with provenance, but a fresh run still begins from the two withdrawn values.
@@ -1033,6 +1033,6 @@ Shared ownership is recorded in the ledger's immutable `owned_tests` column. In 
 - As-built: `51 ABSENT`, `7 PARTIAL`, `8 PRESENT-DIVERGENT`, `0 PRESENT-OK`, `0 PRESENT-UNVERIFIED`.
 - Release disposition: `30 PILOT-BLOCKER`, `36 DEFERRED`, `0 OUT`.
 - Risk: `19 SILENT-WRONGNESS`, `10 DATA-INTEGRITY`, `2 DEGRADED-RESULT`, `34 REQUESTED-CAPABILITY`, `1 LATER`.
-- Acceptance evidence: `11 CHARACTERIZATION`, `55 MISSING`, `0 CORRECTNESS`. Supporting tests do not close any named whole-contract intention.
+- Acceptance evidence after the exact-test audit: `8 CHARACTERIZATION`, `58 MISSING`, `0 CORRECTNESS`. Supporting tests do not close any named whole-contract intention.
 - Manual evidence remains unchanged and open. No automated result is presented as field evidence.
 - After these 66 rows are written to the ledger, the mechanical global rollup must be `607 adjudicated` and `324 unadjudicated`; the blocker total must be recomputed rather than inferred.

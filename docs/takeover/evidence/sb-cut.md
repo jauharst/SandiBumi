@@ -280,7 +280,7 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 - **Specified contract:** every cutoff entry/display surface resolves one authority.
 - **Current implementation / as-built:** seven UI consumers plus the loader share loadCutoffDefaults, while dashboardPanel hardcodes 0.5/0.1/0.6. PARTIAL.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** CHARACTERIZATION; source inventory identifies the current eight loader-related files and one direct-literal bypass, but T35 does not exist as a registry test.
+- **Automated evidence:** MISSING; source inventory identifies the current eight loader-related files and one direct-literal bypass, but source inspection is not executable evidence and T35 does not exist as a registry test.
 - **Manual evidence:** NONE; field dashboard is 0/10.
 - **Source/parameter boundary:** shared authority must carry absent/source states; a centralized uncited value remains wrong.
 - **UI/IPC/provenance surface:** cutoff, summary, MC, report, Results QC, workbook and deck load the shared document; dashboard does not.
@@ -400,7 +400,7 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 - **Specified contract:** emitted saturation identities are SWE or SWT, never bare SW.
 - **Current implementation / as-built:** saturation modules and MC tracked outputs emit explicit SWE/SWT identities; the bare SW string found in contacts is an input alias, not an emitted result. PRESENT-OK.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** CHARACTERIZATION; module inventory tests and output manifests support the positive side, but T06 is not an exhaustive no-bare-output registry test.
+- **Automated evidence:** MISSING; module/output parity would also pass if both manifest and output added bare `SW`, so it does not pin T06's negative registry contract.
 - **Manual evidence:** NONE.
 - **Source/parameter boundary:** identity convention only; no numeric parameter.
 - **UI/IPC/provenance surface:** summary and MC use avg_swe/SWE; modules declare SWE/SWT.
@@ -580,7 +580,7 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 - **Specified contract:** derived ratios are calculated inside each realization before percentile summarization.
 - **Current implementation / as-built:** zone_metrics calculates ntg per realization and summarize operates on the resulting ntg vector. PRESENT-OK.
 - **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
-- **Automated evidence:** CHARACTERIZATION; code shape and current distribution tests support the route, but T19's varying-gross ratio-of-percentiles negative control is absent.
+- **Automated evidence:** MISSING; code shape is not executable evidence, and current distribution tests do not exercise T19's varying-gross ratio-of-percentiles discriminator.
 - **Manual evidence:** NONE.
 - **Source/parameter boundary:** independent arithmetic is the oracle; R-8 forbids ratio-of-marginal-percentiles.
 - **UI/IPC/provenance surface:** McZoneResult exposes ntg percentiles but not calculation method.
@@ -616,7 +616,7 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 - **Specified contract:** name the percentile interpolation method on the output record.
 - **Current implementation / as-built:** percentile implements linear type-7 arithmetic internally, but McResult/Pctl do not identify the method. PARTIAL.
 - **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
-- **Automated evidence:** CHARACTERIZATION; helper inspection confirms type-7 arithmetic, but T16's output-record assertion is absent.
+- **Automated evidence:** MISSING; helper inspection is not an executable output-record assertion, and T16 is absent.
 - **Manual evidence:** NONE.
 - **Source/parameter boundary:** type-7 is the explicit SandiBumi specification, not a guessed vendor method.
 - **UI/IPC/provenance surface:** method is absent from result, persistence, report and office export.
@@ -807,7 +807,7 @@ ledger remains unchanged and does not make a partial helper sufficient for a com
 
 - As-built verdicts: ABSENT 28; PARTIAL 14; PRESENT-DIVERGENT 8; PRESENT-OK 10; PRESENT-UNVERIFIED 1.
 - Release dispositions: PILOT-BLOCKER 42; UNDECIDED 9; DEFERRED 10; OUT 0.
-- Automated proof classes: CORRECTNESS 4; CHARACTERIZATION 15; MISSING 42.
+- Automated proof classes after the exact-test audit: CORRECTNESS 4; CHARACTERIZATION 11; MISSING 46.
 - All 44 chapter test intentions are routed in the committed execution plan. The four correctness closures are T37, T37b, T37c and T38; every other claimed passing test is supporting/characterization unless the owned whole-contract oracle is added.
 - All 44 parameter rows remain cited, absent or explicitly non-adoptable. No live literal was promoted to authority.
 - O-1 through O-12, E-1 through E-6 and R-1 through R-13 remain accounted for. E-1 is closed only as an exposure ruling; O-2 still blocks SB-CUT-013 through SB-CUT-015; E-3/E-4/E-6 remain unresolved source or governance seams.

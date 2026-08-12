@@ -419,7 +419,7 @@
 
 - **Specified contract:** the water-mud condition is a hard inequality iterated to feasibility and leaves already-valid samples unchanged.
 - **Current implementation:** a violation triggers one re-solve with a sigma-weighted equality at zero; valid samples avoid the row, but violating samples are pulled to equality and no iterative feasibility policy exists.
-- **Automated evidence:** `CHARACTERIZATION`; current constraint/default tests pin the once-only equality path, not the specified violating/unchanged pair.
+- **Automated evidence:** `MISSING`; request-default and source inspection do not execute the once-only equality re-solve path, so no test characterizes the divergence.
 - **Manual evidence:** `NONE`; no WBM constraint scenario is checked.
 - **Source/parameter and surface boundary:** `ESC-3` leaves iteration cap and cap behavior unresolved; no agent invents them.
 - **History/reachability:** commit `a5739c2` is reachable and the divergent path is integrated.
@@ -443,7 +443,7 @@
 
 - **Specified contract:** emit the complete named output set, no bare `SW`, and declare each clay/shale curve convention.
 - **Current implementation:** volume, PHIE/PHIT, saturation, moved-hydrocarbon, VSH, RECON, REC/DIF exist; `SXOE`, `PHIE_X`, and `PHIT_X` plus convention metadata are absent. No bare `SW` is emitted.
-- **Automated evidence:** `CHARACTERIZATION`; current output inventories pin the existing set and the positive no-bare-SW limb only.
+- **Automated evidence:** `MISSING`; generic output/manifest parity does not prove the required positive identities or the negative no-bare-SW inventory.
 - **Manual evidence:** `NONE`; delivery sets are 0/33 and LAS export 0/2.
 - **Source/parameter and surface boundary:** nomenclature/custody is missing; no curve quantity is inferred from its mnemonic.
 - **History/reachability:** current output emitter is integrated.
@@ -574,7 +574,7 @@
 ## Acceptance-test ownership summary
 
 - All 44 intentions are routed once: T01→001; T02→002; T03→003; T04→005; T05/T06→006; T07→007; T08→008/040; T09→009; T10→010; T11→011; T12→012; T13→013; T14→004/014; T15→015; T16→016; T17→017; T18→018; T19→019/020; T20→020/039; T21→021; T22→022; T23→023; T24→010/024; T25→025; T26→026; T27→027/040; T28→028/029; T29→029; T30→030; T31→031; T32→032; T33→033; T34→034; T35→035; T36→042/043; T37→036; T38→037; T39→038; T40/T41→041; T42→044; T43→045; T44→046.
-- Whole-contract proof classification: 1 `CORRECTNESS` (016), 16 `CHARACTERIZATION` (001, 003, 005, 006, 008, 012, 013, 021, 024, 027, 029, 034, 035, 036, 040, 045), and 29 `MISSING`.
+- Exact-test audit classification: 1 `CORRECTNESS` (016), 14 `CHARACTERIZATION` (001, 003, 005, 006, 008, 012, 013, 021, 024, 027, 029, 035, 040, 045), and 31 `MISSING`; 034 and 036 were downgraded because no executable test asserts their claimed behavior.
 - T40's catalogue/refusal proof is retained as supporting positive evidence, but the compound requirement remains `MISSING` because T41 exposes orphan retired defaults.
 
 ## Parameter-custody appendix
@@ -603,5 +603,5 @@
 - As-built: 27 `ABSENT`, 6 `PARTIAL`, 7 `PRESENT-DIVERGENT`, 5 `PRESENT-OK`, 1 `PRESENT-UNVERIFIED`.
 - Release: 34 `PILOT-BLOCKER`, 8 `UNDECIDED`, 4 `DEFERRED`.
 - Risk: 17 `SILENT-WRONGNESS`, 17 `DATA-INTEGRITY`, 8 `REQUESTED-CAPABILITY`, 4 `LATER`.
-- Test class: 1 `CORRECTNESS`, 16 `CHARACTERIZATION`, 29 `MISSING`.
+- Test class after the exact-test audit: 1 `CORRECTNESS`, 14 `CHARACTERIZATION`, 31 `MISSING`.
 - Manual evidence: unchanged; no requirement is field-validated by this adjudication.

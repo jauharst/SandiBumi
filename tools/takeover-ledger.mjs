@@ -10,6 +10,7 @@ const prdDirectory = path.dirname(sourcePath);
 const ledgerPath = path.join(repo, 'docs', 'takeover', 'requirements.csv');
 const statusPath = path.join(repo, 'docs', 'takeover', 'STATUS.md');
 const prdAuditPath = path.join(repo, 'docs', 'takeover', 'evidence', 'prd-integrity.md');
+const testEvidencePath = path.join(repo, 'docs', 'takeover', 'test-evidence.csv');
 
 const CHAPTER_STATUSES = new Set([
   'ABSENT',
@@ -76,6 +77,72 @@ export const TEST_CLASSES = new Set([
   'SPEC-DIVERGENCE-IGNORED',
   'MISSING',
 ]);
+
+export const CLAIMED_TEST_CLASSES = new Set([
+  'CORRECTNESS',
+  'CHARACTERIZATION',
+  'OPTIONAL-PACKAGE-IGNORED',
+  'SPEC-DIVERGENCE-IGNORED',
+]);
+
+export const TEST_EVIDENCE_COLUMNS = [
+  'requirement_id',
+  'test_class',
+  'test_path',
+  'test_name',
+];
+
+const TEST_SOURCE_EXTENSIONS = new Set(['.js', '.mjs', '.rs', '.ts', '.tsx']);
+const TEST_DISCOVERY_IGNORES = new Set(['.git', 'dist', 'node_modules', 'target']);
+
+function repositoryPath(root, filePath) {
+  return path.relative(root, filePath).split(path.sep).join('/');
+}
+
+function sourceFilesUnder(directory) {
+  const files = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (TEST_DISCOVERY_IGNORES.has(entry.name)) continue;
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...sourceFilesUnder(entryPath));
+    } else if (entry.isFile() && TEST_SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+      files.push(entryPath);
+    }
+  }
+  return files.sort();
+}
+
+function decodeSingleQuotedJavascript(value) {
+  return value.replace(/\\(['\\])/gu, '$1');
+}
+
+export function discoverExecutableTests(root = repo) {
+  const catalog = new Map();
+  for (const filePath of sourceFilesUnder(root)) {
+    const relativePath = repositoryPath(root, filePath);
+    const source = fs.readFileSync(filePath, 'utf8');
+    if (path.extname(filePath) === '.rs') {
+      const rustTest = /((?:^[ \t]*#\[[^\]\r\n]+\][ \t]*\r?\n)+)[ \t]*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)/gmu;
+      for (const match of source.matchAll(rustTest)) {
+        const attributes = match[1];
+        if (!/#\[(?:[A-Za-z_][A-Za-z0-9_]*::)?test(?:\]|\()/u.test(attributes)) continue;
+        const key = `${relativePath}::${match[2]}`;
+        catalog.set(key, { ignored: /#\[ignore(?:\s*=|\])/u.test(attributes) });
+      }
+      continue;
+    }
+
+    const javascriptTest = /\b(?:test|it)(?:\.(skip|todo))?\s*\(\s*(?:'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)")/gu;
+    for (const match of source.matchAll(javascriptTest)) {
+      const name = match[2] === undefined
+        ? JSON.parse(`"${match[3]}"`)
+        : decodeSingleQuotedJavascript(match[2]);
+      catalog.set(`${relativePath}::${name}`, { ignored: match[1] !== undefined });
+    }
+  }
+  return catalog;
+}
 
 export const COMMIT_STATES = new Set([
   'UNVERIFIED',
@@ -304,6 +371,76 @@ export function validateLedger(sourceRows, ledgerRows) {
     }
   }
   return true;
+}
+
+export function validateTestEvidence({ ledgerRows, evidenceRows, executableTests }) {
+  const ledgerById = new Map(ledgerRows.map((row) => [row.requirement_id, row]));
+  const evidenceSignatures = new Set();
+  for (const evidence of evidenceRows) {
+    const ledger = ledgerById.get(evidence.requirement_id);
+    if (!ledger) {
+      throw new Error(`${evidence.requirement_id} evidence has no ledger requirement`);
+    }
+    if (evidence.test_class !== ledger.test_class) {
+      throw new Error(
+        `${evidence.requirement_id} evidence class ${evidence.test_class}`
+        + ` does not match ledger class ${ledger.test_class}`,
+      );
+    }
+    if (!CLAIMED_TEST_CLASSES.has(ledger.test_class)) {
+      throw new Error(
+        `${evidence.requirement_id} has executable evidence while ledger class is ${ledger.test_class}`,
+      );
+    }
+    const key = `${evidence.test_path}::${evidence.test_name}`;
+    const signature = `${evidence.requirement_id}::${evidence.test_class}::${key}`;
+    if (evidenceSignatures.has(signature)) {
+      throw new Error(`duplicate exact test evidence for ${evidence.requirement_id}: ${key}`);
+    }
+    evidenceSignatures.add(signature);
+    const executable = executableTests.get(key);
+    if (!executable) {
+      throw new Error(
+        `${evidence.requirement_id} evidence does not resolve to executable test ${key}`,
+      );
+    }
+    if (ledger.test_class.endsWith('-IGNORED') && !executable.ignored) {
+      throw new Error(
+        `${evidence.requirement_id} claims ${ledger.test_class} but ${key} is not ignored`,
+      );
+    }
+    if (
+      (ledger.test_class === 'CORRECTNESS' || ledger.test_class === 'CHARACTERIZATION')
+      && executable.ignored
+    ) {
+      throw new Error(
+        `${evidence.requirement_id} claims ${ledger.test_class} but ${key} is ignored`,
+      );
+    }
+  }
+  for (const row of ledgerRows) {
+    if (!CLAIMED_TEST_CLASSES.has(row.test_class)) continue;
+    if (!evidenceRows.some((evidence) => evidence.requirement_id === row.requirement_id)) {
+      throw new Error(
+        `${row.requirement_id} claims ${row.test_class} but has no exact executable test evidence`,
+      );
+    }
+  }
+  return true;
+}
+
+export function parseTestEvidence(text) {
+  const rows = parseCsv(text);
+  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+  if (
+    columns.length !== TEST_EVIDENCE_COLUMNS.length
+    || columns.some((column, index) => column !== TEST_EVIDENCE_COLUMNS[index])
+  ) {
+    throw new Error(
+      `exact test evidence header must be ${TEST_EVIDENCE_COLUMNS.join(',')}`,
+    );
+  }
+  return rows;
 }
 
 export function validateStatus(markdown) {
@@ -711,10 +848,20 @@ export function checkTracker(options = {}) {
   const trackerLedgerPath = options.ledgerPath ?? ledgerPath;
   const trackerStatusPath = options.statusPath ?? statusPath;
   const trackerPrdAuditPath = options.prdAuditPath ?? prdAuditPath;
+  const trackerTestEvidencePath = options.testEvidencePath ?? testEvidencePath;
   const trackerPrdDirectory = options.prdDirectory ?? path.dirname(trackerSourcePath);
   const sourceRows = parseConsolidatedRequirements(fs.readFileSync(trackerSourcePath, 'utf8'));
   if (!fs.existsSync(trackerLedgerPath)) throw new Error(`missing ledger: ${trackerLedgerPath}`);
-  validateLedger(sourceRows, parseCsv(fs.readFileSync(trackerLedgerPath, 'utf8')));
+  const ledgerRows = parseCsv(fs.readFileSync(trackerLedgerPath, 'utf8'));
+  validateLedger(sourceRows, ledgerRows);
+  if (!fs.existsSync(trackerTestEvidencePath)) {
+    throw new Error(`missing exact test evidence map: ${trackerTestEvidencePath}`);
+  }
+  validateTestEvidence({
+    ledgerRows,
+    evidenceRows: parseTestEvidence(fs.readFileSync(trackerTestEvidencePath, 'utf8')),
+    executableTests: options.executableTests ?? discoverExecutableTests(repo),
+  });
   if (!fs.existsSync(trackerStatusPath)) throw new Error(`missing dashboard: ${trackerStatusPath}`);
   validateStatus(fs.readFileSync(trackerStatusPath, 'utf8'));
   if (fs.existsSync(trackerPrdAuditPath)) {
