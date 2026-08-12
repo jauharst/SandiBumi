@@ -7,21 +7,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 ## Now
 
 - Product target: paid offline Windows pilot
-- Current gate: `G1 — BASELINE RECONCILIATION — COMPLETE`
+- Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-FINAL-AUDIT - COMPLETE; all seven exit criteria pass against tested commit b4ebe09, with the exact approved 242/689 boundary and no production change from the accepted baseline`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — verified ancestor and implementation evidence anchor; final-audit tooling is based on exact-evidence commit 232c1d8f6db9c5c85dc5f18581d1ecf17fbe9152 in the sole worktree`
-- Automated gate: `FRESH FULL GATE GREEN ON b4ebe09 - 957 passed / 0 failed / 36 ignored in 254s; TypeScript and Rust checks passed separately; exact-proof verifier 27/27, Gate 1 exit-verifier 28/28, tracker and matrix checks green`
+- Active increment: `G2-PLAN - ACTIVE; exact approved scope routed into 222 Gate 2 rows and 20 later-gate-only rows across ten serial tranches; no production behavior or requirement verdict changed`
+- Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
+- Automated gate: `Gate 2 planning tree is green at 963 passed / 0 failed / 36 ignored in 85s; this is the Gate 1 baseline plus exactly six Gate 2 program-control tests and does not prove any production requirement newly closed`
 - Pilot field evidence: `OPEN`
-- Open blockers: `none for Gate 1; Gate 2 has not started and the 242 approved blockers remain implementation/verification work rather than completed capability`
-- Next increment: `STOP at the completed Gate 1 boundary; begin G2 silent-wrongness closure only on explicit authorization, preserving the approved exact pilot manifest.`
+- Open blockers: `222 Gate 2 obligations: 36 implement-or-refuse, 124 remediate, 19 prove and 43 retain/reverify; 20 approved rows are explicitly owned by Gate 3 or Gate 4 and are not counted as Gate 2 work`
+- Next increment: `G2-I001 inventory and assign all 56 current Rust warnings and all 36 ignored tests before the first production requirement changes.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; 36 implement-or-refuse / 124 remediate / 19 prove / 43 retain; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |

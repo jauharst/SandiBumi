@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "program_id": "G2-PILOT-TRUTH-CLOSURE",
+  "state": "ACTIVE",
+  "baseline_merge_commit": "ca4f8c924373adbc3c0362202b7a914a56bd2b48",
+  "approved_scope_sha256": "0412de0cc43fabbe0c5e32d4c831d65e90536ee1c348802ab67cb0f3dcd70b6b",
+  "gate2_requirement_count": 222,
+  "later_gate_requirement_count": 20,
+  "action_mode_counts": {
+    "IMPLEMENT-OR-REFUSE": 36,
+    "REMEDIATE": 124,
+    "PROVE": 19,
+    "RETAIN": 43
+  },
+  "execution": {
+    "implementation_model": "gpt-5.6-sol-xhigh",
+    "final_audit_model": "gpt-5.6-sol-max",
+    "commit_contract": "one requirement per commit; infrastructure is assigned to the first requirement that needs it",
+    "verification_contract": "focused RED-GREEN test, npx tsc --noEmit, cargo check, then the full gate per tranche and before each PR",
+    "evidence_contract": "automated, visual, manual, and field evidence remain separate; only Jauhar records manual or field acceptance"
+  },
+  "forecast": {
+    "engineering_rows": 179,
+    "retain_and_reverify_rows": 43,
+    "initial_full_time_working_weeks": "10-16",
+    "initial_calendar_months_if_not_full_time": "3-5",
+    "refresh_rule": "replace the estimate after each tranche using measured completed requirements per working day and unresolved source or decision blocks"
+  },
+  "tranches": [
+    {
+      "id": "G2-T01-CORE-TRUTH",
+      "title": "Cross-cutting truth, reporting honesty, provenance, cancellation, and policy gates",
+      "pilot_group": "CORE_TRUTH",
+      "exclude_ids": ["SB-CORE-040", "SB-CORE-041", "SB-CORE-042"]
+    },
+    {
+      "id": "G2-T02-UNIT-REGISTRY",
+      "title": "Governed parameter activation, typed units, observed tokens, and generated registry consumers",
+      "requirement_ids": [
+        "SB-INS-014",
+        "SB-INS-015",
+        "SB-INS-016",
+        "SB-INS-017",
+        "SB-INS-018",
+        "SB-INS-019"
+      ]
+    },
+    {
+      "id": "G2-T03-PROJECT-STORE",
+      "title": "One-writer project storage, complete run custody, integrity, and recoverable history",
+      "pilot_group": "PROJECT_STORE",
+      "exclude_ids": []
+    },
+    {
+      "id": "G2-T04-DATA-IO",
+      "title": "LAS 2 and delimited text truth, native grids, explicit Reframe, units, nulls, atomicity, and export",
+      "pilot_group": "DATA_IO",
+      "exclude_ids": []
+    },
+    {
+      "id": "G2-T05-PLOTTING-REPORTING",
+      "title": "Basic plot and report truth, paper-scale export, accessibility, and lawful payload boundaries",
+      "pilot_group": "PLOTTING_REPORTING",
+      "exclude_ids": ["SB-PLT-032"]
+    },
+    {
+      "id": "G2-T06-QC-CONDITIONING",
+      "title": "Validity, masks, despike, smoothing, gaps, clips, recoverability, and provenance",
+      "pilot_group": "QC_CONDITIONING",
+      "exclude_ids": []
+    },
+    {
+      "id": "G2-T07-CLAY-LINEAR-GR",
+      "title": "Linear-GR shale volume with explicit endpoints, typed quantities, flags, units, and nulls",
+      "pilot_group": "CLAY_LINEAR_GR",
+      "exclude_ids": []
+    },
+    {
+      "id": "G2-T08-POROSITY",
+      "title": "Density and chart-free analytic neutron-density porosity with explicit branches and custody",
+      "pilot_group": "POROSITY_DENSITY_ANALYTIC_DN",
+      "exclude_ids": []
+    },
+    {
+      "id": "G2-T09-SATURATION",
+      "title": "Effective and total Archie plus parameterized Indonesia with guards and unclipped custody",
+      "pilot_group": "SATURATION_ARCHIE_INDONESIA",
+      "exclude_ids": []
+    },
+    {
+      "id": "G2-T10-CUTOFFS-PAY",
+      "title": "Sourced per-zone deterministic cutoffs, thickness partition, summaries, and failure honesty",
+      "pilot_group": "DETERMINISTIC_CUTOFFS_PAY",
+      "exclude_ids": []
+    }
+  ],
+  "completed_requirements": [],
+  "blocked_requirements": [],
+  "later_gate_only": [
+    {"requirement_id": "SB-CORE-041", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Fresh-clone and clean-machine build evidence belongs to Windows and offline qualification"},
+    {"requirement_id": "SB-CORE-042", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Machine-enforced publication requires the clean-clone proof owned by Gate 3"},
+    {"requirement_id": "SB-INS-001", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Qualified native Windows installer evidence"},
+    {"requirement_id": "SB-INS-002", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Installed native launch without Python"},
+    {"requirement_id": "SB-INS-003", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Installed capability prerequisite publication"},
+    {"requirement_id": "SB-INS-004", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Offline dependency and capability manifest"},
+    {"requirement_id": "SB-INS-005", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Qualified interpreter resolution routes"},
+    {"requirement_id": "SB-INS-006", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Installed package and version preflight"},
+    {"requirement_id": "SB-INS-007", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Installed interpreter remediation and re-probe"},
+    {"requirement_id": "SB-INS-008", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Network-blocked managed deployment"},
+    {"requirement_id": "SB-INS-009", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Signed and attested offline runtime contents"},
+    {"requirement_id": "SB-INS-010", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Installed immutable-resource and writable-configuration boundary"},
+    {"requirement_id": "SB-INS-011", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Installed configuration migration and rollback"},
+    {"requirement_id": "SB-INS-021", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Reproducible installed support report"},
+    {"requirement_id": "SB-INS-022", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Upgrade and uninstall preservation evidence"},
+    {"requirement_id": "SB-INS-023", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Clean-machine release matrix"},
+    {"requirement_id": "SB-INS-024", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Exact package legal and vulnerability disposition"},
+    {"requirement_id": "SB-INS-026", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Release claims derived from installed executable evidence"},
+    {"requirement_id": "SB-CORE-040", "owner_gate": "G4", "state": "NOT-OWNED-BY-G2", "reason": "Capability-indexed representative field execution"},
+    {"requirement_id": "SB-PLT-032", "owner_gate": "G4", "state": "NOT-OWNED-BY-G2", "reason": "Declared-hardware plot performance evidence"}
+  ]
+}
