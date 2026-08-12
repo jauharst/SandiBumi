@@ -2092,13 +2092,27 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         let run = || {
+            // CHARACTERIZATION fixture: these are the pre-SB-CORE-004 manifest values used to
+            // keep this test about missing porosity, not about parameter-source policy. They are
+            // explicit test inputs and are not shipping defaults.
+            let params = HashMap::from([
+                ("RW".to_string(), 0.3),
+                ("M".to_string(), 2.0),
+                ("N".to_string(), 2.0),
+                ("A_CAP".to_string(), 0.45),
+                ("B_QV".to_string(), 0.0057),
+                ("C0".to_string(), -0.0071),
+                ("RSF".to_string(), 2.25),
+                ("CEC".to_string(), 0.0),
+                ("RHOG".to_string(), 2.65),
+            ]);
             run_workflow_module(
                 &dbm,
                 &RunModuleRequest {
                     module: "sw_rtc".into(),
                     well_ids: vec![well.clone()],
                     log_inputs: HashMap::new(),
-                    params: HashMap::new(),
+                    params,
                     opts: HashMap::new(),
                     output_set: None,
                     input_set: None,
@@ -2254,13 +2268,19 @@ mod tests {
             spec.args.iter().find(|a| a.name == "TEMP_GRAD").expect("declared").well_scope,
             "TEMP_GRAD must be declared well-scoped, or nothing below this line is being tested"
         );
+        // CHARACTERIZATION fixture: these pre-SB-CORE-004 manifest values are supplied only so
+        // this test isolates well versus zone scope; they are not shipping defaults.
+        let base = HashMap::from([
+            ("TEMP_GRAD".to_string(), 0.026),
+            ("PGRAD".to_string(), 0.433),
+        ]);
 
         // Baseline: an unmodified run resolves.
-        assert!(resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth).is_ok());
+        assert!(resolve_param_arrays(&conn, &well, &spec, &base, &depth).is_ok());
 
         // The override that made the step.
         db::set_zone_param(&conn, &well, "LOWER", "TEMP_GRAD", Some(0.035), None).unwrap();
-        let err = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+        let err = resolve_param_arrays(&conn, &well, &spec, &base, &depth)
             .expect_err("a named-zone gradient must be refused, not silently dropped");
         assert!(err.contains("TEMP_GRAD"), "the message must name the parameter: {err}");
         assert!(err.contains("LOWER"), "and the zone it is on: {err}");
@@ -2268,19 +2288,19 @@ mod tests {
 
         // Cleared, it resolves again — the guard is not blanket-blocking.
         db::set_zone_param(&conn, &well, "LOWER", "TEMP_GRAD", None, None).unwrap();
-        assert!(resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth).is_ok());
+        assert!(resolve_param_arrays(&conn, &well, &spec, &base, &depth).is_ok());
 
         // An override naming a zone this well does not have never applied and must not start
         // failing runs — only an override that would actually bite is refused.
         db::set_zone_param(&conn, &well, "NOT-A-ZONE-HERE", "TEMP_GRAD", Some(0.05), None).unwrap();
         assert!(
-            resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth).is_ok(),
+            resolve_param_arrays(&conn, &well, &spec, &base, &depth).is_ok(),
             "an inert override must stay inert rather than becoming a new failure"
         );
 
         // The well-wide scope survives, and applies everywhere.
         db::set_zone_param(&conn, &well, "*", "TEMP_GRAD", Some(0.035), None).unwrap();
-        let good = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+        let good = resolve_param_arrays(&conn, &well, &spec, &base, &depth)
             .expect("a well-wide gradient is one trend and must be honoured");
         assert!(
             good["TEMP_GRAD"].iter().all(|v| (*v - 0.035).abs() < 1e-9),
@@ -2291,7 +2311,7 @@ mod tests {
         // formation top is a pressure compartment, which is a real thing rock does. The asymmetry
         // is the physics, and asserting it here is what stops someone "tidying" it away.
         db::set_zone_param(&conn, &well, "LOWER", "PGRAD", Some(0.5), None).unwrap();
-        let mixed = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+        let mixed = resolve_param_arrays(&conn, &well, &spec, &base, &depth)
             .expect("a per-zone pressure gradient stays legal");
         assert!((mixed["PGRAD"][0] - 0.433).abs() < 1e-9, "above the zone, the trend default");
         assert!((mixed["PGRAD"][4] - 0.5).abs() < 1e-9, "inside it, the override");
@@ -2627,8 +2647,17 @@ mod tests {
             module: "gr_normalize".into(),
             well_ids: vec![w.clone()],
             log_inputs: HashMap::new(),
-            params: HashMap::new(), // manifest defaults: P3/P97, generic refs 20/120
-            opts: [("MASK".to_string(), "BADHOLE".to_string())].into_iter().collect(),
+            // CORRECTNESS fixture: P3/P97 are the cited chapter values. The reference pair is
+            // explicit test arithmetic, not a product calibration or shipping default.
+            params: HashMap::from([
+                ("P_LOW".to_string(), 3.0),
+                ("P_HIGH".to_string(), 97.0),
+                ("GR_LOW_REF".to_string(), 20.0),
+                ("GR_HIGH_REF".to_string(), 120.0),
+            ]),
+            opts: [("MASK".to_string(), "BADHOLE".to_string())]
+                .into_iter()
+                .collect(),
             output_set: None,
             input_set: None,
         };
@@ -2872,9 +2901,9 @@ mod tests {
     /// So the two wells here are deliberately given very different GR characters and run in ONE
     /// batch. Each must come back with its own P3 and P97 on the shared references.
     ///
-    /// The reference values are read from the manifest rather than typed in, because they are
-    /// generic defaults held by `gr_normalize_reference_defaults_are_generic_not_a_field_calibration`
-    /// and must never be restated as literals here — a second copy is a second thing to go stale.
+    /// P3/P97 are read from the cited manifest entries. The 20/120 reference pair is explicit
+    /// arithmetic for this normalization-is-per-well test; SB-CORE-004 deliberately removed it
+    /// from the product manifest because no source supports shipping it as a default.
     #[test]
     fn gr_normalization_anchors_each_well_on_its_own_percentiles() {
         let conn = Connection::open_in_memory().unwrap();
@@ -2924,15 +2953,21 @@ mod tests {
                 .parse()
                 .expect("numeric default")
         };
-        let (lo_ref, hi_ref) = (default_of("GR_LOW_REF"), default_of("GR_HIGH_REF"));
         let (p_lo, p_hi) = (default_of("P_LOW"), default_of("P_HIGH"));
+        // CHARACTERIZATION fixture: explicit arithmetic endpoints, not shipping defaults.
+        let (lo_ref, hi_ref) = (20.0f32, 120.0f32);
 
         let dbm = Mutex::new(conn);
         let req = RunModuleRequest {
             module: "gr_normalize".into(),
             well_ids: vec![a.to_string(), b.to_string()],
             log_inputs: HashMap::new(),
-            params: HashMap::new(),
+            params: HashMap::from([
+                ("P_LOW".to_string(), p_lo as f64),
+                ("P_HIGH".to_string(), p_hi as f64),
+                ("GR_LOW_REF".to_string(), lo_ref as f64),
+                ("GR_HIGH_REF".to_string(), hi_ref as f64),
+            ]),
             opts: HashMap::new(),
             output_set: None,
             input_set: None,
@@ -3042,7 +3077,8 @@ mod tests {
                 module: "vsh_gr".into(),
                 well_ids: vec![wid.to_string()],
                 log_inputs: HashMap::new(),
-                params: HashMap::new(),
+                // CHARACTERIZATION fixture: former manifest endpoints, now explicit test inputs.
+                params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
                 opts,
                 output_set: None,
                 input_set: None,
@@ -3266,9 +3302,16 @@ mod tests {
             module: "precalc".into(),
             well_ids: vec![w.clone()],
             log_inputs: HashMap::new(),
-            params: [("PSURF".to_string(), psurf), ("PGRAD".to_string(), base_grad)]
-                .into_iter()
-                .collect(),
+            // CHARACTERIZATION fixture: explicit pre-SB-CORE-004 inputs keep this test about the
+            // half-open zone boundary. None of these values is restored as a shipping default.
+            params: HashMap::from([
+                ("SURF_TEMP".to_string(), 25.0),
+                ("TEMP_GRAD".to_string(), 0.03),
+                ("PSURF".to_string(), psurf),
+                ("PGRAD".to_string(), base_grad),
+                ("RMF_MEAS".to_string(), 0.2),
+                ("RMF_TEMP".to_string(), 25.0),
+            ]),
             opts: [("OPT_TU".to_string(), "degC".to_string())].into_iter().collect(),
             output_set: None,
             input_set: None,
@@ -3553,17 +3596,15 @@ mod tests {
             cols[name].clone()
         };
 
-        // Manifest defaults, read rather than retyped — a second copy is a second thing to drift.
-        let spec = crate::modules::list_modules()
-            .into_iter()
-            .find(|s| s.name == "nphi_env_corr")
-            .expect("nphi_env_corr must be in the manifest");
-        let dflt = |name: &str| -> f64 {
-            spec.args.iter().find(|a| a.name == name).unwrap().default.parse().unwrap()
-        };
-        let (k_temp, t_ref, k_sal, salw) =
-            (dflt("K_TEMP"), dflt("T_REF"), dflt("K_SAL"), dflt("SALW"));
-        let ec_params = [("K_TEMP", k_temp), ("T_REF", t_ref), ("K_SAL", k_sal), ("SALW", salw)];
+        // CHARACTERIZATION fixture: these are the former manifest inputs used only to isolate
+        // computed-versus-raw provenance. SB-CORE-004 deliberately does not ship them as defaults.
+        let (k_temp, t_ref, k_sal, salw) = (0.001, 25.0, 0.01, 100_000.0);
+        let ec_params = [
+            ("K_TEMP", k_temp),
+            ("T_REF", t_ref),
+            ("K_SAL", k_sal),
+            ("SALW", salw),
+        ];
         let salinity_only = nphi_in as f64 + k_sal * salw / 100000.0;
 
         // (1) Only the raw degF FTEMP exists. The temperature term must not appear.
@@ -3679,7 +3720,15 @@ mod tests {
             module: "phi_den".into(),
             well_ids: vec![w.clone()],
             log_inputs: HashMap::new(),
-            params: HashMap::new(),
+            // CHARACTERIZATION fixture: explicit values isolate restored-curve consumption.
+            params: HashMap::from([
+                ("RHO_MA".to_string(), 2.645),
+                ("RHO_SH".to_string(), 2.5),
+                ("RHO_FL".to_string(), 1.0),
+                ("RHO_DSH".to_string(), 2.65),
+                ("RHO_W".to_string(), 1.0),
+                ("PHIE_MAX".to_string(), 0.3),
+            ]),
             opts: HashMap::new(),
             output_set: None,
             input_set: None,
@@ -3807,7 +3856,8 @@ mod tests {
                 module: "vsh_gr".into(),
                 well_ids: vec![well.clone()],
                 log_inputs: HashMap::new(),
-                params: HashMap::new(),
+                // CHARACTERIZATION fixture: explicit endpoints keep this side depth-independent.
+                params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
                 opts: HashMap::new(),
                 output_set: None,
                 input_set: None,
@@ -3854,7 +3904,8 @@ mod tests {
             module: "vsh_gr".into(),
             well_ids: vec![w.clone()],
             log_inputs: HashMap::new(),
-            params: HashMap::new(),
+            // CHARACTERIZATION fixture: former manifest endpoints, now explicit test inputs.
+            params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
             opts: HashMap::new(),
             output_set: None,
             input_set: None,
@@ -3944,7 +3995,16 @@ mod tests {
             module: "sw_height".into(),
             well_ids: vec![dev.clone(), vert.clone()],
             log_inputs: HashMap::new(),
-            params: HashMap::from([("FWL".to_string(), FWL)]),
+            // CHARACTERIZATION fixture: former manifest values are explicit so the test remains
+            // about consuming the deviation survey, not about parameter-source policy.
+            params: HashMap::from([
+                ("FWL".to_string(), FWL),
+                ("RHO_HC".to_string(), 0.8),
+                ("IFT_RES".to_string(), 26.0),
+                ("SWH_A".to_string(), 0.5),
+                ("SWH_B".to_string(), -0.4),
+                ("SWT_IRR".to_string(), 0.0),
+            ]),
             opts: HashMap::new(),
             output_set: None,
             input_set: None,
@@ -4124,7 +4184,8 @@ mod tests {
             module: "vsh_gr".into(),
             well_ids: vec![a.clone(), b.clone()],
             log_inputs: HashMap::new(),
-            params: HashMap::new(),
+            // CHARACTERIZATION fixture: former manifest endpoints, now explicit test inputs.
+            params: HashMap::from([("GR_MA".to_string(), 20.0), ("GR_SH".to_string(), 120.0)]),
             opts: HashMap::new(),
             output_set: None,
             input_set: None,

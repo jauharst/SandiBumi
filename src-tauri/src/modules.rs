@@ -4,8 +4,9 @@
 //! LIMIT clamping, and per-frame evaluation model.
 //!
 //! Each module carries a manifest (`.info`-style) that the frontend
-//! uses to auto-generate its parameter dialog: numeric interval parameters with defaults
-//! and validation ranges, string options with fixed choices, and input/output logs.
+//! uses to auto-generate its parameter dialog: numeric interval parameters with cited defaults
+//! or explicit `ABSENT` state, validation ranges, string options with fixed choices, and
+//! input/output logs.
 //!
 //! Density convention: g/cc (matching LAS field data), not the kg/m3 some suites use.
 
@@ -43,6 +44,10 @@ pub struct ValidityBranch {
     pub equals: String,
 }
 
+/// Exact machine-readable token for a numeric parameter that deliberately ships without a
+/// default. This is a provenance state, not a citation and not permission to invent a value.
+pub const ABSENT_DEFAULT_SOURCE: &str = "ABSENT";
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ValidityRule {
@@ -59,6 +64,12 @@ pub enum ValidityRule {
     /// At least one named LogIn argument must contain a finite sample.
     RequiredCompanion {
         any_of: Vec<String>,
+        #[serde(default)]
+        when: Option<ValidityBranch>,
+    },
+    /// The argument must carry a finite value when the selected method branch is active.
+    /// This keeps an absent branch parameter honest without making unrelated branches unusable.
+    RequiredValue {
         #[serde(default)]
         when: Option<ValidityBranch>,
     },
@@ -86,6 +97,10 @@ pub struct ArgSpec {
     pub kind: ArgKind,
     /// Default numeric value (Param), default choice (Option), or default curve mnemonic (LogIn).
     pub default: String,
+    /// Source for a numeric Param default, or the exact token [`ABSENT_DEFAULT_SOURCE`] when the
+    /// parameter deliberately ships without one. Empty is invalid for every registered Param.
+    #[serde(default)]
+    pub default_source: String,
     /// Valid choices for Option args. **These are stored in `params_json` on every saved run, so
     /// they must never be renamed** — that is what `choice_labels` is for.
     pub choices: Vec<String>,
@@ -161,13 +176,22 @@ pub struct ModuleSpec {
     pub args: Vec<ArgSpec>,
 }
 
-pub(crate) fn param(name: &str, desc: &str, unit: &str, default: f64, min: f64, max: f64) -> ArgSpec {
+pub(crate) fn param(
+    name: &str,
+    desc: &str,
+    unit: &str,
+    default: f64,
+    min: f64,
+    max: f64,
+    default_source: &str,
+) -> ArgSpec {
     ArgSpec {
         name: name.into(),
         desc: desc.into(),
         unit: unit.into(),
         kind: ArgKind::Param,
         default: default.to_string(),
+        default_source: default_source.into(),
         choices: vec![],
         choice_labels: vec![],
         validity_conditions: vec![],
@@ -188,6 +212,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         unit: String::new(),
         kind: ArgKind::Option,
         default: default.into(),
+        default_source: String::new(),
         choices: choices.iter().map(|s| s.to_string()).collect(),
         choice_labels: Vec::new(),
         validity_conditions: vec![],
@@ -244,7 +269,49 @@ pub(crate) fn param_open(
     max: f64,
     required: bool,
 ) -> ArgSpec {
-    ArgSpec { default: String::new(), required, ..param(name, desc, unit, 0.0, min, max) }
+    ArgSpec {
+        default: String::new(),
+        default_source: ABSENT_DEFAULT_SOURCE.into(),
+        required,
+        ..param(name, desc, unit, 0.0, min, max, ABSENT_DEFAULT_SOURCE)
+    }
+}
+
+/// A deliberately absent parameter that is required only on named option branches.
+///
+/// The field stays optional at the generic [`ArgSpec::required`] layer so an inactive method does
+/// not demand parameters it cannot consume. Each active branch is represented by a sourced
+/// [`ValidityRule::RequiredValue`] condition and is enforced by the public runner.
+pub(crate) fn param_open_when(
+    name: &str,
+    desc: &str,
+    unit: &str,
+    min: f64,
+    max: f64,
+    branches: &[(&str, &str)],
+    source: &str,
+) -> ArgSpec {
+    let conditions = branches
+        .iter()
+        .map(|(argument, equals)| {
+            validity(
+                &format!(
+                    "{}.required_when_{}",
+                    name.to_lowercase(),
+                    equals.to_lowercase()
+                ),
+                &format!("{name} is required when {argument} = {equals}."),
+                source,
+                ValidityRule::RequiredValue {
+                    when: Some(ValidityBranch {
+                        argument: (*argument).into(),
+                        equals: (*equals).into(),
+                    }),
+                },
+            )
+        })
+        .collect();
+    with_validity(param_open(name, desc, unit, min, max, false), conditions)
 }
 
 /// A free-text run option (see [`ArgKind::Text`]). Reaches the module through `opts`.
@@ -260,6 +327,7 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         unit: String::new(),
         kind: ArgKind::Text,
         default: default.into(),
+        default_source: String::new(),
         choices: vec![],
         choice_labels: vec![],
         validity_conditions: vec![],
@@ -280,6 +348,7 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         unit: unit.into(),
         kind: ArgKind::LogIn,
         default: default_curve.into(),
+        default_source: String::new(),
         choices: vec![],
         choice_labels: vec![],
         validity_conditions: vec![],
@@ -307,20 +376,38 @@ pub(crate) fn param_sourced(
     min: f64,
     max: f64,
     topic: &str,
+    default_source: &str,
 ) -> ArgSpec {
-    ArgSpec { sources_topic: topic.into(), ..param(name, desc, unit, default, min, max) }
+    ArgSpec {
+        sources_topic: topic.into(),
+        ..param(name, desc, unit, default, min, max, default_source)
+    }
 }
 
-/// A [`param`] that cannot be overridden per zone (see [`ArgSpec::well_scope`]).
-///
-/// For parameters defining one trend against depth for the whole well — a geothermal gradient and
-/// its surface intercept, a bottom-hole temperature and the depth it was measured at. The `*`
-/// well-wide scope still applies, so the per-well parameter grid keeps working, which matters:
-/// wells in one field genuinely do have different gradients. What is refused is a value that
-/// changes PART WAY DOWN a well, because the trend is evaluated from surface at every sample and
-/// a mid-well change is a discontinuity rather than a bend.
-pub(crate) fn param_well(name: &str, desc: &str, unit: &str, default: f64, min: f64, max: f64) -> ArgSpec {
-    ArgSpec { well_scope: true, ..param(name, desc, unit, default, min, max) }
+/// A deliberately absent, well-scoped parameter. It retains the depth-trend scope rule while
+/// refusing to invent the value that defines that trend. The per-well grid may supply one value,
+/// but a zone cannot create a discontinuity part-way down the well.
+pub(crate) fn param_open_well(name: &str, desc: &str, unit: &str, min: f64, max: f64) -> ArgSpec {
+    ArgSpec {
+        well_scope: true,
+        ..param_open(name, desc, unit, min, max, true)
+    }
+}
+
+/// A whole-well absent parameter that is required only on named option branches.
+pub(crate) fn param_open_well_when(
+    name: &str,
+    desc: &str,
+    unit: &str,
+    min: f64,
+    max: f64,
+    branches: &[(&str, &str)],
+    source: &str,
+) -> ArgSpec {
+    ArgSpec {
+        well_scope: true,
+        ..param_open_when(name, desc, unit, min, max, branches, source)
+    }
 }
 
 /// A [`log_in`] restricted to computed provenance (see [`ArgSpec::computed_only`]).
@@ -357,6 +444,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         unit: unit.into(),
         kind: ArgKind::LogOut,
         default: String::new(),
+        default_source: String::new(),
         choices: vec![],
         choice_labels: vec![],
         validity_conditions: vec![],
@@ -528,59 +616,63 @@ fn is_missing(v: f64) -> bool {
 /// dispatch would turn central validation into an avoidable per-realization cost.
 fn module_catalog() -> &'static [ModuleSpec] {
     static CATALOG: OnceLock<Vec<ModuleSpec>> = OnceLock::new();
-    CATALOG.get_or_init(|| vec![
-        vsh_gr_spec(),
-        vsh_dn_spec(),
-        phi_den_spec(),
-        phi_dn_spec(),
-        phi_son_spec(),
-        phimax_spec(),
-        crate::ssc::ssc_spec(),
-        crate::ssc::sspw_spec(),
-        ftemp_grad_spec(),
-        precalc_spec(),
-        badhole_spec(),
-        condflag_spec(),
-        nphimat_spec(),
-        gascorr_spec(),
-        gr_hole_corr_spec(),
-        nphi_env_corr_spec(),
-        rhob_hole_corr_spec(),
-        gr_normalize_spec(),
-        log_predict_spec(),
-        sw_arch_spec(),
-        sw_indo_spec(),
-        sw_sim_spec(),
-        crate::lrlc::sw_rtc_spec(),
-        crate::lrlc::sw_imts_spec(),
-        perm_wyllie_rose_spec(),
-        perm_coates_spec(),
-        perm_transform_spec(),
-        thin_bed_ts_spec(),
-        depth_shift_spec(),
-        splice_spec(),
-        crate::condition::despike_spec(),
-        crate::condition::smooth_spec(),
-        crate::condition::clip_spec(),
-        crate::condition::fill_gaps_spec(),
-        crate::condition::flip_spec(),
-        crate::condition::normalize_spec(),
-        crate::frame::block_spec(),
-        crate::frame::bed_detect_spec(),
-        crate::multimin::multimin_spec(),
-        crate::satheight::sw_height_spec(),
-        crate::lithology::midplot_spec(),
-        crate::rocktyping::rocktyping_spec(),
-        crate::rocktyping::lucia_rfn_spec(),
-        crate::rocktyping::pittman_rx_spec(),
-        crate::rocktyping::rt_cutoff_spec(),
-        crate::facies::electrofacies_spec(),
-        crate::facies::gmm_facies_spec(),
-        crate::unconventional::toc_passey_spec(),
-        crate::unconventional::kerogen_spec(),
-        crate::unconventional::gip_spec(),
-        crate::unconventional::brittleness_spec(),
-    ])
+    CATALOG.get_or_init(|| {
+        let modules = vec![
+            vsh_gr_spec(),
+            vsh_dn_spec(),
+            phi_den_spec(),
+            phi_dn_spec(),
+            phi_son_spec(),
+            phimax_spec(),
+            crate::ssc::ssc_spec(),
+            crate::ssc::sspw_spec(),
+            ftemp_grad_spec(),
+            precalc_spec(),
+            badhole_spec(),
+            condflag_spec(),
+            nphimat_spec(),
+            gascorr_spec(),
+            gr_hole_corr_spec(),
+            nphi_env_corr_spec(),
+            rhob_hole_corr_spec(),
+            gr_normalize_spec(),
+            log_predict_spec(),
+            sw_arch_spec(),
+            sw_indo_spec(),
+            sw_sim_spec(),
+            crate::lrlc::sw_rtc_spec(),
+            crate::lrlc::sw_imts_spec(),
+            perm_wyllie_rose_spec(),
+            perm_coates_spec(),
+            perm_transform_spec(),
+            thin_bed_ts_spec(),
+            depth_shift_spec(),
+            splice_spec(),
+            crate::condition::despike_spec(),
+            crate::condition::smooth_spec(),
+            crate::condition::clip_spec(),
+            crate::condition::fill_gaps_spec(),
+            crate::condition::flip_spec(),
+            crate::condition::normalize_spec(),
+            crate::frame::block_spec(),
+            crate::frame::bed_detect_spec(),
+            crate::multimin::multimin_spec(),
+            crate::satheight::sw_height_spec(),
+            crate::lithology::midplot_spec(),
+            crate::rocktyping::rocktyping_spec(),
+            crate::rocktyping::lucia_rfn_spec(),
+            crate::rocktyping::pittman_rx_spec(),
+            crate::rocktyping::rt_cutoff_spec(),
+            crate::facies::electrofacies_spec(),
+            crate::facies::gmm_facies_spec(),
+            crate::unconventional::toc_passey_spec(),
+            crate::unconventional::kerogen_spec(),
+            crate::unconventional::gip_spec(),
+            crate::unconventional::brittleness_spec(),
+        ];
+        validate_parameter_sources(&modules).unwrap_or_else(|error| panic!("{error}"));
+        modules
+    })
 }
 
 /// Registry snapshot returned over IPC. Callers own the serialized copy; execution reads the
@@ -601,6 +693,54 @@ pub(crate) fn retired_module(name: &str) -> Option<&'static str> {
              SandiMin. Re-run this step with SandiMin (Advance ▸ Mineral Solver).",
         ),
         _ => None,
+    }
+}
+
+/// Registry build gate for SB-CORE-004. Numeric defaults are admissible only when their own
+/// machine-readable source is present; a deliberately absent default uses the exact `ABSENT`
+/// token and must not carry a concealed number.
+fn validate_parameter_sources(modules: &[ModuleSpec]) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for module in modules {
+        for arg in &module.args {
+            if arg.kind != ArgKind::Param {
+                continue;
+            }
+            let identity = format!("{}.{}", module.name, arg.name);
+            let source = arg.default_source.trim();
+            if source.is_empty() {
+                failures.push(format!(
+                    "{identity} has default '{}' but no source",
+                    arg.default
+                ));
+                continue;
+            }
+            if source == ABSENT_DEFAULT_SOURCE {
+                if !arg.default.is_empty() {
+                    failures.push(format!(
+                        "{identity} declares source ABSENT but still ships default '{}'",
+                        arg.default
+                    ));
+                }
+                continue;
+            }
+            match arg.default.parse::<f64>() {
+                Ok(value) if value.is_finite() => {}
+                _ => failures.push(format!(
+                    "{identity} cites source '{source}' but has no finite numeric default"
+                )),
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-CORE-004 parameter-source build gate failed ({} violation{}): {}",
+            failures.len(),
+            if failures.len() == 1 { "" } else { "s" },
+            failures.join("; ")
+        ))
     }
 }
 
@@ -644,9 +784,11 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                 ));
             }
             let active = match &condition.rule {
-                ValidityRule::NumericRange { when, .. } | ValidityRule::RequiredCompanion { when, .. } => {
-                    when.as_ref().map_or(true, |branch| selected(&branch.argument) == branch.equals)
-                }
+                ValidityRule::NumericRange { when, .. }
+                | ValidityRule::RequiredCompanion { when, .. }
+                | ValidityRule::RequiredValue { when } => when
+                    .as_ref()
+                    .map_or(true, |branch| selected(&branch.argument) == branch.equals),
                 _ => true,
             };
             if !active {
@@ -701,6 +843,48 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                             arg.name,
                             spec.name,
                             any_of.join(", "),
+                            condition.statement,
+                            condition.source
+                        ));
+                    }
+                }
+                ValidityRule::RequiredValue { .. } => {
+                    let Some(values) = ctx.params.get(&arg.name) else {
+                        return Err(format!(
+                            "precondition '{}' on '{}' failed before {} ran: this parameter ships ABSENT because it has no defensible generic default, and the selected method branch requires an interpreter value. {} Source: {}",
+                            condition.id,
+                            arg.name,
+                            spec.name,
+                            condition.statement,
+                            condition.source
+                        ));
+                    };
+                    if values.len() < ctx.n {
+                        return Err(format!(
+                            "precondition '{}' on '{}' failed before {} ran: the selected method branch requires {} sample values but only {} were resolved. {} Source: {}",
+                            condition.id,
+                            arg.name,
+                            spec.name,
+                            ctx.n,
+                            values.len(),
+                            condition.statement,
+                            condition.source
+                        ));
+                    }
+                    if let Some((index, value)) = values
+                        .iter()
+                        .copied()
+                        .enumerate()
+                        .take(ctx.n)
+                        .find(|(_, value)| !value.is_finite())
+                    {
+                        return Err(format!(
+                            "precondition '{}' on '{}' failed before {} ran: the selected method branch requires a finite interpreter value at sample {}, got {}. {} Source: {}",
+                            condition.id,
+                            arg.name,
+                            spec.name,
+                            index,
+                            value,
                             condition.statement,
                             condition.source
                         ));
@@ -765,6 +949,12 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
             ArgKind::Param => {
                 let Some(values) = ctx.params.get(&arg.name) else {
                     if arg.required {
+                        if arg.default_source == ABSENT_DEFAULT_SOURCE {
+                            return Err(format!(
+                                "precondition '{}' failed before {} ran: this required parameter ships ABSENT because it has no defensible generic default. Supply an interpreter value before running.",
+                                arg.name, spec.name
+                            ));
+                        }
                         return Err(format!(
                             "precondition '{}' failed before {} ran: the required parameter has no resolved per-sample values.",
                             arg.name, spec.name
@@ -945,7 +1135,7 @@ fn vsh_gr_spec() -> ModuleSpec {
                 )],
             ),
             with_validity(
-                param("GR_MA", "Gamma ray matrix (clean)", "gapi", 20.0, 0.0, 200.0),
+                param_open("GR_MA", "Gamma ray matrix (clean)", "gapi", 0.0, 200.0, true),
                 vec![
                     validity(
                         "vsh_gr.gr_ma_range",
@@ -967,7 +1157,7 @@ fn vsh_gr_spec() -> ModuleSpec {
                 ],
             ),
             with_validity(
-                param("GR_SH", "Gamma ray shale", "gapi", 120.0, 0.0, 1000.0),
+                param_open("GR_SH", "Gamma ray shale", "gapi", 0.0, 1000.0, true),
                 vec![validity(
                     "vsh_gr.gr_sh_range",
                     "The shale gamma-ray endpoint must remain inside the source manifest range.",
@@ -1048,15 +1238,27 @@ fn vsh_dn_spec() -> ModuleSpec {
               (clay-type or gas ambiguity), or falls off the matrix–shale–fluid triangle."
             .into(),
         args: vec![
-            param("RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2),
-            param("RHO_SH", "Shale density", "g/cc", 2.5, 1.5, 3.0),
-            param("RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5),
-            param("NPHI_MA", "Matrix neutron porosity", "v/v", -0.02, -0.15, 0.5),
-            param("NPHI_SH", "Shale neutron porosity", "v/v", 0.35, 0.0, 0.8),
-            param("NPHI_FL", "Fluid neutron porosity", "v/v", 1.0, 0.5, 1.2),
-            param("GR_MA", "Clean GR (clay-type cross-check)", "API", 15.0, 0.0, 150.0),
-            param("GR_SH", "Shale GR (clay-type cross-check)", "API", 120.0, 40.0, 400.0),
-            param("FLAG_TOL", "Flag |VSH(N-D) − VSH(GR)| above this", "v/v", 0.25, 0.05, 1.0),
+            param(
+                "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
+                "Geolog V14 vsh_dn.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/10_clay-volume.md §5",
+            ),
+            param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true),
+            param(
+                "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                "Geolog V14 vsh_dn.info RHO_FL 1000 k/m3 and Techlog VSH neutron-density 1.0 g/cm3; docs/PRD_v2/10_clay-volume.md §5",
+            ),
+            param_open("NPHI_MA", "Matrix neutron porosity", "v/v", -0.15, 0.5, true),
+            param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true),
+            param(
+                "NPHI_FL", "Fluid neutron porosity", "v/v", 1.0, 0.5, 1.2,
+                "Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
+            ),
+            param_open("GR_MA", "Clean GR (clay-type cross-check)", "API", 0.0, 150.0, true),
+            param_open("GR_SH", "Shale GR (clay-type cross-check)", "API", 40.0, 400.0, true),
+            param(
+                "FLAG_TOL", "Flag |VSH(N-D) − VSH(GR)| above this", "v/v", 0.25, 0.05, 1.0,
+                "docs/PRD_v2/10_clay-volume.md §5.1 — SandiBumi diagnostic threshold",
+            ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             log_in("GR", "Gamma ray (optional clay-type cross-check)", "API", "GR", false),
@@ -1144,13 +1346,25 @@ fn phi_den_spec() -> ModuleSpec {
               Above 95% VSH the sample is treated as shale."
             .into(),
         args: vec![
-            param("RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2),
-            param("RHO_SH", "Shale density", "g/cc", 2.5, 1.5, 3.0),
-            param("RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5),
-            param("RHO_DSH", "Dry shale density", "g/cc", 2.65, 2.0, 3.2),
-            param("RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3),
+            param(
+                "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
+                "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true),
+            param(
+                "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true),
+            param(
+                "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
+                "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
             opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
-            param("PHIE_MAX", "Maximum allowed PHIE", "v/v", 0.3, 0.05, 0.5),
+            param(
+                "PHIE_MAX", "Maximum allowed PHIE", "v/v", 0.3, 0.05, 0.5,
+                "Geolog V14 phi_den.info PHIE_MAX DEFAULT 0.3; docs/PRD_v2/11_porosity.md §5.3",
+            ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIE_DEN", "PHIE from density (unlimited)", "v/v"),
@@ -1232,14 +1446,26 @@ fn phi_dn_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_XPLOT", "Crossplot combination method", "AVERAGE", &["AVERAGE", "GAS_RMS"]),
-            param("RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2),
-            param("RHO_SH", "Shale density", "g/cc", 2.5, 1.5, 3.0),
-            param("RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5),
-            param("NPHI_SH", "Shale neutron porosity", "v/v", 0.35, 0.0, 0.8),
-            param("RHO_DSH", "Dry shale density", "g/cc", 2.65, 2.0, 3.2),
-            param("RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3),
+            param(
+                "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
+                "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true),
+            param(
+                "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true),
+            param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true),
+            param(
+                "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
+                "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
             opt("OPT_PHIEMAX", "PHIE limiting method", "SHALE_REDUCED", &["SHALE_REDUCED", "MAXIMUM"]),
-            param("PHIE_MAX", "Maximum allowed PHIE", "v/v", 0.3, 0.05, 0.5),
+            param(
+                "PHIE_MAX", "Maximum allowed PHIE", "v/v", 0.3, 0.05, 0.5,
+                "Geolog V14 phi_dn.info PHIE_MAX DEFAULT 0.3; docs/PRD_v2/11_porosity.md §5.3",
+            ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
@@ -1330,9 +1556,12 @@ fn phi_son_spec() -> ModuleSpec {
         args: vec![
             opt("OPT_SON", "Sonic porosity method", "WYLLIE", &["WYLLIE", "RHG"]),
             opt("OPT_CP", "Wyllie lack-of-compaction correction (Cp = DT_SH/100)", "OFF", &["OFF", "ON"]),
-            param("DT_MA", "Matrix transit time", "us/ft", 55.5, 40.0, 70.0),
-            param("DT_FL", "Fluid transit time", "us/ft", 189.0, 150.0, 220.0),
-            param("DT_SH", "Shale transit time", "us/ft", 90.0, 60.0, 150.0),
+            param_open("DT_MA", "Matrix transit time", "us/ft", 40.0, 70.0, true),
+            param(
+                "DT_FL", "Fluid transit time", "us/ft", 189.0, 150.0, 220.0,
+                "IP swparameters.htm Sonic water Default 189; Geolog phi_son.info DT_FL 620 us/m; docs/PRD_v2/11_porosity.md §5.2",
+            ),
+            param_open("DT_SH", "Shale transit time", "us/ft", 60.0, 150.0, true),
             log_in("DT", "Sonic transit time log", "us/ft", "DT", true),
             log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
             log_out("PHIT_SON", "Total porosity from sonic", "v/v"),
@@ -1404,11 +1633,47 @@ fn phimax_spec() -> ModuleSpec {
               overlay; the input porosity is never modified. Constant mode ignores TVDSS."
             .into(),
         args: vec![
-            opt("MODE", "Ceiling model", "linear", &["constant", "linear", "athy"]),
-            param("PHIMAX0", "φmax at TVDSS_REF (also the CONSTANT cap value)", "v/v", 0.40, 0.0, 1.0),
-            param("TVDSS_REF", "Reference TVDSS where φmax = PHIMAX0", "ft|m", 0.0, -30000.0, 30000.0),
-            param("PHIMAX_GRAD", "LINEAR: φmax lost per 1000 TVDSS units deeper", "v/v per 1000", 0.03, -1.0, 1.0),
-            param("ATHY_K", "ATHY: compaction coefficient per 1000 TVDSS units", "1/1000", 0.10, 0.0, 5.0),
+            opt(
+                "MODE",
+                "Ceiling model",
+                "linear",
+                &["constant", "linear", "athy"],
+            ),
+            param_open(
+                "PHIMAX0",
+                "φmax at TVDSS_REF (also the CONSTANT cap value)",
+                "v/v",
+                0.0,
+                1.0,
+                true,
+            ),
+            param_open_when(
+                "TVDSS_REF",
+                "Reference TVDSS where φmax = PHIMAX0",
+                "ft|m",
+                -30000.0,
+                30000.0,
+                &[("MODE", "linear"), ("MODE", "athy")],
+                "docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters",
+            ),
+            param_open_when(
+                "PHIMAX_GRAD",
+                "LINEAR: φmax lost per 1000 TVDSS units deeper",
+                "v/v per 1000",
+                -1.0,
+                1.0,
+                &[("MODE", "linear")],
+                "docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters",
+            ),
+            param_open_when(
+                "ATHY_K",
+                "ATHY: compaction coefficient per 1000 TVDSS units",
+                "1/1000",
+                0.0,
+                5.0,
+                &[("MODE", "athy")],
+                "docs/PRD_v2/11_porosity.md §5 compaction-ceiling parameters",
+            ),
             log_in("PHI", "Porosity to cap", "v/v", "PHIE", true),
             log_in("TVDSS", "True vertical depth subsea (trend modes)", "ft|m", "TVDSS", false),
             log_out_as("PHI_CAP", "{PHI}_CAP", "Capped porosity", "v/v"),
@@ -1478,10 +1743,40 @@ fn ftemp_grad_spec() -> ModuleSpec {
         args: vec![
             opt("OPT_FT", "Temperature model", "GRADIENT", &["GRADIENT", "BHT"]),
             // All four define ONE temperature profile for the well — see ArgSpec::well_scope.
-            param_well("TSURF", "Surface temperature (whole well)", "degC", 26.7, 0.0, 50.0),
-            param_well("TGRAD", "Temperature gradient (whole well)", "degC/m", 0.03, 0.005, 0.1),
-            param_well("BHT", "Bottom hole temperature (whole well)", "degC", 100.0, 30.0, 250.0),
-            param_well("TD_BHT", "Depth of BHT measurement (whole well)", "m", 2000.0, 100.0, 10000.0),
+            param_open_well(
+                "TSURF",
+                "Surface temperature (whole well)",
+                "degC",
+                0.0,
+                50.0,
+            ),
+            param_open_well_when(
+                "TGRAD",
+                "Temperature gradient (whole well)",
+                "degC/m",
+                0.005,
+                0.1,
+                &[("OPT_FT", "GRADIENT")],
+                "docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters",
+            ),
+            param_open_well_when(
+                "BHT",
+                "Bottom hole temperature (whole well)",
+                "degC",
+                30.0,
+                250.0,
+                &[("OPT_FT", "BHT")],
+                "docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters",
+            ),
+            param_open_well_when(
+                "TD_BHT",
+                "Depth of BHT measurement (whole well)",
+                "m",
+                100.0,
+                10000.0,
+                &[("OPT_FT", "BHT")],
+                "docs/PRD_v2/20_envcorr-qc.md §5 formation-temperature parameters",
+            ),
             log_out("FTEMP", "Formation temperature", "degC"),
         ],
     }
@@ -1529,8 +1824,8 @@ fn precalc_spec() -> ModuleSpec {
               formation temperature = SURF_TEMP + TEMP_GRAD*TVDSS and FPRESS = PSURF + \
               PGRAD*TVDSS, both linear in true vertical depth. Gradients — and the TREND \
               fit below — are per depth unit of the TVDSS curve: enter per-metre values \
-              (and a metric refit) for metric wells; the shipped defaults are one study's \
-              feet-based fits. SURF_TEMP / TEMP_GRAD / RMF_TEMP are entered in OPT_TU \
+              (and a metric refit) for metric wells; no study fit ships as a generic default. \
+              SURF_TEMP / TEMP_GRAD / RMF_TEMP are entered in OPT_TU \
               units, but the FTEMP curve is always written in degC (the unit every \
               downstream module assumes); FTEMP_F is the same trend in degF for SandiMin \
               fluid-property entry. RMF at formation temperature comes either from a \
@@ -1547,21 +1842,34 @@ fn precalc_spec() -> ModuleSpec {
             // The geothermal trend is one trend for the well — a named-zone override would step
             // the temperature at a formation top rather than bend it. See ArgSpec::well_scope.
             // PSURF/PGRAD below deliberately stay per-zone: a pressure compartment is real.
-            param_well("SURF_TEMP", "Surface temperature (intercept, whole well)", "degF|degC", 77.0, -50.0, 150.0),
-            param_well("TEMP_GRAD", "Temperature gradient per TVDSS unit (whole well)", "deg/ft|m", 0.026, 0.0005, 0.2),
-            param("PSURF", "Formation pressure intercept", "psi", 0.0, -500.0, 5000.0),
-            param("PGRAD", "Pressure gradient per TVDSS unit", "psi/ft|m", 0.433, 0.05, 5.0),
+            param_open_well("SURF_TEMP", "Surface temperature (intercept, whole well)", "degF|degC", -50.0, 150.0),
+            param_open_well("TEMP_GRAD", "Temperature gradient per TVDSS unit (whole well)", "deg/ft|m", 0.0005, 0.2),
+            param_open("PSURF", "Formation pressure intercept", "psi", -500.0, 5000.0, true),
+            param_open("PGRAD", "Pressure gradient per TVDSS unit", "psi/ft|m", 0.05, 5.0, true),
             opt("OPT_RMF", "RMF source", "ARPS", &["ARPS", "TREND"]),
-            param("RMF_MEAS", "Rmf measured at surface (ARPS)", "ohmm", 0.2, 0.001, 20.0),
-            param("RMF_TEMP", "Rmf measurement temperature (ARPS)", "degF|degC", 75.0, -50.0, 150.0),
-            param("RMF_A", "RMF trend intercept (TREND, ft-based fit)", "ohmm", 0.517, 0.0, 5.0),
-            param(
+            param_open_when(
+                "RMF_MEAS", "Rmf measured at surface (ARPS)", "ohmm", 0.001, 20.0,
+                &[("OPT_RMF", "ARPS")],
+                "docs/PRD_v2/20_envcorr-qc.md §5 mud-filtrate parameters",
+            ),
+            param_open_when(
+                "RMF_TEMP", "Rmf measurement temperature (ARPS)", "degF|degC", -50.0, 150.0,
+                &[("OPT_RMF", "ARPS")],
+                "docs/PRD_v2/20_envcorr-qc.md §5 mud-filtrate parameters",
+            ),
+            param_open_when(
+                "RMF_A", "RMF trend intercept (TREND, ft-based fit)", "ohmm", 0.0, 5.0,
+                &[("OPT_RMF", "TREND")],
+                "docs/PRD_v2/20_envcorr-qc.md §5 mud-filtrate parameters",
+            ),
+            param_open_when(
                 "RMF_B",
                 "RMF trend slope on log10(TVDSS) (TREND — fit must use the TVDSS curve's depth unit)",
                 "ohmm",
-                -0.1165,
                 -2.0,
                 2.0,
+                &[("OPT_RMF", "TREND")],
+                "docs/PRD_v2/20_envcorr-qc.md §5 mud-filtrate parameters",
             ),
             log_in("TVDSS", "True vertical depth subsea", "ft|m", "TVDSS", false),
             log_in("RT", "Deep resistivity", "ohmm", "RES_DEEP", false),
@@ -1652,9 +1960,30 @@ fn badhole_spec() -> ModuleSpec {
               mask so flagged intervals go missing instead of polluting results."
             .into(),
         args: vec![
-            param("DRHO_MAX", "Max acceptable density correction", "g/cc", 0.05, 0.0, 0.5),
-            param("DCAL_MAX", "Max acceptable (caliper - bit size)", "in", 1.0, 0.0, 12.0),
-            param("BS_DEF", "Bit size when BS curve is absent", "in", 8.5, 3.0, 30.0),
+            param_open(
+                "DRHO_MAX",
+                "Max acceptable density correction",
+                "g/cc",
+                0.0,
+                0.5,
+                true,
+            ),
+            param_open(
+                "DCAL_MAX",
+                "Max acceptable (caliper - bit size)",
+                "in",
+                0.0,
+                12.0,
+                true,
+            ),
+            param_open(
+                "BS_DEF",
+                "Bit size when BS curve is absent",
+                "in",
+                3.0,
+                30.0,
+                true,
+            ),
             log_in("DRHO", "Density correction log", "g/cc", "DRHO", false),
             log_in("CALI", "Caliper log", "in", "CALI", false),
             log_in("BS", "Bit size log", "in", "BS", false),
@@ -1721,7 +2050,8 @@ fn condflag_spec() -> ModuleSpec {
               excluded because they fake the same light-density signature. NPHI must be in \
               matrix units consistent with RHO_MA: limestone-unit neutron against a \
               sandstone RHO_MA reads about 0.04 low in clean water sand, right at the \
-              XOVER_MIN default — convert the neutron first, or raise XOVER_MIN to ~0.08. \
+              XOVER_MIN threshold — convert the neutron first, then supply a sourced threshold \
+              for the declared neutron convention. \
               Flagged beds thinner than MIN_THICK are dropped as spikes (missing samples \
               inside a bed do not split it). SHOULDER_FLAG is the transition adjustment: \
               logs average across bed boundaries, so samples within SHOULDER of a coal / \
@@ -1732,27 +2062,33 @@ fn condflag_spec() -> ModuleSpec {
               be corrected rather than discarded); feed it as the Mask on later module \
               runs, but leave the Mask empty on the condflag run itself — masking this run \
               with BADHOLE would blank COND_FLAG exactly where it must read 1. MIN_THICK \
-              and SHOULDER are in the depth curve's unit — the defaults suit metres, \
-              roughly triple them for feet. Run the badhole module first so its flag is \
+              and SHOULDER are in the depth curve's declared unit and ship absent. Run the \
+              badhole module first so its flag is \
               available here."
             .into(),
         args: vec![
-            param("RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2),
-            param("RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5),
-            param("COAL_RHOB", "Coal: density below", "g/cc", 1.9, 1.2, 2.4),
-            param("COAL_NPHI", "Coal: neutron above", "v/v", 0.35, 0.15, 0.8),
-            param("COAL_DT", "Coal: sonic above (when DT present)", "us/ft", 100.0, 70.0, 160.0),
-            param("TIGHT_PHI", "Tight: both porosities below", "v/v", 0.05, 0.0, 0.2),
             param(
+                "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
+                "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param(
+                "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
+                "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("COAL_RHOB", "Coal: density below", "g/cc", 1.2, 2.4, true),
+            param_open("COAL_NPHI", "Coal: neutron above", "v/v", 0.15, 0.8, true),
+            param_open("COAL_DT", "Coal: sonic above (when DT present)", "us/ft", 70.0, 160.0, true),
+            param_open("TIGHT_PHI", "Tight: both porosities below", "v/v", 0.0, 0.2, true),
+            param_open(
                 "XOVER_MIN",
                 "Crossover: DPHI - NPHI above (~0.08 for limestone-unit NPHI)",
                 "v/v",
-                0.04,
                 0.0,
                 0.3,
+                true,
             ),
-            param("MIN_THICK", "Drop flagged beds thinner than", "m|ft", 0.25, 0.0, 10.0),
-            param("SHOULDER", "Shoulder width beyond bed edges", "m|ft", 0.5, 0.0, 5.0),
+            param_open("MIN_THICK", "Drop flagged beds thinner than", "m|ft", 0.0, 10.0, true),
+            param_open("SHOULDER", "Shoulder width beyond bed edges", "m|ft", 0.0, 5.0, true),
             opt("OPT_XCOND", "Include gas crossover in COND_FLAG", "NO", &["NO", "YES"]),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log (matrix units matching RHO_MA)", "v/v", "NPHI", true),
@@ -1978,9 +2314,9 @@ fn nphimat_spec() -> ModuleSpec {
               calcite is the identity — so an SS or DOL input is first inverted back to that \
               axis, then read out along each matrix curve; the input convention passes \
               through unchanged. Feed the output whose matrix matches your RHO_MA into \
-              density-neutron work (NPHI_SS with RHO_MA 2.65) — that removes the ~0.04 \
-              limestone-vs-sandstone offset the condflag doc warns about, so XOVER_MIN can \
-              stay at its 0.04 default. SALINITY picks the TNPH curve pair only; the other \
+              density-neutron work (NPHI_SS with RHO_MA 2.65) — that removes the \
+              limestone-vs-sandstone convention offset before a sourced XOVER_MIN is applied. \
+              SALINITY picks the TNPH curve pair only; the other \
               tools have a single chart curve. Apply environmental corrections \
               (nphi_env_corr) before converting — the charts assume corrected logs. The \
               limestone axis and dolomite curves are digitized to about -0.02..0.40; the \
@@ -2088,12 +2424,18 @@ fn nphimat(ctx: &ModuleContext) -> ModuleOutputs {
 
 fn gascorr_spec() -> ModuleSpec {
     let mut args = vec![
-        param("RHO_MA", "Matrix density", "g/cc", 2.65, 2.0, 3.2),
-        param("RHO_FL", "Liquid (filtrate) density the correction restores", "g/cc", 1.0, 0.8, 1.3),
-        param("SG_GAS", "Gas specific gravity (air = 1)", "", 0.65, 0.55, 1.2),
-        param("A", "Tortuosity constant", "", 1.0, 0.1, 5.0),
-        param("M", "Cementation exponent", "", 2.0, 1.0, 4.0),
-        param("N", "Saturation exponent", "", 2.0, 1.0, 4.0),
+        param(
+            "RHO_MA", "Matrix density", "g/cc", 2.65, 2.0, 3.2,
+            "IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
+        ),
+        param(
+            "RHO_FL", "Liquid (filtrate) density the correction restores", "g/cc", 1.0, 0.8, 1.3,
+            "Geolog V14 phi_dnh.info RHO_MF DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.4",
+        ),
+        param_open("SG_GAS", "Gas specific gravity (air = 1)", "", 0.55, 1.2, true),
+        param_open("A", "Tortuosity constant", "", 0.1, 5.0, true),
+        param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
+        param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
         opt("OPT_GATE", "Where to apply the correction", "FLAGGED", &["FLAGGED", "EVERYWHERE"]),
     ];
     // rw_args carries its own optional FTEMP input; gascorr needs FTEMP as a
@@ -2257,8 +2599,8 @@ fn gascorr(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 // ---------------------------------------------------------------------------
 // Environmental corrections (pragmatic analytic set). These are
 // linearized, coefficient-driven equivalents of the service-company chartbook
-// corrections — the coefficients are parameters with chartbook-magnitude defaults,
-// so they can be tuned per tool/field. Chart-lookup fidelity comes later (ROADMAP).
+// corrections — the coefficients are parameters that ship absent until a cited tool/chart
+// value is supplied. Chart-lookup fidelity comes later (ROADMAP).
 // Each writes a corrected copy (<LOG>_EC); inputs are never modified, and a missing
 // QC input (e.g. no caliper) passes the log through uncorrected rather than blanking.
 // ---------------------------------------------------------------------------
@@ -2273,8 +2615,22 @@ fn gr_hole_corr_spec() -> ModuleSpec {
               BS curve where present, else BS_DEF. No caliper → GR passes through uncorrected."
             .into(),
         args: vec![
-            param("K_GR", "Correction per inch of enlargement", "1/in", 0.0075, 0.0, 0.05),
-            param("BS_DEF", "Bit size when BS curve is absent", "in", 8.5, 3.0, 30.0),
+            param_open(
+                "K_GR",
+                "Correction per inch of enlargement",
+                "1/in",
+                0.0,
+                0.05,
+                true,
+            ),
+            param_open(
+                "BS_DEF",
+                "Bit size when BS curve is absent",
+                "in",
+                3.0,
+                30.0,
+                true,
+            ),
             log_in("GR", "Gamma ray log", "gapi", "GR", true),
             log_in("CALI", "Caliper log", "in", "CALI", false),
             log_in("BS", "Bit size log", "in", "BS", false),
@@ -2314,15 +2670,15 @@ fn nphi_env_corr_spec() -> ModuleSpec {
         title: "Neutron Environmental Correction".into(),
         category: "Prep".into(),
         doc: "NPHI_EC = NPHI + K_TEMP*(FTEMP - T_REF) + K_SAL*(SALW/100000): linearized \
-              formation-temperature and formation-salinity terms at CNL chartbook magnitudes \
-              (defaults). Requires FTEMP (run Formation Temperature first) for the temperature \
+              formation-temperature and formation-salinity terms whose coefficients must be \
+              supplied from the applicable CNL chart. Requires FTEMP (run Formation Temperature first) for the temperature \
               term; without it only the salinity term applies."
             .into(),
         args: vec![
-            param("K_TEMP", "Temperature coefficient", "v/v per degC", 0.0001, -0.01, 0.01),
-            param("T_REF", "Chart reference temperature", "degC", 24.0, 0.0, 100.0),
-            param("K_SAL", "Salinity coefficient per 100 kppm", "v/v", -0.002, -0.05, 0.05),
-            param("SALW", "Formation water salinity", "ppm", 20000.0, 0.0, 300000.0),
+            param_open("K_TEMP", "Temperature coefficient", "v/v per degC", -0.01, 0.01, true),
+            param_open("T_REF", "Chart reference temperature", "degC", 0.0, 100.0, true),
+            param_open("K_SAL", "Salinity coefficient per 100 kppm", "v/v", -0.05, 0.05, true),
+            param_open("SALW", "Formation water salinity", "ppm", 0.0, 300000.0, true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
             // FTEMP must come from precalc/ftemp_grad COMPUTED output, not a raw LAS curve — a raw
             // degF FTEMP would otherwise be silently applied as degC. Mirrors gascorr's contract.
@@ -2357,14 +2713,28 @@ fn rhob_hole_corr_spec() -> ModuleSpec {
         title: "Density Hole-Size Correction".into(),
         category: "Prep".into(),
         doc: "RHOB_EC = RHOB + K_RHO*(CALI - HD_REF) for CALI beyond HD_REF: in oversize \
-              holes the pad reads too much mud, so density is restored upward at chartbook \
-              magnitude (default 0.004 g/cc per inch beyond 10\"). Within gauge, or with no \
+              holes the pad reads too much mud, so density is restored upward using supplied, \
+              tool-specific chart values. Within gauge, or with no \
               caliper, RHOB passes through unchanged. Use with the BADHOLE flag — beyond a \
               few inches of washout no correction is trustworthy."
             .into(),
         args: vec![
-            param("K_RHO", "Correction per inch beyond reference", "g/cc/in", 0.004, 0.0, 0.05),
-            param("HD_REF", "Hole diameter where correction starts", "in", 10.0, 4.0, 20.0),
+            param_open(
+                "K_RHO",
+                "Correction per inch beyond reference",
+                "g/cc/in",
+                0.0,
+                0.05,
+                true,
+            ),
+            param_open(
+                "HD_REF",
+                "Hole diameter where correction starts",
+                "in",
+                4.0,
+                20.0,
+                true,
+            ),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("CALI", "Caliper log", "in", "CALI", false),
             log_out("RHOB_EC", "Environmentally corrected density", "g/cc"),
@@ -2399,12 +2769,55 @@ fn rhob_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
 
 fn rw_args() -> Vec<ArgSpec> {
     vec![
-        opt("OPT_RW", "Formation water resistivity source", "CONSTANT", &["CONSTANT", "MEASURED", "SALINITY"]),
-        param("RW", "Rw at formation temperature (CONSTANT)", "ohmm", 0.1, 0.001, 20.0),
-        param("RWS", "Measured water sample resistivity", "ohmm", 0.1, 0.001, 20.0),
-        param("RWT", "Temperature of RWS measurement", "degC", 24.0, 0.0, 150.0),
-        param("SALW", "Formation water salinity", "ppm", 20000.0, 100.0, 300000.0),
-        log_in("FTEMP", "Formation temperature (for MEASURED/SALINITY)", "degC", "FTEMP", false),
+        opt(
+            "OPT_RW",
+            "Formation water resistivity source",
+            "CONSTANT",
+            &["CONSTANT", "MEASURED", "SALINITY"],
+        ),
+        param_open_when(
+            "RW",
+            "Rw at formation temperature (CONSTANT)",
+            "ohmm",
+            0.001,
+            20.0,
+            &[("OPT_RW", "CONSTANT")],
+            "docs/PRD_v2/12_saturation.md §5 formation-water parameters",
+        ),
+        param_open_when(
+            "RWS",
+            "Measured water sample resistivity",
+            "ohmm",
+            0.001,
+            20.0,
+            &[("OPT_RW", "MEASURED")],
+            "docs/PRD_v2/12_saturation.md §5 formation-water parameters",
+        ),
+        param_open_when(
+            "RWT",
+            "Temperature of RWS measurement",
+            "degC",
+            0.0,
+            150.0,
+            &[("OPT_RW", "MEASURED")],
+            "docs/PRD_v2/12_saturation.md §5 formation-water parameters",
+        ),
+        param_open_when(
+            "SALW",
+            "Formation water salinity",
+            "ppm",
+            100.0,
+            300000.0,
+            &[("OPT_RW", "SALINITY")],
+            "docs/PRD_v2/12_saturation.md §5 formation-water parameters",
+        ),
+        log_in(
+            "FTEMP",
+            "Formation temperature (for MEASURED/SALINITY)",
+            "degC",
+            "FTEMP",
+            false,
+        ),
     ]
 }
 
@@ -2448,10 +2861,17 @@ fn resolve_rw(ctx: &ModuleContext, ftemp: &[f32], i: usize) -> f64 {
 
 fn sw_arch_spec() -> ModuleSpec {
     let mut args = vec![
-        param("A", "Tortuosity constant", "", 1.0, 0.1, 5.0),
-        param("M", "Cementation exponent", "", 2.0, 1.0, 4.0),
-        param("N", "Saturation exponent", "", 2.0, 1.0, 4.0),
-        param("SWT_IRR", "Irreducible total water saturation", "v/v", 0.0, 0.0, 0.6),
+        param_open("A", "Tortuosity constant", "", 0.1, 5.0, true),
+        param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
+        param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
+        param_open(
+            "SWT_IRR",
+            "Irreducible total water saturation",
+            "v/v",
+            0.0,
+            0.6,
+            true,
+        ),
     ];
     args.extend(rw_args());
     args.extend([
@@ -2554,12 +2974,24 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
 
 fn sw_indo_spec() -> ModuleSpec {
     let mut args = vec![
-        opt("OPT_INDO", "Indonesia VSH exponent variant", "FULL", &["FULL", "SIMPLE", "TAR_SAND"]),
-        param("A", "Tortuosity constant", "", 1.0, 0.1, 5.0),
-        param("M", "Cementation exponent", "", 2.0, 1.0, 4.0),
-        param("N", "Saturation exponent", "", 2.0, 1.0, 4.0),
-        param("RT_SH", "Shale resistivity", "ohmm", 5.0, 0.1, 500.0),
-        param("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.0, 0.0, 0.6),
+        opt(
+            "OPT_INDO",
+            "Indonesia VSH exponent variant",
+            "FULL",
+            &["FULL", "SIMPLE", "TAR_SAND"],
+        ),
+        param_open("A", "Tortuosity constant", "", 0.1, 5.0, true),
+        param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
+        param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
+        param_open("RT_SH", "Shale resistivity", "ohmm", 0.1, 500.0, true),
+        param_open(
+            "SWE_IRR",
+            "Irreducible effective water saturation",
+            "v/v",
+            0.0,
+            0.6,
+            true,
+        ),
     ];
     args.extend(rw_args());
     args.extend([
@@ -2644,14 +3076,18 @@ fn sw_indo(ctx: &ModuleContext) -> ModuleOutputs {
 // ---------------------------------------------------------------------------
 
 fn sw_sim_spec() -> ModuleSpec {
-    let mut args = vec![
+    let mut args =
+        vec![
         opt("OPT_SIM", "Simandoux variant", "MODIFIED", &["MODIFIED", "SCHLUMBERGER"]),
-        param("A", "Tortuosity constant", "", 1.0, 0.1, 5.0),
-        param("M", "Cementation exponent", "", 2.0, 1.0, 4.0),
-        param("N", "Saturation exponent", "", 2.0, 1.0, 4.0),
-        param("C", "VSH exponent (SCHLUMBERGER variant)", "", 1.0, 0.5, 2.0),
-        param("RT_SH", "Shale resistivity", "ohmm", 5.0, 0.1, 500.0),
-        param("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.0, 0.0, 0.6),
+        param_open("A", "Tortuosity constant", "", 0.1, 5.0, true),
+        param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
+        param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
+        param(
+            "C", "VSH exponent (SCHLUMBERGER variant)", "", 1.0, 0.5, 2.0,
+            "Geolog V14 sw_sim.info C DEFAULT 1 VALIDATION 1:2; docs/PRD_v2/12_saturation.md §5",
+        ),
+        param_open("RT_SH", "Shale resistivity", "ohmm", 0.1, 500.0, true),
+        param_open("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.0, 0.6, true),
     ];
     args.extend(rw_args());
     args.extend([
@@ -2774,7 +3210,7 @@ fn perm_wyllie_rose_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_WR", "Wyllie-Rose variant", "TIMUR", &["TIMUR", "MORRIS_BIGGS_OIL", "MORRIS_BIGGS_GAS", "TIXIER"]),
-            param("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.15, 0.01, 0.8),
+            param_open("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.01, 0.8, true),
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_out("PERM_WR", "Permeability from Wyllie-Rose", "mD"),
             log_out("PERM", "Working permeability", "mD"),
@@ -2818,8 +3254,15 @@ fn perm_coates_spec() -> ModuleSpec {
         category: "Permeability".into(),
         doc: "PERM = (C * PHIE^2 * (1 - SWE_IRR)/SWE_IRR)^2, mD.".into(),
         args: vec![
-            param("CONST_COATES", "Coates constant", "", 100.0, 1.0, 1000.0),
-            param("SWE_IRR", "Irreducible effective water saturation", "v/v", 0.15, 0.01, 0.8),
+            param_open("CONST_COATES", "Coates constant", "", 1.0, 1000.0, true),
+            param_open(
+                "SWE_IRR",
+                "Irreducible effective water saturation",
+                "v/v",
+                0.01,
+                0.8,
+                true,
+            ),
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_out("PERM_COATES", "Permeability from Coates", "mD"),
             log_out("PERM", "Working permeability", "mD"),
@@ -2856,8 +3299,8 @@ fn perm_transform_spec() -> ModuleSpec {
               regression. Calibrate PT_A/PT_B per zone from RCAL data."
             .into(),
         args: vec![
-            param("PT_A", "Slope", "", 20.0, 1.0, 100.0),
-            param("PT_B", "Intercept", "", -3.0, -10.0, 5.0),
+            param_open("PT_A", "Slope", "", 1.0, 100.0, true),
+            param_open("PT_B", "Intercept", "", -10.0, 5.0, true),
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_out("PERM_XFM", "Permeability from transform", "mD"),
             log_out("PERM", "Working permeability", "mD"),
@@ -2902,8 +3345,22 @@ fn thin_bed_ts_spec() -> ModuleSpec {
               porosity of the net sand. Structural shale is not modeled."
             .into(),
         args: vec![
-            param("PHI_SD_MAX", "Clean sand porosity (endpoint)", "v/v", 0.30, 0.05, 0.45),
-            param("PHI_SH", "Shale porosity (endpoint)", "v/v", 0.15, 0.0, 0.45),
+            param_open(
+                "PHI_SD_MAX",
+                "Clean sand porosity (endpoint)",
+                "v/v",
+                0.05,
+                0.45,
+                true,
+            ),
+            param_open(
+                "PHI_SH",
+                "Shale porosity (endpoint)",
+                "v/v",
+                0.0,
+                0.45,
+                true,
+            ),
             log_in("PHIT", "Total porosity log", "v/v", "PHIT", true),
             log_in("VSH", "Total (bulk) volume of shale log", "v/v", "VSH", true),
             log_out("VLAM", "Laminar shale volume fraction", "v/v"),
@@ -2969,7 +3426,14 @@ fn depth_shift_spec() -> ModuleSpec {
               result is written as <CURVE>_DS; the input curve is never modified."
             .into(),
         args: vec![
-            param("SHIFT", "Depth shift (+ = deeper)", "m", 0.0, -1000.0, 1000.0),
+            param_open(
+                "SHIFT",
+                "Depth shift (+ = deeper)",
+                "m",
+                -1000.0,
+                1000.0,
+                true,
+            ),
             log_in("CURVE", "Curve to shift", "", "GR", true),
             log_out_as("CURVE_DS", "{CURVE}_DS", "Depth-shifted copy", ""),
         ],
@@ -3039,9 +3503,28 @@ fn splice_spec() -> ModuleSpec {
               modified."
             .into(),
         args: vec![
-            param("SPLICE_DEPTH", "Depth where BOT_CURVE takes over", "m", 1000.0, 0.0, 20000.0),
-            log_in("TOP_CURVE", "Curve used above the splice depth", "", "GR", true),
-            log_in("BOT_CURVE", "Curve used below the splice depth", "", "GR", true),
+            param_open(
+                "SPLICE_DEPTH",
+                "Depth where BOT_CURVE takes over",
+                "m",
+                0.0,
+                20000.0,
+                true,
+            ),
+            log_in(
+                "TOP_CURVE",
+                "Curve used above the splice depth",
+                "",
+                "GR",
+                true,
+            ),
+            log_in(
+                "BOT_CURVE",
+                "Curve used below the splice depth",
+                "",
+                "GR",
+                true,
+            ),
             log_out_as("SPLICED", "{TOP_CURVE}_SPL", "Spliced curve", ""),
         ],
     }
@@ -3076,20 +3559,23 @@ fn gr_normalize_spec() -> ModuleSpec {
               common reference interval so every well is measured over comparable rock); the \
               reference percentiles are parameters. \
               SET YOUR OWN FIELD REFERENCE PAIR — that is the entire point of the module. The \
-              defaults are the generic clean-sand and clay GR endpoints this app uses elsewhere \
-              (20 / 120 gAPI, matching vsh_gr's GR_MA / GR_SH), NOT a calibration for any \
-              particular field: they give a sane, self-consistent starting frame, not field \
-              truth. A reference pair from one basin is the wrong reference in another. \
+              pair ships absent: a reference pair from one basin is the wrong reference in another. \
               Derive yours from the field's own multi-well GR distribution, or from a reference \
               well everyone agrees on, then use the SAME pair for every well in the study. QC \
               across wells with a GRN histogram overlay — the P3/P97 of every normalized well \
               should coincide."
             .into(),
         args: vec![
-            param("P_LOW", "Low percentile", "%", 3.0, 0.0, 50.0),
-            param("P_HIGH", "High percentile", "%", 97.0, 50.0, 100.0),
-            param("GR_LOW_REF", "Reference GR at low percentile", "gapi", 20.0, 0.0, 1000.0),
-            param("GR_HIGH_REF", "Reference GR at high percentile", "gapi", 120.0, 0.0, 1000.0),
+            param(
+                "P_LOW", "Low percentile", "%", 3.0, 0.0, 50.0,
+                "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+            ),
+            param(
+                "P_HIGH", "High percentile", "%", 97.0, 50.0, 100.0,
+                "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+            ),
+            param_open("GR_LOW_REF", "Reference GR at low percentile", "gapi", 0.0, 1000.0, true),
+            param_open("GR_HIGH_REF", "Reference GR at high percentile", "gapi", 0.0, 1000.0, true),
             log_in("GR", "Gamma ray log", "gapi", "GR", true),
             log_out("GRN", "Normalized gamma ray", "gapi"),
         ],
@@ -3154,7 +3640,10 @@ fn log_predict_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_COMBINE", "How to combine with the raw curve", "SYNTHETIC", &["SYNTHETIC", "FILL_MISSING", "MAX_RAW"]),
-            param("K", "Number of neighbours", "", 5.0, 1.0, 50.0),
+            param(
+                "K", "Number of neighbours", "", 10.0, 1.0, 50.0,
+                "Geolog V14 facimage_05_using_hc.5.05.html Nearest Neighbors Default 10; docs/PRD_v2/24_ml-advanced.md §5",
+            ),
             log_in("TARGET", "Curve to predict", "", "RHOB", true),
             log_in("P1", "Predictor 1", "", "GR", true),
             log_in("P2", "Predictor 2 (optional)", "", "NPHI", false),
@@ -3521,6 +4010,117 @@ mod tests {
         let valid = run_module("vsh_gr", &context(20.0, 120.0, "LINEAR", vec![70.0]))
             .expect("the valid side of the same declared contract must still run");
         assert!((valid["VSH_GR"][0] - 0.5).abs() < 1e-6, "valid LINEAR result changed");
+    }
+
+    /// CORRECTNESS — SB-CORE-004 / SB-CORE-T10 and `CONTRACT.md` section 2.
+    /// The expected rule comes from the requirement: every shipped numeric default has a
+    /// machine-readable source, and an explicit `ABSENT` parameter has no default.
+    #[test]
+    fn a_registered_default_without_a_source_fails_the_build_gate() {
+        let mut bad = ModuleSpec {
+            name: "synthetic_unsourced_default".into(),
+            title: "Synthetic unsourced default".into(),
+            category: "Test".into(),
+            doc: "Deliberately invalid registry fixture for SB-CORE-T10.".into(),
+            args: vec![param(
+                "VALUE",
+                "Synthetic default",
+                "",
+                1.0,
+                0.0,
+                2.0,
+                "docs/PRD_v2/04_CORE_REQUIREMENTS.md SB-CORE-T10 synthetic valid-side source",
+            )],
+        };
+        bad.args[0].default_source.clear();
+
+        let error = validate_parameter_sources(&[bad])
+            .expect_err("a numeric default with an empty source must fail the registry build gate");
+        assert!(
+            error.contains("synthetic_unsourced_default.VALUE"),
+            "parameter identity missing: {error}"
+        );
+        assert!(
+            error.contains("default") && error.contains("source"),
+            "failure is not actionable: {error}"
+        );
+
+        validate_parameter_sources(module_catalog())
+            .expect("the complete shipping module registry must contain zero unsourced defaults");
+    }
+
+    /// CORRECTNESS — SB-CORE-004 / SB-CORE-T11 and `record_data_tools.md`'s despike-window
+    /// decision. `WINDOW` deliberately has no generic value: `ABSENT` is the source-state token,
+    /// and supplying a finite interpreter value must make the same module runnable.
+    #[test]
+    fn an_absent_required_parameter_refuses_until_the_interpreter_supplies_a_value() {
+        let spec = module_catalog()
+            .iter()
+            .find(|module| module.name == "despike")
+            .expect("despike is registered");
+        let window = spec
+            .args
+            .iter()
+            .find(|arg| arg.name == "WINDOW")
+            .expect("WINDOW is declared");
+        assert_eq!(window.default_source, ABSENT_DEFAULT_SOURCE);
+        assert!(
+            window.default.is_empty(),
+            "ABSENT must never conceal a numeric default"
+        );
+
+        let context = |window: Option<f64>| {
+            let mut params = HashMap::from([("K".into(), vec![3.0; 5])]);
+            if let Some(value) = window {
+                params.insert("WINDOW".into(), vec![value; 5]);
+            }
+            ModuleContext {
+                n: 5,
+                logs: HashMap::from([
+                    ("DEPTH".into(), vec![0.0, 1.0, 2.0, 3.0, 4.0]),
+                    ("CURVE".into(), vec![1.0, 1.0, 10.0, 1.0, 1.0]),
+                ]),
+                params,
+                opts: HashMap::from([("OPT_METHOD".into(), "HAMPEL".into())]),
+                depth_unit: Default::default(),
+            }
+        };
+
+        let error = run_module("despike", &context(None))
+            .expect_err("an ABSENT required parameter must refuse before computation");
+        assert!(
+            error.contains("WINDOW") && error.contains("ABSENT"),
+            "refusal is not actionable: {error}"
+        );
+
+        // Six depth units cover all five one-unit samples under the module's centred half-open
+        // window rule, satisfying the documented five-sample HAMPEL minimum without weakening it.
+        let output = run_module("despike", &context(Some(6.0)))
+            .expect("supplying the deliberately absent parameter must enable the same run");
+        assert!(
+            output.values().flatten().any(|value| value.is_finite()),
+            "the supplied side must produce a real curve, not blank success"
+        );
+
+        // Branch pin, both sides: K is irrelevant to ABS but required by HAMPEL. Source:
+        // despike's declared method contract and docs/PRD_v2/20_envcorr-qc.md §5.3.
+        let mut abs_context = context(Some(6.0));
+        abs_context.opts.insert("OPT_METHOD".into(), "ABS".into());
+        abs_context.params.remove("K");
+        abs_context.params.insert("THRESH".into(), vec![5.0; 5]);
+        run_module("despike", &abs_context)
+            .expect("an inactive branch must not demand its deliberately absent parameter");
+
+        let mut hampel_without_k = context(Some(6.0));
+        hampel_without_k.params.remove("K");
+        let branch_error = run_module("despike", &hampel_without_k)
+            .expect_err("the active branch must require its deliberately absent parameter");
+        assert!(
+            branch_error.contains("K")
+                && branch_error.contains("HAMPEL")
+                && branch_error.contains("ABSENT"),
+            "conditional refusal is not actionable: {branch_error}"
+        );
     }
 
     /// **SB-MLA-050 — the k = 1 self-match trap, as a hard fail.**
@@ -5553,36 +6153,19 @@ mod tests {
         );
     }
 
-    /// The shipped reference pair must stay GENERIC. Until 2026-07-31 it was one operator's
-    /// regional calibration (53.68 / 133.93 gAPI from 562 of their wells) — a number that
-    /// could only have come from somebody's field, shipping to every user as though it were
-    /// a constant. It is also silently wrong anywhere else: normalized GR always *looks*
-    /// right, so a user who accepts a foreign reference gets a plausible curve and no warning.
-    /// This pins the defaults to the app's own generic clean/clay endpoints and will fail if
-    /// a field calibration is ever pasted back in.
+    /// A GR normalization reference pair is interpretation data, not a generic default. A pair
+    /// from another study still makes a smooth, plausible curve, so both ends must ship absent.
     #[test]
-    fn gr_normalize_reference_defaults_are_generic_not_a_field_calibration() {
+    fn gr_normalize_reference_pair_ships_absent_not_as_a_field_calibration() {
         let spec = gr_normalize_spec();
-        let default_of = |name: &str| -> f64 {
-            spec.args
-                .iter()
-                .find(|a| a.name == name)
-                .unwrap_or_else(|| panic!("{name} missing from the manifest"))
-                .default
-                .parse()
-                .expect("numeric default")
-        };
-        let (lo, hi) = (default_of("GR_LOW_REF"), default_of("GR_HIGH_REF"));
-        // vsh_gr's GR_MA / GR_SH — the generic clean-sand and clay endpoints used elsewhere
-        // in this app, so a well normalized on the defaults then run through VSH(GR) on ITS
-        // defaults spans roughly 0..1 rather than landing somewhere arbitrary.
-        assert_eq!(lo, 20.0, "low reference must be the generic clean-sand endpoint");
-        assert_eq!(hi, 120.0, "high reference must be the generic clay endpoint");
-        assert!(lo < hi, "reference pair must be ordered");
-        // Round numbers are the tell: a two-decimal reference is a regression result from
-        // real wells, not a generic endpoint.
-        for (name, v) in [("GR_LOW_REF", lo), ("GR_HIGH_REF", hi)] {
-            assert_eq!(v.fract(), 0.0, "{name} = {v} looks like a field-fitted value");
+        for name in ["GR_LOW_REF", "GR_HIGH_REF"] {
+            let arg = spec.args.iter().find(|a| a.name == name).unwrap();
+            assert!(
+                arg.default.is_empty(),
+                "{name} must not conceal a numeric reference"
+            );
+            assert_eq!(arg.default_source, ABSENT_DEFAULT_SOURCE);
+            assert!(arg.required, "both ends of the reference pair are required");
         }
     }
 

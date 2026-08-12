@@ -7,7 +7,10 @@
 //! J = 0.21645 * (Pc / IFT) * sqrt(k / phi)   (the classic oilfield-unit Leverett J)
 //! Pc_res = 0.433 * (RHO_W - RHO_HC) * h_ft   (psi; 0.433 psi/ft per unit sp. gravity)
 
-use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{
+    log_in, log_out, opt, param, param_open, param_open_when, ModuleContext, ModuleOutputs,
+    ModuleSpec,
+};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -107,17 +110,48 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_SWH", "Saturation-height model", "LEVERETT", &["LEVERETT", "SKELT"]),
-            param("FWL", "Free-water level (same reference as the vertical-depth input; negative = subsea TVDSS)", "m", 2000.0, -10000.0, 20000.0),
-            param("RHO_W", "Water density", "g/cc", 1.0, 0.8, 1.3),
-            param("RHO_HC", "Hydrocarbon density", "g/cc", 0.8, 0.05, 1.1),
-            param("IFT_RES", "Reservoir sigma*cos(theta)", "dyn/cm", 26.0, 1.0, 500.0),
-            param("SWH_A", "Leverett coefficient A (from J-fit)", "", 0.5, 0.001, 100.0),
-            param("SWH_B", "Leverett exponent B (from J-fit, usually negative)", "", -0.4, -5.0, 0.0),
-            param("SH_A", "Skelt-Harrison A", "", 1.0, 0.0, 1.0),
-            param("SH_B", "Skelt-Harrison B", "m", 30.0, 0.1, 5000.0),
-            param("SH_C", "Skelt-Harrison C", "", 1.5, 0.1, 10.0),
-            param("SH_D", "Skelt-Harrison D", "m", 0.0, -100.0, 1000.0),
-            param("SWT_IRR", "Irreducible water saturation (lower clamp)", "v/v", 0.0, 0.0, 0.8),
+            param_open("FWL", "Free-water level (same reference as the vertical-depth input; negative = subsea TVDSS)", "m", -10000.0, 20000.0, true),
+            param(
+                "RHO_W", "Water density", "g/cc", 1.0, 0.8, 1.3,
+                "docs/ref_shf.md:56 and Techlog sand-summary water-density default; docs/PRD_v2/15_sat-height-rocktyping.md §5.1",
+            ),
+            param_open("RHO_HC", "Hydrocarbon density", "g/cc", 0.05, 1.1, true),
+            param_open_when(
+                "IFT_RES", "Reservoir sigma*cos(theta)", "dyn/cm", 1.0, 500.0,
+                &[("OPT_SWH", "LEVERETT")],
+                "docs/PRD_v2/15_sat-height-rocktyping.md §5 Leverett parameters",
+            ),
+            param_open_when(
+                "SWH_A", "Leverett coefficient A (from J-fit)", "", 0.001, 100.0,
+                &[("OPT_SWH", "LEVERETT")],
+                "docs/PRD_v2/15_sat-height-rocktyping.md §5 Leverett parameters",
+            ),
+            param_open_when(
+                "SWH_B", "Leverett exponent B (from J-fit, usually negative)", "", -5.0, 0.0,
+                &[("OPT_SWH", "LEVERETT")],
+                "docs/PRD_v2/15_sat-height-rocktyping.md §5 Leverett parameters",
+            ),
+            param_open_when(
+                "SH_A", "Skelt-Harrison A", "", 0.0, 1.0,
+                &[("OPT_SWH", "SKELT")],
+                "docs/PRD_v2/15_sat-height-rocktyping.md §5 Skelt-Harrison parameters",
+            ),
+            param_open_when(
+                "SH_B", "Skelt-Harrison B", "m", 0.1, 5000.0,
+                &[("OPT_SWH", "SKELT")],
+                "docs/PRD_v2/15_sat-height-rocktyping.md §5 Skelt-Harrison parameters",
+            ),
+            param_open_when(
+                "SH_C", "Skelt-Harrison C", "", 0.1, 10.0,
+                &[("OPT_SWH", "SKELT")],
+                "docs/PRD_v2/15_sat-height-rocktyping.md §5 Skelt-Harrison parameters",
+            ),
+            param_open_when(
+                "SH_D", "Skelt-Harrison D", "m", -100.0, 1000.0,
+                &[("OPT_SWH", "SKELT")],
+                "docs/PRD_v2/15_sat-height-rocktyping.md §5 Skelt-Harrison parameters",
+            ),
+            param_open("SWT_IRR", "Irreducible water saturation (lower clamp)", "v/v", 0.0, 0.8, true),
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_in("PERM", "Working permeability (LEVERETT only)", "mD", "PERM", false),
             log_in("TVD", "True vertical (sub-sea) depth for height; defaults to measured depth", "m", "TVD", false),
@@ -222,11 +256,27 @@ mod tests {
         depth_unit: crate::units::DepthUnit,
     ) -> ModuleContext {
         let spec = sw_height_spec();
+        // CHARACTERIZATION INPUTS — historical saturation-height fixtures remain explicit test
+        // data and no longer masquerade as shipping defaults. Source: pre-SB-CORE-004 manifest in
+        // git plus the independently stated arithmetic in the tests below.
+        let fixture_value = |name: &str| match name {
+            "FWL" => 2000.0,
+            "RHO_W" => 1.0,
+            "RHO_HC" => 0.8,
+            "IFT_RES" => 26.0,
+            "SWH_A" => 0.5,
+            "SWH_B" => -0.4,
+            "SH_A" => 1.0,
+            "SH_B" => 30.0,
+            "SH_C" => 1.5,
+            "SH_D" | "SWT_IRR" => 0.0,
+            _ => panic!("no explicit saturation-height test fixture for {name}"),
+        };
         let mut params: HashMap<String, Vec<f64>> = spec
             .args
             .iter()
             .filter(|a| a.kind == ArgKind::Param)
-            .map(|a| (a.name.clone(), vec![a.default.parse().unwrap(); n]))
+            .map(|a| (a.name.clone(), vec![fixture_value(&a.name); n]))
             .collect();
         for (k, v) in overrides {
             params.insert(k.to_string(), vec![*v; n]);

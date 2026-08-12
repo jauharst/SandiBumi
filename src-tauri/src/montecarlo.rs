@@ -1925,7 +1925,41 @@ mod tests {
     use uuid::Uuid;
 
     fn step(module: &str) -> ChainStep {
-        ChainStep { module: module.into(), log_inputs: HashMap::new(), params: HashMap::new(), opts: HashMap::new() }
+        // CHARACTERIZATION fixtures: these values are the pre-SB-CORE-004 manifest inputs that
+        // existing Monte Carlo tests previously consumed implicitly. They are explicit here so
+        // the tests continue to isolate sampling, persistence, masking, and cutoff behavior; none
+        // of them is restored as a shipping default.
+        let params = match module {
+            "vsh_gr" => HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+            "phi_dn" => HashMap::from([
+                ("RHO_MA".into(), 2.645),
+                ("RHO_SH".into(), 2.5),
+                ("RHO_FL".into(), 1.0),
+                ("NPHI_SH".into(), 0.35),
+                ("RHO_DSH".into(), 2.65),
+                ("RHO_W".into(), 1.0),
+                ("PHIE_MAX".into(), 0.3),
+            ]),
+            "sw_indo" => HashMap::from([
+                ("A".into(), 1.0),
+                ("M".into(), 2.0),
+                ("N".into(), 2.0),
+                ("RT_SH".into(), 5.0),
+                ("SWE_IRR".into(), 0.0),
+                ("RW".into(), 0.1),
+            ]),
+            "perm_coates" => {
+                HashMap::from([("CONST_COATES".into(), 100.0), ("SWE_IRR".into(), 0.15)])
+            }
+            "rocktyping" => HashMap::from([("PS_EXP".into(), 3.0)]),
+            _ => HashMap::new(),
+        };
+        ChainStep {
+            module: module.into(),
+            log_inputs: HashMap::new(),
+            params,
+            opts: HashMap::new(),
+        }
     }
 
     /// A clean-ish sand: low GR, moderate porosity, low water saturation, so vsh_gr → phi_dn →
@@ -2087,13 +2121,14 @@ mod tests {
 
         // The real chain, one masked step at a time, then the pay summary over what it wrote.
         for m in modules_in_chain {
+            let params = step(m).params;
             let res = crate::workflow::run_workflow_module(
                 &dbm,
                 &crate::workflow::RunModuleRequest {
                     module: m.into(),
                     well_ids: vec![well.clone()],
                     log_inputs: HashMap::new(),
-                    params: HashMap::new(),
+                    params,
                     opts: masked(),
                     output_set: None,
                     input_set: None,

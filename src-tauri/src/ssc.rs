@@ -40,7 +40,9 @@
 //! from. Re-porting sspw() against it is pending Jauhar's sign-off; until then the
 //! declared NPHI_* parameters here are read by the UI but unused by the math.
 
-use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{
+    log_in, log_out, opt, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+};
 use std::collections::HashMap;
 
 fn limit(v: f64, lo: f64, hi: f64) -> f64 {
@@ -82,8 +84,8 @@ pub fn ssc_spec() -> ModuleSpec {
               matrix density from the fraction mix, PHIT from density. Bound water is split \
               into clay-bound (CBW) and capillary-bound in silt/shale (CWSH): PHIE = PHIT − \
               VWCL·PHIT_CL, PHIFF = PHIT − CBW − CWSH, SWIRR_T = BW/PHIT. GR-equivalent \
-              volumes rescale the SSC volumes to honour VSHGR. Defaults are the LQR reference \
-              values."
+              volumes rescale the SSC volumes to honour VSHGR. Study-specific crossplot endpoints \
+              ship absent and must be supplied from the active interpretation."
             .into(),
         args: vec![
             opt(
@@ -92,19 +94,28 @@ pub fn ssc_spec() -> ModuleSpec {
                 "LINEAR",
                 &["LINEAR", "STIEBER1", "STIEBER2", "STIEBER3", "LARINOV1", "LARINOV2", "LARINOV3", "CLAVIER"],
             ),
-            param("GR_MA", "Gamma ray matrix (clean)", "gapi", 10.0, 0.0, 100.0),
-            param("GR_SH", "Gamma ray clay", "gapi", 150.0, 0.0, 1000.0),
-            param("RHOB_MA", "Density matrix", "g/cc", 2.65, 1.0, 4.0),
-            param("NPHI_MA", "Neutron matrix", "v/v", 0.0, -0.1, 1.2),
-            param("RHOB_FL", "Density fluid", "g/cc", 1.0, 0.5, 4.0),
-            param("NPHI_FL", "Neutron fluid", "v/v", 1.0, -0.1, 1.2),
-            param("RHOB_WCL", "Bulk density wet clay", "g/cc", 2.3, 1.0, 4.0),
-            param("NPHI_WCL", "Neutron porosity wet clay", "v/v", 0.6, -0.1, 1.2),
-            param("RHOB_DCL", "Bulk density dry clay", "g/cc", 2.71, 1.0, 4.0),
-            param("NPHI_WSI", "Neutron porosity wet silt", "v/v", 0.3, -0.1, 1.2),
-            param("DCLF_SI", "Dry clay fraction at dry silt", "v/v", 0.1, 0.0, 1.0),
-            param("PHIT_CL", "Total porosity of clay", "v/v", 0.24, 0.0, 0.8),
-            param("SWIRR_MIN", "Minimum total irreducible Sw", "v/v", 0.0, 0.0, 1.0),
+            param_open("GR_MA", "Gamma ray matrix (clean)", "gapi", 0.0, 100.0, true),
+            param_open("GR_SH", "Gamma ray clay", "gapi", 0.0, 1000.0, true),
+            param(
+                "RHOB_MA", "Density matrix", "g/cc", 2.65, 1.0, 4.0,
+                "IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("NPHI_MA", "Neutron matrix", "v/v", -0.1, 1.2, true),
+            param(
+                "RHOB_FL", "Density fluid", "g/cc", 1.0, 0.5, 4.0,
+                "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param(
+                "NPHI_FL", "Neutron fluid", "v/v", 1.0, -0.1, 1.2,
+                "Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
+            ),
+            param_open("RHOB_WCL", "Bulk density wet clay", "g/cc", 1.0, 4.0, true),
+            param_open("NPHI_WCL", "Neutron porosity wet clay", "v/v", -0.1, 1.2, true),
+            param_open("RHOB_DCL", "Bulk density dry clay", "g/cc", 1.0, 4.0, true),
+            param_open("NPHI_WSI", "Neutron porosity wet silt", "v/v", -0.1, 1.2, true),
+            param_open("DCLF_SI", "Dry clay fraction at dry silt", "v/v", 0.0, 1.0, true),
+            param_open("PHIT_CL", "Total porosity of clay", "v/v", 0.0, 0.8, true),
+            param_open("SWIRR_MIN", "Minimum total irreducible Sw", "v/v", 0.0, 1.0, true),
             log_in("GR", "Gamma ray (normalized)", "gapi", "GRN", true),
             log_in("RHOB", "Bulk density (corrected)", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity (sandstone units)", "v/v", "NPHI", true),
@@ -366,15 +377,24 @@ pub fn sspw_spec() -> ModuleSpec {
               PHIT/PHIE LAS output."
             .into(),
         args: vec![
-            param("RHOB_MAT", "Bulk density of matrix point", "g/cc", 2.65, 2.0, 3.0),
-            param("NPHI_MAT", "Neutron of matrix point", "v/v", 0.0, -0.1, 0.2),
-            param("RHOB_SH", "Bulk density of measured (wet) shale", "g/cc", 2.4, 1.5, 3.5),
-            param("NPHI_SH", "Neutron of measured shale", "v/v", 0.55, 0.0, 1.0),
-            param("RHOB_DSH", "Dry shale grain density (0 p.u. shale)", "g/cc", 2.71, 2.0, 3.0),
-            param("VOL_CBW_SH", "Clay-bound water volume in wet shale", "v/v", 0.1, 0.0, 1.0),
-            param("SWIRR_MIN", "Minimum irreducible water saturation", "v/v", 0.0, 0.0, 1.0),
-            param("RHOB_FL", "Density of invaded-zone fluid", "g/cc", 1.0, 0.5, 1.5),
-            param("NPHI_FL", "Neutron response of flushed-zone fluid", "v/v", 1.0, 0.5, 1.2),
+            param(
+                "RHOB_MAT", "Bulk density of matrix point", "g/cc", 2.65, 2.0, 3.0,
+                "IP/Techlog/SandiMin sandstone matrix endpoint 2.65 g/cm3; docs/PRD_v2/11_porosity.md §5.1",
+            ),
+            param_open("NPHI_MAT", "Neutron of matrix point", "v/v", -0.1, 0.2, true),
+            param_open("RHOB_SH", "Bulk density of measured (wet) shale", "g/cc", 1.5, 3.5, true),
+            param_open("NPHI_SH", "Neutron of measured shale", "v/v", 0.0, 1.0, true),
+            param_open("RHOB_DSH", "Dry shale grain density (0 p.u. shale)", "g/cc", 2.0, 3.0, true),
+            param_open("VOL_CBW_SH", "Clay-bound water volume in wet shale", "v/v", 0.0, 1.0, true),
+            param_open("SWIRR_MIN", "Minimum irreducible water saturation", "v/v", 0.0, 1.0, true),
+            param(
+                "RHOB_FL", "Density of invaded-zone fluid", "g/cc", 1.0, 0.5, 1.5,
+                "Geolog V14 phi_dnh.info RHO_MF DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.4",
+            ),
+            param(
+                "NPHI_FL", "Neutron response of flushed-zone fluid", "v/v", 1.0, 0.5, 1.2,
+                "Geolog V14 vsh_dn.info and Techlog VSH neutron-density NPHI fluid 1.0; docs/PRD_v2/10_clay-volume.md §5",
+            ),
             log_in("RHOB", "Bulk density", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity (sandstone units)", "v/v", "NPHI", false),
             log_in("VSH", "Shale volume", "v/v", "VSH", true),
@@ -484,10 +504,36 @@ mod tests {
     fn ctx_with(logs: Vec<(&str, Vec<f32>)>, spec: &ModuleSpec, n: usize) -> ModuleContext {
         let mut params = HashMap::new();
         let mut opts = HashMap::new();
+        // CHARACTERIZATION INPUTS — the existing SSC/SSPW equation fixtures retain their
+        // historical endpoints explicitly; SB-CORE-004 removes them from the shipping manifest.
+        // Source: the pre-SB-CORE-004 manifests in git and the named crossplot fixtures below.
+        let fixture_value = |name: &str| match (spec.name.as_str(), name) {
+            ("ssc", "GR_MA") => 10.0,
+            ("ssc", "GR_SH") => 150.0,
+            ("ssc", "RHOB_MA") => 2.65,
+            ("ssc", "NPHI_MA") => 0.0,
+            ("ssc", "RHOB_FL") | ("ssc", "NPHI_FL") => 1.0,
+            ("ssc", "RHOB_WCL") => 2.3,
+            ("ssc", "NPHI_WCL") => 0.6,
+            ("ssc", "RHOB_DCL") => 2.71,
+            ("ssc", "NPHI_WSI") => 0.3,
+            ("ssc", "DCLF_SI") => 0.1,
+            ("ssc", "PHIT_CL") => 0.24,
+            ("ssc", "SWIRR_MIN") => 0.0,
+            ("sspw", "RHOB_MAT") => 2.65,
+            ("sspw", "NPHI_MAT") => 0.0,
+            ("sspw", "RHOB_SH") => 2.4,
+            ("sspw", "NPHI_SH") => 0.55,
+            ("sspw", "RHOB_DSH") => 2.71,
+            ("sspw", "VOL_CBW_SH") => 0.1,
+            ("sspw", "SWIRR_MIN") => 0.0,
+            ("sspw", "RHOB_FL") | ("sspw", "NPHI_FL") => 1.0,
+            _ => panic!("no explicit SSC test fixture for {}.{name}", spec.name),
+        };
         for a in &spec.args {
             match a.kind {
                 crate::modules::ArgKind::Param => {
-                    let v: f64 = a.default.parse().unwrap();
+                    let v = fixture_value(&a.name);
                     params.insert(a.name.clone(), vec![v; n]);
                 }
                 crate::modules::ArgKind::Option => {

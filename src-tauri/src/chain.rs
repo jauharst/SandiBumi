@@ -282,7 +282,35 @@ mod tests {
     }
 
     fn step(module: &str) -> ChainStep {
-        ChainStep { module: module.into(), log_inputs: HashMap::new(), params: HashMap::new(), opts: HashMap::new() }
+        // CHARACTERIZATION fixtures: pre-SB-CORE-004 manifest values made explicit so this test
+        // remains about chain order and completion; they are not restored as shipping defaults.
+        let params = match module {
+            "vsh_gr" => HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+            "phi_dn" => HashMap::from([
+                ("RHO_MA".into(), 2.645),
+                ("RHO_SH".into(), 2.5),
+                ("RHO_FL".into(), 1.0),
+                ("NPHI_SH".into(), 0.35),
+                ("RHO_DSH".into(), 2.65),
+                ("RHO_W".into(), 1.0),
+                ("PHIE_MAX".into(), 0.3),
+            ]),
+            "sw_indo" => HashMap::from([
+                ("A".into(), 1.0),
+                ("M".into(), 2.0),
+                ("N".into(), 2.0),
+                ("RT_SH".into(), 5.0),
+                ("SWE_IRR".into(), 0.0),
+                ("RW".into(), 0.1),
+            ]),
+            _ => HashMap::new(),
+        };
+        ChainStep {
+            module: module.into(),
+            log_inputs: HashMap::new(),
+            params,
+            opts: HashMap::new(),
+        }
     }
 
     #[test]

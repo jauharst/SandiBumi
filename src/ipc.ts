@@ -815,6 +815,7 @@ export type ValidityCondition = {
   | { kind: "enumeration" }
   | { kind: "numeric_range"; min: number | null; max: number | null; unit: string; when?: ValidityBranch | null }
   | { kind: "required_companion"; any_of: string[]; when?: ValidityBranch | null }
+  | { kind: "required_value"; when?: ValidityBranch | null }
   | { kind: "less_than"; other: string }
 );
 
@@ -824,6 +825,8 @@ export interface ArgSpec {
   unit: string;
   kind: ArgKind;
   default: string;
+  /** Named source for a numeric default, or exact `ABSENT` when no numeric default ships. */
+  default_source: string;
   /** Option ids. **Stored in `params_json` on every saved run — never render-and-submit anything
    *  else as the value.** */
   choices: string[];

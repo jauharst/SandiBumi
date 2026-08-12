@@ -55,14 +55,14 @@
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-CORE-T10`, `SB-CORE-T11`.
 - **Atomic obligations:** every registered default has a machine-readable source string; the build fails on a default with no source; a required source-less parameter ships absent and the run refuses until supplied.
-- **Current source:** `modules.rs::ArgSpec` has `sources_topic`, but no per-default `source` field. The generic `param()` constructor creates defaults with an empty topic. `param_open()` can represent an absent value and the UI can refuse a blank required parameter, but no registry build validator connects that behavior to source presence. `param_sourced()` is used only for two facies fields and is a competing-values UI mechanism, not the universal default-source contract.
-- **Qualifying acceptance tests:** no executable mappings for T10 or T11 were found; test class is `MISSING`.
-- **Supporting tests:** parameter-source tests prove attribution for one contested topic but do not fail the build for all source-less defaults or enforce runtime absence.
+- **Current source:** every registered numeric parameter now carries `ArgSpec::default_source`: a named source beside a finite default or the exact `ABSENT` token beside an empty value. `module_catalog()` runs the universal registry gate, `run_module()` refuses required absent values before dispatch, branch-specific absent requirements activate only for the method that consumes them, and the dialog renders the same custody state.
+- **Qualifying acceptance tests:** `a_registered_default_without_a_source_fails_the_build_gate` pins the invalid fixture and complete live registry; `an_absent_required_parameter_refuses_until_the_interpreter_supplies_a_value` pins ABSENT, refusal, supplied-value success and active/inactive branch behavior. Test class is `CORRECTNESS`.
+- **Supporting tests:** the affected workflow, chain and Monte Carlo fixtures now supply explicit characterization inputs rather than recovering withdrawn manifest values; the complete Rust and frontend suites remain green.
 - **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** partial source-display structures are integrated at the accepted anchor; the build/runtime enforcement contract is unimplemented.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the source inventory is incomplete. Every uncited parameter must remain absent; this adjudication selects no replacement values.
-- **Next action:** add a source field beside each default, a registry build validator, and a runtime refusal for required source-less parameters; populate only chapter-cited sources and leave every other default absent.
+- **Git evidence:** the universal source/ABSENT schema, migrated registry, build/runtime enforcement and exact T10/T11 proofs are integrated on the Gate 2 topic branch; the exact-tree receipt is recorded in `STATUS.md` and `REVIEW.md`.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 progress state `DONE`.
+- **Blocker or decision:** none for the automated contract. No replacement value was selected for an uncited parameter; those entries remain visibly absent.
+- **Next action:** preserve the registry gate and exercise cited-default plus ABSENT/refusal paths during Gate 4 without converting that pending field evidence into an implementation gap.
 
 ## SB-CORE-005 — Vendor-derived defaults are re-sourced to primary literature
 

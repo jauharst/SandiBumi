@@ -33,13 +33,18 @@ export function maskCurveNames(curveNames: string[]): string[] {
  * statement, activation branch and source together so the dialog never shows a bare range whose
  * authority has to be guessed. */
 export function argumentHint(arg: ModuleSpec["args"][number]): string {
+  const defaultSource = arg.kind !== "param"
+    ? ""
+    : arg.default_source === "ABSENT"
+      ? "Default: ABSENT — no numeric value ships; supply an interpreter value when the selected method requires it."
+      : `Default source: ${arg.default_source}.`;
   const conditions = (arg.validity_conditions ?? []).map((condition) => {
     const branch = "when" in condition && condition.when
       ? ` When ${condition.when.argument} = ${condition.when.equals}.`
       : "";
     return `Condition ${condition.id}: ${condition.statement}${branch} Source: ${condition.source}.`;
   });
-  return [arg.desc, ...conditions].filter(Boolean).join(" ");
+  return [arg.desc, defaultSource, ...conditions].filter(Boolean).join(" ");
 }
 
 /** Builds the auto-generated parameter form for one module: input-curve selectors,

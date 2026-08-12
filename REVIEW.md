@@ -7,6 +7,19 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-004: every numeric default is sourced or absent
+
+- [x] **Automated:** every registered numeric parameter carries a named source beside its finite
+      default or exact `ABSENT` beside an empty value. The complete registry fails its build gate on
+      an omission; required absent values refuse before computation; branch-only values are demanded
+      only by the method that consumes them; the UI renders the same custody state. Full gate: 975
+      passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** open representative dialogs for one cited default, one required ABSENT value
+      and one branch-specific ABSENT value. Are the source and refusal guidance readable before Run,
+      and does changing methods hide requirements that branch does not consume?
+- [ ] **Field:** during Gate 4, run one cited-default case and one interpreter-supplied ABSENT case
+      using representative pilot data; retain the dialog, refusal/success and run-history evidence.
+
 ## 2026-08-13 — G2 SB-CORE-003: sourced preconditions refuse before computation
 
 - [x] **Automated:** module manifests can carry source-bearing enumeration, per-sample range,

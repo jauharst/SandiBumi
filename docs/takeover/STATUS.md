@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `3 / 222 handled — 2 DONE, 1 BLOCKED, 219 remaining`
+- Gate 2 requirement progress: `4 / 222 handled — 3 DONE, 1 BLOCKED, 218 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T01 / SB-CORE-003 - BLOCKED at the whole-pilot inventory boundary; the source-bearing schema, runner, UI path and first live method are implemented, but every selected method still needs its owning cited conditions`
+- Active increment: `G2-T01 / SB-CORE-004 - DONE; every registered numeric parameter now carries a named source or exact ABSENT state, the registry build gate rejects omissions, and required absent values refuse before computation`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-CORE-003 exact tree is green at 973 passed / 0 failed / 36 ignored; its source-bearing validity proof and affected workflow/Monte Carlo controls are green; TypeScript and Rust check are green`
+- Automated gate: `SB-CORE-004 exact tree is green at 975 passed / 0 failed / 36 ignored; T10/T11, the complete registry, affected workflow/chain/Monte Carlo controls, TypeScript and Rust check are green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `219 Gate 2 rows remain unhandled; SB-CORE-003 is separately BLOCKED until SB-CORE-004 and the selected ENV/CLY/POR/SAT/CUT rows populate and prove every pilot method's cited conditions; the original action-mode totals remain the immutable routing baseline; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Start G2-T01 / SB-CORE-004 from the verified SB-CORE-003 framework boundary; leave every source-less parameter absent rather than converting a legacy UI bound into scientific authority.`
+- Open blockers: `218 Gate 2 rows remain unhandled; SB-CORE-003 is separately BLOCKED until the selected ENV/CLY/POR/SAT/CUT rows populate and prove every pilot method's cited conditions; the approved 222-row scope remains immutable while live action classes improve as rows close; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Start G2-T01 / SB-CORE-005 from the verified SB-CORE-004 source-custody boundary; vendor corroboration may locate a value but cannot become its primary authority.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 123 remediate / 19 prove / 44 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 122 remediate / 19 prove / 45 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |

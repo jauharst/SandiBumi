@@ -524,12 +524,12 @@
 
 - **Chapter evidence:** P2; historical status `PARTIAL`; T38; sections 4.3, 5, 6 and 8.
 - **Atomic obligations:** if offered, named preset with source; visibly a convention, not constant; record preset identity, pool and realized values.
-- **Current source:** the hidden saved-chain-compatible `gr_normalize` manifest still ships P3/P97 as numeric defaults and its documentation warns they are generic. It has no machine-readable source or preset identity and is not a CLY endpoint picker; ordinary run parameters do not record the realized percentiles as endpoint custody.
-- **Qualifying acceptance tests:** T38's CLY preset record is absent. Current default tests derive their oracle from the legacy manifest, so row test class is `CHARACTERIZATION`.
-- **Supporting tests:** the legacy default and mapping tests each passed exactly once; universal Normalize separately refuses an absent reference pair.
+- **Current source:** the hidden saved-chain-compatible `gr_normalize` manifest still ships P3/P97 as cited numeric defaults and identifies the convention. It has no preset identity and ordinary run parameters do not record the pool or realized percentiles as endpoint custody; the unrelated GR reference pair now ships absent.
+- **Qualifying acceptance tests:** T38's cited preset-identity, pool and realized-value record remains absent. The GR reference-pair absence test is an SB-CORE-004 control, not proof of this P3/P97 contract, so row test class is `MISSING`.
+- **Supporting tests:** mapping arithmetic and universal Normalize's absent-reference refusal remain narrower than the complete preset-custody contract.
 - **Manual evidence:** shale-volume 0/17; histogram 5/22; workflow 0/23; processing-history 0/7.
 - **Git evidence:** the legacy preset is integrated for saved-run compatibility and hidden from normal ribbon discovery; source/preset custody is absent.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
 - **Blocker or decision:** the chapter cites the convention but not any realized endpoint; saved-chain compatibility must not turn legacy defaults into physical authority.
 - **Next action:** represent P3/P97 as an explicitly cited CLY preset, record realized values/scope, and migrate legacy runs without silently promoting the old manifest.
 

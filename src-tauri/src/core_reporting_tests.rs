@@ -37,8 +37,20 @@ fn gas_correction_request(well_id: &str, gate: &str) -> McRequest {
         steps: vec![ChainStep {
             module: "gascorr".to_string(),
             log_inputs: HashMap::new(),
-            params: HashMap::new(),
-            opts: [("OPT_GATE".to_string(), gate.to_string())].into_iter().collect(),
+            // CHARACTERIZATION fixture: former manifest inputs are explicit so this test reaches
+            // its reporting-surface subject (the missing FLAGGED gate). They are not defaults.
+            params: HashMap::from([
+                ("RHO_MA".to_string(), 2.65),
+                ("RHO_FL".to_string(), 1.0),
+                ("SG_GAS".to_string(), 0.65),
+                ("A".to_string(), 1.0),
+                ("M".to_string(), 2.0),
+                ("N".to_string(), 2.0),
+                ("RW".to_string(), 0.1),
+            ]),
+            opts: [("OPT_GATE".to_string(), gate.to_string())]
+                .into_iter()
+                .collect(),
         }],
         mc_params: Vec::new(),
         iterations: 2,

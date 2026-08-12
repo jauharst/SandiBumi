@@ -29,7 +29,8 @@
 //! fraction, which is most of what gets blocked.
 
 use crate::modules::{
-    log_in, log_out_as, opt_labelled, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+    log_in, log_out_as, opt_labelled, param_open, param_open_when, ModuleContext, ModuleOutputs,
+    ModuleSpec,
 };
 use std::collections::HashMap;
 
@@ -243,10 +244,22 @@ pub fn block_spec() -> ModuleSpec {
               0.3 mD geometrically and 0.02 mD harmonically."
             .into(),
         args: vec![
-            param_open("INTERVAL", "Block thickness (OPT_BEDS = INTERVAL)", "depth", 0.0, 10000.0, false),
-            param_open("MIN_BED", "Thinnest bed worth calling a bed (OPT_BEDS = AUTO)", "depth", 0.0, 10000.0, false),
+            param_open_when(
+                "INTERVAL", "Block thickness (OPT_BEDS = INTERVAL)", "depth", 0.0, 10000.0,
+                &[("OPT_BEDS", "INTERVAL")],
+                "docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters",
+            ),
+            param_open_when(
+                "MIN_BED", "Thinnest bed worth calling a bed (OPT_BEDS = AUTO)", "depth", 0.0, 10000.0,
+                &[("OPT_BEDS", "AUTO")],
+                "docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters",
+            ),
             // Generic statistical multiplier, like the Hampel K — round, and not a calibration.
-            param("SENS", "AUTO: how far off the bed's mean is a new bed, in noise units", "", 2.0, 0.5, 20.0),
+            param_open_when(
+                "SENS", "AUTO: how far off the bed's mean is a new bed, in noise units", "", 0.5, 20.0,
+                &[("OPT_BEDS", "AUTO")],
+                "docs/PRD_v2/20_envcorr-qc.md §5.3 frame parameters",
+            ),
             opt_labelled(
                 "OPT_BEDS",
                 "What counts as one bed",
@@ -404,8 +417,22 @@ pub fn bed_detect_spec() -> ModuleSpec {
               tool and the rock."
             .into(),
         args: vec![
-            param_open("MIN_BED", "Thinnest bed worth calling a bed", "depth", 0.0, 10000.0, true),
-            param("SENS", "How far off the bed's mean is a new bed, in noise units", "", 2.0, 0.5, 20.0),
+            param_open(
+                "MIN_BED",
+                "Thinnest bed worth calling a bed",
+                "depth",
+                0.0,
+                10000.0,
+                true,
+            ),
+            param_open(
+                "SENS",
+                "How far off the bed's mean is a new bed, in noise units",
+                "",
+                0.5,
+                20.0,
+                true,
+            ),
             log_in("CURVE", "Curve to segment", "", "GR", true),
             log_out_as("OUT_CURVE", "{CURVE}_BED", "Bed index", ""),
         ],

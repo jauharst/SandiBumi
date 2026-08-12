@@ -12,7 +12,9 @@
 //!   iteration with Qv_eff = Qv_bulk/(1−Swirr) built from XRD clay volumes scaled by
 //!   a lab-CEC calibration factor S, and shaly-sand exponents m*, n*.
 
-use crate::modules::{log_in, log_in_one_of, log_out, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{
+    log_in, log_in_one_of, log_out, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+};
 use std::collections::HashMap;
 
 fn limit(v: f64, lo: f64, hi: f64) -> f64 {
@@ -80,9 +82,8 @@ pub fn sw_rtc_spec() -> ModuleSpec {
               and removed from the measured conductivity before Archie: \
               Sw = [Rw·(1/Rt − Cex)/PHIT^M]^(1/N). Qv comes from the QV input log when \
               present, else from CEC·RHOG·(1−PHIT)/(100·PHIT). \
-              THE DEFAULT COEFFICIENTS ARE ONE STUDY'S CALIBRATION (0.45, 0.0057, −0.0071, \
-              RSF 2.25) FROM ONE FIELD — they are a starting point, not a constant, and a \
-              foreign calibration here does not announce itself: it yields a smooth, plausible \
+              NO CALIBRATION COEFFICIENTS SHIP AS DEFAULTS. A foreign calibration here does not \
+              announce itself: it yields a smooth, plausible \
               Sw that is simply wrong. Fit your own with Advance ▸ Calibrate RtC…, which \
               regresses A_CAP/B_QV/C0 from excess conductivity over an interval you declare \
               water-bearing. CAPBW pairs naturally with SSC's CWSH or \
@@ -90,15 +91,36 @@ pub fn sw_rtc_spec() -> ModuleSpec {
               conductivity so Rt_corr stays finite."
             .into(),
         args: vec![
-            param("RW", "Formation water resistivity at FT", "ohm.m", 0.3, 0.001, 100.0),
-            param("M", "Cementation exponent", "", 2.0, 1.0, 4.0),
-            param("N", "Saturation exponent", "", 2.0, 1.0, 4.0),
-            param("A_CAP", "Capillary water coefficient", "", 0.45, -10.0, 10.0),
-            param("B_QV", "Qv coefficient", "", 0.0057, -1.0, 1.0),
-            param("C0", "Regression intercept", "", -0.0071, -1.0, 1.0),
-            param("RSF", "Resistivity scaling factor", "", 2.25, 0.0, 20.0),
-            param("CEC", "CEC when no QV log (meq/100g)", "meq/100g", 0.0, 0.0, 100.0),
-            param("RHOG", "Grain density for Qv", "g/cc", 2.65, 2.0, 3.2),
+            param_open(
+                "RW",
+                "Formation water resistivity at FT",
+                "ohm.m",
+                0.001,
+                100.0,
+                true,
+            ),
+            param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
+            param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
+            param_open(
+                "A_CAP",
+                "Capillary water coefficient",
+                "",
+                -10.0,
+                10.0,
+                true,
+            ),
+            param_open("B_QV", "Qv coefficient", "", -1.0, 1.0, true),
+            param_open("C0", "Regression intercept", "", -1.0, 1.0, true),
+            param_open("RSF", "Resistivity scaling factor", "", 0.0, 20.0, true),
+            param_open(
+                "CEC",
+                "CEC when no QV log (meq/100g)",
+                "meq/100g",
+                0.0,
+                100.0,
+                true,
+            ),
+            param_open("RHOG", "Grain density for Qv", "g/cc", 2.0, 3.2, true),
             log_in("RT", "Deep resistivity", "ohm.m", "RES_DEEP", true),
             log_in_one_of("PHIT", "Total porosity", "v/v", "PHIT_SSC", &["PHIT_SSPW"]),
             log_in("CAPBW", "Capillary-bound water volume", "v/v", "CWSH", false),
@@ -186,27 +208,74 @@ pub fn sw_imts_spec() -> ModuleSpec {
               is built from clay volumes (kaolinite/illite) times literature CEC constants \
               (8 / 25 meq/100g), calibrated to lab CEC by scaling factor S. Iterates \
               Ct = SwT^N*/F*·(Cw + B·Qv_eff/SwT) with F* = A/PHIT^M* and Juhasz B(T, Rw) \
-              until SwT is stable. SWE from CBW. VKAOL/VILL default to SSC's VDCL and a \
-              zero illite curve. \
+              until SwT is stable. SWE from CBW. VKAOL/VILL resolve from the selected clay curves. \
               S = measured lab CEC / XRD-theoretical CEC, so it is A PROPERTY OF THE ROCK AND \
-              OF THE CLAY CURVES IT IS PAIRED WITH — the shipped 0.5 is a placeholder standing \
-              in for the study's observation that lab CEC runs below the XRD-theoretical value, \
-              not a value measured anywhere. S multiplies the whole clay-charge term, so getting \
+              OF THE CLAY CURVES IT IS PAIRED WITH and ships absent. S multiplies the whole \
+              clay-charge term, so getting \
               it wrong scales Qv_eff directly and moves Sw with no outward sign. Fit your own \
               with Advance ▸ Calibrate S…, which regresses S from lab CEC measurements against \
               the clay content of the very curves this run will use."
             .into(),
         args: vec![
-            param("RW", "Formation water resistivity at FT", "ohm.m", 0.3, 0.001, 100.0),
-            param("TEMP_C", "Formation temperature", "degC", 60.0, 15.0, 200.0),
-            param("A", "Tortuosity factor a", "", 1.0, 0.5, 3.0),
-            param("MSTAR", "Shaly-sand cementation exponent m*", "", 1.9, 1.0, 4.0),
-            param("NSTAR", "Shaly-sand saturation exponent n*", "", 1.9, 1.0, 4.0),
-            param("S_FACTOR", "CEC scaling factor S (lab/XRD)", "", 0.5, 0.01, 2.0),
-            param("CEC_KAOL", "Kaolinite CEC constant", "meq/100g", 8.0, 0.0, 50.0),
-            param("CEC_ILL", "Illite CEC constant", "meq/100g", 25.0, 0.0, 100.0),
-            param("RHOG", "Grain density", "g/cc", 2.65, 2.0, 3.2),
-            param("SWIRR_DEF", "Swirr fallback when no SWIRR log", "v/v", 0.2, 0.0, 0.95),
+            param_open(
+                "RW",
+                "Formation water resistivity at FT",
+                "ohm.m",
+                0.001,
+                100.0,
+                true,
+            ),
+            param_open("TEMP_C", "Formation temperature", "degC", 15.0, 200.0, true),
+            param_open("A", "Tortuosity factor a", "", 0.5, 3.0, true),
+            param_open(
+                "MSTAR",
+                "Shaly-sand cementation exponent m*",
+                "",
+                1.0,
+                4.0,
+                true,
+            ),
+            param_open(
+                "NSTAR",
+                "Shaly-sand saturation exponent n*",
+                "",
+                1.0,
+                4.0,
+                true,
+            ),
+            param_open(
+                "S_FACTOR",
+                "CEC scaling factor S (lab/XRD)",
+                "",
+                0.01,
+                2.0,
+                true,
+            ),
+            param_open(
+                "CEC_KAOL",
+                "Kaolinite CEC constant",
+                "meq/100g",
+                0.0,
+                50.0,
+                true,
+            ),
+            param_open(
+                "CEC_ILL",
+                "Illite CEC constant",
+                "meq/100g",
+                0.0,
+                100.0,
+                true,
+            ),
+            param_open("RHOG", "Grain density", "g/cc", 2.0, 3.2, true),
+            param_open(
+                "SWIRR_DEF",
+                "Swirr fallback when no SWIRR log",
+                "v/v",
+                0.0,
+                0.95,
+                true,
+            ),
             log_in("RT", "Deep resistivity", "ohm.m", "RES_DEEP", true),
             log_in("PHIT", "Total porosity", "v/v", "PHIT_SSC", true),
             log_in("VKAOL", "Kaolinite volume fraction", "v/v", "VDCL", false),
@@ -1195,10 +1264,34 @@ mod tests {
     fn ctx_with(logs: Vec<(&str, Vec<f32>)>, spec: &ModuleSpec, n: usize) -> ModuleContext {
         let mut params = HashMap::new();
         let mut opts = HashMap::new();
+        // CHARACTERIZATION INPUTS — these are the pre-SB-CORE-004 study fixtures that the
+        // existing LRLC equation tests were written against. They are explicit test data now,
+        // never shipping defaults. Source: the former manifests recorded in git immediately
+        // before SB-CORE-004 and the equations/inputs named by each test below.
+        let fixture_value = |name: &str| match (spec.name.as_str(), name) {
+            ("sw_rtc", "RW") => 0.3,
+            ("sw_rtc", "M") | ("sw_rtc", "N") => 2.0,
+            ("sw_rtc", "A_CAP") => 0.45,
+            ("sw_rtc", "B_QV") => 0.0057,
+            ("sw_rtc", "C0") => -0.0071,
+            ("sw_rtc", "RSF") => 2.25,
+            ("sw_rtc", "CEC") => 0.0,
+            ("sw_rtc", "RHOG") => 2.65,
+            ("sw_imts", "RW") => 0.3,
+            ("sw_imts", "TEMP_C") => 60.0,
+            ("sw_imts", "A") => 1.0,
+            ("sw_imts", "MSTAR") | ("sw_imts", "NSTAR") => 1.9,
+            ("sw_imts", "S_FACTOR") => 0.5,
+            ("sw_imts", "CEC_KAOL") => 8.0,
+            ("sw_imts", "CEC_ILL") => 25.0,
+            ("sw_imts", "RHOG") => 2.65,
+            ("sw_imts", "SWIRR_DEF") => 0.2,
+            _ => panic!("no explicit LRLC test fixture for {}.{name}", spec.name),
+        };
         for arg in &spec.args {
             match arg.kind {
                 ArgKind::Param => {
-                    params.insert(arg.name.clone(), vec![arg.default.parse::<f64>().unwrap(); n]);
+                    params.insert(arg.name.clone(), vec![fixture_value(&arg.name); n]);
                 }
                 ArgKind::Option => {
                     opts.insert(arg.name.clone(), arg.default.clone());

@@ -41,7 +41,8 @@
 //! it every run"*). See [`crate::modules::param_open`].
 
 use crate::modules::{
-    log_in, log_out_as, opt_labelled, param, param_open, ModuleContext, ModuleOutputs, ModuleSpec,
+    log_in, log_out_as, opt_labelled, param, param_open, param_open_when, ModuleContext,
+    ModuleOutputs, ModuleSpec,
 };
 use std::collections::HashMap;
 
@@ -253,9 +254,33 @@ pub fn despike_spec() -> ModuleSpec {
                 // K = 3 is the ordinary three-deviation convention (the same generic statistical
                 // choice as Tukey's 1.5 x IQR already used in `distribution.rs`), NOT a field
                 // calibration — round, and stated as such.
-                param("K", "HAMPEL: deviations from the median before a sample is a spike", "", 3.0, 0.5, 20.0),
-                param_open("THRESH", "ABS: distance from the median, in the curve's units", "", 0.0, 1e9, false),
-                param_open("MAX_RATE", "RATE: largest honest change per depth unit", "", 0.0, 1e9, false),
+                param_open_when(
+                    "K",
+                    "HAMPEL: deviations from the median before a sample is a spike",
+                    "",
+                    0.5,
+                    20.0,
+                    &[("OPT_METHOD", "HAMPEL")],
+                    "docs/PRD_v2/20_envcorr-qc.md §5.3 conditioning parameters",
+                ),
+                param_open_when(
+                    "THRESH",
+                    "ABS: distance from the median, in the curve's units",
+                    "",
+                    0.0,
+                    1e9,
+                    &[("OPT_METHOD", "ABS")],
+                    "docs/PRD_v2/20_envcorr-qc.md §5.3 conditioning parameters",
+                ),
+                param_open_when(
+                    "MAX_RATE",
+                    "RATE: largest honest change per depth unit",
+                    "",
+                    0.0,
+                    1e9,
+                    &[("OPT_METHOD", "RATE")],
+                    "docs/PRD_v2/20_envcorr-qc.md §5.3 conditioning parameters",
+                ),
                 opt_labelled(
                     "OPT_METHOD",
                     "How a spike is told from rock",
@@ -937,14 +962,36 @@ pub fn normalize_spec() -> ModuleSpec {
                     ("LOG", "LOG — for RT, PERM, anything read on a log scale"),
                 ],
             ),
-            param("P_LOW", "TWO_POINT: low percentile", "%", 3.0, 0.0, 50.0),
-            param("P_HIGH", "TWO_POINT: high percentile", "%", 97.0, 50.0, 100.0),
-            param_open("REF_LOW", "TWO_POINT / RANGE: reference value at the low end", "", -1e9, 1e9, false),
-            param_open("REF_HIGH", "TWO_POINT / RANGE: reference value at the high end", "", -1e9, 1e9, false),
+            param(
+                "P_LOW", "TWO_POINT: low percentile", "%", 3.0, 0.0, 50.0,
+                "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+            ),
+            param(
+                "P_HIGH", "TWO_POINT: high percentile", "%", 97.0, 50.0, 100.0,
+                "memory/method_workflow_standards.md GR normalization P3/P97; docs/PRD_v2/20_envcorr-qc.md §5.3",
+            ),
+            param_open_when(
+                "REF_LOW", "TWO_POINT / RANGE: reference value at the low end", "", -1e9, 1e9,
+                &[("OPT_METHOD", "TWO_POINT"), ("OPT_METHOD", "RANGE")],
+                "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            ),
+            param_open_when(
+                "REF_HIGH", "TWO_POINT / RANGE: reference value at the high end", "", -1e9, 1e9,
+                &[("OPT_METHOD", "TWO_POINT"), ("OPT_METHOD", "RANGE")],
+                "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            ),
             // A plain z-score IS the generic answer here, unlike the reference pair — mean 0,
             // spread 1 is a definition rather than somebody's field calibration.
-            param("REF_MEAN", "MEAN_SD: reference mean", "", 0.0, -1e9, 1e9),
-            param("REF_SD", "MEAN_SD: reference standard deviation", "", 1.0, 1e-9, 1e9),
+            param_open_when(
+                "REF_MEAN", "MEAN_SD: reference mean", "", -1e9, 1e9,
+                &[("OPT_METHOD", "MEAN_SD")],
+                "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            ),
+            param_open_when(
+                "REF_SD", "MEAN_SD: reference standard deviation", "", 1e-9, 1e9,
+                &[("OPT_METHOD", "MEAN_SD")],
+                "docs/PRD_v2/20_envcorr-qc.md §5.3 normalization parameters",
+            ),
             log_in("CURVE", "Curve to normalize", "", "GR", true),
             log_out_as("OUT_CURVE", "{CURVE}_N", "Normalized curve", ""),
         ],
