@@ -59,6 +59,14 @@ if ($code -eq 0) {
     & npm run check:gate2-program
     $code = $LASTEXITCODE
 }
+if ($code -eq 0) {
+    & npm run test:gate2-hygiene
+    $code = $LASTEXITCODE
+}
+if ($code -eq 0) {
+    & npm run check:gate2-hygiene
+    $code = $LASTEXITCODE
+}
 Pop-Location
 if ($code -ne 0) { Fail "takeover ledger" $code }
 Write-Host ("[1/4] takeover ledger green in {0:n0}s" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green

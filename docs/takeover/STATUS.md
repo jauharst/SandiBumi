@@ -9,12 +9,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-PLAN - ACTIVE; exact approved scope routed into 222 Gate 2 rows and 20 later-gate-only rows across ten serial tranches; no production behavior or requirement verdict changed`
+- Active increment: `G2-I001 - ACTIVE; all current Rust warnings and ignored tests have explicit owners and execution classes; no production behavior or requirement verdict changed`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `Gate 2 planning tree is green at 963 passed / 0 failed / 36 ignored in 85s; this is the Gate 1 baseline plus exactly six Gate 2 program-control tests and does not prove any production requirement newly closed`
+- Automated gate: `G2-I001 tree is green at 970 passed / 0 failed / 36 ignored in 65s; its seven new controls own exactly 56 Rust warnings and 36 ignored tests (26 optional-package, 9 controlled-corpus, 1 manual-artifact), and this does not prove any production requirement newly closed`
 - Pilot field evidence: `OPEN`
 - Open blockers: `222 Gate 2 obligations: 36 implement-or-refuse, 124 remediate, 19 prove and 43 retain/reverify; 20 approved rows are explicitly owned by Gate 3 or Gate 4 and are not counted as Gate 2 work`
-- Next increment: `G2-I001 inventory and assign all 56 current Rust warnings and all 36 ignored tests before the first production requirement changes.`
+- Next increment: `Begin G2-T01 with the first dependency-ordered SB-CORE obligation after the verified G2-I001 commit boundary.`
 
 ## Gate dashboard
 

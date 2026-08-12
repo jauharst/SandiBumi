@@ -82,7 +82,7 @@ explicit model/verification contracts, and progress arrays that cannot contain a
 - [x] Update the one-minute dashboard without changing any requirement verdict.
 - [x] Run TypeScript, Rust check, and the full gate; record exact totals: 963 passed, 0 failed,
   36 ignored in 85 seconds.
-- [ ] Commit as `G2-PLAN route the approved pilot truth-closure program`.
+- [x] Commit as `G2-PLAN route the approved pilot truth-closure program` (`02c8ac5`).
 
 ## Task 1: Warning and ignored-test ownership
 
@@ -100,18 +100,19 @@ explicit model/verification contracts, and progress arrays that cannot contain a
 inventory distinguishes optional-package execution, field-fixture execution, and non-test artifact
 generation; no ignored item is counted as passed.
 
-- [ ] Capture `cargo check --message-format=json` and prove the accepted baseline contains 56
+- [x] Capture `cargo check --message-format=json` and prove the accepted baseline contains 56
   `dead_code` warnings, including all 45 current `plotting.rs` warnings.
-- [ ] Scan executable Rust tests and prove the accepted baseline contains exactly 36 ignored tests:
+- [x] Scan executable Rust tests and prove the accepted baseline contains exactly 36 ignored tests:
   26 optional-package tests, nine field/real-delivery tests, and one manual artifact generator.
-- [ ] Make the verifier fail on an unclassified warning, a broad `allow(dead_code)`, a bare new
+- [x] Make the verifier fail on an unclassified warning, a broad `allow(dead_code)`, a bare new
   `#[ignore]`, a duplicated test owner, or a field test classified as package-optional.
-- [ ] Route pilot-reachable disconnected code to its owning Gate 2 requirement. Route qualified
+- [x] Route pilot-reachable disconnected code to its owning Gate 2 requirement. Route qualified
   package execution to Gate 3 and controlled-corpus execution to Gate 4.
-- [ ] Preserve the known failing status of `test_full_deterministic_chain` and
+- [x] Preserve the known failing status of `test_full_deterministic_chain` and
   `pipeline_field_full_run`; do not call either passed until its owning gate runs it successfully.
-- [ ] Run focused tests, TypeScript, Rust check, and the full gate; record exact totals.
-- [ ] Commit as `G2-I001 own every Rust warning and ignored test`.
+- [x] Run focused tests, TypeScript, Rust check, and the full gate; record exact totals: 970
+  passed, 0 failed, 36 ignored in 65 seconds.
+- [x] Commit as `G2-I001 own every Rust warning and ignored test`.
 
 ## Requirement execution loop
 
