@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-INS - DONE; REVIEW REQUIRED; all 26 SB-INS rows, 30 test intentions, 18 parameters, 6 opens, 4 escalations, 6 refusals and 95 traceability rows are routed; fixture validators are separated from real release evidence and production behavior remains unchanged`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-INS execution is on codex/g1-sb-ins-adjudication from plan 57bf948fd4f10179dcc1e48e60f1491904702375 plus ledger-column correction d1df1b59dbd6f535b971858f36e5a07bf91cecc3 in the sole worktree`
-- Automated gate: `GREEN - SB-INS execution gate 946 passed / 0 failed / 36 ignored in 73s; focused evidence is installation 10/0/0, parameter-pack 3/0/0, Python environment 3/0/0, unit registry 7/0/0 and encoding 4/0/1; ledger validation reports 879 adjudicated / 52 unadjudicated / 584 pilot blockers`
+- Active increment: `G1-SCOPE-GEO-D - DONE; REVIEW REQUIRED; DEC-011 is applied to all 52 SB-GEO release dispositions as next-version DEFERRED while every row truthfully remains as-built UNADJUDICATED; no GEO source, test, parameter or production behavior was adjudicated or changed`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; GEO deferral is on codex/g1-sb-geo-deferral from committed SB-INS execution b2d74030d32b12a53c8800a5957702044a76e400 in the sole worktree`
+- Automated gate: `GREEN - GEO deferral gate 946 passed / 0 failed / 36 ignored in 69s; ledger reports 879 adjudicated / 52 scope-deferred unadjudicated / 584 pilot blockers; all 931 rows now have a release disposition`
 - Pilot field evidence: `OPEN`
-- Open blockers: `52 live rows remain, all in SB-GEO and held for the next product version; 584 total pilot-blocker dispositions remain; SB-INS retains 22 blockers, including absent final MSI/pack/lock/network/legal/lifecycle/matrix evidence; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
-- Next increment: `verify and commit the SB-INS execution, record the truthful SB-GEO next-version deferral without pretending its 52 rows were live-adjudicated, then switch to Sol max for the final all-931 Gate 1 audit.`
+- Open blockers: `584 pilot-blocker dispositions remain in the current-pilot evidence set; 52 SB-GEO rows are explicitly next-version DEFERRED but still lack live as-built adjudication; SB-INS retains 22 blockers including absent final MSI/pack/lock/network/legal/lifecycle/matrix evidence; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
+- Next increment: `switch to Sol max for the final all-931 Gate 1 audit; report the formal 879-adjudicated / 52-scope-deferred boundary and do not claim the original all-931 as-built exit criterion is satisfied without a GEO evidence pass or explicit gate-criterion amendment.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 879/931 rows adjudicated; 52 SB-GEO rows remain next-version deferred, alongside branch, final-audit, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 879/931 rows live-adjudicated; all 931 release-timed; 52 SB-GEO rows are next-version deferred but still as-built unadjudicated; final audit, branch, field-evidence and claims receipts remain |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -36,7 +36,7 @@ Do not replace it with an estimated percentage.
 - Unadjudicated: `52`.
 - As-built states: `102` present-OK, `24` present-unverified, `171` present-divergent, `181` partial,
   `401` absent and `52` unadjudicated.
-- Release dispositions: `584` pilot blockers, `198` undecided and `149` deferred. Disposition is not
+- Release dispositions: `584` pilot blockers, `146` undecided and `201` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-INS: `26/26` adjudicated - `4` present-OK, `1` present-unverified, `3` present-divergent,
   `12` partial and `6` absent; `22` pilot blockers and `4` undecided; `4` correctness proofs, `3`
@@ -44,6 +44,10 @@ Do not replace it with an estimated percentage.
   `18` parameter rows, `6` opens, `4` escalations, `6` refusals and `95` traceability rows are
   routed, while all `16` SB-INS manual scenarios remain unchecked and installation/deployment is
   `0/0` and not listed.
+- SB-GEO: `0/52` live-adjudicated; all `52` release dispositions are `DEFERRED` to the next product
+  version under DEC-011 and risk-classed `LATER`; all remain as-built `UNADJUDICATED`, test class
+  `MISSING-OR-UNCLASSIFIED`, commit state `UNVERIFIED`, with no last-reverified date. The preserved
+  plan records `33` P0, `17` P1, `2` P2 and `73` test intentions, but was deliberately not executed.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
   correctness-tested and `21` missing qualifying owned proof.
@@ -149,6 +153,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-SCOPE-GEO-D - SB-GEO next-version deferral | DONE; REVIEW REQUIRED; NOT LIVE-ADJUDICATED | DEC-011 applied to all 52 release dispositions as DEFERRED/LATER with next-version action; every row remains UNADJUDICATED/MISSING-OR-UNCLASSIFIED/UNVERIFIED with blank last-reverified and evidence fields; all 931 rows now have release timing, but the original all-931 as-built Gate 1 criterion remains formally open; full gate 946 passed / 0 failed / 36 ignored in 69s; no source-owned field, production, test, PRD, parameter or manual evidence changed | current topic-branch worktree |
 | G1-DOM-INS - SB-INS live adjudication | DONE; REVIEW REQUIRED | 26/26 rows: 6 absent, 12 partial, 4 present-OK, 3 divergent and 1 present-unverified; 22 blockers and 4 undecided; 4 correctness proofs, 3 characterizations and 19 missing qualifying whole-contract proofs; all 30 tests, 18 parameters, 6 opens, 4 escalations, 6 refusals and 95 traceability rows routed; product-owner Windows/MSI/offline-pack direction retained but real artifact/network/matrix/legal/lifecycle evidence remains absent; full gate 946 passed / 0 failed / 36 ignored in 73s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
 | G1-DOM-INS-P - SB-INS live-adjudication plan | DONE; EXECUTED; COLUMN CONTRACT CORRECTED | exact 26-row map: 11 P0 and 15 blank-priority rows; all 30 test intentions, 18 parameters with 5 deliberate ABSENT values, 6 opens, 4 escalations, 6 refusals and 95 traceability rows routed; real MSI/pack/network/matrix evidence separated from fixture validators; parameter-pack loader reachability, unit-token drift, incomplete capability inventory, lifecycle/legal and manual-evidence boundaries explicit; full planning gate 946 passed / 0 failed / 36 ignored in 71s; a follow-up commit corrected receipt concepts that were mistakenly named as CSV columns; no verdict or production behavior changed | `57bf948`; correction `d1df1b5` |
 | G1-DOM-PLG - SB-PLG live adjudication | DONE; REVIEW REQUIRED | 48/48 rows: 41 absent, 6 partial and 1 divergent; 41 blockers, 6 undecided and 1 deferred; all 48 qualifying whole-contract proofs missing; all 68 tests, 132 parameters, 10 opens, 10 escalations, 18 refusals and 239 traceability rows routed; source-owned hash and non-PLG records preserved; production/cement/casing remains 0/0 and not listed; full gate 946 passed / 0 failed / 36 ignored in 68s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
