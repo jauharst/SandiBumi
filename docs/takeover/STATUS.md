@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `4 / 222 handled — 3 DONE, 1 BLOCKED, 218 remaining`
+- Gate 2 requirement progress: `5 / 222 handled — 3 DONE, 2 BLOCKED, 217 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T01 / SB-CORE-004 - DONE; every registered numeric parameter now carries a named source or exact ABSENT state, the registry build gate rejects omissions, and required absent values refuse before computation`
+- Active increment: `G2-T01 / SB-CORE-005 - BLOCKED; the preserved history and vendor tables do not identify the exact origin of each value in the already-merged endpoint matrix, so no cosmetic vendor-derived label or inferred source was added`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-CORE-004 exact tree is green at 975 passed / 0 failed / 36 ignored; T10/T11, the complete registry, affected workflow/chain/Monte Carlo controls, TypeScript and Rust check are green`
+- Automated gate: `SB-CORE-005 evidence-only adjudication is green at 975 passed / 0 failed / 36 ignored; no production path or assertion changed, and no snapshot of the unsourced matrix was misrepresented as a provenance proof`
 - Pilot field evidence: `OPEN`
-- Open blockers: `218 Gate 2 rows remain unhandled; SB-CORE-003 is separately BLOCKED until the selected ENV/CLY/POR/SAT/CUT rows populate and prove every pilot method's cited conditions; the approved 222-row scope remains immutable while live action classes improve as rows close; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Start G2-T01 / SB-CORE-005 from the verified SB-CORE-004 source-custody boundary; vendor corroboration may locate a value but cannot become its primary authority.`
+- Open blockers: `217 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; the approved 222-row scope remains immutable while live action classes improve as rows close; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Start G2-T01 / SB-CORE-006 from the verified SB-CORE-005 evidence boundary; one method name must not continue selecting two different equations.`
 
 ## Gate dashboard
 

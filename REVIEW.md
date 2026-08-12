@@ -7,6 +7,18 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-005: endpoint provenance remains blocked, not cosmetically labelled
+
+- [ ] **Automated implementation:** blocked. History begins with the 27-row endpoint matrix already
+      described as merged; the preserved IP and reference tables corroborate many numbers but do not
+      identify which source supplied every shipped value. No production field or green snapshot test
+      was added, because either would convert missing custody into a defended invariant.
+- [ ] **Source/legal resolution:** rebuild coherent libraries from exact vendor assets or primary
+      references, ship every unresolved value ABSENT, retain per-value source through the UI and
+      deliverable, add SB-MIN-T09, and close CLAIM-012 with counsel before first sale.
+- [ ] **Visual/manual and field:** not eligible until the automated custody contract exists. A badge
+      reading only “vendor-derived” would not make the current within-row merge auditable.
+
 ## 2026-08-13 — G2 SB-CORE-004: every numeric default is sourced or absent
 
 - [x] **Automated:** every registered numeric parameter carries a named source beside its finite

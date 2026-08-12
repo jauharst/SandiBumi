@@ -68,14 +68,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; no chapter-owned acceptance-test ID.
 - **Atomic obligations:** every vendor-derived default used by SandiBumi must be independently sourced to primary literature rather than copied or carried from a neighbouring vendor.
-- **Current source:** `multimin2.rs` exposes a 27-entry component library merged from two vendor installs; `Component`/library rows have no per-row source field. `docs/IP_PROVENANCE.md` records the same primary-literature re-sourcing gap and identifies it as before-first-sale work. No universal default inventory proves a primary source for each adopted value.
+- **Current source:** `multimin2.rs` exposes a 27-entry component library introduced in baseline commit `a659096` already described as merged from two vendor installs; `Component`/`LibRow` has no per-value source field. The preserved IP and reference tables show that individual shipped rows combine values which occur in different vendor libraries, while the later `1216a99` change only scrubbed vendor names and added no construction record. `docs/IP_PROVENANCE.md` records the same primary-literature re-sourcing gap and identifies it as before-first-sale work.
 - **Qualifying acceptance tests:** none; test class is `MISSING`.
-- **Supporting tests:** library-shape and solver tests validate behavior against the current table and therefore cannot prove the table's provenance.
+- **Supporting tests:** library-shape and solver tests validate behavior against the current table and therefore cannot prove the table's provenance. A new green test over the same unsourced constants would be a characterization snapshot, not the required custody proof.
 - **Manual evidence:** `sandimin` 0/28 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** no contract implementation is present; commit state is `UNIMPLEMENTED`.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** primary-literature citations are missing per endpoint row, and `CLAIM-012` keeps the library under legal review before first sale. No value may be inferred or rounded into place.
-- **Next action:** source every adopted endpoint row to a primary publication or ship it absent, distinguish vendor cross-checks from authority, and obtain counsel's disposition on the curated selection.
+- **Git evidence:** history re-verification found no pre-merge table or per-value construction map: baseline commit `a659096` is the file's introduction, and the later vendor-name scrub does not recover origin. No production change is admissible from the evidence held; commit state remains `UNIMPLEMENTED`.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`; Gate 2 progress state `BLOCKED`.
+- **Blocker or decision:** exact per-value origin is not recoverable from the recorded evidence. Equal numbers across vendor tables are corroboration, not proof of which library supplied the shipped value, and some values are merged within a physical row. Primary-literature citations are also incomplete, while `CLAIM-012` keeps the curated selection under legal review before first sale. Inventing a generic `VENDOR-DERIVED` source would satisfy the type while defeating the contract.
+- **Next action:** rebuild coherent source libraries from held primary references or exact vendor assets, carry provenance per value through UI and deliverables, ship every unresolved value ABSENT, add `SB-MIN-T09`, and obtain counsel's disposition on the curated selection.
 
 ## SB-CORE-006 — One name, one equation
 
