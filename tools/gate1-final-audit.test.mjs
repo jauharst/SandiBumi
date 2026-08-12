@@ -12,6 +12,7 @@ import {
   hashRequirementIds,
   renderGate1Report,
   validateFullGateReceipt,
+  validatePilotScopeManifest,
 } from './gate1-final-audit.mjs';
 
 function completeFacts() {
@@ -251,17 +252,137 @@ test('pilot_approval_is_invalidated_when_any_requirement_disposition_drifts', ()
     approved_by: 'Jauhar',
     approved_on: '2026-08-12',
     disposition_sha256: hashPilotDispositions(rows),
+    requirement_ids_sha256: hashRequirementIds(['SB-TST-001']),
     approved_blocker_count: 1,
   };
+  const manifest = {
+    valid: true,
+    state: 'APPROVED',
+    requirement_ids: ['SB-TST-001'],
+    approval: {
+      state: 'APPROVED',
+      approved_by: 'Jauhar',
+      approved_on: '2026-08-12',
+    },
+  };
 
-  const exact = derivePilotProgram(rows, policy, true);
+  const exact = derivePilotProgram(rows, policy, manifest);
   assert.equal(exact.manifest_state, 'APPROVED');
   assert.equal(exact.blocker_program_approved, true);
 
   rows[1].release_disposition = 'PILOT-BLOCKER';
-  const drifted = derivePilotProgram(rows, policy, true);
+  const drifted = derivePilotProgram(rows, policy, manifest);
   assert.equal(drifted.manifest_state, 'INVALID');
   assert.equal(drifted.blocker_program_approved, false);
+});
+
+test('pilot_approval_covers_the_same_exact_requirements_as_the_machine_manifest', () => {
+  // CORRECTNESS — a valid ledger and a valid manifest cannot authorize different pilot products.
+  const rows = [
+    {
+      requirement_id: 'SB-TST-001',
+      release_disposition: 'PILOT-BLOCKER',
+      next_action: 'implement the bounded contract',
+      dependencies: 'cited source',
+      blocking_decision: 'none',
+    },
+    {
+      requirement_id: 'SB-TST-002',
+      release_disposition: 'DEFERRED',
+      next_action: 'later',
+      dependencies: 'pilot manifest',
+      blocking_decision: 'owner approved deferral',
+    },
+  ];
+  const policy = {
+    state: 'APPROVED',
+    approved_by: 'Jauhar',
+    approved_on: '2026-08-12',
+    disposition_sha256: hashPilotDispositions(rows),
+    requirement_ids_sha256: hashRequirementIds(['SB-TST-002']),
+    approved_blocker_count: 1,
+  };
+  const mismatchedManifest = {
+    valid: true,
+    state: 'APPROVED',
+    requirement_ids: ['SB-TST-002'],
+    approval: {
+      state: 'APPROVED',
+      approved_by: 'Jauhar',
+      approved_on: '2026-08-12',
+    },
+  };
+
+  const result = derivePilotProgram(rows, policy, mismatchedManifest);
+
+  assert.equal(result.manifest_state, 'INVALID');
+  assert.equal(result.manifest_matches_blockers, false);
+  assert.equal(result.blocker_program_approved, false);
+});
+
+test('an_approved_policy_cannot_promote_a_manifest_that_still_records_pending_owner_approval', () => {
+  // CORRECTNESS — owner approval must be explicit and consistent in both approval records.
+  const rows = [{
+    requirement_id: 'SB-TST-001',
+    release_disposition: 'PILOT-BLOCKER',
+    next_action: 'implement the bounded contract',
+    dependencies: 'cited source',
+    blocking_decision: 'none',
+  }];
+  const policy = {
+    state: 'APPROVED',
+    approved_by: 'Jauhar',
+    approved_on: '2026-08-12',
+    disposition_sha256: hashPilotDispositions(rows),
+    requirement_ids_sha256: hashRequirementIds(['SB-TST-001']),
+    approved_blocker_count: 1,
+  };
+  const proposedManifest = {
+    valid: true,
+    state: 'PROPOSED',
+    requirement_ids: ['SB-TST-001'],
+    approval: {
+      state: 'PENDING',
+      approved_by: '',
+      approved_on: '',
+    },
+  };
+
+  assert.equal(derivePilotProgram(rows, policy, proposedManifest).manifest_state, 'INVALID');
+});
+
+test('pilot_approval_is_invalidated_when_the_exact_manifest_requirement_hash_drifts', () => {
+  // CORRECTNESS — approval binds the exact machine-readable ID set, not a mutable file path.
+  const rows = [{
+    requirement_id: 'SB-TST-001',
+    release_disposition: 'PILOT-BLOCKER',
+    next_action: 'implement the bounded contract',
+    dependencies: 'cited source',
+    blocking_decision: 'none',
+  }];
+  const manifest = {
+    valid: true,
+    state: 'APPROVED',
+    requirement_ids: ['SB-TST-001'],
+    approval: {
+      state: 'APPROVED',
+      approved_by: 'Jauhar',
+      approved_on: '2026-08-12',
+    },
+  };
+  const policy = {
+    state: 'APPROVED',
+    approved_by: 'Jauhar',
+    approved_on: '2026-08-12',
+    disposition_sha256: hashPilotDispositions(rows),
+    requirement_ids_sha256: hashRequirementIds(['SB-TST-999']),
+    approved_blocker_count: 1,
+  };
+
+  const result = derivePilotProgram(rows, policy, manifest);
+
+  assert.equal(result.manifest_state, 'INVALID');
+  assert.equal(result.manifest_hash_matches, false);
 });
 
 test('only_named_gate_one_audit_paths_are_excluded_from_the_production_diff', () => {
@@ -431,4 +552,100 @@ test('the_gate_one_report_names_every_criterion_and_never_hides_an_open_result',
     assert.match(markdown, new RegExp(`\\| G1-C${index} \\|`));
   }
   assert.match(markdown, /G1-C6[^\n]*OPEN/u);
+});
+
+function pilotManifestFixture() {
+  return {
+    schema_version: 1,
+    program_id: 'G1-PILOT-TEST',
+    state: 'PROPOSED',
+    default_excluded_disposition: 'DEFERRED',
+    included_requirement_count: 2,
+    capability_groups: [
+      {
+        id: 'GROUP_A',
+        title: 'first group',
+        requirement_ids: ['SB-TST-001'],
+      },
+      {
+        id: 'GROUP_B',
+        title: 'second group',
+        requirement_ids: ['SB-TST-002'],
+      },
+    ],
+  };
+}
+
+test('every_pilot_requirement_must_exist_in_the_ledger_and_appear_exactly_once', () => {
+  // CORRECTNESS — an exact owner approval cannot cover duplicate or unknown requirement IDs.
+  const ledger = [
+    { requirement_id: 'SB-TST-001' },
+    { requirement_id: 'SB-TST-002' },
+  ];
+  const manifest = pilotManifestFixture();
+  manifest.capability_groups[1].requirement_ids = ['SB-TST-001', 'SB-TST-999'];
+  manifest.included_requirement_count = 3;
+
+  assert.throws(
+    () => validatePilotScopeManifest(manifest, ledger),
+    /duplicate pilot requirement SB-TST-001.*unknown pilot requirement SB-TST-999/su,
+  );
+});
+
+test('the_pilot_manifest_count_must_equal_the_exact_group_union', () => {
+  // CORRECTNESS — a prose total cannot disagree with the machine-readable requirement set.
+  const manifest = pilotManifestFixture();
+  manifest.included_requirement_count = 3;
+
+  assert.throws(
+    () => validatePilotScopeManifest(manifest, [
+      { requirement_id: 'SB-TST-001' },
+      { requirement_id: 'SB-TST-002' },
+    ]),
+    /declares 3 included requirements but groups contain 2/u,
+  );
+});
+
+test('requirements_outside_the_first_pilot_remain_explicitly_deferred_not_silently_dropped', () => {
+  // CORRECTNESS — Gate 5 requires later requirements to remain visible and explicitly deferred.
+  const manifest = pilotManifestFixture();
+  manifest.default_excluded_disposition = 'OUT';
+
+  assert.throws(
+    () => validatePilotScopeManifest(manifest, [
+      { requirement_id: 'SB-TST-001' },
+      { requirement_id: 'SB-TST-002' },
+    ]),
+    /default excluded disposition must be DEFERRED/u,
+  );
+});
+
+test('the_pilot_manifest_schema_state_and_capability_groups_must_be_explicit_and_unambiguous', () => {
+  // CORRECTNESS — malformed structure cannot carry an exact product-scope approval.
+  const manifest = pilotManifestFixture();
+  manifest.schema_version = 2;
+  manifest.state = 'DRAFT';
+  manifest.capability_groups[0].title = '';
+  manifest.capability_groups[1].id = 'GROUP_A';
+
+  assert.throws(
+    () => validatePilotScopeManifest(manifest, [
+      { requirement_id: 'SB-TST-001', as_built_status: 'PRESENT-OK' },
+      { requirement_id: 'SB-TST-002', as_built_status: 'PRESENT-OK' },
+    ]),
+    /schema version must be 1.*state must be PROPOSED or APPROVED.*nonblank title.*duplicate capability group GROUP_A/su,
+  );
+});
+
+test('an_unadjudicated_requirement_cannot_enter_the_first_pilot_manifest', () => {
+  // CORRECTNESS — the approved release program cannot conceal an unknown as-built state.
+  const manifest = pilotManifestFixture();
+
+  assert.throws(
+    () => validatePilotScopeManifest(manifest, [
+      { requirement_id: 'SB-TST-001', as_built_status: 'PRESENT-OK' },
+      { requirement_id: 'SB-TST-002', as_built_status: 'UNADJUDICATED' },
+    ]),
+    /unadjudicated pilot requirement SB-TST-002/u,
+  );
 });

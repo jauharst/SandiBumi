@@ -32,6 +32,82 @@ export function hashPilotDispositions(rows) {
   return hashLines(rows.map((row) => `${row.requirement_id}=${row.release_disposition}`));
 }
 
+export function validatePilotScopeManifest(manifest, ledgerRows) {
+  const errors = [];
+  if (manifest.schema_version !== 1) {
+    errors.push('pilot manifest schema version must be 1');
+  }
+  if (!['PROPOSED', 'APPROVED'].includes(manifest.state)) {
+    errors.push('pilot manifest state must be PROPOSED or APPROVED');
+  }
+  if (manifest.default_excluded_disposition !== 'DEFERRED') {
+    errors.push('default excluded disposition must be DEFERRED');
+  }
+
+  const ledgerById = new Map(ledgerRows.map((row) => [row.requirement_id, row]));
+  const seen = new Set();
+  const seenGroups = new Set();
+  const requirementIds = [];
+  const groups = Array.isArray(manifest.capability_groups) ? manifest.capability_groups : [];
+  if (groups.length === 0) {
+    errors.push('pilot manifest must contain at least one capability group');
+  }
+  for (const [groupIndex, group] of groups.entries()) {
+    const groupId = typeof group.id === 'string' ? group.id.trim() : '';
+    if (groupId === '') {
+      errors.push(`capability group ${groupIndex + 1} must have a nonblank id`);
+    }
+    const groupTitle = typeof group.title === 'string' ? group.title.trim() : '';
+    if (groupTitle === '') {
+      errors.push(`capability group ${groupId || groupIndex + 1} must have a nonblank title`);
+    }
+    if (groupId !== '' && seenGroups.has(groupId)) {
+      errors.push(`duplicate capability group ${groupId}`);
+    } else if (groupId !== '') {
+      seenGroups.add(groupId);
+    }
+
+    if (!Array.isArray(group.requirement_ids)) {
+      errors.push(`capability group ${groupId || groupIndex + 1} must contain a requirement_ids array`);
+      continue;
+    }
+    for (const rawRequirementId of group.requirement_ids) {
+      const requirementId = typeof rawRequirementId === 'string' ? rawRequirementId.trim() : '';
+      if (requirementId === '') {
+        errors.push(`capability group ${groupId || groupIndex + 1} contains a blank requirement id`);
+        continue;
+      }
+      requirementIds.push(requirementId);
+      if (seen.has(requirementId)) {
+        errors.push(`duplicate pilot requirement ${requirementId}`);
+      } else {
+        seen.add(requirementId);
+      }
+      if (!ledgerById.has(requirementId)) {
+        errors.push(`unknown pilot requirement ${requirementId}`);
+      } else if (ledgerById.get(requirementId).as_built_status === 'UNADJUDICATED') {
+        errors.push(`unadjudicated pilot requirement ${requirementId}`);
+      }
+    }
+  }
+
+  if (manifest.included_requirement_count !== requirementIds.length) {
+    errors.push(
+      `pilot manifest declares ${manifest.included_requirement_count} included requirements but groups contain ${requirementIds.length}`,
+    );
+  }
+
+  if (errors.length > 0) {
+    throw new Error(errors.join('; '));
+  }
+  return {
+    valid: true,
+    state: manifest.state,
+    requirement_ids: requirementIds,
+    approval: manifest.approval ?? {},
+  };
+}
+
 function conformingDeferredGeoRow(row) {
   return row.requirement_id.startsWith('SB-GEO-')
     && row.as_built_status === 'UNADJUDICATED'
@@ -83,15 +159,33 @@ export function deriveRowTruth(rows, geoPolicy = {}) {
   };
 }
 
-export function derivePilotProgram(rows, pilotPolicy = {}, manifestExists = false) {
+export function derivePilotProgram(rows, pilotPolicy = {}, manifest = null) {
   const blockers = rows.filter((row) => row.release_disposition === 'PILOT-BLOCKER');
   const dispositionHashMatches = pilotPolicy.disposition_sha256 === hashPilotDispositions(rows);
   const blockerCountMatches = pilotPolicy.approved_blocker_count === blockers.length;
+  const blockerIds = new Set(blockers.map((row) => row.requirement_id));
+  const manifestIds = Array.isArray(manifest?.requirement_ids) ? manifest.requirement_ids : [];
+  const manifestMatchesBlockers = manifest?.valid === true
+    && manifestIds.length === blockerIds.size
+    && manifestIds.every((requirementId) => blockerIds.has(requirementId));
+  const manifestHashMatches = manifest?.valid === true
+    && pilotPolicy.requirement_ids_sha256 === hashRequirementIds(manifestIds);
+  const manifestStateMatches = manifest?.state === pilotPolicy.state;
+  const manifestApprovalMatches = pilotPolicy.state !== 'APPROVED'
+    || (
+      manifest?.approval?.state === 'APPROVED'
+      && manifest.approval.approved_by === pilotPolicy.approved_by
+      && manifest.approval.approved_on === pilotPolicy.approved_on
+    );
   let state = pilotPolicy.state ?? 'MISSING';
   if (
     state === 'APPROVED'
     && (
-      !manifestExists
+      manifest?.valid !== true
+      || !manifestStateMatches
+      || !manifestApprovalMatches
+      || !manifestMatchesBlockers
+      || !manifestHashMatches
       || !approvalMetadataPresent(pilotPolicy)
       || !dispositionHashMatches
       || !blockerCountMatches
@@ -102,6 +196,8 @@ export function derivePilotProgram(rows, pilotPolicy = {}, manifestExists = fals
 
   return {
     manifest_state: state,
+    manifest_matches_blockers: manifestMatchesBlockers,
+    manifest_hash_matches: manifestHashMatches,
     requirements_covered: rows.filter((row) => (
       row.release_disposition === 'PILOT-BLOCKER'
       || row.release_disposition === 'DEFERRED'
@@ -457,7 +553,19 @@ export function collectLiveGate1Facts(repoRoot = defaultRepo) {
   const manifestPath = pilotPolicy.manifest_path
     ? path.join(repoRoot, pilotPolicy.manifest_path)
     : '';
-  const manifestExists = manifestPath !== '' && fs.existsSync(manifestPath);
+  let manifest = null;
+  if (manifestPath === '' || !fs.existsSync(manifestPath)) {
+    diagnostics.push('Pilot scope manifest is absent.');
+  } else {
+    const manifestJson = readJsonOrNull(manifestPath, diagnostics, 'Pilot scope manifest');
+    if (manifestJson !== null) {
+      try {
+        manifest = validatePilotScopeManifest(manifestJson, rows);
+      } catch (error) {
+        diagnostics.push(`pilot scope manifest: ${error.message}`);
+      }
+    }
+  }
 
   const facts = {
     inventory: {
@@ -488,7 +596,7 @@ export function collectLiveGate1Facts(repoRoot = defaultRepo) {
       tested_commit_is_ancestor: gateReceipt.tested_commit_is_ancestor,
       post_test_changes_are_evidence_only: gateReceipt.post_test_changes_are_evidence_only,
     },
-    pilot_program: derivePilotProgram(rows, pilotPolicy, manifestExists),
+    pilot_program: derivePilotProgram(rows, pilotPolicy, manifest),
     production_boundary: {
       changed_paths: classifyProductionChanges(changedPaths),
     },

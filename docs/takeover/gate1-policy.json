@@ -12,7 +12,8 @@
   },
   "pilot_program": {
     "state": "PROPOSED",
-    "manifest_path": "docs/takeover/PILOT_SCOPE.md",
+    "manifest_path": "docs/takeover/pilot-scope.json",
+    "requirement_ids_sha256": "0412de0cc43fabbe0c5e32d4c831d65e90536ee1c348802ab67cb0f3dcd70b6b",
     "disposition_sha256": "4c4b73ac1a835a6289bdc3919b0c2bb01d290dcd0d61b8483adeb8b6ff841ac4",
     "approved_blocker_count": 584,
     "proposed_on": "2026-08-12",

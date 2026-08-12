@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-EXIT-VERIFIER - DONE; REVIEW REQUIRED; the test-first live audit reports four of seven criteria PASS and keeps GEO approval, pilot-program approval and a fresh full-gate receipt OPEN`
+- Active increment: `G1-PILOT-SCOPE-PROPOSAL - READY FOR OWNER DECISION; the machine-validated 242-row first-pilot manifest and exact 52-row SB-GEO Gate 1 exception are proposed, not approved`
 - Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — verified ancestor and implementation evidence anchor; final-audit tooling is based on exact-evidence commit 232c1d8f6db9c5c85dc5f18581d1ecf17fbe9152 in the sole worktree`
-- Automated gate: `LAST FULL CHECKPOINT GREEN - 946 passed / 0 failed / 36 ignored; exact-proof verifier 27 passed / 0 failed, Gate 1 exit-verifier 20 passed / 0 failed, tracker check green; a fresh final full gate remains mandatory`
+- Automated gate: `LAST FULL CHECKPOINT GREEN - 946 passed / 0 failed / 36 ignored; exact-proof verifier 27 passed / 0 failed, Gate 1 exit-verifier 28 passed / 0 failed, tracker check green; a fresh final full gate remains mandatory`
 - Pilot field evidence: `OPEN`
-- Open blockers: `G1-C2, G1-C5 and G1-C6 are OPEN: the exact 52-row SB-GEO exception is proposed but not approved; 584 blockers remain provisional and 146 requirements remain UNDECIDED; no fresh full-gate receipt is tied to the final audit commit`
-- Next increment: `draft an exact first-pilot capability manifest, reclassify all 146 UNDECIDED rows without inventing a method or parameter, and present the hashed pilot program plus SB-GEO criterion amendment for explicit owner approval.`
+- Open blockers: `G1-C2, G1-C5 and G1-C6 are OPEN: DEC-019's exact 52-row SB-GEO exception and DEC-018's exact 242-row pilot program await owner approval; the committed ledger still carries 584 provisional blockers and 146 UNDECIDED until that approval is applied; no fresh full-gate receipt is tied to the final audit commit`
+- Next increment: `Jauhar approves or revises DEC-018 and DEC-019; then apply the exact 242 PILOT-BLOCKER / 689 DEFERRED ledger, hash the approval, run the fresh full gate and require all seven Gate 1 criteria to PASS.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | Exit verifier: G1-C1/C3/C4/C7 PASS; G1-C2/C5/C6 OPEN; 879 rows live-adjudicated, exact 52-row GEO boundary proposed, 146 release dispositions undecided, fresh gate pending |
+| G1 — Baseline reconciliation | IN PROGRESS | Exit verifier: G1-C1/C3/C4/C7 PASS; G1-C2/C5/C6 OPEN; 879 rows live-adjudicated, exact 52-row GEO boundary proposed, exact 242/689 pilot program proposed but not yet applied, fresh gate pending |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -153,6 +153,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G1-PILOT-SCOPE-PROPOSAL - exact first-pilot and GEO owner boundary | READY FOR OWNER DECISION | `pilot-scope.json` names exactly 242 unique, known, live-adjudicated requirements across 10 capability groups and defaults the other 689 to explicit deferral; the test-first validator rejects duplicate, unknown, unadjudicated, structurally ambiguous, count-drifted, ledger-mismatched, hash-drifted or approval-mismatched scope; 28/28 focused verifier tests pass and the live collector reports no diagnostics; DEC-018 and DEC-019 remain NEEDS-JAUHAR; no production, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
 | G1-BRANCH-FOLLOWUP - sole unresolved patch disposition | DONE; REVIEW REQUIRED | current source confirms the raw Tops colour still reaches an `innerHTML` style attribute and no maintained observable regression owns the boundary; `0d5389e` is reclassified from UNRESOLVED to ACCEPTED-CANDIDATE for a narrow Gate 2 TDD port; stale docs/CSP claims make whole-commit cherry-pick forbidden; full gate 946 passed / 0 failed / 36 ignored in 60s; no production, test, PRD, parameter or manual evidence changed | current topic-branch worktree |
 | G1-SCOPE-GEO-D - SB-GEO next-version deferral | DONE; REVIEW REQUIRED; NOT LIVE-ADJUDICATED | DEC-011 applied to all 52 release dispositions as DEFERRED/LATER with next-version action; every row remains UNADJUDICATED/MISSING-OR-UNCLASSIFIED/UNVERIFIED with blank last-reverified and evidence fields; all 931 rows now have release timing, but the original all-931 as-built Gate 1 criterion remains formally open; full gate 946 passed / 0 failed / 36 ignored in 69s; no source-owned field, production, test, PRD, parameter or manual evidence changed | current topic-branch worktree |
 | G1-DOM-INS - SB-INS live adjudication | DONE; REVIEW REQUIRED | 26/26 rows: 6 absent, 12 partial, 4 present-OK, 3 divergent and 1 present-unverified; 22 blockers and 4 undecided; 4 correctness proofs, 3 characterizations and 19 missing qualifying whole-contract proofs; all 30 tests, 18 parameters, 6 opens, 4 escalations, 6 refusals and 95 traceability rows routed; product-owner Windows/MSI/offline-pack direction retained but real artifact/network/matrix/legal/lifecycle evidence remains absent; full gate 946 passed / 0 failed / 36 ignored in 73s; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
