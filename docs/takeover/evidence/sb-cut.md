@@ -1,0 +1,813 @@
+# SB-CUT live adjudication receipt
+
+## Execution baseline
+
+- Working tree: D:\XX. SandiBumi; branch: codex/g1-sb-cut-adjudication; planning commit: 25ee7af05f835434468a11e04e39feea3192aeb6.
+- Accepted implementation anchor b332026cb498c105f36eade0bf7899bc0c1309f0 is reachable. origin/master and the merge base are both 29833735816d9e5be954afafd9ceb71fd856e3f0.
+- Immutable chapter SHA-256: e4972351ae548204a92300f3ab75c0b9415af6f6a2e72709be6119e553e41359. Frozen six-column ledger SHA-256: 40d21a70e16657bda4779deffa66c7d52467458f1aca09eead6623de19e0a3fe.
+- Scope guard: exactly 61 source-owned rows, SB-CUT-001 through SB-CUT-061; P0=9, P1=23, P2=22, P3=7; all owned-test fields populated; all live verdict fields unadjudicated at entry.
+- Candidate execution on the unchanged implementation tree: workflow 36 passed plus 1 optional-package ignore; Monte Carlo 23 passed; report 13 passed; core-reporting 1 passed; net-flag 8 passed; frontend acceptance 13 passed. These 94 passes are credited only to the limbs they actually observe.
+- Manual evidence remains source-owned and unchanged: cutoffs/pay 0/23, workflow 0/23, field dashboard 0/10, Results QC 0/1, Monte Carlo 2/14, and report 6/53. Automation never closes those manual scenarios.
+- No production code, test, PRD, research dossier, parameter source, or manual-evidence state changes in this increment.
+
+## Governing boundaries
+
+- A parameter is cited or remains absent. The live cutoff quartet, generic uncertainty-width heuristic, and vendor-derived prior widths are implementation evidence, not authority.
+- E-1 closes only historical exposure: the required SD_MULT=2 implementation and T13 regression remain open. O-2 blocks bed-amalgamation tie-breaking. O-3 through O-12, E-3 through E-6, and R-1 through R-13 retain their chapter meanings.
+- An internal Result, helper formula, or matching code path is not an observable correctness test. Supporting tests are classified CHARACTERIZATION unless they independently prove the whole contract.
+- This receipt distinguishes as-built behavior, release disposition, automated proof, and field evidence. A PRESENT-OK row can remain a PILOT-BLOCKER when its required field exercise or full acceptance proof is still missing.
+
+## Acceptance-test routing
+
+Each chapter intention has one primary receipt owner below. Source-owned cross-support in the
+ledger remains unchanged and does not make a partial helper sufficient for a compound contract.
+
+| Test intention | Primary receipt owner |
+|---|---|
+| SB-CUT-T01 | SB-CUT-001 |
+| SB-CUT-T02 | SB-CUT-001 |
+| SB-CUT-T02b | SB-CUT-001 |
+| SB-CUT-T03 | SB-CUT-001 |
+| SB-CUT-T03b | SB-CUT-001 |
+| SB-CUT-T03c | SB-CUT-001 |
+| SB-CUT-T04 | SB-CUT-007 |
+| SB-CUT-T05 | SB-CUT-006 |
+| SB-CUT-T06 | SB-CUT-009 |
+| SB-CUT-T07 | SB-CUT-010 |
+| SB-CUT-T08 | SB-CUT-012 |
+| SB-CUT-T09 | SB-CUT-008 |
+| SB-CUT-T10 | SB-CUT-011 |
+| SB-CUT-T11 | SB-CUT-003 |
+| SB-CUT-T12 | SB-CUT-034 |
+| SB-CUT-T13 | SB-CUT-031 |
+| SB-CUT-T14 | SB-CUT-038 |
+| SB-CUT-T15 | SB-CUT-041 |
+| SB-CUT-T16 | SB-CUT-044 |
+| SB-CUT-T17 | SB-CUT-060 |
+| SB-CUT-T18 | SB-CUT-049 |
+| SB-CUT-T19 | SB-CUT-043 |
+| SB-CUT-T20 | SB-CUT-032 |
+| SB-CUT-T21 | SB-CUT-060 |
+| SB-CUT-T22 | SB-CUT-005 |
+| SB-CUT-T23 | SB-CUT-041 |
+| SB-CUT-T24 | SB-CUT-020 |
+| SB-CUT-T25 | SB-CUT-041 |
+| SB-CUT-T26 | SB-CUT-019 |
+| SB-CUT-T27 | SB-CUT-040 |
+| SB-CUT-T28 | SB-CUT-037 |
+| SB-CUT-T29 | SB-CUT-045 |
+| SB-CUT-T30 | SB-CUT-032 |
+| SB-CUT-T31 | SB-CUT-013 |
+| SB-CUT-T32 | SB-CUT-023 |
+| SB-CUT-T33 | SB-CUT-039 |
+| SB-CUT-T34 | SB-CUT-051 |
+| SB-CUT-T35 | SB-CUT-018 |
+| SB-CUT-T36 | SB-CUT-016 |
+| SB-CUT-T37 | SB-CUT-055 |
+| SB-CUT-T37b | SB-CUT-056 |
+| SB-CUT-T37c | SB-CUT-054 |
+| SB-CUT-T38 | SB-CUT-057 |
+| SB-CUT-T39 | SB-CUT-061 |
+
+## Requirement receipts
+
+### SB-CUT-001
+
+- **Specified contract:** select CENTRED, TOPS or BOTTOMS explicitly and apply one clipped-interval model across deterministic summary, sweep and Monte Carlo.
+- **Current implementation / as-built:** workflow summary, compute_sweep and montecarlo::zone_metrics each implement a forward TOPS-like overlap independently; no request parameter selects the model. PRESENT-DIVERGENT.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** MISSING. T01, T02, T02b, T03, T03b and T03c have no executable whole-contract bodies; thin-zone tests characterize only current forward clipping.
+- **Manual evidence:** NONE; cutoffs/pay is 0/23 and Monte Carlo is 2/14 without this comparison.
+- **Source/parameter boundary:** the three models and exact fixtures are chapter-cited; no model is inferred from current code.
+- **UI/IPC/provenance surface:** PaySummaryRequest, sweep request, McRequest, result rows and exports omit the selection and shared identity.
+- **History/reachability:** the three implementations are integrated and reachable; no complete selector was found.
+- **Blocking decision / next action:** implement one typed discretisation enum and shared clipped-interval owner, then run all six independent fixtures.
+
+### SB-CUT-002
+
+- **Specified contract:** every thickness-bearing result records discretisation model and sample interval.
+- **Current implementation / as-built:** PaySummaryRow and McZoneResult carry thickness values but neither model identity nor representative interval; reports and office outputs cannot recover them. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T02b and T31 are not implemented as result-surface tests.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** identity metadata only; no numeric default is authorized.
+- **UI/IPC/provenance surface:** absent from returned rows, persisted run parameters, Results QC, report, workbook and deck.
+- **History/reachability:** no complete result-field implementation exists in reachable history.
+- **Blocking decision / next action:** add typed model and interval fields to every thickness result and render/export them.
+
+### SB-CUT-003
+
+- **Specified contract:** Gross equals Net plus NotNet plus Unknown exactly, with each component reported.
+- **Current implementation / as-built:** PaySummaryRow returns gross, net and n_classified only; NaN samples are excluded from classification without separate Unknown/NotNet footage. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T11 and T22 have no executable four-way partition oracle. Existing uninterpreted tests prove only a zero-versus-absent discriminator.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** expected partition arithmetic is independently derived from the chapter fixture.
+- **UI/IPC/provenance surface:** summary, dashboard, report and office tables expose no four-way partition.
+- **History/reachability:** n_classified and perm_cutoff_no_data are integrated but do not represent footage categories.
+- **Blocking decision / next action:** return and render all four footage fields and prove exact closure on the cited null fixture.
+
+### SB-CUT-004
+
+- **Specified contract:** report both N:G and N:(G-Unknown) with unambiguous labels.
+- **Current implementation / as-built:** PaySummaryRow has one ntg field computed as net/gross. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T11 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** the two denominators follow independently from the specified partition; no tolerance is invented.
+- **UI/IPC/provenance surface:** all summary/report/office consumers receive only ntg.
+- **History/reachability:** no second ratio field was found.
+- **Blocking decision / next action:** add both labelled ratios after SB-CUT-003 supplies Unknown footage.
+
+### SB-CUT-005
+
+- **Specified contract:** reconcile the four-way footage partition with a named relative tolerance, record absorbed residuals, and refuse excess residual.
+- **Current implementation / as-built:** no tolerance, residual, absorption record or structured refusal exists. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T22 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** the chapter supplies 1e-7 and R-12 forbids a non-reconciling fixture from being normalized into success.
+- **UI/IPC/provenance surface:** no field exists in request, result, Results QC, report, office or batch record.
+- **History/reachability:** negative source and history inventory found no implementation.
+- **Blocking decision / next action:** implement named reconciliation with recorded residual and two-sided acceptance/refusal proof.
+
+### SB-CUT-006
+
+- **Specified contract:** calculate a general power mean controlled by an explicit per-curve exponent.
+- **Current implementation / as-built:** summaries expose fixed arithmetic and PHIE-weighted formulas only; no exponent field or general evaluator exists. ABSENT.
+- **Release disposition and risk:** UNDECIDED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T05 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** p is explicit user input; the chapter-cited p values are verification fixtures, not defaults.
+- **UI/IPC/provenance surface:** no request, metadata, result or report field selects or records p.
+- **History/reachability:** no general power-mean implementation was found.
+- **Blocking decision / next action:** product-select the averaging family, then add the explicit exponent and independently derived p=1,-1,0,1/3 fixtures.
+
+### SB-CUT-007
+
+- **Specified contract:** compute a weight-normalised geometric mean and count excluded non-positive samples.
+- **Current implementation / as-built:** no geometric aggregation or exclusion count exists. ABSENT.
+- **Release disposition and risk:** UNDECIDED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T04 and T09 are absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** R-2 forbids adopting the unit-dependent vendor formula; the chapter supplies the independent invariant.
+- **UI/IPC/provenance surface:** absent throughout summary and exports.
+- **History/reachability:** negative source and history inventory confirmed absence.
+- **Blocking decision / next action:** if selected, implement the normalized equation and prove unit invariance plus exclusion counts.
+
+### SB-CUT-008
+
+- **Specified contract:** harmonic averaging skips and counts non-positive samples without aborting the interval.
+- **Current implementation / as-built:** no harmonic aggregation exists. ABSENT.
+- **Release disposition and risk:** UNDECIDED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T09 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** the behavior is specified; O-1 keeps any vendor-defect statement scoped to the inspected script.
+- **UI/IPC/provenance surface:** no selector, result or exclusion count exists.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** if selected, add the guarded harmonic mean and positive/non-positive controls.
+
+### SB-CUT-009
+
+- **Specified contract:** porosity weighting is an explicit property of each averaged curve, never a mnemonic inference.
+- **Current implementation / as-built:** PHIE-weighted SWE and HPV arithmetic exists, but the weighting is hard-coded by result role and no per-curve flag is carried. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** MISSING; T06/T07 do not exist as explicit-flag tests.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** the weighting equations are chapter-cited; the missing issue is typed custody.
+- **UI/IPC/provenance surface:** request, curve metadata, result and exports omit the weighting flag.
+- **History/reachability:** integrated arithmetic is reachable; no generic flag was found.
+- **Blocking decision / next action:** add immutable weighting metadata and prove renamed curves preserve the same method while unflagged curves do not acquire it.
+
+### SB-CUT-010
+
+- **Specified contract:** direct HCPV equals Net times PhiAvg times one-minus-SwAvg only under porosity weighting, with a thickness-weighted negative control.
+- **Current implementation / as-built:** summary and Monte Carlo compute direct HPV and PHIE-weighted SWE in compatible forms, but no independent whole-identity fixture proves the compound contract. PRESENT-UNVERIFIED.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** MISSING; T07 is absent and current helpers share the implementation under test.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** algebraic identity and negative control are independently derivable; R-13 forbids turning HCPV length into volume here.
+- **UI/IPC/provenance surface:** rows expose ingredients but do not declare the weighting convention.
+- **History/reachability:** compatible arithmetic is integrated.
+- **Blocking decision / next action:** add the independent positive identity and thickness-weighted negative control on observable rows.
+
+### SB-CUT-011
+
+- **Specified contract:** samples outside all zones contribute to no cumulative result.
+- **Current implementation / as-built:** summary, sweep and Monte Carlo all restrict interval overlap to named zones or their ALL fallback; out-of-zone samples are skipped. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; FIELD-EVIDENCE.
+- **Automated evidence:** CHARACTERIZATION; cutoff_sweep_ntg_and_dst_mask proves the sweep limb, while source inspection supports summary and MC. T10 is not implemented as one three-path acceptance fixture.
+- **Manual evidence:** NONE; applicable workflow scenarios remain unchecked.
+- **Source/parameter boundary:** zone-membership rule is cited; no endpoint is invented.
+- **UI/IPC/provenance surface:** zone rows expose only included results; no cumulative out-of-zone bucket exists.
+- **History/reachability:** all three paths are integrated.
+- **Blocking decision / next action:** add one shared observable fixture across summary, sweep and MC, then field-exercise zone boundaries.
+
+### SB-CUT-012
+
+- **Specified contract:** depth reference frame is part of result identity.
+- **Current implementation / as-built:** requests may select input curves, but thickness results do not name MD/TVD/TVDSS or another frame. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T08 does not prove result-frame custody.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** O-3 keeps the incumbent Min Res Height / Min Pay Height frame unresolved; no choice is inferred.
+- **UI/IPC/provenance surface:** absent from result, log-set, Results QC, reports and office exports.
+- **History/reachability:** no complete frame field found.
+- **Blocking decision / next action:** define typed frame identity without resolving O-3 by guess, then carry it across all result surfaces.
+
+### SB-CUT-013
+
+- **Specified contract:** bed amalgamation uses three independent thresholds and defined tie-breaking.
+- **Current implementation / as-built:** no bed-amalgamation algorithm or threshold fields exist. ABSENT.
+- **Release disposition and risk:** DEFERRED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T31 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** O-2 is the largest evidence gap and blocks tie-breaking; no worked-example inference is allowed.
+- **UI/IPC/provenance surface:** absent throughout.
+- **History/reachability:** negative inventory confirmed absence.
+- **Blocking decision / next action:** obtain the O-2 algorithm or explicit product decision before implementation.
+
+### SB-CUT-014
+
+- **Specified contract:** emit bed statistics before and after amalgamation.
+- **Current implementation / as-built:** only zone-level pay totals exist; no bed-statistic blocks exist. ABSENT.
+- **Release disposition and risk:** DEFERRED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T31 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** depends on SB-CUT-013 and O-2.
+- **UI/IPC/provenance surface:** no result/report/office representation.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** define the bed model first, then return both blocks in one typed result.
+
+### SB-CUT-015
+
+- **Specified contract:** state the bed-thickness convention explicitly.
+- **Current implementation / as-built:** zone gross/net are reported without any bed-thickness convention. ABSENT.
+- **Release disposition and risk:** DEFERRED; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T31 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** sample interval is not a substitute; depends on SB-CUT-013/O-2.
+- **UI/IPC/provenance surface:** absent from every output.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** add the convention only with the selected bed model and expose it beside both statistic blocks.
+
+### SB-CUT-016
+
+- **Specified contract:** a fresh project ships with no cutoff values.
+- **Current implementation / as-built:** DEFAULT_CUTOFFS supplies VSH 0.5, PHIE 0.1, SWE 0.6 and PERM off; dashboardPanel independently seeds the first three literals. PRESENT-DIVERGENT.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** MISSING; T36 is absent and current UI behavior contradicts it.
+- **Manual evidence:** NONE; cutoffs/pay is 0/23.
+- **Source/parameter boundary:** all four cutoff values are ABSENT by design; R-1 forbids adopting current literals.
+- **UI/IPC/provenance surface:** cutoff editor, summary, MC, report, Results QC, workbook and deck use loadCutoffDefaults; dashboard bypasses it.
+- **History/reachability:** centralization commit is reachable but is not source authority.
+- **Blocking decision / next action:** remove value-bearing fresh-project fallbacks, represent enabled-but-unset explicitly, and prove intentional unfiltered runs separately.
+
+### SB-CUT-017
+
+- **Specified contract:** every actual default carries a source string.
+- **Current implementation / as-built:** CutoffDefaults contains values only and no source field; the shipped values have no admissible source. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T36 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** because no cutoff default is authorized, the correct fresh-project source/value state is absent, not a fabricated citation.
+- **UI/IPC/provenance surface:** document schema and all consumers omit provenance.
+- **History/reachability:** no source-carrying schema found.
+- **Blocking decision / next action:** pair any future explicitly adopted value with source and status; keep fresh projects source/value absent.
+
+### SB-CUT-018
+
+- **Specified contract:** every cutoff entry/display surface resolves one authority.
+- **Current implementation / as-built:** seven UI consumers plus the loader share loadCutoffDefaults, while dashboardPanel hardcodes 0.5/0.1/0.6. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** CHARACTERIZATION; source inventory identifies the current eight loader-related files and one direct-literal bypass, but T35 does not exist as a registry test.
+- **Manual evidence:** NONE; field dashboard is 0/10.
+- **Source/parameter boundary:** shared authority must carry absent/source states; a centralized uncited value remains wrong.
+- **UI/IPC/provenance surface:** cutoff, summary, MC, report, Results QC, workbook and deck load the shared document; dashboard does not.
+- **History/reachability:** the shared loader and bypass are integrated.
+- **Blocking decision / next action:** register all cutoff surfaces, route dashboard through the same typed authority, and make the inventory fail on any future bypass.
+
+### SB-CUT-019
+
+- **Specified contract:** cutoff entry requires a unit and converts to canonical storage.
+- **Current implementation / as-built:** TypeScript and Rust accept bare numbers; labels imply quantity but no unit field crosses IPC. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T26 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** T26 supplies exact 35 / 35 pu / 35 v/v controls; no unit guess is allowed.
+- **UI/IPC/provenance surface:** all cutoff controls, requests, persisted parameters and exports lack typed units.
+- **History/reachability:** no canonical conversion layer found.
+- **Blocking decision / next action:** add quantity/unit/value input with explicit conversion and refusal of ambiguous bare or impossible unit forms.
+
+### SB-CUT-020
+
+- **Specified contract:** a cutoff is a two-sided range with an explicit inclusive/exclusive bounds operator.
+- **Current implementation / as-built:** requests hardcode one-sided VSH<=, PHIE>=, SWE<= and optional PERM>= comparisons. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** MISSING; T24 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** bounds operators are specified typed choices; R-5 forbids free-form type strings.
+- **UI/IPC/provenance surface:** no lower/upper/operator schema exists in UI, IPC, provenance or output.
+- **History/reachability:** no range implementation found.
+- **Blocking decision / next action:** introduce a typed range/operator object and pin every endpoint from both inclusion sides.
+
+### SB-CUT-021
+
+- **Specified contract:** a cutoff may be a per-sample curve rather than only a scalar.
+- **Current implementation / as-built:** pay and MC cutoff fields are scalar only. ABSENT.
+- **Release disposition and risk:** DEFERRED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T24 has no curve-valued limb.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** no default curve is implied.
+- **UI/IPC/provenance surface:** no curve identity or resolver exists for a cutoff operand.
+- **History/reachability:** negative inventory confirmed absence.
+- **Blocking decision / next action:** if selected, extend the typed cutoff operand to scalar-or-curve while preserving units and bounds semantics.
+
+### SB-CUT-022
+
+- **Specified contract:** cutoff activation is explicit, and reservoir/pay tiers share the same value when both use it.
+- **Current implementation / as-built:** VSH/PHIE/SWE are always active; PERM uses Option as an implicit off switch. No independent enabled flag exists. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T24/T36 do not exist as activation-and-sharing tests.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** enabled-unset must refuse; absent defaults cannot be converted into hidden values.
+- **UI/IPC/provenance surface:** controls and requests conflate value presence with activation.
+- **History/reachability:** optional PERM and mandatory other fields are integrated.
+- **Blocking decision / next action:** separate enabled from value for every cutoff and share one typed cutoff object across tiers.
+
+### SB-CUT-023
+
+- **Specified contract:** cutoff criteria form a boolean expression with AND, OR and parentheses.
+- **Current implementation / as-built:** classify_sample uses a fixed cascade; the separate net-flag polygon is not a summary expression engine. ABSENT.
+- **Release disposition and risk:** DEFERRED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T32 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** the chapter supplies the worked expression; no parser grammar is invented here.
+- **UI/IPC/provenance surface:** no expression AST or serialized expression exists.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** if selected, define a typed expression tree and prove AND/OR precedence with the cited strict-subset control.
+
+### SB-CUT-024
+
+- **Specified contract:** arbitrary named flag tiers can use arbitrary cutoff sets.
+- **Current implementation / as-built:** SUMMARY_FLAGS is fixed to SAND, RESERVOIR and PAY over the fixed quartet. PARTIAL.
+- **Release disposition and risk:** UNDECIDED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T36 does not exercise arbitrary tiers.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** names and memberships are user/project configuration, not defaults.
+- **UI/IPC/provenance surface:** request/result/report schemas are fixed to three identities.
+- **History/reachability:** fixed tiers are integrated.
+- **Blocking decision / next action:** decide whether arbitrary tiers enter the pilot, then replace fixed arrays with typed tier definitions.
+
+### SB-CUT-025
+
+- **Specified contract:** lumps are a many-to-one reporting transform over immutable flags.
+- **Current implementation / as-built:** no lump schema or transform exists. ABSENT.
+- **Release disposition and risk:** DEFERRED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T31 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** lumps must not mutate flags or be inferred as bed merging.
+- **UI/IPC/provenance surface:** absent throughout.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** if selected, define reporting-only grouping after flag/tier architecture is explicit.
+
+### SB-CUT-026
+
+- **Specified contract:** saturation is disabled at reservoir tier by default while pay still applies saturation.
+- **Current implementation / as-built:** classify_sample makes RESERVOIR from VSH and PHIE before reading SWE; PAY then requires SWE. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; FIELD-EVIDENCE.
+- **Automated evidence:** CHARACTERIZATION; classify_sample_nan_propagation exercises the tier split, but T36 is not a named fresh-project/override acceptance test.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** this is a tier rule, not a cutoff value.
+- **UI/IPC/provenance surface:** result flags embody the split but do not declare the tier policy.
+- **History/reachability:** classifier behavior is integrated.
+- **Blocking decision / next action:** add the owned positive reservoir and negative pay controls and field-exercise the rendered tiers.
+
+### SB-CUT-027
+
+- **Specified contract:** impose no arbitrary cap on curves, cutoffs, report tiers or flags.
+- **Current implementation / as-built:** curve collections are dynamic in places, but cutoff request fields and SUMMARY_FLAGS impose fixed four-cutoff/three-tier schemas. PRESENT-DIVERGENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T36 does not prove the compound no-cap contract.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** R-3 forbids an arbitrary cap; this adjudication does not invent a replacement maximum.
+- **UI/IPC/provenance surface:** fixed fields cap UI, IPC, result and report structure.
+- **History/reachability:** dynamic curve infrastructure and fixed cutoff/tier schemas are both integrated.
+- **Blocking decision / next action:** move cutoffs and tiers to typed collections and test growth beyond every current fixed count.
+
+### SB-CUT-028
+
+- **Specified contract:** emitted saturation identities are SWE or SWT, never bare SW.
+- **Current implementation / as-built:** saturation modules and MC tracked outputs emit explicit SWE/SWT identities; the bare SW string found in contacts is an input alias, not an emitted result. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** CHARACTERIZATION; module inventory tests and output manifests support the positive side, but T06 is not an exhaustive no-bare-output registry test.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** identity convention only; no numeric parameter.
+- **UI/IPC/provenance surface:** summary and MC use avg_swe/SWE; modules declare SWE/SWT.
+- **History/reachability:** explicit outputs are integrated.
+- **Blocking decision / next action:** add a registry-wide positive/negative emitted-output test and field-check one report/export.
+
+### SB-CUT-029
+
+- **Specified contract:** null/absence states are carried as typed sibling fields, not inferred from numeric zeros.
+- **Current implementation / as-built:** n_classified and perm_cutoff_no_data distinguish two important absences, but other footage/result null states have no typed siblings. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** CHARACTERIZATION; pay_summary_marks_an_uninterpreted_well_as_classifying_nothing, a_well_with_no_perm_fails_the_cutoff_and_says_why, and the rendered zero-versus-absent frontend test prove two limbs only.
+- **Manual evidence:** NONE; Results QC is 0/1.
+- **Source/parameter boundary:** no null sentinel value is adopted; missing remains NaN plus typed context.
+- **UI/IPC/provenance surface:** summary UI honors n_classified, but full result/report/office null custody is incomplete.
+- **History/reachability:** both sibling fields and observable rendering regression are integrated.
+- **Blocking decision / next action:** inventory every nullable result and add typed reason/status siblings across IPC and exports.
+
+### SB-CUT-030
+
+- **Specified contract:** accumulation, flag testing and presentation clamps are distinct and declared.
+- **Current implementation / as-built:** floored_phie is shared by deterministic summary/sweep, module limited/unlimited curves coexist, and MC plausibility inspects unlimited companions; however stage identity is not explicit and MC accumulates limited curves. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** CHARACTERIZATION; flooring_phie_leaves_missing_missing and impossible-combination tests prove isolated guards, not the three-stage contract. T15/T23/T25 are absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** the existing PHIE floor is a recorded product decision; R-4 still forbids pre-accumulation clamp in MC.
+- **UI/IPC/provenance surface:** requests/results do not name stage or clamp policy.
+- **History/reachability:** scattered clamp behavior is integrated.
+- **Blocking decision / next action:** model stage policy explicitly and route MC accumulation from unlimited scientific outputs while retaining separate flag/presentation rules.
+
+### SB-CUT-031
+
+- **Specified contract:** shift width carries an explicit mandatory sigma multiple, with SD_MULT=2 for IP-sourced widths.
+- **Current implementation / as-built:** IP_MC_SEEDS passes each vendor width directly to the normal distribution as sigma; the cited m width 0.2 therefore becomes 0.20 instead of 0.10. PRESENT-DIVERGENT.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** MISSING; T13 is absent.
+- **Manual evidence:** NONE; E-1 confirms the bad width did not reach a delivered uncertainty band, but that is not implementation proof.
+- **Source/parameter boundary:** SD_MULT=2 and the m verification row are cited; vendor widths remain NON-ADOPTABLE defaults.
+- **UI/IPC/provenance surface:** McSeed stores w/pct only; McParam and McResult do not record source width or sigma multiple.
+- **History/reachability:** direct-width implementation is integrated; E-1 is prospective exposure adjudication only.
+- **Blocking decision / next action:** require SD_MULT on imported widths, calculate sigma=w/2, record it, and pin 0.10 versus 0.20 from both sides.
+
+### SB-CUT-032
+
+- **Specified contract:** store shift type with width and refuse reciprocal Rec input when the sampler cannot represent it.
+- **Current implementation / as-built:** McSeed has only pct boolean versus absolute; Distribution has linear normal/uniform/triangular forms and no reciprocal type or importer refusal. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T20 and T30 are absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** O-10 leaves Rec behavior near zero open; R-9 forbids coercion to Linear.
+- **UI/IPC/provenance surface:** no typed shift enum crosses import, editor, request, result or persistence.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** add a shift-type enum and refuse unsupported Rec at load before any draw occurs.
+
+### SB-CUT-033
+
+- **Specified contract:** import measurement priors as well as model-parameter priors.
+- **Current implementation / as-built:** the UI lists numeric module parameters only and no structured prior importer exists. ABSENT.
+- **Release disposition and risk:** UNDECIDED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T20 has no importer body.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** E-4 forbids inventing a house Rw prior; imported priors require their own source and units.
+- **UI/IPC/provenance surface:** no measurement-prior identity or source record exists.
+- **History/reachability:** negative inventory confirmed absence.
+- **Blocking decision / next action:** product-select the importer, then distinguish measurement and parameter priors without supplying any new default.
+
+### SB-CUT-034
+
+- **Specified contract:** seed is mandatory and appears on the returned/reportable result record.
+- **Current implementation / as-built:** McRequest requires seed and persisted log-set parameters include it when persistence is enabled; McResult itself has no seed field. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** CHARACTERIZATION; hpv_distribution_is_ordered_and_reproducible and draw-matrix checks prove same-seed determinism, but T12 does not observe seed on the result.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** seed is a mandatory run identity, not a default value.
+- **UI/IPC/provenance surface:** editor sends seed; non-persisted result, report and ordinary job surface cannot read it back.
+- **History/reachability:** request/persistence custody is integrated.
+- **Blocking decision / next action:** echo seed in McResult and every report/job identity, then prove same/different seeds and returned custody together.
+
+### SB-CUT-035
+
+- **Specified contract:** provide log-domain probability distributions.
+- **Current implementation / as-built:** Distribution supports normal, uniform and triangular only on the linear variable. ABSENT.
+- **Release disposition and risk:** UNDECIDED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T14 does not exercise a log-domain distribution.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** no distribution is chosen as a default; O-8 preserves vendor conflict.
+- **UI/IPC/provenance surface:** editor and serde enum have no log-domain variant.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** if selected, add explicit log-domain variants with typed base/unit custody and independent quantile fixtures.
+
+### SB-CUT-036
+
+- **Specified contract:** every prior carries value, basis, sigma multiple and units.
+- **Current implementation / as-built:** Distribution carries numeric parameters and McParam carries name/zone; McSeed carries width and pct, but basis, sigma multiple, units, source and shift type are incomplete. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T13 and T21 are absent as triple-and-unit custody tests.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** 11 vendor rows are NON-ADOPTABLE; E-3 keeps B unit null and E-4 keeps Rw prior absent; R-11 forbids filling either gap.
+- **UI/IPC/provenance surface:** editor labels some module units but request/result/persistence do not carry the full prior record.
+- **History/reachability:** partial numeric distribution schema is integrated.
+- **Blocking decision / next action:** define one prior record with nullable sourced unit and explicit basis/SD_MULT; preserve unknown units as unknown.
+
+### SB-CUT-037
+
+- **Specified contract:** each prior stores its centring rule.
+- **Current implementation / as-built:** normal implies mean, uniform midpoint and triangular mode from field position, but no centring field is stored. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T28 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** O-4 keeps asymmetric-Gaussian centring unresolved; a typed field can represent the future decision without guessing it.
+- **UI/IPC/provenance surface:** no centring rule appears in editor, request, result, persisted params or report.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** add a required centring enum and use the cited triangular fixture without resolving O-4 by assumption.
+
+### SB-CUT-038
+
+- **Specified contract:** Gaussian draws are truncated at the cited boundary and the realised variance deficit is reported.
+- **Current implementation / as-built:** normal draws use Box-Muller without truncation and no variance-deficit result exists. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** MISSING; T14 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** the 2.5-sigma truncation rule is cited; no corrective variance factor is invented.
+- **UI/IPC/provenance surface:** request and result carry neither truncation nor deficit.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** implement explicit truncated draws and report measured variance loss, then pin both maximum deviation and deficit.
+
+### SB-CUT-039
+
+- **Specified contract:** use the cited 2000-iteration default and auto-stop on the percentile actually reported.
+- **Current implementation / as-built:** UI defaults to 1000; convergence is opt-in, uses an uncited default tolerance, and LHS never truncates. PRESENT-DIVERGENT.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** CHARACTERIZATION; convergence_early_stops_on_a_stationary_series and lhs_design_never_truncates prove current mechanics, not T33's cited default and clear/marginal cases.
+- **Manual evidence:** NONE; Monte Carlo is 2/14 without this scenario.
+- **Source/parameter boundary:** 2000 is cited; O-7 leaves iteration ceiling open and current 0.005 is not promoted to authority.
+- **UI/IPC/provenance surface:** request/result record requested/used counts and traces, but fresh UI state and stopping policy diverge.
+- **History/reachability:** convergence implementation is integrated.
+- **Blocking decision / next action:** set only the cited default, make the stopping target explicit, and add T33 without inventing an iteration ceiling.
+
+### SB-CUT-040
+
+- **Specified contract:** one offset is drawn per section per iteration, constant vertically within that section.
+- **Current implementation / as-built:** build_draws creates one draw per McParam per realization and zone spans apply that scalar over the contiguous section. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; FIELD-EVIDENCE.
+- **Automated evidence:** CHARACTERIZATION; zone_scoped_param_only_moves_its_zone proves scoping, but T27's vertical-versus-horizontal spread and N=100 ratio are absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** VERTICAL is cited; R-6 forbids per-depth draws for summation inputs.
+- **UI/IPC/provenance surface:** McParam.zone records section name but result does not declare draw regime.
+- **History/reachability:** scalar-per-param realization behavior is integrated.
+- **Blocking decision / next action:** expose the draw regime and add the independent vertical/horizontal variance fixture.
+
+### SB-CUT-041
+
+- **Specified contract:** never clamp scientific values before volumetric accumulation.
+- **Current implementation / as-built:** run_realization feeds module limited PHIE/SWE outputs into zone_metrics; unlimited companions are inspected only for plausibility. PRESENT-DIVERGENT.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** MISSING; T15, T23 and T25 are absent as accumulator tests. Impossible-combination tests do not prove unbiased accumulation.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** no-clamp is specified and R-4 binding; T25 supplies the independent negative bias expression.
+- **UI/IPC/provenance surface:** result does not say whether accumulated curves were limited.
+- **History/reachability:** limited-curve accumulation is integrated.
+- **Blocking decision / next action:** route accumulation from unlimited companions with explicit missing/physical diagnostics, preserving separate display clamps.
+
+### SB-CUT-042
+
+- **Specified contract:** perturb cutoff values independently per zone during Monte Carlo.
+- **Current implementation / as-built:** Cutoffs is one scalar quartet for the request; McParam zone scoping varies module parameters only. ABSENT.
+- **Release disposition and risk:** UNDECIDED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T18 has no cutoff-draw body.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** cutoff priors ship absent and IP cutoff widths remain NON-ADOPTABLE verification data.
+- **UI/IPC/provenance surface:** no cutoff-prior rows, zone draw identity or realised values are returned.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** if selected, extend the cited prior schema to cutoff-by-zone without creating defaults.
+
+### SB-CUT-043
+
+- **Specified contract:** derived ratios are calculated inside each realization before percentile summarization.
+- **Current implementation / as-built:** zone_metrics calculates ntg per realization and summarize operates on the resulting ntg vector. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** CHARACTERIZATION; code shape and current distribution tests support the route, but T19's varying-gross ratio-of-percentiles negative control is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** independent arithmetic is the oracle; R-8 forbids ratio-of-marginal-percentiles.
+- **UI/IPC/provenance surface:** McZoneResult exposes ntg percentiles but not calculation method.
+- **History/reachability:** inside-iteration ratio is integrated.
+- **Blocking decision / next action:** add the varying-gross fixture that fails any ratio-of-percentiles implementation.
+
+### SB-CUT-044
+
+- **Specified contract:** store per-iteration joint records and expose iteration-consistent percentile cases.
+- **Current implementation / as-built:** per_real holds joint MetricSet values transiently, then McResult returns only marginal summaries and optional per-sample matrices; no labelled joint case record exists. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T16 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** the marginal-versus-joint fixture is specified; no reserves probability mapping is inferred.
+- **UI/IPC/provenance surface:** result, report and office outputs cannot recover which realization supplies a percentile case.
+- **History/reachability:** transient joint vectors are integrated.
+- **Blocking decision / next action:** return stable per-realization/case identity and prove joint P50 differs from the product of marginals.
+
+### SB-CUT-045
+
+- **Specified contract:** withhold a statistic whose sample-size or other precondition fails and emit a machine-readable reason.
+- **Current implementation / as-built:** summarize emits interpolated tails for any non-empty finite vector, including five realizations; no refusal reason is returned. PRESENT-DIVERGENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DEGRADED-RESULT.
+- **Automated evidence:** MISSING; T29 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** refusal precedent is cited; R-7 forbids emitting unsupported statistics.
+- **UI/IPC/provenance surface:** Pctl fields have no availability/reason sibling.
+- **History/reachability:** unconditional summarization is integrated.
+- **Blocking decision / next action:** add per-statistic availability and reason fields and pin the five-iteration refusal.
+
+### SB-CUT-046
+
+- **Specified contract:** name the percentile interpolation method on the output record.
+- **Current implementation / as-built:** percentile implements linear type-7 arithmetic internally, but McResult/Pctl do not identify the method. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** CHARACTERIZATION; helper inspection confirms type-7 arithmetic, but T16's output-record assertion is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** type-7 is the explicit SandiBumi specification, not a guessed vendor method.
+- **UI/IPC/provenance surface:** method is absent from result, persistence, report and office export.
+- **History/reachability:** arithmetic is integrated.
+- **Blocking decision / next action:** add an immutable percentile_method field and assert it beside the joint case record.
+
+### SB-CUT-047
+
+- **Specified contract:** percentile cases use reserves-category labels with actual probabilities and per-quantity direction.
+- **Current implementation / as-built:** results expose generic low/mid/high percentile fractions; no reserves category or direction field exists. ABSENT.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T16 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** O-5 keeps Sw direction open; the schema must store direction rather than guess it.
+- **UI/IPC/provenance surface:** generic labels propagate to UI and reportable results.
+- **History/reachability:** no category implementation found.
+- **Blocking decision / next action:** define probability and direction per quantity, leaving unresolved directions unset until sourced.
+
+### SB-CUT-048
+
+- **Specified contract:** cross-zone roll-up merges iteration cases before calculating percentiles.
+- **Current implementation / as-built:** McResult reports zones independently and has no field-level case roll-up. ABSENT.
+- **Release disposition and risk:** DEFERRED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T16 has no cross-zone body.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** O-11 preserves incumbent-comparison residue; it does not authorize marginal-statistic merging.
+- **UI/IPC/provenance surface:** no rolled-up joint case/result exists.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** if selected, merge aligned realization records from SB-CUT-044 and summarize only afterward.
+
+### SB-CUT-049
+
+- **Specified contract:** report realised correlation beside every requested correlation.
+- **Current implementation / as-built:** McRequest accepts requested McCorrelation and Iman-Conover induces rank correlation; results report parameter-output Spearman only, not realised parameter-pair correlation. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** CHARACTERIZATION; iman_conover_induces_target_rank_correlation proves induction internally, but T18's returned requested/realised pair is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** O-9 leaves measurement-correlation comparison low priority; R-10 forbids silently approximating a non-positive-definite matrix.
+- **UI/IPC/provenance surface:** requested pairs cross IPC; realised pairs are not returned or rendered.
+- **History/reachability:** induction and parameter-output sensitivity are integrated.
+- **Blocking decision / next action:** return requested and measured pairwise rank correlations with explicit refusal/advisory state.
+
+### SB-CUT-050
+
+- **Specified contract:** data-picked parameters are re-derived per realization rather than merely correlated.
+- **Current implementation / as-built:** MC draws configured scalar parameters and reruns the module chain; it has no identity or operation for a data-picked parameter derivation. ABSENT.
+- **Release disposition and risk:** DEFERRED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T18 has no re-derivation limb.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** O-9 retains the measurement-correlation question; no substitute formula is invented.
+- **UI/IPC/provenance surface:** prior rows cannot declare derived-from-data behavior.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** define a typed re-derivation plan only when the owning parameter workflow is selected.
+
+### SB-CUT-051
+
+- **Specified contract:** tornado bars carry absolute output values and units, with iteration-count context.
+- **Current implementation / as-built:** MetricSet stores absolute low/base/high output values and the UI plots them, but no units field accompanies the metrics and run-count comparability is not a typed bar attribute. PARTIAL.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** CHARACTERIZATION; tornado_low_base_high_are_ordered proves ordering only. T34's 750-versus-5000 absolute stability and percentage divergence is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** units come from each output quantity; no display unit is inferred from pixels.
+- **UI/IPC/provenance surface:** renderer knows metric names and overall iterations, but result bundles lack explicit units/count custody.
+- **History/reachability:** OAT metrics and renderer are integrated.
+- **Blocking decision / next action:** add quantity/unit/iteration metadata to each bar and run the independent stability fixture.
+
+### SB-CUT-052
+
+- **Specified contract:** a newly added prior starts with perturbation disabled.
+- **Current implementation / as-built:** defaultRow immediately assigns a non-zero vendor seed or generic max(abs(value)*0.1,0.01) width; there is no enabled flag. PRESENT-DIVERGENT.
+- **Release disposition and risk:** PILOT-BLOCKER; SILENT-WRONGNESS.
+- **Automated evidence:** MISSING; T15 and T23 are absent as off-by-default controls.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** perturbation-off is specified; generic widths and vendor rows are not adopted defaults.
+- **UI/IPC/provenance surface:** adding a row silently activates a distribution before the user supplies a sourced width.
+- **History/reachability:** current auto-width behavior is integrated.
+- **Blocking decision / next action:** add explicit enabled state defaulting false and keep all unsourced width fields absent.
+
+### SB-CUT-053
+
+- **Specified contract:** impossible realizations are counted/reported and remain in percentile accumulation.
+- **Current implementation / as-built:** McPlausibility counts unlimited-curve violations, all realizations remain in per_real, and no exclusion path was found. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; FIELD-EVIDENCE.
+- **Automated evidence:** CHARACTERIZATION; impossible_combo_guard_flags_negative_porosity, impossible_combo_guard_flags_supersaturation and impossible_combo_guard_clean_run_reports_zero prove diagnostics, but T25's accumulator bias fixture is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** R-4 forbids exclusion/clamp before accumulation; this row does not cure SB-CUT-041's use of limited curves.
+- **UI/IPC/provenance surface:** plausibility result carries count, denominator, fraction, checked and detail.
+- **History/reachability:** diagnostics and retention are integrated.
+- **Blocking decision / next action:** retain diagnostics, add an observable proof that impossible records remain in percentile population, and field-exercise warnings.
+
+### SB-CUT-054
+
+- **Specified contract:** if every realization fails a chain step, the study is a failed job item with source error and never a zero-uncertainty result.
+- **Current implementation / as-built:** per-well step failure is retained and the job/result surface reports failure without clean percentile output. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; DEGRADED-RESULT.
+- **Automated evidence:** CORRECTNESS; core_reporting_tests::a_monte_carlo_chain_failure_is_reported_in_the_job_and_never_as_a_zero_uncertainty_result asserts the observable job/result surfaces, not only an internal Result.
+- **Manual evidence:** NONE; the automated lock does not close a representative field workflow.
+- **Source/parameter boundary:** no numeric expected value; SB-CORE-002 observable refusal is the oracle.
+- **UI/IPC/provenance surface:** failure survives the job boundary with the originating error.
+- **History/reachability:** regression lock d25c274 and implementation are reachable.
+- **Blocking decision / next action:** preserve the test unchanged and field-exercise one all-realization failure before pilot release.
+
+### SB-CUT-055
+
+- **Specified contract:** an uninterpreted well renders absent while a genuinely classified zero remains numeric zero.
+- **Current implementation / as-built:** n_classified distinguishes the states and summaryDialog renders an em dash only for uninterpreted rows. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; DEGRADED-RESULT.
+- **Automated evidence:** CORRECTNESS; frontend test an_uninterpreted_pay_summary_renders_absent_values_while_a_real_zero_net_zone_renders_zero pins both sides on rendered rows.
+- **Manual evidence:** NONE; cutoffs/pay and Results QC scenarios remain unchecked.
+- **Source/parameter boundary:** no sentinel value is introduced; zero and absence retain distinct typed evidence.
+- **UI/IPC/provenance surface:** Rust sibling field crosses IPC and controls client-visible rendering.
+- **History/reachability:** regression lock d25c274 and implementation are reachable.
+- **Blocking decision / next action:** preserve the lock and field-exercise summary, dashboard and exported representations.
+
+### SB-CUT-056
+
+- **Specified contract:** a failed pay computation leaves a named section in every emitted PDF and a named degradation in the batch result.
+- **Current implementation / as-built:** report generation emits a Pay Summary note page and records per-well degradation instead of omitting the section. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; DEGRADED-RESULT.
+- **Automated evidence:** CORRECTNESS; report::tests::a_failed_pay_summary_is_named_in_the_pdf_and_in_the_batch_run_record inspects emitted PDF bytes and the batch record.
+- **Manual evidence:** NONE specific to this failure; report is 6/53 overall.
+- **Source/parameter boundary:** no numeric parameter.
+- **UI/IPC/provenance surface:** PDF and batch/job outputs both preserve the failed section identity.
+- **History/reachability:** regression lock d25c274 and report change are reachable.
+- **Blocking decision / next action:** preserve the lock and field-exercise one batch with a real pay-data failure.
+
+### SB-CUT-057
+
+- **Specified contract:** nested net-flag IPC uses exact snake_case names and rejects unknown or case-drift fields.
+- **Current implementation / as-built:** NetFlagSpec uses deny_unknown_fields; TypeScript sends snake_case; result serialization uses the declared snake_case key set. PRESENT-OK.
+- **Release disposition and risk:** PILOT-BLOCKER; DATA-INTEGRITY.
+- **Automated evidence:** CORRECTNESS; spec_deserializes_from_the_exact_json_the_frontend_sends, result_serializes_under_the_names_the_frontend_reads and ipc_ts_declares_the_same_wire_names_as_the_rust_structs pin positive and negative wire shapes.
+- **Manual evidence:** NONE specific to the IPC refusal.
+- **Source/parameter boundary:** exact wire schema is the expected value; no numeric source.
+- **UI/IPC/provenance surface:** positive exact payload works; camelCase and unknown probe keys fail.
+- **History/reachability:** wire fix and three regression locks are integrated.
+- **Blocking decision / next action:** preserve tests and field-exercise one polygon run before pilot release.
+
+### SB-CUT-058
+
+- **Specified contract:** sweep more than one cutoff simultaneously.
+- **Current implementation / as-built:** CutoffSweepRequest selects one property while holding the other scalar cutoffs fixed; the UI is one-axis. PARTIAL.
+- **Release disposition and risk:** UNDECIDED; REQUESTED-CAPABILITY.
+- **Automated evidence:** CHARACTERIZATION; cutoff_sweep_vsh_monotone and cutoff_sweep_ntg_and_dst_mask prove the one-axis implementation, not T32's multi-cutoff grid.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** no grid resolution/default is invented.
+- **UI/IPC/provenance surface:** request/result carry a single varying property and series.
+- **History/reachability:** one-dimensional sweep is integrated.
+- **Blocking decision / next action:** decide whether multi-axis sensitivity enters the pilot, then define an explicit grid without arbitrary caps.
+
+### SB-CUT-059
+
+- **Specified contract:** solve cutoff values backwards from a target response.
+- **Current implementation / as-built:** only forward sweeps exist; no inverse objective, solver or result exists. ABSENT.
+- **Release disposition and risk:** DEFERRED; REQUESTED-CAPABILITY.
+- **Automated evidence:** MISSING; T32 has no inverse-solve body.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** no optimizer tolerance or target-selection guidance is cited here and none is invented.
+- **UI/IPC/provenance surface:** absent throughout.
+- **History/reachability:** negative source/UI/history inventory confirmed absence.
+- **Blocking decision / next action:** defer until product scope and cited solver controls exist.
+
+### SB-CUT-060
+
+- **Specified contract:** imported parameters are addressed by block, ordinal and semantic key, with mismatch refusal.
+- **Current implementation / as-built:** no structured cutoff/Monte Carlo parameter importer exists. ABSENT.
+- **Release disposition and risk:** UNDECIDED; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T17 and T21 are absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** E-6 preserves the CONTRACT transcription boundary; R-11 keeps B unit unknown; the protected ordinal map is not copied or inferred.
+- **UI/IPC/provenance surface:** no import address, mismatch error or source record exists.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** adjudicate E-6, then build a source-addressed importer that refuses bare ordinal and semantic mismatch.
+
+### SB-CUT-061
+
+- **Specified contract:** validate requested display precision against field width before rendering.
+- **Current implementation / as-built:** reports and office exports use formatting functions, but no precision-width pair validator or refusal exists. ABSENT.
+- **Release disposition and risk:** DEFERRED; DATA-INTEGRITY.
+- **Automated evidence:** MISSING; T39 is absent.
+- **Manual evidence:** NONE.
+- **Source/parameter boundary:** formatting relationship is specified; no field width or precision default is invented.
+- **UI/IPC/provenance surface:** formatting is applied at render time without preflight validation.
+- **History/reachability:** no implementation found.
+- **Blocking decision / next action:** when configurable formatting enters scope, add typed width/precision validation and refuse overflow before render.
+
+## Execution totals and retained gaps
+
+- As-built verdicts: ABSENT 28; PARTIAL 14; PRESENT-DIVERGENT 8; PRESENT-OK 10; PRESENT-UNVERIFIED 1.
+- Release dispositions: PILOT-BLOCKER 42; UNDECIDED 9; DEFERRED 10; OUT 0.
+- Automated proof classes: CORRECTNESS 4; CHARACTERIZATION 15; MISSING 42.
+- All 44 chapter test intentions are routed in the committed execution plan. The four correctness closures are T37, T37b, T37c and T38; every other claimed passing test is supporting/characterization unless the owned whole-contract oracle is added.
+- All 44 parameter rows remain cited, absent or explicitly non-adoptable. No live literal was promoted to authority.
+- O-1 through O-12, E-1 through E-6 and R-1 through R-13 remain accounted for. E-1 is closed only as an exposure ruling; O-2 still blocks SB-CUT-013 through SB-CUT-015; E-3/E-4/E-6 remain unresolved source or governance seams.
