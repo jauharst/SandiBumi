@@ -166,6 +166,24 @@ and `next_action` are mandatory inputs, not suggestions.
 
 Required commit: `SB-CORE-001 enforce declared depth-unit contracts`.
 
+## Task 3: SB-CORE-002 — retain seven observable degraded-result proofs
+
+**Files:** existing tests in `core_reporting_tests.rs`, `ingest.rs`, `report.rs`, and
+`tools/frontend-acceptance.test.mjs`; Gate 2 evidence/receipts only.
+
+- [x] Reverify the PRESENT-OK / CORRECTNESS row and its explicit SB-CORE-T03 through T09 surface
+  assignments against current source and exact executable tests.
+- [x] Run the three Rust proofs: failed Monte Carlo job/result, atomic full-curve import rollback,
+  and degraded Pay Summary in both the delivered PDF and batch record.
+- [x] Run the four rendered frontend proofs: absent versus real-zero pay, partial/all-failed ML
+  status and History, stats-only Dashboard refusal, and zero-contributor warning plus clean control.
+- [x] Confirm the SB-CORE-001 dependency change did not bypass, weaken, or rewrite any surface.
+- [x] Add no duplicate test and change no production behavior for this RETAIN obligation.
+- [x] Run TypeScript, Rust check and the full exact-tree repository gate: 972 passed / 0 failed /
+  36 ignored.
+
+Required commit: `SB-CORE-002 reverify degraded-result reporting surfaces`.
+
 For a source or decision block, implement no guessed behavior. If the current pilot path can run and
 produce a plausible answer, add the sourced actionable refusal or remove it from the pilot
 capability surface. Record the requirement under `blocked_requirements` only after that safety state

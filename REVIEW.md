@@ -7,6 +7,20 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-12 — G2 SB-CORE-002: degraded results stay visibly degraded
+
+- [x] **Automated:** all seven owned correctness proofs remain green after SB-CORE-001. They inspect
+      the failed job and returned Monte Carlo error, atomic import rollback and named per-file error,
+      degraded PDF and batch record, rendered absent-versus-zero pay rows, partial/all-failed ML
+      status plus History, the stats-only Dashboard refusal, and the zero-contributor ML warning.
+      Full gate: 972 passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** exercise each applicable degraded path in the desktop app and confirm the
+      warning or refusal appears where the user reads the result, while its clean control remains
+      visually distinct.
+- [ ] **Field:** force one representative pilot-workflow failure and one partial result with real
+      delivery data, retain the resulting UI/export/history evidence, and confirm no clean result
+      claim survives.
+
 ## 2026-08-12 — G2 SB-CORE-001: no depth-bearing path invents metres
 
 - [x] **Automated:** the deterministic-module registry classifies every live module, an undeclared
