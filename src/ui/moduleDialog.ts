@@ -29,6 +29,19 @@ export function maskCurveNames(curveNames: string[]): string[] {
   return [...MASK_CURVE_SUGGESTIONS.filter((s) => !curveNames.includes(s)), ...curveNames];
 }
 
+/** The module manifest is the user-facing custody surface for a method's preconditions. Keep the
+ * statement, activation branch and source together so the dialog never shows a bare range whose
+ * authority has to be guessed. */
+export function argumentHint(arg: ModuleSpec["args"][number]): string {
+  const conditions = (arg.validity_conditions ?? []).map((condition) => {
+    const branch = "when" in condition && condition.when
+      ? ` When ${condition.when.argument} = ${condition.when.equals}.`
+      : "";
+    return `Condition ${condition.id}: ${condition.statement}${branch} Source: ${condition.source}.`;
+  });
+  return [arg.desc, ...conditions].filter(Boolean).join(" ");
+}
+
 /** Builds the auto-generated parameter form for one module: input-curve selectors,
  *  option dropdowns, and validated numeric parameters — all straight from the manifest
  *  (module-manifest model). Hosted as a dock pane (workspace component "module", panel id
@@ -139,13 +152,18 @@ export async function buildModuleContent(
       select.className = "form-control";
       fillLogSelect(select, arg, arg.default);
       logSelects.set(arg.name, select);
-      argsGrid.appendChild(formRow(`${arg.name} ${arg.required ? "" : "(optional)"}`, select, arg.desc));
+      const requirement = arg.required_any_of?.length
+        ? `(one of ${[arg.name, ...arg.required_any_of].join(" / ")})`
+        : arg.required
+          ? ""
+          : "(optional)";
+      argsGrid.appendChild(formRow(`${arg.name} ${requirement}`, select, argumentHint(arg)));
     } else if (arg.kind === "option") {
       const select = document.createElement("select");
       select.className = "form-control";
       fillSelect(select, arg.choices, arg.default, arg.choice_labels);
       optSelects.set(arg.name, select);
-      argsGrid.appendChild(formRow(arg.name, select, arg.desc));
+      argsGrid.appendChild(formRow(arg.name, select, argumentHint(arg)));
     } else if (arg.kind === "text") {
       // Free-typed run option (ArgKind::Text) — the Condition family's user-named output curve.
       const input = document.createElement("input");
@@ -156,7 +174,7 @@ export async function buildModuleContent(
       // placeholder is where a user looks before reading a hint.
       input.placeholder = arg.desc.includes("blank") ? arg.desc.split("—").pop()!.trim() : "";
       textInputs.set(arg.name, input);
-      argsGrid.appendChild(formRow(arg.name, input, arg.desc));
+      argsGrid.appendChild(formRow(arg.name, input, argumentHint(arg)));
     } else if (arg.kind === "param") {
       const input = document.createElement("input");
       input.className = "form-control";
@@ -191,7 +209,7 @@ export async function buildModuleContent(
         stack.append(control, buildParamSources(arg.sources_topic));
         control = stack;
       }
-      argsGrid.appendChild(formRow(arg.name, control, arg.desc));
+      argsGrid.appendChild(formRow(arg.name, control, argumentHint(arg)));
     }
   }
 

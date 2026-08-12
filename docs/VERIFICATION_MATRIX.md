@@ -7,7 +7,7 @@ This matrix is generated mechanically from `REVIEW.md` and
 against real well data. **Ledger date** is the date on the newest dated review section
 containing a checked scenario; it is not a more precise test timestamp.
 
-Capabilities with recorded exercise: **14 / 54**. Fully exercised: **1 / 54**.
+Capabilities with recorded exercise: **17 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
@@ -19,7 +19,7 @@ Capabilities with recorded exercise: **14 / 54**. Fully exercised: **1 / 54**.
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 18 | — | 3 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Not exercised | 0 / 45 | — | 25 |
 | `reframe` | Reframe and sampling alignment | Not exercised | 0 / 34 | — | 4 |
-| `conditioning` | Log conditioning and masking | Not exercised | 0 / 27 | — | 4 |
+| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
@@ -63,5 +63,5 @@ Capabilities with recorded exercise: **14 / 54**. Fully exercised: **1 / 54**.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 50 | — | 9 |
-| `security-integrity` | Security and data-integrity guards | Not exercised | 0 / 63 | — | 27 |
-| `verification-stewardship` | Verification, provenance and stewardship | Not exercised | 0 / 24 | — | 12 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 1 / 66 | 2026-08-13 | 28 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 1 / 27 | 2026-08-13 | 13 |

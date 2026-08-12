@@ -7,6 +7,21 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-003: sourced preconditions refuse before computation
+
+- [x] **Automated:** module manifests can carry source-bearing enumeration, per-sample range,
+      branch-conditional, required-companion and relational conditions; the public runner evaluates
+      them before dispatch and returns the condition id, offending value, expected rule, statement
+      and source. The UI renders the same statement/branch/source beside the field. The live linear-
+      GR method now refuses unknown ids, cited range violations and inverted endpoints while its
+      valid control still returns 0.5. Full gate: 973 passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** open the VSH-from-GR dialog and confirm each condition and source is readable
+      beside its field; attempt an inverted endpoint pair and confirm the refusal is actionable
+      without obscuring the values the interpreter entered.
+- [ ] **Field:** during Gate 4, run one valid and one invalid-precondition case for every selected
+      pilot method and retain the UI/run-history evidence. SB-CORE-003 remains BLOCKED until that
+      method inventory is complete; this increment proves the mechanism and first live method only.
+
 ## 2026-08-12 — G2 SB-CORE-002: degraded results stay visibly degraded
 
 - [x] **Automated:** all seven owned correctness proofs remain green after SB-CORE-001. They inspect

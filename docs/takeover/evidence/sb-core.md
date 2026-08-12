@@ -42,14 +42,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; no chapter-owned acceptance-test ID.
 - **Atomic obligations:** every method's validity conditions must be machine-readable, evaluated before computation, and cause an actionable refusal when invalid.
-- **Current source:** `modules.rs::ArgSpec` carries generic numeric `min`/`max` bounds, and `workflow.rs` plus the module dialog enforce those ranges. Some method modules have bespoke guards. There is no source-specific validity-condition schema, no inventory proving every method is covered, and no registry-wide pre-compute validator.
-- **Qualifying acceptance tests:** none; by the approved no-owned-test rule, test class is `MISSING`.
-- **Supporting tests:** `workflow.rs::out_of_range_zone_param_is_rejected_not_clamped` proves one generic range path, not the universal method-validity contract.
+- **Current source:** `modules.rs::ValidityCondition` now serializes source-bearing enumeration, per-sample numeric-range, branch-conditional, required-companion and relational rules. The public `run_module` boundary evaluates them before dispatch, so dialog, saved-chain, batch, Monte Carlo and future callers cannot bypass the same gate. `vsh_gr` carries cited method-id, endpoint-range and endpoint-order conditions; `ipc.ts` and `moduleDialog.ts` carry and display each statement, activation branch and source. Legacy `ArgSpec.min/max` fields are deliberately not promoted into scientific validity conditions without an explicit source.
+- **Qualifying acceptance tests:** `modules.rs::source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes` is `CORRECTNESS`. It round-trips every rule shape, proves the cited 8-13 versus 8-18 lb/gal branch distinction on a synthetic manifest explicitly marked NON-ADOPTABLE, refuses a missing companion and an empty required parameter frame, pins invalid enumeration/range/endpoint-order paths with source-bearing messages, and proves a valid public VSH run still computes. It introduces no product default and deliberately does not claim the still-open whole-pilot inventory.
+- **Supporting tests:** the existing workflow SSPW fallback proof and bounded Monte Carlo reproducibility/scoping/persistence fixtures confirm that all callers still reach the central runner. They do not replace the missing whole-pilot method inventory.
 - **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** generic range machinery is integrated at the accepted anchor; the universal contract has no implementation commit.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-003` must identify the pilot method set before a bounded first inventory can be selected. Any validity endpoint still requires its own cited source.
-- **Next action:** define a source-cited, machine-readable validity predicate for the pilot methods, enforce it before execution, and add one owned registry test with valid and invalid controls.
+- **Git evidence:** this Gate 2 increment owns the generic schema, dispatch gate, frontend contract and the first live pilot-method conditions; exact-tree verification is recorded in `STATUS.md` and `REVIEW.md`.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 progress state `BLOCKED`.
+- **Blocker or decision:** `DEC-003` is resolved. Closure is blocked by the word **every**: `SB-CORE-004` must finish source/default custody, and the selected ENV/CLY/POR/SAT/CUT methods must populate their own cited validity conditions. The framework supplies no missing endpoint and the recorded 8-13/8-18 vendor ranges remain NON-ADOPTABLE test evidence only.
+- **Next action:** populate and prove each selected method's cited valid/invalid conditions during its owning Gate 2 row, then run a whole-pilot registry audit and move this row from `BLOCKED` to `DONE` only when no selected method is unaccounted for.
 
 ## SB-CORE-004 — No parameter ships without a source
 

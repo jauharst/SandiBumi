@@ -16,6 +16,7 @@
 "SB-CORE-002","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_stats_only_dashboard_run_says_no_flag_curves_were_written"
 "SB-CORE-002","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_training_well_that_contributes_no_samples_is_warned_in_the_rendered_ml_result"
 "SB-CORE-002","CORRECTNESS","tools/frontend-acceptance.test.mjs","an_uninterpreted_pay_summary_renders_absent_values_while_a_real_zero_net_zone_renders_zero"
+"SB-CORE-003","CORRECTNESS","src-tauri/src/modules.rs","source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes"
 "SB-CORE-015","CORRECTNESS","src-tauri/src/export.rs","an_exported_las_reimports_with_the_same_values"
 "SB-CORE-015","CORRECTNESS","src-tauri/src/export.rs","every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error"
 "SB-CORE-015","CORRECTNESS","src-tauri/src/export.rs","the_las_writer_declares_the_unit_it_wrote_for_both_feet_and_metres"

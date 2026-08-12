@@ -1142,6 +1142,90 @@ type RealOut = (Vec<f64>, Vec<ZoneMetrics>, Option<Vec<Vec<f32>>>, (u32, u32, u3
 /// Output curves eligible for MC_*_LOW/P50/HIGH/BASE persistence, in snapshot order.
 const TRACKED: [&str; 4] = ["VSH", "PHIE", "SWE", "PERM"];
 
+/// One tracked curve family's in-memory persistence payload. Keeping this assembly separate from
+/// the database write lets the data-custody rule be proved without manufacturing scientifically
+/// invalid module inputs merely to make a deterministic base curve missing.
+struct PersistedCurveSummary {
+    curves: Vec<(String, Vec<f32>)>,
+    array: Option<(String, Vec<f32>, Vec<Vec<f32>>)>,
+    note: Option<String>,
+}
+
+/// Assemble one MC_<KEY> family from realization snapshots plus its deterministic base run.
+/// This is the former inline persistence calculation: samples with fewer than eight finite
+/// realizations remain missing; a missing/all-missing base drops BASE only when percentile curves
+/// still exist; realization order (including NaNs) is preserved in the optional array payload.
+fn summarize_persisted_curve(
+    key: &str,
+    well_name: &str,
+    depth: &[f32],
+    snapshots: &[&[f32]],
+    base: Option<&[f32]>,
+    lo_p: f64,
+    hi_p: f64,
+    persist_realizations: bool,
+    real_cap: usize,
+) -> PersistedCurveSummary {
+    let n = depth.len();
+    let mut lo_c = vec![f32::NAN; n];
+    let mut mid_c = vec![f32::NAN; n];
+    let mut hi_c = vec![f32::NAN; n];
+    let mut buf: Vec<f32> = Vec::with_capacity(snapshots.len());
+    let cap = real_cap.min(snapshots.len());
+    let mut arr_depths: Vec<f32> = Vec::new();
+    let mut arr_vals: Vec<Vec<f32>> = Vec::new();
+    for i in 0..n {
+        buf.clear();
+        buf.extend(snapshots.iter().filter_map(|snapshot| snapshot.get(i).copied()).filter(|v| v.is_finite()));
+        if persist_realizations {
+            // REALIZATION ORDER, NaNs included: index r must mean the same realization at every
+            // depth. The sorted `buf` is for percentiles only and must not be stored.
+            let col: Vec<f32> = snapshots
+                .iter()
+                .take(cap)
+                .map(|snapshot| snapshot.get(i).copied().unwrap_or(f32::NAN))
+                .collect();
+            if col.iter().filter(|v| v.is_finite()).count() >= 8 {
+                arr_depths.push(depth[i]);
+                arr_vals.push(col);
+            }
+        }
+        if buf.len() < 8 {
+            continue;
+        }
+        buf.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        lo_c[i] = percentile(&buf, lo_p);
+        mid_c[i] = percentile(&buf, 0.50);
+        hi_c[i] = percentile(&buf, hi_p);
+    }
+
+    let have_pct = mid_c.iter().any(|v| v.is_finite());
+    let finite_base = base.filter(|curve| curve.iter().any(|v| v.is_finite()));
+    let mut curves = Vec::new();
+    if have_pct {
+        curves.push((format!("MC_{key}_LOW"), lo_c));
+        curves.push((format!("MC_{key}_P50"), mid_c));
+        curves.push((format!("MC_{key}_HIGH"), hi_c));
+    }
+    let note = match finite_base {
+        Some(curve) => {
+            curves.push((format!("MC_{key}_BASE"), curve.to_vec()));
+            None
+        }
+        None if have_pct => Some(format!(
+            "{well_name}: MC_{key}_BASE skipped — the all-median base run produced no finite {key}"
+        )),
+        None => None,
+    };
+    let array = if arr_depths.is_empty() {
+        None
+    } else {
+        Some((format!("MC_{key}_REAL"), arr_depths, arr_vals))
+    };
+
+    PersistedCurveSummary { curves, array, note }
+}
+
 /// Runs the chain in memory for one realization and returns the resulting curve pool.
 /// `values[j]` is the draw for `mc_params[j]`, applied over `spans[j]` on top of that
 /// parameter's zone-resolved base array (list order — a later entry wins where spans overlap).
@@ -1668,55 +1752,30 @@ pub fn run_monte_carlo(
                 if !produced.contains(*key) {
                     continue;
                 }
-                let snaps: Vec<&Vec<f32>> = per_real.iter().filter_map(|m| m.2.as_ref().map(|s| &s[t])).collect();
-                let mut lo_c = vec![f32::NAN; n];
-                let mut mid_c = vec![f32::NAN; n];
-                let mut hi_c = vec![f32::NAN; n];
-                let mut buf: Vec<f32> = Vec::with_capacity(snaps.len());
-                let cap = real_cap.min(snaps.len());
-                let mut arr_depths: Vec<f32> = Vec::new();
-                let mut arr_vals: Vec<Vec<f32>> = Vec::new();
-                for i in 0..n {
-                    buf.clear();
-                    buf.extend(snaps.iter().map(|s| s[i]).filter(|v| v.is_finite()));
-                    if req.persist_realizations {
-                        // REALIZATION ORDER, NaNs included: index r must mean the same
-                        // realization at every depth or a spaghetti trace is not a trace. The
-                        // sorted `buf` above is for percentiles only and must not be stored.
-                        // The >= 8 floor matches the percentile curves', so a stored depth and
-                        // the MC_*_LOW/_HIGH curves are never present at different depths.
-                        let col: Vec<f32> = snaps.iter().take(cap).map(|s| s[i]).collect();
-                        if col.iter().filter(|v| v.is_finite()).count() >= 8 {
-                            arr_depths.push(depth[i]);
-                            arr_vals.push(col);
-                        }
-                    }
-                    if buf.len() < 8 {
-                        continue;
-                    }
-                    buf.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                    lo_c[i] = percentile(&buf, lo_p);
-                    mid_c[i] = percentile(&buf, 0.50);
-                    hi_c[i] = percentile(&buf, hi_p);
-                }
-                let have_pct = mid_c.iter().any(|v| v.is_finite());
-                let base = base_pool.get(*key).filter(|c| c.iter().any(|v| v.is_finite())).cloned();
-                if !have_pct && base.is_none() {
+                let snaps: Vec<&[f32]> = per_real
+                    .iter()
+                    .filter_map(|m| m.2.as_ref().map(|s| s[t].as_slice()))
+                    .collect();
+                let summary = summarize_persisted_curve(
+                    key,
+                    &well_name,
+                    &depth,
+                    &snaps,
+                    base_pool.get(*key).map(Vec::as_slice),
+                    lo_p,
+                    hi_p,
+                    req.persist_realizations,
+                    real_cap,
+                );
+                if summary.curves.is_empty() {
                     continue;
                 }
-                if have_pct {
-                    out.push((format!("MC_{key}_LOW"), lo_c));
-                    out.push((format!("MC_{key}_P50"), mid_c));
-                    out.push((format!("MC_{key}_HIGH"), hi_c));
+                out.extend(summary.curves);
+                if let Some(note) = summary.note {
+                    notes.push(note);
                 }
-                match base {
-                    Some(b) => out.push((format!("MC_{key}_BASE"), b)),
-                    None => notes.push(format!(
-                        "{well_name}: MC_{key}_BASE skipped — the all-median base run produced no finite {key}"
-                    )),
-                }
-                if !arr_depths.is_empty() {
-                    arrays.push((format!("MC_{key}_REAL"), arr_depths, arr_vals));
+                if let Some(array) = summary.array {
+                    arrays.push(array);
                 }
             }
             if out.is_empty() {
@@ -2115,7 +2174,11 @@ mod tests {
         let well = seed_well(&conn);
         let dbm = Mutex::new(conn);
 
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        // The test's subject is percentile ordering and seed reproducibility, not an unbounded
+        // Gaussian prior. Use the original fixture's mean ± one stated SD as an explicitly bounded
+        // interval so no realization violates `vsh_gr`'s declared GR_MA range. Gaussian truncation
+        // is the separate, deferred SB-CUT-038 contract and must not be invented here.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 17.0, hi: 33.0 }, zone: None }];
         let res = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 500, 42), None);
         assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
         assert_eq!(res.zones.len(), 1);
@@ -2165,7 +2228,10 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
         let dbm = Mutex::new(conn);
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        // Sensitivity reproducibility is the subject. The bounded interval is the original 25 ± 8
+        // fixture; an unbounded Gaussian would require the separately deferred SB-CUT-038
+        // truncation policy.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 17.0, hi: 33.0 }, zone: None }];
         // Default request has sensitivity=false → no sensitivity block, and the headline zones
         // are byte-identical to a run that DID ask for sensitivity (draws don't perturb the rng).
         let plain = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 400, 42), None);
@@ -2397,7 +2463,9 @@ mod tests {
 
         let mc = vec![McParam {
             param: "GR_MA".into(),
-            dist: Distribution::Normal { mean: 25.0, sd: 15.0 },
+            // Preserve the original fixture's mean ± stated SD as a bounded input; the subject is
+            // zone scoping, while Gaussian truncation remains SB-CUT-038.
+            dist: Distribution::Uniform { lo: 10.0, hi: 40.0 },
             zone: Some("UPPER".into()),
         }];
         let mut req = base_request(&well, mc, 400, 42);
@@ -2415,7 +2483,7 @@ mod tests {
         // An unknown zone name leaves the parameter at base values, with a note.
         let mc2 = vec![McParam {
             param: "GR_MA".into(),
-            dist: Distribution::Normal { mean: 25.0, sd: 15.0 },
+            dist: Distribution::Uniform { lo: 10.0, hi: 40.0 },
             zone: Some("NOPE".into()),
         }];
         let res2 = run_monte_carlo(&dbm, &base_request(&well, mc2, 100, 42), None);
@@ -2532,30 +2600,56 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         // Run 1: full chain → MC_VSH/PHIE/SWE families all written (v1).
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        // Persistence is the subject. Keep the original 25 ± 8 fixture inside an explicit bounded
+        // distribution rather than silently adding the deferred SB-CUT-038 truncation policy.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 17.0, hi: 33.0 }, zone: None }];
         let mut req1 = base_request(&well, mc, 200, 42);
         req1.persist = true;
         let res1 = run_monte_carlo(&dbm, &req1, None);
         assert!(res1.persisted.iter().any(|c| c.starts_with("MC_PHIE_")));
 
-        // Run 2: vsh_gr only, with GR_SH pinned to the distribution's central value — the
-        // all-median base run degenerates (GR_MA == GR_SH), but half the draws stay finite.
+        // Run 2: a valid vsh_gr-only chain proves that the persistence transaction reclaims
+        // families which the new chain no longer produces. Degenerate-base assembly is exercised
+        // separately below without asking an invalid GR_MA >= GR_SH pair to compute.
         let mut s = step("vsh_gr");
         s.params.insert("GR_SH".into(), 100.0);
-        let mc2 = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 99.0, hi: 101.0 }, zone: None }];
+        let mc2 = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 20.0, hi: 30.0 }, zone: None }];
         let mut req2 = base_request(&well, mc2, 300, 7);
         req2.steps = vec![s];
         req2.persist = true;
         let res2 = run_monte_carlo(&dbm, &req2, None);
         assert!(res2.errors.is_empty(), "unexpected errors: {:?}", res2.errors);
-        // Percentile curves survive a degenerate base; only BASE is skipped, with a note.
         assert!(res2.persisted.contains(&"MC_VSH_LOW".to_string()), "persisted: {:?}", res2.persisted);
-        assert!(
-            !res2.persisted.contains(&"MC_VSH_BASE".to_string()),
-            "degenerate base must skip only BASE: {:?}",
-            res2.persisted
+        assert!(res2.persisted.contains(&"MC_VSH_BASE".to_string()), "valid base missing: {:?}", res2.persisted);
+
+        // A persistence-layer degenerate base is a data-custody condition, not permission to make
+        // a scientific module accept invalid inputs. Eight finite realization snapshots prove the
+        // percentile curves survive; an all-missing deterministic base must drop only BASE and
+        // retain the exact explanatory note. These values are synthetic array fixtures, not
+        // petrophysical endpoints or defaults.
+        let snapshots: Vec<Vec<f32>> = (1..=8).map(|v| vec![v as f32]).collect();
+        let snapshot_refs: Vec<&[f32]> = snapshots.iter().map(Vec::as_slice).collect();
+        let degenerate = summarize_persisted_curve(
+            "VSH",
+            "Synthetic",
+            &[1000.0],
+            &snapshot_refs,
+            None,
+            0.10,
+            0.90,
+            false,
+            8,
         );
-        assert!(res2.notes.iter().any(|n| n.contains("MC_VSH_BASE skipped")), "notes: {:?}", res2.notes);
+        let names: Vec<&str> = degenerate.curves.iter().map(|(name, _)| name.as_str()).collect();
+        assert!(names.contains(&"MC_VSH_LOW"), "percentile curves must survive: {names:?}");
+        assert!(names.contains(&"MC_VSH_P50"), "percentile curves must survive: {names:?}");
+        assert!(names.contains(&"MC_VSH_HIGH"), "percentile curves must survive: {names:?}");
+        assert!(!names.contains(&"MC_VSH_BASE"), "degenerate base must skip only BASE: {names:?}");
+        assert!(
+            degenerate.note.as_deref().is_some_and(|n| n.contains("MC_VSH_BASE skipped")),
+            "notes: {:?}",
+            degenerate.note
+        );
 
         let conn = dbm.lock().unwrap();
         // Stale family reclaim: run 2 wrote no PHIE curves, so v1's MC_PHIE_* rows must be gone
@@ -2593,7 +2687,9 @@ mod tests {
         let well = seed_well(&conn);
         let dbm = Mutex::new(conn);
 
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        // Persistence is the subject. Keep the original 25 ± 8 fixture inside an explicit bounded
+        // distribution rather than silently adding the deferred SB-CUT-038 truncation policy.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 17.0, hi: 33.0 }, zone: None }];
         let mut req = base_request(&well, mc, 300, 42);
         req.persist = true;
         let res = run_monte_carlo(&dbm, &req, None);

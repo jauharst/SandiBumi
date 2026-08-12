@@ -95,7 +95,7 @@
     }
   ],
   "completed_requirements": ["SB-CORE-001", "SB-CORE-002"],
-  "blocked_requirements": [],
+  "blocked_requirements": ["SB-CORE-003"],
   "later_gate_only": [
     {"requirement_id": "SB-CORE-041", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Fresh-clone and clean-machine build evidence belongs to Windows and offline qualification"},
     {"requirement_id": "SB-CORE-042", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Machine-enforced publication requires the clean-clone proof owned by Gate 3"},

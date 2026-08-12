@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `2 / 222 handled — 2 DONE, 0 BLOCKED, 220 remaining`
+- Gate 2 requirement progress: `3 / 222 handled — 2 DONE, 1 BLOCKED, 219 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T01 / SB-CORE-002 - DONE at the current requirement boundary; seven observable proofs and the exact tree are green`
+- Active increment: `G2-T01 / SB-CORE-003 - BLOCKED at the whole-pilot inventory boundary; the source-bearing schema, runner, UI path and first live method are implemented, but every selected method still needs its owning cited conditions`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-CORE-002 exact tree is green at 972 passed / 0 failed / 36 ignored; its focused reporting-surface proof is 7 / 7; TypeScript and Rust check are green`
+- Automated gate: `SB-CORE-003 exact tree is green at 973 passed / 0 failed / 36 ignored; its source-bearing validity proof and affected workflow/Monte Carlo controls are green; TypeScript and Rust check are green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `220 Gate 2 obligations remain after SB-CORE-002; the original action-mode totals remain the immutable routing baseline, not a live remainder counter; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Start the next dependency-ordered G2-T01 SB-CORE obligation from the verified SB-CORE-002 boundary.`
+- Open blockers: `219 Gate 2 rows remain unhandled; SB-CORE-003 is separately BLOCKED until SB-CORE-004 and the selected ENV/CLY/POR/SAT/CUT rows populate and prove every pilot method's cited conditions; the original action-mode totals remain the immutable routing baseline; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Start G2-T01 / SB-CORE-004 from the verified SB-CORE-003 framework boundary; leave every source-less parameter absent rather than converting a legacy UI bound into scientific authority.`
 
 ## Gate dashboard
 

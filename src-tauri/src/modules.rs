@@ -9,12 +9,13 @@
 //!
 //! Density convention: g/cc (matching LAS field data), not the kg/m3 some suites use.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use crate::units::{convert_depth, DepthUnit};
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ArgKind {
     /// Numeric interval parameter (per-zone overridable).
@@ -34,7 +35,50 @@ pub enum ArgKind {
     LogOut,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct ValidityBranch {
+    /// Option/Text argument whose selected id activates this condition.
+    pub argument: String,
+    /// Exact stable wire id that activates this condition.
+    pub equals: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ValidityRule {
+    /// The argument value must be one of the `ArgSpec::choices` ids.
+    Enumeration,
+    /// The argument's numeric value (Param) or every finite sample (LogIn) must be in range.
+    NumericRange {
+        min: Option<f64>,
+        max: Option<f64>,
+        unit: String,
+        #[serde(default)]
+        when: Option<ValidityBranch>,
+    },
+    /// At least one named LogIn argument must contain a finite sample.
+    RequiredCompanion {
+        any_of: Vec<String>,
+        #[serde(default)]
+        when: Option<ValidityBranch>,
+    },
+    /// The argument's numeric value must be strictly below another numeric argument per sample.
+    LessThan { other: String },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct ValidityCondition {
+    /// Stable condition id used in refusals and persisted manifests.
+    pub id: String,
+    /// Human explanation shown beside the field and repeated in a refusal.
+    pub statement: String,
+    /// Named source for this condition. Empty strings are rejected by the registry test.
+    pub source: String,
+    #[serde(flatten)]
+    pub rule: ValidityRule,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ArgSpec {
     pub name: String,
     pub desc: String,
@@ -63,11 +107,22 @@ pub struct ArgSpec {
     /// for the same number.
     #[serde(default)]
     pub sources_topic: String,
+    /// Source-bearing, machine-readable preconditions evaluated at the public dispatch boundary.
+    #[serde(default)]
+    pub validity_conditions: Vec<ValidityCondition>,
     /// Validation range for Param args.
     pub min: Option<f64>,
     pub max: Option<f64>,
     /// Whether a LogIn is required (missing optional inputs become all-NaN).
     pub required: bool,
+    /// LogIn only: other declared input arguments that can satisfy this required role.
+    ///
+    /// This is an explicit one-of contract, not a mnemonic fallback. `sw_rtc`, for example, can
+    /// consume either its SSC `PHIT` input or its separately declared `PHIT_SSPW` input. Marking
+    /// the primary optional would allow neither; marking it unconditionally required would reject
+    /// the valid SSPW route before the body can combine the two.
+    #[serde(default)]
+    pub required_any_of: Vec<String>,
     /// LogIn only: resolve from computed provenance (precalc outputs, log sets) and never
     /// the RAW import store — for unit-contract inputs like FTEMP/FPRESS where a raw
     /// curve with the same mnemonic (a commercial LAS export's degF FTEMP) would silently
@@ -97,7 +152,7 @@ pub struct ArgSpec {
     pub well_scope: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ModuleSpec {
     pub name: String,
     pub title: String,
@@ -115,9 +170,11 @@ pub(crate) fn param(name: &str, desc: &str, unit: &str, default: f64, min: f64, 
         default: default.to_string(),
         choices: vec![],
         choice_labels: vec![],
+        validity_conditions: vec![],
         min: Some(min),
         max: Some(max),
         required: true,
+        required_any_of: vec![],
         computed_only: false,
         well_scope: false,
         sources_topic: String::new(),
@@ -133,9 +190,11 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         default: default.into(),
         choices: choices.iter().map(|s| s.to_string()).collect(),
         choice_labels: Vec::new(),
+        validity_conditions: vec![],
         min: None,
         max: None,
         required: true,
+        required_any_of: vec![],
         computed_only: false,
         well_scope: false,
         sources_topic: String::new(),
@@ -152,6 +211,15 @@ pub(crate) fn opt_labelled(
     let mut a = opt(name, desc, default, &choices.iter().map(|(id, _)| *id).collect::<Vec<_>>());
     a.choice_labels = choices.iter().map(|(_, label)| (*label).to_string()).collect();
     a
+}
+
+fn validity(id: &str, statement: &str, source: &str, rule: ValidityRule) -> ValidityCondition {
+    ValidityCondition { id: id.into(), statement: statement.into(), source: source.into(), rule }
+}
+
+fn with_validity(mut arg: ArgSpec, conditions: Vec<ValidityCondition>) -> ArgSpec {
+    arg.validity_conditions = conditions;
+    arg
 }
 
 /// A [`param`] with NO default — the field opens EMPTY and the dialog refuses to run until a
@@ -194,9 +262,11 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         default: default.into(),
         choices: vec![],
         choice_labels: vec![],
+        validity_conditions: vec![],
         min: None,
         max: None,
         required: false,
+        required_any_of: vec![],
         computed_only: false,
         well_scope: false,
         sources_topic: String::new(),
@@ -212,9 +282,11 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         default: default_curve.into(),
         choices: vec![],
         choice_labels: vec![],
+        validity_conditions: vec![],
         min: None,
         max: None,
         required,
+        required_any_of: vec![],
         computed_only: false,
         well_scope: false,
         sources_topic: String::new(),
@@ -256,6 +328,22 @@ pub(crate) fn log_in_computed(name: &str, desc: &str, unit: &str, default_curve:
     ArgSpec { computed_only: true, ..log_in(name, desc, unit, default_curve, required) }
 }
 
+/// A required input role that may be satisfied by this argument or one of the other named LogIn
+/// arguments. Every alternative remains independently declared in the manifest and therefore
+/// independently selectable and persisted.
+pub(crate) fn log_in_one_of(
+    name: &str,
+    desc: &str,
+    unit: &str,
+    default_curve: &str,
+    alternatives: &[&str],
+) -> ArgSpec {
+    ArgSpec {
+        required_any_of: alternatives.iter().map(|alternative| (*alternative).to_string()).collect(),
+        ..log_in(name, desc, unit, default_curve, true)
+    }
+}
+
 /// An output curve. `default` is EMPTY, which means "written under the declared name" — `VSH`
 /// declares `VSH` and writes `VSH`.
 ///
@@ -271,9 +359,11 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         default: String::new(),
         choices: vec![],
         choice_labels: vec![],
+        validity_conditions: vec![],
         min: None,
         max: None,
         required: true,
+        required_any_of: vec![],
         computed_only: false,
         well_scope: false,
         sources_topic: String::new(),
@@ -433,9 +523,12 @@ fn is_missing(v: f64) -> bool {
     v.is_nan()
 }
 
-/// Registry of every deterministic module manifest, in workflow order.
-pub fn list_modules() -> Vec<ModuleSpec> {
-    vec![
+/// Immutable registry of every deterministic module manifest, in workflow order. Monte Carlo and
+/// batch chains call `run_module` thousands of times, so rebuilding every manifest at each public
+/// dispatch would turn central validation into an avoidable per-realization cost.
+fn module_catalog() -> &'static [ModuleSpec] {
+    static CATALOG: OnceLock<Vec<ModuleSpec>> = OnceLock::new();
+    CATALOG.get_or_init(|| vec![
         vsh_gr_spec(),
         vsh_dn_spec(),
         phi_den_spec(),
@@ -487,7 +580,13 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         crate::unconventional::kerogen_spec(),
         crate::unconventional::gip_spec(),
         crate::unconventional::brittleness_spec(),
-    ]
+    ])
+}
+
+/// Registry snapshot returned over IPC. Callers own the serialized copy; execution reads the
+/// immutable catalog directly through [`module_catalog`].
+pub fn list_modules() -> Vec<ModuleSpec> {
+    module_catalog().to_vec()
 }
 
 /// Modules retired from the compute path: still returned by `list_modules` (so a saved chain step
@@ -505,6 +604,225 @@ pub(crate) fn retired_module(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Enforce the validity conditions already declared by a module manifest before its body runs.
+///
+/// This deliberately lives at the public dispatch boundary rather than in the dialog or in one
+/// workflow caller. Saved chains, Monte Carlo, batch execution and future API callers all reach
+/// [`run_module`], so none can turn an unknown option into a module body's `_ => default` arm or
+/// feed an out-of-range zone array to arithmetic that returns a plausible number.
+fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Result<(), String> {
+    let format_range = |min: Option<f64>, max: Option<f64>| match (min, max) {
+        (Some(lo), Some(hi)) => format!("{lo} to {hi}"),
+        (Some(lo), None) => format!(">= {lo}"),
+        (None, Some(hi)) => format!("<= {hi}"),
+        (None, None) => "a finite value".to_string(),
+    };
+    let populated = |name: &str| {
+        ctx.logs
+            .get(name)
+            .is_some_and(|values| values.iter().take(ctx.n).any(|value| value.is_finite()))
+    };
+    let selected = |name: &str| {
+        let default = spec.args.iter().find(|arg| arg.name == name).map(|arg| arg.default.as_str()).unwrap_or("");
+        ctx.opts.get(name).map(String::as_str).unwrap_or(default)
+    };
+    let numeric_at = |name: &str, index: usize| {
+        let arg = spec.args.iter().find(|arg| arg.name == name)?;
+        match arg.kind {
+            ArgKind::Param => ctx.params.get(name)?.get(index).copied(),
+            ArgKind::LogIn => ctx.logs.get(name)?.get(index).map(|value| *value as f64),
+            _ => None,
+        }
+    };
+
+    for arg in &spec.args {
+        for condition in &arg.validity_conditions {
+            if condition.id.trim().is_empty() || condition.statement.trim().is_empty() || condition.source.trim().is_empty() {
+                return Err(format!(
+                    "module '{}' has an invalid validity manifest on '{}': every condition needs a stable id, statement and source",
+                    spec.name, arg.name
+                ));
+            }
+            let active = match &condition.rule {
+                ValidityRule::NumericRange { when, .. } | ValidityRule::RequiredCompanion { when, .. } => {
+                    when.as_ref().map_or(true, |branch| selected(&branch.argument) == branch.equals)
+                }
+                _ => true,
+            };
+            if !active {
+                continue;
+            }
+
+            match &condition.rule {
+                ValidityRule::Enumeration => {
+                    let value = selected(&arg.name);
+                    if value.is_empty() || !arg.choices.iter().any(|choice| choice == value) {
+                        return Err(format!(
+                            "precondition '{}' on '{}' failed before {} ran: value '{}' is not in the permitted set [{}]. {} Source: {}",
+                            condition.id,
+                            arg.name,
+                            spec.name,
+                            value,
+                            arg.choices.join(", "),
+                            condition.statement,
+                            condition.source
+                        ));
+                    }
+                }
+                ValidityRule::NumericRange { min, max, unit, .. } => {
+                    for index in 0..ctx.n {
+                        let Some(value) = numeric_at(&arg.name, index) else { continue };
+                        if !value.is_finite() {
+                            continue;
+                        }
+                        if min.map_or(false, |lo| value < lo) || max.map_or(false, |hi| value > hi) {
+                            let suffix = if unit.is_empty() { String::new() } else { format!(" {unit}") };
+                            return Err(format!(
+                                "precondition '{}' on '{}' failed before {} ran: value {}{} at sample {} is outside {}{}. {} Source: {}",
+                                condition.id,
+                                arg.name,
+                                spec.name,
+                                value,
+                                suffix,
+                                index,
+                                format_range(*min, *max),
+                                suffix,
+                                condition.statement,
+                                condition.source
+                            ));
+                        }
+                    }
+                }
+                ValidityRule::RequiredCompanion { any_of, .. } => {
+                    if !any_of.iter().any(|name| populated(name)) {
+                        return Err(format!(
+                            "precondition '{}' on '{}' failed before {} ran: none of the required companion inputs [{}] has a finite sample. {} Source: {}",
+                            condition.id,
+                            arg.name,
+                            spec.name,
+                            any_of.join(", "),
+                            condition.statement,
+                            condition.source
+                        ));
+                    }
+                }
+                ValidityRule::LessThan { other } => {
+                    if !spec.args.iter().any(|candidate| candidate.name == *other) {
+                        return Err(format!(
+                            "module '{}' has an invalid validity manifest: '{}' names unknown comparison argument '{}'",
+                            spec.name, condition.id, other
+                        ));
+                    }
+                    for index in 0..ctx.n {
+                        let (Some(value), Some(other_value)) =
+                            (numeric_at(&arg.name, index), numeric_at(other, index))
+                        else {
+                            continue;
+                        };
+                        if value.is_finite() && other_value.is_finite() && value >= other_value {
+                            return Err(format!(
+                                "precondition '{}' on '{}' failed before {} ran: value {} at sample {} is not less than '{}' value {}. {} Source: {}",
+                                condition.id,
+                                arg.name,
+                                spec.name,
+                                value,
+                                index,
+                                other,
+                                other_value,
+                                condition.statement,
+                                condition.source
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        match &arg.kind {
+            ArgKind::Option => {
+                let value = selected(&arg.name);
+                let has_sourced_enumeration =
+                    arg.validity_conditions.iter().any(|condition| matches!(condition.rule, ValidityRule::Enumeration));
+                if !has_sourced_enumeration && (value.is_empty() || !arg.choices.iter().any(|choice| choice == value)) {
+                    return Err(format!(
+                        "precondition '{}' failed before {} ran: option value '{}' is not in the permitted set [{}]. Choose one of the declared method ids.",
+                        arg.name,
+                        spec.name,
+                        value,
+                        arg.choices.join(", ")
+                    ));
+                }
+            }
+            ArgKind::Text => {
+                let value = selected(&arg.name);
+                if arg.required && value.trim().is_empty() {
+                    return Err(format!(
+                        "precondition '{}' failed before {} ran: a non-empty value is required.",
+                        arg.name, spec.name
+                    ));
+                }
+            }
+            ArgKind::Param => {
+                let Some(values) = ctx.params.get(&arg.name) else {
+                    if arg.required {
+                        return Err(format!(
+                            "precondition '{}' failed before {} ran: the required parameter has no resolved per-sample values.",
+                            arg.name, spec.name
+                        ));
+                    }
+                    continue;
+                };
+                if arg.required && values.len() < ctx.n {
+                    return Err(format!(
+                        "precondition '{}' failed before {} ran: the required parameter has {} resolved sample values but the frame has {}.",
+                        arg.name,
+                        spec.name,
+                        values.len(),
+                        ctx.n
+                    ));
+                }
+                for (index, value) in values.iter().copied().enumerate().take(ctx.n) {
+                    if value.is_nan() && !arg.required {
+                        continue;
+                    }
+                    if !value.is_finite() {
+                        let unit = if arg.unit.is_empty() { String::new() } else { format!(" {}", arg.unit) };
+                        return Err(format!(
+                            "precondition '{}' failed before {} ran: value {}{} at sample {} is not finite. Fix the supplied value or its zone override.",
+                            arg.name,
+                            spec.name,
+                            value,
+                            unit,
+                            index
+                        ));
+                    }
+                }
+            }
+            ArgKind::LogIn => {
+                if arg.required
+                    && !populated(&arg.name)
+                    && !arg.required_any_of.iter().any(|alternative| populated(alternative))
+                {
+                    let expected = if arg.required_any_of.is_empty() {
+                        arg.name.clone()
+                    } else {
+                        std::iter::once(arg.name.as_str())
+                            .chain(arg.required_any_of.iter().map(String::as_str))
+                            .collect::<Vec<_>>()
+                            .join(" or ")
+                    };
+                    return Err(format!(
+                        "precondition '{}' failed before {} ran: none of the required input role [{}] has a finite sample. Select a populated curve before running the module.",
+                        arg.name, spec.name, expected
+                    ));
+                }
+            }
+            ArgKind::LogOut => {}
+        }
+    }
+    Ok(())
+}
+
 /// Dispatches a module run by name.
 pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     // Retired modules resolve by name (their spec stays in the catalog) but must not run — a
@@ -513,6 +831,11 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
     if let Some(msg) = retired_module(name) {
         return Err(msg.to_string());
     }
+    let spec = module_catalog()
+        .iter()
+        .find(|module| module.name == name)
+        .ok_or_else(|| format!("unknown module '{name}'"))?;
+    validate_declared_preconditions(spec, ctx)?;
     match name {
         "vsh_gr" => Ok(vsh_gr(ctx)),
         "vsh_dn" => Ok(vsh_dn(ctx)),
@@ -598,23 +921,65 @@ fn vsh_gr_spec() -> ModuleSpec {
             // LARINOV3 is stated by its coefficients rather than attributed: nothing in the repo
             // cites a source for that form, and inventing one is the move the provenance rules
             // forbid.
-            opt_labelled(
-                "OPT_GR",
-                "VSH from gamma ray method",
-                "LINEAR",
-                &[
-                    ("LINEAR", "LINEAR — VSH = IGR"),
-                    ("STIEBER1", "STIEBER1 — Stieber, IGR/(3−2·IGR)"),
-                    ("STIEBER2", "STIEBER2 — Stieber, IGR/(2−IGR)"),
-                    ("STIEBER3", "STIEBER3 — Stieber, IGR/(4−3·IGR)"),
-                    ("LARINOV1", "LARINOV1 — Larionov, Mesozoic and older"),
-                    ("LARINOV2", "LARINOV2 — Larionov, Tertiary / unconsolidated"),
-                    ("LARINOV3", "LARINOV3 — 0.127·(3.15^(2·IGR) − 1)"),
-                    ("CLAVIER", "CLAVIER — Clavier et al."),
+            with_validity(
+                opt_labelled(
+                    "OPT_GR",
+                    "VSH from gamma ray method",
+                    "LINEAR",
+                    &[
+                        ("LINEAR", "LINEAR — VSH = IGR"),
+                        ("STIEBER1", "STIEBER1 — Stieber, IGR/(3−2·IGR)"),
+                        ("STIEBER2", "STIEBER2 — Stieber, IGR/(2−IGR)"),
+                        ("STIEBER3", "STIEBER3 — Stieber, IGR/(4−3·IGR)"),
+                        ("LARINOV1", "LARINOV1 — Larionov, Mesozoic and older"),
+                        ("LARINOV2", "LARINOV2 — Larionov, Tertiary / unconsolidated"),
+                        ("LARINOV3", "LARINOV3 — 0.127·(3.15^(2·IGR) − 1)"),
+                        ("CLAVIER", "CLAVIER — Clavier et al."),
+                    ],
+                ),
+                vec![validity(
+                    "vsh_gr.method_id",
+                    "The selected GR transform must be one of the method ids declared by the manifest.",
+                    "docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.lls L109-L139",
+                    ValidityRule::Enumeration,
+                )],
+            ),
+            with_validity(
+                param("GR_MA", "Gamma ray matrix (clean)", "gapi", 20.0, 0.0, 200.0),
+                vec![
+                    validity(
+                        "vsh_gr.gr_ma_range",
+                        "The clean gamma-ray endpoint must remain inside the source manifest range.",
+                        "docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.info L48-L49",
+                        ValidityRule::NumericRange {
+                            min: Some(0.0),
+                            max: Some(200.0),
+                            unit: "gAPI".into(),
+                            when: None,
+                        },
+                    ),
+                    validity(
+                        "vsh_gr.endpoint_order",
+                        "The clean gamma-ray endpoint must be strictly below the shale endpoint.",
+                        "docs/PRD_v2/10_clay-volume.md §3.3 and SB-CLY-001; Geolog vsh_gr.lls L99-L102",
+                        ValidityRule::LessThan { other: "GR_SH".into() },
+                    ),
                 ],
             ),
-            param("GR_MA", "Gamma ray matrix (clean)", "gapi", 20.0, 0.0, 200.0),
-            param("GR_SH", "Gamma ray shale", "gapi", 120.0, 0.0, 1000.0),
+            with_validity(
+                param("GR_SH", "Gamma ray shale", "gapi", 120.0, 0.0, 1000.0),
+                vec![validity(
+                    "vsh_gr.gr_sh_range",
+                    "The shale gamma-ray endpoint must remain inside the source manifest range.",
+                    "docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.info L48-L49",
+                    ValidityRule::NumericRange {
+                        min: Some(0.0),
+                        max: Some(1000.0),
+                        unit: "gAPI".into(),
+                        when: None,
+                    },
+                )],
+            ),
             log_in("GR", "Gamma ray log", "gapi", "GR", true),
             log_out("VSH_GR", "VSH from gamma ray (unlimited)", "v/v"),
             log_out("VSH", "Limited volume of shale", "v/v"),
@@ -2992,6 +3357,170 @@ mod tests {
             opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
             depth_unit: Default::default(),
         }
+    }
+
+    /// CORRECTNESS — SB-CORE-003 and `20_envcorr-qc.md` sections 4.1 and 6.1 T01-T05.
+    /// The synthetic 8-13/8-18 lb/gal branch ranges are copied from the chapter's explicit
+    /// NON-ADOPTABLE verification rows (Geolog `unc_tnph.lls:340,346`); they prove the schema and
+    /// are never registered on a shipping module. The live VSH limits come from
+    /// `10_clay-volume.md` section 3.2 and Geolog `vsh_gr.info` L48-L49. No uncited physical bound
+    /// or product default is introduced here.
+    #[test]
+    fn source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes() {
+        let synthetic = ModuleSpec {
+            name: "synthetic_branch_validation".into(),
+            title: "Synthetic branch validation".into(),
+            category: "Test".into(),
+            doc: "The cited ranges are verification fixtures, not adopted product values.".into(),
+            args: vec![
+                with_validity(
+                    opt("MUD_TYPE", "Synthetic branch selector", "NORMAL", &["NORMAL", "BARITE"]),
+                    vec![validity(
+                        "synthetic.mud_type",
+                        "The branch selector must name a declared branch.",
+                        "docs/PRD_v2/20_envcorr-qc.md §6.1 T01/T03",
+                        ValidityRule::Enumeration,
+                    )],
+                ),
+                with_validity(
+                    log_in("MUD_WEIGHT", "Synthetic per-sample mud weight", "lb/gal", "MUD_WEIGHT", true),
+                    vec![
+                        validity(
+                            "synthetic.normal_mud_range",
+                            "The normal-mud verification branch uses its own stated range.",
+                            "Geolog unc_tnph.lls:340 — NON-ADOPTABLE verification fixture",
+                            ValidityRule::NumericRange {
+                                min: Some(8.0),
+                                max: Some(13.0),
+                                unit: "lb/gal".into(),
+                                when: Some(ValidityBranch { argument: "MUD_TYPE".into(), equals: "NORMAL".into() }),
+                            },
+                        ),
+                        validity(
+                            "synthetic.barite_mud_range",
+                            "The barite verification branch uses its own stated range.",
+                            "Geolog unc_tnph.lls:346 — NON-ADOPTABLE verification fixture",
+                            ValidityRule::NumericRange {
+                                min: Some(8.0),
+                                max: Some(18.0),
+                                unit: "lb/gal".into(),
+                                when: Some(ValidityBranch { argument: "MUD_TYPE".into(), equals: "BARITE".into() }),
+                            },
+                        ),
+                        validity(
+                            "synthetic.caliper_companion",
+                            "This synthetic correction cannot be evaluated without a caliper input.",
+                            "docs/PRD_v2/20_envcorr-qc.md SB-ENV-001(d) and SB-ENV-016",
+                            ValidityRule::RequiredCompanion { any_of: vec!["CALIPER".into()], when: None },
+                        ),
+                    ],
+                ),
+                log_in("CALIPER", "Synthetic required companion", "in", "CALIPER", false),
+                log_out("CORRECTED", "Synthetic output", "v/v"),
+            ],
+        };
+
+        let encoded = serde_json::to_string(&synthetic).expect("module manifest serializes");
+        let decoded: ModuleSpec = serde_json::from_str(&encoded).expect("module manifest deserializes");
+        assert_eq!(decoded, synthetic, "every validity field must survive the manifest round trip");
+        assert!(
+            synthetic
+                .args
+                .iter()
+                .flat_map(|arg| &arg.validity_conditions)
+                .all(|condition| !condition.statement.is_empty() && !condition.source.is_empty()),
+            "a bare condition without meaning or source is not a validity contract"
+        );
+
+        let synthetic_context = |branch: &str, mud_weight: Vec<f32>, caliper: Option<Vec<f32>>| {
+            let mut logs = HashMap::from([("MUD_WEIGHT".into(), mud_weight)]);
+            if let Some(values) = caliper {
+                logs.insert("CALIPER".into(), values);
+            }
+            ModuleContext {
+                n: 2,
+                logs,
+                params: HashMap::new(),
+                opts: HashMap::from([("MUD_TYPE".into(), branch.into())]),
+                depth_unit: Default::default(),
+            }
+        };
+
+        let normal_error = validate_declared_preconditions(
+            &synthetic,
+            &synthetic_context("NORMAL", vec![12.0, 14.0], Some(vec![8.5, 8.5])),
+        )
+        .expect_err("14 lb/gal must fail the 8-13 normal branch at its second sample");
+        assert!(normal_error.contains("sample 1") && normal_error.contains("8 to 13"), "per-sample range missing: {normal_error}");
+        assert!(normal_error.contains("unc_tnph.lls:340"), "range source missing: {normal_error}");
+
+        validate_declared_preconditions(
+            &synthetic,
+            &synthetic_context("BARITE", vec![12.0, 14.0], Some(vec![8.5, 8.5])),
+        )
+        .expect("the same 14 lb/gal sample is valid on the separately declared 8-18 barite branch");
+
+        let companion_error = validate_declared_preconditions(
+            &synthetic,
+            &synthetic_context("BARITE", vec![12.0, 14.0], None),
+        )
+        .expect_err("a declared required companion must refuse before computation");
+        assert!(companion_error.contains("CALIPER"), "required companion missing: {companion_error}");
+        assert!(companion_error.contains("SB-ENV-001(d)"), "companion source missing: {companion_error}");
+
+        let synthetic_option_error = validate_declared_preconditions(
+            &synthetic,
+            &synthetic_context("TYPO", vec![12.0, 12.0], Some(vec![8.5, 8.5])),
+        )
+        .expect_err("an undeclared synthetic branch must refuse");
+        assert!(synthetic_option_error.contains("TYPO") && synthetic_option_error.contains("NORMAL, BARITE"));
+        assert!(synthetic_option_error.contains("§6.1 T01/T03"), "enumeration source missing: {synthetic_option_error}");
+
+        let context = |gr_ma: f64, gr_sh: f64, method: &str, gr: Vec<f32>| {
+            ctx_with(
+                1,
+                &[("GR", gr)],
+                &[("GR_MA", gr_ma), ("GR_SH", gr_sh)],
+                &[("OPT_GR", method)],
+            )
+        };
+
+        let option_error = run_module("vsh_gr", &context(20.0, 120.0, "TYPO", vec![70.0]))
+            .expect_err("an undeclared method id must never fall through to LINEAR");
+        assert!(option_error.contains("vsh_gr.method_id"), "condition id missing: {option_error}");
+        assert!(option_error.contains("TYPO"), "offending value missing: {option_error}");
+        assert!(option_error.contains("LINEAR"), "permitted set missing: {option_error}");
+        assert!(option_error.contains("vsh_gr.lls"), "condition source missing: {option_error}");
+
+        let range_error = run_module("vsh_gr", &context(-1.0, 120.0, "LINEAR", vec![70.0]))
+            .expect_err("a value outside the declared GR_MA range must stop before VSH arithmetic");
+        assert!(range_error.contains("vsh_gr.gr_ma_range"), "condition id missing: {range_error}");
+        assert!(range_error.contains("-1"), "offending value missing: {range_error}");
+        assert!(range_error.contains("0") && range_error.contains("200"), "range missing: {range_error}");
+        assert!(range_error.contains("vsh_gr.info"), "range source missing: {range_error}");
+
+        let order_error = run_module("vsh_gr", &context(120.0, 20.0, "LINEAR", vec![70.0]))
+            .expect_err("inverted endpoints must be refused before the body can silently return NaN");
+        assert!(order_error.contains("vsh_gr.endpoint_order"), "relational condition missing: {order_error}");
+        assert!(order_error.contains("120") && order_error.contains("20"), "offending pair missing: {order_error}");
+        assert!(order_error.contains("SB-CLY-001"), "relational source missing: {order_error}");
+
+        let input_error = run_module("vsh_gr", &context(20.0, 120.0, "LINEAR", vec![f32::NAN]))
+            .expect_err("a required curve with no finite sample must refuse instead of returning blank success");
+        assert!(input_error.contains("GR"), "required input missing from refusal: {input_error}");
+
+        let mut empty_parameter = context(20.0, 120.0, "LINEAR", vec![70.0]);
+        empty_parameter.params.insert("GR_MA".into(), Vec::new());
+        let empty_parameter_error = run_module("vsh_gr", &empty_parameter)
+            .expect_err("a required parameter with no per-sample values must refuse before computation");
+        assert!(
+            empty_parameter_error.contains("GR_MA") && empty_parameter_error.contains("frame has 1"),
+            "empty parameter refusal is not actionable: {empty_parameter_error}"
+        );
+
+        let valid = run_module("vsh_gr", &context(20.0, 120.0, "LINEAR", vec![70.0]))
+            .expect("the valid side of the same declared contract must still run");
+        assert!((valid["VSH_GR"][0] - 0.5).abs() < 1e-6, "valid LINEAR result changed");
     }
 
     /// **SB-MLA-050 — the k = 1 self-match trap, as a hard fail.**

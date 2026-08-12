@@ -12,7 +12,7 @@
 //!   iteration with Qv_eff = Qv_bulk/(1−Swirr) built from XRD clay volumes scaled by
 //!   a lab-CEC calibration factor S, and shaly-sand exponents m*, n*.
 
-use crate::modules::{log_in, log_out, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use crate::modules::{log_in, log_in_one_of, log_out, param, ModuleContext, ModuleOutputs, ModuleSpec};
 use std::collections::HashMap;
 
 fn limit(v: f64, lo: f64, hi: f64) -> f64 {
@@ -100,7 +100,7 @@ pub fn sw_rtc_spec() -> ModuleSpec {
             param("CEC", "CEC when no QV log (meq/100g)", "meq/100g", 0.0, 0.0, 100.0),
             param("RHOG", "Grain density for Qv", "g/cc", 2.65, 2.0, 3.2),
             log_in("RT", "Deep resistivity", "ohm.m", "RES_DEEP", true),
-            log_in("PHIT", "Total porosity", "v/v", "PHIT_SSC", true),
+            log_in_one_of("PHIT", "Total porosity", "v/v", "PHIT_SSC", &["PHIT_SSPW"]),
             log_in("CAPBW", "Capillary-bound water volume", "v/v", "CWSH", false),
             log_in("QV", "Qv log (meq/cm3), optional", "meq/cm3", "QV", false),
             log_in("CBW", "Clay-bound water (for SWE), optional", "v/v", "CBW", false),

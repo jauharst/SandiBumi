@@ -799,6 +799,25 @@ export async function getTrackData(
  *  not a list the manifest can hold (the Condition family's user-named output curve). */
 export type ArgKind = "param" | "option" | "text" | "log_in" | "log_out";
 
+export interface ValidityBranch {
+  argument: string;
+  equals: string;
+}
+
+export type ValidityCondition = {
+  /** Stable id repeated in runner refusals and persisted manifests. */
+  id: string;
+  /** Human explanation shown beside the affected field. */
+  statement: string;
+  /** Named source for the condition; never an implied or guessed endpoint. */
+  source: string;
+} & (
+  | { kind: "enumeration" }
+  | { kind: "numeric_range"; min: number | null; max: number | null; unit: string; when?: ValidityBranch | null }
+  | { kind: "required_companion"; any_of: string[]; when?: ValidityBranch | null }
+  | { kind: "less_than"; other: string }
+);
+
 export interface ArgSpec {
   name: string;
   desc: string;
@@ -819,9 +838,13 @@ export interface ArgSpec {
    *  dialog must not be able to show three different answers for the same number. Empty for almost
    *  every arg; fetch with `paramSources`. */
   sources_topic?: string;
+  /** Source-bearing preconditions evaluated by the public module runner before computation. */
+  validity_conditions?: ValidityCondition[];
   min: number | null;
   max: number | null;
   required: boolean;
+  /** Other declared LogIn argument names that may satisfy this required input role. */
+  required_any_of?: string[];
 }
 
 /** One product's shipped or advised value for a parameter (`SB-CORE-013`). */
