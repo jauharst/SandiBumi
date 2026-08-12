@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `5 / 222 handled — 3 DONE, 2 BLOCKED, 217 remaining`
+- Gate 2 requirement progress: `6 / 222 handled — 4 DONE, 2 BLOCKED, 216 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T01 / SB-CORE-005 - BLOCKED; the preserved history and vendor tables do not identify the exact origin of each value in the already-merged endpoint matrix, so no cosmetic vendor-derived label or inferred source was added`
+- Active increment: `G2-T01 / SB-CORE-006 - DONE; shared saturation equations, canonical IDs, backend-owned UI labels, recorded method identity and per-sample categorical SW_METHOD curves now agree across the standalone modules and SandiMin`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-CORE-005 evidence-only adjudication is green at 975 passed / 0 failed / 36 ignored; no production path or assertion changed, and no snapshot of the unsourced matrix was misrepresented as a provenance proof`
+- Automated gate: `SB-CORE-006 is green at 977 passed / 0 failed / 36 ignored; T17 independently pins shared-engine numeric parity and T18 pins canonical labels, provenance and finite/missing method-flag curves; Rust retains the owned 56-warning inventory`
 - Pilot field evidence: `OPEN`
-- Open blockers: `217 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; the approved 222-row scope remains immutable while live action classes improve as rows close; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Start G2-T01 / SB-CORE-006 from the verified SB-CORE-005 evidence boundary; one method name must not continue selecting two different equations.`
+- Open blockers: `216 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; the approved 222-row scope remains immutable while live action classes improve as rows close; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Start G2-T01 / SB-CORE-007 from the verified SB-CORE-006 boundary; every physical constant and transform must have one source-backed definition across producers.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 122 remediate / 19 prove / 45 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 121 remediate / 19 prove / 46 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |

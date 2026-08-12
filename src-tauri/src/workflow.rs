@@ -366,13 +366,47 @@ pub(crate) fn build_opts(
         .map(|a| (a.name.clone(), a.default.clone()))
         .collect();
     for (k, v) in overrides {
-        opts.insert(k.clone(), v.clone());
+        let value = if spec.args.iter().any(|arg| arg.name == *k && arg.kind == ArgKind::Option) {
+            modules::canonical_option_value(&spec.name, k, v)
+        } else {
+            v.clone()
+        };
+        opts.insert(k.clone(), value);
     }
     for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogIn) {
         let mnemonic = log_inputs.get(&a.name).cloned().unwrap_or_else(|| a.default.clone());
         opts.insert(format!("__IN_{}", a.name), mnemonic.trim().to_uppercase());
     }
     opts
+}
+
+/// Flat, human-readable provenance for one module run. Numeric parameters retain the historical
+/// object shape; declared choices are added under their argument names, and saturation modules
+/// also emit the equation identity explicitly so a run never needs a vendor adjective decoded.
+pub(crate) fn recorded_module_params(
+    req: &RunModuleRequest,
+    spec: &modules::ModuleSpec,
+    opts: &HashMap<String, String>,
+) -> String {
+    let mut recorded = serde_json::Map::new();
+    for (name, value) in &req.params {
+        recorded.insert(name.clone(), serde_json::json!(value));
+    }
+    let method_id = match req.module.as_str() {
+        "sw_arch" => Some("archie_total"),
+        "sw_indo" => Some("indonesia"),
+        "sw_sim" => opts.get("OPT_SIM").map(String::as_str),
+        _ => None,
+    };
+    if let Some(id) = method_id {
+        for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Option) {
+            if let Some(value) = opts.get(&arg.name) {
+                recorded.insert(arg.name.clone(), serde_json::json!(value));
+            }
+        }
+        recorded.insert("method_id".into(), serde_json::json!(id));
+    }
+    serde_json::Value::Object(recorded).to_string()
 }
 
 /// One declared output and the curve name a run with these settings would write it under.
@@ -812,7 +846,7 @@ pub fn run_workflow_module_into(
         let set_spec = equations::LogSetSpec {
             set_name: req.output_set.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "INTERP".into()),
             module: req.module.clone(),
-            params_json: serde_json::to_string(&req.params).unwrap_or_default(),
+            params_json: recorded_module_params(req, &spec, &opts),
             inputs_json: {
                 // Provenance records where inputs were read from too.
                 let mut prov = log_args.clone();

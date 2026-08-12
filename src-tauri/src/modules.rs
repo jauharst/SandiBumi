@@ -564,6 +564,7 @@ pub(crate) fn class_outputs(module: &str) -> &'static [&'static str] {
     match module {
         "electrofacies" => &["FACIES"],
         "gmm_facies" => &["FACIES_GMM"],
+        "sw_arch" | "sw_indo" | "sw_sim" => &["SW_METHOD"],
         _ => &[],
     }
 }
@@ -744,6 +745,23 @@ fn validate_parameter_sources(modules: &[ModuleSpec]) -> Result<(), String> {
     }
 }
 
+/// Resolve legacy vendor option tokens to the equation identity persisted by a new run.
+///
+/// `MODIFIED` is Geolog's name for the Bardon-Pied equation while IP uses "Modified
+/// Simandoux" for the Schlumberger equation. Accepting those tokens at the input boundary keeps
+/// saved chains runnable; returning only the equation ids prevents that ambiguity from entering
+/// new provenance, manifests, or module arithmetic.
+pub(crate) fn canonical_option_value(module: &str, argument: &str, value: &str) -> String {
+    let trimmed = value.trim();
+    match (module, argument, trimmed) {
+        ("sw_sim", "OPT_SIM", "MODIFIED" | "SIM_MOD") => "simandoux_bardon_pied".into(),
+        ("sw_sim", "OPT_SIM", "SCHLUMBERGER" | "SCHLUM" | "SIM_SCHL") => {
+            "simandoux_modified_slb".into()
+        }
+        _ => trimmed.to_string(),
+    }
+}
+
 /// Enforce the validity conditions already declared by a module manifest before its body runs.
 ///
 /// This deliberately lives at the public dispatch boundary rather than in the dialog or in one
@@ -764,7 +782,11 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
     };
     let selected = |name: &str| {
         let default = spec.args.iter().find(|arg| arg.name == name).map(|arg| arg.default.as_str()).unwrap_or("");
-        ctx.opts.get(name).map(String::as_str).unwrap_or(default)
+        canonical_option_value(
+            &spec.name,
+            name,
+            ctx.opts.get(name).map(String::as_str).unwrap_or(default),
+        )
     };
     let numeric_at = |name: &str, index: usize| {
         let arg = spec.args.iter().find(|arg| arg.name == name)?;
@@ -798,7 +820,7 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
             match &condition.rule {
                 ValidityRule::Enumeration => {
                     let value = selected(&arg.name);
-                    if value.is_empty() || !arg.choices.iter().any(|choice| choice == value) {
+                    if value.is_empty() || !arg.choices.iter().any(|choice| choice == &value) {
                         return Err(format!(
                             "precondition '{}' on '{}' failed before {} ran: value '{}' is not in the permitted set [{}]. {} Source: {}",
                             condition.id,
@@ -927,7 +949,9 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                 let value = selected(&arg.name);
                 let has_sourced_enumeration =
                     arg.validity_conditions.iter().any(|condition| matches!(condition.rule, ValidityRule::Enumeration));
-                if !has_sourced_enumeration && (value.is_empty() || !arg.choices.iter().any(|choice| choice == value)) {
+                if !has_sourced_enumeration
+                    && (value.is_empty() || !arg.choices.iter().any(|choice| choice == &value))
+                {
                     return Err(format!(
                         "precondition '{}' failed before {} ran: option value '{}' is not in the permitted set [{}]. Choose one of the declared method ids.",
                         arg.name,
@@ -2882,6 +2906,7 @@ fn sw_arch_spec() -> ModuleSpec {
         log_out("SWT", "Limited total water saturation", "v/v"),
         log_out("SWE", "Limited effective water saturation", "v/v"),
         log_out("VOL_UWAT", "Volume of water (unflushed)", "v/v"),
+        log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
     ]);
     ModuleSpec {
         name: "sw_arch".into(),
@@ -2960,11 +2985,16 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
         }
     }
 
+    let method_flag = swt_arch
+        .iter()
+        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::ArchieTotal.flag_code() } else { f32::NAN })
+        .collect();
     HashMap::from([
         ("SWT_ARCH".to_string(), swt_arch),
         ("SWT".to_string(), swt_out),
         ("SWE".to_string(), swe_out),
         ("VOL_UWAT".to_string(), vol_uwat),
+        ("SW_METHOD".to_string(), method_flag),
     ])
 }
 
@@ -3001,6 +3031,7 @@ fn sw_indo_spec() -> ModuleSpec {
         log_out("SWE_INDO", "SWE from Indonesia (unlimited)", "v/v"),
         log_out("SWE", "Limited effective water saturation", "v/v"),
         log_out("VOL_UWAT", "Volume of water (unflushed)", "v/v"),
+        log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
     ]);
     ModuleSpec {
         name: "sw_indo".into(),
@@ -3064,10 +3095,15 @@ fn sw_indo(ctx: &ModuleContext) -> ModuleOutputs {
         vol_uwat[i] = (pe * swe_l) as f32;
     }
 
+    let method_flag = swe_indo
+        .iter()
+        .map(|sw| if sw.is_finite() { crate::multimin2::SwModel::Indonesia.flag_code() } else { f32::NAN })
+        .collect();
     HashMap::from([
         ("SWE_INDO".to_string(), swe_indo),
         ("SWE".to_string(), swe_out),
         ("VOL_UWAT".to_string(), vol_uwat),
+        ("SW_METHOD".to_string(), method_flag),
     ])
 }
 
@@ -3078,12 +3114,26 @@ fn sw_indo(ctx: &ModuleContext) -> ModuleOutputs {
 fn sw_sim_spec() -> ModuleSpec {
     let mut args =
         vec![
-        opt("OPT_SIM", "Simandoux variant", "MODIFIED", &["MODIFIED", "SCHLUMBERGER"]),
+        opt_labelled(
+            "OPT_SIM",
+            "Equation identity",
+            "simandoux_bardon_pied",
+            &[
+                (
+                    "simandoux_bardon_pied",
+                    "simandoux_bardon_pied — Simandoux / Bardon-Pied (Geolog MODIFIED)",
+                ),
+                (
+                    "simandoux_modified_slb",
+                    "simandoux_modified_slb — Modified Simandoux / Schlumberger (Geolog SCHLUM)",
+                ),
+            ],
+        ),
         param_open("A", "Tortuosity constant", "", 0.1, 5.0, true),
         param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
         param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
         param(
-            "C", "VSH exponent (SCHLUMBERGER variant)", "", 1.0, 0.5, 2.0,
+            "C", "VSH exponent (simandoux_modified_slb only)", "", 1.0, 1.0, 2.0,
             "Geolog V14 sw_sim.info C DEFAULT 1 VALIDATION 1:2; docs/PRD_v2/12_saturation.md §5",
         ),
         param_open("RT_SH", "Shale resistivity", "ohmm", 0.1, 500.0, true),
@@ -3094,35 +3144,22 @@ fn sw_sim_spec() -> ModuleSpec {
         log_in("RT", "True formation resistivity", "ohmm", "RES_DEEP", true),
         log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
         log_in("VSH", "Limited volume of shale", "v/v", "VSH", true),
-        log_out("SWE_SIM", "SWE from Simandoux (unlimited)", "v/v"),
+        log_out("SWE_SIM", "SWE from the selected typed Simandoux equation (unlimited)", "v/v"),
         log_out("SWE", "Limited effective water saturation", "v/v"),
         log_out("VOL_UWAT", "Volume of water (unflushed)", "v/v"),
+        log_out("SW_METHOD", "Producing saturation equation (categorical method code)", ""),
     ]);
     ModuleSpec {
         name: "sw_sim".into(),
-        title: "SW — Simandoux".into(),
+        title: "SW — typed Simandoux equations".into(),
         category: "Saturation".into(),
-        doc: "Solves g1*SW^N + g2*SW - 1/RT = 0 by Newton-Raphson (20 iterations, tol 1e-5). \
-              MODIFIED: g1 = PHIE^M/(A*Rw), g2 = VSH/RT_SH. \
-              SCHLUMBERGER: g1 = PHIE^M/(A*Rw*(1-VSH)), g2 = VSH^C/RT_SH."
+        doc: "Each persisted id names one equation. simandoux_bardon_pied: \
+              1/RT = PHIE^M*SWE^N/(A*Rw) + VSH*SWE/RT_SH. \
+              simandoux_modified_slb: 1/RT = PHIE^M*SWE^N/(A*Rw*(1-VSH)) + \
+              VSH^C*SWE/RT_SH. Legacy vendor tokens are accepted only as input aliases."
             .into(),
         args,
     }
-}
-
-/// Newton-Raphson solve of g1*s^n + g2*s + g3 = 0, exactly as the Loglan CALC_SW subroutine.
-fn calc_sw(g1: f64, g2: f64, g3: f64, n: f64) -> f64 {
-    let mut sat = 0.5_f64;
-    for _ in 0..20 {
-        let fx = g1 * sat.powf(n) + g2 * sat + g3;
-        let fxp = n * g1 * sat.powf(n - 1.0) + g2;
-        let del = fx / fxp;
-        sat = (sat - del).max(0.0);
-        if del.abs() < 0.00001 {
-            return sat;
-        }
-    }
-    MISSING
 }
 
 fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
@@ -3130,7 +3167,8 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
     let phie = ctx.log("PHIE");
     let vsh = ctx.log("VSH");
     let ftemp = ctx.log("FTEMP");
-    let modified = ctx.o("OPT_SIM") != "SCHLUMBERGER";
+    let method = canonical_option_value("sw_sim", "OPT_SIM", ctx.o("OPT_SIM"));
+    let modified_slb = method == "simandoux_modified_slb";
     let mut swe_sim = vec![f32::NAN; ctx.n];
     let mut swe_out = vec![f32::NAN; ctx.n];
     let mut vol_uwat = vec![f32::NAN; ctx.n];
@@ -3154,11 +3192,10 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
         if is_missing(r) || r <= 0.0 || is_missing(vs) || is_missing(rw) {
             continue;
         }
-        // SCHLUMBERGER g1 carries a 1/(1-VSH) term that is singular at VSH=1; treat pure
-        // shale as all water (same convention as the low-PHIE branch above; the MODIFIED
-        // and Indonesia variants stay finite at VSH=1). Without this the div-by-zero makes
-        // calc_sw diverge to MISSING and the sample is silently dropped.
-        if !modified && vs >= 1.0 {
+        // simandoux_modified_slb carries a 1/(1-VSH) term that is singular at VSH=1; treat pure
+        // shale as all water (same convention as the low-PHIE branch above). The shared solver
+        // applies the same rule; keeping this explicit preserves the module's PHIE volume output.
+        if modified_slb && vs >= 1.0 {
             swe_sim[i] = 1.0;
             swe_out[i] = 1.0;
             vol_uwat[i] = pe as f32;
@@ -3171,14 +3208,11 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
         let rt_sh = ctx.p("RT_SH", i);
         let swe_irr = ctx.p("SWE_IRR", i);
 
-        let ff = a / pe.powf(m);
-        let (g1, g2) = if modified {
-            (1.0 / (ff * rw), vs / rt_sh)
+        let sat = if modified_slb {
+            crate::multimin2::sw_simandoux_modified_slb(r, pe, vs, rw, rt_sh, m, n_exp, a, c)
         } else {
-            (1.0 / (ff * rw * (1.0 - vs)), vs.powf(c) / rt_sh)
+            crate::multimin2::sw_simandoux_bardon_pied(r, pe, vs, rw, rt_sh, m, n_exp, a)
         };
-        let g3 = -1.0 / r;
-        let sat = calc_sw(g1, g2, g3, n_exp);
         if is_missing(sat) {
             continue;
         }
@@ -3188,10 +3222,20 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
         vol_uwat[i] = (pe * swe_l) as f32;
     }
 
+    let flag_model = if modified_slb {
+        crate::multimin2::SwModel::SimandouxModifiedSlb
+    } else {
+        crate::multimin2::SwModel::SimandouxBardonPied
+    };
+    let method_flag = swe_sim
+        .iter()
+        .map(|sw| if sw.is_finite() { flag_model.flag_code() } else { f32::NAN })
+        .collect();
     HashMap::from([
         ("SWE_SIM".to_string(), swe_sim),
         ("SWE".to_string(), swe_out),
         ("VOL_UWAT".to_string(), vol_uwat),
+        ("SW_METHOD".to_string(), method_flag),
     ])
 }
 
@@ -5329,6 +5373,236 @@ mod tests {
             out["SWE_SIM"][0],
             expected
         );
+    }
+
+    #[test]
+    fn every_model_shared_by_the_module_and_solver_engines_returns_one_number_for_one_typed_fixture() {
+        // CORRECTNESS — SB-CORE-T17 and docs/PRD_v2/12_saturation.md SB-SAT-T09/T30. Archie,
+        // Indonesia k=0/1/2, and both typed Simandoux equations are implemented in both engines;
+        // this independently evaluates each specified equation and requires both engines to meet it.
+        let arch_ctx = ctx_with(
+            1,
+            &[("RT", vec![10.0]), ("PHIT", vec![0.25]), ("PHIE", vec![0.25])],
+            &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.1), ("SWT_IRR", 0.0)],
+            &[("OPT_RW", "CONSTANT")],
+        );
+        let arch_module = sw_arch(&arch_ctx)["SWT_ARCH"][0] as f64;
+        let arch_solver = crate::multimin2::sw_archie(10.0, 0.25, 0.1, 2.0, 2.0, 1.0);
+        assert!((arch_module - 0.4).abs() <= 1e-6, "archie_total module={arch_module}");
+        assert!((arch_solver - 0.4).abs() <= 1e-12, "archie_total solver={arch_solver}");
+        assert!((arch_module - arch_solver).abs() <= 1e-6);
+
+        let (rt, phie, vsh, rw, rsh, a, m, n) = (8.0_f64, 0.20_f64, 0.30_f64, 0.25_f64, 3.0_f64, 1.0_f64, 2.0_f64, 2.0_f64);
+        for (variant, k) in [("SIMPLE", 0.0_f64), ("FULL", 1.0_f64), ("TAR_SAND", 2.0_f64)] {
+            let indo_ctx = ctx_with(
+                1,
+                &[("RT", vec![rt as f32]), ("PHIE", vec![phie as f32]), ("VSH", vec![vsh as f32])],
+                &[("A", a), ("M", m), ("N", n), ("RW", rw), ("RT_SH", rsh), ("SWE_IRR", 0.0)],
+                &[("OPT_RW", "CONSTANT"), ("OPT_INDO", variant)],
+            );
+            let module_sw = sw_indo(&indo_ctx)["SWE_INDO"][0] as f64;
+            let solver_sw = crate::multimin2::sw_indonesia(rt, phie, vsh, rw, rsh, m, n, a, k);
+            let v = vsh.powf(2.0 - k * vsh);
+            let ff = a / phie.powf(m);
+            let conductance = 1.0 / (ff * rw)
+                + 2.0 * (v / (rw * ff * rsh)).sqrt()
+                + v / rsh;
+            let expected = (1.0 / (rt * conductance)).powf(1.0 / n);
+            assert!((module_sw - expected).abs() <= 1e-6, "indonesia {variant} module={module_sw}, expected={expected}");
+            assert!((solver_sw - expected).abs() <= 1e-12, "indonesia {variant} solver={solver_sw}, expected={expected}");
+            assert!((module_sw - solver_sw).abs() <= 1e-6, "indonesia {variant}: module={module_sw}, solver={solver_sw}");
+        }
+
+        // docs/PRD_v2/12_saturation.md §2.2 cites 0.625 for Bardon-Pied and 0.5524 for
+        // modified-SLB at this exact fixture (C=1).
+        let sim_ctx = |method: &'static str| ctx_with(
+            1,
+            &[("RT", vec![rt as f32]), ("PHIE", vec![phie as f32]), ("VSH", vec![vsh as f32])],
+            &[
+                ("A", a),
+                ("M", m),
+                ("N", n),
+                ("C", 1.0),
+                ("RW", rw),
+                ("RT_SH", rsh),
+                ("SWE_IRR", 0.0),
+            ],
+            &[("OPT_RW", "CONSTANT"), ("OPT_SIM", method)],
+        );
+        let bardon_module = sw_sim(&sim_ctx("simandoux_bardon_pied"))["SWE_SIM"][0] as f64;
+        let bardon_solver = crate::multimin2::sw_simandoux_bardon_pied(rt, phie, vsh, rw, rsh, m, n, a);
+        assert!((bardon_module - 0.625).abs() < 5e-4, "Bardon-Pied module={bardon_module}");
+        assert!((bardon_solver - 0.625).abs() < 5e-4, "Bardon-Pied solver={bardon_solver}");
+        assert!((bardon_module - bardon_solver).abs() <= 1e-6);
+
+        let slb_module = sw_sim(&sim_ctx("simandoux_modified_slb"))["SWE_SIM"][0] as f64;
+        let slb_solver = crate::multimin2::sw_simandoux_modified_slb(rt, phie, vsh, rw, rsh, m, n, a, 1.0);
+        assert!((slb_module - 0.5524).abs() < 1e-4, "modified-SLB module={slb_module}");
+        assert!((slb_solver - 0.5524).abs() < 1e-4, "modified-SLB solver={slb_solver}");
+        assert!((slb_module - slb_solver).abs() <= 1e-6);
+    }
+
+    #[test]
+    fn every_saturation_method_surface_resolves_to_the_same_equation_identifier() {
+        // CORRECTNESS — SB-CORE-T18 and docs/PRD_v2/12_saturation.md SB-SAT-001/T02. Bare vendor
+        // adjectives are forbidden because Geolog and IP attach "Modified" to different equations.
+        let spec = sw_sim_spec();
+        let method = spec.args.iter().find(|arg| arg.name == "OPT_SIM").unwrap();
+        assert_eq!(
+            method.choices,
+            ["simandoux_bardon_pied", "simandoux_modified_slb"],
+            "the persisted choice is the equation id, never MODIFIED or SCHLUMBERGER"
+        );
+        assert_eq!(method.choices.len(), method.choice_labels.len());
+        for (id, label) in method.choices.iter().zip(&method.choice_labels) {
+            assert!(label.starts_with(id), "the UI label '{label}' must lead with its recorded id '{id}'");
+            assert!(spec.doc.contains(id), "the module documentation must name {id}");
+        }
+        assert!(!method.choice_labels.iter().any(|label| {
+            matches!(label.as_str(), "Modified" | "Simandoux" | "Modified Simandoux")
+        }));
+
+        let solver_catalog = crate::multimin2::sw_model_catalog();
+        let mut flag_codes = std::collections::HashSet::new();
+        for entry in &solver_catalog {
+            assert!(
+                flag_codes.insert(entry.flag_code.to_bits()),
+                "two equation ids share method-flag code {}",
+                entry.flag_code
+            );
+            assert_eq!(
+                crate::multimin2::sw_model_id_from_flag(entry.flag_code),
+                Some(entry.id),
+                "flag code {} must resolve back to {}",
+                entry.flag_code,
+                entry.id
+            );
+        }
+        for id in &method.choices {
+            let solver = solver_catalog.iter().find(|entry| entry.id == id).unwrap_or_else(|| {
+                panic!("the solver catalog has no entry for module equation id {id}")
+            });
+            assert!(solver.label.starts_with(id), "solver/UI label '{}' does not lead with {id}", solver.label);
+        }
+        assert_eq!(crate::multimin2::SwModel::SimandouxBardonPied.id(), "simandoux_bardon_pied");
+        assert_eq!(crate::multimin2::SwModel::SimandouxModifiedSlb.id(), "simandoux_modified_slb");
+        let legacy_solver: crate::multimin2::SwModel = serde_json::from_str("\"simandoux\"").unwrap();
+        assert_eq!(legacy_solver.id(), "simandoux_modified_slb", "the old solver id keeps its old equation");
+        let legacy_archie: crate::multimin2::SwModel = serde_json::from_str("\"archie\"").unwrap();
+        assert_eq!(legacy_archie.id(), "archie_total", "the old Archie id keeps its total-porosity equation");
+
+        for legacy in ["MODIFIED", "SIM_MOD"] {
+            assert_eq!(canonical_option_value("sw_sim", "OPT_SIM", legacy), "simandoux_bardon_pied");
+        }
+        for legacy in ["SCHLUMBERGER", "SCHLUM", "SIM_SCHL"] {
+            assert_eq!(canonical_option_value("sw_sim", "OPT_SIM", legacy), "simandoux_modified_slb");
+        }
+
+        let request = crate::workflow::RunModuleRequest {
+            module: "sw_sim".into(),
+            well_ids: vec![],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(),
+            opts: HashMap::from([("OPT_SIM".into(), "SCHLUM".into())]),
+            output_set: None,
+            input_set: None,
+        };
+        let built = crate::workflow::build_opts(&spec, &request.opts, &request.log_inputs);
+        assert_eq!(built["OPT_SIM"], "simandoux_modified_slb");
+        let recorded: serde_json::Value = serde_json::from_str(
+            &crate::workflow::recorded_module_params(&request, &spec, &built),
+        )
+        .unwrap();
+        assert_eq!(recorded["method_id"], "simandoux_modified_slb");
+        assert_eq!(recorded["OPT_SIM"], "simandoux_modified_slb");
+
+        let flag_for = |id: &str| {
+            solver_catalog
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap_or_else(|| panic!("no method-flag code for {id}"))
+                .flag_code
+        };
+        let assert_module_flag = |module: &str, output: ModuleOutputs, saturation: &str, id: &str| {
+            assert!(
+                class_outputs(module).contains(&"SW_METHOD"),
+                "{module} must declare its method flag as a class curve"
+            );
+            let values = output.get("SW_METHOD").unwrap_or_else(|| panic!("{module} emitted no SW_METHOD curve"));
+            let saturation_values = &output[saturation];
+            assert_eq!(values.len(), saturation_values.len());
+            for (flag, sw) in values.iter().zip(saturation_values) {
+                if sw.is_finite() {
+                    assert_eq!(*flag, flag_for(id), "{module} finite sample does not identify {id}");
+                    assert_eq!(crate::multimin2::sw_model_id_from_flag(*flag), Some(id));
+                } else {
+                    assert!(flag.is_nan(), "{module} must not claim a producer for a missing result");
+                }
+            }
+        };
+
+        let arch = ctx_with(
+            2,
+            &[
+                ("RT", vec![10.0, f32::NAN]),
+                ("PHIT", vec![0.25, 0.25]),
+                ("PHIE", vec![0.25, 0.25]),
+            ],
+            &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.1), ("SWT_IRR", 0.0)],
+            &[("OPT_RW", "CONSTANT")],
+        );
+        assert_module_flag("sw_arch", sw_arch(&arch), "SWT_ARCH", "archie_total");
+
+        let indo = ctx_with(
+            2,
+            &[
+                ("RT", vec![8.0, f32::NAN]),
+                ("PHIE", vec![0.20, 0.20]),
+                ("VSH", vec![0.30, 0.30]),
+            ],
+            &[
+                ("A", 1.0),
+                ("M", 2.0),
+                ("N", 2.0),
+                ("RW", 0.25),
+                ("RT_SH", 3.0),
+                ("SWE_IRR", 0.0),
+            ],
+            &[("OPT_RW", "CONSTANT"), ("OPT_INDO", "FULL")],
+        );
+        assert_module_flag("sw_indo", sw_indo(&indo), "SWE_INDO", "indonesia");
+
+        for id in ["simandoux_bardon_pied", "simandoux_modified_slb"] {
+            let sim = ctx_with(
+                2,
+                &[
+                    ("RT", vec![8.0, f32::NAN]),
+                    ("PHIE", vec![0.20, 0.20]),
+                    ("VSH", vec![0.30, 0.30]),
+                ],
+                &[
+                    ("A", 1.0),
+                    ("M", 2.0),
+                    ("N", 2.0),
+                    ("C", 1.0),
+                    ("RW", 0.25),
+                    ("RT_SH", 3.0),
+                    ("SWE_IRR", 0.0),
+                ],
+                &[("OPT_RW", "CONSTANT"), ("OPT_SIM", id)],
+            );
+            assert_module_flag("sw_sim", sw_sim(&sim), "SWE_SIM", id);
+        }
+
+        let (sandimin_flag_name, sandimin_flags) = crate::multimin2::saturation_method_flag_curve(
+            "MM",
+            crate::multimin2::SwModel::SimandouxModifiedSlb,
+            &[true, false, true],
+        );
+        assert_eq!(sandimin_flag_name, "MM_SW_METHOD");
+        assert_eq!(sandimin_flags[0], flag_for("simandoux_modified_slb"));
+        assert!(sandimin_flags[1].is_nan());
+        assert_eq!(sandimin_flags[2], flag_for("simandoux_modified_slb"));
     }
 
     #[test]

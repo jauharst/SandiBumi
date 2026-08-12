@@ -27,8 +27,9 @@ import { type PlotContent } from "./plotCommon";
  *
  *  A per-zone QC scorecard (increment 2) plus a detail view (increment 3):
  *
- *   • **Sw-method spread** — the `sw_method_spread` backend: how far Archie/Simandoux/Indonesia/Juhász
- *     (+Waxman-Smits/Dual-Water when Qv/Swb exist) disagree over the zone. A wide spread means the
+ *   • **Sw-method spread** — the `sw_method_spread` backend: how far the canonical Archie,
+ *     typed Simandoux, Indonesia, and Juhász equations (+ Waxman-Smits/dual-water when Qv/Swb exist)
+ *     disagree over the zone. A wide spread means the
  *     model choice changes the answer — the classic fresh-water Mahakam-sand trap.
  *   • **Buckles / bulk-volume-water** — BVW = SWE·PHIE. In rock at irreducible saturation BVW is roughly
  *     constant; a high coefficient of variation flags either a genuine transition or an inconsistent Sw.
@@ -65,8 +66,16 @@ const MC_REL_WARN = 0.35;
 /** Fractional net-pay move for a ±0.02 v/v PHIE-cutoff nudge — the cutoff-sensitivity thresholds. */
 const CUT_SENS_OK = 0.15;
 const CUT_SENS_WARN = 0.4;
-/** Model draw order → stable colour per model across zones (Archie first so it reads as the baseline). */
-const MODEL_ORDER = ["Archie", "Simandoux", "Indonesia", "Juhasz", "Waxman-Smits", "Dual-Water"];
+/** Canonical equation-id draw order → stable colour per model across zones. */
+const MODEL_ORDER = [
+  "archie_total",
+  "simandoux_bardon_pied",
+  "simandoux_modified_slb",
+  "indonesia",
+  "juhasz",
+  "waxman_smits",
+  "dual_water_nonlinear",
+];
 
 interface BucklesResult {
   status: CheckStatus;

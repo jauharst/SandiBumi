@@ -1986,6 +1986,10 @@ export interface MmFluidProps {
   rsh?: number;
   /** Archie tortuosity factor a (Indonesia/Simandoux). Dual-water uses a=1. Backend default 1.0. */
   archie_a?: number;
+  /** Indonesia shale exponent coefficient k: SIMPLE=0, FULL=1 (default), TAR_SAND=2. */
+  indonesia_k?: number;
+  /** simandoux_modified_slb shale exponent C. Cited default 1 and valid range 1..2. */
+  simandoux_c?: number;
   /** Wet-clay (shale) total porosity φ_sh for Juhász's normalized Qv (Vsh·φ_sh/φt) and shale-point
    *  conductivity (1/(Rsh·φ_sh^m)). Only Juhász reads it. Backend default 0.10. */
   phit_sh?: number;
@@ -1996,15 +2000,24 @@ export interface MmFluidProps {
 
 /** Saturation model for the conductivity tools. `linear_dw` (default) is the in-inversion linearised
  *  dual-water; the rest are post-solve forms (Sw from Rt + the solved volumes): `dual_water_nonlinear`
- *  and `archie` (total-porosity), `indonesia`/`simandoux`/`juhasz`/`waxman_smits` (shaly-sand). */
+ *  and `archie_total` (total-porosity), `indonesia`, the two typed Simandoux equations,
+ *  `juhasz`, and `waxman_smits` (shaly-sand). */
 export type SwModel =
   | "linear_dw"
   | "dual_water_nonlinear"
-  | "archie"
+  | "archie_total"
   | "indonesia"
-  | "simandoux"
+  | "simandoux_bardon_pied"
+  | "simandoux_modified_slb"
   | "juhasz"
   | "waxman_smits";
+
+export interface SwModelChoice {
+  id: SwModel;
+  label: string;
+  /** Stable categorical value written to SW_METHOD; resolve it through this catalog, never as a quantity. */
+  flag_code: number;
+}
 
 /** What drives the clay bound-water (BNDWAT) constraint. `cec` (default) uses
  *  α·96·CEC·ρ/(T+298); `wet_clay_porosity` uses the geometric k = φ/(1−φ) from each clay's
@@ -2098,6 +2111,11 @@ export interface MultiminResult {
 /** The built-in mineral/fluid endpoint library (editable defaults for the dialog). */
 export function multiminLibrary(): Promise<MmComponent[]> {
   return invoke<MmComponent[]>("multimin_library");
+}
+
+/** Canonical saturation equation ids and their backend-owned display labels. */
+export function multiminSwModels(): Promise<SwModelChoice[]> {
+  return invoke<SwModelChoice[]>("multimin_sw_models");
 }
 
 /** Runs the generalized multi-mineral inversion; writes VOL_<component> + derived curves. */

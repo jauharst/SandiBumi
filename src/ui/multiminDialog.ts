@@ -7,6 +7,7 @@ import {
   multiminFluidCalc,
   multiminFluidFromPrecalc,
   multiminLibrary,
+  multiminSwModels,
   runMultimin,
   type MmComponent,
   type MmCoreFit,
@@ -152,15 +153,16 @@ function collapsibleGroup(
 export async function buildMultiminContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
-  const [wells, library] = await Promise.all([
+  const [wells, library, swModels] = await Promise.all([
     listWells().catch(() => [] as WellSummary[]),
     multiminLibrary().catch(() => [] as MmComponent[]),
+    multiminSwModels().catch(() => []),
   ]);
-  if (library.length === 0) {
-    setStatus("SandiMin library unavailable (backend not reachable)");
+  if (library.length === 0 || swModels.length === 0) {
+    setStatus("SandiMin library or saturation-equation catalog unavailable (backend not reachable)");
     const msg = document.createElement("div");
     msg.className = "logview-message";
-    msg.textContent = "SandiMin library unavailable — backend not reachable.";
+    msg.textContent = "SandiMin library or saturation-equation catalog unavailable — backend not reachable.";
     return { el: msg, dispose: () => {} };
   }
   // Scope selector resolves the run's wells live (group / ★ pinned / selection / all); `wells`
@@ -405,18 +407,9 @@ export async function buildMultiminContent(
   swLab.textContent = "Sw equation";
   swLab.title = "How the deep resistivity (CT) is turned into water saturation";
   const swModelSel = document.createElement("select");
-  const SW_OPTIONS: [SwModel, string][] = [
-    ["linear_dw", "Linear dual-water (default)"],
-    ["dual_water_nonlinear", "Dual-water non-linear (m, n separate)"],
-    ["archie", "Archie (clean sand)"],
-    ["indonesia", "Indonesia (Poupon-Leveaux)"],
-    ["simandoux", "Simandoux (modified)"],
-    ["juhasz", "Juhász / normalized Qv"],
-    ["waxman_smits", "Waxman-Smits (B·Qv)"],
-  ];
-  for (const [val, label] of SW_OPTIONS) {
+  for (const { id, label } of swModels) {
     const o = document.createElement("option");
-    o.value = val;
+    o.value = id;
     o.textContent = label;
     swModelSel.appendChild(o);
   }
@@ -429,9 +422,24 @@ export async function buildMultiminContent(
   swExtra.className = "mm-fluid-grid";
   const rshInp = numInput(4.0);
   const archieAInp = numInput(1.0);
+  const indonesiaKSel = document.createElement("select");
+  for (const [value, label] of [
+    ["0", "0 — SIMPLE"],
+    ["1", "1 — FULL (default)"],
+    ["2", "2 — TAR_SAND / Woodhouse"],
+  ]) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    indonesiaKSel.appendChild(option);
+  }
+  indonesiaKSel.value = "1";
+  const simandouxCInp = numInput(1.0);
+  simandouxCInp.min = "1";
+  simandouxCInp.max = "2";
   const phitShInp = numInput(0.1);
   const wsBInp = numInput(0);
-  const mkExtraCell = (lab: string, inp: HTMLInputElement): HTMLLabelElement => {
+  const mkExtraCell = (lab: string, inp: HTMLInputElement | HTMLSelectElement): HTMLLabelElement => {
     const cell = document.createElement("label");
     cell.className = "mm-fluid-cell";
     const sp = document.createElement("span");
@@ -443,6 +451,8 @@ export async function buildMultiminContent(
   };
   const rshCell = mkExtraCell("Rsh (ohmm)", rshInp);
   const archieACell = mkExtraCell("Archie a", archieAInp);
+  const indonesiaKCell = mkExtraCell("Indonesia k preset", indonesiaKSel);
+  const simandouxCCell = mkExtraCell("Modified-SLB C (1–2)", simandouxCInp);
   const phitShCell = mkExtraCell("Wet-clay φ (φ_sh)", phitShInp);
   const wsBCell = mkExtraCell("B override (0=auto)", wsBInp);
   fluidBox.appendChild(swExtra);
@@ -451,14 +461,20 @@ export async function buildMultiminContent(
   fluidBox.appendChild(swNote);
   function syncSwModel(): void {
     const val = swModelSel.value;
-    // Wet-shale inputs by model. Indonesia/Simandoux read Rsh + Archie a; Juhász reads Rsh + φ_sh.
-    const shalySand = val === "indonesia" || val === "simandoux";
+    // Wet-shale inputs by model. Indonesia and both typed Simandoux equations read Rsh + Archie a;
+    // Juhász reads Rsh + φ_sh. Only the modified-SLB equation reads C.
+    const indonesia = val === "indonesia";
+    const bardonPied = val === "simandoux_bardon_pied";
+    const modifiedSlb = val === "simandoux_modified_slb";
+    const shalySand = indonesia || bardonPied || modifiedSlb;
     const juhasz = val === "juhasz";
     const waxman = val === "waxman_smits";
     // Every model except linear dual-water runs post-solve and shares the note.
     const post = val !== "linear_dw";
     rshCell.style.display = shalySand || juhasz ? "" : "none";
     archieACell.style.display = shalySand ? "" : "none";
+    indonesiaKCell.style.display = indonesia ? "" : "none";
+    simandouxCCell.style.display = modifiedSlb ? "" : "none";
     phitShCell.style.display = juhasz ? "" : "none";
     wsBCell.style.display = waxman ? "" : "none";
     swExtra.style.display = shalySand || juhasz || waxman ? "" : "none";
@@ -481,17 +497,26 @@ export async function buildMultiminContent(
         "for Sw honouring m and n separately (not folded into w). The bound-water saturation comes from the " +
         "solved bound-water volume and the clay-bound-water conductivity from formation temperature, so it " +
         "needs a CT tool + a U-zone hydrocarbon component (bound water optional). PHIE/PHIT stay exactly as solved.";
-    } else if (val === "archie") {
+    } else if (val === "archie_total") {
       swNote.textContent =
-        "Post-solve, clean-sand Archie: Sw = (a·Rw/(φt^m·Rt))^(1/n) with NO shale term — it ignores clay " +
+        "Post-solve archie_total: Sw = (a·Rw/(φt^m·Rt))^(1/n), with no shale term. It ignores clay " +
         "conductivity, so on shaly sand it reads optimistically high (that's the baseline the shaly-sand " +
         "forms correct). Needs a CT tool + a U-zone hydrocarbon component. PHIE/PHIT stay exactly as solved.";
-    } else if (shalySand) {
-      const name = val === "indonesia" ? "Indonesia (Poupon-Leveaux)" : "modified Simandoux";
+    } else if (indonesia) {
       swNote.textContent =
-        `Post-solve: the mineral solve runs as usual, then Sw is replaced by the ${name} equation from ` +
-        `the solved effective porosity and shale volume. Needs a CT (deep-resistivity) tool and a U-zone ` +
-        `hydrocarbon component; set Rsh from a shale pick. PHIE/PHIT stay exactly as the mineral solve made them.`;
+        "Post-solve indonesia: 1/√Rt = [Vsh^(1−k·Vsh/2)/√Rsh + √(φe^m/(a·Rw))]·Sw^(n/2). " +
+        "The cited k presets are SIMPLE=0, FULL=1, and TAR_SAND/Woodhouse=2. Needs CT, effective porosity, " +
+        "VSH, and a U-zone hydrocarbon component; set Rsh from a shale pick.";
+    } else if (bardonPied) {
+      swNote.textContent =
+        "Post-solve simandoux_bardon_pied: 1/Rt = φe^m·Sw^n/(a·Rw) + Vsh·Sw/Rsh. " +
+        "This is Geolog MODIFIED and IP's plain Simandoux, but the recorded method is the equation id. " +
+        "Needs CT, effective porosity, VSH, and a U-zone hydrocarbon component.";
+    } else if (modifiedSlb) {
+      swNote.textContent =
+        "Post-solve simandoux_modified_slb: 1/Rt = φe^m·Sw^n/[a·Rw·(1−Vsh)] + Vsh^C·Sw/Rsh. " +
+        "This is Geolog SCHLUM and IP/Techlog Modified Simandoux; C is cited as 1–2 with default 1. " +
+        "Needs CT, effective porosity, VSH, and a U-zone hydrocarbon component.";
     }
   }
   swModelSel.addEventListener("change", syncSwModel);
@@ -817,6 +842,8 @@ export async function buildMultiminContent(
       mud_type: mudSel.value,
       rsh: Number(rshInp.value) || 4,
       archie_a: Number(archieAInp.value) || 1,
+      indonesia_k: Number(indonesiaKSel.value),
+      simandoux_c: Number(simandouxCInp.value) || 1,
       phit_sh: Number(phitShInp.value) || 0.1,
       ws_b: Number(wsBInp.value) || 0,
     };

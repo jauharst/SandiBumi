@@ -108,11 +108,16 @@ pub enum SwModel {
     /// solved by bisection). Post-solve; the bound-water saturation comes from the solved v_bw.
     DualWaterNonlinear,
     /// Archie (1942) clean-sand, total-porosity form. Post-solve; ignores the clay conductivity term.
-    Archie,
+    #[serde(alias = "archie")]
+    ArchieTotal,
     /// Poupon-Leveaux "Indonesia" (1971), effective-porosity form. Non-linear in Sw, post-solve.
     Indonesia,
-    /// Modified Simandoux (Bardon-Pied), effective-porosity form. Non-linear in Sw, post-solve.
-    Simandoux,
+    /// Simandoux / Bardon-Pied form without a `(1-Vsh)` divisor. Post-solve.
+    SimandouxBardonPied,
+    /// Modified Simandoux / Schlumberger form with a `(1-Vsh)` divisor. The legacy serialized
+    /// `simandoux` id selected this equation, so it remains an input-only alias.
+    #[serde(alias = "simandoux")]
+    SimandouxModifiedSlb,
     /// Juhász (1981) normalized Waxman-Smits, wet-shale excess-conductivity form. Post-solve; the excess
     /// conductivity comes from the shale point (Rsh, φ_sh) rather than a temperature-form Cwb.
     Juhasz,
@@ -123,11 +128,119 @@ pub enum SwModel {
 }
 
 impl SwModel {
+    pub fn id(self) -> &'static str {
+        match self {
+            SwModel::LinearDw => "linear_dw",
+            SwModel::DualWaterNonlinear => "dual_water_nonlinear",
+            SwModel::ArchieTotal => "archie_total",
+            SwModel::Indonesia => "indonesia",
+            SwModel::SimandouxBardonPied => "simandoux_bardon_pied",
+            SwModel::SimandouxModifiedSlb => "simandoux_modified_slb",
+            SwModel::Juhasz => "juhasz",
+            SwModel::WaxmanSmits => "waxman_smits",
+        }
+    }
+
+    /// Stable numeric encoding used only because computed curve samples are `f32`. These are
+    /// categorical identifiers, not petrophysical parameters: callers must resolve them through
+    /// [`sw_model_id_from_flag`] and must never perform arithmetic on them.
+    pub fn flag_code(self) -> f32 {
+        match self {
+            SwModel::LinearDw => 1.0,
+            SwModel::DualWaterNonlinear => 2.0,
+            SwModel::ArchieTotal => 3.0,
+            SwModel::Indonesia => 4.0,
+            SwModel::SimandouxBardonPied => 5.0,
+            SwModel::SimandouxModifiedSlb => 6.0,
+            SwModel::Juhasz => 7.0,
+            SwModel::WaxmanSmits => 8.0,
+        }
+    }
+
     /// Every model except the default linearised dual-water replaces the in-inversion conductivity row
     /// with a post-solve Sw computed from the solved volumes.
     fn is_post_solve(self) -> bool {
         !matches!(self, SwModel::LinearDw)
     }
+}
+
+/// One user-facing saturation-model identity. The id is the value persisted in a new run; the
+/// label deliberately leads with that id so a result and the selector can be matched without
+/// translating a vendor adjective whose meaning changes between products.
+#[derive(Debug, Clone, Serialize)]
+pub struct SwModelChoice {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// Exact class code written to the per-sample `SW_METHOD` curve. It is an encoding whose
+    /// meaning comes from `id`; it is not a saturation value and is declared as a class curve.
+    pub flag_code: f32,
+}
+
+pub fn sw_model_catalog() -> Vec<SwModelChoice> {
+    vec![
+        SwModelChoice {
+            id: SwModel::LinearDw.id(),
+            label: "linear_dw — linearized dual-water",
+            flag_code: SwModel::LinearDw.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::DualWaterNonlinear.id(),
+            label: "dual_water_nonlinear — Clavier dual-water (m and n separate)",
+            flag_code: SwModel::DualWaterNonlinear.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::ArchieTotal.id(),
+            label: "archie_total — Archie on total porosity",
+            flag_code: SwModel::ArchieTotal.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::Indonesia.id(),
+            label: "indonesia — Poupon-Leveaux",
+            flag_code: SwModel::Indonesia.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::SimandouxBardonPied.id(),
+            label: "simandoux_bardon_pied — Simandoux / Bardon-Pied form",
+            flag_code: SwModel::SimandouxBardonPied.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::SimandouxModifiedSlb.id(),
+            label: "simandoux_modified_slb — Modified Simandoux / Schlumberger form",
+            flag_code: SwModel::SimandouxModifiedSlb.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::Juhasz.id(),
+            label: "juhasz — normalized Qv",
+            flag_code: SwModel::Juhasz.flag_code(),
+        },
+        SwModelChoice {
+            id: SwModel::WaxmanSmits.id(),
+            label: "waxman_smits — B·Qv",
+            flag_code: SwModel::WaxmanSmits.flag_code(),
+        },
+    ]
+}
+
+/// Resolve a stored method-flag sample to the canonical equation identifier. Exact equality is
+/// intentional: writers emit the small integer class codes above, so a fractional value is corrupt
+/// categorical data rather than something to round to the nearest method.
+pub fn sw_model_id_from_flag(flag: f32) -> Option<&'static str> {
+    sw_model_catalog().into_iter().find(|entry| entry.flag_code == flag).map(|entry| entry.id)
+}
+
+/// Build the per-sample method-flag curve used by SandiMin. A missing saturation has no producing
+/// result to identify and therefore carries `f32::NAN`, matching the product-wide missing-data
+/// contract; every produced sample carries the exact categorical code for `model`.
+pub(crate) fn saturation_method_flag_curve(
+    prefix: &str,
+    model: SwModel,
+    produced: &[bool],
+) -> (String, Vec<f32>) {
+    let name = if prefix.is_empty() { "SW_METHOD".to_string() } else { format!("{prefix}_SW_METHOD") };
+    let code = model.flag_code();
+    debug_assert_eq!(sw_model_id_from_flag(code), Some(model.id()));
+    let values = produced.iter().map(|present| if *present { code } else { f32::NAN }).collect();
+    (name, values)
 }
 
 /// What drives the clay bound-water (BNDWAT) constraint (Jauhar field review, image 2 "Porosity Source").
@@ -142,16 +255,26 @@ pub enum PorositySource {
     WetClayPorosity,
 }
 
-/// Poupon-Leveaux ("Indonesia", 1971) water saturation, effective-porosity form, solved for Sw∈[0,1]:
-///   1/√Rt = [ Vsh^(1 − Vsh/2)/√Rsh + √(φe^m / (a·Rw)) ] · Sw^(n/2)
+/// Poupon-Leveaux (`indonesia`) water saturation, effective-porosity form, solved for Sw∈[0,1]:
+///   1/√Rt = [ Vsh^(1 − k·Vsh/2)/√Rsh + √(φe^m / (a·Rw)) ] · Sw^(n/2)
 /// Rw and Rsh are at formation temperature. Returns NaN on non-physical inputs.
-pub fn sw_indonesia(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: f64, a: f64) -> f64 {
-    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) {
+pub fn sw_indonesia(
+    rt: f64,
+    phie: f64,
+    vsh: f64,
+    rw: f64,
+    rsh: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+    k: f64,
+) -> f64 {
+    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) || !k.is_finite() {
         return f64::NAN;
     }
     let vsh = vsh.clamp(0.0, 1.0);
     let a = a.max(1e-9);
-    let term_sh = if rsh > 0.0 { vsh.powf(1.0 - vsh / 2.0) / rsh.sqrt() } else { 0.0 };
+    let term_sh = if rsh > 0.0 { vsh.powf(1.0 - k * vsh / 2.0) / rsh.sqrt() } else { 0.0 };
     let term_sand = (phie.powf(m) / (a * rw)).sqrt();
     let denom = term_sh + term_sand;
     if !(denom > 0.0) {
@@ -161,18 +284,7 @@ pub fn sw_indonesia(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: 
     sw_half.powf(2.0 / n).clamp(0.0, 1.0)
 }
 
-/// Modified Simandoux (Bardon-Pied) water saturation, effective-porosity form, solved for Sw∈[0,1]:
-///   1/Rt = φe^m·Sw^n / (a·Rw·(1 − Vsh)) + Vsh·Sw / Rsh
-/// Closed-form quadratic when n == 2; monotone bisection otherwise. Rw/Rsh at formation temperature.
-pub fn sw_simandoux(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: f64, a: f64) -> f64 {
-    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) {
-        return f64::NAN;
-    }
-    let vsh = vsh.clamp(0.0, 0.999);
-    let a = a.max(1e-9);
-    let ct = 1.0 / rt;
-    let coef_sand = phie.powf(m) / (a * rw * (1.0 - vsh)); // coefficient of Sw^n
-    let coef_sh = if rsh > 0.0 { vsh / rsh } else { 0.0 }; // coefficient of Sw^1
+fn solve_simandoux_root(ct: f64, coef_sand: f64, coef_sh: f64, n: f64) -> f64 {
     if !(coef_sand > 0.0) {
         // Degenerate: no sand term — the shale term alone gives Sw (or NaN if no shale either).
         return if coef_sh > 0.0 { (ct / coef_sh).clamp(0.0, 1.0) } else { f64::NAN };
@@ -200,6 +312,55 @@ pub fn sw_simandoux(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: 
         }
     }
     (0.5 * (lo + hi)).clamp(0.0, 1.0)
+}
+
+/// `simandoux_bardon_pied`, effective-porosity form, solved for Sw∈[0,1]:
+///   1/Rt = φe^m·Sw^n / (a·Rw) + Vsh·Sw / Rsh
+/// Geolog calls this `MODIFIED`; IP calls it plain `Simandoux`. The equation id above is the
+/// SandiBumi identity and neither vendor adjective is persisted as the method name.
+pub fn sw_simandoux_bardon_pied(
+    rt: f64,
+    phie: f64,
+    vsh: f64,
+    rw: f64,
+    rsh: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+) -> f64 {
+    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) {
+        return f64::NAN;
+    }
+    let vsh = vsh.clamp(0.0, 1.0);
+    let coef_sand = phie.powf(m) / (a.max(1e-9) * rw);
+    let coef_sh = if rsh > 0.0 { vsh / rsh } else { 0.0 };
+    solve_simandoux_root(1.0 / rt, coef_sand, coef_sh, n)
+}
+
+/// `simandoux_modified_slb`, effective-porosity form, solved for Sw∈[0,1]:
+///   1/Rt = φe^m·Sw^n / (a·Rw·(1 − Vsh)) + Vsh^C·Sw / Rsh
+/// IP and Techlog call this `Modified Simandoux`; Geolog calls it `SCHLUM`. `C=1` reproduces IP E64.
+pub fn sw_simandoux_modified_slb(
+    rt: f64,
+    phie: f64,
+    vsh: f64,
+    rw: f64,
+    rsh: f64,
+    m: f64,
+    n: f64,
+    a: f64,
+    c: f64,
+) -> f64 {
+    if !(rt > 0.0) || !(phie > 0.0) || !(rw > 0.0) || !(n > 0.0) || !(c > 0.0) {
+        return f64::NAN;
+    }
+    if vsh >= 1.0 {
+        return 1.0;
+    }
+    let vsh = vsh.clamp(0.0, 1.0);
+    let coef_sand = phie.powf(m) / (a.max(1e-9) * rw * (1.0 - vsh));
+    let coef_sh = if rsh > 0.0 { vsh.powf(c) / rsh } else { 0.0 };
+    solve_simandoux_root(1.0 / rt, coef_sand, coef_sh, n)
 }
 
 /// Clavier-Coates-Dumanoir dual-water TOTAL water saturation (SPEJ 1984), exact form honouring m and
@@ -359,6 +520,14 @@ pub struct FluidProps {
     /// Archie tortuosity factor a (Indonesia/Simandoux). The dual-water models use a = 1. Default 1.0.
     #[serde(default = "default_archie_a")]
     pub archie_a: f64,
+    /// Indonesia shale exponent coefficient in `Vsh^(2-k·Vsh)`. Geolog's FULL/SIMPLE/TAR_SAND
+    /// presets are k=1/0/2; k=1 is the cited FULL default.
+    #[serde(default = "default_indonesia_k")]
+    pub indonesia_k: f64,
+    /// `simandoux_modified_slb` shale exponent C. Geolog validates 1..2 and ships C=1, which
+    /// reproduces IP E64. Ignored by `simandoux_bardon_pied`, whose shale term is linear Vsh.
+    #[serde(default = "default_simandoux_c")]
+    pub simandoux_c: f64,
     /// Wet-clay (shale) total porosity φ_sh — the "wet clay porosity" used by Juhász's normalized Qv
     /// (QVN = Vsh·φ_sh/φt) and shale-point conductivity (Cwsh = 1/(Rsh·φ_sh^m)). Only Juhász reads it.
     /// Default 0.10.
@@ -378,6 +547,12 @@ fn default_rsh() -> f64 {
     4.0
 }
 fn default_archie_a() -> f64 {
+    1.0
+}
+fn default_indonesia_k() -> f64 {
+    1.0
+}
+fn default_simandoux_c() -> f64 {
     1.0
 }
 fn default_phit_sh() -> f64 {
@@ -1449,10 +1624,42 @@ pub fn run_multimin(
                 let sw_of = |rt: f64, phie: f64, cw: f64, cwb: f64, v_bw: f64| -> f64 {
                     match model {
                         SwModel::Indonesia => {
-                            sw_indonesia(rt, phie, vsh, 1.0 / cw.max(1e-9), rsh, m_exp, n_exp, a_arch)
+                            sw_indonesia(
+                                rt,
+                                phie,
+                                vsh,
+                                1.0 / cw.max(1e-9),
+                                rsh,
+                                m_exp,
+                                n_exp,
+                                a_arch,
+                                fp.indonesia_k,
+                            )
                         }
-                        SwModel::Simandoux => {
-                            sw_simandoux(rt, phie, vsh, 1.0 / cw.max(1e-9), rsh, m_exp, n_exp, a_arch)
+                        SwModel::SimandouxBardonPied => {
+                            sw_simandoux_bardon_pied(
+                                rt,
+                                phie,
+                                vsh,
+                                1.0 / cw.max(1e-9),
+                                rsh,
+                                m_exp,
+                                n_exp,
+                                a_arch,
+                            )
+                        }
+                        SwModel::SimandouxModifiedSlb => {
+                            sw_simandoux_modified_slb(
+                                rt,
+                                phie,
+                                vsh,
+                                1.0 / cw.max(1e-9),
+                                rsh,
+                                m_exp,
+                                n_exp,
+                                a_arch,
+                                fp.simandoux_c,
+                            )
                         }
                         SwModel::DualWaterNonlinear => {
                             // Total-basis dual water: bound-water saturation from the solved v_bw, then
@@ -1469,7 +1676,7 @@ pub fn run_multimin(
                             }
                             ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
                         }
-                        SwModel::Archie => {
+                        SwModel::ArchieTotal => {
                             // Clean-sand Archie on total porosity, then free-water/φe (same conversion as
                             // dual water; the total water Swt·φt includes the solved v_bw as bound water).
                             let phit = phie + v_bw;
@@ -1661,10 +1868,13 @@ pub fn run_multimin(
                 core_phie = core_fit(&depth, &phie, &por_plugs);
                 core_phit = core_fit(&depth, &phit, &por_plugs);
             }
+            let produced: Vec<bool> = swe.iter().map(|value| value.is_finite()).collect();
+            let method_flag = saturation_method_flag_curve(&prefix, model, &produced);
             curves.push((format!("{prefix}_PHIE"), phie));
             curves.push((format!("{prefix}_PHIT"), phit));
             curves.push((format!("{prefix}_SWE"), swe));
             curves.push((format!("{prefix}_SWT"), swt));
+            curves.push(method_flag);
         }
         if zs.has_split {
             let sxot = make(&|i| {
@@ -1708,15 +1918,7 @@ pub fn run_multimin(
             params_json: serde_json::to_string(&serde_json::json!({
                 "components": req.components.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
                 "prefix": prefix,
-                "sw_model": match model {
-                    SwModel::LinearDw => "linear_dw",
-                    SwModel::DualWaterNonlinear => "dual_water_nonlinear",
-                    SwModel::Archie => "archie",
-                    SwModel::Indonesia => "indonesia",
-                    SwModel::Simandoux => "simandoux",
-                    SwModel::Juhasz => "juhasz",
-                    SwModel::WaxmanSmits => "waxman_smits",
-                },
+                "sw_model": model.id(),
             }))
             .unwrap_or_default(),
             inputs_json: serde_json::to_string(&req.tools.iter().map(|t| t.curve.as_str()).collect::<Vec<_>>())
@@ -1726,6 +1928,15 @@ pub fn run_multimin(
             .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, well_id, &depth, &refs, &set_id))
             .err()
             .map(|e| e.to_string());
+        if write_err.is_none() && has_u_fluids {
+            let method_flag_name = format!("{prefix}_SW_METHOD");
+            let _ = crate::db::declare_class_curves(
+                &conn,
+                well_id,
+                &[method_flag_name],
+                &format!("sandimin:{}", model.id()),
+            );
+        }
         if let Some(p) = progress {
             // A write failure is Failed; a solve that produced nothing is a Warned caveat; else Ok.
             let (state, msg) = if let Some(e) = &write_err {
@@ -2715,6 +2926,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -2903,6 +3116,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -3033,6 +3248,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -3375,6 +3592,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -3449,13 +3668,13 @@ mod tests {
         let d = vsh.powf(1.0 - vsh / 2.0) / rsh.sqrt() + (phie.powf(m) / (a * rw)).sqrt();
         for sw_true in [0.15f64, 0.35, 0.55, 0.8, 1.0] {
             let rt = 1.0 / (d * d * sw_true.powf(n)); // 1/Rt = D²·Sw^n
-            let sw = sw_indonesia(rt, phie, vsh, rw, rsh, m, n, a);
+            let sw = sw_indonesia(rt, phie, vsh, rw, rsh, m, n, a, 1.0);
             assert!((sw - sw_true).abs() < 1e-6, "Indonesia round-trip: got {sw}, want {sw_true}");
         }
         // A non-2 saturation exponent inverts exactly too (Sw^(n/2) is isolated in closed form).
         let (n2, sw_true): (f64, f64) = (1.8, 0.4);
         let rt = 1.0 / (d * d * sw_true.powf(n2));
-        assert!((sw_indonesia(rt, phie, vsh, rw, rsh, m, n2, a) - sw_true).abs() < 1e-6);
+        assert!((sw_indonesia(rt, phie, vsh, rw, rsh, m, n2, a, 1.0) - sw_true).abs() < 1e-6);
     }
 
     #[test]
@@ -3466,7 +3685,7 @@ mod tests {
         for &n in &[2.0f64, 1.7, 2.3] {
             for sw_true in [0.2f64, 0.45, 0.7, 0.95] {
                 let ct = phie.powf(m) * sw_true.powf(n) / (a * rw * (1.0 - vsh)) + vsh * sw_true / rsh;
-                let sw = sw_simandoux(1.0 / ct, phie, vsh, rw, rsh, m, n, a);
+                let sw = sw_simandoux_modified_slb(1.0 / ct, phie, vsh, rw, rsh, m, n, a, 1.0);
                 assert!((sw - sw_true).abs() < 1e-4, "Simandoux n={n} round-trip: got {sw}, want {sw_true}");
             }
         }
@@ -3474,13 +3693,13 @@ mod tests {
 
     #[test]
     fn sw_equations_reject_nonphysical_inputs() {
-        assert!(sw_indonesia(-1.0, 0.2, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0).is_nan(), "Rt<=0");
-        assert!(sw_indonesia(10.0, 0.0, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0).is_nan(), "phie<=0");
-        assert!(sw_simandoux(-1.0, 0.2, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0).is_nan(), "Rt<=0");
-        assert!(sw_simandoux(10.0, 0.2, 0.1, 0.0, 4.0, 2.0, 2.0, 1.0).is_nan(), "Rw<=0");
+        assert!(sw_indonesia(-1.0, 0.2, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0).is_nan(), "Rt<=0");
+        assert!(sw_indonesia(10.0, 0.0, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0).is_nan(), "phie<=0");
+        assert!(sw_simandoux_modified_slb(-1.0, 0.2, 0.1, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0).is_nan(), "Rt<=0");
+        assert!(sw_simandoux_modified_slb(10.0, 0.2, 0.1, 0.0, 4.0, 2.0, 2.0, 1.0, 1.0).is_nan(), "Rw<=0");
         // A very conductive Rt (fresh, high-φ) clamps Sw to 1, never above.
-        assert!((sw_indonesia(0.01, 0.3, 0.0, 0.1, 4.0, 2.0, 2.0, 1.0) - 1.0).abs() < 1e-9);
-        assert!((sw_simandoux(0.01, 0.3, 0.0, 0.1, 4.0, 2.0, 2.0, 1.0) - 1.0).abs() < 1e-9);
+        assert!((sw_indonesia(0.01, 0.3, 0.0, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0) - 1.0).abs() < 1e-9);
+        assert!((sw_simandoux_modified_slb(0.01, 0.3, 0.0, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0) - 1.0).abs() < 1e-9);
     }
 
     #[test]
@@ -3491,18 +3710,18 @@ mod tests {
 
         // Clean sand (Vsh=0, m=n=2, a=1) reduces to Archie: Sw² = Rw/(φ²·Rt).
         // φ=0.2, Rw=0.05, Rt=20 ⇒ Sw² = 0.05/(0.04·20) = 0.0625 ⇒ Sw = 0.25 (exact by hand).
-        assert!((sw_indonesia(20.0, 0.2, 0.0, 0.05, 4.0, 2.0, 2.0, 1.0) - 0.25).abs() < 1e-6, "Indonesia→Archie");
-        assert!((sw_simandoux(20.0, 0.2, 0.0, 0.05, 4.0, 2.0, 2.0, 1.0) - 0.25).abs() < 1e-6, "Simandoux→Archie");
+        assert!((sw_indonesia(20.0, 0.2, 0.0, 0.05, 4.0, 2.0, 2.0, 1.0, 1.0) - 0.25).abs() < 1e-6, "Indonesia→Archie");
+        assert!((sw_simandoux_modified_slb(20.0, 0.2, 0.0, 0.05, 4.0, 2.0, 2.0, 1.0, 1.0) - 0.25).abs() < 1e-6, "Simandoux→Archie");
 
         // Indonesia WITH shale (exercises Vsh^(1−Vsh/2)/√Rsh): Vsh=0.5, Rsh=4, φ=0.2, Rw=0.1, m=n=2.
         //   term_sh = 0.5^0.75/2 = 0.297302 ; term_sand = √(0.04/0.1) = 0.632456 ; denom = 0.929758
         //   Sw=0.4 ⇒ 1/√Rt = 0.929758·0.4 = 0.371903 ⇒ Rt = 7.230045 (hand-computed).
-        assert!((sw_indonesia(7.230045, 0.2, 0.5, 0.1, 4.0, 2.0, 2.0, 1.0) - 0.4).abs() < 1e-3, "Indonesia shale point");
+        assert!((sw_indonesia(7.230045, 0.2, 0.5, 0.1, 4.0, 2.0, 2.0, 1.0, 1.0) - 0.4).abs() < 1e-3, "Indonesia shale point");
 
         // Modified Simandoux WITH shale (exercises the Vsh·Sw/Rsh term): Vsh=0.4, Rsh=3, φ=0.25,
         // Rw=0.08, m=n=2. coef_sand=0.0625/0.048=1.302083 ; coef_sh=0.133333 ; Sw=0.5 ⇒
         //   1/Rt = 1.302083·0.25 + 0.133333·0.5 = 0.392188 ⇒ Rt = 2.549795 (hand-computed).
-        assert!((sw_simandoux(2.549795, 0.25, 0.4, 0.08, 3.0, 2.0, 2.0, 1.0) - 0.5).abs() < 1e-3, "Simandoux shale point");
+        assert!((sw_simandoux_modified_slb(2.549795, 0.25, 0.4, 0.08, 3.0, 2.0, 2.0, 1.0, 1.0) - 0.5).abs() < 1e-3, "Simandoux shale point");
     }
 
     #[test]
@@ -3554,6 +3773,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -3771,7 +3992,7 @@ mod tests {
         assert!(sw_archie(10.0, 0.2, 0.0, 2.0, 2.0, 1.0).is_nan());
         // Archie ≡ Indonesia with Vsh=0 (both reduce to the clean-sand power law).
         let arch = sw_archie(15.0, 0.22, 0.08, 2.0, 2.0, 1.0);
-        let indo0 = sw_indonesia(15.0, 0.22, 0.0, 0.08, 4.0, 2.0, 2.0, 1.0);
+        let indo0 = sw_indonesia(15.0, 0.22, 0.0, 0.08, 4.0, 2.0, 2.0, 1.0, 1.0);
         assert!((arch - indo0).abs() < 1e-9, "Archie vs Indonesia(Vsh=0): {arch} vs {indo0}");
     }
 
@@ -3903,6 +4124,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -3994,6 +4217,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -4096,6 +4321,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -4159,6 +4386,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -4231,6 +4460,8 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            indonesia_k: 1.0,
+            simandoux_c: 1.0,
             phit_sh: 0.1,
             ws_b: 0.0,
         };
@@ -4257,7 +4488,7 @@ mod tests {
             fluid: Some(props),
             ftemp_curve,
             recon_qc: false,
-            sw_model: SwModel::Archie,
+            sw_model: SwModel::ArchieTotal,
             porosity_source: PorositySource::Cec,
             enforce_porosity: true,
             enforce_bndwat: true,

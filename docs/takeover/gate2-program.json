@@ -8,9 +8,9 @@
   "later_gate_requirement_count": 20,
   "action_mode_counts": {
     "IMPLEMENT-OR-REFUSE": 36,
-    "REMEDIATE": 122,
+    "REMEDIATE": 121,
     "PROVE": 19,
-    "RETAIN": 45
+    "RETAIN": 46
   },
   "execution": {
     "implementation_model": "gpt-5.6-sol-xhigh",
@@ -94,7 +94,7 @@
       "exclude_ids": []
     }
   ],
-  "completed_requirements": ["SB-CORE-001", "SB-CORE-002", "SB-CORE-004"],
+  "completed_requirements": ["SB-CORE-001", "SB-CORE-002", "SB-CORE-004", "SB-CORE-006"],
   "blocked_requirements": ["SB-CORE-003", "SB-CORE-005"],
   "later_gate_only": [
     {"requirement_id": "SB-CORE-041", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Fresh-clone and clean-machine build evidence belongs to Windows and offline qualification"},

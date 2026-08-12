@@ -7,7 +7,7 @@ This matrix is generated mechanically from `REVIEW.md` and
 against real well data. **Ledger date** is the date on the newest dated review section
 containing a checked scenario; it is not a more precise test timestamp.
 
-Capabilities with recorded exercise: **17 / 54**. Fully exercised: **1 / 54**.
+Capabilities with recorded exercise: **18 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
@@ -29,7 +29,7 @@ Capabilities with recorded exercise: **17 / 54**. Fully exercised: **1 / 54**.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 17 | — | 3 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 33 | — | 10 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 2 / 97 | 2026-07-19 | 25 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 100 | 2026-08-13 | 26 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
@@ -38,7 +38,7 @@ Capabilities with recorded exercise: **17 / 54**. Fully exercised: **1 / 54**.
 | `sandimin` | SandiMin mineral solver | Not exercised | 0 / 28 | — | 18 |
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 189 | 2026-07-19 | 32 |
-| `equation-engine` | Rhai and Python equation engines | Not exercised | 0 / 11 | — | 4 |
+| `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 14 | 2026-08-13 | 5 |
 | `workflow` | Multi-well workflow chains | Not exercised | 0 / 23 | — | 3 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 14 | 2026-07-18 | 7 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 10 | — | 4 |

@@ -81,14 +81,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-CORE-T17`, `SB-CORE-T18`.
 - **Atomic obligations:** one method name must resolve to one equation across engines; emitted mnemonic, UI label and documentation must identify that same method.
-- **Current source:** `modules.rs` registers `sw_sim` with one modified Simandoux expression, while `multimin2.rs` documents and computes “Modified Simandoux (Bardon-Pied)” with an additional `(1-VSH)` denominator; the UI presents the latter as “Simandoux (modified).” Thus one name still selects two equations. No shared method identity binds numeric behavior and labels.
-- **Qualifying acceptance tests:** no executable T17 numeric-parity or T18 naming-parity mapping was found; test class is `MISSING`.
-- **Supporting tests:** per-engine numeric tests only prove each implementation against itself and cannot adjudicate which name/equation is correct.
+- **Current source:** `modules.rs` routes its Archie, parameterized Indonesia and both typed Simandoux equations through the shared `multimin2.rs` implementations. `SwModel::id`, the backend-owned selector catalog, standalone manifests, the SandiMin UI and Results-QC all use canonical equation identifiers. Geolog `MODIFIED`/`SIM_MOD` resolve to `simandoux_bardon_pied`; Geolog `SCHLUM`/`SIM_SCHL` resolve to `simandoux_modified_slb`; old SandiBumi `simandoux` remains an input-only alias of the equation it historically computed. Standalone runs persist `method_id`; standalone and SandiMin runs emit a per-sample categorical `SW_METHOD` curve, with an explicit stable code-to-ID catalog and `f32::NAN` where no saturation was produced.
+- **Qualifying acceptance tests:** `every_model_shared_by_the_module_and_solver_engines_returns_one_number_for_one_typed_fixture` is `CORRECTNESS`: it independently evaluates the cited Archie, Indonesia `k = 0/1/2`, Bardon-Pied and modified-SLB equations and requires both engines to meet the same result, including the chapter's 0.625 and 0.5524 discriminators. `every_saturation_method_surface_resolves_to_the_same_equation_identifier` is `CORRECTNESS`: it pins canonical IDs, UI labels, module documentation, legacy input aliases, recorded method identity, unique method-flag codes, finite samples, missing samples, class-curve declaration and the SandiMin flag-curve producer.
+- **Supporting tests:** all 41 non-optional SandiMin tests and all eight Results-QC tests pass with the typed identities. They are regressions for affected surfaces, not substitutes for T17/T18.
 - **Manual evidence:** `workflow` 0/23, `equation-engine` 0/11 and `sandimin` 0/28 - unexercised.
-- **Git evidence:** the divergent implementations are integrated at the accepted anchor; no closing commit is present.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the cited method identity must be adjudicated from its named source; this pass does not alter or choose an equation.
-- **Next action:** assign distinct source-backed identifiers where the equations differ, route labels/mnemonics through those identifiers, and add independent numeric plus UI/export naming tests.
+- **Git evidence:** the original divergence remains documented at the accepted anchor; this Gate 2 increment is the closing implementation and exact-tree verification is recorded in `STATUS.md` and `REVIEW.md`.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied automated safety contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 progress state `DONE`.
+- **Blocker or decision:** none for the automated CORE contract. The numeric method codes are categorical storage encodings, not petrophysical parameters; their meanings are defined by the canonical catalog and arithmetic on them is forbidden. The complete incumbent-import alias table and whole saturation-family flag/export inventory remain separately owned by `SB-SAT-003` and `SB-SAT-026` and are not falsely closed here.
+- **Next action:** preserve T17/T18 and field-exercise module/SandiMin parity plus visible flag/provenance decoding during Gate 4.
 
 ## SB-CORE-007 — One definition for every constant and every transform
 

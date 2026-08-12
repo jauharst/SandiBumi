@@ -7,6 +7,24 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-006: one saturation name now selects one equation
+
+- [x] **Automated:** the standalone modules and SandiMin share the same Archie, parameterized
+      Indonesia, Bardon-Pied and modified-SLB implementations. Canonical equation IDs replace bare
+      vendor adjectives in new selectors and provenance; legacy values are input-only aliases that
+      retain their old equation. Every saturation run emits a categorical `SW_METHOD` curve whose
+      exact numeric code resolves through the backend-owned equation catalog; missing results carry
+      `f32::NAN`. The two named correctness tests independently check the cited equations, engine
+      parity, labels, documentation, persisted method identity, finite flags and missing flags. Full
+      gate: 977 passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** in the desktop app, inspect the standalone typed-Simandoux selector and the
+      SandiMin Sw-equation selector; confirm the canonical ID leads each label, method-specific inputs
+      appear only on their equation, and `SW_METHOD` is inventoried as a class curve rather than a
+      continuous quantity. This remains Jauhar's review, not an automated pass.
+- [ ] **Field:** during Gate 4, run the same cited fixture through both engines and retain the UI,
+      current curves, log-set provenance and exported method flag. The complete foreign-import alias
+      table and whole saturation-family output inventory remain their own SB-SAT requirements.
+
 ## 2026-08-13 — G2 SB-CORE-005: endpoint provenance remains blocked, not cosmetically labelled
 
 - [ ] **Automated implementation:** blocked. History begins with the 27-row endpoint matrix already

@@ -2226,6 +2226,13 @@ fn multimin_library() -> Vec<multimin2::Component> {
     multimin2::multimin_library()
 }
 
+/// Canonical SandiMin saturation equation ids and the labels shown for them. The backend owns this
+/// catalog so the UI cannot silently rename an equation while the solver persists a different id.
+#[tauri::command]
+fn multimin_sw_models() -> Vec<multimin2::SwModelChoice> {
+    multimin2::sw_model_catalog()
+}
+
 /// Derived fluid quantities (Cw, Cmf, Cbw, α, w, CT/CXO auto-uncertainties) for the
 /// Multimin dialog's fluid-properties preview.
 #[tauri::command]
@@ -3583,6 +3590,7 @@ pub fn run() {
             run_facies_confusion,
             run_multimin,
             multimin_library,
+            multimin_sw_models,
             multimin_fluid_calc,
             multimin_dry_clay,
             multimin_fluid_from_precalc,
