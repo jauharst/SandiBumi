@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `6 / 222 handled — 4 DONE, 2 BLOCKED, 216 remaining`
+- Gate 2 requirement progress: `7 / 222 handled — 4 DONE, 3 BLOCKED, 215 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T01 / SB-CORE-006 - DONE; shared saturation equations, canonical IDs, backend-owned UI labels, recorded method identity and per-sample categorical SW_METHOD curves now agree across the standalone modules and SandiMin`
+- Active increment: `G2-T01 / SB-CORE-007 - BLOCKED; T23 does not define how a no-parameter own-default run can execute a producer with required ABSENT parameters, and it does not distinguish canonical method outputs from explicit user-selected working-curve replacement or categorical method flags`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-CORE-006 is green at 977 passed / 0 failed / 36 ignored; T17 independently pins shared-engine numeric parity and T18 pins canonical labels, provenance and finite/missing method-flag curves; Rust retains the owned 56-warning inventory`
+- Automated gate: `SB-CORE-007 evidence-only blocked increment is green at 977 passed / 0 failed / 36 ignored; two RED discovery tests enumerated the live constant/output conflicts and were removed rather than weakened or committed failing; Rust retains the owned 56-warning inventory`
 - Pilot field evidence: `OPEN`
-- Open blockers: `216 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; the approved 222-row scope remains immutable while live action classes improve as rows close; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Start G2-T01 / SB-CORE-007 from the verified SB-CORE-006 boundary; every physical constant and transform must have one source-backed definition across producers.`
+- Open blockers: `215 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Start G2-T01 / SB-CORE-010 from the verified SB-CORE-007 evidence boundary; every computed curve must retain sufficient ancestry to answer how it was made.`
 
 ## Gate dashboard
 

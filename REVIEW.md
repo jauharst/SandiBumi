@@ -7,6 +7,22 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-007: universal parity is blocked on two contract boundaries
+
+- [ ] **Automated implementation:** blocked, not partially declared green. RED discovery against the
+      live registry found the real `RHO_MA` 2.645/2.65 conflict and eleven repeated declared output
+      keys, including physically different VSH, porosity, saturation and permeability methods. The
+      discovery tests were removed after collecting the inventory: T19/T20/T23 remain missing rather
+      than being weakened into snapshots or committed red. Full gate: 977 passed / 0 failed / 36
+      ignored.
+- [ ] **Contract decision:** define how T23 treats a producer whose required parameters deliberately
+      ship `ABSENT`, because the required no-parameter fixture cannot run it. Separately define the
+      distinction between a canonical method output and an explicitly user-renamed working curve;
+      different methods and the categorical `SW_METHOD` flag must not be forced numerically equal.
+- [ ] **Visual/manual and field:** not eligible until the universal registry contract is executable.
+      When it is, inspect unique default output names, explicit intentional replacement, saved-chain
+      migration and formation-temperature ownership before accepting any field result.
+
 ## 2026-08-13 — G2 SB-CORE-006: one saturation name now selects one equation
 
 - [x] **Automated:** the standalone modules and SandiMin share the same Archie, parameterized
