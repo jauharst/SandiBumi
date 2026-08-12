@@ -9,12 +9,12 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-RPH - DONE; REVIEW REQUIRED; all 52 SB-RPH rows, 77 chapter test intentions, 76 parameters, 5 open items, 12 escalation bullets, 11 refusals, 2 C-3 items and section 8.1-8.6 traceability blocks have live custody; production behavior remains unchanged`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-RPH planning is committed at 23efced, and codex/g1-sb-rph-adjudication is the current sole worktree`
-- Automated gate: `GREEN - 946 passed / 0 failed / 36 ignored in 264s; focused core-photo evidence is 24 passed / 0 failed / 8 ignored plus 8 optional-package tests passed separately; the ledger reports 740 adjudicated / 191 unadjudicated / 477 pilot blockers and preserves frozen source-owned hash 245bf0aac65e0beb80895972623958f96aa8e167084a7c731e8d961e00aaf2ef`
+- Active increment: `G1-DOM-MLA-P - DONE; READY TO EXECUTE; the exact 65-row SB-MLA documentation-only plan is frozen against current source, 61 owned test intentions, 105 parameters, source custody and manual evidence; production behavior remains unchanged`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-RPH execution is committed at f8a7207 with receipt hygiene at aa927f1, and codex/g1-sb-mla-plan is the current sole worktree`
+- Automated gate: `GREEN - planning gate 946 passed / 0 failed / 36 ignored in 277s; focused MLA evidence is ml 67 passed / 0 failed / 7 ignored, native facies 13/0/0 and facies tie 7/0/0, plus all 7 ignored ML tests passed separately; the ledger reports 740 adjudicated / 191 unadjudicated / 477 pilot blockers and preserves frozen source-owned hash 82626708eb32931956503fd38daf9d25f179565e718dcba8b6804eaa2244f8dd`
 - Pilot field evidence: `OPEN`
 - Open blockers: `191 live domain adjudications and 477 total pilot-blocker dispositions; SB-RPH is 52/52 adjudicated but retains 22 pilot blockers, including absent P0 capability, active uncited core-photo defaults/thresholds, flat-scan proposal, incomplete/failed provenance custody, accepted-unused inputs, and manual core-photo calibration at 0/0 not listed; all 38 NMR rows remain deferred after first sale; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
-- Next increment: `after the SB-RPH execution commit, recompute the 191-row unadjudicated inventory and continue the next non-GEO Gate 1 domain serially at Sol xhigh; keep Gate 2 remediation out until Gate 1 closes.`
+- Next increment: `commit the exact SB-MLA plan, create codex/g1-sb-mla-adjudication serially in the same worktree, adjudicate all 65 rows at Sol xhigh, and keep Gate 2 remediation out until Gate 1 closes.`
 
 ## Gate dashboard
 
