@@ -28,7 +28,7 @@ or manual scenario changed.
 | `DEC-012` - invalid Wyllie compaction factor | **DECIDED:** refuse when `Cp < 1` | SB-POR-017 stays `PRESENT-DIVERGENT` and a pilot blocker until the refusal is observable and T29 pins invalid and valid controls. Help text is explanatory only. |
 | `DEC-013` - POR output names | **DECIDED:** user-configurable names; intentional same-name reuse is explicit replacement, never silent collision | Distinct user names must preserve parallel POR results. Explicit replacement must preserve version/undo custody. Imported and computed identities remain distinguishable. |
 | `DEC-014` - POR method separation | **DECIDED:** Arithmetic and RMS remain available; Gaymard-Poupon HC response and coupled porosity-`Sxo`/`Sw` iteration are mandatory separate contracts | The five roles below must be separately named, selected, proven and recorded. Exact equations, parameters, tolerances and endpoints remain governed by the chapter and cited sources. |
-| `DEC-015` - SB-POR-001 envelope | **NEEDS-JAUHAR:** literal common limiting contract versus method-specific numerical limits under a common typed envelope | No wording is inferred from the reply labelled `805`, because that reply unambiguously selected the separate `Cp < 1` refusal. SB-POR-001 through 003 remain blocked on this boundary. |
+| `DEC-015` - SB-POR-001 envelope | **DECIDED 2026-08-12:** method-specific correction limits and validity rules beneath a common typed envelope | The common contract standardizes POR family, provenance, output roles and observable flags/reasons. Each method retains its own cited numerical limits and correction rules; bounds are never borrowed across methods and an uncited bound remains absent. |
 | `DEC-016` - required POR capability set | **DECIDED:** analytic N-D, HC response, excavation and neutron-sonic belong in the product | Inclusion does not close ESC-POR-8, tool/source custody, any absent parameter, an implementation, a test or a separately deferred pilot-timing row. |
 
 ### Distinct POR contracts now carried
@@ -47,12 +47,27 @@ solver-discipline rows made mandatory by `DEC-014` changes the POR release split
 
 ### Current stand at a glance
 
-- **Architecture:** a POR quantity family and complete method/convention/run provenance are required. User-configurable output names are settled by `DEC-013`. The exact common-limit boundary remains open under `DEC-015`.
+- **Architecture:** a POR quantity family and complete method/convention/run provenance are required. User-configurable output names are settled by `DEC-013`. `DEC-015` settles a common typed custody/observability envelope with method-specific correction limits and validity rules.
 - **Numerical limits and flags:** method-specific physics is not automatically an error, but a silent branch or clamp is. Existing hard bounds become cited, visible parameters and binding is observable; an uncited endpoint remains absent.
 - **Sonic:** the chapter's truthful naming and per-method shale conventions remain the adopted target. `Cp < 1` is now a hard refusal. SP-013 still needs the separate rename-with-source versus true-RHG80 choice.
 - **N-D and gas:** Arithmetic and RMS remain available only in their explicitly named roles. Gaymard-Poupon HC response and the coupled porosity-`Sxo`/`Sw` iteration are mandatory separate contracts. SB-POR-059's RMS parity fix remains narrow and does not implement either rigorous contract.
 - **Missing capability:** analytic N-D, HC response, excavation and neutron-sonic are required product capabilities under `DEC-016`; no missing source or parameter is supplied by that inclusion decision.
 - **Proof:** every atomic contract still needs an independent correctness oracle. No implementation-derived snapshot is promoted. Automated evidence remains 0 qualifying POR correctness tests, and Jauhar retains ownership of all 33 manual POR checks.
+
+### DEC-015 operational boundary
+
+| Common to every POR result | Owned by the selected method/correction |
+|---|---|
+| POR quantity family and semantic output role | Equation and correction direction |
+| Method, convention, input-curve and run provenance | Admissible input basis and physical validity domain |
+| User-configurable output name with version/undo custody | Source-bound floors, ceilings, clamps and other numerical limits |
+| One observable per-sample branch/limit reason shape and run-level reporting shape | Which declared reason fires when that method's rule binds or refuses |
+| Uniform missing/refusal and no-silent-write behavior | Correction ordering and iterative configuration, where applicable |
+
+SB-POR-001's "one limiting contract" is therefore carried as one interface and custody contract,
+not one universal set of endpoints. No method may silently inherit another method's correction,
+limit or validity range. If the selected method lacks an admissible cited value, that value remains
+absent and the method refuses rather than falling back to a neighboring method.
 
 ## Chapter and cross-domain findings carried into every row
 
@@ -65,7 +80,7 @@ solver-discipline rows made mandatory by `DEC-014` changes the POR release split
 - Current `PHIE_FLOOR = 0.001` implements a later direct product decision, while SB-POR-045 requires the conflicting vendor values to ship with no default. Current behavior, chapter contract and later decision remain separate pending product-owner precedence.
 - `DEC-013` permits user-configurable POR output names and intentional, versioned replacement; it does not permit a silent collision or loss of imported/computed identity.
 - `DEC-014` makes Gaymard-Poupon HC response and the coupled porosity-`Sxo`/`Sw` iterative path mandatory separate contracts. Arithmetic, RMS comparison and SSC/SSPW RMS conditioning remain separately identified roles.
-- `DEC-015` remains open for the exact SB-POR-001 common-contract boundary; no answer is inferred from a mismatched line reference.
+- `DEC-015` is closed by Jauhar's explicit option-2 selection on 2026-08-12: method-specific numerical correction/validity rules under one common POR family/provenance/output-role/flag envelope.
 - ESC-1, ESC-2, ESC-3, ESC-5, ESC-7 and ESC-POR-8 remain source/custody boundaries. Protected vendor charts and binaries are not opened or copied, and non-adoptable constants do not become defaults.
 - Manual capability baseline: porosity 0/33, generic-curve-store 0/18, conditioning 0/27, workflow 0/23, las-export 0/2 and processing-history 0/7; histogram 5/22 and crossplot 6/13 do not prove POR custody or correctness.
 
@@ -79,8 +94,8 @@ solver-discipline rows made mandatory by `DEC-014` changes the POR release split
 - **Source/parameter boundary:** no new value is needed; this is an architecture contract.
 - **History/reachability:** all current paths are integrated at the accepted anchor; current and reachable-history searches found no unified POR contract.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-015` remains open: literal common numerical limiting versus method-specific limits beneath one common family/provenance/flag envelope.
-- **Next action:** Jauhar selects that boundary; then define the common POR result and inventory every registered method against it before migrating any individual method.
+- **Blocker or decision:** `DEC-015` is decided: one common typed custody/observability envelope, with each POR method owning its source-bound correction limits and validity rules.
+- **Next action:** define the common POR result envelope, define each method's separately cited limit/correction policy, and inventory every registered method against both before migrating an individual method.
 
 ## SB-POR-002 - Unlimited and limited pairs for every method
 
@@ -912,7 +927,7 @@ solver-discipline rows made mandatory by `DEC-014` changes the POR release split
 - `DEC-012` is decided: refuse `Cp < 1`; Help text is supplementary, never the guard.
 - `DEC-013` is decided: POR output names are user-configurable; distinct names preserve parallel results, while intentional same-name reuse is explicit, versioned and undoable replacement.
 - `DEC-014` is decided: Arithmetic comparison, RMS comparison, SSC/SSPW RMS conditioning, Gaymard-Poupon HC response and coupled porosity-`Sxo`/`Sw` iteration are separately identified contracts; the last two are mandatory.
-- `DEC-015` remains `NEEDS-JAUHAR`: literal common limiting contract versus method-specific numerical limits under one common POR family/provenance/flag envelope.
+- `DEC-015` is decided: method-specific correction limits and validity rules operate beneath one common POR family/provenance/output-role/flag envelope; no method inherits another method's bound.
 - `DEC-016` is decided: analytic N-D, HC response, excavation and neutron-sonic belong in the product; source custody and any separately deferred pilot timing remain explicit.
 - Decide SP-013 rename-with-source versus implementing RHG80.
 - Decide whether CSR, chart validation, salinity interpolation, force-wet, HC physical ceiling and smooth roll-off belong in the pilot; all remain without invented defaults.
