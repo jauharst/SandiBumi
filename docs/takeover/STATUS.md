@@ -9,18 +9,18 @@ This is the one-minute program dashboard. Requirement evidence lives in
 - Product target: paid offline Windows pilot
 - Current gate: `G1 — BASELINE RECONCILIATION`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G1-DOM-SHR-P - PLANNED; exact docs-only execution map for all 42 saturation-height/rock-typing requirements, all 44 test intentions and all 61 parameter rows; live verdicts, production behavior, tests, PRD, parameters and manual evidence remain unchanged`
-- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-CUT execution is committed at f4e328f and SB-SHR planning is the current topic-branch worktree`
-- Automated gate: `GREEN — 2026-08-12 on the G1-DOM-SHR-P planning tree; 16 takeover-ledger + 13 frontend + 917 Rust passed = 946 passed, 0 failed, 36 ignored; production build and verification matrix green; the direct SHR candidate suite is 58 passed, 0 failed, 0 ignored; Cargo used an isolated target because the live Tauri app may own the default debug executable`
+- Active increment: `G1-DOM-SHR - COMPLETE; REVIEW REQUIRED; all 42 saturation-height/rock-typing requirements adjudicated, all 44 test intentions routed and all 61 parameter rows retained under source custody; no production behavior, test, PRD, parameter or manual-evidence state changed`
+- Accepted baseline: `b332026cb498c105f36eade0bf7899bc0c1309f0 — implementation evidence anchor; SB-SHR planning is committed at 4d4a793 and its execution is the current topic-branch worktree`
+- Automated gate: `GREEN — 2026-08-12 on the G1-DOM-SHR execution tree; 16 takeover-ledger + 13 frontend + 917 Rust passed = 946 passed, 0 failed, 36 ignored; production build and verification matrix green; the direct SHR candidate suite is 58 passed, 0 failed, 0 ignored; the frozen source-owned hash f19ac95bc0e09df63e7c3a1f617b2d0bd418d0d4cef4d444a3e6938003728433 is unchanged; Cargo used the established isolated target`
 - Pilot field evidence: `OPEN`
-- Open blockers: `432 live domain adjudications, including the selected 42-row SB-SHR domain; 368 total pilot-blocker dispositions, including 42 SB-CUT blockers; SB-SHR still carries source-absent fluid systems and apex basis, conflicting fit/apply fluid properties, dialog-local fitted results, missing FWL uncertainty, no SHF/rock-typing report custody and zero manual saturation-height or rock-typing evidence; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
-- Next increment: `gate and commit G1-DOM-SHR-P, then execute the committed 42-row adjudication plan inline; keep production remediation, parameter adoption and manual evidence outside Gate 1.`
+- Open blockers: `390 live domain adjudications and 402 total pilot-blocker dispositions; SB-SHR contributes 34 blockers, including source-absent fluid systems and apex basis, conflicting fit/apply fluid properties, dialog-local fitted results, missing FWL uncertainty, absent SHF/rock-typing report custody and zero manual saturation-height or rock-typing evidence; 52 SB-GEO rows remain deferred to the next product version; 1 branch follow-up and the recorded PRD structural/release-claim findings remain open`
+- Next increment: `after the final SHR gate and local commit, create the next serial planning branch for SB-TBD; its thin-bed and laminated interpretation contracts are the next dependency-relevant open-hole-petrophysics domain now that clay, porosity, saturation, mineral, cutoff and saturation-height evidence are inventoried.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
-| G1 — Baseline reconciliation | IN PROGRESS | 499/931 rows adjudicated; 432 remain, alongside branch, gate, field-evidence and claims receipts |
+| G1 — Baseline reconciliation | IN PROGRESS | 541/931 rows adjudicated; 390 remain, alongside branch, gate, field-evidence and claims receipts |
 | G2 — Silent-wrongness closure | NOT STARTED | no known pilot-reachable silent-wrongness path remains enabled |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
@@ -32,11 +32,11 @@ The generated summary is re-measured by `node tools/takeover-ledger.mjs --summar
 Do not replace it with an estimated percentage.
 
 - Consolidated requirements: `931`.
-- Adjudicated: `499`.
-- Unadjudicated: `432`.
-- As-built states: `72` present-OK, `22` present-unverified, `111` present-divergent, `115` partial,
-  `179` absent and `432` unadjudicated.
-- Release dispositions: `368` pilot blockers, `524` undecided and `39` deferred. Disposition is not
+- Adjudicated: `541`.
+- Unadjudicated: `390`.
+- As-built states: `72` present-OK, `22` present-unverified, `121` present-divergent, `129` partial,
+  `197` absent and `390` unadjudicated.
+- Release dispositions: `402` pilot blockers, `482` undecided and `47` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `46` pilot blockers, `14` undecided and `3` deferred; `42`
@@ -71,6 +71,10 @@ Do not replace it with an estimated percentage.
   correctness proofs, `15` characterizations and `42` missing qualifying whole-contract proofs;
   all `44` test intentions and `44` parameter rows are routed, while manual cutoffs/pay evidence
   remains `0/23` and Monte Carlo remains `2/14`.
+- SB-SHR: `42/42` adjudicated - `10` present-divergent, `14` partial and `18` absent; `34` pilot
+  blockers and `8` deferred; `17` characterizations and `25` missing qualifying whole-contract
+  proofs; all `44` test intentions and `61` parameter rows are routed, five escalations remain open,
+  and manual saturation-height and rock-typing evidence remains `0/6` and `0/26` respectively.
 
 ## PRD structural integrity
 
@@ -109,7 +113,8 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
-| G1-DOM-SHR-P - SB-SHR live-adjudication plan | DONE; REVIEW REQUIRED; NOT YET EXECUTED | exact 42-row map: 13 P0, 23 P1, 6 P2; all 44 named test intentions routed; 61 parameter rows with 9 ABSENT, 6 NON-ADOPTABLE, 14 UNSOURCED and 1 PRESENT-UNVERIFIED exposure fenced; unit-family, fitted-object, FWL uncertainty, convention, SCAL correction, flow-unit, report, model-selection and manual-evidence boundaries explicit; direct candidate suite 58 passed / 0 failed / 0 ignored; full gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | current topic-branch worktree |
+| G1-DOM-SHR - SB-SHR live adjudication | DONE; REVIEW REQUIRED | 42/42 rows: 18 absent, 14 partial, 10 divergent; 34 blockers and 8 deferred; 17 characterizations and 25 missing qualifying whole-contract proofs; all 44 tests and 61 parameters routed; source-owned hash preserved; full gate 946 passed / 0 failed / 36 ignored; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
+| G1-DOM-SHR-P - SB-SHR live-adjudication plan | DONE; EXECUTED | exact 42-row map: 13 P0, 23 P1, 6 P2; all 44 named test intentions routed; 61 parameter rows with 9 ABSENT, 6 NON-ADOPTABLE, 14 UNSOURCED and 1 PRESENT-UNVERIFIED exposure fenced; unit-family, fitted-object, FWL uncertainty, convention, SCAL correction, flow-unit, report, model-selection and manual-evidence boundaries explicit; direct candidate suite 58 passed / 0 failed / 0 ignored; full gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | `4d4a793` |
 | G1-DOM-CUT - SB-CUT live adjudication | DONE; REVIEW REQUIRED | 61/61 rows: 28 absent, 14 partial, 8 divergent, 10 present-OK, 1 present-unverified; 42 blockers, 9 undecided, 10 deferred; 4 correctness proofs, 15 characterizations and 42 missing whole-contract proofs; full gate 946 passed / 0 failed / 36 ignored; 499/931 adjudicated and 432 remain; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch worktree |
 | G1-DOM-CUT-P - SB-CUT live-adjudication plan | DONE; EXECUTED | exact 61-row map: 9 P0, 23 P1, 22 P2, 7 P3; all 44 named test intentions routed; 44 parameter rows with 8 ABSENT and 11 NON-ADOPTABLE entries fenced; 12 opens, 6 escalations and 13 refusals preserved; live no-default, SD_MULT, discretisation, result-custody, reporting, IPC and manual-evidence boundaries explicit; full gate 946 passed / 0 failed / 36 ignored; no verdict or production behavior changed | `25ee7af` |
 | G1-DOM-MIN - SB-MIN live adjudication | DONE; REVIEW REQUIRED | 46/46 rows: 27 absent, 6 partial, 7 divergent, 5 present-OK, 1 present-unverified; 34 blockers, 8 undecided, 4 deferred; 1 correctness proof, 16 characterizations and 29 missing whole-contract proofs; full gate 946 passed / 0 failed / 36 ignored; 438/931 adjudicated and 493 remain; no production, test, PRD, parameter or manual-evidence state changed | current topic-branch commit |
