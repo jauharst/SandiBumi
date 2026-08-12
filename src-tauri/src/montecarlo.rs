@@ -1118,7 +1118,7 @@ fn build_plans(
         plans.push(StepPlan {
             module: step.module.clone(),
             opts,
-            depth_unit: crate::units::project_depth_unit_or_default(conn),
+            depth_unit: crate::workflow::resolve_module_depth_unit(conn, &step.module)?,
             log_args,
             param_args,
             base_params,

@@ -1160,7 +1160,10 @@ pub fn import_core_table(
         }
     }
 
-    let project_unit = crate::units::project_depth_unit_or_default(conn);
+    let project_unit = match crate::units::require_project_depth_unit(conn, "core-table import") {
+        Ok(unit) => unit,
+        Err(error) => return fail(error),
+    };
     let file_unit = depth_unit.and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
 
     let mut outcomes: Vec<CoreWellOutcome> = Vec::new();
@@ -3647,6 +3650,7 @@ mod tests {
     fn a_float64_core_import_and_a_four_decimal_las_export_state_their_precision_reductions() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let well_id = Uuid::new_v4();
         db::insert_well(&conn, well_id, "SANDI-PRECISION", None, None, None).unwrap();
         let well = well_id.to_string();
@@ -4341,6 +4345,7 @@ mod tests {
     fn a_point_data_table_does_not_displace_the_wells_core() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-NOTCORE", None, None, None).unwrap();
         let w = wid.to_string();
@@ -4395,6 +4400,7 @@ mod tests {
     fn a_table_imported_through_intake_can_follow_the_core_it_was_measured_on() {
         let mut conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-INTAKE", None, None, None).unwrap();
         let w = wid.to_string();

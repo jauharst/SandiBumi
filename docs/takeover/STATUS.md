@@ -8,20 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
+- Gate 2 requirement progress: `1 / 222 handled — 1 DONE, 0 BLOCKED, 221 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-I001 - ACTIVE; all current Rust warnings and ignored tests have explicit owners and execution classes; no production behavior or requirement verdict changed`
+- Active increment: `G2-T01 / SB-CORE-001 - DONE at the current requirement boundary; exact final-tree gate green`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `G2-I001 tree is green at 970 passed / 0 failed / 36 ignored in 65s; its seven new controls own exactly 56 Rust warnings and 36 ignored tests (26 optional-package, 9 controlled-corpus, 1 manual-artifact), and this does not prove any production requirement newly closed`
+- Automated gate: `SB-CORE-001 exact tree is green at 972 passed / 0 failed / 36 ignored in 38s; the Rust library portion is 916 passed / 0 failed / 36 ignored; TypeScript and Rust check are green`
 - Pilot field evidence: `OPEN`
-- Open blockers: `222 Gate 2 obligations: 36 implement-or-refuse, 124 remediate, 19 prove and 43 retain/reverify; 20 approved rows are explicitly owned by Gate 3 or Gate 4 and are not counted as Gate 2 work`
-- Next increment: `Begin G2-T01 with the first dependency-ordered SB-CORE obligation after the verified G2-I001 commit boundary.`
+- Open blockers: `221 Gate 2 obligations remain after SB-CORE-001; the original action-mode totals remain the immutable routing baseline, not a live remainder counter; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Start the next dependency-ordered G2-T01 SB-CORE obligation from the verified SB-CORE-001 boundary.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; 36 implement-or-refuse / 124 remediate / 19 prove / 43 retain; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 123 remediate / 19 prove / 44 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
@@ -34,7 +35,7 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `102` present-OK, `24` present-unverified, `171` present-divergent, `181` partial,
+- As-built states: `103` present-OK, `24` present-unverified, `171` present-divergent, `180` partial,
   `401` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
@@ -48,8 +49,8 @@ Do not replace it with an estimated percentage.
   version under DEC-011 and risk-classed `LATER`; all remain as-built `UNADJUDICATED`, test class
   `MISSING-OR-UNCLASSIFIED`, commit state `UNVERIFIED`, with no last-reverified date. The preserved
   plan records `33` P0, `17` P1, `2` P2 and `73` test intentions, but was deliberately not executed.
-- SB-CORE: `25/25` adjudicated - `3` present-OK, `1` present-unverified, `4` present-divergent,
-  `12` partial and `5` absent; `17` pilot blockers and `8` deferred; `4` correctness proofs and
+- SB-CORE: `25/25` adjudicated - `4` present-OK, `1` present-unverified, `4` present-divergent,
+  `11` partial and `5` absent; `17` pilot blockers and `8` deferred; `4` correctness proofs and
   `21` missing qualifying whole-contract proofs.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `49` pilot blockers and `14` deferred; `42`

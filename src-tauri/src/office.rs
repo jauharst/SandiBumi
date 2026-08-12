@@ -687,7 +687,7 @@ pub fn export_workbook(
         let stamp: String = conn
             .query_row("SELECT strftime(now(), '%Y-%m-%d %H:%M')", [], |r| r.get(0))
             .unwrap_or_else(|_| String::new());
-        let unit = units::project_depth_unit_or_default(&conn).label().to_string();
+        let unit = units::require_project_depth_unit(&conn, "workbook export")?.label().to_string();
         let mut wells: Vec<(String, String)> = Vec::with_capacity(spec.well_ids.len());
         for id in &spec.well_ids {
             let name: String = conn
@@ -1015,7 +1015,7 @@ pub fn build_report_blocks(
 
     let conn = db_lock.lock().map_err(|e| e.to_string())?;
     let header = crate::composite::fetch_header(&conn, &well_id)?;
-    let unit = units::project_depth_unit_or_default(&conn).label().to_string();
+    let unit = units::require_project_depth_unit(&conn, "report export")?.label().to_string();
     let zones = db::list_zones(&conn, &well_id).map_err(|e| e.to_string())?;
 
     // The evaluated interval comes from the well's own zones rather than from a composite
@@ -1765,7 +1765,7 @@ pub fn export_deck(
         let stamp: String = conn
             .query_row("SELECT strftime(now(), '%Y-%m-%d')", [], |r| r.get(0))
             .unwrap_or_default();
-        let unit = units::project_depth_unit_or_default(&conn).label().to_string();
+        let unit = units::require_project_depth_unit(&conn, "deck export")?.label().to_string();
         let mut wells: Vec<(String, String)> = Vec::with_capacity(spec.well_ids.len());
         for id in &spec.well_ids {
             let name: String = conn

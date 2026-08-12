@@ -1291,9 +1291,34 @@ fn free_array_set(conn: &Connection, well_id: &str, curve: &str, desired: &str) 
 /// the layout being a declaration.
 pub fn commit_arrays(conn: &Connection, req: &ArrayCommit) -> Vec<ArrayImportResult> {
     let block = req.layout.eq_ignore_ascii_case("block");
-    let project_unit = crate::units::project_depth_unit_or_default(conn);
-    let file_unit = req.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
     let curve = req.curve_name.trim().to_uppercase();
+    let project_unit = match crate::units::require_project_depth_unit(conn, "array import") {
+        Ok(unit) => unit,
+        Err(error) => {
+            return req
+                .paths
+                .iter()
+                .map(|path| ArrayImportResult {
+                    path: path.clone(),
+                    curve: curve.clone(),
+                    wells: 0,
+                    samples: 0,
+                    bins: 0,
+                    axis_first: f64::NAN,
+                    axis_last: f64::NAN,
+                    sets: vec![],
+                    unmatched: vec![],
+                    notes: vec![],
+                    error: Some(error.clone()),
+                })
+                .collect();
+        }
+    };
+    let file_unit = req
+        .depth_unit
+        .as_deref()
+        .and_then(crate::units::DepthUnit::parse)
+        .unwrap_or(project_unit);
 
     req.paths
         .iter()
@@ -1464,8 +1489,30 @@ pub struct CurveImportResult {
 /// **The unit is whatever the file's units row said, kept verbatim.** `curves::normalize_unit`
 /// canonicalizes it downstream; inventing one here would state a measurement the delivery did not.
 pub fn commit_curves(conn: &Connection, req: &CurveCommit) -> Vec<CurveImportResult> {
-    let project_unit = crate::units::project_depth_unit_or_default(conn);
-    let file_unit = req.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
+    let project_unit = match crate::units::require_project_depth_unit(conn, "curve-table import") {
+        Ok(unit) => unit,
+        Err(error) => {
+            return req
+                .paths
+                .iter()
+                .map(|path| CurveImportResult {
+                    path: path.clone(),
+                    wells: 0,
+                    curves: vec![],
+                    samples: 0,
+                    sets: vec![],
+                    unmatched: vec![],
+                    notes: vec![],
+                    error: Some(error.clone()),
+                })
+                .collect();
+        }
+    };
+    let file_unit = req
+        .depth_unit
+        .as_deref()
+        .and_then(crate::units::DepthUnit::parse)
+        .unwrap_or(project_unit);
 
     req.paths
         .iter()
@@ -2175,6 +2222,7 @@ mod tests {
     fn a_second_delivery_lands_beside_the_first_instead_of_replacing_it() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-ARR", None, None, None).unwrap();
         let w = wid.to_string();
@@ -2231,6 +2279,7 @@ mod tests {
     fn a_column_marked_curve_becomes_a_log_rather_than_point_data() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-CURVE", None, None, None).unwrap();
         let w = wid.to_string();

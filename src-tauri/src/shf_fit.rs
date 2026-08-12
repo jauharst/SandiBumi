@@ -1037,7 +1037,10 @@ pub fn run_shf_fit(db: &Mutex<Connection>, req: &ShfFitRequest) -> ShfFitResult 
     // unit. The Leverett-J Pc law is per foot of column, so it needs the unit to convert.
     let depth_unit = {
         let conn = db.lock().unwrap();
-        crate::units::project_depth_unit_or_default(&conn)
+        match crate::units::require_project_depth_unit(&conn, "saturation-height fitting") {
+            Ok(unit) => unit,
+            Err(error) => return shf_err(&req.method, &error),
+        }
     };
 
     // Pool samples above the FWL / porosity cutoff, counting what gets dropped and why.

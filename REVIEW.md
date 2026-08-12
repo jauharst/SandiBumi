@@ -7,6 +7,22 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-12 — G2 SB-CORE-001: no depth-bearing path invents metres
+
+- [x] **Automated:** the deterministic-module registry classifies every live module, an undeclared
+      unit refuses every registered depth-dependent module while an independent module still runs,
+      the shared Monte Carlo planner uses the same guard, and the reusable metres fallback has been
+      removed from imports, saturation-height fitting, LAS/Office exports and image-depth handling.
+      Metre-qualified temperature, shift and splice parameters now produce the same physical result
+      when the project stores its depth index in feet. Full gate: 972 passed / 0 failed / 36 ignored.
+- [ ] **Visual/manual:** in an undeclared legacy project, exercise a depth-dependent module, core and
+      curve-table import, array/image import, saturation-height fit, LAS export, workbook, report and
+      deck. Does every path name the missing declaration and point to Data Conventions, while a
+      depth-independent calculation remains available?
+- [ ] **Field:** repeat a representative metre project and foot project from import through compute
+      and deliverable export, confirming that the native declared unit is carried without an
+      invisible metres reinterpretation.
+
 ## 2026-08-09 — SB-CORE-002: degraded results remain visibly degraded
 
 - [ ] Exercise one failed Monte Carlo chain, one partial full-curve import, uninterpreted and true

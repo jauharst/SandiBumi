@@ -41,6 +41,61 @@ pub struct ModuleRunResult {
     pub error: Option<String>,
 }
 
+/// Whether a deterministic module's result changes when the physical unit of its
+/// depth frame changes. This is deliberately exhaustive rather than inferred from
+/// argument spelling: `phimax`, for example, can fall back from TVDSS to DEPTH, and
+/// `condflag` uses depth only when applying thickness and shoulder contracts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DepthUnitDependency {
+    Declared,
+    Independent,
+}
+
+/// Machine-readable depth-unit inventory for every deterministic module manifest.
+///
+/// The explicit independent arm is load-bearing. A wildcard that called an unknown
+/// module independent would let the next depth-dependent module silently inherit the
+/// legacy metres fallback. The inventory test below therefore checks this function
+/// against the live manifest registry.
+pub(crate) fn module_depth_unit_dependency(module: &str) -> Result<DepthUnitDependency, String> {
+    match module {
+        "phimax" | "ftemp_grad" | "precalc" | "condflag" | "depth_shift" | "splice"
+        | "despike" | "smooth" | "fill_gaps" | "block" | "bed_detect" | "sw_height" => {
+            Ok(DepthUnitDependency::Declared)
+        }
+        "vsh_gr" | "vsh_dn" | "phi_den" | "phi_dn" | "phi_son" | "ssc" | "sspw"
+        | "badhole" | "nphimat" | "gascorr" | "gr_hole_corr" | "nphi_env_corr"
+        | "rhob_hole_corr" | "gr_normalize" | "log_predict" | "sw_arch" | "sw_indo"
+        | "sw_sim" | "sw_rtc" | "sw_imts" | "perm_wyllie_rose" | "perm_coates"
+        | "perm_transform" | "thin_bed_ts" | "clip" | "flip" | "normalize" | "multimin"
+        | "midplot" | "rocktyping" | "lucia_rfn" | "pittman_rx" | "rt_cutoff"
+        | "electrofacies" | "gmm_facies" | "toc_passey" | "kerogen" | "gip"
+        | "brittleness" => Ok(DepthUnitDependency::Independent),
+        other => Err(format!(
+            "module '{other}' has no depth-unit dependency classification; classify it before it can run"
+        )),
+    }
+}
+
+/// Resolve the typed unit a module run receives. Independent modules may run in a
+/// legacy project whose unit is absent because their result cannot consume this
+/// placeholder; dependent modules must stop before any input fetch or write.
+pub(crate) fn resolve_module_depth_unit(
+    conn: &Connection,
+    module: &str,
+) -> Result<crate::units::DepthUnit, String> {
+    let dependency = module_depth_unit_dependency(module)?;
+    match crate::units::project_depth_unit(conn)
+        .map_err(|error| format!("cannot read the project's declared depth unit: {error}"))?
+    {
+        Some(unit) => Ok(unit),
+        None if dependency == DepthUnitDependency::Declared => {
+            Err(format!("{module} requires a declared project depth unit before it can run"))
+        }
+        None => Ok(crate::units::DepthUnit::Metres),
+    }
+}
+
 /// Builds per-sample parameter arrays for every Param arg: dialog value (or manifest
 /// default) as the base, then zone_params overrides — '*' applies well-wide, named zones
 /// apply over their depth range. This is the interval-parameter model.
@@ -447,9 +502,9 @@ pub fn run_workflow_module_into(
     // per WELL, because a facies curve exists on the wells that were clustered and not on others.
     let (depth_unit, class_by_well) = {
         let conn = db.lock().unwrap();
-        let unit = match crate::units::project_depth_unit(&conn) {
-            Ok(Some(unit)) => unit,
-            Ok(None) if req.module == "sw_height" => {
+        let unit = match resolve_module_depth_unit(&conn, &req.module) {
+            Ok(unit) => unit,
+            Err(error) => {
                 return req
                     .well_ids
                     .iter()
@@ -457,14 +512,10 @@ pub fn run_workflow_module_into(
                         well_id: well_id.clone(),
                         rows_written: 0,
                         output_curves: vec![],
-                        error: Some(
-                            "sw_height requires a declared project depth unit before it can run"
-                                .into(),
-                        ),
+                        error: Some(error.clone()),
                     })
                     .collect();
             }
-            Ok(None) | Err(_) => crate::units::DepthUnit::Metres,
         };
         let map: HashMap<String, String> = req
             .well_ids
@@ -3183,6 +3234,7 @@ mod tests {
 
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-ZP1", None, None, Some(0.0)).unwrap();
         let w = wid.to_string();
@@ -3449,6 +3501,7 @@ mod tests {
 
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = Uuid::new_v4();
         db::insert_well(&conn, wid, "SANDI-EC1", None, None, Some(0.0)).unwrap();
         let w = wid.to_string();
@@ -3670,24 +3723,68 @@ mod tests {
         );
     }
 
-    /// SB-CORE-T02. Source: `docs/PRD_v2/04_CORE_REQUIREMENTS.md`, SB-CORE-001.
-    /// The control is deliberately a real well with no curves: unit validation
-    /// must run before input resolution, otherwise the workflow can still hide
-    /// the undeclared unit behind an unrelated missing-PHIE refusal.
+    /// SB-CORE-T02. CORRECTNESS. Source: `docs/PRD_v2/04_CORE_REQUIREMENTS.md`,
+    /// SB-CORE-001. The dependent side uses `depth_shift`, not the historically
+    /// special-cased `sw_height`, so a one-name guard cannot pass. The independent
+    /// side uses the same undeclared project and real stored samples so a blanket
+    /// refusal cannot pass either. The exact dependent set comes from inspection of
+    /// the live module algorithms and manifests: each member consumes DEPTH/TVD/TVDSS
+    /// in a depth-unit-qualified equation, distance, thickness, or window.
     #[test]
-    fn a_depth_dependent_module_refuses_when_the_project_depth_unit_is_undeclared() {
+    fn a_depth_dependent_module_refuses_an_undeclared_unit_while_an_independent_module_runs() {
+        let expected_dependent = vec![
+            "phimax",
+            "ftemp_grad",
+            "precalc",
+            "condflag",
+            "depth_shift",
+            "splice",
+            "despike",
+            "smooth",
+            "fill_gaps",
+            "block",
+            "bed_detect",
+            "sw_height",
+        ];
+        let mut actual_dependent = Vec::new();
+        for spec in modules::list_modules() {
+            let dependency = module_depth_unit_dependency(&spec.name)
+                .unwrap_or_else(|error| panic!("{}: {error}", spec.name));
+            if dependency == DepthUnitDependency::Declared {
+                actual_dependent.push(spec.name);
+            }
+        }
+        assert_eq!(actual_dependent, expected_dependent, "the live module registry and its depth-unit inventory must agree");
+        assert!(
+            module_depth_unit_dependency("unregistered_depth_consumer").is_err(),
+            "a future module must be classified explicitly, never assumed independent"
+        );
+
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let well_id = uuid::Uuid::new_v4();
         db::insert_well(&conn, well_id, "UNDECLARED-DEPTH-UNIT", None, None, None).unwrap();
+        let depth = vec![1000.0_f32, 1000.5, 1001.0];
+        db::insert_standard_curves(
+            &conn,
+            well_id,
+            depth,
+            vec![40.0, 70.0, 100.0],
+            vec![2.0; 3],
+            vec![0.2; 3],
+            vec![2.4; 3],
+            vec![80.0; 3],
+            vec![10.0; 3],
+        )
+        .unwrap();
         assert_eq!(crate::units::project_depth_unit(&conn).unwrap(), None);
 
         let well = well_id.to_string();
         let dbm = Mutex::new(conn);
-        let result = run_workflow_module_into(
+        let refused = run_workflow_module_into(
             &dbm,
             &RunModuleRequest {
-                module: "sw_height".into(),
+                module: "depth_shift".into(),
                 well_ids: vec![well.clone()],
                 log_inputs: HashMap::new(),
                 params: HashMap::new(),
@@ -3700,18 +3797,38 @@ mod tests {
             None,
         );
 
-        assert_eq!(result.len(), 1);
-        let error = result[0].error.as_deref().expect("an undeclared unit must refuse the run");
-        assert!(error.contains("sw_height requires a declared project depth unit"), "{error}");
+        assert_eq!(refused.len(), 1);
+        let error = refused[0].error.as_deref().expect("an undeclared unit must refuse depth_shift");
+        assert!(error.contains("depth_shift requires a declared project depth unit"), "{error}");
+
+        let independent = run_workflow_module_into(
+            &dbm,
+            &RunModuleRequest {
+                module: "vsh_gr".into(),
+                well_ids: vec![well.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::new(),
+                opts: HashMap::new(),
+                output_set: None,
+                input_set: None,
+            },
+            None,
+            None,
+            None,
+        );
+        assert_eq!(independent.len(), 1);
+        assert!(independent[0].error.is_none(), "a depth-independent run stays available: {:?}", independent[0].error);
+        assert_eq!(independent[0].rows_written, 3);
+
         let conn = dbm.lock().unwrap();
-        let written: i64 = conn
+        let shifted: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1",
+                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name = 'GR_DS'",
                 duckdb::params![well],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(written, 0, "a refused run must not write any curve rows");
+        assert_eq!(shifted, 0, "a refused dependent run must not write its output");
     }
 
     /// Cancel responsiveness: with the chain cancel flag already set, run_workflow_module_into

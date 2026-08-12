@@ -12,6 +12,8 @@
 use serde::Serialize;
 use std::collections::HashMap;
 
+use crate::units::{convert_depth, DepthUnit};
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ArgKind {
@@ -1125,7 +1127,7 @@ fn ftemp_grad(ctx: &ModuleContext) -> ModuleOutputs {
     let bht_mode = ctx.o("OPT_FT") == "BHT";
     let mut ftemp = vec![f32::NAN; ctx.n];
     for i in 0..ctx.n {
-        let d = depth[i] as f64;
+        let d = convert_depth(depth[i] as f64, ctx.depth_unit, DepthUnit::Metres);
         if is_missing(d) {
             continue;
         }
@@ -2649,7 +2651,7 @@ fn depth_shift(ctx: &ModuleContext) -> ModuleOutputs {
     let mut out = vec![f32::NAN; ctx.n];
     for i in 0..ctx.n {
         let d = depth[i] as f64;
-        let shift = ctx.p("SHIFT", i);
+        let shift = convert_depth(ctx.p("SHIFT", i), DepthUnit::Metres, ctx.depth_unit);
         if is_missing(d) || is_missing(shift) {
             continue;
         }
@@ -2686,7 +2688,7 @@ fn splice(ctx: &ModuleContext) -> ModuleOutputs {
     let bot = ctx.log("BOT_CURVE");
     let mut out = vec![f32::NAN; ctx.n];
     for i in 0..ctx.n {
-        let d = depth[i] as f64;
+        let d = convert_depth(depth[i] as f64, ctx.depth_unit, DepthUnit::Metres);
         if is_missing(d) {
             continue;
         }
@@ -3265,6 +3267,96 @@ mod tests {
 
         // No depth, no temperature — in either mode.
         assert!(grad[4].is_nan() && bht[4].is_nan(), "a missing depth must not produce a temperature");
+    }
+
+    /// CORRECTNESS — `crate::units::M_PER_FT` is the exact international foot from
+    /// NIST SP 811. The module manifests qualify TGRAD, TD_BHT, SHIFT and SPLICE_DEPTH
+    /// in metres, so changing only the project's stored depth unit cannot change the
+    /// physical answer.
+    #[test]
+    fn metre_qualified_depth_parameters_produce_the_same_results_in_foot_and_metre_projects() {
+        use crate::units::{DepthUnit, M_PER_FT};
+
+        let as_feet = |depths: &[f32]| {
+            depths.iter().map(|d| (*d as f64 / M_PER_FT) as f32).collect::<Vec<_>>()
+        };
+
+        let temperature_params = [("TSURF", 20.0), ("TGRAD", 0.03), ("BHT", 80.0), ("TD_BHT", 2000.0)];
+        for mode in ["GRADIENT", "BHT"] {
+            let metre_depths = vec![0.0, 1000.0, 2000.0];
+            let metre = ftemp_grad(&ctx_with(
+                3,
+                &[("DEPTH", metre_depths.clone())],
+                &temperature_params,
+                &[("OPT_FT", mode)],
+            ));
+            let mut foot_ctx = ctx_with(
+                3,
+                &[("DEPTH", as_feet(&metre_depths))],
+                &temperature_params,
+                &[("OPT_FT", mode)],
+            );
+            foot_ctx.depth_unit = DepthUnit::Feet;
+            let feet = ftemp_grad(&foot_ctx);
+            for i in 0..3 {
+                assert!(
+                    (metre["FTEMP"][i] - feet["FTEMP"][i]).abs() < 1e-3,
+                    "{mode} changed at sample {i}: metre={} foot={}",
+                    metre["FTEMP"][i],
+                    feet["FTEMP"][i]
+                );
+            }
+        }
+
+        let metre_depths = vec![1000.0, 1001.0, 1002.0, 1003.0, 1004.0];
+        let values = vec![0.0, 10.0, 20.0, 30.0, 40.0];
+        let metre_shift = depth_shift(&ctx_with(
+            5,
+            &[("DEPTH", metre_depths.clone()), ("CURVE", values.clone())],
+            &[("SHIFT", 1.0)],
+            &[],
+        ));
+        let mut foot_shift_ctx = ctx_with(
+            5,
+            &[("DEPTH", as_feet(&metre_depths)), ("CURVE", values)],
+            &[("SHIFT", 1.0)],
+            &[],
+        );
+        foot_shift_ctx.depth_unit = DepthUnit::Feet;
+        let foot_shift = depth_shift(&foot_shift_ctx);
+        for i in 0..5 {
+            let (metre, feet) = (metre_shift["CURVE_DS"][i], foot_shift["CURVE_DS"][i]);
+            assert!(
+                (metre.is_nan() && feet.is_nan()) || (metre - feet).abs() < 1e-3,
+                "a one-metre shift changed at sample {i}: metre={metre} foot={feet}"
+            );
+        }
+
+        let top = vec![1.0; 5];
+        let bottom = vec![2.0; 5];
+        let metre_splice = splice(&ctx_with(
+            5,
+            &[
+                ("DEPTH", metre_depths.clone()),
+                ("TOP_CURVE", top.clone()),
+                ("BOT_CURVE", bottom.clone()),
+            ],
+            &[("SPLICE_DEPTH", 1002.0)],
+            &[],
+        ));
+        let mut foot_splice_ctx = ctx_with(
+            5,
+            &[
+                ("DEPTH", as_feet(&metre_depths)),
+                ("TOP_CURVE", top),
+                ("BOT_CURVE", bottom),
+            ],
+            &[("SPLICE_DEPTH", 1002.0)],
+            &[],
+        );
+        foot_splice_ctx.depth_unit = DepthUnit::Feet;
+        let foot_splice = splice(&foot_splice_ctx);
+        assert_eq!(metre_splice["SPLICED"], foot_splice["SPLICED"]);
     }
 
     /// T-PREP-16 steps 1, 2 and 4: the two combine rules that make a synthetic log usable, and

@@ -194,12 +194,18 @@ pub fn set_project_depth_unit_checked(conn: &Connection, target: DepthUnit) -> R
     set_project_depth_unit(conn, target).map_err(|error| error.to_string())
 }
 
-/// The project's depth unit, defaulting to metres when undeclared. Read path for code
-/// that needs an answer rather than an option (the saturation-height Pc conversion, the
-/// depth-scale ratio). Metres is the default because `wells.kb`/`td` and the Field Map's
-/// UTM easting/northing are already documented and stored as metres.
-pub fn project_depth_unit_or_default(conn: &Connection) -> DepthUnit {
-    project_depth_unit(conn).ok().flatten().unwrap_or(DepthUnit::Metres)
+/// Returns the project's declared depth unit or an actionable refusal. A caller that
+/// handles physical depths must use this rather than manufacture a default: an
+/// undeclared legacy frame can contain either feet or metres, and both interpretations
+/// produce plausible-looking numbers.
+pub fn require_project_depth_unit(conn: &Connection, operation: &str) -> Result<DepthUnit, String> {
+    project_depth_unit(conn)
+        .map_err(|error| format!("{operation} cannot read the project's declared depth unit: {error}"))?
+        .ok_or_else(|| {
+            format!(
+                "{operation} requires a declared project depth unit; set it in Data Conventions before continuing"
+            )
+        })
 }
 
 /// Resolves what to do with an imported file's index unit, given the project's state.
@@ -318,6 +324,27 @@ mod tests {
         assert!(resolve_index_unit(Some(Metres), Some(Feet)).unwrap().note().is_some());
         assert!(resolve_index_unit(Some(Feet), None).is_err());
         assert!(resolve_index_unit(None, None).is_err());
+    }
+
+    /// SB-CORE-T02. CORRECTNESS. Source: SB-CORE-001 in
+    /// `docs/PRD_v2/04_CORE_REQUIREMENTS.md`: an undeclared unit refuses rather
+    /// than becoming metres. The declared-feet side prevents a lazy implementation
+    /// from always refusing.
+    #[test]
+    fn an_undeclared_project_depth_unit_refuses_instead_of_becoming_metres() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        let error = require_project_depth_unit(&conn, "depth-bearing operation")
+            .expect_err("an undeclared project must refuse");
+        assert!(error.contains("depth-bearing operation") && error.contains("Data Conventions"));
+
+        set_project_depth_unit(&conn, DepthUnit::Feet).unwrap();
+        assert_eq!(
+            require_project_depth_unit(&conn, "depth-bearing operation").unwrap(),
+            DepthUnit::Feet,
+            "a declaration must be carried exactly, never normalized to the old metres default"
+        );
     }
 
     /// SB-DIO-019 / SB-DIO-T31. The requirement permits either an explicit

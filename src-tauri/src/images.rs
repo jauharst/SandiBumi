@@ -1186,7 +1186,7 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
     let stain_name = clean(&req.stain);
 
     // Depth unit: the wizard says what the numbers mean, the project decides what is stored.
-    let project_unit = units::project_depth_unit_or_default(conn);
+    let project_unit = units::require_project_depth_unit(conn, "image import")?;
     let entered_unit = req.depth_unit.as_deref().and_then(DepthUnit::from_code).unwrap_or(project_unit);
     let convert = |d: f32| -> f32 { units::convert_depth(d as f64, entered_unit, project_unit) as f32 };
 
@@ -1623,6 +1623,7 @@ mod tests {
     fn a_plate_with_no_declared_scale_or_preparation_stores_neither() {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
         let w = wid.to_string();
@@ -1658,6 +1659,7 @@ mod tests {
     fn a_delivery_scale_fills_the_blanks_and_one_plate_can_overrule_it() {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
         let w = wid.to_string();
@@ -1724,6 +1726,7 @@ mod tests {
     fn plates_can_follow_the_core_they_were_cut_from() {
         let mut conn = Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "SANDI-PLATE-FOLLOW", None, None, None).unwrap();
         let w = wid.to_string();
@@ -1800,6 +1803,7 @@ mod tests {
     fn following_a_core_that_is_not_there_says_so() {
         let conn = Connection::open_in_memory().unwrap();
         crate::db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let wid = uuid::Uuid::new_v4();
         crate::db::insert_well(&conn, wid, "SANDI-PLATE-NOCORE", None, None, None).unwrap();
 

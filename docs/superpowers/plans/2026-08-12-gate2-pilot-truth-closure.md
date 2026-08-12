@@ -140,6 +140,32 @@ and `next_action` are mandatory inputs, not suggestions.
 10. Update the requirement's Gate 2 state and evidence without rewriting the immutable PRD.
 11. Stage only owned files and commit with the `SB-*` ID in the message.
 
+## Task 2: SB-CORE-001 — declared depth units on every depth-bearing path
+
+**Files:** `units.rs`, `modules.rs`, `workflow.rs`, `montecarlo.rs`, `ingest.rs`, `intake.rs`,
+`images.rs`, `shf_fit.rs`, `export.rs`, `office.rs`, their tests, and Gate 2 evidence/receipts.
+
+- [x] Reverify the PARTIAL verdict against the live module catalogue and every reusable project
+  depth-unit fallback caller.
+- [x] Write the observable workflow test and see the required behavioral RED: `depth_shift` runs
+  when the project unit is undeclared.
+- [x] Add an exhaustive dependent/independent module registry; an unknown module refuses instead
+  of inheriting the independent class.
+- [x] Make workflow and Monte Carlo planning use the same declared-unit resolver.
+- [x] Remove the reusable metres fallback and add actionable undeclared-unit refusals to import,
+  saturation-height fitting, image depth handling, LAS export, workbook, report and deck paths.
+- [x] Pin both sides: every registered dependent module refuses while a registered independent
+  module still runs, and an undeclared project never becomes metres.
+- [x] Add NIST-SP-811 metre/foot equivalence for metre-qualified temperature, depth-shift and
+  splice parameters; observe the pre-fix 50.00 °C versus 118.43 °C RED result and the fixed GREEN.
+- [x] Update only under-specified fixtures with explicit metre declarations; preserve tests whose
+  subject is unit adoption and preserve depth-independent workflow fixtures without declarations.
+- [x] Run the affected Rust library suite: 916 passed / 0 failed / 36 ignored.
+- [x] Run TypeScript, Rust check and the full exact-tree repository gate: 972 passed / 0 failed /
+  36 ignored in 38 seconds.
+
+Required commit: `SB-CORE-001 enforce declared depth-unit contracts`.
+
 For a source or decision block, implement no guessed behavior. If the current pilot path can run and
 produce a plausible answer, add the sourced actionable refusal or remove it from the pilot
 capability surface. Record the requirement under `blocked_requirements` only after that safety state

@@ -461,7 +461,7 @@ fn validate_las_output(
 ) -> Result<(), String> {
     let frame = crate::parsers::parse_las_2_all(dest_path)
         .map_err(|error| format!("LAS self-check failed: SandiBumi's LAS reader rejected the output: {error}"))?;
-    let expected_unit = crate::units::project_depth_unit_or_default(conn);
+    let expected_unit = crate::units::require_project_depth_unit(conn, "LAS self-check")?;
     let written_unit = frame
         .depth_unit
         .as_deref()
@@ -564,7 +564,7 @@ fn write_las(
         &mut columns,
     )?;
     let curves_held = initially_written + generic_held;
-    let depth_unit = crate::units::project_depth_unit_or_default(conn).code();
+    let depth_unit = crate::units::require_project_depth_unit(conn, "LAS export")?.code();
     let provenance = provenance_lines(conn, well_id, &curve_names)?;
     let step = if depth.len() > 1 { depth[1] - depth[0] } else { 0.0 };
     let mut values_reduced = depth.iter().filter(|&&value| fixed_decimal_4_reduces(value)).count();
@@ -671,6 +671,7 @@ mod tests {
     /// A well with one missing sample per curve, plus a MIXED-CASE computed curve.
     fn seed(conn: &Connection) -> (Uuid, Vec<f32>, Vec<f32>) {
         db::create_schema(conn).unwrap();
+        crate::units::set_project_depth_unit(conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         db::insert_well(conn, id, "SANDI-EXP", Some("Synthetic"), None, None).unwrap();
 
@@ -732,6 +733,7 @@ mod tests {
 
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         let well_id = id.to_string();
         db::insert_well(&conn, id, "CANONICAL-UNITS", None, None, None).unwrap();
@@ -801,6 +803,7 @@ mod tests {
     fn an_export_at_defaults_writes_the_irregular_stored_samples_without_regridding() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         db::insert_well(&conn, id, "IRREGULAR-EXPORT", None, None, None).unwrap();
         let stored_depth = vec![1000.0_f32, 1000.1, 1000.35, 1001.0];
@@ -1222,6 +1225,7 @@ mod tests {
         // The measured-only side: `~O` is not conditional on there being a computed curve.
         let measured = Connection::open_in_memory().unwrap();
         db::create_schema(&measured).unwrap();
+        crate::units::set_project_depth_unit(&measured, crate::units::DepthUnit::Metres).unwrap();
         let measured_id = Uuid::new_v4();
         db::insert_well(&measured, measured_id, "MEASURED-ONLY", None, None, None).unwrap();
         let measured_depth = vec![1000.0_f32, 1000.5];
@@ -1350,6 +1354,7 @@ mod tests {
     fn a_working_and_final_phie_are_both_exported_and_each_is_marked_in_the_file() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         let well_id = id.to_string();
         db::insert_well(&conn, id, "PHIE-STATES", None, None, None).unwrap();
@@ -1433,6 +1438,7 @@ mod tests {
     fn every_held_curve_is_written_or_named_with_the_same_reason_in_the_file_and_result() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
         let id = Uuid::new_v4();
         let well_id = id.to_string();
         db::insert_well(&conn, id, "FORTY-CURVES", None, None, None).unwrap();
