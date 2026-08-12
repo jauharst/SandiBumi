@@ -113,8 +113,8 @@
 - **Manual evidence:** `processing-history` 0/7, `database-tools` 0/2 and `verification-stewardship` 0/24 are unexercised; `project-lifecycle` is partial at 3/24.
 - **Git evidence:** the partial log-set/LAS foundation is integrated at the accepted anchor.
 - **Verdict:** `PARTIAL`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `SB-CORE-004` is a prerequisite. `DEC-009` must define lineage granularity beyond the pilot audit need, and `DEC-003` must identify the pilot workflow.
-- **Next action:** have Jauhar define the minimum pilot audit record, inventory every curve writer and number-carrying deliverable, then add complete-ancestry and project-save/load acceptance tests without changing the `computed_curves` write discipline.
+- **Blocker or decision:** `SB-CORE-004` is a prerequisite and `DEC-003` must identify the representative pilot workflow. `SB-CORE-010` itself defines the minimum ancestry record; `DEC-009` governs only additional lineage beyond that minimum.
+- **Next action:** after `DEC-003`, inventory every pilot curve writer and number-carrying deliverable, implement the exact `SB-CORE-010` ancestry fields, and add complete-ancestry plus project/deliverable round-trip acceptance tests without changing the `computed_curves` write discipline. Route only additional lineage to `DEC-009`.
 
 ## SB-CORE-011 — A project re-runs byte-identically
 
