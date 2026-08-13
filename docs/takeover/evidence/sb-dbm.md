@@ -12,19 +12,21 @@
 - Source-navigation boundary: the codebase index was not callable in this task, so targeted `rg`, direct source reads, executable tests and reachable Git history were used as the declared fallback. Consequential negative findings were checked in the expected Rust, TypeScript, schema, test and history paths.
 - Verification boundary: a supporting test is named only for the clause it exercises. A test that does not cover every clause of its owned DBM contract is not promoted to qualifying proof. Manual checkboxes remain separate from automated evidence.
 - Fresh verification: 21 focused supporting Rust tests passed. The repository gate passed 16 takeover-ledger + 13 frontend + 917 Rust tests, with 0 failed and 36 ignored; production build and generated verification matrix were green.
+- Gate 2 update (2026-08-13): SB-DBM-001 now has its owned correctness proof and the repository
+  gate passes 987 / 0 / 36. Automated, visual, manual and field evidence remain separate.
 
 ## SB-DBM-001 - One run record per computed curve, resolvable in one hop
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DBM-T03`, `SB-DBM-T10`; sections 4.1 and 6.2.
 - **Atomic obligations:** every current computed row resolves to exactly one run record; every legacy row is counted and visibly labelled `LEGACY_UNRECORDED`; displays and exports preserve that state.
-- **Current source:** `src-tauri/src/equations.rs` provides versioned `log_sets` writers and current/archive links, but `computed_curves.set_id` remains nullable and production paths still call unversioned `write_computed_curve`. `workflow.rs::run_pay_summary` exposes `skip_version`, and `export.rs::provenance_lines` refuses an unversioned computed curve instead of labelling and counting a legacy class.
-- **Qualifying acceptance tests:** none; T03's exhaustive resolver/legacy-label contract and T10's legacy deliverable contract are missing. Test class is `MISSING`.
-- **Supporting tests:** `db.rs::log_set_versioning_never_overwrites` and `export.rs::every_las_export_carries_measured_computed_and_model_provenance_in_the_file` prove the versioned happy path and export refusal, not universal writer coverage or legacy labelling.
+- **Current source:** `src-tauri/src/equations.rs::computed_provenance_groups` classifies every live row through its actual `log_sets` join, preserves exact counts, and exposes recorded or `LEGACY_UNRECORDED` state through catalog and deliverable disclosures. `export.rs::provenance_lines` writes the same class/count into LAS `~O` plus an export summary; `inspectorPanel.ts` and `ribbon.ts` surface it. All production computed writers remain behind the complete-ancestry inventory in `core_ancestry_tests.rs`; `skip_version` still refuses.
+- **Qualifying acceptance tests:** `every_computed_value_resolves_to_one_run_or_is_counted_and_labelled_legacy_unrecorded` is `CORRECTNESS`. It pins a recorded curve and a seeded legacy curve from both sides through the resolver, catalog, general disclosure, LAS file and export summary. The complete multi-run parameter-source/derivation fixture in T10 remains owned by SB-DBM-003/SB-DBM-005/SB-DBM-010.
+- **Supporting tests:** `every_computed_curve_written_by_any_module_has_a_complete_ancestry_record` inventories every production writer; `every_las_export_carries_measured_computed_and_model_provenance_in_the_file` now requires the explicit legacy class without weakening the saved-model refusal.
 - **Manual evidence:** `delivery-sets` 0/33, `generic-curve-store` 0/18 and `las-export` 0/2 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the versioned mechanism and the reachable unversioned counter-path; the full contract is not integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no numerical source is missing; the universal writer inventory, legacy class and visible label/count are missing.
-- **Next action:** route every computed writer through the atomic versioned path and implement T03/T10 with both current and seeded legacy rows, without adding a PK or upsert.
+- **Git evidence:** Gate 2 topic branch contains the recorded/legacy resolver, surfaces and owned proof without changing the deliberately PK-less schema or adding an upsert.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** no numerical source or product decision is missing. Visual/manual/field review remains open and cannot be inferred from the automated proof.
+- **Next action:** retain T03 and the production-writer inventory; continue with SB-DBM-002. Do not infer a `MODULE_VERSION_SOURCE` while that chapter parameter remains ABSENT.
 
 ## SB-DBM-002 - The run record pins module identity by version, not by name
 

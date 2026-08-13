@@ -52,6 +52,7 @@
 "SB-CUT-057","CORRECTNESS","src-tauri/src/netflag.rs","spec_deserializes_from_the_exact_json_the_frontend_sends"
 "SB-CUT-058","CHARACTERIZATION","src-tauri/src/workflow.rs","cutoff_sweep_ntg_and_dst_mask"
 "SB-CUT-058","CHARACTERIZATION","src-tauri/src/workflow.rs","cutoff_sweep_vsh_monotone"
+"SB-DBM-001","CORRECTNESS","src-tauri/src/export.rs","every_computed_value_resolves_to_one_run_or_is_counted_and_labelled_legacy_unrecorded"
 "SB-DBM-022","OPTIONAL-PACKAGE-IGNORED","src-tauri/src/ml.rs","a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_registered_writer_cannot_omit_the_required_sentinel_argument"

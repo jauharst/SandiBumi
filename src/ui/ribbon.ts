@@ -1151,7 +1151,10 @@ export class Ribbon {
       const omission = result.omitted.length
         ? ` Omitted ${result.omitted.map((item) => `${item.curve}: ${item.reason}`).join("; ")}.`
         : "";
-      const summary = `${result.rows} rows; ${result.curves_written} of ${result.curves_held} held curves written.`;
+      const legacy = result.legacy_unrecorded_curves
+        ? ` ${result.legacy_unrecorded_curves} computed curve(s) labelled LEGACY_UNRECORDED.`
+        : "";
+      const summary = `${result.rows} rows; ${result.curves_written} of ${result.curves_held} held curves written.${legacy}`;
       const precision = result.precision.reduced
         ? ` Precision: ${result.precision.values_reduced} value(s) reduced, ${result.precision.source_precision} → ${result.precision.destination_precision}.`
         : ` Precision: no values reduced, ${result.precision.source_precision} → ${result.precision.destination_precision}.`;

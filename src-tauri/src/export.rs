@@ -133,6 +133,7 @@ pub fn set_project_null_sentinel(conn: &Connection, null_sentinel: f32) -> Resul
 }
 
 const PROVENANCE_PREFIX: &str = "SANDIBUMI_PROVENANCE_V1 ";
+const PROVENANCE_SUMMARY_PREFIX: &str = "SANDIBUMI_PROVENANCE_SUMMARY_V1 ";
 const MODEL_PROVENANCE_PREFIX: &str = "SANDIBUMI_MODEL_PROVENANCE_V1 ";
 const OMISSION_PREFIX: &str = "SANDIBUMI_OMISSION_V1 ";
 const PRECISION_PREFIX: &str = "SANDIBUMI_PRECISION_V1 ";
@@ -161,6 +162,9 @@ pub struct LasExportResult {
     pub curves_held: usize,
     pub omitted: Vec<LasOmission>,
     pub curve_states: Vec<LasCurveState>,
+    /// Number of exported computed curve identities whose stored rows do not resolve to a run
+    /// record. They remain in the file only under the explicit LEGACY_UNRECORDED label.
+    pub legacy_unrecorded_curves: usize,
     /// LAS text is currently written at four decimal places. This report declares that
     /// boundary and counts the stored f32 values whose written representation changes.
     pub precision: crate::parsers::SamplePrecisionReport,
@@ -210,9 +214,20 @@ fn provenance_lines(
     conn: &Connection,
     well_id: &str,
     curve_names: &[String],
-) -> Result<Vec<String>, String> {
+) -> Result<(Vec<String>, usize), String> {
     let standard = ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
     let mut lines = Vec::new();
+    let mut legacy_curves = std::collections::BTreeSet::new();
+    let mut groups_by_curve = std::collections::BTreeMap::<
+        String,
+        Vec<crate::equations::ComputedProvenanceGroup>,
+    >::new();
+    for group in crate::equations::computed_provenance_groups(conn, well_id)? {
+        groups_by_curve
+            .entry(group.curve_name.trim().to_uppercase())
+            .or_default()
+            .push(group);
+    }
 
     for name in curve_names {
         let upper = name.trim().to_uppercase();
@@ -223,114 +238,132 @@ fn provenance_lines(
             ));
             continue;
         }
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT DISTINCT CAST(set_id AS VARCHAR) FROM computed_curves
-                 WHERE well_id = ?1 AND upper(curve_name) = ?2",
-            )
-            .map_err(|e| e.to_string())?;
-        let set_ids: Vec<Option<String>> = stmt
-            .query_map(params![well_id, upper], |row| row.get(0))
-            .map_err(|e| e.to_string())?
-            .collect::<duckdb::Result<_>>()
-            .map_err(|e| e.to_string())?;
-        if set_ids.is_empty() {
+        let groups = groups_by_curve.remove(&upper).unwrap_or_default();
+        if groups.is_empty() {
             lines.push(format!(
                 "{PROVENANCE_PREFIX}{}",
                 serde_json::json!({ "curve": upper, "origin": "measured" })
             ));
             continue;
         }
-        if set_ids.len() != 1 || set_ids[0].is_none() {
-            return Err(format!(
-                "computed curve '{name}' has no single live ancestry record; export refused because its method and parameters cannot be carried"
-            ));
-        }
-        let set_id = set_ids[0].as_deref().expect("checked above");
-        let (set_name, version, module, params_json, inputs_json, created_at): (
-            String,
-            i64,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-        ) = conn
-            .query_row(
-                "SELECT set_name, version, module, params_json, inputs_json,
-                        strftime(created_at, '%Y-%m-%d %H:%M')
-                 FROM log_sets WHERE set_id = ?1",
-                params![set_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
-            )
-            .map_err(|_| {
-                format!(
-                    "computed curve '{name}' cites missing log-set record '{set_id}'; export refused"
-                )
-            })?;
-        let params_text = params_json
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .ok_or_else(|| format!("computed curve '{name}' has no recorded parameters; export refused"))?;
-        let parameters: serde_json::Value = serde_json::from_str(params_text)
-            .map_err(|e| format!("computed curve '{name}' has invalid parameter JSON: {e}"))?;
-        let inputs: serde_json::Value = match inputs_json.as_deref().map(str::trim) {
-            Some(text) if !text.is_empty() => serde_json::from_str(text)
-                .map_err(|e| format!("computed curve '{name}' has invalid input JSON: {e}"))?,
-            _ => serde_json::Value::Array(Vec::new()),
-        };
-        let ancestry = crate::equations::curve_ancestry(conn, well_id, &upper).map_err(|error| {
-            format!("computed curve '{name}' cannot be exported without its complete ancestry: {error}")
-        })?;
-        let state = curve_state_for_set(&set_name);
-        lines.push(format!(
-            "{PROVENANCE_PREFIX}{}",
-            serde_json::json!({
-                "curve": upper,
-                "origin": "computed",
-                "method": module,
-                "parameters": parameters,
-                "inputs": inputs,
-                "log_set": set_name,
-                "version": version,
-                "run_date": created_at,
-                "state": state
-            ,
-                "ancestry": ancestry,
-            })
-        ));
 
-        if module.starts_with("ml:") {
-            let mut model_ids = Vec::new();
-            collect_model_ids(&parameters, &mut model_ids);
-            if model_ids.is_empty() {
-                return Err(format!(
-                    "model-derived curve '{name}' has no saved model identity in its run record; export refused"
+        for group in groups {
+            if group.provenance_class
+                == crate::equations::ComputedProvenanceClass::LegacyUnrecorded
+            {
+                legacy_curves.insert(upper.clone());
+                lines.push(format!(
+                    "{PROVENANCE_PREFIX}{}",
+                    serde_json::json!({
+                        "curve": upper,
+                        "origin": "computed",
+                        "provenance_class": crate::equations::LEGACY_UNRECORDED,
+                        "row_count": group.row_count,
+                        "state": "unprovenanced"
+                    })
                 ));
+                continue;
             }
-            for model_id in model_ids {
-                let (info, artifact) = crate::db::get_ml_model(conn, &model_id).map_err(|_| {
+
+            let set_id = group.set_id.as_deref().expect("recorded groups carry a set id");
+            let (set_name, version, module, params_json, inputs_json, created_at): (
+                String,
+                i64,
+                String,
+                Option<String>,
+                Option<String>,
+                String,
+            ) = conn
+                .query_row(
+                    "SELECT set_name, version, module, params_json, inputs_json,
+                            strftime(created_at, '%Y-%m-%d %H:%M')
+                     FROM log_sets WHERE set_id = ?1",
+                    params![set_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )
+                .map_err(|_| {
                     format!(
-                        "model-derived curve '{name}' cites unavailable model '{model_id}'; export refused"
+                        "computed curve '{name}' cites missing log-set record '{set_id}'; export refused"
                     )
                 })?;
-                let mut record = serde_json::to_value(info).map_err(|e| e.to_string())?;
-                let object = record
-                    .as_object_mut()
-                    .ok_or_else(|| "saved model record did not serialize as an object".to_string())?;
-                object.insert(
-                    "artifact_sha256".into(),
-                    serde_json::Value::String(format!("{:x}", Sha256::digest(&artifact))),
-                );
-                lines.push(format!(
-                    "{MODEL_PROVENANCE_PREFIX}{}",
-                    serde_json::json!({ "curve": upper, "record": record })
-                ));
+            let params_text = params_json
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .ok_or_else(|| {
+                    format!("computed curve '{name}' has no recorded parameters; export refused")
+                })?;
+            let parameters: serde_json::Value = serde_json::from_str(params_text)
+                .map_err(|e| format!("computed curve '{name}' has invalid parameter JSON: {e}"))?;
+            let inputs: serde_json::Value = match inputs_json.as_deref().map(str::trim) {
+                Some(text) if !text.is_empty() => serde_json::from_str(text)
+                    .map_err(|e| format!("computed curve '{name}' has invalid input JSON: {e}"))?,
+                _ => serde_json::Value::Array(Vec::new()),
+            };
+            let ancestry = crate::equations::parse_curve_ancestry(params_text).map_err(|error| {
+                format!(
+                    "computed curve '{name}' cannot be exported without its complete ancestry: {error}"
+                )
+            })?;
+            let state = curve_state_for_set(&set_name);
+            lines.push(format!(
+                "{PROVENANCE_PREFIX}{}",
+                serde_json::json!({
+                    "curve": upper,
+                    "origin": "computed",
+                    "provenance_class": "RECORDED",
+                    "row_count": group.row_count,
+                    "method": module,
+                    "parameters": parameters,
+                    "inputs": inputs,
+                    "log_set": set_name,
+                    "version": version,
+                    "run_date": created_at,
+                    "state": state,
+                    "ancestry": ancestry,
+                })
+            ));
+
+            if module.starts_with("ml:") {
+                let mut model_ids = Vec::new();
+                collect_model_ids(&parameters, &mut model_ids);
+                if model_ids.is_empty() {
+                    return Err(format!(
+                        "model-derived curve '{name}' has no saved model identity in its run record; export refused"
+                    ));
+                }
+                for model_id in model_ids {
+                    let (info, artifact) = crate::db::get_ml_model(conn, &model_id).map_err(|_| {
+                        format!(
+                            "model-derived curve '{name}' cites unavailable model '{model_id}'; export refused"
+                        )
+                    })?;
+                    let mut record = serde_json::to_value(info).map_err(|e| e.to_string())?;
+                    let object = record.as_object_mut().ok_or_else(|| {
+                        "saved model record did not serialize as an object".to_string()
+                    })?;
+                    object.insert(
+                        "artifact_sha256".into(),
+                        serde_json::Value::String(format!("{:x}", Sha256::digest(&artifact))),
+                    );
+                    lines.push(format!(
+                        "{MODEL_PROVENANCE_PREFIX}{}",
+                        serde_json::json!({ "curve": upper, "record": record })
+                    ));
+                }
             }
         }
     }
-    Ok(lines)
+    Ok((lines, legacy_curves.len()))
 }
 
 /// Adds generic-store curves only when their exact samples fit the LAS frame. Resolution is by
@@ -571,7 +604,8 @@ fn write_las(
     )?;
     let curves_held = initially_written + generic_held;
     let depth_unit = crate::units::require_project_depth_unit(conn, "LAS export")?.code();
-    let provenance = provenance_lines(conn, well_id, &curve_names)?;
+    let (provenance, legacy_unrecorded_curves) =
+        provenance_lines(conn, well_id, &curve_names)?;
     let step = if depth.len() > 1 { depth[1] - depth[0] } else { 0.0 };
     let mut values_reduced = depth.iter().filter(|&&value| fixed_decimal_4_reduces(value)).count();
     for name in &curve_names {
@@ -618,6 +652,13 @@ fn write_las(
         writeln!(w, "# SandiBumi provenance: prefixed JSON Lines; convention version 1")?;
         writeln!(
             w,
+            " {PROVENANCE_SUMMARY_PREFIX}{}",
+            serde_json::json!({
+                "legacy_unrecorded_curves": legacy_unrecorded_curves
+            })
+        )?;
+        writeln!(
+            w,
             " {PRECISION_PREFIX}{}",
             serde_json::to_string(&precision).expect("serializing a precision report cannot fail")
         )?;
@@ -659,6 +700,7 @@ fn write_las(
         curves_held,
         omitted,
         curve_states,
+        legacy_unrecorded_curves,
         precision,
         self_checked: false,
     })
@@ -1086,6 +1128,7 @@ mod tests {
                 curves_held: 1,
                 omitted: Vec::new(),
                 curve_states: Vec::new(),
+                legacy_unrecorded_curves: 0,
                 precision: crate::parsers::SamplePrecisionReport::new(
                     "f32 storage",
                     "fixed-decimal-4 LAS text",
@@ -1139,6 +1182,7 @@ mod tests {
                 curves_held: 1,
                 omitted: Vec::new(),
                 curve_states: Vec::new(),
+                legacy_unrecorded_curves: 0,
                 precision: crate::parsers::SamplePrecisionReport::new(
                     "f32 storage",
                     "fixed-decimal-4 LAS text",
@@ -1228,6 +1272,82 @@ mod tests {
             .filter_map(|line| line.trim().strip_prefix(prefix))
             .map(|json| serde_json::from_str(json).expect("provenance line must be JSON"))
             .collect()
+    }
+
+    /// SB-DBM-001 / SB-DBM-T03. CORRECTNESS: the expected classes and counts come from
+    /// `docs/PRD_v2/22_database-model.md` sections 4.A and 6.2. The recorded and legacy sides
+    /// are both required: an unconditional "legacy" label and a resolver that silently drops
+    /// NULL `set_id` rows would each satisfy only one side.
+    #[test]
+    fn every_computed_value_resolves_to_one_run_or_is_counted_and_labelled_legacy_unrecorded() {
+        let conn = Connection::open_in_memory().unwrap();
+        let (id, depth, _) = seed(&conn);
+        let well_id = id.to_string();
+        conn.execute(
+            "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+             VALUES (?1, ?2, 'LEGACY_PHIE', 0.17, NULL),
+                    (?1, ?3, 'LEGACY_PHIE', 0.19, NULL)",
+            params![well_id, depth[0], depth[1]],
+        )
+        .unwrap();
+
+        let catalog = serde_json::to_value(
+            crate::equations::list_computed_catalog(&conn, &well_id).unwrap(),
+        )
+        .unwrap();
+        let catalog = catalog.as_array().unwrap();
+        let recorded = catalog
+            .iter()
+            .find(|row| row["curve_name"] == "Vsh_final")
+            .expect("the current computed curve must remain catalogued");
+        assert_eq!(recorded["provenance_class"], "RECORDED");
+        assert_eq!(recorded["provenance_row_count"], depth.len());
+        assert!(recorded["ancestry"].is_object());
+        let legacy = catalog
+            .iter()
+            .find(|row| row["curve_name"] == "LEGACY_PHIE")
+            .expect("a legacy curve must not disappear from the catalog");
+        assert_eq!(legacy["provenance_class"], "LEGACY_UNRECORDED");
+        assert_eq!(legacy["provenance_row_count"], 2);
+        assert!(legacy["ancestry"].is_null());
+
+        let disclosures = serde_json::to_value(
+            crate::equations::curve_ancestry_disclosures(&conn, &[well_id.clone()], None)
+                .unwrap(),
+        )
+        .unwrap();
+        let disclosures = disclosures.as_array().unwrap();
+        assert!(disclosures.iter().any(|row| {
+            row["curve_name"] == "Vsh_final"
+                && row["provenance_class"] == "RECORDED"
+                && row["provenance_row_count"] == depth.len()
+        }));
+        assert!(disclosures.iter().any(|row| {
+            row["curve_name"] == "LEGACY_PHIE"
+                && row["provenance_class"] == "LEGACY_UNRECORDED"
+                && row["provenance_row_count"] == 2
+                && row["ancestry"].is_null()
+        }));
+
+        let dest = tmp_path("legacy-unrecorded");
+        let result = export_las(&conn, &well_id, dest.to_str().unwrap())
+            .expect("legacy computed values remain exportable only with an explicit label");
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        let _ = std::fs::remove_file(&dest);
+        let provenance = prefixed_json(&text, PROVENANCE_PREFIX);
+        let legacy_line = provenance
+            .iter()
+            .find(|row| row["curve"] == "LEGACY_PHIE")
+            .expect("the exported legacy curve needs an in-file provenance line");
+        assert_eq!(legacy_line["origin"], "computed");
+        assert_eq!(legacy_line["provenance_class"], "LEGACY_UNRECORDED");
+        assert_eq!(legacy_line["row_count"], 2);
+        assert!(legacy_line.get("method").is_none());
+        assert!(legacy_line.get("parameters").is_none());
+        assert_eq!(result.legacy_unrecorded_curves, 1);
+        let summary = prefixed_json(&text, "SANDIBUMI_PROVENANCE_SUMMARY_V1 ");
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0]["legacy_unrecorded_curves"], 1);
     }
 
     /// SB-DIO-051 / SB-DIO-T71..T73. Required fields are specified in
@@ -1350,8 +1470,9 @@ mod tests {
         let artifact_hash = model["record"]["artifact_sha256"].as_str().unwrap();
         assert_eq!(artifact_hash.len(), 64, "the fitted artifact has its own SHA-256 identity");
 
-        // The refusal side: a legacy/unversioned computed curve cannot be relabelled as measured
-        // or exported with invented ancestry merely to make the file complete.
+        // SB-DBM-001 deliberately strengthens the legacy side: an unversioned computed curve must
+        // not be relabelled as measured or receive invented ancestry, but it remains exportable
+        // under the explicit LEGACY_UNRECORDED class and exact row count.
         let mut appender = conn.appender("computed_curves").unwrap();
         for (sample_depth,
             value) in depth.iter().zip(predicted.iter()) {
@@ -1366,11 +1487,21 @@ mod tests {
         }
         appender.flush()
         .unwrap();
-        let refused_dest = tmp_path("missing-provenance");
-        let _ = std::fs::remove_file(&refused_dest);
-        let refused = export_las(&conn, &well_id, refused_dest.to_str().unwrap()).unwrap_err();
-        assert!(refused.contains("no single live ancestry record"), "{refused}");
-        assert!(!refused_dest.exists(), "a refused export must not leave a partial file");
+        let legacy_dest = tmp_path("missing-provenance");
+        let _ = std::fs::remove_file(&legacy_dest);
+        let result = export_las(&conn, &well_id, legacy_dest.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&legacy_dest).unwrap();
+        let _ = std::fs::remove_file(&legacy_dest);
+        let rows = prefixed_json(&text, PROVENANCE_PREFIX);
+        let legacy = rows
+            .iter()
+            .find(|row| row["curve"] == "LEGACY_NO_PROVENANCE")
+            .expect("legacy computed curve needs an in-file provenance record");
+        assert_eq!(legacy["origin"], "computed");
+        assert_eq!(legacy["provenance_class"], crate::equations::LEGACY_UNRECORDED);
+        assert_eq!(legacy["row_count"], depth.len());
+        assert!(legacy.get("method").is_none(), "legacy ancestry must never be invented");
+        assert_eq!(result.legacy_unrecorded_curves, 1);
     }
 
     /// SB-DIO-052 / T74. `curve_meta` declares FINAL as QC'd for delivery and RAW as

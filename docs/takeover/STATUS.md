@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `20 / 222 handled — 15 DONE, 5 BLOCKED, 202 remaining`
+- Gate 2 requirement progress: `21 / 222 handled — 16 DONE, 5 BLOCKED, 201 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T02 / SB-INS-019 - DONE; one reviewed versioned registry generates equal Rust runtime, LAS import UI, documentation and test populations, and release validation refuses output drift or dimension disagreement`
+- Active increment: `G2-T03 / SB-DBM-001 - DONE; every computed row is classified through its run-record join, and legacy rows remain visible as counted LEGACY_UNRECORDED data in catalogs, disclosures and LAS export`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-INS-019 T24 compares every generated family/unit in four consumers and proves both stale-output and dimension-mismatch refusal; existing Rust unit contracts remain green; full gate 986 passed / 0 failed / 36 ignored`
+- Automated gate: `SB-DBM-T03 pins recorded and seeded legacy rows from both sides through resolver, catalog, general disclosure, LAS file and export summary; production-writer inventory and existing provenance tests remain green; full gate 987 passed / 0 failed / 36 ignored`
 - Pilot field evidence: `OPEN`
-- Open blockers: `202 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `After committing SB-INS-019, start G2-T03 project-store custody with SB-DBM-001 and preserve the one-writer, reversible-history and no-upsert boundaries.`
+- Open blockers: `201 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `After committing SB-DBM-001, adjudicate SB-DBM-002 against the deliberately absent MODULE_VERSION_SOURCE; do not substitute a hand-maintained version or guessed hash policy.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 35 implement-or-refuse / 113 remediate / 18 prove / 56 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 35 implement-or-refuse / 112 remediate / 18 prove / 57 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
@@ -35,7 +35,7 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `114` present-OK, `24` present-unverified, `168` present-divergent, `173` partial,
+- As-built states: `115` present-OK, `24` present-unverified, `168` present-divergent, `172` partial,
   `400` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
@@ -55,9 +55,9 @@ Do not replace it with an estimated percentage.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `49` pilot blockers and `14` deferred; `42`
   correctness-tested and `21` missing qualifying owned proof.
-- SB-DBM: `43/43` adjudicated - `1` present-OK, `3` present-unverified, `11` present-divergent,
-  `13` partial and `15` absent; `30` pilot blockers and `13` deferred; `1`
-  optional-package proof and `42` missing qualifying whole-contract proofs.
+- SB-DBM: `43/43` adjudicated - `2` present-OK, `3` present-unverified, `11` present-divergent,
+  `12` partial and `15` absent; `30` pilot blockers and `13` deferred; `1` correctness proof, `1`
+  optional-package proof and `41` missing qualifying whole-contract proofs.
 - SB-PLT: `35/35` adjudicated - `4` present-unverified, `10` present-divergent, `14` partial and
   `7` absent; `18` pilot blockers and `17` deferred; `6` characterization tests and
   `29` missing qualifying whole-contract proofs.
@@ -157,6 +157,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G2-T03 SB-DBM-001 — recorded versus legacy computed provenance | DONE; REVIEW REQUIRED | one resolver classifies every current computed row through its actual run-record join; T03 pins recorded and seeded legacy rows through catalog, general disclosure, LAS `~O` and export summary; legacy data remains exportable only as counted `LEGACY_UNRECORDED`, production writers stay ancestry-complete, and no PK/upsert was added; full gate 987 passed / 0 failed / 36 ignored | current topic-branch worktree |
 | G2-T02 SB-INS-019 — generated canonical curve/unit registry | DONE; REVIEW REQUIRED | one reviewed version/digest generates 15-family and 42-unit Rust, LAS import UI, Markdown and test-manifest populations; T24 compares every row and proves output drift plus dimension disagreement fail the release gate; no vocabulary, factor or default changed; full gate 986 passed / 0 failed / 36 ignored | current topic-branch worktree |
 | G2-T02 SB-INS-018 — explicit missing-unit state | DONE; REVIEW REQUIRED | T23 sends absent, empty, placeholder and empty-to-empty fixtures through one serialized missing-unit state, proves storage receives no placeholder and zero mapping rows register, while a valid same-kind row still registers; full gate 985 passed / 0 failed / 36 ignored; typed IPC is automated evidence, not a visual claim | current topic-branch worktree |
 | G2-T02 SB-INS-016 — startup-enforced typed unit registry | DONE; REVIEW REQUIRED | Tauri startup now refuses an invalid shipping registry before runtime construction; T19 preserves recognised cross-kind refusal before arithmetic, T20 pins startup plus independently derived same-kind conversions and NaN custody; no token/factor/default changed; warning inventory drops honestly from 56 to 55; full gate 983 passed / 0 failed / 36 ignored | current topic-branch worktree |

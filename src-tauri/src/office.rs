@@ -249,10 +249,17 @@ fn ancestry_sheet(
             .find(|(id, _)| id == &disclosure.well_id)
             .map(|(_, name)| name.as_str())
             .unwrap_or(&disclosure.well_id);
-        let curve_set = format!(
-            "{} / {} v{}",
-            disclosure.curve_name, disclosure.set_name, disclosure.version
-        );
+        let curve_set = match (&disclosure.set_name, disclosure.version) {
+            (Some(set_name), Some(version)) => {
+                format!("{} / {} v{}", disclosure.curve_name, set_name, version)
+            }
+            _ => format!(
+                "{} / {} ({} rows)",
+                disclosure.curve_name,
+                crate::equations::LEGACY_UNRECORDED,
+                disclosure.provenance_row_count
+            ),
+        };
         for (label, value) in labels.iter().zip(disclosure.cells()) {
             sheet.rows.push(vec![
                 text(well),

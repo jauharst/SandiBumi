@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-001: legacy computed values stay visible and honest
+
+- [x] **Automated:** SB-DBM-T03 sends one ancestry-complete computed curve and one seeded legacy
+      curve through the shared resolver, Curve Catalog payload, number-carrying disclosure, LAS
+      `~O` record and export summary. It requires the first to be `RECORDED`, the second to be
+      `LEGACY_UNRECORDED` with its exact row count, and proves no method or parameters are invented.
+      The production-writer inventory and existing LAS provenance contract remain green; the full
+      gate passed 987 / 0 / 36 with the owned warning inventory unchanged at 55.
+- [ ] **Visual:** in a disposable project copy, delete the run-history version behind a current
+      computed curve, then reopen Curve Catalog. Confirm the row remains visible, its Set reads
+      `LEGACY_UNRECORDED`, the badge includes the row count, and Ancestry is disabled rather than
+      opening an empty or invented record.
+- [ ] **Manual:** export that disposable well to LAS. Confirm the result message names one
+      `LEGACY_UNRECORDED` curve and the file's `~Other Information` contains both the curve-level
+      class/count and the export summary. Confirm an ordinary recorded curve still names its real
+      log set, version, method and stored ancestry.
+- [ ] **Field:** open a legally controlled pre-versioning pilot project if one exists and inventory
+      every legacy computed curve before delivery. This test proves classification and transport;
+      it does not prove that an old project's history can be reconstructed, and the software must
+      never claim that it can.
+
 ## 2026-08-13 — G2 SB-INS-019: one generated curve and unit vocabulary
 
 - [x] **Automated:** SB-INS-T24 compares every one of the accepted 15 families and 42 unit tokens

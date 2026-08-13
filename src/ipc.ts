@@ -1069,9 +1069,11 @@ export interface CurveAncestry {
 export interface CurveAncestryDisclosure {
   well_id: string;
   curve_name: string;
-  set_name: string;
-  version: number;
-  ancestry: CurveAncestry;
+  provenance_class: "RECORDED" | "LEGACY_UNRECORDED";
+  provenance_row_count: number;
+  set_name: string | null;
+  version: number | null;
+  ancestry: CurveAncestry | null;
 }
 
 export interface ModuleRunResult {
@@ -1192,6 +1194,8 @@ export function deleteLogSet(setId: string): Promise<void> {
 /** Current computed curves of a well with provenance + basic statistics. */
 export interface ComputedCatalogEntry {
   curve_name: string;
+  provenance_class: "RECORDED" | "LEGACY_UNRECORDED";
+  provenance_row_count: number;
   set_name: string | null;
   version: number | null;
   module: string | null;
@@ -4421,6 +4425,7 @@ export interface LasExportResult {
   curves_held: number;
   omitted: LasOmission[];
   curve_states: LasCurveState[];
+  legacy_unrecorded_curves: number;
   precision: SamplePrecisionReport;
   /** Set only after SandiBumi's own LAS reader accepts the completed file. */
   self_checked: boolean;

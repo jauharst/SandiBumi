@@ -1713,7 +1713,7 @@ pub(crate) fn write_complete_own_frame(
     .map_err(|error| error.to_string())
 }
 
-fn parse_curve_ancestry(params_json: &str) -> Result<CurveAncestry, String> {
+pub(crate) fn parse_curve_ancestry(params_json: &str) -> Result<CurveAncestry, String> {
     let parameters: serde_json::Value = serde_json::from_str(params_json)
         .map_err(|error| format!("curve ancestry parameter JSON is invalid: {error}"))?;
     let record = parameters
@@ -1725,6 +1725,61 @@ fn parse_curve_ancestry(params_json: &str) -> Result<CurveAncestry, String> {
     Ok(ancestry)
 }
 
+pub(crate) const LEGACY_UNRECORDED: &str = "LEGACY_UNRECORDED";
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ComputedProvenanceClass {
+    Recorded,
+    LegacyUnrecorded,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ComputedProvenanceGroup {
+    pub curve_name: String,
+    pub set_id: Option<String>,
+    pub provenance_class: ComputedProvenanceClass,
+    pub row_count: i64,
+}
+
+/// Classifies every live computed row by its actual join to `log_sets`. A non-NULL UUID whose
+/// target record is missing is no more provenanced than a NULL UUID, so both enter the explicit
+/// legacy class. Grouping by set identity preserves the one-hop record for every valid row while
+/// retaining an exact count for every unrecorded group.
+pub(crate) fn computed_provenance_groups(
+    conn: &Connection,
+    well_id: &str,
+) -> Result<Vec<ComputedProvenanceGroup>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT cc.curve_name, CAST(s.set_id AS VARCHAR),
+                    s.set_id IS NOT NULL,
+                    COUNT(*)
+             FROM computed_curves cc
+             LEFT JOIN log_sets s ON s.set_id = cc.set_id
+             WHERE cc.well_id = ?1
+             GROUP BY cc.curve_name, s.set_id
+             ORDER BY upper(cc.curve_name), s.set_id NULLS FIRST",
+        )
+        .map_err(|error| error.to_string())?;
+    stmt.query_map(params![well_id], |row| {
+        let recorded = row.get::<_, bool>(2)?;
+        Ok(ComputedProvenanceGroup {
+            curve_name: row.get(0)?,
+            set_id: if recorded { row.get(1)? } else { None },
+            provenance_class: if recorded {
+                ComputedProvenanceClass::Recorded
+            } else {
+                ComputedProvenanceClass::LegacyUnrecorded
+            },
+            row_count: row.get(3)?,
+        })
+    })
+    .map_err(|error| error.to_string())?
+    .collect::<duckdb::Result<Vec<_>>>()
+    .map_err(|error| error.to_string())
+}
+
 /// Resolves the one live record attached to a computed curve. Multiple or NULL set identities are
 /// refused rather than selecting whichever row DuckDB happens to return first.
 pub(crate) fn curve_ancestry(
@@ -1732,23 +1787,16 @@ pub(crate) fn curve_ancestry(
     well_id: &str,
     curve_name: &str,
 ) -> Result<CurveAncestry, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT DISTINCT CAST(set_id AS VARCHAR) FROM computed_curves
-             WHERE well_id = ?1 AND upper(curve_name) = upper(?2)",
-        )
-        .map_err(|error| error.to_string())?;
-    let ids: Vec<Option<String>> = stmt
-        .query_map(params![well_id, curve_name], |row| row.get(0))
-        .map_err(|error| error.to_string())?
-        .collect::<duckdb::Result<_>>()
-        .map_err(|error| error.to_string())?;
-    if ids.len() != 1 || ids[0].is_none() {
+    let groups = computed_provenance_groups(conn, well_id)?
+        .into_iter()
+        .filter(|group| group.curve_name.eq_ignore_ascii_case(curve_name))
+        .collect::<Vec<_>>();
+    if groups.len() != 1 || groups[0].provenance_class != ComputedProvenanceClass::Recorded {
         return Err(format!(
             "computed curve '{curve_name}' has no single live ancestry record"
         ));
     }
-    let set_id = ids[0].as_deref().expect("checked above");
+    let set_id = groups[0].set_id.as_deref().expect("recorded groups carry a set id");
     let params_json: Option<String> = conn
         .query_row(
             "SELECT params_json FROM log_sets WHERE set_id = ?1",
@@ -1769,9 +1817,11 @@ pub(crate) fn curve_ancestry(
 pub struct CurveAncestryDisclosure {
     pub well_id: String,
     pub curve_name: String,
-    pub set_name: String,
-    pub version: i64,
-    pub ancestry: CurveAncestry,
+    pub provenance_class: ComputedProvenanceClass,
+    pub provenance_row_count: i64,
+    pub set_name: Option<String>,
+    pub version: Option<i64>,
+    pub ancestry: Option<CurveAncestry>,
 }
 
 impl CurveAncestryDisclosure {
@@ -1779,8 +1829,22 @@ impl CurveAncestryDisclosure {
     /// summarized away: an input's well/set identity, a value's source, and a zone's source all
     /// remain in the exported text.
     pub(crate) fn cells(&self) -> [String; 7] {
-        let inputs = self
-            .ancestry
+        let Some(ancestry) = self.ancestry.as_ref() else {
+            let label = format!(
+                "{} / {} ({} rows)",
+                self.curve_name, LEGACY_UNRECORDED, self.provenance_row_count
+            );
+            return [
+                label,
+                LEGACY_UNRECORDED.into(),
+                "UNAVAILABLE — LEGACY_UNRECORDED".into(),
+                "UNAVAILABLE — LEGACY_UNRECORDED".into(),
+                "UNAVAILABLE — LEGACY_UNRECORDED".into(),
+                "UNAVAILABLE — LEGACY_UNRECORDED".into(),
+                "UNAVAILABLE — LEGACY_UNRECORDED".into(),
+            ];
+        };
+        let inputs = ancestry
             .inputs
             .iter()
             .map(|input| {
@@ -1799,8 +1863,7 @@ impl CurveAncestryDisclosure {
             })
             .collect::<Vec<_>>()
             .join("; ");
-        let parameters = self
-            .ancestry
+        let parameters = ancestry
             .parameters
             .iter()
             .map(|parameter| {
@@ -1816,7 +1879,7 @@ impl CurveAncestryDisclosure {
             })
             .collect::<Vec<_>>()
             .join("; ");
-        let zones = match &self.ancestry.zone_scope {
+        let zones = match &ancestry.zone_scope {
             AncestryZoneScope::WholeWell => "WHOLE WELL".to_string(),
             AncestryZoneScope::Defined(zones) => zones
                 .iter()
@@ -1829,33 +1892,36 @@ impl CurveAncestryDisclosure {
                 .collect::<Vec<_>>()
                 .join("; "),
         };
-        let actor_kind = match self.ancestry.actor.kind {
+        let actor_kind = match ancestry.actor.kind {
             AncestryActorKind::Human => "HUMAN",
             AncestryActorKind::Automated => "AUTOMATED",
         };
         let custody = format!(
             "{} {} at {} UTC-ms",
-            actor_kind, self.ancestry.actor.identity, self.ancestry.timestamp_utc_ms
+            actor_kind, ancestry.actor.identity, ancestry.timestamp_utc_ms
         );
-        let derivation = self
-            .ancestry
+        let derivation = ancestry
             .outputs
             .iter()
             .find(|output| output.curve.eq_ignore_ascii_case(&self.curve_name))
             .map(|output| output.derivation.clone())
             .unwrap_or_else(|| {
-                self.ancestry
-                    .outputs
+                ancestry.outputs
                     .iter()
                     .map(|output| format!("{}={}", output.curve, output.derivation))
                     .collect::<Vec<_>>()
                     .join("; ")
             });
         [
-            format!("{} / {} v{}", self.curve_name, self.set_name, self.version),
+            format!(
+                "{} / {} v{}",
+                self.curve_name,
+                self.set_name.as_deref().expect("recorded disclosure has a set name"),
+                self.version.expect("recorded disclosure has a version")
+            ),
             format!(
                 "{} @ {}",
-                self.ancestry.module, self.ancestry.module_version
+                ancestry.module, ancestry.module_version
             ),
             if inputs.is_empty() {
                 "NO CURVE INPUTS".into()
@@ -1874,92 +1940,103 @@ impl CurveAncestryDisclosure {
     }
 }
 
-/// Returns complete ancestry for every current computed curve in `well_ids`. When a deliverable
-/// names an input set, its latest version is included too because those archived values may replace
-/// current values while rendering. Any incomplete legacy record refuses the disclosure instead of
-/// being relabelled as measured or silently omitted.
+fn push_recorded_disclosures(
+    disclosures: &mut Vec<CurveAncestryDisclosure>,
+    seen: &mut std::collections::BTreeSet<(String, String, String)>,
+    well_id: &str,
+    set_id: String,
+    set_name: String,
+    version: i64,
+    params_json: Option<String>,
+    curves: Vec<(String, i64)>,
+) -> Result<(), String> {
+    let ancestry = parse_curve_ancestry(params_json.as_deref().unwrap_or_default()).map_err(|error| {
+        format!(
+            "computed set '{set_name}' v{version} for well '{well_id}' cannot travel into a deliverable: {error}"
+        )
+    })?;
+    for (curve_name, row_count) in curves {
+        let key = (
+            well_id.to_string(),
+            curve_name.to_uppercase(),
+            set_id.clone(),
+        );
+        if !seen.insert(key) {
+            continue;
+        }
+        if !ancestry
+            .outputs
+            .iter()
+            .any(|output| output.curve.eq_ignore_ascii_case(&curve_name))
+        {
+            return Err(format!(
+                "computed curve '{curve_name}' is absent from its set ancestry output derivations"
+            ));
+        }
+        disclosures.push(CurveAncestryDisclosure {
+            well_id: well_id.to_string(),
+            curve_name,
+            provenance_class: ComputedProvenanceClass::Recorded,
+            provenance_row_count: row_count,
+            set_name: Some(set_name.clone()),
+            version: Some(version),
+            ancestry: Some(ancestry.clone()),
+        });
+    }
+    Ok(())
+}
+
+/// Returns an explicit provenance disclosure for every current computed row in `well_ids`. When a
+/// deliverable names an input set, its latest version is included too because those archived values
+/// may replace current values while rendering. Rows with no resolvable run record remain visible as
+/// `LEGACY_UNRECORDED` with an exact count; no ancestry is inferred for them.
 pub(crate) fn curve_ancestry_disclosures(
     conn: &Connection,
     well_ids: &[String],
     input_set: Option<&str>,
 ) -> Result<Vec<CurveAncestryDisclosure>, String> {
     let mut disclosures = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
-
-    let mut add_set = |well_id: &str,
-                       set_id: String,
-                       set_name: String,
-                       version: i64,
-                       params_json: Option<String>,
-                       curve_names: Vec<String>|
-     -> Result<(), String> {
-        let ancestry = parse_curve_ancestry(params_json.as_deref().unwrap_or_default()).map_err(|error| {
-            format!("computed set '{set_name}' v{version} for well '{well_id}' cannot travel into a deliverable: {error}")
-        })?;
-        for curve_name in curve_names {
-            let key = (
-                well_id.to_string(),
-                curve_name.to_uppercase(),
-                set_id.clone(),
-            );
-            if seen.insert(key) {
-                if !ancestry
-                    .outputs
-                    .iter()
-                    .any(|output| output.curve.eq_ignore_ascii_case(&curve_name))
-                {
-                    return Err(format!(
-                        "computed curve '{curve_name}' is absent from its set ancestry output derivations"
-                    ));
-                }
-                disclosures.push(CurveAncestryDisclosure {
-                    well_id: well_id.to_string(),
-                    curve_name,
-                    set_name: set_name.clone(),
-                    version,
-                    ancestry: ancestry.clone(),
-                });
-            }
-        }
-        Ok(())
-    };
+    let mut seen = std::collections::BTreeSet::<(String, String, String)>::new();
 
     for well_id in well_ids {
-        let mut stmt = conn
-            .prepare(
-                "SELECT s.set_id, s.set_name, s.version, s.params_json, cc.curve_name
-                 FROM computed_curves cc
-                 JOIN log_sets s ON s.set_id = cc.set_id
-                 WHERE cc.well_id = ?1
-                 GROUP BY s.set_id, s.set_name, s.version, s.params_json, cc.curve_name
-                 ORDER BY cc.curve_name, s.set_name, s.version",
-            )
-            .map_err(|error| error.to_string())?;
-        let rows = stmt
-            .query_map(params![well_id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })
-            .map_err(|error| error.to_string())?;
-        let mut by_set: std::collections::BTreeMap<
-            (String, String, i64, Option<String>),
-            Vec<String>,
-        > = std::collections::BTreeMap::new();
-        for row in rows {
-            let (set_id, set_name, version, params_json, curve_name) =
-                row.map_err(|error| error.to_string())?;
-            by_set
-                .entry((set_id, set_name, version, params_json))
-                .or_default()
-                .push(curve_name);
-        }
-        for ((set_id, set_name, version, params_json), curves) in by_set {
-            add_set(well_id, set_id, set_name, version, params_json, curves)?;
+        for group in computed_provenance_groups(conn, well_id)? {
+            if group.provenance_class == ComputedProvenanceClass::LegacyUnrecorded {
+                let key = (
+                    well_id.clone(),
+                    group.curve_name.to_uppercase(),
+                    LEGACY_UNRECORDED.to_string(),
+                );
+                if seen.insert(key) {
+                    disclosures.push(CurveAncestryDisclosure {
+                        well_id: well_id.clone(),
+                        curve_name: group.curve_name,
+                        provenance_class: ComputedProvenanceClass::LegacyUnrecorded,
+                        provenance_row_count: group.row_count,
+                        set_name: None,
+                        version: None,
+                        ancestry: None,
+                    });
+                }
+                continue;
+            }
+            let set_id = group.set_id.expect("recorded groups carry a set id");
+            let (set_name, version, params_json): (String, i64, Option<String>) = conn
+                .query_row(
+                    "SELECT set_name, version, params_json FROM log_sets WHERE set_id = ?1",
+                    params![set_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| error.to_string())?;
+            push_recorded_disclosures(
+                &mut disclosures,
+                &mut seen,
+                well_id,
+                set_id,
+                set_name,
+                version,
+                params_json,
+                vec![(group.curve_name, group.row_count)],
+            )?;
         }
 
         if let Some(input_set) = input_set.map(str::trim).filter(|value| !value.is_empty()) {
@@ -1976,25 +2053,36 @@ pub(crate) fn curve_ancestry_disclosures(
             if let Some((set_id, set_name, version, params_json)) = selected {
                 let mut stmt = conn
                     .prepare(
-                        "SELECT DISTINCT curve_name FROM computed_curves_archive
-                         WHERE set_id = ?1 ORDER BY curve_name",
+                        "SELECT curve_name, COUNT(*) FROM computed_curves_archive
+                         WHERE set_id = ?1 GROUP BY curve_name ORDER BY curve_name",
                     )
                     .map_err(|error| error.to_string())?;
                 let curves = stmt
-                    .query_map(params![set_id], |row| row.get::<_, String>(0))
+                    .query_map(params![set_id], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                    })
                     .map_err(|error| error.to_string())?
                     .collect::<duckdb::Result<Vec<_>>>()
                     .map_err(|error| error.to_string())?;
-                add_set(well_id, set_id, set_name, version, params_json, curves)?;
+                push_recorded_disclosures(
+                    &mut disclosures,
+                    &mut seen,
+                    well_id,
+                    set_id,
+                    set_name,
+                    version,
+                    params_json,
+                    curves,
+                )?;
             }
         }
     }
     disclosures.sort_by(|a, b| {
-        (&a.well_id, &a.curve_name, &a.set_name, a.version).cmp(&(
+        (&a.well_id, &a.curve_name, &a.set_name, &a.version).cmp(&(
             &b.well_id,
             &b.curve_name,
             &b.set_name,
-            b.version,
+            &b.version,
         ))
     });
     Ok(disclosures)
@@ -2424,6 +2512,8 @@ pub(crate) fn delete_log_set(conn: &Connection, set_id: &str) -> duckdb::Result<
 #[derive(Debug, Clone, Serialize)]
 pub struct ComputedCatalogEntry {
     pub curve_name: String,
+    pub provenance_class: ComputedProvenanceClass,
+    pub provenance_row_count: i64,
     pub set_name: Option<String>,
     pub version: Option<i64>,
     pub module: Option<String>,
@@ -2438,7 +2528,10 @@ pub struct ComputedCatalogEntry {
 
 pub(crate) fn list_computed_catalog(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<ComputedCatalogEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT cc.curve_name, s.set_name, s.version, s.module,
+        "SELECT cc.curve_name,
+                CASE WHEN s.set_id IS NOT NULL THEN 'RECORDED'
+                     ELSE 'LEGACY_UNRECORDED' END,
+                COUNT(*), s.set_name, s.version, s.module,
                 strftime(s.created_at, '%Y-%m-%d %H:%M'),
                 COUNT(*) FILTER (WHERE NOT isnan(cc.value)),
                 MIN(cc.value) FILTER (WHERE NOT isnan(cc.value)),
@@ -2448,25 +2541,35 @@ pub(crate) fn list_computed_catalog(conn: &Connection, well_id: &str) -> duckdb:
          FROM computed_curves cc
          LEFT JOIN log_sets s ON s.set_id = cc.set_id
          WHERE cc.well_id = ?1
-         GROUP BY cc.curve_name, s.set_name, s.version, s.module, s.created_at, s.params_json
-         ORDER BY cc.curve_name",
+         GROUP BY cc.curve_name, s.set_id, s.set_name, s.version, s.module,
+                  s.created_at, s.params_json
+         ORDER BY cc.curve_name, s.set_id NULLS FIRST",
     )?;
     let rows = stmt.query_map(params![well_id], |r| {
-        let params_json: Option<String> = r.get(9)?;
+        let provenance_class = match r.get::<_, String>(1)?.as_str() {
+            "RECORDED" => ComputedProvenanceClass::Recorded,
+            _ => ComputedProvenanceClass::LegacyUnrecorded,
+        };
+        let params_json: Option<String> = r.get(11)?;
         Ok(ComputedCatalogEntry {
             curve_name: r.get(0)?,
-            set_name: r.get(1)?,
-            version: r.get(2)?,
-            module: r.get(3)?,
-            created_at: r.get(4)?,
-            n_samples: r.get(5)?,
-            min: r.get(6)?,
-            max: r.get(7)?,
-            mean: r.get(8)?
-        ,
-            ancestry: params_json
-                .as_deref()
-                .and_then(|text| parse_curve_ancestry(text).ok()),
+            provenance_class,
+            provenance_row_count: r.get(2)?,
+            set_name: r.get(3)?,
+            version: r.get(4)?,
+            module: r.get(5)?,
+            created_at: r.get(6)?,
+            n_samples: r.get(7)?,
+            min: r.get(8)?,
+            max: r.get(9)?,
+            mean: r.get(10)?,
+            ancestry: if provenance_class == ComputedProvenanceClass::Recorded {
+                params_json
+                    .as_deref()
+                    .and_then(|text| parse_curve_ancestry(text).ok())
+            } else {
+                None
+            },
         })
     })?;
     let mut entries = Vec::new();

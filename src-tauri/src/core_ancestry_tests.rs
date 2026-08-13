@@ -182,9 +182,9 @@ fn every_computed_curve_written_by_any_module_has_a_complete_ancestry_record() {
         "one live computed curve must disclose one ancestry record"
     );
     assert_eq!(disclosures[0].curve_name, "OUTPUT");
-    assert_eq!(disclosures[0].set_name, "VALIDATION");
-    assert_eq!(disclosures[0].version, 1);
-    assert_eq!(disclosures[0].ancestry, complete_record());
+    assert_eq!(disclosures[0].set_name.as_deref(), Some("VALIDATION"));
+    assert_eq!(disclosures[0].version, Some(1));
+    assert_eq!(disclosures[0].ancestry, Some(complete_record()));
     let las_path =
         std::env::temp_dir().join(format!("sandibumi-ancestry-{}.las", std::process::id()));
     let _ = std::fs::remove_file(&las_path);

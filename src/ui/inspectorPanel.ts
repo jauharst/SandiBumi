@@ -480,6 +480,8 @@ export class InspectorPanel {
       // standard column → computed → generic). Neutralises the promote lie for those cases.
       overriddenBy: "log" | "computed" | null;
       ancestry: CurveAncestry | null;
+      provenanceClass: "RECORDED" | "LEGACY_UNRECORDED" | null;
+      provenanceRowCount: number | null;
     };
 
     // Detect same-mnemonic shadowing within the generic store (a DLIS import can collide with a
@@ -551,6 +553,8 @@ export class InspectorPanel {
           winner: collision && winnerId.get(gk) === e.curve_id,
           overriddenBy: overrideFor(e.set_name, mnemUpper),
           ancestry: null,
+          provenanceClass: null,
+          provenanceRowCount: null,
         };
       }),
       ...this.computedEntries.map((e) => ({
@@ -558,7 +562,7 @@ export class InspectorPanel {
         runNo: null,
         unit: "",
         family: "",
-        set: e.set_name ?? "—",
+        set: e.set_name ?? "LEGACY_UNRECORDED",
         ver: e.version,
         source: e.module ?? "",
           when: e.created_at ?? "",
@@ -574,6 +578,8 @@ export class InspectorPanel {
         winner: false,
         overriddenBy: null,
         ancestry: e.ancestry,
+        provenanceClass: e.provenance_class,
+        provenanceRowCount: e.provenance_row_count,
       })),
     ];
 
@@ -607,7 +613,9 @@ export class InspectorPanel {
           ? ` <span class="catalog-badge muted" title="a computed curve of this name resolves before the RAW store">served by computed</span>`
           : "";
     const badges = (r: Row) =>
-      r.overriddenBy != null
+      r.provenanceClass === "LEGACY_UNRECORDED"
+        ? ` <span class="catalog-badge shadow" title="${r.provenanceRowCount ?? 0} stored row(s) have no resolvable run record">LEGACY_UNRECORDED · ${r.provenanceRowCount ?? 0} rows</span>`
+        : r.overriddenBy != null
         ? overrideNote(r)
         : (r.collision
             ? r.winner
