@@ -973,6 +973,23 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
     Ok(())
 }
 
+/// Records that a newly imported well already has its standard projection represented in the
+/// native generic store. A current LAS import writes both views from the same decoded columns in
+/// one outer transaction, so running the legacy backfill on the next open would create duplicate
+/// RAW identities with fresh UUIDs and make otherwise identical project copies cite different
+/// input ancestry. This marker belongs in that same import transaction: a failed native write must
+/// not suppress the legacy repair on the next open.
+pub(crate) fn mark_standard_curve_migration_done(
+    conn: &Connection,
+    well_id: &str,
+) -> DbResult<()> {
+    conn.execute(
+        "INSERT INTO curve_migration_done (well_id) VALUES (?1) ON CONFLICT DO NOTHING",
+        params![well_id],
+    )?;
+    Ok(())
+}
+
 /// RELEASE.md §3.2 (requirement R-B): before a migration that rewrites or drops data, copy
 /// the project file beside itself as `<name>.pre-<FORMAT_VERSION>-backup.duckdb`. Purely
 /// additive migrations are exempt — a backup on every open would bury the one that matters.

@@ -5,6 +5,8 @@ mod contacts;
 #[cfg(test)]
 mod core_ancestry_tests;
 #[cfg(test)]
+mod core_determinism_tests;
+#[cfg(test)]
 mod core_reporting_tests;
 mod coreimage;
 mod curve_edit;

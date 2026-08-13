@@ -595,6 +595,11 @@ fn insert_parsed_well(
             &set,
             &prepared.curves,
         )?;
+        // This delivery populated both the standard projection and the native generic store from
+        // the same decoded columns in this transaction. Mark the legacy backfill complete now;
+        // otherwise the next open adds random duplicate RAW identities and breaks reproducible
+        // ancestry across copied projects.
+        db::mark_standard_curve_migration_done(conn, &well_id.to_string())?;
         if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
             crate::units::set_project_depth_unit(conn, unit)?;
         }

@@ -22,6 +22,7 @@
 "SB-CORE-006","CORRECTNESS","src-tauri/src/modules.rs","every_saturation_method_surface_resolves_to_the_same_equation_identifier"
 "SB-CORE-010","CORRECTNESS","src-tauri/src/core_ancestry_tests.rs","every_computed_curve_written_by_any_module_has_a_complete_ancestry_record"
 "SB-CORE-010","CORRECTNESS","src-tauri/src/core_ancestry_tests.rs","a_complete_ancestry_record_round_trips_through_project_save_and_load"
+"SB-CORE-011","CORRECTNESS","src-tauri/src/core_determinism_tests.rs","a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blobs_and_an_identical_pay_summary"
 "SB-CORE-015","CORRECTNESS","src-tauri/src/export.rs","an_exported_las_reimports_with_the_same_values"
 "SB-CORE-015","CORRECTNESS","src-tauri/src/export.rs","every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error"
 "SB-CORE-015","CORRECTNESS","src-tauri/src/export.rs","the_las_writer_declares_the_unit_it_wrote_for_both_feet_and_metres"

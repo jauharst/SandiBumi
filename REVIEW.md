@@ -7,6 +7,24 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-011: the recorded project re-run is byte-identical
+
+- [x] **Automated:** the active T16 imports a repository-controlled two-well LAS2 delivery, copies
+      that raw project into isolated databases, and runs the same DEC-003 representative VSH →
+      porosity → saturation → pay-summary chain. It requires exact bytemuck-packed depth/value
+      bytes, exact serialized pay-summary bytes and identical scientifically material ancestry;
+      a third run with changed recorded `Rw` must change both outputs. The initial RED run found
+      that reopening a modern import invoked a legacy backfill and generated fresh duplicate RAW
+      identities. Modern import now records completion atomically with its native generic writes,
+      so identical project copies cite identical inputs. Full gate: 980 passed / 0 failed /
+      36 ignored.
+- [ ] **Visual/manual:** use Save As on one representative project, replay the recorded chain in
+      both copies, inspect final-curve ancestry and compare the pay table/export. This is Jauhar's
+      review and is not inferred from the automated byte comparison.
+- [ ] **Field:** during Gate 4, retain a sanitized legally controlled two-well delivery, the exact
+      input/parameter record and both output receipts. No client, field, block, basin, operator,
+      well or project identity is stored in this automated fixture.
+
 ## 2026-08-13 — G2 SB-CORE-010: every computed curve carries complete ancestry
 
 - [x] **Automated:** every production computed-curve writer now requires a validated, per-well,

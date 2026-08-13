@@ -118,16 +118,16 @@
 
 ## SB-CORE-011 — A project re-runs byte-identically
 
-- **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-CORE-T16` as defined here.
+- **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-CORE-T16` as defined here. The shipped evidence now closes the chapter's recorded gap without changing the PRD.
 - **Atomic obligations:** rerun from raw import through pay summary produces byte-identical output blobs and identical provenance; every deliberate non-determinism is seeded and the seed recorded.
-- **Current source:** Monte Carlo and ML paths use deterministic seeds, several method tests pin deterministic behavior, and `training_fingerprint` identifies ML training matrices. The ignored `test_full_deterministic_chain` runs a real-data chain but does not compare full-project output bytes, provenance and pay summary across two independent reruns. No gate test implements T16's complete boundary.
-- **Qualifying acceptance tests:** none; test class is `MISSING`.
-- **Supporting tests:** deterministic module/seed tests and the ignored real-data chain prove narrower claims. The ignored chain needs optional local field fixtures and is not renamed into byte-identical proof.
+- **Current source:** `core_determinism_tests.rs` imports the same two-well LAS2 delivery once, copies the resulting raw project into isolated databases, and executes the DEC-003 representative deterministic chain through statistics-only pay summary. `ingest.rs` marks a modern import's already-populated native generic store inside the same transaction; `db.rs` therefore does not run the legacy projection backfill on reopen and generate fresh duplicate RAW identities. `CurveAncestry::same_computation` compares the scientifically material record while the test separately requires truthful non-zero event timestamps.
+- **Qualifying acceptance tests:** `a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blobs_and_an_identical_pay_summary` is `CORRECTNESS`: it requires exact bytemuck-packed depth/value bytes, exact serialized pay-summary bytes, identical scientifically material ancestry and real VSH/PHIE/SWE outputs across two isolated reruns. A third run changes recorded `Rw` and must move both curve and pay bytes, so an empty or length-only comparator cannot pass.
+- **Supporting tests:** deterministic module/seed tests and the ignored real-data chain prove narrower claims. The ignored chain still needs optional local field fixtures and is not counted as T16.
 - **Manual evidence:** `project-lifecycle` 3/24 is partial; `workflow` 0/23 and `processing-history` 0/7 are unexercised.
-- **Git evidence:** deterministic foundations are integrated at the accepted anchor; the complete rerun contract is unimplemented.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `SB-CORE-010` and `DEC-003` are prerequisites; the representative workflow/fixture has not been selected.
-- **Next action:** define the representative pilot chain, run it twice from raw import in isolated projects, and compare curve bytes, recorded provenance and pay-summary bytes while recording every seed.
+- **Git evidence:** implementation and T16 are integrated on the active Gate 2 branch pre-PR; the focused test and full repository gate are green.
+- **Verdict:** `PRESENT-OK`; `DONE`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the automated contract. DEC-003 supplies the representative chain; SB-CORE-010 supplies complete ancestry. Manual and field acceptance remain separate.
+- **Next action:** retain T16. In Gate 4, preserve a sanitized legally controlled delivery plus Jauhar's manual replay record; do not reinterpret that pending evidence as an automated defect.
 
 ## SB-CORE-012 — Named interpretation scenarios with A/B diff
 

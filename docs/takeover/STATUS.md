@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `8 / 222 handled — 5 DONE, 3 BLOCKED, 214 remaining`
+- Gate 2 requirement progress: `9 / 222 handled — 6 DONE, 3 BLOCKED, 213 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T01 / SB-CORE-010 - DONE; complete per-well computed-curve ancestry is enforced at every production writer, visible on demand, embedded in deliverables and preserved through Save As/reopen`
+- Active increment: `G2-T01 / SB-CORE-011 - DONE; the approved two-well raw-import-to-pay chain re-runs with byte-identical curve blobs, identical pay-summary bytes and identical scientifically material ancestry`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-CORE-010 is green at 979 passed / 0 failed / 36 ignored; universal T14 and Save As/reopen T15 are active; Rust retains the owned 56-warning inventory`
+- Automated gate: `SB-CORE-011 is green at 980 passed / 0 failed / 36 ignored; T16 is active and value-sensitive; Rust retains the owned 56-warning inventory`
 - Pilot field evidence: `OPEN`
-- Open blockers: `214 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Start G2-T01 / SB-CORE-011 from the verified SB-CORE-010 evidence boundary; the approved raw-import-to-pay workflow must re-run byte-identically with its record.`
+- Open blockers: `213 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Start G2-T01 / SB-CORE-013 from the verified SB-CORE-011 evidence boundary; SB-CORE-012 remains explicitly deferred outside the approved pilot scope.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 120 remediate / 19 prove / 47 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 119 remediate / 19 prove / 48 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
@@ -35,7 +35,7 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `103` present-OK, `24` present-unverified, `171` present-divergent, `180` partial,
+- As-built states: `104` present-OK, `24` present-unverified, `171` present-divergent, `179` partial,
   `401` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
@@ -49,9 +49,9 @@ Do not replace it with an estimated percentage.
   version under DEC-011 and risk-classed `LATER`; all remain as-built `UNADJUDICATED`, test class
   `MISSING-OR-UNCLASSIFIED`, commit state `UNVERIFIED`, with no last-reverified date. The preserved
   plan records `33` P0, `17` P1, `2` P2 and `73` test intentions, but was deliberately not executed.
-- SB-CORE: `25/25` adjudicated - `4` present-OK, `1` present-unverified, `4` present-divergent,
-  `11` partial and `5` absent; `17` pilot blockers and `8` deferred; `4` correctness proofs and
-  `21` missing qualifying whole-contract proofs.
+- SB-CORE: `25/25` adjudicated - `5` present-OK, `1` present-unverified, `4` present-divergent,
+  `10` partial and `5` absent; `17` pilot blockers and `8` deferred; `5` correctness proofs and
+  `20` missing qualifying whole-contract proofs.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `49` pilot blockers and `14` deferred; `42`
   correctness-tested and `21` missing qualifying owned proof.
