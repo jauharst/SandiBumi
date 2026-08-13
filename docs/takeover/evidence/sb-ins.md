@@ -37,9 +37,9 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 
 ## Live result
 
-- As built: 6 ABSENT, 12 PARTIAL, 4 PRESENT-OK, 3 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
+- As built: 6 ABSENT, 11 PARTIAL, 5 PRESENT-OK, 3 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
 - Release: 22 PILOT-BLOCKER, 4 UNDECIDED, 0 DEFERRED.
-- Test class: 4 CORRECTNESS, 3 CHARACTERIZATION, 19 MISSING qualifying whole-contract proofs.
+- Test class: 5 CORRECTNESS, 3 CHARACTERIZATION, 18 MISSING qualifying whole-contract proofs.
 - Risk: 13 DEPLOYMENT, 7 DATA-INTEGRITY, 2 RECOVERY, 4 SILENT-WRONGNESS.
 - Mechanically after this receipt: 879 adjudicated, 52 unadjudicated, 584 pilot blockers, 198 undecided, 149 deferred.
 
@@ -49,7 +49,7 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 2. The offline Python route is a product decision and a prose/schema contract. The signed pack, exact package lock, digests, zero-network capture, vulnerability review, and real probe results do not exist in the repository.
 3. The capability manifest covers six named features but not the complete Python-backed product surface. A test that expects those same six rows proves internal consistency, not completeness.
 4. “Re-probe” is text, not a user action. The support dialog exposes only Close, and the real capability messages do not all carry the helper's copyable command.
-5. Parameter-pack validation is production-orphaned. Its unit tests are useful, but no live capability calls the loader; an unreachable safe loader does not protect a customer run.
+5. Parameter-pack identity loading is now product-reachable through a backend-owned module schema; applying pack values to computation deliberately remains closed until the mismatch, typed-unit, observed-token, generated-registry and attestation/provenance contracts are complete.
 6. Raw encoding/unit evidence is not retained end to end. Global case folding currently makes `mV` and `mv` equivalent without an explicit alias, contrary to the specified observable-drift contract.
 7. The unit-registry validator is unused outside tests. A correct validator that is never enforced cannot block a bad release registry.
 8. The third-party generator reports unknown licences but exits successfully, says Python packages are not distributed, and records neither the chosen offline pack nor human legal approval. Its historical PRESENT-OK label is no longer defensible.
@@ -77,7 +77,7 @@ Each T01-T30 intention is routed once. Shared chapter ownership is shown in one 
 | SB-INS-T13 | SB-INS-011 | MISSING |
 | SB-INS-T14 | SB-INS-012, SB-INS-013 | MISSING |
 | SB-INS-T15 | SB-INS-013 | MISSING |
-| SB-INS-T16 | SB-INS-014 | MISSING |
+| SB-INS-T16 | SB-INS-014 | CORRECTNESS |
 | SB-INS-T17 | SB-INS-015 | MISSING |
 | SB-INS-T18 | SB-INS-015 | MISSING |
 | SB-INS-T19 | SB-INS-016 | CORRECTNESS |
@@ -93,7 +93,7 @@ Each T01-T30 intention is routed once. Shared chapter ownership is shown in one 
 | SB-INS-T29 | SB-INS-024 | MISSING |
 | SB-INS-T30 | SB-INS-025 | MISSING |
 
-The live requirement-level test total counts one class per requirement, not one per table row above: 4 correctness requirements, 3 characterization requirements, and 19 requirements missing a qualifying whole-contract proof. T05/T06 and T19/T20 remain two test intentions under one correctness-classified requirement.
+The live requirement-level test total counts one class per requirement, not one per table row above: 5 correctness requirements, 3 characterization requirements, and 18 requirements missing a qualifying whole-contract proof. T05/T06 and T19/T20 remain two test intentions under one correctness-classified requirement.
 
 ## Parameter, open-item, and source custody
 
@@ -290,15 +290,15 @@ Section 8 custody remains complete: 57 rows in §8.1, 15 rows in §8.2, 15 rows 
 ### SB-INS-014
 
 - Specified contract: Key parameters by semantic identifier and ordinal. Chapter test: SB-INS-T16.
-- Current implementation: `parameter_pack.rs` parses schema version, stable semantic ID, ordinal, and duplicate labels with unique keys. No production caller loads or activates a parameter pack.
-- Verdict: `PARTIAL`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
-- Automated evidence: `MISSING` at the whole-product contract — the direct loader test correctly pins duplicate-label identity, but an internal unreachable loader does not prove a run is protected.
+- Current implementation: `parameter_pack.rs` derives a backend-owned schema from the shipping module manifest, reuses stable module/argument wire IDs, assigns configurable-row ordinals, deterministically versions that manifest, and exposes schema/load commands through registered Tauri and typed TypeScript IPC. Duplicate labels never participate in selection.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
+- Automated evidence: `CORRECTNESS` — `two_identically_labelled_loaded_parameter_rows_remain_separately_addressable_by_semantic_identifier_and_ordinal` loads the T16 fixture through the product function, proves both exact keys and the crossed-key refusal, and pins both IPC registrations.
 - Manual evidence: SB-INS 0/16; the parameter-pack identity scenario is unchecked; security integrity 0/63.
-- Source/parameter boundary: Display labels never become selectors; module schema must supply the semantic identity and ordinal.
-- Deployment/UI/provenance surface: Loader structures exist; pack selection, production activation, provenance, computation, and visible refusal do not.
-- History/reachability: Accepted anchor is reachable; source dependents show no production caller outside the module/tests.
-- Decision/dependency: Safe code that no live path calls cannot prevent a positional join elsewhere.
-- Next action: Wire the typed loader into the governed pack activation path and add an observable T16 that proves the activated rows remain separately addressable.
+- Source/parameter boundary: Display labels never become selectors; semantic identity, ordinal and schema version all come from the shipping module manifest. Fixture values are opaque markers and no pack value becomes a default.
+- Deployment/UI/provenance surface: The governed load boundary is product-reachable; no selection UI or automatic computation application is claimed.
+- History/reachability: The prior orphan is closed by registered backend commands and typed frontend wrappers, both pinned by T16.
+- Decision/dependency: Applying loaded values remains gated by SB-INS-015 through SB-INS-020; this increment does not bypass those safety contracts.
+- Next action: Retain T16 and continue with observable ambiguity refusals through the same governed load path under SB-INS-015.
 
 ### SB-INS-015
 

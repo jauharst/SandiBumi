@@ -4,6 +4,7 @@
 //! identifier and ordinal, and duplicate labels never participate in selection.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -140,6 +141,78 @@ pub struct ParameterModuleSchema {
     pub parameters: Vec<ParameterSchemaEntry>,
 }
 
+fn is_pack_parameter(kind: &crate::modules::ArgKind) -> bool {
+    matches!(
+        kind,
+        crate::modules::ArgKind::Param
+            | crate::modules::ArgKind::Option
+            | crate::modules::ArgKind::Text
+    )
+}
+
+/// Return the schema owned by a shipping module. `ArgSpec::name` is the stable wire id already
+/// persisted in saved runs; the human-facing description is deliberately excluded from identity.
+/// The version is a deterministic digest of the module's configurable manifest, so no caller can
+/// invent a version or keep using one after that manifest changes.
+pub fn module_parameter_schema(module_name: &str) -> Result<ParameterModuleSchema, String> {
+    let modules = crate::modules::list_modules();
+    let module = modules
+        .iter()
+        .find(|candidate| candidate.name == module_name)
+        .ok_or_else(|| format!("unknown parameter module '{module_name}'"))?;
+    let configurable = module
+        .args
+        .iter()
+        .filter(|argument| is_pack_parameter(&argument.kind))
+        .collect::<Vec<_>>();
+    let canonical_manifest = serde_json::to_vec(&(module.name.as_str(), &configurable))
+        .map_err(|error| format!("cannot version parameter schema for {module_name}: {error}"))?;
+    let digest = Sha256::digest(canonical_manifest);
+    let digest_hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+
+    let parameters = configurable
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| {
+            let ordinal = u32::try_from(index + 1)
+                .map_err(|_| format!("parameter schema for {module_name} exceeds u32 ordinals"))?;
+            Ok(ParameterSchemaEntry {
+                semantic_id: format!("{}.{}", module.name, argument.name),
+                ordinal,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(ParameterModuleSchema {
+        module_schema_version: format!("sha256:{digest_hex}"),
+        parameters,
+    })
+}
+
+/// Product loader: the caller chooses a shipping module and a file, while the backend supplies
+/// the authoritative schema. A frontend-supplied schema can therefore never legitimise crossed
+/// identifiers or ordinals.
+pub fn load_parameter_pack_for_module(
+    path: &Path,
+    module_name: &str,
+) -> Result<ParameterPack, String> {
+    let schema = module_parameter_schema(module_name)?;
+    load_parameter_pack_against_schema(path, &schema)
+}
+
+#[tauri::command]
+pub fn get_parameter_module_schema(module_name: String) -> Result<ParameterModuleSchema, String> {
+    module_parameter_schema(&module_name)
+}
+
+#[tauri::command]
+pub fn load_parameter_pack(module_name: String, path: String) -> Result<ParameterPack, String> {
+    load_parameter_pack_for_module(Path::new(&path), &module_name)
+}
+
 type SchemaById<'a> = BTreeMap<&'a str, (u32, usize)>;
 type SchemaByOrdinal<'a> = BTreeMap<u32, (&'a str, usize)>;
 
@@ -246,26 +319,32 @@ mod tests {
 
     /// SB-INS-014 / SB-INS-T16. Duplicate display labels with unique semantic identifiers and
     /// ordinals come from dossier section 2.4. Fixture values are opaque test markers, not
-    /// scientific parameters or shipped defaults.
+    /// scientific parameters or shipped defaults. This exercises the product-reachable loader,
+    /// not the private structural parser, and pins its Tauri and TypeScript registrations so the
+    /// safe loader cannot silently become orphaned again.
     #[test]
-    fn duplicate_display_labels_remain_separately_addressable_by_semantic_identifier_and_ordinal() {
+    fn two_identically_labelled_loaded_parameter_rows_remain_separately_addressable_by_semantic_identifier_and_ordinal(
+    ) {
         let temp =
             std::env::temp_dir().join(format!("sandibumi-parameter-pack-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp).unwrap();
         let path = temp.join("duplicate-labels.json");
+        let schema = module_parameter_schema("vsh_gr").expect("a shipping module owns its schema");
+        let first = &schema.parameters[0];
+        let second = &schema.parameters[1];
         let fixture = serde_json::json!({
             "rows": [
                 {
-                    "semantic_id": "fixture.parameter.alpha",
-                    "module_schema_version": "fixture/v1",
-                    "ordinal": 1,
+                    "semantic_id": first.semantic_id,
+                    "module_schema_version": schema.module_schema_version,
+                    "ordinal": first.ordinal,
                     "display_label": "Repeated label",
                     "value": { "fixture": "first" }
                 },
                 {
-                    "semantic_id": "fixture.parameter.beta",
-                    "module_schema_version": "fixture/v1",
-                    "ordinal": 2,
+                    "semantic_id": second.semantic_id,
+                    "module_schema_version": schema.module_schema_version,
+                    "ordinal": second.ordinal,
                     "display_label": "Repeated label",
                     "value": { "fixture": "second" }
                 }
@@ -273,21 +352,35 @@ mod tests {
         });
         std::fs::write(&path, serde_json::to_vec_pretty(&fixture).unwrap()).unwrap();
 
-        let pack =
-            parse_parameter_pack_structure(&path).expect("duplicate labels are presentation only");
+        let pack = load_parameter_pack_for_module(&path, "vsh_gr")
+            .expect("duplicate labels are presentation only");
         assert_eq!(pack.rows.len(), 2);
         assert_eq!(pack.rows[0].display_label, pack.rows[1].display_label);
         assert_eq!(
-            pack.by_semantic_id("fixture.parameter.alpha")
+            pack.by_semantic_id(&first.semantic_id)
                 .map(|row| row.ordinal),
-            Some(1)
+            Some(first.ordinal)
         );
         assert_eq!(
-            pack.by_ordinal(2).map(|row| row.semantic_id.as_str()),
-            Some("fixture.parameter.beta")
+            pack.by_ordinal(second.ordinal)
+                .map(|row| row.semantic_id.as_str()),
+            Some(second.semantic_id.as_str())
         );
-        assert!(pack.by_key("fixture.parameter.alpha", 1).is_some());
-        assert!(pack.by_key("fixture.parameter.alpha", 2).is_none());
+        assert!(pack.by_key(&first.semantic_id, first.ordinal).is_some());
+        assert!(pack.by_key(&second.semantic_id, second.ordinal).is_some());
+        assert!(pack.by_key(&first.semantic_id, second.ordinal).is_none());
+
+        let backend = include_str!("lib.rs");
+        assert!(
+            backend.contains("parameter_pack::load_parameter_pack"),
+            "the governed loader must remain registered at the Tauri boundary"
+        );
+        let frontend = include_str!("../../src/ipc.ts");
+        assert!(
+            frontend.contains("export function loadParameterPack")
+                && frontend.contains("invoke<ParameterPack>(\"load_parameter_pack\""),
+            "the governed loader must remain addressable through typed IPC"
+        );
 
         std::fs::remove_dir_all(&temp).unwrap();
     }

@@ -937,6 +937,39 @@ export async function listModules(): Promise<ModuleSpec[]> {
   return invoke<ModuleSpec[]>("list_modules");
 }
 
+export interface ParameterSchemaEntry {
+  semantic_id: string;
+  ordinal: number;
+}
+
+export interface ParameterModuleSchema {
+  module_schema_version: string;
+  parameters: ParameterSchemaEntry[];
+}
+
+export interface ParameterPackRow {
+  semantic_id: string;
+  module_schema_version: string;
+  ordinal: number;
+  display_label: string;
+  value: unknown;
+}
+
+export interface ParameterPack {
+  source_file: string;
+  rows: ParameterPackRow[];
+}
+
+/** Read the backend-owned semantic identifiers, ordinals, and exact manifest version. */
+export function getParameterModuleSchema(moduleName: string): Promise<ParameterModuleSchema> {
+  return invoke<ParameterModuleSchema>("get_parameter_module_schema", { moduleName });
+}
+
+/** Load and validate a pack against the selected shipping module's backend-owned schema. */
+export function loadParameterPack(moduleName: string, path: string): Promise<ParameterPack> {
+  return invoke<ParameterPack>("load_parameter_pack", { moduleName, path });
+}
+
 export interface RunModuleRequest {
   module: string;
   well_ids: string[];

@@ -3792,6 +3792,8 @@ pub fn run() {
             resolve_plot_bindings,
             finalize_plot_write_provenance,
             list_modules,
+            parameter_pack::get_parameter_module_schema,
+            parameter_pack::load_parameter_pack,
             run_workflow_module,
             module_output_names,
             run_reframe,

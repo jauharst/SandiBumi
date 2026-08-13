@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-INS-014: parameter-pack identity is product-reachable
+
+- [x] **Automated:** the backend now derives every configurable module row from the shipping
+      manifest as `module.argument` plus a one-based configurable-row ordinal, and versions that
+      exact manifest with a deterministic SHA-256. The Tauri command accepts a module and file,
+      never a frontend-supplied schema. SB-INS-T16 loads two identical labels through that command's
+      production function and proves both exact keys resolve while a crossed pair does not. The
+      full gate passed 983 / 0 / 36.
+- [ ] **Visual:** no pack-selection UI is introduced by this increment. If a later increment adds
+      one, confirm labels are presented as labels while semantic ID, ordinal, schema version and
+      source file remain inspectable; do not record this checkbox from the IPC test.
+- [ ] **Manual:** call the schema and load commands with a duplicate-label fixture and confirm both
+      returned rows remain visibly distinct. This is optional review evidence, not a substitute for
+      the automated identity contract.
+- [ ] **Field:** no parameter-pack value is applied to a computation yet. Do not field-approve pack
+      application until SB-INS-015 through SB-INS-020 close mismatch, typed-unit, observed-token,
+      generated-registry and attestation/provenance boundaries.
+
 ## 2026-08-13 — G2 SB-CORE-044: Tier-C release policy remains source/legal-blocked
 
 - [x] **Automated inventory:** the distributed-dependency notice now reads Cargo's normal edges

@@ -115,6 +115,7 @@
 "SB-INS-005","CORRECTNESS","src-tauri/src/python_engine.rs","a_lower_precedence_numpy_capable_interpreter_is_selected_and_higher_rejections_are_explained"
 "SB-INS-005","CORRECTNESS","src-tauri/src/python_engine.rs","a_valid_override_is_the_exact_interpreter_used_by_every_python_backed_probe"
 "SB-INS-010","CORRECTNESS","src-tauri/src/installation.rs","first_run_materialises_a_user_copy_with_the_immutable_template_version_and_digest"
+"SB-INS-014","CORRECTNESS","src-tauri/src/parameter_pack.rs","two_identically_labelled_loaded_parameter_rows_remain_separately_addressable_by_semantic_identifier_and_ordinal"
 "SB-INS-016","CORRECTNESS","src-tauri/src/curves.rs","a_permeability_to_length_bridge_is_refused_before_any_numeric_conversion_exists"
 "SB-INS-016","CORRECTNESS","src-tauri/src/curves.rs","recognised_length_and_slowness_bridges_convert_only_within_their_quantity_kind"
 "SB-INS-017","CHARACTERIZATION","src-tauri/src/parsers.rs","characterizes_raw_unit_and_encoding_preservation_before_the_current_case_fold"
