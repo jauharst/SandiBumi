@@ -2104,6 +2104,202 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::collections::HashMap;
 
+    /// CORRECTNESS - SB-DBM-013 / SB-DBM-T13. The expected atomic refusal, Failed well
+    /// state and configuration inventory come from `docs/PRD_v2/22_database-model.md`
+    /// section 6, SB-DBM-T13, sourced there to F-03. The curve values are synthetic fixture
+    /// inputs; this test asserts custody and rollback, not a petrophysical expected value.
+    #[test]
+    fn provenance_cannot_be_switched_off_and_a_failed_record_fails_the_write() {
+        fn add_well(conn: &Connection, name: &str) -> String {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(conn, id, name, None, None, None).unwrap();
+            db::insert_standard_curves(
+                conn,
+                id,
+                vec![1000.0, 1001.0],
+                vec![20.0, 120.0],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+            )
+            .unwrap();
+            id.to_string()
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let control = add_well(&conn, "VERSIONED-CONTROL");
+        let first_fault = add_well(&conn, "RECORD-FAILURE-ONE");
+        let second_fault = add_well(&conn, "RECORD-FAILURE-TWO");
+        let skip_candidate = add_well(&conn, "SWITCH-REFUSAL");
+        let dbm = Mutex::new(conn);
+        let request = |well_ids: Vec<String>, output_set: &str| RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids,
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+            opts: HashMap::new(),
+            output_set: Some(output_set.into()),
+            input_set: None,
+            custody: test_run_custody(),
+        };
+
+        // Positive side: ordinary execution must write both the curve and its complete record.
+        let control_result =
+            run_workflow_module_into(&dbm, &request(vec![control.clone()], "CONTROL"), None, None, None);
+        assert_eq!(control_result.len(), 1);
+        assert!(control_result[0].error.is_none(), "{:?}", control_result[0].error);
+        {
+            let conn = dbm.lock().unwrap();
+            let paired: (i64, i64) = conn
+                .query_row(
+                    "SELECT
+                         (SELECT count(*) FROM computed_curves WHERE well_id = ?1 AND curve_name = 'VSH'),
+                         (SELECT count(*) FROM log_sets WHERE well_id = ?1 AND set_name = 'CONTROL')",
+                    duckdb::params![control],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(paired, (2, 1), "a successful output is inseparable from one run record");
+            equations::curve_ancestry(&conn, &control, "VSH")
+                .expect("the successful control curve must resolve its complete ancestry");
+        }
+
+        // Fault side: constrain this test database so the second FAULT set at version 1 rejects.
+        // The first insert has already happened inside create_complete_log_sets_batch when the
+        // second fails, so only a real transaction rollback can leave both wells untouched.
+        dbm.lock()
+            .unwrap()
+            .execute(
+                "CREATE UNIQUE INDEX sb_dbm_t13_fault ON log_sets(set_name, version)",
+                [],
+            )
+            .unwrap();
+        let registry = crate::jobs::new_registry();
+        let job_id = uuid::Uuid::new_v4();
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let progress = crate::jobs::register(
+            &registry,
+            job_id,
+            "SB-DBM-T13",
+            "Injected run-record failure",
+            vec![
+                (first_fault.clone(), "RECORD-FAILURE-ONE".into()),
+                (second_fault.clone(), "RECORD-FAILURE-TWO".into()),
+            ],
+            cancel,
+            true,
+        );
+        progress.running(2);
+        let failed = run_workflow_module_into(
+            &dbm,
+            &request(vec![first_fault.clone(), second_fault.clone()], "FAULT"),
+            None,
+            None,
+            Some(&progress),
+        );
+        assert_eq!(failed.len(), 2);
+        assert!(
+            failed.iter().all(|result| result.error.is_some() && result.rows_written == 0),
+            "each affected well must report the record failure: {failed:?}"
+        );
+        let job = crate::jobs::list(&registry).pop().unwrap();
+        assert_eq!(job.items.len(), 2);
+        assert!(
+            job.items
+                .iter()
+                .all(|item| item.state == crate::jobs::ItemState::Failed),
+            "the serialized processing surface must report both wells Failed: {:?}",
+            job.items
+        );
+        {
+            let conn = dbm.lock().unwrap();
+            let (sets, curves): (i64, i64) = conn
+                .query_row(
+                    "SELECT
+                         (SELECT count(*) FROM log_sets WHERE set_name = 'FAULT'),
+                         (SELECT count(*) FROM computed_curves WHERE well_id IN (?1, ?2))",
+                    duckdb::params![first_fault, second_fault],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(sets, 0, "the first run-record insert must roll back with the second");
+            assert_eq!(curves, 0, "a failed run record must leave no computed curve rows");
+        }
+
+        // The one request field whose old name suggests an ancestry-free mode must refuse, not
+        // silently write. These legacy fixture curves are inputs only; the asserted output count
+        // is zero, so they are not evidence for a shipping unversioned writer.
+        {
+            let conn = dbm.lock().unwrap();
+            for (curve, values) in [
+                ("VSH", [0.1, 0.1]),
+                ("PHIE", [0.2, 0.2]),
+                ("SWE", [0.3, 0.3]),
+                ("PERM", [f32::NAN, f32::NAN]),
+            ] {
+                equations::write_computed_curve(
+                    &conn,
+                    &skip_candidate,
+                    &[1000.0, 1001.0],
+                    curve,
+                    &values,
+                )
+                .unwrap();
+            }
+        }
+        let refusal = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                well_ids: vec![skip_candidate.clone()],
+                vsh_max: 0.5,
+                phie_min: 0.1,
+                swe_max: 0.5,
+                perm_min: None,
+                input_set: None,
+                skip_version: true,
+                stats_only: false,
+                custody: Some(test_run_custody()),
+            },
+        )
+        .expect_err("skip_version must be an explicit refusal rather than a provenance switch");
+        assert!(refusal.contains("ancestry-free"), "{refusal}");
+        let conn = dbm.lock().unwrap();
+        let pay_rows: (i64, i64) = conn
+            .query_row(
+                "SELECT
+                     (SELECT count(*) FROM log_sets WHERE well_id = ?1 AND set_name = 'PAYFLAG'),
+                     (SELECT count(*) FROM computed_curves WHERE well_id = ?1 AND curve_name LIKE 'FLAG_%')",
+                duckdb::params![skip_candidate],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(pay_rows, (0, 0), "the refused switch must write neither record nor curve");
+        drop(conn);
+
+        // Enumerate, rather than assume, every production environment/preference read. Because
+        // the independent whole-corpus writer inventory finds no raw or legacy computed writer,
+        // none of these values can select a provenance-free write path.
+        let configuration = crate::core_ancestry_tests::production_configuration_read_inventory();
+        assert!(
+            configuration.iter().any(|line| line.contains("SANDIBUMI_DB_MEMORY"))
+                && configuration.iter().any(|line| line.contains("localStorage.getItem"))
+                && configuration.iter().any(|line| line.contains("sessionStorage.getItem"))
+                && configuration.iter().any(|line| line.contains("current_setting("))
+                && configuration.iter().any(|line| line.contains("FROM documents"))
+                && configuration.iter().any(|line| line.contains("read_user_settings(")),
+            "the inventory must cover environment, database, project, installed, persisted and session configuration reads: {configuration:?}"
+        );
+        let violations = crate::core_ancestry_tests::production_ancestry_bypass_violations();
+        assert!(
+            violations.is_empty(),
+            "no configuration may select a legacy or raw computed writer:\n{}",
+            violations.join("\n")
+        );
+    }
+
     /// CORRECTNESS - SB-DBM-007 / SB-DBM-T09. The expected `NOT_APPLICABLE` state and
     /// fail-closed serialization behavior are specified verbatim by
     /// `docs/PRD_v2/22_database-model.md` section 6, SB-DBM-T09. Numeric values below are

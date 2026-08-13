@@ -176,14 +176,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-OK`; owned test `SB-DBM-T13`; sections 4.1 and 6.2.
 - **Atomic obligations:** run-record failure rolls back curve writes and reports failure; every computed writer is atomic with provenance; no setting/input/environment switch bypasses it.
-- **Current source:** versioned workflow batch writers transactionally create run records and curve rows, but `PaySummaryRequest.skip_version` deliberately writes flags without versioning and several production modules still call unversioned writers. The universal no-bypass claim is false even without an environment switch.
-- **Qualifying acceptance tests:** none; T13's injected log-set failure and complete configuration inventory are missing. Test class is `MISSING`.
-- **Supporting tests:** versioned batch transaction tests prove one correct path; `pay_summary_versions_flags_with_cutoffs_in_provenance` explicitly characterizes the bypass on its other arm.
-- **Manual evidence:** `workflow` 0/23, `delivery-sets` 0/33 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains both atomic versioned writers and the live bypass.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** none; the existing bypasses and writer inventory are the blocker.
-- **Next action:** remove provenance-optional production paths by routing them through the one versioned transaction, then implement T13 from failure and no-bypass sides.
+- **Current source:** every production computed writer requires an opaque live complete-ancestry set. Legacy writer helpers are test-only, `PaySummaryRequest.skip_version` refuses rather than writing, and the shared whole-corpus scan rejects production calls to legacy/raw computed writers. A second scan enumerates Rust environment, DuckDB, project-document and installed-settings reads plus TypeScript local/session preference reads, so the no-bypass proof is not limited to a hand-picked setting list.
+- **Qualifying acceptance tests:** `workflow::tests::provenance_cannot_be_switched_off_and_a_failed_record_fails_the_write` is `CORRECTNESS`. Its expected transaction/refusal contract is SB-DBM-T13, sourced there to F-03. It proves a normal paired record/curve write, forces the second `log_sets` insert in one batch to fail after the first insert, requires rollback of both records and every output, requires both serialized job items to be `Failed`, executes the `skip_version` refusal, enumerates configuration reads and reuses the independent writer inventory.
+- **Supporting tests:** `core_ancestry_tests::every_computed_curve_written_by_any_module_has_a_complete_ancestry_record` independently retains the shared whole-production writer inventory; `pay_summary_versions_flags_with_cutoffs_in_provenance` retains the ordinary versioned path and explicit refusal.
+- **Manual evidence:** `workflow` 0/23, `delivery-sets` 0/33 and `security-integrity` 0/63 remain unexercised; synthetic fault injection is automated evidence only.
+- **Git evidence:** current topic branch; one SB-DBM-013 commit will carry T13, inventory reuse and tracker correction after the full gate passes.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. No petrophysical value, deployment default or scientific assumption is required.
+- **Next action:** retain T13 and the shared writer/configuration inventories; Jauhar performs visual/manual review without promoting the synthetic fault to field evidence.
 
 ## SB-DBM-014 - Every stochastic operation records its seed and its seeding rule
 

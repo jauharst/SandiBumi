@@ -112,6 +112,141 @@ fn production_rust(source: &str) -> String {
     kept
 }
 
+/// Returns every production call site that could write computed values without first obtaining
+/// the opaque complete-ancestry token. SB-CORE-T14 and SB-DBM-T13 share this inventory: the former
+/// pins complete custody, while the latter proves no setting or deployment branch has a second
+/// writer to switch to.
+pub(crate) fn production_ancestry_bypass_violations() -> Vec<String> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rust_sources(&root, &mut files);
+    let mut violations = Vec::new();
+    for path in files {
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if name.ends_with("_test.rs")
+            || name.ends_with("_tests.rs")
+            || name == "pipeline_field_test.rs"
+        {
+            continue;
+        }
+        let source = production_rust(&crate::parsers::read_text_file(&path).unwrap());
+        for (line_no, line) in source.lines().enumerate() {
+            let trimmed = line.trim_start();
+            let definition = trimmed.starts_with("pub(crate) fn ") || trimmed.starts_with("fn ");
+            for forbidden in [
+                "write_computed_curve(",
+                "write_computed_curves_batch(",
+                "create_log_set(",
+                "create_log_sets_batch(",
+                "write_computed_curves_versioned(",
+                "write_computed_curves_versioned_batch(",
+                "db::update_computed_sample(",
+            ] {
+                if !definition && line.contains(forbidden) {
+                    violations.push(format!(
+                        "{}:{} uses {forbidden}",
+                        path.display(),
+                        line_no + 1
+                    ));
+                }
+            }
+            // Schema/project migrations are the only non-writer files allowed to mention raw
+            // computed-table mutations. A new producer or interactive edit must go through the
+            // opaque complete-ancestry API in equations.rs.
+            if !matches!(name, "equations.rs" | "db.rs" | "project.rs") {
+                for forbidden in [
+                    "appender(\"computed_curves\")",
+                    "INSERT INTO computed_curves",
+                    "UPDATE computed_curves",
+                    "DELETE FROM computed_curves",
+                ] {
+                    if line.contains(forbidden) {
+                        violations.push(format!(
+                            "{}:{} uses raw {forbidden}",
+                            path.display(),
+                            line_no + 1
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    violations
+}
+
+fn code_sources(root: &Path, out: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            code_sources(&path, out);
+        } else if matches!(
+            path.extension().and_then(|value| value.to_str()),
+            Some("rs" | "ts")
+        ) {
+            out.push(path);
+        }
+    }
+}
+
+/// Enumerates the production app-preference and environment read surfaces used by SB-DBM-T13.
+/// The inventory is generated from the whole Rust and TypeScript corpus rather than a hand-picked
+/// setting list, so a new preference is included automatically in the no-bypass proof.
+pub(crate) fn production_configuration_read_inventory() -> Vec<String> {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let roots = [manifest.join("src"), manifest.join("../src")];
+    let mut files = Vec::new();
+    for root in roots {
+        code_sources(&root, &mut files);
+    }
+    let mut inventory = Vec::new();
+    for path in files {
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if name.ends_with("_test.rs")
+            || name.ends_with("_tests.rs")
+            || name.ends_with(".test.ts")
+            || name.ends_with(".spec.ts")
+            || name == "pipeline_field_test.rs"
+        {
+            continue;
+        }
+        let text = crate::parsers::read_text_file(&path).unwrap();
+        let source = if path.extension().and_then(|value| value.to_str()) == Some("rs") {
+            production_rust(&text)
+        } else {
+            text
+        };
+        for (line_no, line) in source.lines().enumerate() {
+            if [
+                "std::env::var(",
+                "std::env::var_os(",
+                "localStorage.getItem(",
+                "sessionStorage.getItem(",
+                "current_setting(",
+                "FROM documents",
+                "read_user_settings(",
+            ]
+            .iter()
+            .any(|marker| line.contains(marker))
+            {
+                inventory.push(format!(
+                    "{}:{} {}",
+                    path.display(),
+                    line_no + 1,
+                    line.trim()
+                ));
+            }
+        }
+    }
+    inventory.sort();
+    inventory
+}
+
 #[test]
 fn every_computed_curve_written_by_any_module_has_a_complete_ancestry_record() {
     // CORRECTNESS — required fields and refusal behavior are SB-CORE-010 / SB-CORE-T14.
@@ -284,63 +419,7 @@ fn every_computed_curve_written_by_any_module_has_a_complete_ancestry_record() {
     // The opaque complete-set API is not enough if a production module can still reach a legacy
     // writer. Scan every Rust production surface, not a hand-picked module list. This catches a new
     // producer on the same commit that introduces it.
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files = Vec::new();
-    rust_sources(&root, &mut files);
-    let mut violations = Vec::new();
-    for path in files {
-        let name = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default();
-        if name.ends_with("_test.rs")
-            || name.ends_with("_tests.rs")
-            || name == "pipeline_field_test.rs"
-        {
-            continue;
-        }
-        let source = production_rust(&std::fs::read_to_string(&path).unwrap());
-        for (line_no, line) in source.lines().enumerate() {
-            let trimmed = line.trim_start();
-            let definition = trimmed.starts_with("pub(crate) fn ") || trimmed.starts_with("fn ");
-            for forbidden in [
-                "write_computed_curve(",
-                "write_computed_curves_batch(",
-                "create_log_set(",
-                "create_log_sets_batch(",
-                "write_computed_curves_versioned(",
-                "write_computed_curves_versioned_batch(",
-                "db::update_computed_sample(",
-            ] {
-                if !definition && line.contains(forbidden) {
-                    violations.push(format!(
-                        "{}:{} uses {forbidden}",
-                        path.display(),
-                        line_no + 1
-                    ));
-                }
-            }
-            // Schema/project migrations are the only non-writer files allowed to mention raw
-            // computed-table mutations. A new producer or interactive edit must go through the
-            // opaque complete-ancestry API in equations.rs.
-            if !matches!(name, "equations.rs" | "db.rs" | "project.rs") {
-                for forbidden in [
-                    "appender(\"computed_curves\")",
-                    "INSERT INTO computed_curves",
-                    "UPDATE computed_curves",
-                    "DELETE FROM computed_curves",
-                ] {
-                    if line.contains(forbidden) {
-                        violations.push(format!(
-                            "{}:{} uses raw {forbidden}",
-                            path.display(),
-                            line_no + 1
-                        ));
-                    }
-                }
-            }
-        }
-    }
+    let violations = production_ancestry_bypass_violations();
     assert!(
         violations.is_empty(),
         "production computed writers must require complete ancestry:\n{}",

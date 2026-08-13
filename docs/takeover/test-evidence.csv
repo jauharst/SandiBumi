@@ -57,6 +57,7 @@
 "SB-DBM-004","CORRECTNESS","src-tauri/src/workflow.rs","a_run_records_all_effective_parameters_and_keeps_the_default_manifest_version_after_that_manifest_changes"
 "SB-DBM-006","CORRECTNESS","src-tauri/src/workflow.rs","a_module_run_records_the_final_curve_identity_and_both_rejected_candidates_then_records_the_reflagged_choice"
 "SB-DBM-007","CORRECTNESS","src-tauri/src/workflow.rs","absent_is_a_named_state_never_an_empty_string"
+"SB-DBM-013","CORRECTNESS","src-tauri/src/workflow.rs","provenance_cannot_be_switched_off_and_a_failed_record_fails_the_write"
 "SB-DBM-022","OPTIONAL-PACKAGE-IGNORED","src-tauri/src/ml.rs","a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_registered_writer_cannot_omit_the_required_sentinel_argument"

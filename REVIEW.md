@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-013: provenance cannot be disabled
+
+- [x] **Automated:** SB-DBM-T13 executes the real module runner on three sides. An ordinary run
+      writes two VSH samples with one complete run record. A test-only database constraint makes
+      the second `log_sets` insert fail after the first has run, and requires the transaction to
+      leave zero FAULT run records, zero computed rows and both serialized processing items
+      `Failed`. The legacy-looking `skip_version` request is also executed and must refuse with
+      zero PAYFLAG records/curves. Whole-corpus inventories enumerate environment, DuckDB,
+      project-document, installed-user, persisted and session preference reads and reject any raw
+      computed writer. The full gate passes 993 / 0 / 36 with 55 owned Rust warnings; no production
+      behavior, scientific value, schema key or upsert changed.
+- [ ] **Visual:** in the Processing panel, exercise a safely induced run-write failure and confirm
+      every affected well is visibly Failed with a useful message; confirm no UI or deployment
+      setting offers a provenance-off mode. Source scanning proves reachability, not readability.
+- [ ] **Manual:** in a disposable project, run one ordinary module and confirm its output resolves
+      to exactly one live ancestry record. Induce a safe record-write refusal, reopen the project
+      and confirm neither a partial run record nor output curve survived. Do not alter a real
+      project merely to manufacture this evidence.
+- [ ] **Field:** on a representative pilot run, confirm a saved output and its ancestry remain
+      inseparable through Save Project As and an ordinary deliverable path. The synthetic unique
+      constraint is automated failure evidence, not field acceptance; Jauhar records this check.
+
 ## 2026-08-13 — G2 SB-DBM-011: structured audit is dependency-blocked
 
 - [ ] **Automated implementation:** blocked, so the current free-text process log is not presented
