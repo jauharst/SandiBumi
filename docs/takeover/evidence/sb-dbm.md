@@ -150,14 +150,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DBM-T11`, `SB-DBM-T12`; sections 4.1, 5.5 and 6.2.
 - **Atomic obligations:** store relational audit entry/detail rows using controlled location/mode vocabulary, typed values/units, coalescing and UTC/operator/zone-set fields.
-- **Current source:** `src/ui/processLog.ts` and document/process-history paths persist free-text/JSON event text. No `audit_entry`/`audit_detail` tables, controlled vocabulary or coalescing boundary exists.
+- **Current source:** `src/processLog.ts` persists `{ts, kind, detail, well}` as one capped JSON document and more than 70 UI call sites emit free-text details. It survives Save Project As because it lives in the project database, but there are no relational `audit_entry`/`audit_detail` tables, controlled location/mode types, typed value/unit rows or explicit gesture boundary for uninterrupted coalescing.
 - **Qualifying acceptance tests:** none; T11 and the structured-diff setup of T12 are missing. Test class is `MISSING`.
-- **Supporting tests:** process-log rendering proves history is visible, not relational or diffable.
+- **Supporting tests:** process-log rendering and Save Project As coverage prove visible history is retained in the copied project, not that entries are relational, controlled, coalesced or complete.
 - **Manual evidence:** `processing-history` 0/7, `security-integrity` 0/63 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains a divergent text/JSON history mechanism, not the specified audit schema.
-- **Verdict:** `PRESENT-DIVERGENT`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** pilot audit granularity and operator identity depend on the product decision in SB-DBM-008.
-- **Next action:** define the controlled audit vocabulary and atomic entry/detail writer, then implement T11 without deleting existing visible history until migration is adjudicated.
+- **Git evidence:** live re-verification on `codex/g2-program-plan` confirms the divergent JSON history and its broad call-site inventory; no structured audit store is integrated.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** DEC-022 must settle UTC legacy classification. DEC-023 must reconcile exact T11's required zone-set identity with DEC-018 excluding SB-DBM-008. DEC-020 already settles the operator source. No time-based coalescing window is needed or allowed: the cited rule is explicit gesture uninterruptedness.
+- **Next action:** after DEC-022 and DEC-023, add controlled relational entry/detail types and one backend-owned atomic writer, retain visible legacy history without pretending it is structured, migrate selected action surfaces using explicit gesture boundaries, and implement T11 without importing SB-DBM-012's deferred diff contract.
 
 ## SB-DBM-012 - A parameter-state diff is a database join, not an external differ
 

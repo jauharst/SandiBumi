@@ -1,5 +1,25 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-011: structured audit is dependency-blocked
+
+- [ ] **Automated implementation:** blocked, so the current free-text process log is not presented
+      as a relational audit. It survives Save Project As, but one capped JSON blob and more than 70
+      free-text UI emitters provide no controlled location/mode vocabulary, typed value/unit rows or
+      explicit uninterrupted-gesture coalescing. The unchanged full gate remains 992 / 0 / 36 with
+      55 owned Rust warnings.
+- [ ] **Product/data decisions:** settle DEC-022's legacy UTC classification and DEC-023's scope
+      conflict. Exact T11 requires zone-set identity, but SB-DBM-008 is outside DEC-018's immutable
+      pilot manifest. Either authorize that seam as audit infrastructure or revise and re-approve
+      the manifest; do not quietly weaken T11. DEC-020 already supplies explicit HUMAN/AUTOMATED
+      operator identity.
+- [ ] **Visual / Manual:** after implementation, change three zone parameters, rename one curve and
+      drag one crossplot point repeatedly without releasing the gesture. Confirm controlled rows,
+      one entry for the gesture, local timestamp display, exact operator/zone-set custody and legacy
+      text history retained as visibly unstructured rather than silently discarded.
+- [ ] **Field:** blocked on both decisions. Jauhar must inspect the audit inside a Save Project As
+      copy and confirm the controlled rows remain queryable; synthetic row insertion alone is not
+      evidence that the real UI actions are all captured.
+
 ## 2026-08-13 — G2 SB-DBM-010: complete deliverable provenance is source-blocked
 
 - [ ] **Automated implementation:** blocked, so no synthetic T10 is presented as complete
