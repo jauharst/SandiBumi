@@ -470,13 +470,26 @@ export async function buildReframeContent(
     table.appendChild(head);
     for (const r of results) {
       const tr = document.createElement("tr");
+      const curveLabels = r.curves.map((curve) => {
+        const reported = curve.category_boundary_crossings.length;
+        return `${curve.name} (${curve.method.toLowerCase()}${
+          reported > 0 ? `; ${reported} category-boundary sample${reported === 1 ? "" : "s"} reported` : ""
+        })`;
+      });
+      const categoryReports = r.curves.flatMap((curve) =>
+        curve.category_boundary_crossings.map(
+          (crossing) =>
+            `${curve.name} at ${num(crossing.output_depth)} crosses source codes ${crossing.from_code} → ${crossing.to_code} ` +
+            `between ${num(crossing.source_start_depth)} and ${num(crossing.source_end_depth)}.`,
+        ),
+      );
       const cells = [
         r.well_name,
         num(r.source_step),
         num(r.target_step),
         r.error ? "—" : String(r.rows),
-        r.error ? "—" : r.curves.map((c) => `${c.name} (${c.method.toLowerCase()})`).join(", "),
-        r.error ?? r.notes.join(" "),
+        r.error ? "—" : curveLabels.join(", "),
+        r.error ?? [...r.notes, ...categoryReports].join(" "),
       ];
       for (const [i, c] of cells.entries()) {
         const td = document.createElement("td");

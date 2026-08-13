@@ -5634,12 +5634,24 @@ export async function intakeCommit(req: IntakeCommit): Promise<CoreTableImportRe
 // Reframe — resampling a log set onto a different sampling as a new set
 // ---------------------------------------------------------------------------
 
+/** One output sample whose categorical resampling support spans unlike source codes. This is
+ * sparse reporting metadata, not a curve array; full depth/value arrays stay on the bytemuck IPC
+ * path. */
+export interface CategoryBoundaryCrossing {
+  output_depth: number;
+  source_start_depth: number;
+  source_end_depth: number;
+  from_code: number;
+  to_code: number;
+}
+
 /** One curve carried onto the new frame, with the averaging that was actually used. */
 export interface ReframeCurve {
   name: string;
   method: string;
   samples_in: number;
   samples_out: number;
+  category_boundary_crossings: CategoryBoundaryCrossing[];
 }
 
 export interface ReframeResult {

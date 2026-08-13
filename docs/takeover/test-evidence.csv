@@ -66,6 +66,7 @@
 "SB-DBM-028","CORRECTNESS","src-tauri/src/ingest.rs","a_forty_row_gap_contradicts_a_regular_sampling_declaration_while_a_verified_regular_set_stays_regular_and_an_unverified_set_cannot_be_frame_read"
 "SB-DBM-029","CORRECTNESS","src-tauri/src/workflow.rs","a_module_cannot_write_an_existing_reference_column_and_a_different_depth_basis_is_a_new_own_frame"
 "SB-DBM-031","CORRECTNESS","src-tauri/src/contacts.rs","an_md_zone_top_and_a_tvdss_contact_are_refused_without_a_frame_and_compare_with_positive_down_tvdss_with_one"
+"SB-DBM-033","CORRECTNESS","src-tauri/src/reframe.rs","a_categorical_curve_resamples_only_to_existing_codes_reports_every_boundary_crossing_and_is_refused_by_every_equation_language"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_registered_writer_cannot_omit_the_required_sentinel_argument"
 "SB-DIO-002","CORRECTNESS","src-tauri/src/export.rs","the_default_export_format_honours_the_sentinel_and_an_incapable_format_is_marked"

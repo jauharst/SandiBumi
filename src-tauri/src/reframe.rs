@@ -265,6 +265,18 @@ fn load_curve_selection(conn: &Connection, name: &str) -> Result<CurveSelection,
         .ok_or_else(|| format!("saved curve selection '{name}' does not exist"))
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CategoryBoundaryCrossing {
+    /// Output sample whose resampling support spans two unlike source codes.
+    pub output_depth: f32,
+    /// Shallower source sample that brackets the output depth.
+    pub source_start_depth: f32,
+    /// Deeper source sample that brackets the output depth.
+    pub source_end_depth: f32,
+    pub from_code: f32,
+    pub to_code: f32,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ReframeCurve {
     pub name: String,
@@ -273,6 +285,9 @@ pub struct ReframeCurve {
     pub samples_in: usize,
     /// Output samples that got one.
     pub samples_out: usize,
+    /// Every output sample lying between unlike adjacent source codes. Empty for a continuous
+    /// curve and for a categorical resample that did not cross a declared class boundary.
+    pub category_boundary_crossings: Vec<CategoryBoundaryCrossing>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -391,6 +406,53 @@ pub fn class_safe_method(m: Method) -> Method {
         Method::Mean | Method::Geometric | Method::Harmonic | Method::Median | Method::Auto => Method::Mode,
         safe @ (Method::Nearest | Method::Mode) => safe,
     }
+}
+
+/// Reports every output sample whose categorical resampling support crosses a source transition.
+///
+/// The report is deliberately separate from [`resample_onto`]. That kernel is also used for
+/// continuous curves and has no access to the declared curve type; only the run boundary can both
+/// enforce the categorical method and tell the user what happened. A target exactly on a source
+/// sample is not a crossing — it names that sample directly. A target strictly bracketed by two
+/// different live source codes is, whether NEAREST chooses the shallower or deeper code.
+fn category_boundary_crossings(
+    src_depth: &[f32],
+    vals: &[f32],
+    out_depth: &[f32],
+) -> Vec<CategoryBoundaryCrossing> {
+    let live: Vec<(f32, f32)> = src_depth
+        .iter()
+        .copied()
+        .zip(vals.iter().copied())
+        .filter(|(depth, value)| depth.is_finite() && value.is_finite())
+        .collect();
+    if live.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut crossings = Vec::new();
+    for output_depth in out_depth.iter().copied().filter(|depth| depth.is_finite()) {
+        let pos = live.partition_point(|(depth, _)| *depth < output_depth);
+        if pos == 0 || pos == live.len() {
+            continue;
+        }
+        let (source_start_depth, from_code) = live[pos - 1];
+        let (source_end_depth, to_code) = live[pos];
+        if output_depth <= source_start_depth
+            || output_depth >= source_end_depth
+            || from_code.to_bits() == to_code.to_bits()
+        {
+            continue;
+        }
+        crossings.push(CategoryBoundaryCrossing {
+            output_depth,
+            source_start_depth,
+            source_end_depth,
+            from_code,
+            to_code,
+        });
+    }
+    crossings
 }
 
 /// Resamples `vals`, sampled at ascending `src_depth`, onto `out_depth`.
@@ -1203,10 +1265,19 @@ fn one_well(
     // Upsampling a curve by box average would leave most output samples empty, so the method has
     // to change with the direction — and saying so beats returning a curve full of holes.
     let upsampling = res.target_step < res.source_step * 0.999;
-    // One query for the whole well, outside the loop — see `db::class_curves_for_well`. A failure
-    // to read the registry leaves the set empty, which is the pre-registry behaviour: it must not
-    // fail a re-frame, and `looks_discrete` still guards the AUTO path underneath.
-    let class_curves = crate::db::class_curves_for_well(conn, well_id).unwrap_or_default();
+    // One query for the whole well, outside the loop — see `db::class_curves_for_well`. The
+    // registry is the type authority, so an unreadable registry is a refusal: falling back to an
+    // empty set would silently turn a declared categorical curve back into a continuous FLOAT and
+    // re-enable the interpolation this path exists to prevent.
+    let class_curves = match crate::db::class_curves_for_well(conn, well_id) {
+        Ok(curves) => curves,
+        Err(error) => {
+            res.error = Some(format!(
+                "cannot verify categorical curve types before Reframe: {error}"
+            ));
+            return res;
+        }
+    };
     let mut written: Vec<(String, Vec<f32>)> = Vec::new();
     let mut coerced: Vec<String> = Vec::new();
     for (name, vals) in cols {
@@ -1225,7 +1296,8 @@ fn one_well(
         // explicitly — the mean of two facies codes is not a facies, and unlike a bad porosity
         // average nothing downstream can tell that it is wrong. `looks_discrete` above is
         // deliberately not consulted here: it may pick a default, never overrule a decision.
-        let method = if class_curves.contains(&name.to_uppercase()) {
+        let is_class_curve = class_curves.contains(&name.to_uppercase());
+        let method = if is_class_curve {
             let safe = class_safe_method(method);
             if safe != method {
                 coerced.push(format!("{name} ({method:?} → {safe:?})").to_uppercase());
@@ -1235,11 +1307,17 @@ fn one_well(
             method
         };
         let out = resample_onto(&src_depth, &vals, &out_depth, method);
+        let category_boundary_crossings = if is_class_curve {
+            category_boundary_crossings(&src_depth, &vals, &out_depth)
+        } else {
+            Vec::new()
+        };
         res.curves.push(ReframeCurve {
             name: name.clone(),
             method: format!("{method:?}").to_uppercase(),
             samples_in: vals.iter().filter(|v| v.is_finite()).count(),
             samples_out: out.iter().filter(|v| v.is_finite()).count(),
+            category_boundary_crossings,
         });
         written.push((name, out));
     }
@@ -1492,6 +1570,177 @@ mod tests {
         assert!(
             mixed.iter().any(|v| *v > 0.11 && *v < 0.39),
             "a continuous curve must be averaged: {mixed:?}"
+        );
+    }
+
+    /// CORRECTNESS — SB-DBM-033 / SB-DBM-T33. The 0.1524 m source spacing, 0.1 m
+    /// target spacing, existing-code rule, boundary report and arithmetic refusal are the exact
+    /// expectations in `22_database-model.md` §6 T33, sourced there to F-15 (Geolog T2
+    /// `…hc.2.06.html`) and dossier D-12/T-DB-07. Codes 1 and 4 are non-physical fixture labels,
+    /// not petrophysical parameters or defaults.
+    #[test]
+    fn a_categorical_curve_resamples_only_to_existing_codes_reports_every_boundary_crossing_and_is_refused_by_every_equation_language(
+    ) {
+        use crate::db;
+        use crate::equations::{EquationDef, RunCustody};
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "CATEGORY-BOUNDARY", None, None, Some(0.0)).unwrap();
+        let well_id = wid.to_string();
+
+        let source_depth = vec![1000.0_f32, 1000.1524, 1000.3048, 1000.4572];
+        let facies = vec![1.0_f32, 1.0, 4.0, 4.0];
+        crate::equations::write_computed_curves_batch(
+            &conn,
+            &well_id,
+            &source_depth,
+            &[("FACIES", facies.as_slice())],
+        )
+        .unwrap();
+        db::declare_class_curves(
+            &conn,
+            &well_id,
+            &["FACIES".to_string()],
+            "SB-DBM-T33 fixture declaration",
+        )
+        .unwrap();
+        save_curve_selection(
+            &conn,
+            &CurveSelection {
+                name: "CATEGORY ONLY".into(),
+                mode: CurveSelectionMode::Selected,
+                members: vec!["FACIES".into()],
+            },
+        )
+        .unwrap();
+
+        let req = ReframeRequest {
+            well_ids: vec![well_id.clone()],
+            source: SourceSpec { kind: "logset".into(), name: Some("TEST_FIXTURE".into()) },
+            selection_name: "CATEGORY ONLY".into(),
+            substitutions: vec![],
+            target: TargetSpec {
+                kind: "step".into(),
+                step: Some(0.1),
+                align: false,
+                well_id: None,
+                set_name: None,
+                top: None,
+                base: None,
+            },
+            methods: HashMap::from([("FACIES".into(), Method::Interpolate)]),
+            default_method: Method::Interpolate,
+            output_set: "CATEGORY_01".into(),
+            preview: false,
+            custody: Some(crate::workflow::test_run_custody()),
+        };
+        let result = run_reframe(&conn, &req);
+        assert_eq!(result.len(), 1);
+        assert!(result[0].error.is_none(), "reframe failed: {:?}", result[0].error);
+        assert!((result[0].source_step - 0.1524).abs() < 1e-4, "source step: {}", result[0].source_step);
+        assert!((result[0].target_step - 0.1).abs() < 1e-4, "target step: {}", result[0].target_step);
+        let carried = result[0].curves.iter().find(|curve| curve.name == "FACIES").expect("FACIES report");
+        assert_eq!(carried.method, "NEAREST", "a declared class must override requested interpolation");
+
+        // Assert the serialized reporting surface rather than an internal helper: this is the
+        // payload the Reframe UI receives. Both 1000.2 and 1000.3 lie between the one source
+        // transition (1 at 1000.1524 to 4 at 1000.3048), so both output samples must be named.
+        let report = serde_json::to_value(carried).unwrap();
+        let crossings = report["category_boundary_crossings"]
+            .as_array()
+            .expect("the Reframe result must carry a structured category-boundary report");
+        assert_eq!(crossings.len(), 2, "every output sample crossing the transition is reported: {crossings:?}");
+        let output_depths: Vec<f64> = crossings
+            .iter()
+            .map(|crossing| crossing["output_depth"].as_f64().expect("reported output depth"))
+            .collect();
+        assert!((output_depths[0] - 1000.2).abs() < 1e-3, "first crossing: {crossings:?}");
+        assert!((output_depths[1] - 1000.3).abs() < 1e-3, "second crossing: {crossings:?}");
+        for crossing in crossings {
+            assert!((crossing["source_start_depth"].as_f64().unwrap() - 1000.1524).abs() < 1e-3);
+            assert!((crossing["source_end_depth"].as_f64().unwrap() - 1000.3048).abs() < 1e-3);
+            assert_eq!(crossing["from_code"].as_f64(), Some(1.0));
+            assert_eq!(crossing["to_code"].as_f64(), Some(4.0));
+        }
+
+        let (_, reframed) = crate::equations::fetch_curve_frame_from_set(
+            &conn,
+            &well_id,
+            &["FACIES".into()],
+            Some("CATEGORY_01"),
+            None,
+        )
+        .unwrap();
+        let output = &reframed["FACIES"];
+        assert!(
+            output.iter().filter(|value| value.is_finite()).all(|value| *value == 1.0 || *value == 4.0),
+            "a class resample must contain only source codes, got {output:?}"
+        );
+        assert!(
+            db::class_curves_for_well(&conn, &well_id).unwrap().contains("FACIES"),
+            "the Reframe writer must preserve the declared categorical type"
+        );
+
+        let db = Mutex::new(conn);
+        let custody: RunCustody = crate::workflow::test_run_custody();
+        let rhai = EquationDef {
+            equation_id: Uuid::new_v4().to_string(),
+            name: "categorical arithmetic refusal".into(),
+            description: None,
+            script: "facies + 1.0".into(),
+            input_curves: vec!["FACIES".into()],
+            output_curve: "FACIES_RHAI_ARITH".into(),
+            output_units: None,
+            language: "rhai".into(),
+        };
+        let python = EquationDef {
+            equation_id: Uuid::new_v4().to_string(),
+            name: "categorical vector arithmetic refusal".into(),
+            description: None,
+            script: "facies_py_arith = facies + 1.0".into(),
+            input_curves: vec!["FACIES".into()],
+            output_curve: "FACIES_PY_ARITH".into(),
+            output_units: None,
+            language: "python".into(),
+        };
+        let rhai_result = crate::equations::run_equation(&db, &rhai, &[well_id.clone()], &custody, None);
+        let python_result = crate::python_engine::run_python_equation(&db, &python, &[well_id.clone()], &custody, None);
+        for (language, run) in [("Rhai", rhai_result), ("Python", python_result)] {
+            assert_eq!(run[0].rows_written, 0, "{language} wrote categorical arithmetic");
+            let error = run[0].error.as_deref().unwrap_or("");
+            assert!(
+                error.contains("categorical curve 'FACIES'") && error.contains("arithmetic is refused"),
+                "{language} must name the categorical input and the refusal, got {error:?}"
+            );
+        }
+        let conn = db.lock().unwrap();
+        let arithmetic_rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name IN ('FACIES_RHAI_ARITH', 'FACIES_PY_ARITH')",
+                params![well_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(arithmetic_rows, 0, "categorical arithmetic refusal happens before every write");
+
+        // The registry itself is the type authority. If that authority cannot be read, treating
+        // the curve as continuous would silently re-enable the interpolation this contract
+        // forbids; the run must stop instead of degrading to the numeric-value heuristic.
+        conn.execute_batch("DROP TABLE curve_class").unwrap();
+        let unreadable_type = run_reframe(&conn, &req);
+        assert!(
+            unreadable_type[0]
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("cannot verify categorical curve types"),
+            "an unreadable type registry must refuse Reframe, got {:?}",
+            unreadable_type[0].error
         );
     }
 

@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DBM-033: categorical curves never become arithmetic quantities
+
+- [x] **Automated:** exact SB-DBM-T33 uses the chapter's cited 0.1524 m-to-0.1 m
+      resample and producer-declared fixture codes 1/4. It proves the committed output contains
+      only those existing codes, the Reframe payload and UI report both target samples that cross
+      the source transition, the declaration remains active, Rhai and Python arithmetic each
+      refuse before writing, and unreadable type metadata stops Reframe instead of silently
+      treating the curve as continuous. Full gate is 1001 passed / 0 failed / 36 ignored, including
+      backend 944 passed / 0 failed / 36 ignored, with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** in Reframe at narrow and wide dock widths, request Interpolate for one
+      producer-declared class curve. Confirm the result says `nearest`, shows the number of
+      category-boundary samples, and lists each target depth plus its two source codes/depths
+      without clipping or hiding the ordinary run notes.
+- [ ] **Manual:** on a disposable project, run a producer that declares a categorical curve,
+      Reframe it to a finer explicitly stated sampling, and inspect every reported transition.
+      Then select the same curve in both equation editors and confirm each refuses by mnemonic and
+      writes no output. Jauhar owns this click-through.
+- [ ] **Field:** pending Gate 4. Exercise one sanitized producer-declared class curve and compare
+      its source/output code sets and transition depths. The synthetic labels and green test do
+      not prove a real facies delivery, and this increment does not claim arbitrary imported-curve
+      retyping is available.
+
 ## 2026-08-13 — G2 SB-DBM-032: single-handle parameter policy conflict
 
 - [ ] **Automated implementation:** blocked by DEC-028. No SB-DBM-T32 test was added because its

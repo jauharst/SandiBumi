@@ -436,14 +436,14 @@
 
 - **Chapter evidence:** P2; chapter status `ABSENT`; owned test `SB-DBM-T33`; sections 4.5 and 6.6.
 - **Atomic obligations:** categorical type is explicit; resampling produces only existing codes and reports boundary crossings; arithmetic refuses categorical inputs; all relevant writers/readers preserve the type.
-- **Current source:** `curve_class` explicitly declares computed class curves. Reframe coerces categorical interpolation/mean to nearest/mode, frame blocking uses mode and refuses averages, and smoothing/despiking refuse class curves. Values still occupy the numeric curve store; boundary-crossing reports and universal equation arithmetic refusal are absent.
-- **Qualifying acceptance tests:** none; T33's 0.1524-to-0.1 resample, boundary report and arithmetic refusal fixture is missing. Test class is `MISSING`.
+- **Current source:** `curve_class` explicitly declares producer-known class curves. Reframe refuses an unreadable registry, coerces unsafe methods to nearest/mode, returns a structured record for every target sample bracketed by unlike source codes, and renders those records in the Reframe report. Frame blocking uses mode and refuses averages; smoothing/despiking refuse class curves. Both Rhai and Python equation runners preflight the declaration and refuse categorical inputs before evaluation, interpreter discovery or writes.
+- **Qualifying acceptance tests:** exact correctness test `a_categorical_curve_resamples_only_to_existing_codes_reports_every_boundary_crossing_and_is_refused_by_every_equation_language` implements T33's cited 0.1524-to-0.1 m fixture, asserts only source codes 1/4, both crossed target samples and their source bracket, retained declaration, both equation-language refusals, zero arithmetic writes and fail-closed unreadable metadata. Test class is `CORRECTNESS`.
 - **Supporting tests:** `a_declared_class_curve_is_never_averaged_and_an_undeclared_one_keeps_the_method_asked_for`, `a_class_curve_is_carried_by_its_commonest_value_rather_than_averaged`, `a_class_curve_is_blocked_by_its_commonest_code_and_refuses_every_average`, and `a_class_curve_is_refused_by_smooth_and_despike_and_an_undeclared_one_is_not` prove important fragments from both sides.
 - **Manual evidence:** `reframe` 0/34, `workflow` 0/23 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains explicit class metadata and safe selected consumers; full type behavior is not integrated.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-003` must decide whether categorical/facies workflows are pilot scope.
-- **Next action:** if selected, carry class type through every expression/resample boundary, add boundary reporting and implement the complete T33 fixture.
+- **Git evidence:** the accepted anchor `b332026c` supplied producer declarations and selected safe consumers; the current Gate 2 branch adds the complete T33 reporting and equation refusal boundary.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the selected producer-declared categorical workflow. This increment does not claim an arbitrary imported curve can be manually retyped; no heuristic may silently create that declaration.
+- **Next action:** retain T33; Jauhar visually and manually verifies the rendered Reframe report and equation refusal, then Gate 4 exercises one sanitized producer-declared class curve.
 
 ## SB-DBM-034 - Every bulk operation returns `{matched, unmatched, ambiguous}` and drops nothing silently
 

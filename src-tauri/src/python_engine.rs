@@ -614,16 +614,61 @@ pub fn run_python_equation(
             .map(|well_id| EquationRunResult::failed(well_id.clone(), error.clone()))
             .collect();
     }
-    if find_python().is_none() {
-        let no_python = no_python_message();
-        if let Some(p) = progress {
-            for w in well_ids {
-                p.finish_item(w, crate::jobs::ItemState::Failed, Some(no_python.clone()));
+    let categorical_errors = match crate::equations::categorical_equation_errors(
+        db,
+        equation,
+        well_ids,
+    ) {
+        Ok(errors) => errors,
+        Err(error) => {
+            return well_ids
+                .iter()
+                .map(|well_id| EquationRunResult::failed(well_id.clone(), error.clone()))
+                .collect();
+        }
+    };
+    if !well_ids.is_empty() && categorical_errors.len() == well_ids.len() {
+        if let Some(progress) = progress {
+            for well_id in well_ids {
+                progress.finish_item(
+                    well_id,
+                    crate::jobs::ItemState::Failed,
+                    categorical_errors.get(well_id).cloned(),
+                );
             }
         }
         return well_ids
             .iter()
-            .map(|w| EquationRunResult::failed(w.clone(), no_python.clone()))
+            .map(|well_id| {
+                EquationRunResult::failed(
+                    well_id.clone(),
+                    categorical_errors[well_id].clone(),
+                )
+            })
+            .collect();
+    }
+    if find_python().is_none() {
+        let no_python = no_python_message();
+        if let Some(p) = progress {
+            for w in well_ids {
+                let error = categorical_errors
+                    .get(w)
+                    .cloned()
+                    .unwrap_or_else(|| no_python.clone());
+                p.finish_item(w, crate::jobs::ItemState::Failed, Some(error));
+            }
+        }
+        return well_ids
+            .iter()
+            .map(|w| {
+                EquationRunResult::failed(
+                    w.clone(),
+                    categorical_errors
+                        .get(w)
+                        .cloned()
+                        .unwrap_or_else(|| no_python.clone()),
+                )
+            })
             .collect();
     }
 
@@ -638,6 +683,16 @@ pub fn run_python_equation(
                 }
                 p.set_current(Some(format!("Python equation: well {}/{}", wi + 1, well_ids.len())));
                 p.start_item(well_id);
+            }
+            if let Some(error) = categorical_errors.get(well_id) {
+                if let Some(p) = progress {
+                    p.finish_item(
+                        well_id,
+                        crate::jobs::ItemState::Failed,
+                        Some(error.clone()),
+                    );
+                }
+                return EquationRunResult::failed(well_id.clone(), error.clone());
             }
             let (depth, columns) = {
                 let conn = db.lock().unwrap();

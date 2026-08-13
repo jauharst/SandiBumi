@@ -3573,6 +3573,47 @@ pub(crate) fn write_computed_curves_batch(
     Ok(())
 }
 
+/// Resolves the declared categorical inputs an equation would consume, per well. This happens
+/// before either evaluator starts: arithmetic is a property of the requested operation, not of
+/// whether Rhai compiles or a Python interpreter happens to be installed on this machine.
+pub(crate) fn categorical_equation_errors(
+    db: &Mutex<Connection>,
+    equation: &EquationDef,
+    well_ids: &[String],
+) -> Result<HashMap<String, String>, String> {
+    let conn = db.lock().unwrap();
+    let mut errors = HashMap::new();
+    for well_id in well_ids {
+        let declared = crate::db::class_curves_for_well(&conn, well_id).map_err(|error| {
+            format!(
+                "cannot verify categorical equation inputs for well {well_id}: {error}"
+            )
+        })?;
+        let mut categorical: Vec<String> = equation
+            .input_curves
+            .iter()
+            .map(|curve| curve.trim().to_uppercase())
+            .filter(|curve| declared.contains(curve))
+            .collect();
+        categorical.sort();
+        categorical.dedup();
+        let message = match categorical.as_slice() {
+            [] => continue,
+            [curve] => format!(
+                "categorical curve '{curve}' cannot be used by equation '{}': arithmetic is refused",
+                equation.name
+            ),
+            curves => format!(
+                "categorical curves '{}' cannot be used by equation '{}': arithmetic is refused",
+                curves.join("', '"),
+                equation.name
+            ),
+        };
+        errors.insert(well_id.clone(), message);
+    }
+    Ok(errors)
+}
+
 /// Runs `equation` across every well in `well_ids` concurrently via `rayon`. The Rhai
 /// script is compiled once and shared (via `Arc`, using rhai's `sync` feature) across
 /// worker threads; each depth sample gets a fresh `Scope` with input curve values bound
@@ -3589,6 +3630,38 @@ pub fn run_equation(
         return well_ids
             .iter()
             .map(|well_id| EquationRunResult::failed(well_id.clone(), error.clone()))
+            .collect();
+    }
+    let categorical_errors = match categorical_equation_errors(db, equation, well_ids) {
+        Ok(errors) => errors,
+        Err(error) => {
+            return well_ids
+                .iter()
+                .map(|well_id| EquationRunResult::failed(well_id.clone(), error.clone()))
+                .collect();
+        }
+    };
+    // If every selected well is already refused, do not let script compilation replace the
+    // categorical reporting-surface error with an unrelated syntax error. Mixed runs still
+    // compile once so their continuous wells can proceed.
+    if !well_ids.is_empty() && categorical_errors.len() == well_ids.len() {
+        if let Some(progress) = progress {
+            for well_id in well_ids {
+                progress.finish_item(
+                    well_id,
+                    crate::jobs::ItemState::Failed,
+                    categorical_errors.get(well_id).cloned(),
+                );
+            }
+        }
+        return well_ids
+            .iter()
+            .map(|well_id| {
+                EquationRunResult::failed(
+                    well_id.clone(),
+                    categorical_errors[well_id].clone(),
+                )
+            })
             .collect();
     }
     let engine = Engine::new();
@@ -3623,6 +3696,16 @@ pub fn run_equation(
             }
             if let Some(p) = progress {
                 p.start_item(well_id);
+            }
+            if let Some(error) = categorical_errors.get(well_id) {
+                if let Some(p) = progress {
+                    p.finish_item(
+                        well_id,
+                        crate::jobs::ItemState::Failed,
+                        Some(error.clone()),
+                    );
+                }
+                return EquationRunResult::failed(well_id.clone(), error.clone());
             }
             let (depth, columns) = {
                 let conn = db.lock().unwrap();
