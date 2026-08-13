@@ -1035,7 +1035,9 @@ export interface AncestryInput {
 export interface AncestryParameter {
   name: string;
   value: unknown;
-  source: string;
+  source: string | null;
+  /** Present only when no numeric value exists; a sourced value has no absent-state token. */
+  state?: "REQUIRED_UNSET";
   decision?: {
     topic: string;
     parameter: string;

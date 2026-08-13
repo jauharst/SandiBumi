@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-003: parameter absence is named and queryable
+
+- [x] **Automated:** SB-DBM-T05/T09/T30's source-state contract now writes every complete run's
+      parameters into an indexed relation in the same transaction as its run record. The owned
+      correctness test requires a sourced synthetic value, an unsupplied required input stored as
+      NULL value/source plus `REQUIRED_UNSET`, a blank-source refusal, and conservative backfill of
+      pre-index ancestry. All 14 equations controls and the full 988 / 0 / 36 gate pass. No
+      parameter value, endpoint, conversion or default was invented,
+      and `computed_curves` remains deliberately PK-less with no upsert path.
+- [ ] **Visual:** open Ancestry for a disposable run containing one deliberately unsupplied required
+      input. Confirm the record reads as a named absent state with null value/source and that an
+      ordinary sourced value still shows its value and citation. Typed JSON alone is not proof that
+      the human presentation is understandable.
+- [ ] **Manual:** in a disposable project, query `run_parameters` by `state = 'REQUIRED_UNSET'` and
+      confirm the returned names match the run's intentionally absent inputs. Reopen a project
+      written before this index and confirm source-bearing ancestry becomes queryable without any
+      malformed or source-less record being silently repaired.
+- [ ] **Field:** exercise representative pilot runs after the pilot parameter inventory is approved.
+      Confirm every numeric parameter carries its actual source and every unavailable required input
+      remains absent. This automated increment does not approve that inventory or replace Jauhar's
+      field evidence.
+
 ## 2026-08-13 — G2 SB-DBM-002: build-derived module identity is decision-blocked
 
 - [ ] **Automated implementation:** blocked, not declared green from the populated ancestry field.

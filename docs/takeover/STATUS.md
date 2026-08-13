@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `22 / 222 handled — 16 DONE, 6 BLOCKED, 200 remaining`
+- Gate 2 requirement progress: `23 / 222 handled — 17 DONE, 6 BLOCKED, 199 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T03 / SB-DBM-002 - BLOCKED; live run ancestry has a module-version field but fills it with hand-maintained CARGO_PKG_VERSION, while the required build-derived MODULE_VERSION_SOURCE remains deliberately absent`
+- Active increment: `G2-T03 / SB-DBM-003 - DONE; every complete run writes indexed source-bearing parameter rows, while uncited required inputs remain queryable REQUIRED_UNSET with NULL value/source`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-DBM-001 remains green at 987 passed / 0 failed / 36 ignored; SB-DBM-002 adds no acceptance test because T04/T15 cannot truthfully pin an unspecified build-derived identity, and no snapshot test defends CARGO_PKG_VERSION`
+- Automated gate: `SB-DBM-003 adds one owned correctness test; focused migration, all 14 equations controls and the full repository gate are green at 988 passed / 0 failed / 36 ignored`
 - Pilot field evidence: `OPEN`
-- Open blockers: `200 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `After recording SB-DBM-002's source/decision block, adjudicate SB-DBM-003 against the source-bearing parameter schema and the cited pilot-method inventory; uncited values remain absent.`
+- Open blockers: `199 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `After committing SB-DBM-003, adjudicate SB-DBM-004's effective-parameter-set contract without treating the blocked SB-DBM-002 module identity as resolved.`
 
 ## Gate dashboard
 
@@ -35,7 +35,7 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `115` present-OK, `24` present-unverified, `169` present-divergent, `172` partial,
+- As-built states: `116` present-OK, `24` present-unverified, `169` present-divergent, `171` partial,
   `399` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
@@ -55,9 +55,9 @@ Do not replace it with an estimated percentage.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `49` pilot blockers and `14` deferred; `42`
   correctness-tested and `21` missing qualifying owned proof.
-- SB-DBM: `43/43` adjudicated - `2` present-OK, `3` present-unverified, `12` present-divergent,
-  `12` partial and `14` absent; `30` pilot blockers and `13` deferred; `1` correctness proof, `1`
-  optional-package proof and `41` missing qualifying whole-contract proofs.
+- SB-DBM: `43/43` adjudicated - `3` present-OK, `3` present-unverified, `12` present-divergent,
+  `11` partial and `14` absent; `30` pilot blockers and `13` deferred; `2` correctness proofs, `1`
+  optional-package proof and `40` missing qualifying whole-contract proofs.
 - SB-PLT: `35/35` adjudicated - `4` present-unverified, `10` present-divergent, `14` partial and
   `7` absent; `18` pilot blockers and `17` deferred; `6` characterization tests and
   `29` missing qualifying whole-contract proofs.
@@ -157,6 +157,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G2-T03 SB-DBM-003 — queryable parameter source states | DONE; REVIEW REQUIRED | complete-run writes now atomically persist sourced parameter values or named REQUIRED_UNSET rows behind an exact state index; one correctness test pins both states, blank-source refusal and conservative pre-index ancestry backfill; no value, endpoint or source was invented; full gate 988 passed / 0 failed / 36 ignored | current topic-branch worktree |
 | G2-T03 SB-DBM-002 — build-derived module identity | BLOCKED; DECISION REQUIRED | live re-verification found every complete ancestry record now carries hand-maintained `CARGO_PKG_VERSION`, so the old ABSENT classification is corrected to PRESENT-DIVERGENT; §5 deliberately supplies no `MODULE_VERSION_SOURCE`, T04/T15 remain honestly missing, and DEC-021 names the exact architecture decision without guessing a digest or stability rule; unchanged full gate 987 passed / 0 failed / 36 ignored | current topic-branch worktree |
 | G2-T03 SB-DBM-001 — recorded versus legacy computed provenance | DONE; REVIEW REQUIRED | one resolver classifies every current computed row through its actual run-record join; T03 pins recorded and seeded legacy rows through catalog, general disclosure, LAS `~O` and export summary; legacy data remains exportable only as counted `LEGACY_UNRECORDED`, production writers stay ancestry-complete, and no PK/upsert was added; full gate 987 passed / 0 failed / 36 ignored | current topic-branch worktree |
 | G2-T02 SB-INS-019 — generated canonical curve/unit registry | DONE; REVIEW REQUIRED | one reviewed version/digest generates 15-family and 42-unit Rust, LAS import UI, Markdown and test-manifest populations; T24 compares every row and proves output drift plus dimension disagreement fail the release gate; no vocabulary, factor or default changed; full gate 986 passed / 0 failed / 36 ignored | current topic-branch worktree |

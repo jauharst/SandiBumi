@@ -945,15 +945,92 @@ pub struct AncestryInput {
     pub set_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) const REQUIRED_UNSET_PARAMETER_STATE: &str = "REQUIRED_UNSET";
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AncestryParameter {
     pub name: String,
     pub value: serde_json::Value,
     pub source: String,
     /// Present only when the corpus records competing positions for this parameter. Optional so
     /// schema-v1 ancestry written before SB-CORE-013 remains readable without being relabelled.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision: Option<crate::param_sources::ParameterDecision>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AncestryParameterWire {
+    name: String,
+    value: Option<serde_json::Value>,
+    source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    decision: Option<crate::param_sources::ParameterDecision>,
+}
+
+impl AncestryParameter {
+    fn is_required_unset(&self) -> bool {
+        self.value.as_str() == Some(crate::modules::ABSENT_DEFAULT_SOURCE)
+            && self.source == crate::modules::ABSENT_DEFAULT_SOURCE
+    }
+}
+
+impl Serialize for AncestryParameter {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let required_unset = self.is_required_unset();
+        AncestryParameterWire {
+            name: self.name.clone(),
+            value: (!required_unset).then(|| self.value.clone()),
+            source: (!required_unset).then(|| self.source.clone()),
+            state: required_unset.then(|| REQUIRED_UNSET_PARAMETER_STATE.to_string()),
+            decision: self.decision.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for AncestryParameter {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = AncestryParameterWire::deserialize(deserializer)?;
+        match wire.state.as_deref() {
+            Some(REQUIRED_UNSET_PARAMETER_STATE) => {
+                if wire.value.is_some() || wire.source.is_some() {
+                    return Err(serde::de::Error::custom(
+                        "REQUIRED_UNSET parameter must have null value and null source",
+                    ));
+                }
+                Ok(Self {
+                    name: wire.name,
+                    value: serde_json::json!(crate::modules::ABSENT_DEFAULT_SOURCE),
+                    source: crate::modules::ABSENT_DEFAULT_SOURCE.to_string(),
+                    decision: wire.decision,
+                })
+            }
+            Some(other) => Err(serde::de::Error::custom(format!(
+                "unknown parameter state '{other}'"
+            ))),
+            None => {
+                let value = wire
+                    .value
+                    .ok_or_else(|| serde::de::Error::custom("sourced parameter is missing value"))?;
+                let source = wire
+                    .source
+                    .ok_or_else(|| serde::de::Error::custom("sourced parameter is missing source"))?;
+                Ok(Self {
+                    name: wire.name,
+                    value,
+                    source,
+                    decision: wire.decision,
+                })
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1040,6 +1117,15 @@ impl CurveAncestry {
         for parameter in &self.parameters {
             if parameter.name.trim().is_empty() {
                 return Err("complete curve ancestry contains an unnamed parameter".into());
+            }
+            if parameter.is_required_unset() {
+                continue;
+            }
+            if parameter.source == crate::modules::ABSENT_DEFAULT_SOURCE {
+                return Err(format!(
+                    "parameter '{}' has an incomplete REQUIRED_UNSET state",
+                    parameter.name
+                ));
             }
             if parameter.value.is_null() {
                 return Err(format!(
@@ -1481,6 +1567,34 @@ fn create_log_set_raw(conn: &Connection, well_id: &str, spec: &LogSetSpec) -> du
     Ok((set_id, version))
 }
 
+fn write_run_parameters(
+    conn: &Connection,
+    set_id: &str,
+    parameters: &[AncestryParameter],
+) -> duckdb::Result<()> {
+    for (position, parameter) in parameters.iter().enumerate() {
+        let (value_json, source, state): (Option<String>, Option<&str>, Option<&str>) =
+            if parameter.is_required_unset() {
+                (None, None, Some(REQUIRED_UNSET_PARAMETER_STATE))
+            } else {
+                (Some(parameter.value.to_string()), Some(parameter.source.as_str()), None)
+            };
+        conn.execute(
+            "INSERT INTO run_parameters (set_id, position, name, value_json, source, state)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                set_id,
+                position as i64,
+                parameter.name,
+                value_json,
+                source,
+                state
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 /// Legacy test-fixture entry point. Production code is inventoried by SB-CORE-T14 and must use
 /// [`create_complete_log_set`] so it cannot obtain a writable set id from partial JSON.
 #[cfg(test)]
@@ -1498,8 +1612,12 @@ pub(crate) fn create_complete_log_set(
     spec: &CompleteLogSetSpec,
 ) -> Result<(CompleteSetId, i64), String> {
     spec.ancestry.validate()?;
-    let (value, version) =
-        create_log_set_raw(conn, well_id, &spec.storage).map_err(|error| error.to_string())?;
+    let (value, version) = crate::db::with_txn(conn, |conn| {
+        let created = create_log_set_raw(conn, well_id, &spec.storage)?;
+        write_run_parameters(conn, &created.0, &spec.ancestry.parameters)?;
+        Ok::<_, duckdb::Error>(created)
+    })
+    .map_err(|error| error.to_string())?;
     Ok((
         CompleteSetId {
             value,
@@ -2170,6 +2288,7 @@ pub(crate) fn create_complete_log_sets_batch(
                     spec.storage.inputs_json
                 ],
             )?;
+            write_run_parameters(conn, set_id, &spec.ancestry.parameters)?;
         }
         Ok::<(), duckdb::Error>(())
     })
@@ -2502,6 +2621,7 @@ pub(crate) fn delete_log_set(conn: &Connection, set_id: &str) -> duckdb::Result<
     crate::db::with_txn(conn, |conn| {
         conn.execute("UPDATE computed_curves SET set_id = NULL WHERE set_id = ?1", params![set_id])?;
         conn.execute("DELETE FROM computed_curves_archive WHERE set_id = ?1", params![set_id])?;
+        conn.execute("DELETE FROM run_parameters WHERE set_id = ?1", params![set_id])?;
         conn.execute("DELETE FROM log_sets WHERE set_id = ?1", params![set_id])?;
         Ok(())
     })
@@ -3537,5 +3657,147 @@ mod tests {
             "missing inputs are not a script failure and must not warn: {:?}",
             res[0].note
         );
+    }
+
+    /// CORRECTNESS — `22_database-model.md` SB-DBM-003 and §6 SB-DBM-T05/T30.
+    /// The values are synthetic fixture inputs, not petrophysical defaults. F-11 is the cited
+    /// source for keeping an absent parameter distinct from a missing curve sample.
+    ///
+    /// Removing the relational row write, its state index, the NULL value/source pair, the
+    /// positive sourced row, or the write refusal must fail this one contract from opposite sides.
+    #[test]
+    fn a_parameter_without_a_source_is_queryable_required_unset_and_never_a_number() {
+        use crate::db;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = Uuid::new_v4();
+        db::insert_well(&conn, well_id, "SOURCE-STATE", None, None, Some(0.0)).unwrap();
+
+        let ancestry = CurveAncestry {
+            schema_version: 1,
+            module: "synthetic_source_state_fixture".into(),
+            module_version: "fixture-build".into(),
+            inputs: Vec::new(),
+            parameters: vec![
+                AncestryParameter {
+                    name: "SOURCED_FIXTURE".into(),
+                    value: serde_json::json!(2.0),
+                    source: "22_database-model.md §6 SB-DBM-T05 fixture input".into(),
+                    decision: None,
+                },
+                AncestryParameter {
+                    name: "REQUIRED_INPUT".into(),
+                    value: serde_json::json!("ABSENT"),
+                    source: crate::modules::ABSENT_DEFAULT_SOURCE.into(),
+                    decision: None,
+                },
+            ],
+            zone_scope: AncestryZoneScope::WholeWell,
+            actor: AncestryActor {
+                kind: AncestryActorKind::Automated,
+                identity: "SB-DBM-T05".into(),
+            },
+            timestamp_utc_ms: 1,
+            outputs: vec![AncestryOutput {
+                curve: "SOURCE_STATE_RESULT".into(),
+                derivation: "SB-DBM-T05 fixture".into(),
+            }],
+        };
+        let spec = CompleteLogSetSpec::try_new("SOURCE_STATE", ancestry).unwrap();
+        let (set_id, _) = create_complete_log_set(&conn, &well_id.to_string(), &spec).unwrap();
+
+        let index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM duckdb_indexes() WHERE index_name = 'idx_run_parameters_state'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(index_count, 1, "the unset-state query key must be indexed");
+
+        let sourced: (String, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT value_json, source, state FROM run_parameters
+                 WHERE set_id = ?1 AND name = 'SOURCED_FIXTURE'",
+                duckdb::params![set_id.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&sourced.0).unwrap(), serde_json::json!(2.0));
+        assert_eq!(sourced.1.as_deref(), Some("22_database-model.md §6 SB-DBM-T05 fixture input"));
+        assert_eq!(sourced.2, None, "a present sourced value is not an absent state");
+
+        let mut unset = conn
+            .prepare(
+                "SELECT name, value_json, source FROM run_parameters
+                 WHERE state = 'REQUIRED_UNSET' ORDER BY set_id, position",
+            )
+            .unwrap();
+        let rows: Vec<(String, Option<String>, Option<String>)> = unset
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(rows, vec![("REQUIRED_INPUT".into(), None, None)]);
+
+        let stored: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets WHERE set_id = ?1",
+                duckdb::params![set_id.as_str()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&stored).unwrap();
+        let required = &payload[CURVE_ANCESTRY_KEY]["parameters"][1];
+        assert_eq!(required["state"], "REQUIRED_UNSET");
+        assert!(required["value"].is_null(), "no parameter is not a numeric value");
+        assert!(required["source"].is_null(), "no parameter has no invented source");
+
+        let mut unsourced = spec.ancestry.clone();
+        unsourced.parameters[0].source.clear();
+        let error = CompleteLogSetSpec::try_new("SOURCE_STATE", unsourced)
+            .expect_err("a UI-supplied numeric value without a source must be refused");
+        assert!(error.contains("SOURCED_FIXTURE") && error.contains("source"), "{error}");
+
+        // The migration side: a project written before the relational index existed already has
+        // the source state in ancestry JSON. Re-opening must index that fact instead of silently
+        // treating only future runs as queryable.
+        let legacy = Connection::open_in_memory().unwrap();
+        db::create_schema(&legacy).unwrap();
+        let legacy_well = Uuid::new_v4();
+        db::insert_well(&legacy, legacy_well, "PRE-INDEX-STATE", None, None, Some(0.0)).unwrap();
+        legacy.execute_batch("DROP TABLE run_parameters").unwrap();
+        let legacy_payload = serde_json::json!({
+            CURVE_ANCESTRY_KEY: {
+                "parameters": [{
+                    "name": "LEGACY_REQUIRED_INPUT",
+                    "value": "ABSENT",
+                    "source": "ABSENT"
+                }]
+            }
+        });
+        let (legacy_set, _) = create_log_set(
+            &legacy,
+            &legacy_well.to_string(),
+            &LogSetSpec {
+                set_name: "PRE_INDEX".into(),
+                module: "synthetic_pre_index_fixture".into(),
+                params_json: legacy_payload.to_string(),
+                inputs_json: "[]".into(),
+            },
+        )
+        .unwrap();
+        db::create_schema(&legacy).unwrap();
+        let migrated: (Option<String>, Option<String>, String) = legacy
+            .query_row(
+                "SELECT value_json, source, state FROM run_parameters
+                 WHERE set_id = ?1 AND name = 'LEGACY_REQUIRED_INPUT'",
+                duckdb::params![legacy_set],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(migrated, (None, None, "REQUIRED_UNSET".into()));
     }
 }

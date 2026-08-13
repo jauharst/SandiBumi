@@ -338,6 +338,26 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             frame       VARCHAR NOT NULL DEFAULT 'STANDARD'
         );
 
+        -- Queryable parameter custody for one run. The full ancestry JSON remains the portable
+        -- record; this relation is the indexed project query required by SB-DBM-003. A present
+        -- value always has a non-empty source. A deliberately unsupplied required parameter is
+        -- represented only by the named REQUIRED_UNSET state with both value and source NULL.
+        CREATE TABLE IF NOT EXISTS run_parameters (
+            set_id      UUID NOT NULL,
+            position    INTEGER NOT NULL,
+            name        VARCHAR NOT NULL,
+            value_json  VARCHAR,
+            source      VARCHAR,
+            state       VARCHAR,
+            PRIMARY KEY (set_id, position),
+            CHECK (
+                (state = 'REQUIRED_UNSET' AND value_json IS NULL AND source IS NULL)
+                OR
+                (state IS NULL AND value_json IS NOT NULL AND source IS NOT NULL AND length(trim(source)) > 0)
+            )
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_parameters_state ON run_parameters(state);
+
         -- Append-only history: every versioned run's full output rows, tagged by set_id.
         -- `computed_curves` stays the fast "current" store every panel reads; this table
         -- is what makes re-runs non-destructive (restore any version back into current).
@@ -894,7 +914,138 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         );
         "#,
     )?;
+    backfill_run_parameters(conn)?;
     Ok(())
+}
+
+/// Builds SB-DBM-003's indexed parameter view for complete ancestry written before the relation
+/// existed. The migration is deliberately evidence-preserving: it accepts only a sourced value
+/// or the exact historical ABSENT/ABSENT pair. Malformed legacy JSON is left unclassified instead
+/// of being repaired with an invented value, source, or state.
+fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
+    #[derive(Debug)]
+    struct BackfillRow {
+        set_id: String,
+        position: i64,
+        name: String,
+        value_json: Option<String>,
+        source: Option<String>,
+        state: Option<String>,
+    }
+
+    let candidates: Vec<(String, String)> = {
+        let mut statement = conn.prepare(
+            "SELECT CAST(log_sets.set_id AS VARCHAR), log_sets.params_json
+             FROM log_sets
+             WHERE log_sets.params_json IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM run_parameters
+                   WHERE run_parameters.set_id = log_sets.set_id
+               )
+             ORDER BY log_sets.set_id",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<duckdb::Result<_>>()?
+    };
+
+    let mut rows = Vec::new();
+    for (set_id, params_json) in candidates {
+        let Ok(payload) = serde_json::from_str::<serde_json::Value>(&params_json) else {
+            continue;
+        };
+        let Some(parameters) = payload
+            .get(crate::equations::CURVE_ANCESTRY_KEY)
+            .and_then(|ancestry| ancestry.get("parameters"))
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+
+        let mut set_rows = Vec::with_capacity(parameters.len());
+        let mut complete = true;
+        for (position, parameter) in parameters.iter().enumerate() {
+            let Some(name) = parameter
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+            else {
+                complete = false;
+                break;
+            };
+            let value = parameter.get("value");
+            let source = parameter.get("source");
+            let state = parameter.get("state").and_then(serde_json::Value::as_str);
+            let historical_required_unset = state.is_none()
+                && value.and_then(serde_json::Value::as_str)
+                    == Some(crate::modules::ABSENT_DEFAULT_SOURCE)
+                && source.and_then(serde_json::Value::as_str)
+                    == Some(crate::modules::ABSENT_DEFAULT_SOURCE);
+            let canonical_required_unset =
+                state == Some(crate::equations::REQUIRED_UNSET_PARAMETER_STATE)
+                    && value.is_some_and(serde_json::Value::is_null)
+                    && source.is_some_and(serde_json::Value::is_null);
+
+            let row = if historical_required_unset || canonical_required_unset {
+                BackfillRow {
+                    set_id: set_id.clone(),
+                    position: position as i64,
+                    name: name.to_string(),
+                    value_json: None,
+                    source: None,
+                    state: Some(crate::equations::REQUIRED_UNSET_PARAMETER_STATE.to_string()),
+                }
+            } else if state.is_none() {
+                let Some(value) = value.filter(|value| !value.is_null()) else {
+                    complete = false;
+                    break;
+                };
+                let Some(source) = source
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|source| !source.trim().is_empty())
+                else {
+                    complete = false;
+                    break;
+                };
+                BackfillRow {
+                    set_id: set_id.clone(),
+                    position: position as i64,
+                    name: name.to_string(),
+                    value_json: Some(value.to_string()),
+                    source: Some(source.to_string()),
+                    state: None,
+                }
+            } else {
+                complete = false;
+                break;
+            };
+            set_rows.push(row);
+        }
+        if complete {
+            rows.extend(set_rows);
+        }
+    }
+
+    if rows.is_empty() {
+        return Ok(());
+    }
+    with_txn(conn, |conn| {
+        for row in rows {
+            conn.execute(
+                "INSERT INTO run_parameters (set_id, position, name, value_json, source, state)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    row.set_id,
+                    row.position,
+                    row.name,
+                    row.value_json,
+                    row.source,
+                    row.state
+                ],
+            )?;
+        }
+        Ok::<(), DbError>(())
+    })
 }
 
 /// Migrates once, on open: copies every `standard_curves` column into the generic

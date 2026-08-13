@@ -12,8 +12,8 @@
 - Source-navigation boundary: the codebase index was not callable in this task, so targeted `rg`, direct source reads, executable tests and reachable Git history were used as the declared fallback. Consequential negative findings were checked in the expected Rust, TypeScript, schema, test and history paths.
 - Verification boundary: a supporting test is named only for the clause it exercises. A test that does not cover every clause of its owned DBM contract is not promoted to qualifying proof. Manual checkboxes remain separate from automated evidence.
 - Fresh verification: 21 focused supporting Rust tests passed. The repository gate passed 16 takeover-ledger + 13 frontend + 917 Rust tests, with 0 failed and 36 ignored; production build and generated verification matrix were green.
-- Gate 2 update (2026-08-13): SB-DBM-001 now has its owned correctness proof and the repository
-  gate passes 987 / 0 / 36. Automated, visual, manual and field evidence remain separate.
+- Gate 2 update (2026-08-13): SB-DBM-001 and SB-DBM-003 now have owned correctness proofs. The
+  repository gate passes 988 / 0 / 36. Automated, visual, manual and field evidence remain separate.
 
 ## SB-DBM-001 - One run record per computed curve, resolvable in one hop
 
@@ -45,14 +45,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T05`, `SB-DBM-T09`, `SB-DBM-T30`; sections 4.1, 5.4 and 6.2/6.6.
 - **Atomic obligations:** store value, source and a named absent state relationally/queryably; refuse any numeric petrophysical value without a source; never encode state as an empty string or numeric sentinel.
-- **Current source:** general writers serialize free-form `params_json` without a mandatory source. ML effective defaults sometimes carry a source string and defaulted flag, but explicit ML values and other modules do not. `zone_params` has no source/state columns.
-- **Qualifying acceptance tests:** none; no test writes the three T05 states and queries the unset state from an index. Test class is `MISSING`.
-- **Supporting tests:** `ml.rs::every_parameter_the_runner_reads_is_recorded_as_supplied_or_defaulted` proves one ML inventory, but not mandatory sources or a queryable absent state.
-- **Manual evidence:** `workflow` 0/23, `processing-history` 0/7 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the ML fragment; the universal source/state contract is not integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the source inventory is incomplete; under `CONTRACT.md` section 2, uncited values must remain absent.
-- **Next action:** add mandatory structured value/source/state rows for the pilot method registry, populate only cited sources and implement T05/T09/T30.
+- **Current source:** `run_parameters` is the relational, position-preserving view of every complete ancestry parameter and `idx_run_parameters_state` supports direct unset queries. Complete single and batch run creation writes those rows in the same transaction as `log_sets`; deletion removes both atomically. `AncestryParameter` serializes an unsupplied required input only as `value: null`, `source: null`, `state: REQUIRED_UNSET`, while sourced values require a non-blank source. Schema open conservatively backfills only source-proven legacy ancestry and the exact historical `ABSENT`/`ABSENT` pair; malformed history is not guessed into compliance. Typed IPC permits the null source only alongside the named state, and the ancestry surface describes sourced values versus named absence.
+- **Qualifying acceptance test:** `a_parameter_without_a_source_is_queryable_required_unset_and_never_a_number` is `CORRECTNESS`. Synthetic fixture inputs exercise one sourced value and one absent required input; the test requires the exact index, direct query result, canonical ancestry JSON, blank-source write refusal and pre-index project backfill from both sides. Its expected state comes from SB-DBM-T05/T09/T30 and F-11, not from current output.
+- **Supporting tests:** all 14 equations tests pass, including saved-set versioning and ordinary text parameter values; focused complete-ancestry, LAS provenance and project round-trip controls remain green.
+- **Manual evidence:** `workflow` 0/23, `processing-history` 0/7 and `verification-stewardship` 0/24 - still unexercised.
+- **Git evidence:** Gate 2 topic branch carries the schema, migration, atomic writer, typed wire contract and owned proof. No primary key or upsert was added to `computed_curves`.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for this source/state contract. Uncited parameters remain absent with NULL value/source; no parameter value, physical endpoint or default was selected.
+- **Next action:** retain the indexed source/state contract; visually inspect the ancestry presentation, manually query a disposable project and field-verify representative pilot runs. These open evidence classes do not reopen the automated contract.
 
 ## SB-DBM-004 - The run record stores the effective parameter set, not only the overrides
 

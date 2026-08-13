@@ -42,7 +42,7 @@ function showCurveAncestry(label: string, ancestry: CurveAncestry): void {
   const note = document.createElement("p");
   note.className = "modal-hint";
   note.textContent =
-    "Complete stored record: input well/set identities, every value and source, zone scope, custody, timestamp, and output derivations.";
+    "Complete stored record: input well/set identities, sourced values or named absent states, zone scope, custody, timestamp, and output derivations.";
   const record = document.createElement("pre");
   record.className = "ancestry-record";
   record.textContent = JSON.stringify(ancestry, null, 2);
