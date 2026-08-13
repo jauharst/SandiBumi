@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-001: one project sentinel reaches the complete writer registry
+
+- **Automated — not manual evidence:** exact SB-DIO-T01 sets the cited non-default Baker waveform
+      sentinel, enumerates every registered writer, requires each output to declare and
+      use it, proves no writer emits the project default instead, and requires the
+      registered self-reader to accept the result. Exact SB-DIO-T02 enumerates the same
+      registry and pins the required non-optional `WriterSettings` function signature.
+      Full gate: 1006 passed / 0 failed / 36 ignored, including backend 949 passed / 0
+      failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** not claimed. Export a disposable well after selecting a non-default
+      project sentinel and inspect the completed export/status surface for the chosen
+      format and self-check result.
+- [ ] **Manual:** Jauhar opens the exported file independently and confirms its null
+      declaration and missing samples use the selected project sentinel. The synthetic
+      registry test proves custody, not the operator workflow or a third-party reader.
+- [ ] **Field:** pending Gate 4; no representative field delivery was exported by this
+      increment.
+
 ## 2026-08-14 — G2 SB-DBM-042: recovery copies name what they restore
 
 - [x] **Automated:** exact SB-DBM-T01 hashes a newer-format project before and after

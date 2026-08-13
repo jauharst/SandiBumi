@@ -975,14 +975,44 @@ mod tests {
         set_project_null_sentinel(&conn, declared).unwrap();
         assert_eq!(project_null_sentinel(&conn).unwrap(), declared);
 
-        let dest = tmp_path("declared-sentinel");
-        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
-        let text = crate::parsers::read_text_file(&dest).unwrap();
-        let _ = std::fs::remove_file(&dest);
+        let settings = WriterSettings {
+            null_sentinel: project_null_sentinel(&conn).unwrap(),
+        };
+        for writer in REGISTERED_WRITERS {
+            let dest = tmp_path(&format!("declared-sentinel-{}", writer.id))
+                .with_extension(writer.extension);
+            let result = export_with_writer(
+                &conn,
+                &id.to_string(),
+                dest.to_str().unwrap(),
+                settings,
+                writer,
+            )
+            .unwrap();
+            let text = crate::parsers::read_text_file(&dest).unwrap();
+            let _ = std::fs::remove_file(&dest);
 
-        assert!(text.lines().any(|line| line.contains("NULL.") && line.contains("-32767.0000")));
-        assert!(text.contains("-32767.0000"), "missing samples use the declared sentinel");
-        assert!(!text.contains("-999.2500"), "the LAS writer must not emit its former private default");
+            assert!(
+                result.self_checked,
+                "registered writer {} must pass its reader",
+                writer.id
+            );
+            assert!(
+                text.lines().any(|line| line.contains("NULL.") && line.contains("-32767.0000")),
+                "registered writer {} must declare the project sentinel",
+                writer.id
+            );
+            assert!(
+                text.contains("-32767.0000"),
+                "registered writer {} must use the declared sentinel for missing samples",
+                writer.id
+            );
+            assert!(
+                !text.contains("-999.2500"),
+                "registered writer {} must not emit a private default",
+                writer.id
+            );
+        }
     }
 
     /// SB-DIO-001 / SB-DIO-T02. `WriterFn` is the registry boundary: removing the final,
@@ -991,7 +1021,9 @@ mod tests {
     #[test]
     fn a_registered_writer_cannot_omit_the_required_sentinel_argument() {
         let _: WriterFn = write_las;
-        let _: WriterFn = REGISTERED_WRITERS[0].write;
+        for writer in REGISTERED_WRITERS {
+            let _: WriterFn = writer.write;
+        }
     }
 
     /// SB-DIO-002 / SB-DIO-T03. `-32767` is the cited Baker waveform sentinel in

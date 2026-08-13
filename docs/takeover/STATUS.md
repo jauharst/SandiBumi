@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `50 / 222 handled — 33 DONE, 17 BLOCKED, 172 remaining`
+- Gate 2 requirement progress: `51 / 222 handled — 34 DONE, 17 BLOCKED, 171 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T03 / SB-DBM-042 - DONE; newer projects refuse byte-identically and every fail-closed destructive-migration backup names the source format it restores`
+- Active increment: `G2-T04 / SB-DIO-001 - DONE; one project sentinel is required at the writer boundary and both exact tests enumerate every registered writer`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `Exact SB-DBM-T01/T02/T43 are green; full gate 1006 passed / 0 failed / 36 ignored, including backend 949 passed / 0 failed / 36 ignored; the owned Rust warning inventory remains 55`
+- Automated gate: `Exact SB-DIO-T01/T02 are green across the complete registered-writer inventory; full gate 1006 passed / 0 failed / 36 ignored, including backend 949 passed / 0 failed / 36 ignored; the owned Rust warning inventory remains 55`
 - Pilot field evidence: `OPEN`
-- Open blockers: `172 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; SB-DBM-005 is BLOCKED on the complete registered-module derivation-source map; SB-DBM-009 is BLOCKED on DEC-022 classifying legacy local/unspecified timestamps; SB-DBM-010 is BLOCKED on SB-DBM-005's source-controlled derivation citations; SB-DBM-011 is BLOCKED on DEC-022 plus DEC-023 reconciling T11's zone-set requirement with SB-DBM-008's exclusion; SB-DBM-015 is BLOCKED on DEC-021, DEC-023 and DEC-024 settling the complete identities required by T15, including the pilot-excluded SB-DBM-008, SB-DBM-014 and SB-DBM-019/020 paths; SB-DBM-017 is BLOCKED on DEC-025 reconciling its typed neutron-scale attribute with pilot-excluded SB-ENV-012; SB-DBM-025 is BLOCKED on DEC-026 settling the binding 0.001 PHIE-floor rule versus SB-POR-045's no-default contract before any cross-module registry can claim cited authority; SB-DBM-030 is BLOCKED on DEC-027 reconciling the required queryable REQUIRED_UNSET row versus absence-of-row and T29's export-bound dependency versus the non-adopted Geolog magnitude; SB-DBM-031 is BLOCKED on source/operator declarations for the untyped legacy/imported depth frames and source TVDSS signs that cannot be recovered from a mnemonic, unit, value or neighbouring row; SB-DBM-032 is BLOCKED on DEC-028 choosing the single-handle policy without weakening the closed SB-INS-015 refusal; SB-DBM-041 is BLOCKED on SB-DBM-011's absent audit_entry/audit_detail relations plus DEC-022 and DEC-023; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Begin G2-T04 with pilot-blocker SB-DIO-001; all 30 Gate 2 project-store rows are now handled, while SB-DBM-038 and SB-DBM-043 remain deferred beyond the first pilot.`
+- Open blockers: `171 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; SB-DBM-005 is BLOCKED on the complete registered-module derivation-source map; SB-DBM-009 is BLOCKED on DEC-022 classifying legacy local/unspecified timestamps; SB-DBM-010 is BLOCKED on SB-DBM-005's source-controlled derivation citations; SB-DBM-011 is BLOCKED on DEC-022 plus DEC-023 reconciling T11's zone-set requirement with SB-DBM-008's exclusion; SB-DBM-015 is BLOCKED on DEC-021, DEC-023 and DEC-024 settling the complete identities required by T15, including the pilot-excluded SB-DBM-008, SB-DBM-014 and SB-DBM-019/020 paths; SB-DBM-017 is BLOCKED on DEC-025 reconciling its typed neutron-scale attribute with pilot-excluded SB-ENV-012; SB-DBM-025 is BLOCKED on DEC-026 settling the binding 0.001 PHIE-floor rule versus SB-POR-045's no-default contract before any cross-module registry can claim cited authority; SB-DBM-030 is BLOCKED on DEC-027 reconciling the required queryable REQUIRED_UNSET row versus absence-of-row and T29's export-bound dependency versus the non-adopted Geolog magnitude; SB-DBM-031 is BLOCKED on source/operator declarations for the untyped legacy/imported depth frames and source TVDSS signs that cannot be recovered from a mnemonic, unit, value or neighbouring row; SB-DBM-032 is BLOCKED on DEC-028 choosing the single-handle policy without weakening the closed SB-INS-015 refusal; SB-DBM-041 is BLOCKED on SB-DBM-011's absent audit_entry/audit_detail relations plus DEC-022 and DEC-023; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Adjudicate G2-T04 pilot-blocker SB-DIO-002 and exact SB-DIO-T03; the completed SB-DIO-001 sentinel contract remains subject to Jauhar's manual export check and Gate 4 field evidence.`
 
 ## Gate dashboard
 
@@ -135,14 +135,17 @@ Do not replace it with an estimated percentage.
 
 ## Manual and field verification
 
-- Checked scenarios: `78 / 1,485` (`5.3%`).
-- Unchecked scenarios: `1,407`.
-- Capabilities with recorded exercise: `14 / 54`.
+- Mechanically checked REVIEW scenarios: `87 / 1,868` (`4.7%`).
+- Mechanically unchecked REVIEW scenarios: `1,781`.
+- Capabilities with recorded exercise: `20 / 54`.
 - Fully exercised capabilities: `1 / 54`.
-- Capability states: `1` exercised, `13` partial, `38` not exercised, `1` not recorded,
+- Capability states: `1` exercised, `19` partial, `32` not exercised, `1` not recorded,
   `1` not listed.
 - Evidence report: `docs/takeover/evidence/field-verification.md`.
 - Boundary: automated and desktop-harness evidence does not close an unchecked manual scenario.
+  Legacy `[x] Automated` REVIEW entries are currently included by the matrix generator's checked-box
+  count, so this mechanical roll-up is not accepted as Jauhar-confirmed manual or field truth and
+  MUST NOT close Gate 4 without separating those evidence classes.
 
 ## Release claims
 

@@ -16,14 +16,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T01`, `SB-DIO-T02`.
 - **Atomic obligations:** resolve one project sentinel; require it at every registered writer boundary; prevent a writer-owned fallback sentinel.
-- **Current source:** `src-tauri/src/export.rs` stores one project setting, makes `WriterSettings` a required non-optional registry argument and routes the sole registered LAS writer through it. `src-tauri/src/lib.rs` exposes only the whitelisted setting commands. No second registered data writer exists outside the registry.
-- **Qualifying acceptance tests:** `a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own` and `a_registered_writer_cannot_omit_the_required_sentinel_argument` are `CORRECTNESS`; the non-default control uses the Baker waveform sentinel cited in chapter section 5.2 and the compile-time contract pins the registry boundary.
+- **Current source:** `src-tauri/src/export.rs` stores one project setting, makes `WriterSettings` a required non-optional registry argument and routes the sole registered LAS writer through it. `src-tauri/src/lib.rs` exposes only the whitelisted setting commands. No second registered data writer exists outside the registry, and both exact tests enumerate the registry instead of assuming slot zero is complete.
+- **Qualifying acceptance tests:** `a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own` and `a_registered_writer_cannot_omit_the_required_sentinel_argument` are `CORRECTNESS`; the first loops every registered writer and checks its declared/used sentinel, absence of the project default and successful self-read, while the second loops the same inventory and pins the required function type. The non-default control uses the Baker waveform sentinel cited in chapter section 5.2.
 - **Supporting tests:** the LAS round trip and default-format test exercise the same setting but do not replace the writer-inventory assertions.
-- **Manual evidence:** `data-conventions` 0/45 and `las-export` 0/2 - unexercised.
-- **Git evidence:** reachable `55927c6` contains the closing writer-registry change.
+- **Manual evidence:** the generated matrix currently shows `data-conventions` 4/68 and `las-export` 0/2, but legacy checked Automated entries contaminate its checked count; this increment claims no Jauhar-confirmed manual or field exercise.
+- **Git evidence:** reachable `55927c6` contains the closing writer-registry change; the current `codex/g2-program-plan` increment strengthens the registry-wide proof without changing production behavior.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none for the automated contract; field export remains unexercised.
-- **Next action:** preserve the required registry signature and make every future writer register before it can ship.
+- **Next action:** retain exact T01/T02, preserve the required registry signature and require every future data writer to enter this inventory before it can ship; Jauhar's independent-reader and representative-field checks remain separate evidence.
 
 ## SB-DIO-002 - The default export path MUST NOT be the one that bypasses the sentinel.
 
