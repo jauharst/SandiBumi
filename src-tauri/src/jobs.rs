@@ -163,7 +163,7 @@ impl JobHandle {
         self.observed_cancel.store(true, Ordering::SeqCst);
     }
 
-    fn cancel_was_observed(&self) -> bool {
+    pub(crate) fn cancel_was_observed(&self) -> bool {
         self.observed_cancel.load(Ordering::SeqCst)
     }
 
@@ -597,5 +597,142 @@ mod tests {
         assert!(!h.cancel_was_observed());
         h.note_cancel_observed();
         assert!(h.cancel_was_observed());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_displayed_cancel_reaches_an_observing_worker_and_completed_work_is_never_reported_cancelled(
+    ) {
+        // CORRECTNESS — SB-CORE-036 and its 2026-08-07 correction are the source: Cancel is
+        // offered only for an observing worker, and a click alone cannot relabel committed work.
+        let reg = new_registry();
+
+        run_job(
+            reg.clone(),
+            "Test",
+            "clicked after completion",
+            vec![],
+            0,
+            true,
+            |job| {
+                job.cancel.store(true, Ordering::SeqCst);
+            },
+        )
+        .await
+        .expect("the non-observing worker completes");
+
+        run_job(
+            reg.clone(),
+            "Test",
+            "worker observed cancellation",
+            vec![],
+            0,
+            true,
+            |job| {
+                job.cancel.store(true, Ordering::SeqCst);
+                assert!(job.is_cancelled(), "the worker observes and honours the request");
+            },
+        )
+        .await
+        .expect("the observing worker drains cleanly");
+
+        run_simple_job(reg.clone(), "Test", "monolithic", || Ok::<_, String>(()))
+            .await
+            .expect("the monolithic worker completes");
+
+        let views = list(&reg);
+        let view = |label: &str| {
+            views
+                .iter()
+                .find(|view| view.label == label)
+                .unwrap_or_else(|| panic!("job {label:?} is present"))
+        };
+        assert_eq!(
+            view("clicked after completion").phase,
+            JobPhase::Completed,
+            "a request no worker observed did not stop the completed work"
+        );
+        assert!(view("clicked after completion").cancellable);
+        assert_eq!(
+            view("worker observed cancellation").phase,
+            JobPhase::Cancelled,
+            "an observed request reports the work as cancelled"
+        );
+        assert!(view("worker observed cancellation").cancellable);
+        assert_eq!(view("monolithic").phase, JobPhase::Completed);
+        assert!(
+            !view("monolithic").cancellable,
+            "a worker with no cancellation handle cannot offer Cancel"
+        );
+
+        let panel = include_str!("../../src/ui/processingPanel.ts");
+        assert!(
+            panel.contains("if (active && job.cancellable)"),
+            "the Processing panel exposes Cancel only for an active observing worker"
+        );
+        assert!(
+            panel.contains("tag.textContent = \"can't be interrupted\""),
+            "active monolithic work states its non-interruptible limit"
+        );
+
+        let lib = include_str!("lib.rs");
+        let cancellable_registrations = [
+            "ingest::import_las_files_with(&c, &paths, Some(&job), &opts)",
+            "python_engine::run_python_equation(&conn, &equation, &well_ids, &custody, Some(&job))",
+            "equations::run_equation(&conn, &equation, &well_ids, &custody, Some(&job))",
+            "workflow::run_workflow_module_into(&conn, &req, None, Some(&job.cancel), Some(&job))",
+            "montecarlo::run_monte_carlo(&conn, &req, Some(&job))",
+            "ml::run_ml(&conn, &req, Some(&job))",
+            "ml::apply_ml_model(&conn, &req, Some(&job))",
+            "multimin2::run_multimin(&conn, &req, Some(&job))",
+        ];
+        assert_eq!(
+            lib.matches("jobs::run_job(").count(),
+            7,
+            "every live run_job registration must be reviewed by this inventory"
+        );
+        for registration in cancellable_registrations {
+            assert!(
+                lib.contains(registration),
+                "cancellable registration must still route its observing handle: {registration}"
+            );
+        }
+        assert_eq!(
+            lib.matches("jobs::register(").count(),
+            1,
+            "every manual job registration must be reviewed by this inventory"
+        );
+        assert!(lib.contains(
+            "jobs::register(jobs_reg.inner(), uuid, \"Workflow chain\", label, items, cancel.clone(), true)"
+        ));
+        assert!(lib.contains("chain::cancel(registry.inner(), uuid);"));
+
+        let observers = [
+            (include_str!("ingest.rs"), "p.is_cancelled()", "LAS import"),
+            (include_str!("equations.rs"), "p.is_cancelled()", "Rhai equation"),
+            (include_str!("python_engine.rs"), "p.is_cancelled()", "Python equation"),
+            (include_str!("workflow.rs"), "p.note_cancel_observed()", "workflow module"),
+            (include_str!("montecarlo.rs"), "p.is_cancelled()", "Monte Carlo"),
+            (include_str!("ml.rs"), "p.is_cancelled()", "machine learning"),
+            (include_str!("multimin2.rs"), "p.is_cancelled()", "SandiMin"),
+        ];
+        for (source, observer, family) in observers {
+            assert!(
+                source.contains(observer),
+                "{family} is advertised cancellable only while its worker observes cancellation"
+            );
+        }
+
+        let chain = include_str!("chain.rs");
+        assert!(
+            chain.contains("j.note_cancel_observed();"),
+            "the chain loop records a cancellation that prevents a later step from starting"
+        );
+        assert!(
+            chain.contains("j.cancel_was_observed()"),
+            "the final chain check distinguishes a drained last step from a late click"
+        );
+        let workflow_dialog = include_str!("../../src/ui/workflowDialog.ts");
+        assert!(workflow_dialog.contains("cancelBtn.disabled = false;"));
+        assert!(workflow_dialog.contains("await cancelWorkflowChain(currentJob).catch(() => {});"));
     }
 }

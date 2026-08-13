@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-CORE-036: cancellation controls tell the truth
+
+- [x] **Automated:** the owned correctness test executes an unobserved late click as Completed,
+      an observed request as Cancelled, and a monolithic job as non-cancellable. It inventories
+      all seven live `run_job` families, the one manual workflow-chain registration, every worker
+      observer, and both visible Cancel surfaces. Reverification caught and repaired the chain's
+      final-step race: a click after the last worker had completed and committed can no longer
+      relabel that run as Cancelled. Focused test: 1 passed / 0 failed / 0 ignored. Full gate:
+      983 passed / 0 failed / 36 ignored; Rust retains the owned 56-warning inventory.
+- [ ] **Visual:** while one cancellable job and one monolithic job are active, confirm Processing
+      shows Cancel only on the first and “can't be interrupted” on the second. For a workflow
+      chain, confirm the dialog and Processing panel remain synchronized and terminal text is
+      readable. No screenshot is claimed as behavioral proof.
+- [ ] **Manual:** cancel LAS import, an equation/workflow run, Monte Carlo, ML and SandiMin during
+      actual work; confirm each stops after its documented polling boundary and clearly retains
+      any completed partial results. Also click Cancel too late on a nearly finished workflow and
+      confirm it reports Completed rather than denying already committed work.
+- [ ] **Field:** repeat the mid-run and late-click cases on a sanitized legally controlled pilot
+      project, retain the job/result receipt, and confirm reopened persisted results match the
+      terminal message. Automated inventory coverage does not count as field acceptance.
+
 Everything below is implemented, unit/integration-tested, and browser-smoke-tested,
 but has **not** been clicked through in the real desktop app with real field data.
 Work through this list when you have time, marking items as you go.

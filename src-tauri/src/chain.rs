@@ -395,6 +395,9 @@ pub(crate) fn run_chain(
         if cancel.load(Ordering::SeqCst) {
             set_status(registry, job_id, ChainStatus::Cancelled { at_step: i });
             if let Some(j) = job {
+                // The chain loop itself prevented this step from starting, so this raw-flag
+                // observation is evidence that cancellation changed what work ran.
+                j.note_cancel_observed();
                 j.cancelled();
             }
             return;
@@ -451,7 +454,10 @@ pub(crate) fn run_chain(
     // A cancel during the LAST step drains it (wells skip via the per-well check) but there is
     // no next-step iteration to catch the flag, so confirm once more before reporting success —
     // otherwise a late cancel would misreport as Completed.
-    if cancel.load(Ordering::SeqCst) {
+    let final_cancel_was_observed = job
+        .map(|j| j.cancel_was_observed())
+        .unwrap_or_else(|| cancel.load(Ordering::SeqCst));
+    if final_cancel_was_observed {
         set_status(registry, job_id, ChainStatus::Cancelled { at_step: total_steps.saturating_sub(1) });
         if let Some(j) = job {
             j.cancelled();

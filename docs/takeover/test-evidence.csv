@@ -28,6 +28,7 @@
 "SB-CORE-015","CORRECTNESS","src-tauri/src/export.rs","every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error"
 "SB-CORE-015","CORRECTNESS","src-tauri/src/export.rs","the_las_writer_declares_the_unit_it_wrote_for_both_feet_and_metres"
 "SB-CORE-035","CORRECTNESS","src-tauri/src/well_scope.rs","every_backend_scoped_operation_uses_current_group_membership_and_refuses_stale_or_unknown_scope"
+"SB-CORE-036","CORRECTNESS","src-tauri/src/jobs.rs","every_displayed_cancel_reaches_an_observing_worker_and_completed_work_is_never_reported_cancelled"
 "SB-CORE-040","CORRECTNESS","src-tauri/tests/verification_matrix.rs","a_capability_matrix_is_generated_from_review_and_a_capability_map_and_checked_by_the_gate"
 "SB-CUT-011","CHARACTERIZATION","src-tauri/src/workflow.rs","cutoff_sweep_ntg_and_dst_mask"
 "SB-CUT-026","CHARACTERIZATION","src-tauri/src/workflow.rs","classify_sample_nan_propagation"
