@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-031: depth unit/datum and correlation-contact refusal
+
+- **Automated — not manual evidence:** exact SB-DBM-T31 stores an MD zone and a TVDSS contact,
+      refuses their comparison without a well frame while naming both datums, then permits the same
+      pair through a declared frame and asserts positive-down TVDSS / positive-up elevation. The
+      format-2 migration backs up real projects, converts only explicitly TVDSS system stores once,
+      and leaves an untyped legacy zone NULL and unreadable rather than relabelling it MD. The
+      correlation view no longer substitutes MD when its TVDSS frame is absent. Full gate is
+      1000 passed / 0 failed / 36 ignored with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** in Correlation at narrow and wide dock widths, select TVDSS with one well that has
+      a declared TVDSS curve and one that does not. Confirm the latter is labelled
+      `no TVDSS frame`, draws no curve/top/contact comparison, and the status says MD was not
+      substituted. Confirm the positive-down wording remains visible in the contact editor.
+- [ ] **Manual:** on a disposable pre-format-2 project copy, record the original survey-derived
+      TVDSS/contact values, open it, confirm the adjacent backup exists, and verify the converted
+      values are positive down exactly once. Insert or retain an untyped legacy zone and confirm it
+      refuses use until its datum is explicitly assigned through Database Inspector.
+- [ ] **Field:** blocked pending source/operator declarations for every legacy and imported depth
+      frame in the sanitized representative delivery. Compare the declared MD/TVDSS reference and
+      elevation against the delivery documentation; a mnemonic, unit, sign, or green synthetic test
+      is not evidence of datum.
+
 ## 2026-08-13 — G2 SB-DBM-030: null-state contract needs adjudication
 
 - [ ] **Automated implementation:** blocked by DEC-027. No strict Geolog-family store screen or

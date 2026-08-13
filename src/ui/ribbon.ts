@@ -1872,7 +1872,7 @@ export class Ribbon {
     doc.className = "modal-doc";
     doc.textContent =
       "Computes TVD/TVDSS by the minimum-curvature method from the MD/INC/AZI survey. " +
-      "Datum elevation (KB above mean sea level) sets TVDSS = datum − TVD; leave blank to use the well's KB.";
+      "Datum elevation (positive up above mean sea level) sets positive-down TVDSS = TVD − elevation; leave blank to use the well's KB.";
     content.appendChild(doc);
     // T-IMP-12: the survey is VERSIONED. A definitive survey imported over a preliminary
     // one lands beside it and takes over TVD/TVDSS; the old one stays switchable.

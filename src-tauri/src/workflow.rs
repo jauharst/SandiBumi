@@ -1455,6 +1455,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 zone_name: "ALL".into(),
                 top_depth: depth[0],
                 bottom_depth: *depth.last().unwrap(),
+                depth_datum: crate::schema_vocab::DepthDatum::Md,
             });
         }
 
@@ -3351,7 +3352,7 @@ mod tests {
         db::insert_well(&conn, id, "SANDI-TEMP", Some("Synthetic"), None, None).unwrap();
         let well = id.to_string();
         let depth: Vec<f32> = (0..5).map(|i| 1400.0 + i as f32 * 50.0).collect();
-        db::upsert_zone(&conn, &well, "LOWER", 1500.0, 2000.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "LOWER", 1500.0, 2000.0).unwrap();
 
         let spec = modules::list_modules()
             .into_iter()
@@ -3806,7 +3807,7 @@ mod tests {
         equations::write_computed_curve(&conn, &w, &depths, "PERM", &[f32::NAN; 4]).unwrap();
         // A zone thinner than one sample step (1.5 m vs 1.0 m steps): the last in-zone sample
         // must not bleed past the base, so net must equal gross (1.5), not overshoot to 2.0.
-        db::upsert_zone(&conn, &w, "Z1", 1000.0, 1001.5).unwrap();
+        db::upsert_md_zone(&conn, &w, "Z1", 1000.0, 1001.5).unwrap();
 
         let dbm = Mutex::new(conn);
         let req = PaySummaryRequest {
@@ -3873,7 +3874,7 @@ mod tests {
             ],
             &input_set_id,
         ).unwrap();
-        db::upsert_zone(&conn, &w, "Z1", 1000.0, 1003.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "Z1", 1000.0, 1003.0).unwrap();
         let dbm = Mutex::new(conn);
 
         // Explicit run: versions the pay flags with the cutoffs recorded in provenance.
@@ -3980,7 +3981,7 @@ mod tests {
             ],
             &input_set_id,
         ).unwrap();
-        db::upsert_zone(&conn, &w, "Z1", 1000.0, 1003.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "Z1", 1000.0, 1003.0).unwrap();
         let dbm = Mutex::new(conn);
 
         let base = PaySummaryRequest {
@@ -4652,8 +4653,8 @@ mod tests {
 
         // Two zones meeting at 1500 m; only the deeper one carries an override.
         let (boundary, base_grad, deep_grad, psurf) = (1500.0f32, 0.433f64, 0.5f64, 0.0f64);
-        db::upsert_zone(&conn, &w, "SHALLOW", 1000.0, boundary).unwrap();
-        db::upsert_zone(&conn, &w, "DEEP", boundary, 2100.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "SHALLOW", 1000.0, boundary).unwrap();
+        db::upsert_md_zone(&conn, &w, "DEEP", boundary, 2100.0).unwrap();
         db::set_zone_param(&conn, &w, "DEEP", "PGRAD", Some(deep_grad as f32), None).unwrap();
 
         let dbm = Mutex::new(conn);
@@ -5465,8 +5466,8 @@ mod tests {
         for name in ["PHIT", "PHIE"] {
             equations::write_computed_curve(&conn, &w, &depth, name, &vec![0.25f32; n]).unwrap();
         }
-        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
-        db::upsert_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
 
         let dbm = Mutex::new(conn);
         let run = || -> Vec<f32> {

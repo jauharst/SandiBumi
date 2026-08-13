@@ -7,6 +7,7 @@
 
 use crate::db;
 use crate::equations::fetch_curve_frame;
+use crate::schema_vocab::DepthDatum;
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -502,6 +503,78 @@ fn md_to_tvdss(conn: &Connection, well_id: &str, md: f32) -> Option<f32> {
     interp_asc(&mds, &ss, md).filter(|v| v.is_finite())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct DepthComparison {
+    pub left: f32,
+    pub right: f32,
+    pub difference: f32,
+    pub datum: DepthDatum,
+}
+
+/// Compares a stored zone top with a stored contact without erasing either declared datum.
+/// The active survey is the per-well reference frame for the only cross-datum transform this
+/// product currently owns: MD to TVDSS (or the reverse comparison). Other pairs stay refused
+/// until their own reference transform is stored rather than inferred.
+pub fn compare_zone_top_to_contact(
+    conn: &Connection,
+    well_id: &str,
+    zone_name: &str,
+    contact_id: &str,
+) -> Result<DepthComparison, String> {
+    let zone = db::list_zones(conn, well_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|z| z.zone_name == zone_name)
+        .ok_or_else(|| format!("zone '{zone_name}' does not exist on the selected well"))?;
+    let contact = db::list_fluid_contacts(conn)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|c| c.contact_id == contact_id)
+        .ok_or_else(|| format!("contact '{contact_id}' does not exist"))?;
+    if let Some(contact_well) = contact.well_id.as_deref() {
+        if contact_well != well_id {
+            return Err(format!("contact '{contact_id}' belongs to a different well"));
+        }
+    }
+
+    let left_datum = zone.depth_datum;
+    let right_datum = contact.depth_datum;
+    let (left, right, datum) = if left_datum == right_datum {
+        (zone.top_depth, contact.depth as f32, left_datum)
+    } else {
+        match (left_datum, right_datum) {
+            (DepthDatum::Md, DepthDatum::Tvdss) => {
+                let converted = md_to_tvdss(conn, well_id, zone.top_depth).ok_or_else(|| {
+                    format!(
+                        "cannot compare {} with {}: this well has no reference frame covering the MD value",
+                        left_datum.as_str(),
+                        right_datum.as_str()
+                    )
+                })?;
+                (converted, contact.depth as f32, DepthDatum::Tvdss)
+            }
+            (DepthDatum::Tvdss, DepthDatum::Md) => {
+                let converted = md_to_tvdss(conn, well_id, contact.depth as f32).ok_or_else(|| {
+                    format!(
+                        "cannot compare {} with {}: this well has no reference frame covering the MD value",
+                        left_datum.as_str(),
+                        right_datum.as_str()
+                    )
+                })?;
+                (zone.top_depth, converted, DepthDatum::Tvdss)
+            }
+            _ => {
+                return Err(format!(
+                    "cannot compare {} with {}: this well has no stored transform between those datums",
+                    left_datum.as_str(),
+                    right_datum.as_str()
+                ));
+            }
+        }
+    };
+    Ok(DepthComparison { left, right, difference: left - right, datum })
+}
+
 /// Checks whether every well-scoped contact of `contact_type` **in one marker** agrees on a flat
 /// TVDSS surface. MD contacts are converted to TVDSS via each well's deviation survey; a dipping
 /// plane is fitted when ≥3 wells have coordinates, otherwise the flat mean is used.
@@ -753,6 +826,7 @@ pub fn apply_fwl_to_zone_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema_vocab::DepthDatum;
 
     fn db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -784,20 +858,173 @@ mod tests {
         depth: f64,
     ) {
         let z: Vec<String> = zones.iter().map(|s| s.to_string()).collect();
-        db::upsert_fluid_contact(
+        db::upsert_fluid_contact_with_datum(
             conn,
             &uuid::Uuid::new_v4().to_string(),
             None,
             Some(well),
             kind,
             depth,
-            true,
+            DepthDatum::Tvdss,
             None,
             None,
             compartment,
             &z,
         )
         .unwrap();
+    }
+
+    /// CORRECTNESS — F-17 and SB-DBM-T31 in `docs/PRD_v2/22_database-model.md`:
+    /// TVDSS is positive down, elevation is positive up, and unlike datums cannot be compared
+    /// until this well has a declared reference frame. The hand-derived control is
+    /// 1000 m MD/TVD - 100 m elevation = 900 m TVDSS.
+    #[test]
+    fn an_md_zone_top_and_a_tvdss_contact_are_refused_without_a_frame_and_compare_with_positive_down_tvdss_with_one(
+    ) {
+        let conn = db();
+        let well = add_well(&conn, "DEPTH-REFERENCE", 0.0, 0.0);
+        db::upsert_zone_with_datum(
+            &conn,
+            &well,
+            "REFERENCE_INTERVAL",
+            1000.0,
+            1100.0,
+            DepthDatum::Md,
+        )
+        .unwrap();
+        db::upsert_fluid_contact_with_datum(
+            &conn,
+            "reference-contact",
+            None,
+            Some(&well),
+            "FWL",
+            900.0,
+            DepthDatum::Tvdss,
+            None,
+            None,
+            None,
+            &["REFERENCE_INTERVAL".to_string()],
+        )
+        .unwrap();
+
+        let refusal = compare_zone_top_to_contact(
+            &conn,
+            &well,
+            "REFERENCE_INTERVAL",
+            "reference-contact",
+        )
+        .unwrap_err();
+        assert!(refusal.contains("MD"), "the refusal must name MD: {refusal}");
+        assert!(refusal.contains("TVDSS"), "the refusal must name TVDSS: {refusal}");
+
+        let stations = crate::deviation::minimum_curvature(
+            &[0.0, 1000.0, 1100.0],
+            &[0.0, 0.0, 0.0],
+            &[0.0, 0.0, 0.0],
+            100.0,
+        );
+        assert!((stations[1].tvdss - 900.0).abs() < 1e-6, "TVDSS is positive down");
+        db::insert_well_path(
+            &conn,
+            &well,
+            "REFERENCE_FRAME",
+            Some("SB-DBM-T31 fixture"),
+            Some(100.0),
+            &stations,
+        )
+        .unwrap();
+
+        let comparison = compare_zone_top_to_contact(
+            &conn,
+            &well,
+            "REFERENCE_INTERVAL",
+            "reference-contact",
+        )
+        .unwrap();
+        assert_eq!(comparison.datum, DepthDatum::Tvdss);
+        assert!((comparison.left - 900.0).abs() < 1e-6);
+        assert!((comparison.right - 900.0).abs() < 1e-6);
+        assert!((comparison.difference).abs() < 1e-6);
+
+        // The same contract must hold after opening a project written under the old, reversed
+        // convention. Both the stored frame and an explicitly TVDSS contact are converted once;
+        // running the migration again must not flip either value back.
+        let legacy = db();
+        let legacy_well = add_well(&legacy, "LEGACY-DEPTH-REFERENCE", 0.0, 0.0);
+        let legacy_stations = [crate::deviation::Station {
+            md: 1000.0,
+            inc: 0.0,
+            azi: 0.0,
+            tvd: 1000.0,
+            tvdss: -900.0,
+        }];
+        db::insert_well_path(
+            &legacy,
+            &legacy_well,
+            "LEGACY_FRAME",
+            Some("pre-SB-DBM-031 fixture"),
+            Some(100.0),
+            &legacy_stations,
+        )
+        .unwrap();
+        db::upsert_fluid_contact_with_datum(
+            &legacy,
+            "legacy-contact",
+            None,
+            Some(&legacy_well),
+            "FWL",
+            -900.0,
+            DepthDatum::Tvdss,
+            None,
+            None,
+            None,
+            &["REFERENCE_INTERVAL".to_string()],
+        )
+        .unwrap();
+        legacy
+            .execute(
+                "INSERT INTO computed_curves (well_id, depth, curve_name, value)
+                 VALUES (?1, 1000.0, 'TVDSS', -900.0)",
+                duckdb::params![legacy_well],
+            )
+            .unwrap();
+        legacy
+            .execute(
+                "INSERT INTO zones (well_id, zone_name, top_depth, bottom_depth)
+                 VALUES (?1, 'UNDECLARED_INTERVAL', 1000.0, 1100.0)",
+                duckdb::params![legacy_well],
+            )
+            .unwrap();
+
+        db::migrate_tvdss_positive_down(&legacy, None).unwrap();
+        db::migrate_tvdss_positive_down(&legacy, None).unwrap();
+        assert!((db::get_well_path(&legacy, &legacy_well).unwrap()[0].tvdss - 900.0).abs() < 1e-6);
+        assert!(
+            (db::list_fluid_contacts(&legacy).unwrap()[0].depth - 900.0).abs() < 1e-6,
+            "the declared TVDSS contact is converted once"
+        );
+        let stored_curve: f32 = legacy
+            .query_row(
+                "SELECT value FROM computed_curves
+                 WHERE well_id = ?1 AND curve_name = 'TVDSS'",
+                duckdb::params![legacy_well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!((stored_curve - 900.0).abs() < 1e-6, "the materialized TVDSS curve is converted once");
+        let legacy_zone_datum: Option<String> = legacy
+            .query_row(
+                "SELECT depth_datum FROM zones WHERE well_id = ?1 AND zone_name = 'UNDECLARED_INTERVAL'",
+                duckdb::params![legacy_well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(legacy_zone_datum.is_none(), "an untyped legacy depth must not be relabelled MD");
+        let legacy_refusal = db::list_zones(&legacy, &legacy_well).unwrap_err().to_string();
+        assert!(
+            legacy_refusal.contains("no declared depth datum"),
+            "legacy use must refuse instead of inferring MD: {legacy_refusal}"
+        );
     }
 
     /// The defect the marker column exists to fix. Two stacked sands each have their own oil-water
@@ -960,14 +1187,14 @@ mod tests {
     fn a_measured_depth_contact_is_refused_rather_than_converted() {
         let conn = db();
         let w = add_well(&conn, "SANDI-1", 0.0, 0.0);
-        db::upsert_fluid_contact(
+        db::upsert_fluid_contact_with_datum(
             &conn,
             "c1",
             None,
             Some(&w),
             "FWL",
             2100.0,
-            false, // measured depth
+            DepthDatum::Md,
             None,
             None,
             None,

@@ -2045,8 +2045,8 @@ mod tests {
         let id = uuid::Uuid::new_v4();
         db::insert_well(&conn, id, "SANDI-01", Some("Sandi Field"), Some(1800.0), Some(12.0)).unwrap();
         let well = id.to_string();
-        db::upsert_zone(&conn, &well, "MENGGALA", 1500.0, 1560.0).unwrap();
-        db::upsert_zone(&conn, &well, "BEKASAP", 1600.0, 1680.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "MENGGALA", 1500.0, 1560.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "BEKASAP", 1600.0, 1680.0).unwrap();
         db::set_zone_param(&conn, &well, "MENGGALA", "RW", Some(0.35), None).unwrap();
         db::set_zone_param(&conn, &well, "MENGGALA", "M", Some(1.8), None).unwrap();
         (conn, well)

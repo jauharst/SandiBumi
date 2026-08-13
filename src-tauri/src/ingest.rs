@@ -1206,7 +1206,7 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
     // A survey-derived COMPUTED curve outranks the generic RAW store in fetch_curve_frame, so
     // writing TVD/TVDSS unconditionally would SILENTLY shadow an authoritative curve the user
     // imported from a vendor LAS/DLIS — with a possibly wrong datum (a well with no KB falls
-    // back to a sea-level datum → TVDSS = −TVD) or NaN outside the survey's MD range, and no
+    // back to a sea-level datum → TVDSS = TVD) or NaN outside the survey's MD range, and no
     // recourse via the Curve Catalog's Promote (it is disabled on a "served by computed" row).
     // So: only materialize a name the well does NOT already resolve from an import, and clear
     // any prior survey-derived computed curve when an import IS present, so the import wins.
@@ -3719,7 +3719,7 @@ mod tests {
         assert_eq!(path.len(), 3);
         assert!((path[1].tvd - 1000.0).abs() < 1e-2, "vertical section TVD == MD");
         assert!(path[2].tvd < path[2].md, "deviated station TVD shallower than MD");
-        assert!((path[1].tvdss - (25.0 - 1000.0)).abs() < 1e-2, "TVDSS = datum - TVD");
+        assert!((path[1].tvdss - (1000.0 - 25.0)).abs() < 1e-2, "TVDSS = TVD - elevation");
     }
 
     #[test]
@@ -3755,9 +3755,9 @@ mod tests {
         assert!((tvd[i1000] - 1000.0).abs() < 1e-1, "vertical section TVD == MD: {}", tvd[i1000]);
         let i3000 = grid.iter().position(|&d| d == 3000.0).unwrap();
         assert!(tvd[i3000] < 2900.0, "deviated section TVD shallower than MD: {}", tvd[i3000]);
-        // TVDSS = datum(25) − TVD everywhere (the interpolation preserves the affine relation).
+        // F-17 / SB-DBM-031: TVDSS = TVD - elevation(25) everywhere.
         for (t, ss) in tvd.iter().zip(tvdss.iter()) {
-            assert!((ss - (25.0 - t)).abs() < 1e-1, "TVDSS = 25 - TVD: {ss} vs {}", 25.0 - t);
+            assert!((ss - (t - 25.0)).abs() < 1e-1, "TVDSS = TVD - 25: {ss} vs {}", t - 25.0);
         }
     }
 
@@ -3861,7 +3861,7 @@ mod tests {
         .unwrap();
         crate::db::insert_curve_samples(&conn, &cid, &depth, &vec![-777.0f32; depth.len()]).unwrap();
 
-        // Import a deviated survey (would compute a very DIFFERENT TVDSS = 25 − TVD).
+        // Import a deviated survey (would compute a very DIFFERENT TVDSS = TVD - 25).
         let dev = std::env::temp_dir().join(format!("arshilla_devmat3_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
         let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);

@@ -17,7 +17,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 52 | — | 9 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 18 | — | 3 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 65 | 2026-08-13 | 30 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 68 | 2026-08-13 | 31 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 38 | 2026-08-13 | 5 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
@@ -48,7 +48,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `histogram` | Histogram | Partially exercised | 5 / 22 | 2026-07-20 | 5 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 13 | 2026-07-20 | 6 |
 | `pickett` | Pickett plot | Not exercised | 0 / 8 | — | 3 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 36 | — | 10 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 39 | — | 11 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 53 | 2026-07-20 | 15 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 2 | — | 7 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
@@ -63,5 +63,5 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 50 | — | 9 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 74 | 2026-08-13 | 30 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 77 | 2026-08-13 | 31 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 71 | 2026-08-13 | 25 |

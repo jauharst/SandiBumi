@@ -233,7 +233,8 @@ impl LogSetFrame {
 
 pub(crate) const LOG_SET_FRAMES: &[LogSetFrame] = &[LogSetFrame::Standard, LogSetFrame::Own];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
 pub(crate) enum DepthDatum {
     Md,
     Tvd,
@@ -254,6 +255,19 @@ impl DepthDatum {
             Self::Twt => "TWT",
             Self::Owt => "OWT",
             Self::Cdepth => "CDEPTH",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_uppercase().as_str() {
+            "MD" => Some(Self::Md),
+            "TVD" => Some(Self::Tvd),
+            "TVDSS" => Some(Self::Tvdss),
+            "TVDKB" => Some(Self::Tvdkb),
+            "TWT" => Some(Self::Twt),
+            "OWT" => Some(Self::Owt),
+            "CDEPTH" => Some(Self::Cdepth),
+            _ => None,
         }
     }
 }

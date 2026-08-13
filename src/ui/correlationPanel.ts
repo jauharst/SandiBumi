@@ -75,7 +75,7 @@ interface WellStrip {
   well: WellSummary;
   series: TrackCurveSeries | null;
   tops: TopEntry[];
-  /** MD→TVDSS lookup built from the well's TVDSS curve; null → treat MD as TVDSS (vertical well). */
+  /** MD→TVDSS lookup built from the well's TVDSS curve; null means no declared frame. */
   tv: TvdssMap | null;
   /** Display depth = displayOf(MD) - shift (flattening); 0 when the well lacks the datum top. */
   shift: number;
@@ -161,17 +161,24 @@ export async function buildCorrelationContent(
   let contacts: FluidContact[] = [];
 
   // --- Depth-mode helpers: measured depth vs TVDSS -----------------------------------------
-  /** MD → TVDSS via the well's TVDSS curve (identity when the well has none — vertical well). */
-  const mdToTvdss = (s: WellStrip, md: number): number => (s.tv ? interpAsc(s.tv.md, s.tv.ss, md) : md);
+  /** MD → TVDSS via the well's declared TVDSS curve. Absence is never a vertical-well claim. */
+  const mdToTvdss = (s: WellStrip, md: number): number | null =>
+    s.tv ? interpAsc(s.tv.md, s.tv.ss, md) : null;
   /** TVDSS → MD (inverse of the above; TVDSS rises monotonically with MD). */
-  const tvdssToMd = (s: WellStrip, ss: number): number => (s.tv ? interpAsc(s.tv.ss, s.tv.md, ss) : ss);
+  const tvdssToMd = (s: WellStrip, ss: number): number | null =>
+    s.tv ? interpAsc(s.tv.ss, s.tv.md, ss) : null;
   /** Raw display depth (before flattening) for a measured depth, in the active depth mode. */
-  const displayOf = (s: WellStrip, md: number): number => (opts.depthMode === "tvdss" ? mdToTvdss(s, md) : md);
+  const displayOf = (s: WellStrip, md: number): number | null =>
+    opts.depthMode === "tvdss" ? mdToTvdss(s, md) : md;
   /** A contact's display depth (after flattening) inside one strip. A TVDSS contact in TVDSS
    *  mode round-trips back to its own depth for every well → the line is perfectly flat. */
-  const contactDisplay = (s: WellStrip, c: FluidContact): number => {
-    const md = c.is_tvdss ? tvdssToMd(s, c.depth) : c.depth;
-    return displayOf(s, md) - s.shift;
+  const contactDisplay = (s: WellStrip, c: FluidContact): number | null => {
+    const datum = c.depth_datum ?? (c.is_tvdss ? "TVDSS" : "MD");
+    if (datum !== "MD" && datum !== "TVDSS") return null;
+    const md = datum === "TVDSS" ? tvdssToMd(s, c.depth) : c.depth;
+    if (md === null) return null;
+    const display = displayOf(s, md);
+    return display === null ? null : display - s.shift;
   };
   /** Whether a contact applies to a well: explicit well, else field, else global. */
   const contactApplies = (c: FluidContact, well: WellSummary): boolean => {
@@ -186,8 +193,11 @@ export async function buildCorrelationContent(
     let hi = -Infinity;
     for (const s of strips) {
       if (!s.series || s.series.depth.length === 0) continue;
-      const a = displayOf(s, s.series.depth[0]) - s.shift;
-      const b = displayOf(s, s.series.depth[s.series.depth.length - 1]) - s.shift;
+      const aRaw = displayOf(s, s.series.depth[0]);
+      const bRaw = displayOf(s, s.series.depth[s.series.depth.length - 1]);
+      if (aRaw === null || bRaw === null) continue;
+      const a = aRaw - s.shift;
+      const b = bRaw - s.shift;
       lo = Math.min(lo, a, b);
       hi = Math.max(hi, a, b);
     }
@@ -305,13 +315,17 @@ export async function buildCorrelationContent(
       ctx.font = canvasFont(theme, 11, 600);
       ctx.textAlign = "center";
       ctx.textBaseline = "alphabetic";
-      const label = opts.datum && !s.hasDatum ? `${s.well.well_name} (no datum)` : s.well.well_name;
+      const label = opts.depthMode === "tvdss" && !s.tv
+        ? `${s.well.well_name} (no TVDSS frame)`
+        : opts.datum && !s.hasDatum
+          ? `${s.well.well_name} (no datum)`
+          : s.well.well_name;
       ctx.fillText(label, left + stripW / 2, 12, stripW + gap - 6);
       ctx.fillStyle = theme.text;
       ctx.font = canvasFont(theme, 10);
       ctx.fillText(opts.curve, left + stripW / 2, 24, stripW - 4);
 
-      if (!s.series || s.series.depth.length === 0) return;
+      if (!s.series || s.series.depth.length === 0 || (opts.depthMode === "tvdss" && !s.tv)) return;
       ctx.save();
       ctx.beginPath();
       ctx.rect(left, HEADER_H, stripW, plotH);
@@ -328,7 +342,12 @@ export async function buildCorrelationContent(
         }
         const frac = Math.min(1, Math.max(0, (v - vMin) / (vMax - vMin)));
         const x = left + frac * stripW;
-        const y = yOf(displayOf(s, s.series.depth[k]) - s.shift);
+        const display = displayOf(s, s.series.depth[k]);
+        if (display === null) {
+          pen = false;
+          continue;
+        }
+        const y = yOf(display - s.shift);
         if (pen) ctx.lineTo(x, y);
         else ctx.moveTo(x, y);
         pen = true;
@@ -341,7 +360,9 @@ export async function buildCorrelationContent(
     const topY = (s: WellStrip, name: string): number | null => {
       const top = s.tops.find((t) => t.top_name === name);
       if (!top) return null;
-      const y = yOf(displayOf(s, top.depth) - s.shift);
+      const display = displayOf(s, top.depth);
+      if (display === null) return null;
+      const y = yOf(display - s.shift);
       return y >= HEADER_H && y <= h ? y : null;
     };
     const allTopNames = Array.from(new Set(active.flatMap((s) => s.tops.map((t) => t.top_name))));
@@ -394,7 +415,9 @@ export async function buildCorrelationContent(
         ctx.fillStyle = color;
         const ys = active.map((s) => {
           if (!contactApplies(c, s.well)) return null;
-          const y = yOf(contactDisplay(s, c));
+          const display = contactDisplay(s, c);
+          if (display === null) return null;
+          const y = yOf(display);
           return y >= HEADER_H && y <= h ? y : null;
         });
         let labeled = false;
@@ -513,9 +536,10 @@ export async function buildCorrelationContent(
   function applyDatum(): void {
     for (const s of strips) {
       const top = opts.datum ? s.tops.find((t) => t.top_name === opts.datum) : undefined;
-      s.hasDatum = !!top;
+      const display = top ? displayOf(s, top.depth) : null;
+      s.hasDatum = !!top && display !== null;
       // Shift is in display space, so re-derive it whenever the depth mode changes too.
-      s.shift = top ? displayOf(s, top.depth) : 0;
+      s.shift = display ?? 0;
     }
   }
 
@@ -631,6 +655,12 @@ export async function buildCorrelationContent(
     persist();
     applyDatum(); // shift is in display space → re-derive for the new mode
     fit();
+    if (opts.depthMode === "tvdss") {
+      const missing = strips.filter((s) => included.has(s.well.well_id) && !s.tv).length;
+      if (missing > 0) {
+        setStatus(`${missing} well(s) have no TVDSS reference frame; MD was not substituted.`);
+      }
+    }
   });
 
   // --- Fluid-contacts editor ---
@@ -728,6 +758,7 @@ export async function buildCorrelationContent(
         ssBox.checked = c.is_tvdss;
         ssBox.addEventListener("change", () => {
           c.is_tvdss = ssBox.checked;
+          c.depth_datum = c.is_tvdss ? "TVDSS" : "MD";
           void save(c);
         });
         ssLabel.append(ssBox, document.createTextNode(" TVDSS"));
@@ -793,6 +824,7 @@ export async function buildCorrelationContent(
         well_id: null,
         contact_type: "OWC",
         depth: Math.round(viewTop + 50),
+        depth_datum: opts.depthMode === "tvdss" ? "TVDSS" : "MD",
         is_tvdss: opts.depthMode === "tvdss",
         color: null,
         label: null,
@@ -878,6 +910,7 @@ export async function buildCorrelationContent(
             well_id: wellId,
             contact_type: cand.contact_type,
             depth: Number(cand.depth.toFixed(1)),
+            depth_datum: "MD",
             is_tvdss: false, // suggestions are in measured depth
             color: null,
             label: cand.method,
@@ -1080,7 +1113,8 @@ export async function buildCorrelationContent(
       const s = active[idx];
       const unflattened = disp + s.shift; // display depth without flattening
       // Other views expect measured depth, so undo the TVDSS mapping before broadcasting.
-      appState.hoverDepth.set(opts.depthMode === "tvdss" ? tvdssToMd(s, unflattened) : unflattened);
+      const measured = opts.depthMode === "tvdss" ? tvdssToMd(s, unflattened) : unflattened;
+      appState.hoverDepth.set(measured);
     } else {
       appState.hoverDepth.set(null);
     }

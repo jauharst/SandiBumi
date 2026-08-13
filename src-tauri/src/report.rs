@@ -1170,7 +1170,7 @@ mod tests {
             &[("VSH", vec![0.2f32; n].as_slice()), ("PHIE", vec![0.20f32; n].as_slice()), ("SWE", vec![0.30f32; n].as_slice()),
             ],
         );
-        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
 
         let dbm = Mutex::new(conn);
         let text_of = |ops: &Vec<DrawOp>| -> String {
@@ -1258,7 +1258,7 @@ mod tests {
             ],
         );
         // One zone, wholly OUTSIDE the print window below.
-        db::upsert_zone(&conn, &w, "DEEP", 1012.0, 1019.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "DEEP", 1012.0, 1019.0).unwrap();
 
         let dbm = Mutex::new(conn);
         let mut spec = batch_spec();
@@ -1353,8 +1353,8 @@ mod tests {
         write_report_inputs(&conn, &w,
             &depth,
             &[("VSH", vsh.as_slice()), ("PHIE", phie.as_slice()), ("SWE", swe.as_slice())] );
-        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
-        db::upsert_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+        db::upsert_md_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
         db::set_zone_param(&conn, &w, "UPPER", "RW", Some(0.02), None).unwrap();
 
         let dbm = Mutex::new(conn);
@@ -1511,7 +1511,7 @@ mod tests {
                     ("SWE", vec![0.30f32; n].as_slice()),
                 ],
             );
-            db::upsert_zone(&conn, &w, "SAND-A", 1000.0, 1005.0).unwrap();
+            db::upsert_md_zone(&conn, &w, "SAND-A", 1000.0, 1005.0).unwrap();
             let dbm = Mutex::new(conn);
             run_pay_summary(
                 &dbm,

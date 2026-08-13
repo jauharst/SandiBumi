@@ -410,14 +410,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DBM-T31`; sections 4.5 and 6.6.
 - **Atomic obligations:** every depth-bearing value declares datum/reference and sign convention; cross-datum comparison refuses and names both datums unless a reference frame/survey resolves them.
-- **Current source:** the project carries depth units, `well_surveys` has a datum elevation, and selected contact/image paths carry reference flags. Tops parsing can still collapse MD/TVD aliases into an untyped depth, and zones, curves and other quantities lack a universal datum field and comparison guard.
-- **Qualifying acceptance tests:** none; T31's no-frame refusal, framed success and sign assertions are missing. Test class is `MISSING`.
-- **Supporting tests:** measured-depth contact refusal and survey-specific tests cover isolated consumers only.
-- **Manual evidence:** `data-conventions` 0/45, `correlation-tops` 0/36 and `core-depth-registration` 0/39 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains partial survey/reference structures and untyped counter-paths.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the datum vocabulary and migration for existing untyped depths require explicit adjudication; no datum is inferred from a unit or mnemonic.
-- **Next action:** carry a typed datum through every depth schema/IPC boundary, require a declared transform for cross-datum use and implement both T31 cases.
+- **Current source:** `schema_vocab::DepthDatum` owns the exact seven-value vocabulary. Zones and contacts persist it; new zone writers declare MD or another explicit datum and an untyped legacy zone remains NULL/refused. `well_path` intrinsically names MD/TVD/TVDSS, deviation and materialized system TVDSS are positive down, and format 2 converts the explicitly declared legacy TVDSS stores once after an engine backup. `compare_zone_top_to_contact` refuses unlike datums without a covering well frame. Correlation no longer treats an absent TVDSS map as an identity/vertical-well transform.
+- **Qualifying acceptance tests:** `contacts::tests::an_md_zone_top_and_a_tvdss_contact_are_refused_without_a_frame_and_compare_with_positive_down_tvdss_with_one` is exact `CORRECTNESS`: it pins both named-datum refusal and framed success, derives 1000 MD/TVD minus 100 positive-up elevation as 900 positive-down TVDSS, proves the old sign is converted once in path/contact/materialized-curve stores, and proves an untyped legacy zone is neither called MD nor readable.
+- **Supporting tests:** the full Rust library suite remains green across survey materialization, format stamping, project migration and every existing zone consumer; TypeScript compiles with the nullable correlation conversions. The finished repository gate is 1000 passed / 0 failed / 36 ignored with the unchanged 55 owned Rust warnings.
+- **Manual evidence:** `data-conventions` 4/68, `correlation-tops` 0/39 and `core-depth-registration` 0/39. The new SB-DBM-031 scenarios are all pending; the four data-convention checks predate this increment.
+- **Git evidence:** live Gate 2 worktree; one SB-DBM-031 commit will carry the typed path, exact test, sign migration and refusal evidence together.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; Gate 2 outcome `BLOCKED`.
+- **Blocker or decision:** legacy/generic imports never stored their datum or source TVDSS sign. The remaining generic depth stores include standard/high-resolution/LQR/array/current/archive curves, tops, highlights, core/aux/image/SCAL data, import evidence and quarantine rows. Their values cannot be classified from a unit, mnemonic, numeric sign or neighbouring table. The deferred saturation-height surface also still describes the old negative-TVDSS convention and is not changed inside this database-model increment.
+- **Next action:** require a source/operator datum declaration at every remaining import/frame boundary, add typed custody to those stores and their IPC consumers, migrate only rows whose source declaration is present, and separately reconcile the deferred saturation-height wording/test before that capability is re-enabled. Do not infer or bulk-label legacy rows.
 
 ## SB-DBM-032 - A stored parameter carries a dual handle, and a disagreement is a load failure
 

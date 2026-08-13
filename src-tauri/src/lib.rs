@@ -2543,9 +2543,24 @@ fn list_zones(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::Zone
 
 /// Creates or updates a zone.
 #[tauri::command]
-fn upsert_zone(db: tauri::State<DbState>, well_id: String, zone_name: String, top_depth: f32, bottom_depth: f32) -> Result<(), String> {
+fn upsert_zone(
+    db: tauri::State<DbState>,
+    well_id: String,
+    zone_name: String,
+    top_depth: f32,
+    bottom_depth: f32,
+    depth_datum: schema_vocab::DepthDatum,
+) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    db::upsert_zone(&conn, &well_id, &zone_name, top_depth, bottom_depth).map_err(|e| e.to_string())
+    db::upsert_zone_with_datum(
+        &conn,
+        &well_id,
+        &zone_name,
+        top_depth,
+        bottom_depth,
+        depth_datum,
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Deletes a zone and its parameters.
@@ -2603,20 +2618,25 @@ fn upsert_fluid_contact(
     contact_type: String,
     depth: f64,
     is_tvdss: bool,
+    depth_datum: Option<schema_vocab::DepthDatum>,
     color: Option<String>,
     label: Option<String>,
     compartment: Option<String>,
     zones: Option<Vec<String>>,
 ) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    db::upsert_fluid_contact(
+    db::upsert_fluid_contact_with_datum(
         &conn,
         &contact_id,
         field_name.as_deref(),
         well_id.as_deref(),
         &contact_type,
         depth,
-        is_tvdss,
+        depth_datum.unwrap_or(if is_tvdss {
+            schema_vocab::DepthDatum::Tvdss
+        } else {
+            schema_vocab::DepthDatum::Md
+        }),
         color.as_deref(),
         label.as_deref(),
         compartment.as_deref(),
@@ -3330,6 +3350,20 @@ fn check_contact_consistency(
     ))
 }
 
+/// Compares one stored zone top with one stored contact. Cross-datum comparison is refused unless
+/// the selected well's active survey provides the reference transform; the refusal names both
+/// datums rather than silently treating MD as TVDSS.
+#[tauri::command]
+fn compare_zone_top_to_contact(
+    db: tauri::State<DbState>,
+    well_id: String,
+    zone_name: String,
+    contact_id: String,
+) -> Result<contacts::DepthComparison, String> {
+    let conn = db.0.lock().unwrap();
+    contacts::compare_zone_top_to_contact(&conn, &well_id, &zone_name, &contact_id)
+}
+
 /// Every (contact type, marker) pair in the project, so a QC pane can check them all.
 #[tauri::command]
 fn contact_groups(db: tauri::State<DbState>) -> Result<Vec<contacts::ContactGroup>, String> {
@@ -3932,6 +3966,7 @@ pub fn run() {
             autocorrelate_multi,
             suggest_contacts,
             check_contact_consistency,
+            compare_zone_top_to_contact,
             contact_groups,
             check_fwl_agreement,
             apply_fwl_to_zone_params,

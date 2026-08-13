@@ -11,6 +11,7 @@ import {
   updateWellField,
   upsertTop,
   upsertZone,
+  type DepthDatum,
   type IntegrityReport,
   type TablePage,
   type WellSummary,
@@ -35,7 +36,7 @@ const TABLES: TableDef[] = [
   { key: "standard_curves", label: "Standard Curves", wellScoped: true, editable: ["gr", "res_deep", "nphi", "rhob", "dt", "sp"] },
   { key: "computed_curves", label: "Computed Curves", wellScoped: true, editable: ["value"] },
   { key: "tops", label: "Tops", wellScoped: true, editable: ["depth", "color"] },
-  { key: "zones", label: "Zones", wellScoped: true, editable: ["top_depth", "bottom_depth"] },
+  { key: "zones", label: "Zones", wellScoped: true, editable: ["top_depth", "bottom_depth", "depth_datum"] },
   { key: "zone_params", label: "Zone Parameters", wellScoped: true, editable: ["value_num", "value_text"] },
   { key: "core_data", label: "Core Data", wellScoped: true, editable: ["cpor", "cperm", "cgd", "csw"] },
   // Tops-style auxiliary datasets (petrography / XRD / perforations) — read-only view;
@@ -464,7 +465,13 @@ export class DbInspectorPanel {
         apply = (v) => {
           const top = column === "top_depth" ? num(v) : num(cell("top_depth"));
           const bottom = column === "bottom_depth" ? num(v) : num(cell("bottom_depth"));
-          return upsertZone(wellId, zoneName, top, bottom);
+          const rawDatum = (column === "depth_datum" ? v : cell("depth_datum")).trim().toUpperCase();
+          if (!["MD", "TVD", "TVDSS", "TVDKB", "TWT", "OWT", "CDEPTH"].includes(rawDatum)) {
+            throw new Error(
+              `zone ${zoneName} needs a declared depth datum: MD, TVD, TVDSS, TVDKB, TWT, OWT, or CDEPTH`,
+            );
+          }
+          return upsertZone(wellId, zoneName, top, bottom, rawDatum as DepthDatum);
         };
         break;
       }

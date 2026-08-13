@@ -205,6 +205,7 @@ export async function buildFluidContactsContent(): Promise<{ el: HTMLElement }> 
         "converted per well through its deviation survey.";
       ref.addEventListener("change", () => {
         c.is_tvdss = ref.value === "tvdss";
+        c.depth_datum = c.is_tvdss ? "TVDSS" : "MD";
         commit(c);
         void refreshQc();
       });
@@ -273,7 +274,7 @@ export async function buildFluidContactsContent(): Promise<{ el: HTMLElement }> 
   depthIn.type = "number";
   depthIn.step = "0.1";
   depthIn.style.width = "8rem";
-  depthIn.placeholder = "TVDSS (negative)";
+  depthIn.placeholder = "TVDSS (positive down)";
   const addBtn = document.createElement("button");
   addBtn.className = "btn btn-accent";
   addBtn.textContent = "Add contact";
@@ -295,6 +296,7 @@ export async function buildFluidContactsContent(): Promise<{ el: HTMLElement }> 
         well_id: wellIn.value || null,
         contact_type: typeIn.value,
         depth: d,
+        depth_datum: "TVDSS",
         is_tvdss: true,
         color: null,
         label: null,

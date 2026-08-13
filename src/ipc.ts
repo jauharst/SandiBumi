@@ -2399,18 +2399,27 @@ export function multiminFluidFromPrecalc(
   return invoke<MmPrecalcFluid>("multimin_fluid_from_precalc", { wellId, top, bottom });
 }
 
+export type DepthDatum = "MD" | "TVD" | "TVDSS" | "TVDKB" | "TWT" | "OWT" | "CDEPTH";
+
 export interface ZoneEntry {
   zone_name: string;
   top_depth: number;
   bottom_depth: number;
+  depth_datum: DepthDatum;
 }
 
 export async function listZones(wellId: string): Promise<ZoneEntry[]> {
   return invoke<ZoneEntry[]>("list_zones", { wellId });
 }
 
-export async function upsertZone(wellId: string, zoneName: string, topDepth: number, bottomDepth: number): Promise<void> {
-  return invoke("upsert_zone", { wellId, zoneName, topDepth, bottomDepth });
+export async function upsertZone(
+  wellId: string,
+  zoneName: string,
+  topDepth: number,
+  bottomDepth: number,
+  depthDatum: DepthDatum,
+): Promise<void> {
+  return invoke("upsert_zone", { wellId, zoneName, topDepth, bottomDepth, depthDatum });
 }
 
 export async function deleteZone(wellId: string, zoneName: string): Promise<void> {
@@ -2456,6 +2465,9 @@ export interface FluidContact {
   well_id: string | null;
   contact_type: string;
   depth: number;
+  /** Explicit stored datum. Older in-memory callers may omit it; writes derive only from the
+   *  caller's existing MD/TVDSS switch, never from the numeric value or its unit. */
+  depth_datum?: DepthDatum;
   /** true → depth is TVDSS (draws flat across wells); false → measured depth. */
   is_tvdss: boolean;
   color: string | null;
@@ -2482,6 +2494,7 @@ export function upsertFluidContact(c: FluidContact): Promise<void> {
     contactType: c.contact_type,
     depth: c.depth,
     isTvdss: c.is_tvdss,
+    depthDatum: c.depth_datum ?? (c.is_tvdss ? "TVDSS" : "MD"),
     color: c.color,
     label: c.label,
     compartment: c.compartment ?? null,
@@ -2812,6 +2825,21 @@ export async function runCutoffSweep(
   scope: BackendWellScope,
 ): Promise<CutoffSweepResult> {
   return invoke<CutoffSweepResult>("run_cutoff_sweep", { req, scope });
+}
+
+export interface DepthComparison {
+  left: number;
+  right: number;
+  difference: number;
+  datum: DepthDatum;
+}
+
+export function compareZoneTopToContact(
+  wellId: string,
+  zoneName: string,
+  contactId: string,
+): Promise<DepthComparison> {
+  return invoke<DepthComparison>("compare_zone_top_to_contact", { wellId, zoneName, contactId });
 }
 
 /** Full-resolution curve data for parameter-selection plots, optionally windowed to a

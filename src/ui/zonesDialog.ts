@@ -36,7 +36,7 @@ export async function buildZonesContent(
     zoneList.innerHTML = "";
     const table = document.createElement("table");
     table.className = "zone-table";
-    table.innerHTML = "<thead><tr><th>Zone</th><th>Top</th><th>Bottom</th><th></th></tr></thead>";
+    table.innerHTML = "<thead><tr><th>Zone</th><th>Top (MD)</th><th>Bottom (MD)</th><th></th></tr></thead>";
     const tbody = document.createElement("tbody");
     for (const zone of zones) {
       const tr = document.createElement("tr");
@@ -122,12 +122,12 @@ export async function buildZonesContent(
   topIn.className = "form-control";
   topIn.type = "number";
   topIn.step = "any";
-  topIn.placeholder = "Top";
+  topIn.placeholder = "Top (MD)";
   const botIn = document.createElement("input");
   botIn.className = "form-control";
   botIn.type = "number";
   botIn.step = "any";
-  botIn.placeholder = "Bottom";
+  botIn.placeholder = "Bottom (MD)";
   const addBtn = document.createElement("button");
   addBtn.className = "form-run-btn";
   addBtn.textContent = "Add / Update Zone";
@@ -136,8 +136,8 @@ export async function buildZonesContent(
     const top = parseFloat(topIn.value);
     const bottom = parseFloat(botIn.value);
     if (!name || Number.isNaN(top) || Number.isNaN(bottom) || bottom <= top) return;
-    await upsertZone(well.well_id, name, top, bottom);
-    recordProcess("Zone", `Set zone ${name} (${top}–${bottom})`, well.well_name);
+    await upsertZone(well.well_id, name, top, bottom, "MD");
+    recordProcess("Zone", `Set MD zone ${name} (${top}–${bottom})`, well.well_name);
     nameIn.value = "";
     await refresh();
   });

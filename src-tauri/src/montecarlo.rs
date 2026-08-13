@@ -1437,7 +1437,12 @@ pub fn run_monte_carlo(
         let n = depth.len();
         let had_declared_zones = !zones.is_empty();
         if zones.is_empty() {
-            zones.push(ZoneEntry { zone_name: "ALL".into(), top_depth: depth[0], bottom_depth: *depth.last().unwrap() });
+            zones.push(ZoneEntry {
+                zone_name: "ALL".into(),
+                top_depth: depth[0],
+                bottom_depth: *depth.last().unwrap(),
+                depth_datum: crate::schema_vocab::DepthDatum::Md,
+            });
         }
         // First module failure anywhere in this well's sweep. A failed step used to be dropped,
         // leaving the pool unchanged so every downstream step read NaN and the well came back as
@@ -2578,8 +2583,8 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
         // Two zones over the 1000–1150 m column; the MC entry is scoped to UPPER only.
-        db::upsert_zone(&conn, &well, "UPPER", 1000.0, 1075.0).unwrap();
-        db::upsert_zone(&conn, &well, "LOWER", 1075.0, 1150.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "UPPER", 1000.0, 1075.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "LOWER", 1075.0, 1150.0).unwrap();
         let dbm = Mutex::new(conn);
 
         let mc = vec![McParam {
@@ -2628,7 +2633,7 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
         // Storable through the DB inspector (no validation on that path): top ≥ bottom.
-        db::upsert_zone(&conn, &well, "BAD", 1100.0, 1050.0).unwrap();
+        db::upsert_md_zone(&conn, &well, "BAD", 1100.0, 1050.0).unwrap();
         let dbm = Mutex::new(conn);
         let mc = vec![McParam {
             param: "GR_MA".into(),

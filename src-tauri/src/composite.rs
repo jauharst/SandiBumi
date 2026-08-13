@@ -2209,7 +2209,7 @@ mod tests {
         let rhob: Vec<f32> = vec![2.4; n];
         db::insert_standard_curves(conn, wid, depths, gr, res, nphi, rhob, vec![f32::NAN; n], vec![f32::NAN; n]).unwrap();
         db::upsert_top(conn, &w, "Top Reservoir", 1050.0, Some("#b0413e")).unwrap();
-        db::upsert_zone(conn, &w, "ZoneA", 1040.0, 1120.0).unwrap();
+        db::upsert_md_zone(conn, &w, "ZoneA", 1040.0, 1120.0).unwrap();
         w
     }
 

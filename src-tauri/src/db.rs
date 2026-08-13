@@ -36,7 +36,7 @@ pub type DbResult<T> = Result<T, DbError>;
 /// build would silently misread DOES (and is a MAJOR release). The stamp exists so an
 /// OLDER app can refuse a NEWER file by name instead of opening it, finding only the
 /// tables it knows, and presenting a partial project as the whole thing (RELEASE §3.1).
-pub const FORMAT_VERSION: i64 = 1;
+pub const FORMAT_VERSION: i64 = 2;
 
 /// Opens (creating if needed) the embedded DuckDB file and applies the schema.
 ///
@@ -48,6 +48,8 @@ pub fn init_db(path: &str) -> DbResult<Connection> {
     tune_connection(&conn);
     check_and_stamp_format(&conn)?;
     create_schema(&conn)?;
+    migrate_tvdss_positive_down(&conn, if path == ":memory:" { None } else { Some(path) })?;
+    stamp_current_format(&conn)?;
     Ok(conn)
 }
 
@@ -117,11 +119,9 @@ pub fn take_boot_notes() -> Vec<String> {
 
 /// RELEASE.md §3.1 (requirement R-A). Three cases:
 /// - no `project_meta` table — a fresh file OR a legacy pre-stamp project; both are by
-///   definition ≤ this build's format, so create the table and stamp them (additive —
-///   exempt from the R-B backup rule).
-/// - stamped ≤ `FORMAT_VERSION` — open normally; when older, re-stamp to current (the
-///   launch migrations in `project::open_and_migrate` bring the schema forward anyway,
-///   so after this open the file IS the current format — one-way, per RELEASE §3.3).
+///   definition ≤ this build's format, so create the table but stamp only after migration.
+/// - stamped ≤ `FORMAT_VERSION` — open normally; retain an older stamp until every
+///   format-defining migration succeeds, then advance it through `stamp_current_format`.
 /// - stamped > `FORMAT_VERSION` — refuse, naming both versions and the app that wrote
 ///   the file. Silently misreading a newer project is the one unacceptable behaviour.
 fn check_and_stamp_format(conn: &Connection) -> DbResult<()> {
@@ -130,27 +130,9 @@ fn check_and_stamp_format(conn: &Connection) -> DbResult<()> {
         [],
         |r| r.get(0),
     )?;
-    let stamp = |written_by: &str| -> DbResult<()> {
-        conn.execute(
-            "UPDATE project_meta SET value = ? WHERE key = 'format_version'",
-            params![FORMAT_VERSION.to_string()],
-        )?;
-        conn.execute(
-            "INSERT INTO project_meta SELECT 'format_version', ? WHERE NOT EXISTS
-                 (SELECT 1 FROM project_meta WHERE key = 'format_version')",
-            params![FORMAT_VERSION.to_string()],
-        )?;
-        conn.execute("DELETE FROM project_meta WHERE key = 'written_by'", [])?;
-        conn.execute(
-            "INSERT INTO project_meta VALUES ('written_by', ?)",
-            params![written_by],
-        )?;
-        Ok(())
-    };
-    let app = concat!("SandiBumi ", env!("CARGO_PKG_VERSION"));
     if has_meta == 0 {
         conn.execute_batch("CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);")?;
-        return stamp(app);
+        return Ok(());
     }
     // A present table with a missing/unparsable version row is treated as legacy (0),
     // never as newer — refusing must require positive evidence of a newer writer.
@@ -170,9 +152,27 @@ fn check_and_stamp_format(conn: &Connection) -> DbResult<()> {
              left unmodified)"
         )));
     }
-    if ver < FORMAT_VERSION {
-        stamp(app)?;
-    }
+    Ok(())
+}
+
+/// Stamps the current file format only after every format-defining migration in `init_db`
+/// succeeds. Stamping first would let a failed TVDSS conversion leave a format-2 label on
+/// format-1 values, after which the next open would have no trustworthy way to detect the mix.
+fn stamp_current_format(conn: &Connection) -> DbResult<()> {
+    conn.execute(
+        "UPDATE project_meta SET value = ? WHERE key = 'format_version'",
+        params![FORMAT_VERSION.to_string()],
+    )?;
+    conn.execute(
+        "INSERT INTO project_meta SELECT 'format_version', ? WHERE NOT EXISTS
+             (SELECT 1 FROM project_meta WHERE key = 'format_version')",
+        params![FORMAT_VERSION.to_string()],
+    )?;
+    conn.execute("DELETE FROM project_meta WHERE key = 'written_by'", [])?;
+    conn.execute(
+        "INSERT INTO project_meta VALUES ('written_by', ?)",
+        params![concat!("SandiBumi ", env!("CARGO_PKG_VERSION"))],
+    )?;
     Ok(())
 }
 
@@ -407,8 +407,12 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             zone_name    VARCHAR NOT NULL,
             top_depth    FLOAT NOT NULL,
             bottom_depth FLOAT NOT NULL,
+            depth_datum   VARCHAR,
             PRIMARY KEY (well_id, zone_name)
         );
+        -- Legacy zones stay NULL until an operator/source declares their datum. Assigning MD here
+        -- would turn an absent reference into invented provenance.
+        ALTER TABLE zones ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
 
         -- Per-zone interval parameter values (interval logs like GR_MA, GR_SH,
         -- RW, M, N). zone_name '*' holds whole-well defaults.
@@ -453,11 +457,16 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             contact_type VARCHAR NOT NULL,  -- OWC | GWC | GOC | GDT | ODT | FWL | custom
             depth        DOUBLE NOT NULL,
             is_tvdss     BOOLEAN NOT NULL,  -- true = depth is TVDSS (flat across wells), false = MD
+            depth_datum  VARCHAR NOT NULL DEFAULT 'MD',
             color        VARCHAR,
             label        VARCHAR,
             compartment  VARCHAR,           -- named fault block / segment; NULL = not stated
             PRIMARY KEY (contact_id)
         );
+        ALTER TABLE fluid_contacts ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
+        UPDATE fluid_contacts
+           SET depth_datum = CASE WHEN is_tvdss THEN 'TVDSS' ELSE 'MD' END
+         WHERE depth_datum IS NULL;
 
         -- Which MARKERS a contact governs. A link table rather than a column on the contact,
         -- because the relationship is genuinely many-to-one in BOTH the ways a field is built:
@@ -1330,6 +1339,92 @@ fn backup_before_destructive_migration(conn: &Connection, path: &str) -> DbResul
     }
     engine_copy_to(conn, &backup)?;
     Ok(backup)
+}
+
+const TVDSS_CONVENTION_KEY: &str = "tvdss_sign_convention";
+const TVDSS_POSITIVE_DOWN: &str = "F17_POSITIVE_DOWN_V1";
+
+/// Converts the pre-SB-DBM-031 TVDSS stores from elevation-minus-TVD to F-17 positive-down
+/// TVD-minus-elevation. The project-meta marker makes the rewrite idempotent; a real project is
+/// copied by DuckDB before the first affected row is changed.
+///
+/// Only stores whose existing schema already declares TVDSS are rewritten: `well_path.tvdss`,
+/// explicitly TVDSS contacts, and the system's materialized current/archive TVDSS curves. Generic
+/// imported curves are deliberately not selected by mnemonic here because their source sign was
+/// never declared; treating a name as a reference-frame declaration would invent provenance.
+pub fn migrate_tvdss_positive_down(conn: &Connection, path: Option<&str>) -> DbResult<()> {
+    // `init_db` creates this before calling us, but focused migrations and recovery tools
+    // may operate on a schema-only connection. The marker table is additive; creating it
+    // here keeps the destructive sign rewrite independently safe and idempotent.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);",
+    )?;
+    let convention: Option<String> = conn
+        .query_row(
+            "SELECT value FROM project_meta WHERE key = ?1",
+            params![TVDSS_CONVENTION_KEY],
+            |row| row.get(0),
+        )
+        .optional()?;
+    match convention.as_deref() {
+        Some(TVDSS_POSITIVE_DOWN) => return Ok(()),
+        Some(other) => {
+            return Err(DbError::Invalid(format!(
+                "unsupported TVDSS sign convention '{other}'; expected {TVDSS_POSITIVE_DOWN}"
+            )));
+        }
+        None => {}
+    }
+
+    let affected: i64 = conn.query_row(
+        "SELECT
+             (SELECT COUNT(*) FROM well_path WHERE tvdss IS NOT NULL)
+           + (SELECT COUNT(*) FROM fluid_contacts WHERE depth_datum = 'TVDSS')
+           + (SELECT COUNT(*) FROM computed_curves
+                WHERE upper(curve_name) = 'TVDSS' AND value IS NOT NULL)
+           + (SELECT COUNT(*) FROM computed_curves_archive
+                WHERE upper(curve_name) = 'TVDSS' AND value IS NOT NULL)",
+        [],
+        |row| row.get(0),
+    )?;
+    let backup = if affected > 0 {
+        match path {
+            Some(path) => Some(backup_before_destructive_migration(conn, path)?),
+            None => None,
+        }
+    } else {
+        None
+    };
+
+    with_txn(conn, |conn| -> DbResult<()> {
+        conn.execute("UPDATE well_path SET tvdss = -tvdss WHERE tvdss IS NOT NULL", [])?;
+        conn.execute(
+            "UPDATE fluid_contacts SET depth = -depth WHERE depth_datum = 'TVDSS'",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE computed_curves SET value = -value
+             WHERE upper(curve_name) = 'TVDSS' AND value IS NOT NULL",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE computed_curves_archive SET value = -value
+             WHERE upper(curve_name) = 'TVDSS' AND value IS NOT NULL",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO project_meta (key, value) VALUES (?1, ?2)",
+            params![TVDSS_CONVENTION_KEY, TVDSS_POSITIVE_DOWN],
+        )?;
+        Ok(())
+    })?;
+
+    if let Some(backup) = backup {
+        boot_note(format!(
+            "One-time TVDSS sign upgrade ({affected} stored value(s)): project backed up first to {backup}"
+        ));
+    }
+    Ok(())
 }
 
 /// Engine copy of the CURRENT database to a fresh file at `dest` (`ATTACH` +
@@ -3857,26 +3952,68 @@ pub struct ZoneEntry {
     pub zone_name: String,
     pub top_depth: f32,
     pub bottom_depth: f32,
+    pub depth_datum: crate::schema_vocab::DepthDatum,
 }
 
 pub fn list_zones(conn: &Connection, well_id: &str) -> DbResult<Vec<ZoneEntry>> {
-    let mut stmt =
-        conn.prepare("SELECT zone_name, top_depth, bottom_depth FROM zones WHERE well_id = ?1 ORDER BY top_depth")?;
+    let mut stmt = conn.prepare(
+        "SELECT zone_name, top_depth, bottom_depth, depth_datum
+         FROM zones WHERE well_id = ?1 ORDER BY top_depth",
+    )?;
     let rows = stmt.query_map(params![well_id], |row| {
-        Ok(ZoneEntry { zone_name: row.get(0)?, top_depth: row.get(1)?, bottom_depth: row.get(2)? })
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, f32>(1)?,
+            row.get::<_, f32>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
     })?;
     let mut zones = Vec::new();
     for r in rows {
-        zones.push(r?);
+        let (zone_name, top_depth, bottom_depth, datum) = r?;
+        let datum = datum.ok_or_else(|| {
+            DbError::Invalid(format!(
+                "zone '{zone_name}' has no declared depth datum; assign one before reading or comparing it"
+            ))
+        })?;
+        let depth_datum = crate::schema_vocab::DepthDatum::parse(&datum).ok_or_else(|| {
+            DbError::Invalid(format!("zone '{zone_name}' has unsupported depth datum '{datum}'"))
+        })?;
+        zones.push(ZoneEntry { zone_name, top_depth, bottom_depth, depth_datum });
     }
     Ok(zones)
 }
 
-pub fn upsert_zone(conn: &Connection, well_id: &str, zone_name: &str, top_depth: f32, bottom_depth: f32) -> DbResult<()> {
+/// Explicit measured-depth convenience for writers whose input is already on the standard MD
+/// reference. The name is intentionally not datum-neutral: callers must not use it for an
+/// unclassified legacy depth.
+pub fn upsert_md_zone(conn: &Connection, well_id: &str, zone_name: &str, top_depth: f32, bottom_depth: f32) -> DbResult<()> {
+    upsert_zone_with_datum(
+        conn,
+        well_id,
+        zone_name,
+        top_depth,
+        bottom_depth,
+        crate::schema_vocab::DepthDatum::Md,
+    )
+}
+
+pub fn upsert_zone_with_datum(
+    conn: &Connection,
+    well_id: &str,
+    zone_name: &str,
+    top_depth: f32,
+    bottom_depth: f32,
+    depth_datum: crate::schema_vocab::DepthDatum,
+) -> DbResult<()> {
     conn.execute(
-        "INSERT INTO zones (well_id, zone_name, top_depth, bottom_depth) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (well_id, zone_name) DO UPDATE SET top_depth = excluded.top_depth, bottom_depth = excluded.bottom_depth",
-        params![well_id, zone_name, top_depth, bottom_depth],
+        "INSERT INTO zones (well_id, zone_name, top_depth, bottom_depth, depth_datum)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT (well_id, zone_name) DO UPDATE SET
+             top_depth = excluded.top_depth,
+             bottom_depth = excluded.bottom_depth,
+             depth_datum = excluded.depth_datum",
+        params![well_id, zone_name, top_depth, bottom_depth, depth_datum.as_str()],
     )?;
     Ok(())
 }
@@ -3950,6 +4087,7 @@ pub struct FluidContact {
     pub well_id: Option<String>,
     pub contact_type: String,
     pub depth: f64,
+    pub depth_datum: crate::schema_vocab::DepthDatum,
     pub is_tvdss: bool,
     pub color: Option<String>,
     pub label: Option<String>,
@@ -3965,26 +4103,41 @@ pub struct FluidContact {
 /// so the correlation view fetches them all and decides per well which apply.
 pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
     let mut stmt = conn.prepare(
-        "SELECT contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment
+        "SELECT contact_id, field_name, well_id, contact_type, depth, depth_datum, color, label, compartment
          FROM fluid_contacts ORDER BY depth",
     )?;
     let rows = stmt.query_map([], |row| {
-        Ok(FluidContact {
-            contact_id: row.get(0)?,
-            field_name: row.get(1)?,
-            well_id: row.get(2)?,
-            contact_type: row.get(3)?,
-            depth: row.get(4)?,
-            is_tvdss: row.get(5)?,
-            color: row.get(6)?,
-            label: row.get(7)?,
-            compartment: row.get(8)?,
-            zones: Vec::new(),
-        })
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, f64>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, Option<String>>(6)?,
+            row.get::<_, Option<String>>(7)?,
+            row.get::<_, Option<String>>(8)?,
+        ))
     })?;
     let mut contacts = Vec::new();
     for r in rows {
-        contacts.push(r?);
+        let (contact_id, field_name, well_id, contact_type, depth, datum, color, label, compartment) = r?;
+        let depth_datum = crate::schema_vocab::DepthDatum::parse(&datum).ok_or_else(|| {
+            DbError::Invalid(format!("contact '{contact_id}' has unsupported depth datum '{datum}'"))
+        })?;
+        contacts.push(FluidContact {
+            contact_id,
+            field_name,
+            well_id,
+            contact_type,
+            depth,
+            depth_datum,
+            is_tvdss: depth_datum == crate::schema_vocab::DepthDatum::Tvdss,
+            color,
+            label,
+            compartment,
+            zones: Vec::new(),
+        });
     }
     // One scan of the link table rather than a query per contact: there are few contacts, but a
     // per-row query is how a list turns into N round trips on a field-scale project.
@@ -4004,28 +4157,42 @@ pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn upsert_fluid_contact(
+pub fn upsert_fluid_contact_with_datum(
     conn: &Connection,
     contact_id: &str,
     field_name: Option<&str>,
     well_id: Option<&str>,
     contact_type: &str,
     depth: f64,
-    is_tvdss: bool,
+    depth_datum: crate::schema_vocab::DepthDatum,
     color: Option<&str>,
     label: Option<&str>,
     compartment: Option<&str>,
     zones: &[String],
 ) -> DbResult<()> {
+    let is_tvdss = depth_datum == crate::schema_vocab::DepthDatum::Tvdss;
     conn.execute(
-        "INSERT INTO fluid_contacts (contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        "INSERT INTO fluid_contacts
+             (contact_id, field_name, well_id, contact_type, depth, is_tvdss, depth_datum, color, label, compartment)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT (contact_id) DO UPDATE SET
              field_name = excluded.field_name, well_id = excluded.well_id,
              contact_type = excluded.contact_type, depth = excluded.depth,
-             is_tvdss = excluded.is_tvdss, color = excluded.color, label = excluded.label,
+             is_tvdss = excluded.is_tvdss, depth_datum = excluded.depth_datum,
+             color = excluded.color, label = excluded.label,
              compartment = excluded.compartment",
-        params![contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment],
+        params![
+            contact_id,
+            field_name,
+            well_id,
+            contact_type,
+            depth,
+            is_tvdss,
+            depth_datum.as_str(),
+            color,
+            label,
+            compartment
+        ],
     )?;
     // Replace the marker links wholesale. An upsert that only ADDED would make removing a marker
     // impossible, and a contact silently governing a sand the user took it off is the same class
@@ -4220,8 +4387,13 @@ pub fn zones_from_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<ZoneEnt
         let mut zones = Vec::new();
         for (i, top) in tops.iter().enumerate() {
             let bottom = tops.get(i + 1).map(|t| t.depth).unwrap_or_else(|| max_depth.max(top.depth));
-            upsert_zone(conn, well_id, &top.top_name, top.depth, bottom)?;
-            zones.push(ZoneEntry { zone_name: top.top_name.clone(), top_depth: top.depth, bottom_depth: bottom });
+            upsert_md_zone(conn, well_id, &top.top_name, top.depth, bottom)?;
+            zones.push(ZoneEntry {
+                zone_name: top.top_name.clone(),
+                top_depth: top.depth,
+                bottom_depth: bottom,
+                depth_datum: crate::schema_vocab::DepthDatum::Md,
+            });
         }
         Ok(zones)
     })
@@ -5155,7 +5327,10 @@ mod inspector_tests {
             create_schema(&conn).unwrap();
         }
         let conn = init_db(&path).unwrap();
-        assert_eq!(read_meta(&conn, "format_version").as_deref(), Some("1"));
+        assert_eq!(
+            read_meta(&conn, "format_version").as_deref(),
+            Some(FORMAT_VERSION.to_string().as_str())
+        );
         drop(conn);
         let _ = std::fs::remove_file(&path);
     }
