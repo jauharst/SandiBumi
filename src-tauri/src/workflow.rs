@@ -8,7 +8,7 @@ use crate::modules::{self, ArgKind, ModuleContext};
 use duckdb::Connection;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -48,12 +48,64 @@ pub(crate) fn test_run_custody() -> equations::RunCustody {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModuleRunOutcome {
+    Clean,
+    Degraded,
+    Failed,
+    Skipped,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ModuleRunResult {
     pub well_id: String,
     pub rows_written: usize,
     pub output_curves: Vec<String>,
     pub error: Option<String>,
+    pub outcome: ModuleRunOutcome,
+    pub degradations: Vec<modules::RunDegradation>,
+}
+
+impl ModuleRunResult {
+    fn failed(well_id: impl Into<String>, error: String) -> Self {
+        Self {
+            well_id: well_id.into(),
+            rows_written: 0,
+            output_curves: Vec::new(),
+            error: Some(error),
+            outcome: ModuleRunOutcome::Failed,
+            degradations: Vec::new(),
+        }
+    }
+
+    fn skipped(well_id: impl Into<String>) -> Self {
+        Self {
+            well_id: well_id.into(),
+            rows_written: 0,
+            output_curves: Vec::new(),
+            error: None,
+            outcome: ModuleRunOutcome::Skipped,
+            degradations: Vec::new(),
+        }
+    }
+}
+
+fn degradation_message(degradations: &[modules::RunDegradation]) -> String {
+    let details = degradations
+        .iter()
+        .map(|event| {
+            format!(
+                "{}: {} ({} occurrence{})",
+                event.kind.as_str(),
+                event.detail,
+                event.occurrences,
+                if event.occurrences == 1 { "" } else { "s" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    format!("degraded result - {details}")
 }
 
 /// Whether a deterministic module's result changes when the physical unit of its
@@ -114,19 +166,20 @@ pub(crate) fn resolve_module_depth_unit(
 /// Builds per-sample parameter arrays for every Param arg: dialog value (or manifest
 /// default) as the base, then zone_params overrides — '*' applies well-wide, named zones
 /// apply over their depth range. This is the interval-parameter model.
-fn resolve_param_arrays(
+fn resolve_param_arrays_with_default_usage(
     conn: &Connection,
     well_id: &str,
     spec: &modules::ModuleSpec,
     req_params: &HashMap<String, f64>,
     depth: &[f32],
-) -> Result<HashMap<String, Vec<f64>>, String> {
+) -> Result<(HashMap<String, Vec<f64>>, HashMap<String, Vec<bool>>), String> {
     let zones = db::list_zones(conn, well_id).map_err(|e| e.to_string())?;
     let zone_params = db::list_zone_params(conn, well_id).map_err(|e| e.to_string())?;
     let zone_range: HashMap<&str, (f32, f32)> =
         zones.iter().map(|z| (z.zone_name.as_str(), (z.top_depth, z.bottom_depth))).collect();
 
     let mut out = HashMap::new();
+    let mut defaulted_samples = HashMap::new();
     // Out-of-spec parameter values are REJECTED here, not clamped. Silently clamping a
     // percent-entered SWT_IRR of 25 down to 0.6 would hand back a plausible-but-wrong answer,
     // and passing it through used to kill the run outright: `f64::clamp` asserts `lo <= hi`, so
@@ -171,6 +224,9 @@ fn resolve_param_arrays(
             .or_else(|| arg.default.parse().ok())
             .unwrap_or(f64::NAN);
         let mut arr = vec![base; depth.len()];
+        let base_is_defaulted = !req_params.contains_key(&arg.name)
+            && arg.default.parse::<f64>().is_ok();
+        let mut defaulted = vec![base_is_defaulted; depth.len()];
 
         // A well-scoped parameter refuses a NAMED zone override and accepts the well-wide one.
         // The distinction is the whole rule: `*` gives the well one value, which is what a
@@ -192,6 +248,7 @@ fn resolve_param_arrays(
             let Some(v) = zp.value_num else { continue };
             if zp.zone_name == "*" {
                 arr.fill(v as f64);
+                defaulted.fill(false);
             }
         }
         for zp in zone_params.iter().filter(|z| z.param_name == arg.name) {
@@ -200,11 +257,15 @@ fn resolve_param_arrays(
                 for (i, d) in depth.iter().enumerate() {
                     if *d >= top && *d < bottom {
                         arr[i] = v as f64;
+                        defaulted[i] = false;
                     }
                 }
             }
         }
         out.insert(arg.name.clone(), arr);
+        if defaulted.iter().any(|value| *value) {
+            defaulted_samples.insert(arg.name.clone(), defaulted);
+        }
     }
     if !bad.is_empty() {
         return Err(format!(
@@ -248,7 +309,21 @@ fn resolve_param_arrays(
         }
     }
     out.insert(ZONE_INDEX_ARG.to_string(), zone_index);
-    Ok(out)
+    Ok((out, defaulted_samples))
+}
+
+/// Test-facing value-only view. Production execution uses the companion default-usage map so a
+/// sourced manifest default cannot make a result look clean merely because it computed.
+#[cfg(test)]
+fn resolve_param_arrays(
+    conn: &Connection,
+    well_id: &str,
+    spec: &modules::ModuleSpec,
+    req_params: &HashMap<String, f64>,
+    depth: &[f32],
+) -> Result<HashMap<String, Vec<f64>>, String> {
+    resolve_param_arrays_with_default_usage(conn, well_id, spec, req_params, depth)
+        .map(|(parameters, _)| parameters)
 }
 
 /// Name of the synthetic per-sample zone-ordinal array (see [`resolve_param_arrays`]). Prefixed
@@ -806,12 +881,7 @@ fn run_workflow_module_into_with_parameter_serializer(
         return req
             .well_ids
             .iter()
-            .map(|well_id| ModuleRunResult {
-                well_id: well_id.clone(),
-                rows_written: 0,
-                output_curves: vec![],
-                error: Some(error.clone()),
-            })
+            .map(|well_id| ModuleRunResult::failed(well_id.clone(), error.clone()))
             .collect();
     }
     let spec = match modules::list_modules().into_iter().find(|m| m.name == req.module) {
@@ -820,11 +890,11 @@ fn run_workflow_module_into_with_parameter_serializer(
             return req
                 .well_ids
                 .iter()
-                .map(|w| ModuleRunResult {
-                    well_id: w.clone(),
-                    rows_written: 0,
-                    output_curves: vec![],
-                    error: Some(format!("unknown module '{}'", req.module)),
+                .map(|w| {
+                    ModuleRunResult::failed(
+                        w.clone(),
+                        format!("unknown module '{}'", req.module),
+                    )
                 })
                 .collect()
         }
@@ -848,12 +918,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                 return req
                     .well_ids
                     .iter()
-                    .map(|well_id| ModuleRunResult {
-                        well_id: well_id.clone(),
-                        rows_written: 0,
-                        output_curves: vec![],
-                        error: Some(error.clone()),
-                    })
+                    .map(|well_id| ModuleRunResult::failed(well_id.clone(), error.clone()))
                     .collect();
             }
         };
@@ -892,12 +957,7 @@ fn run_workflow_module_into_with_parameter_serializer(
             return req
                 .well_ids
                 .iter()
-                .map(|w| ModuleRunResult {
-                    well_id: w.clone(),
-                    rows_written: 0,
-                    output_curves: vec![],
-                    error: Some(e.clone()),
-                })
+                .map(|w| ModuleRunResult::failed(w.clone(), e.clone()))
                 .collect()
         }
     };
@@ -908,7 +968,11 @@ fn run_workflow_module_into_with_parameter_serializer(
     enum Outcome {
         Skipped,
         Failed(String),
-        Computed { depth: Vec<f32>, outputs: HashMap<String, Vec<f32>> },
+        Computed {
+            depth: Vec<f32>,
+            outputs: HashMap<String, Vec<f32>>,
+            degradations: Vec<modules::RunDegradation>,
+        },
     }
 
     /// Did the run answer ANYWHERE? An output map that is present but entirely MISSING is a run
@@ -929,6 +993,14 @@ fn run_workflow_module_into_with_parameter_serializer(
     fn answered(outputs: &HashMap<String, Vec<f32>>) -> bool {
         outputs.values().any(|v| v.iter().any(|x| x.is_finite()))
     }
+
+    let defaulted_options: HashSet<String> = spec
+        .args
+        .iter()
+        .filter(|arg| arg.kind == ArgKind::Option || arg.kind == ArgKind::Text)
+        .filter(|arg| !req.opts.contains_key(&arg.name))
+        .map(|arg| arg.name.clone())
+        .collect();
 
     let outcomes: Vec<Outcome> = req
         .well_ids
@@ -953,11 +1025,18 @@ fn run_workflow_module_into_with_parameter_serializer(
             if let Some(p) = progress {
                 p.start_item(well_id);
             }
-            let compute = || -> Result<(Vec<f32>, HashMap<String, Vec<f32>>), String> {
+            let compute = || -> Result<
+                (
+                    Vec<f32>,
+                    HashMap<String, Vec<f32>>,
+                    Vec<modules::RunDegradation>,
+                ),
+                String,
+            > {
                 let curve_names: Vec<String> = log_args.iter().map(|(_, m)| m.clone()).collect();
                 // A chain's own set event: its earlier steps' outputs beat the input set.
                 let own_set = preset_sets.and_then(|m| m.get(well_id.as_str())).map(|s| s.as_str());
-                let (depth, columns, params) = {
+                let (depth, columns, params, defaulted_parameters) = {
                     let conn = db.lock().unwrap();
                     let (depth, columns) = equations::fetch_curve_frame_from_set(
                         &conn,
@@ -970,8 +1049,14 @@ fn run_workflow_module_into_with_parameter_serializer(
                     if depth.is_empty() {
                         return Err("no curve data for well".into());
                     }
-                    let params = resolve_param_arrays(&conn, well_id, &spec, &req.params, &depth)?;
-                    (depth, columns, params)
+                    let (params, defaulted_parameters) = resolve_param_arrays_with_default_usage(
+                        &conn,
+                        well_id,
+                        &spec,
+                        &req.params,
+                        &depth,
+                    )?;
+                    (depth, columns, params, defaulted_parameters)
                 };
 
                 let mut logs: HashMap<String, Vec<f32>> = HashMap::new();
@@ -1051,7 +1136,31 @@ fn run_workflow_module_into_with_parameter_serializer(
                     well_opts.insert(modules::CLASS_CURVES_OPT.to_string(), cls.clone());
                 }
                 let ctx = ModuleContext { n: depth.len(), logs, params, opts: well_opts, depth_unit };
-                let mut outputs = modules::run_module(&req.module, &ctx)?;
+                let default_usage = modules::DefaultUsage {
+                    parameter_samples: defaulted_parameters,
+                    options: defaulted_options.clone(),
+                };
+                let (mut outputs, mut degradations) =
+                    modules::run_module_with_degradations(&req.module, &ctx, default_usage)?;
+
+                // A module returning a vector shorter OR longer than its depth frame is still
+                // written by the established zip discipline, but only the common prefix survives.
+                // SB-DBM-039 requires that usable partial result to say TRUNCATED, never Ok.
+                let mut mismatched: Vec<_> = outputs
+                    .iter()
+                    .filter(|(_, values)| values.len() != depth.len())
+                    .map(|(name, values)| (name.clone(), values.len()))
+                    .collect();
+                mismatched.sort_by(|left, right| left.0.cmp(&right.0));
+                for (name, length) in mismatched {
+                    degradations.push(modules::RunDegradation::one(
+                        modules::RunDegradationKind::Truncated,
+                        format!(
+                            "output '{name}' had {length} samples for a {}-sample depth frame and was truncated to the common prefix",
+                            depth.len()
+                        ),
+                    ));
+                }
 
                 // Declared key → the name this run writes (`resolve_output_names`). A module
                 // returns the key its manifest declares and never builds a name of its own, so
@@ -1101,11 +1210,20 @@ fn run_workflow_module_into_with_parameter_serializer(
                     }
                 }
 
-                Ok((depth, outputs))
+                degradations.sort_by(|left, right| {
+                    left.kind
+                        .cmp(&right.kind)
+                        .then_with(|| left.detail.cmp(&right.detail))
+                });
+                Ok((depth, outputs, degradations))
             };
 
             let outcome = match compute() {
-                Ok((depth, outputs)) => Outcome::Computed { depth, outputs },
+                Ok((depth, outputs, degradations)) => Outcome::Computed {
+                    depth,
+                    outputs,
+                    degradations,
+                },
                 Err(e) => Outcome::Failed(e),
             };
             if let Some(p) = progress {
@@ -1113,8 +1231,23 @@ fn run_workflow_module_into_with_parameter_serializer(
                     // A run whose outputs are all MISSING (e.g. gascorr with no precalc, or a
                     // module fed an all-NaN input) did no real work — flag it Warned, not a green
                     // Ok, so the panel doesn't read as a successful correction.
-                    Outcome::Computed { outputs, .. } if answered(outputs) => {
+                    Outcome::Computed {
+                        outputs,
+                        degradations,
+                        ..
+                    } if answered(outputs) && degradations.is_empty() => {
                         p.finish_item(well_id, crate::jobs::ItemState::Ok, None)
+                    }
+                    Outcome::Computed {
+                        outputs,
+                        degradations,
+                        ..
+                    } if answered(outputs) => {
+                        p.finish_item(
+                            well_id,
+                            crate::jobs::ItemState::Warned,
+                            Some(degradation_message(degradations)),
+                        )
                     }
                     Outcome::Computed { .. } => {
                         p.finish_item(well_id, crate::jobs::ItemState::Warned, Some("no finite output".into()))
@@ -1195,7 +1328,12 @@ fn run_workflow_module_into_with_parameter_serializer(
 
     let mut writes: Vec<equations::CompleteWellWrite> = Vec::with_capacity(succ_ids.len());
     for (well_id, o) in req.well_ids.iter().zip(outcomes.iter()) {
-        if let Outcome::Computed { depth, outputs } = o {
+        if let Outcome::Computed {
+            depth,
+            outputs,
+            degradations,
+        } = o
+        {
             if !answered(outputs) {
                 continue;
             }
@@ -1205,6 +1343,8 @@ fn run_workflow_module_into_with_parameter_serializer(
                     depth: depth.clone(),
                     curves: outputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
                     set_id: set_id.clone(),
+                    degradation_module: req.module.clone(),
+                    degradations: degradations.clone(),
                 });
             }
         }
@@ -1262,11 +1402,15 @@ fn run_workflow_module_into_with_parameter_serializer(
         .iter()
         .zip(outcomes.iter())
         .map(|(well_id, o)| match o {
-            Outcome::Skipped => ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: None },
-            Outcome::Failed(e) => ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some(e.clone()) },
-            Outcome::Computed { depth, outputs } => {
+            Outcome::Skipped => ModuleRunResult::skipped(well_id.clone()),
+            Outcome::Failed(e) => ModuleRunResult::failed(well_id.clone(), e.clone()),
+            Outcome::Computed {
+                depth,
+                outputs,
+                degradations,
+            } => {
                 if outputs.is_empty() {
-                    ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: None }
+                    ModuleRunResult::skipped(well_id.clone())
                 } else if !answered(outputs) {
                     // Every output sample MISSING (e.g. gascorr with no precalc, rocktyping with
                     // no permeability). Checked BEFORE the set/write branches, because this well
@@ -1285,17 +1429,33 @@ fn run_workflow_module_into_with_parameter_serializer(
                         error: Some(
                             "no finite output — every sample is missing (check inputs, e.g. precalc not run)".into(),
                         ),
+                        outcome: ModuleRunOutcome::Failed,
+                        degradations: degradations.clone(),
                     }
                 } else if let Some(e) = &set_err {
-                    ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some(e.clone()) }
+                    ModuleRunResult::failed(well_id.clone(), e.clone())
                 } else if !set_ids.contains_key(well_id) {
-                    ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some("no output set allocated for well".into()) }
+                    ModuleRunResult::failed(
+                        well_id.clone(),
+                        "no output set allocated for well".into(),
+                    )
                 } else if let Some(e) = &write_err {
-                    ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some(e.clone()) }
+                    ModuleRunResult::failed(well_id.clone(), e.clone())
                 } else {
                     let mut names: Vec<String> = outputs.keys().cloned().collect();
                     names.sort();
-                    ModuleRunResult { well_id: well_id.clone(), rows_written: depth.len(), output_curves: names, error: None }
+                    ModuleRunResult {
+                        well_id: well_id.clone(),
+                        rows_written: depth.len(),
+                        output_curves: names,
+                        error: None,
+                        outcome: if degradations.is_empty() {
+                            ModuleRunOutcome::Clean
+                        } else {
+                            ModuleRunOutcome::Degraded
+                        },
+                        degradations: degradations.clone(),
+                    }
                 }
             }
         })
@@ -5695,5 +5855,222 @@ mod tests {
                 assert!(r.net <= res.net + 0.01, "PAY net exceeds RESERVOIR net");
             }
         }
+    }
+
+    /// CORRECTNESS - SB-DBM-039 / SB-DBM-T39. The three-way batch, `Warned`
+    /// states, non-clean aggregate and 25-job prune come exactly from
+    /// `docs/PRD_v2/22_database-model.md` section 6, SB-DBM-T39, sourced there to
+    /// SB-CORE-002 and the job registry. The synthetic depths and parameters only
+    /// make the existing clamp and documented TVDSS-to-DEPTH substitution reachable;
+    /// no petrophysical output value is an expected value in this test.
+    #[test]
+    fn a_clamped_well_and_a_substituted_input_well_are_warned_and_leave_durable_degradation_records_after_their_job_is_pruned_while_a_clean_well_stays_clean(
+    ) {
+        fn seed(
+            conn: &Connection,
+            name: &str,
+            tvdss: Option<Vec<f32>>,
+        ) -> String {
+            let well_id = uuid::Uuid::new_v4();
+            db::insert_well(conn, well_id, name, None, None, None).unwrap();
+            let depth = vec![1000.0_f32, 1001.0];
+            db::insert_standard_curves(
+                conn,
+                well_id,
+                depth.clone(),
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+            )
+            .unwrap();
+            let well = well_id.to_string();
+            let phi = db::upsert_curve_meta(
+                conn,
+                &well,
+                "RAW",
+                "PHIE",
+                Some("v/v"),
+                Some("POR"),
+                Some("synthetic reachability fixture for SB-DBM-T39"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(conn, &phi, &depth, &[0.2, 0.2]).unwrap();
+            if let Some(values) = tvdss {
+                let curve = db::upsert_curve_meta(
+                    conn,
+                    &well,
+                    "RAW",
+                    "TVDSS",
+                    Some("m"),
+                    Some("DEPTH"),
+                    Some("synthetic reachability fixture for SB-DBM-T39"),
+                    None,
+                )
+                .unwrap();
+                db::insert_curve_samples(conn, &curve, &depth, &values).unwrap();
+            }
+            well
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let clamped = seed(&conn, "CLAMPED-RESULT", Some(vec![2000.0, 2001.0]));
+        let substituted = seed(&conn, "SUBSTITUTED-DEPTH", None);
+        let clean = seed(&conn, "IN-RANGE-RESULT", Some(vec![1000.0, 1001.0]));
+        let dbm = Mutex::new(conn);
+
+        let registry = crate::jobs::new_registry();
+        let job_id = uuid::Uuid::new_v4();
+        let progress = crate::jobs::register(
+            &registry,
+            job_id,
+            "SB-DBM-T39",
+            "degraded outcome batch",
+            vec![
+                (clamped.clone(), "CLAMPED-RESULT".into()),
+                (substituted.clone(), "SUBSTITUTED-DEPTH".into()),
+                (clean.clone(), "IN-RANGE-RESULT".into()),
+            ],
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            true,
+        );
+        progress.running(3);
+        let results = run_workflow_module_into(
+            &dbm,
+            &RunModuleRequest {
+                module: "phimax".into(),
+                well_ids: vec![clamped.clone(), substituted.clone(), clean.clone()],
+                log_inputs: HashMap::from([
+                    ("PHI".into(), "PHIE".into()),
+                    ("TVDSS".into(), "TVDSS".into()),
+                ]),
+                params: HashMap::from([
+                    ("PHIMAX0".into(), 0.5),
+                    ("TVDSS_REF".into(), 0.0),
+                    ("PHIMAX_GRAD".into(), -0.3),
+                ]),
+                opts: HashMap::from([("MODE".into(), "linear".into())]),
+                output_set: Some("DEGRADATION".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            },
+            None,
+            None,
+            Some(&progress),
+        );
+        progress.complete();
+
+        let result = |well: &str| {
+            results
+                .iter()
+                .find(|result| result.well_id == well)
+                .unwrap_or_else(|| panic!("result for {well}"))
+        };
+        let persisted_run_count: i64 = dbm
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM log_sets WHERE module = 'phimax'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            result(&clamped).outcome,
+            ModuleRunOutcome::Degraded,
+            "clamped result: {:?}; persisted run count: {persisted_run_count}",
+            result(&clamped),
+        );
+        assert!(result(&clamped).degradations.iter().any(|d| {
+            d.kind == modules::RunDegradationKind::Clamped
+        }));
+        assert_eq!(result(&substituted).outcome, ModuleRunOutcome::Degraded);
+        assert!(result(&substituted).degradations.iter().any(|d| {
+            d.kind == modules::RunDegradationKind::SubstitutedInput
+        }));
+        assert_eq!(result(&clean).outcome, ModuleRunOutcome::Clean);
+        assert!(result(&clean).degradations.is_empty());
+
+        let view = crate::jobs::list(&registry)
+            .into_iter()
+            .find(|view| view.id == job_id.to_string())
+            .expect("the just-finished job is visible");
+        let state = |well: &str| {
+            view.items
+                .iter()
+                .find(|item| item.key == well)
+                .unwrap_or_else(|| panic!("job item for {well}"))
+        };
+        assert_eq!(state(&clamped).state, crate::jobs::ItemState::Warned);
+        assert_eq!(state(&substituted).state, crate::jobs::ItemState::Warned);
+        assert_eq!(state(&clean).state, crate::jobs::ItemState::Ok);
+        assert_eq!(view.outcome, Some(crate::jobs::JobOutcome::Degraded));
+        assert!(state(&clamped).message.as_deref().unwrap_or("").contains("CLAMPED"));
+        assert!(
+            state(&substituted)
+                .message
+                .as_deref()
+                .unwrap_or("")
+                .contains("SUBSTITUTED_INPUT")
+        );
+
+        for index in 0..25 {
+            let later = crate::jobs::register(
+                &registry,
+                uuid::Uuid::new_v4(),
+                "later job",
+                format!("later-{index}"),
+                vec![],
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                false,
+            );
+            later.complete();
+        }
+        assert!(
+            crate::jobs::list(&registry).iter().all(|view| view.id != job_id.to_string()),
+            "25 later jobs prune the transient result required by the exact fixture"
+        );
+
+        let conn = dbm.lock().unwrap();
+        let stored = |well: &str| -> (String, Vec<(String, i64)>) {
+            let (set_id, outcome): (String, String) = conn
+                .query_row(
+                    "SELECT CAST(set_id AS VARCHAR), outcome_state FROM log_sets
+                     WHERE well_id = ?1 AND set_name = 'DEGRADATION'",
+                    duckdb::params![well],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            let mut statement = conn
+                .prepare(
+                    "SELECT kind, occurrences FROM run_degradations
+                     WHERE set_id = ?1 ORDER BY position",
+                )
+                .unwrap();
+            let events = statement
+                .query_map(duckdb::params![set_id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<duckdb::Result<Vec<_>>>()
+                .unwrap();
+            (outcome, events)
+        };
+        let clamped_store = stored(&clamped);
+        assert_eq!(clamped_store.0, "DEGRADED");
+        assert!(clamped_store.1.iter().any(|(kind, count)| kind == "CLAMPED" && *count > 0));
+        let substituted_store = stored(&substituted);
+        assert_eq!(substituted_store.0, "DEGRADED");
+        assert!(
+            substituted_store
+                .1
+                .iter()
+                .any(|(kind, count)| kind == "SUBSTITUTED_INPUT" && *count > 0)
+        );
+        let clean_store = stored(&clean);
+        assert_eq!(clean_store, ("CLEAN".into(), vec![]));
     }
 }

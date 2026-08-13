@@ -58,6 +58,17 @@ pub(crate) enum JobPhase {
     Failed,
 }
 
+/// Aggregate result, separate from lifecycle. A job may finish its scheduled work (`Completed`)
+/// while one or more wells are degraded or failed; collapsing those facts into the phase is what
+/// made a mixed batch read as a clean "Done" card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum JobOutcome {
+    Clean,
+    Degraded,
+    Failed,
+}
+
 /// One item's live state (serialized to the panel).
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct JobItem {
@@ -96,6 +107,7 @@ pub(crate) struct JobView {
     pub(crate) kind: String,
     pub(crate) label: String,
     pub(crate) phase: JobPhase,
+    pub(crate) outcome: Option<JobOutcome>,
     pub(crate) total: usize,
     pub(crate) done: usize,
     pub(crate) current: Option<String>,
@@ -419,6 +431,7 @@ pub(crate) fn list(reg: &JobRegistry) -> Vec<JobView> {
             kind: j.kind.clone(),
             label: j.label.clone(),
             phase: j.phase,
+            outcome: aggregate_outcome(j),
             total: j.total,
             done: j.done,
             current: j.current.clone(),
@@ -430,6 +443,19 @@ pub(crate) fn list(reg: &JobRegistry) -> Vec<JobView> {
         .collect();
     views.sort_by(|a, b| b.seq.cmp(&a.seq));
     views
+}
+
+fn aggregate_outcome(job: &Job) -> Option<JobOutcome> {
+    if job.phase == JobPhase::Failed || job.items.iter().any(|item| item.state == ItemState::Failed)
+    {
+        Some(JobOutcome::Failed)
+    } else if job.items.iter().any(|item| item.state == ItemState::Warned) {
+        Some(JobOutcome::Degraded)
+    } else if job.phase == JobPhase::Completed {
+        Some(JobOutcome::Clean)
+    } else {
+        None
+    }
 }
 
 /// Requests cancellation of one job (flips its shared flag).

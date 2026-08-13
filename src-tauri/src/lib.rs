@@ -3448,7 +3448,7 @@ async fn run_query(
     db: tauri::State<'_, DbState>,
     sql: String,
     limit: usize,
-) -> Result<db::TablePage, String> {
+) -> Result<db::QueryPage, String> {
     let handle = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = handle.lock().unwrap();

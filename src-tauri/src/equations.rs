@@ -1962,9 +1962,23 @@ pub(crate) struct CompleteWellWrite {
     pub depth: Vec<f32>,
     pub curves: Vec<(String, Vec<f32>)>,
     pub set_id: CompleteSetId,
+    /// The module step that produced these events. A chain's log-set module names the whole
+    /// workflow, so this field preserves which individual step degraded the well.
+    pub degradation_module: String,
+    pub degradations: Vec<crate::modules::RunDegradation>,
 }
 
 pub(crate) const LOG_SET_RESTORE_KEY: &str = "_sandibumi_restore_v1";
+pub(crate) const RUN_OUTCOME_CLEAN: &str = "CLEAN";
+pub(crate) const RUN_OUTCOME_DEGRADED: &str = "DEGRADED";
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct StoredRunDegradation {
+    pub module: String,
+    pub kind: crate::modules::RunDegradationKind,
+    pub detail: String,
+    pub occurrences: usize,
+}
 
 /// Structured link carried by a restore run. The restored version keeps the source calculation's
 /// ancestry and parameters, while this record says which immutable historical version supplied
@@ -1999,6 +2013,9 @@ pub struct LogSetEntry {
     ,
     pub ancestry: Option<CurveAncestry>,
     pub restored_from: Option<LogSetRestoreRecord>,
+    /// `None` is a pre-contract run whose result cannot honestly be classified after the fact.
+    pub outcome_state: Option<String>,
+    pub degradations: Vec<StoredRunDegradation>,
 }
 
 fn restore_record(params_json: Option<&str>) -> Option<LogSetRestoreRecord> {
@@ -2038,6 +2055,7 @@ fn create_log_set_raw(
     well_id: &str,
     spec: &LogSetSpec,
     discipline: SetWriteDiscipline,
+    outcome_state: Option<&str>,
 ) -> duckdb::Result<(String, i64)> {
     let version: i64 = conn.query_row(
         "SELECT COALESCE(MAX(version), 0) + 1 FROM log_sets WHERE well_id = ?1 AND set_name = ?2",
@@ -2048,8 +2066,8 @@ fn create_log_set_raw(
     conn.execute(
         "INSERT INTO log_sets
             (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-             sampling_style, duplicate_resolution)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             sampling_style, duplicate_resolution, outcome_state)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             set_id,
             well_id,
@@ -2060,7 +2078,8 @@ fn create_log_set_raw(
             spec.inputs_json,
             crate::schema_vocab::LogSetFrame::Standard.as_str(),
             discipline.sampling_style.as_str(),
-            crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str()
+            crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
+            outcome_state,
         ],
     )?;
     Ok((set_id, version))
@@ -2105,7 +2124,7 @@ pub(crate) fn create_log_set(
     well_id: &str,
     spec: &LogSetSpec,
 ) -> duckdb::Result<(String, i64)> {
-    create_log_set_raw(conn, well_id, spec, SetWriteDiscipline::default())
+    create_log_set_raw(conn, well_id, spec, SetWriteDiscipline::default(), None)
 }
 
 pub(crate) fn create_complete_log_set(
@@ -2116,7 +2135,13 @@ pub(crate) fn create_complete_log_set(
     spec.ancestry.validate()?;
     validate_set_write_discipline(spec.discipline)?;
     let (value, version) = crate::db::with_txn(conn, |conn| {
-        let created = create_log_set_raw(conn, well_id, &spec.storage, spec.discipline)?;
+        let created = create_log_set_raw(
+            conn,
+            well_id,
+            &spec.storage,
+            spec.discipline,
+            Some(RUN_OUTCOME_CLEAN),
+        )?;
         write_run_parameters(conn, &created.0, &spec.ancestry.parameters)?;
         Ok::<_, duckdb::Error>(created)
     })
@@ -2440,7 +2465,13 @@ pub(crate) fn write_complete_own_frame(
     validate_continuous_depth_uniqueness(depth, &continuous_curves)?;
     crate::db::with_txn(conn, |conn| {
         let (set_id, version) =
-            create_log_set_raw(conn, well_id, &spec.storage, spec.discipline)?;
+            create_log_set_raw(
+                conn,
+                well_id,
+                &spec.storage,
+                spec.discipline,
+                Some(RUN_OUTCOME_CLEAN),
+            )?;
         conn.execute(
             "UPDATE log_sets SET frame = ?2 WHERE set_id = ?1",
             params![set_id, crate::schema_vocab::LogSetFrame::Own.as_str()],
@@ -2844,6 +2875,10 @@ pub(crate) struct WellWrite {
     pub depth: Vec<f32>,
     pub curves: Vec<(String, Vec<f32>)>,
     pub set_id: String,
+    /// `None` only for the legacy test-fixture writer. Complete production writes always carry
+    /// an explicit module plus the (possibly empty) structured degradation list.
+    pub degradation_module: Option<String>,
+    pub degradations: Option<Vec<crate::modules::RunDegradation>>,
 }
 
 /// Batched [`create_log_set`]: registers one run event per well inside a SINGLE transaction
@@ -2873,8 +2908,8 @@ pub(crate) fn create_log_sets_batch(
             conn.execute(
                 "INSERT INTO log_sets
                     (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-                     sampling_style, duplicate_resolution)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                     sampling_style, duplicate_resolution, outcome_state)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     set_id,
                     well_id,
@@ -2885,7 +2920,8 @@ pub(crate) fn create_log_sets_batch(
                     spec.inputs_json,
                     crate::schema_vocab::LogSetFrame::Standard.as_str(),
                     SetWriteDiscipline::default().sampling_style.as_str(),
-                    crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str()
+                    crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
+                    None::<&str>,
                 ],
             )?;
         }
@@ -2982,8 +3018,8 @@ pub(crate) fn create_complete_log_sets_batch(
             conn.execute(
                 "INSERT INTO log_sets
                     (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-                     sampling_style, duplicate_resolution)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                     sampling_style, duplicate_resolution, outcome_state)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     set_id,
                     well_id,
@@ -2994,7 +3030,8 @@ pub(crate) fn create_complete_log_sets_batch(
                     spec.storage.inputs_json,
                     crate::schema_vocab::LogSetFrame::Standard.as_str(),
                     spec.discipline.sampling_style.as_str(),
-                    crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str()
+                    crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str(),
+                    RUN_OUTCOME_CLEAN,
                 ],
             )?;
             write_run_parameters(conn, set_id, &spec.ancestry.parameters)?;
@@ -3047,6 +3084,27 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
     }
     for well in wells {
         load_set_write_discipline(conn, &well.set_id)?;
+        match (&well.degradation_module, &well.degradations) {
+            (None, None) => {}
+            (Some(module), Some(events)) => {
+                if module.trim().is_empty() {
+                    return Err("a durable degradation record is missing its module".into());
+                }
+                for event in events {
+                    if event.detail.trim().is_empty() || event.occurrences == 0 {
+                        return Err(format!(
+                            "{} degradation must have non-empty detail and a positive occurrence count",
+                            event.kind.as_str()
+                        ));
+                    }
+                }
+            }
+            _ => {
+                return Err(
+                    "a complete write must carry both its degradation module and event list".into(),
+                )
+            }
+        }
         let curves = well
             .curves
             .iter()
@@ -3104,6 +3162,92 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Res
             }
             archive.flush()?;
         }
+
+        // Phase 4: classify the run and append its structured reasons in the SAME transaction as
+        // current + archive rows. A curve can therefore never commit while the warning that
+        // qualifies it is lost. Workflow steps reuse one set_id, so new events append after prior
+        // positions and a later clean step never erases an earlier DEGRADED state.
+        for well in wells {
+            let (Some(module), Some(events)) =
+                (&well.degradation_module, &well.degradations)
+            else {
+                continue; // legacy test-fixture writer; its run remains unclassified
+            };
+            let state = if events.is_empty() {
+                RUN_OUTCOME_CLEAN
+            } else {
+                RUN_OUTCOME_DEGRADED
+            };
+            let updated = if events.is_empty() {
+                conn.execute(
+                    "UPDATE log_sets SET outcome_state = COALESCE(outcome_state, ?2)
+                     WHERE set_id = ?1 AND well_id = ?3",
+                    params![well.set_id, state, well.well_id],
+                )
+                .map_err(|error| {
+                    duckdb::Error::InvalidParameterName(format!(
+                        "classifying clean run {} failed: {error}",
+                        well.set_id
+                    ))
+                })?
+            } else {
+                conn.execute(
+                    "UPDATE log_sets SET outcome_state = ?2
+                     WHERE set_id = ?1 AND well_id = ?3",
+                    params![well.set_id, state, well.well_id],
+                )
+                .map_err(|error| {
+                    duckdb::Error::InvalidParameterName(format!(
+                        "classifying degraded run {} failed: {error}",
+                        well.set_id
+                    ))
+                })?
+            };
+            if updated != 1 {
+                return Err(duckdb::Error::InvalidParameterName(format!(
+                    "complete degradation record has no live log-set row for {}",
+                    well.set_id
+                )));
+            }
+            let mut position = conn
+                .query_row(
+                    "SELECT position FROM run_degradations
+                     WHERE set_id = ?1 ORDER BY position DESC LIMIT 1",
+                    params![well.set_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|error| {
+                    duckdb::Error::InvalidParameterName(format!(
+                        "locating the next degradation position for {} failed: {error}",
+                        well.set_id
+                    ))
+                })?
+                .map_or(0, |last| last + 1);
+            for event in events {
+                conn.execute(
+                    "INSERT INTO run_degradations
+                        (set_id, position, module, kind, detail, occurrences)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        well.set_id,
+                        position,
+                        module,
+                        event.kind.as_str(),
+                        event.detail,
+                        event.occurrences as i64,
+                    ],
+                )
+                .map_err(|error| {
+                    duckdb::Error::InvalidParameterName(format!(
+                        "persisting {} degradation for {} failed: {error}",
+                        event.kind.as_str(),
+                        well.set_id
+                    ))
+                })?;
+                position += 1;
+            }
+        }
         Ok::<(), duckdb::Error>(())
     })
     .map_err(|error| error.to_string())
@@ -3151,6 +3295,8 @@ pub(crate) fn write_computed_curves_with_ancestry_batch(
             depth: well.depth.clone(),
             curves: well.curves.clone(),
             set_id: well.set_id.value.clone(),
+            degradation_module: Some(well.degradation_module.clone()),
+            degradations: Some(well.degradations.clone()),
         });
     }
     write_versioned_rows_batch_raw(conn, &raw)
@@ -3406,7 +3552,8 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
     let mut stmt = conn.prepare(
         "SELECT s.set_id, s.set_name, s.version, s.module, s.params_json, s.inputs_json,
                 strftime(s.created_at, '%Y-%m-%d %H:%M'),
-                EXISTS (SELECT 1 FROM computed_curves cc WHERE cc.set_id = s.set_id)
+                EXISTS (SELECT 1 FROM computed_curves cc WHERE cc.set_id = s.set_id),
+                s.outcome_state
          FROM log_sets s
          WHERE s.well_id = ?1
          ORDER BY s.set_name, s.version DESC",
@@ -3426,10 +3573,11 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
             inputs_json: r.get(5)?,
             created_at: r.get(6)?,
             curve_names: Vec::new(),
-            is_current: r.get(7)?
-        ,
+            is_current: r.get(7)?,
             ancestry,
             restored_from,
+            outcome_state: r.get(8)?,
+            degradations: Vec::new(),
         })
     })?;
     let mut entries = Vec::new();
@@ -3449,6 +3597,50 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
     for e in &mut entries {
         if let Some(names) = by_set.remove(&e.set_id) {
             e.curve_names = names;
+        }
+    }
+
+    let mut statement = conn.prepare(
+        "SELECT CAST(d.set_id AS VARCHAR), d.module, d.kind, d.detail, d.occurrences
+         FROM run_degradations d
+         JOIN log_sets s ON s.set_id = d.set_id
+         WHERE s.well_id = ?1
+         ORDER BY d.set_id, d.position",
+    )?;
+    let rows = statement.query_map(params![well_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, i64>(4)?,
+        ))
+    })?;
+    let mut degradations: HashMap<String, Vec<StoredRunDegradation>> = HashMap::new();
+    for row in rows {
+        let (set_id, module, kind, detail, occurrences) = row?;
+        let kind = crate::modules::RunDegradationKind::parse(&kind).ok_or_else(|| {
+            duckdb::Error::InvalidParameterName(format!(
+                "run degradation for set {set_id} has unknown kind '{kind}'"
+            ))
+        })?;
+        let occurrences = usize::try_from(occurrences).ok().filter(|value| *value > 0).ok_or_else(
+            || {
+                duckdb::Error::InvalidParameterName(format!(
+                    "run degradation for set {set_id} has invalid occurrence count {occurrences}"
+                ))
+            },
+        )?;
+        degradations.entry(set_id).or_default().push(StoredRunDegradation {
+            module,
+            kind,
+            detail,
+            occurrences,
+        });
+    }
+    for entry in &mut entries {
+        if let Some(events) = degradations.remove(&entry.set_id) {
+            entry.degradations = events;
         }
     }
     Ok(entries)
@@ -3486,10 +3678,11 @@ pub(crate) fn restore_log_set(
         String,
         Option<String>,
         Option<String>,
+        Option<String>,
     )> = conn
         .query_row(
             "SELECT well_id, set_name, version, params_json, inputs_json, frame,
-                    sampling_style, duplicate_resolution
+                    sampling_style, duplicate_resolution, outcome_state
              FROM log_sets WHERE set_id = ?1",
             params![set_id],
             |row| {
@@ -3502,6 +3695,7 @@ pub(crate) fn restore_log_set(
                     row.get(5)?,
                     row.get(6)?,
                     row.get(7)?,
+                    row.get(8)?,
                 ))
             },
         )
@@ -3516,6 +3710,7 @@ pub(crate) fn restore_log_set(
         frame,
         sampling_style,
         duplicate_resolution,
+        outcome_state,
     )) = source
     else {
         return Err(format!("log-set version '{set_id}' does not exist"));
@@ -3555,8 +3750,8 @@ pub(crate) fn restore_log_set(
         conn.execute(
             "INSERT INTO log_sets
                 (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
-                 sampling_style, duplicate_resolution)
-             VALUES (?1, ?2, ?3, ?4, 'restore', ?5, ?6, ?7, ?8, ?9)",
+                 sampling_style, duplicate_resolution, outcome_state)
+             VALUES (?1, ?2, ?3, ?4, 'restore', ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 new_set_id,
                 well_id,
@@ -3566,7 +3761,8 @@ pub(crate) fn restore_log_set(
                 inputs_json,
                 frame,
                 sampling_style,
-                duplicate_resolution
+                duplicate_resolution,
+                outcome_state,
             ],
         )?;
         conn.execute(
@@ -3574,6 +3770,13 @@ pub(crate) fn restore_log_set(
                 (set_id, position, name, value_json, source, state, resolution, manifest_version)
              SELECT ?1, position, name, value_json, source, state, resolution, manifest_version
              FROM run_parameters WHERE set_id = ?2",
+            params![new_set_id, set_id],
+        )?;
+        conn.execute(
+            "INSERT INTO run_degradations
+                (set_id, position, module, kind, detail, occurrences)
+             SELECT ?1, position, module, kind, detail, occurrences
+             FROM run_degradations WHERE set_id = ?2",
             params![new_set_id, set_id],
         )?;
         conn.execute(

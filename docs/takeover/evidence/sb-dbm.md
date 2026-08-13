@@ -514,14 +514,14 @@
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DBM-T39`, `SB-DBM-T41`; sections 4.6 and 6.7.
 - **Atomic obligations:** clean, warned/degraded and failed are distinct per well and in aggregate; clamp/substitution degradations cannot appear clean; degradation remains queryable after transient job pruning.
-- **Current source:** `jobs.rs::ItemState` includes `Warned` and preserves severity; workflow all-NaN outputs can warn. ML writes selected cancelled/partial markers into `log_sets.params_json`. There is no general durable degradation field or universal clamp/substitution path, and finished jobs are pruned after 24.
-- **Qualifying acceptance tests:** none; T39's clamp/substitution/clean batch plus 25-job prune and the store arm of T41 are missing. Test class is `MISSING`.
-- **Supporting tests:** job-state and ML cancellation tests prove transient or subsystem-specific fragments only.
+- **Current source:** `workflow.rs::ModuleRunResult` and `jobs.rs::JobView` expose typed clean/degraded/failed outcomes. The module boundary captures actual `CLAMPED`, `DEFAULTED`, `TRUNCATED` and `SUBSTITUTED_INPUT` events; the complete writer commits `log_sets.outcome_state` and ordered `run_degradations` in the same transaction as curve rows. `run_readonly_query` now returns `returned_rows` plus `count_is_total = false`, while inspector `total_rows` retains its exact meaning.
+- **Qualifying acceptance tests:** `a_clamped_well_and_a_substituted_input_well_are_warned_and_leave_durable_degradation_records_after_their_job_is_pruned_while_a_clean_well_stays_clean` exercises the three per-well outcomes, aggregate warning and 25-job prune. `the_inspector_reports_the_true_ten_thousand_row_total_while_the_hundred_row_console_page_names_its_count_as_returned_not_total` pins the 10,000/100 reporting boundary. Both are `CORRECTNESS` from SB-DBM-T39/T41.
+- **Supporting tests:** existing job-state, SQL-truncation and module-workflow tests remain active behind the exact contracts.
 - **Manual evidence:** `workflow` 0/23, `processing-history` 0/7 and `machine-learning` 7/189.
-- **Git evidence:** accepted anchor `b332026c` contains the transient and ML-specific fragments; universal durable honesty is not integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** a controlled, durable degradation vocabulary and its run-record column are missing.
-- **Next action:** carry structured degradation reasons from computation to job view and run record, then implement T39 across the prune boundary.
+- **Git evidence:** `codex/g2-program-plan` pre-PR implements the owned engineering contract; the accepted baseline remains unchanged until review and merge.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none; the chapter supplies the closed four-value degradation vocabulary.
+- **Next action:** retain exact T39/T41; Jauhar visually and manually checks warning/history/inspector rendering, and Gate 4 repeats durable-record recovery on sanitized representative output.
 
 ## SB-DBM-040 - Cancellation honesty is regression-locked
 

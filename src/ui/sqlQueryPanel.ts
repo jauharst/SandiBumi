@@ -1,4 +1,4 @@
-import { runQuery, type TablePage } from "../ipc";
+import { runQuery, type QueryPage } from "../ipc";
 import { setStatus } from "../state";
 import { messageNode } from "./safeDom";
 
@@ -58,8 +58,8 @@ export class SqlQueryPanel {
         const page = await runQuery(sql, 1000);
         renderResult(grid, page);
         info.textContent = page.truncated
-          ? `${page.total_rows} row(s) shown — display cap reached; more rows exist (not the total)`
-          : `${page.total_rows} row(s)`;
+          ? `${page.returned_rows} row(s) returned — display cap reached; more rows exist (not the total)`
+          : `${page.returned_rows} row(s) returned`;
       } catch (err) {
         grid.replaceChildren(messageNode("placeholder-note", String(err)));
         info.textContent = "";
@@ -77,7 +77,7 @@ export class SqlQueryPanel {
   }
 }
 
-function renderResult(grid: HTMLElement, page: TablePage): void {
+function renderResult(grid: HTMLElement, page: QueryPage): void {
   const table = document.createElement("table");
   table.className = "dbgrid";
   const thead = document.createElement("thead");

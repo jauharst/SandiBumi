@@ -11,7 +11,8 @@
 //! Density convention: g/cc (matching LAS field data), not the kg/m3 some suites use.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::OnceLock;
 
 use crate::units::{convert_depth, DepthUnit};
@@ -549,14 +550,194 @@ impl ModuleContext {
         self.logs.get(name).cloned().unwrap_or_else(|| vec![f32::NAN; self.n])
     }
     pub(crate) fn p(&self, name: &str, i: usize) -> f64 {
+        record_defaulted_parameter(name, i);
         self.params.get(name).and_then(|v| v.get(i)).copied().unwrap_or(f64::NAN)
     }
     pub(crate) fn o(&self, name: &str) -> &str {
+        record_defaulted_option(name);
         self.opts.get(name).map(|s| s.as_str()).unwrap_or("")
     }
 }
 
 pub type ModuleOutputs = HashMap<String, Vec<f32>>;
+
+/// Controlled, durable vocabulary for a calculation that returned usable curves but did not
+/// produce a clean result. These four members are the complete SB-DBM-039 vocabulary; adding a
+/// fifth is a contract change, not an ad-hoc message choice.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RunDegradationKind {
+    Clamped,
+    Defaulted,
+    Truncated,
+    SubstitutedInput,
+}
+
+impl RunDegradationKind {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Clamped => "CLAMPED",
+            Self::Defaulted => "DEFAULTED",
+            Self::Truncated => "TRUNCATED",
+            Self::SubstitutedInput => "SUBSTITUTED_INPUT",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "CLAMPED" => Some(Self::Clamped),
+            "DEFAULTED" => Some(Self::Defaulted),
+            "TRUNCATED" => Some(Self::Truncated),
+            "SUBSTITUTED_INPUT" => Some(Self::SubstitutedInput),
+            _ => None,
+        }
+    }
+}
+
+/// One structured reason a per-well result is degraded. `occurrences` aggregates repeated sample
+/// events so a 100,000-row clamp does not become 100,000 provenance rows.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RunDegradation {
+    pub kind: RunDegradationKind,
+    pub detail: String,
+    pub occurrences: usize,
+}
+
+impl RunDegradation {
+    pub(crate) fn one(kind: RunDegradationKind, detail: impl Into<String>) -> Self {
+        Self { kind, detail: detail.into(), occurrences: 1 }
+    }
+}
+
+/// Provenance of defaults available to one module evaluation. Numeric defaults are sample-aware:
+/// a named-zone or whole-well explicit override clears the flag only where that override applies.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DefaultUsage {
+    pub(crate) parameter_samples: HashMap<String, Vec<bool>>,
+    pub(crate) options: HashSet<String>,
+}
+
+#[derive(Default)]
+struct DegradationCapture {
+    events: BTreeMap<(RunDegradationKind, String), usize>,
+    default_usage: DefaultUsage,
+    defaulted_parameter_samples: HashSet<(String, usize)>,
+    defaulted_options: HashSet<String>,
+}
+
+thread_local! {
+    /// Rayon evaluates each well on one worker thread, so a thread-local capture keeps concurrent
+    /// wells isolated without putting a callback on every `ModuleContext` literal in the scientific
+    /// modules. The guard below always restores any prior capture, including on unwind.
+    static DEGRADATION_CAPTURE: RefCell<Option<DegradationCapture>> = const { RefCell::new(None) };
+}
+
+struct DegradationCaptureGuard {
+    previous: Option<DegradationCapture>,
+    finished: bool,
+}
+
+impl DegradationCaptureGuard {
+    fn start(default_usage: DefaultUsage) -> Self {
+        let current = DegradationCapture { default_usage, ..Default::default() };
+        let previous = DEGRADATION_CAPTURE.with(|slot| slot.replace(Some(current)));
+        Self { previous, finished: false }
+    }
+
+    fn finish(mut self) -> Vec<RunDegradation> {
+        let current = DEGRADATION_CAPTURE.with(|slot| slot.replace(self.previous.take()));
+        self.finished = true;
+        current
+            .map(|capture| {
+                capture
+                    .events
+                    .into_iter()
+                    .map(|((kind, detail), occurrences)| RunDegradation {
+                        kind,
+                        detail,
+                        occurrences,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for DegradationCaptureGuard {
+    fn drop(&mut self) {
+        if !self.finished {
+            DEGRADATION_CAPTURE.with(|slot| {
+                slot.replace(self.previous.take());
+            });
+        }
+    }
+}
+
+fn record_degradation(kind: RunDegradationKind, detail: impl Into<String>) {
+    let detail = detail.into();
+    DEGRADATION_CAPTURE.with(|slot| {
+        if let Some(capture) = slot.borrow_mut().as_mut() {
+            *capture.events.entry((kind, detail)).or_insert(0) += 1;
+        }
+    });
+}
+
+fn record_degradation_once(kind: RunDegradationKind, detail: impl Into<String>) {
+    let detail = detail.into();
+    DEGRADATION_CAPTURE.with(|slot| {
+        if let Some(capture) = slot.borrow_mut().as_mut() {
+            capture.events.entry((kind, detail)).or_insert(1);
+        }
+    });
+}
+
+fn record_defaulted_parameter(name: &str, sample: usize) {
+    DEGRADATION_CAPTURE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(capture) = slot.as_mut() else { return };
+        let is_defaulted = capture
+            .default_usage
+            .parameter_samples
+            .get(name)
+            .and_then(|samples| samples.get(sample))
+            .copied()
+            .unwrap_or(false);
+        if is_defaulted
+            && capture
+                .defaulted_parameter_samples
+                .insert((name.to_string(), sample))
+        {
+            let detail = format!("parameter '{name}' used its sourced module-manifest default");
+            *capture.events.entry((RunDegradationKind::Defaulted, detail)).or_insert(0) += 1;
+        }
+    });
+}
+
+fn record_defaulted_option(name: &str) {
+    DEGRADATION_CAPTURE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(capture) = slot.as_mut() else { return };
+        if capture.default_usage.options.contains(name)
+            && capture.defaulted_options.insert(name.to_string())
+        {
+            let detail = format!("option '{name}' used its module-manifest default");
+            capture.events.insert((RunDegradationKind::Defaulted, detail), 1);
+        }
+    });
+}
+
+/// Evaluate one module while collecting only degradation events that actually occur on this
+/// well. Callers that do not need the durable job/run contract keep using [`run_module`].
+pub(crate) fn run_module_with_degradations(
+    name: &str,
+    ctx: &ModuleContext,
+    default_usage: DefaultUsage,
+) -> Result<(ModuleOutputs, Vec<RunDegradation>), String> {
+    let capture = DegradationCaptureGuard::start(default_usage);
+    let output = run_module(name, ctx);
+    let degradations = capture.finish();
+    output.map(|output| (output, degradations))
+}
 
 /// The DECLARED output keys of `module` whose values are class identifiers rather than quantities
 /// (`SB-MLA-055`). Everything not listed is a continuous curve.
@@ -588,7 +769,14 @@ fn limit(v: f64, lo: f64, hi: f64) -> f64 {
     if v.is_nan() || !(lo <= hi) {
         f64::NAN
     } else {
-        v.clamp(lo, hi)
+        let limited = v.clamp(lo, hi);
+        if limited != v {
+            record_degradation(
+                RunDegradationKind::Clamped,
+                format!("calculated value was clamped to the existing range [{lo}, {hi}]"),
+            );
+        }
+        limited
     }
 }
 
@@ -1725,8 +1913,17 @@ fn phimax(ctx: &ModuleContext) -> ModuleOutputs {
     // precalc) — mixing MD and TVD samples would kink the trend. Constant mode never
     // touches it. Positive-downward convention: deeper = larger value = lower ceiling.
     let tvd_in = ctx.log("TVDSS");
-    let tvd: Vec<f32> =
-        if tvd_in.iter().any(|v| v.is_finite()) { tvd_in } else { ctx.log("DEPTH") };
+    let tvd: Vec<f32> = if tvd_in.iter().any(|v| v.is_finite()) {
+        tvd_in
+    } else {
+        if mode != "constant" {
+            record_degradation_once(
+                RunDegradationKind::SubstitutedInput,
+                "TVDSS was absent, so measured DEPTH supplied the whole compaction-trend frame",
+            );
+        }
+        ctx.log("DEPTH")
+    };
 
     let mut capped = vec![f32::NAN; ctx.n];
     let mut ceiling = vec![f32::NAN; ctx.n];
@@ -1924,8 +2121,15 @@ fn precalc(ctx: &ModuleContext) -> ModuleOutputs {
     // TVDSS falls back to measured depth as a whole curve, never per sample:
     // mixing MD and TVD samples would put artificial kinks in the trends.
     let tvd_in = ctx.log("TVDSS");
-    let tvd: Vec<f32> =
-        if tvd_in.iter().any(|v| v.is_finite()) { tvd_in } else { ctx.log("DEPTH") };
+    let tvd: Vec<f32> = if tvd_in.iter().any(|v| v.is_finite()) {
+        tvd_in
+    } else {
+        record_degradation_once(
+            RunDegradationKind::SubstitutedInput,
+            "TVDSS was absent, so measured DEPTH supplied the whole temperature-pressure frame",
+        );
+        ctx.log("DEPTH")
+    };
     let rt = ctx.log("RT");
     let rxo = ctx.log("RXO");
     let degc = ctx.o("OPT_TU") == "degC";

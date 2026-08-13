@@ -473,18 +473,23 @@ export async function buildModuleContent(
     window.dispatchEvent(new Event("sandibumi:open-processing"));
     try {
       const results = await runWorkflowModule(req, scope.backend());
-      const ok = results.filter((r) => !r.error).length;
-      const failed = results.length - ok;
-      resultBox.textContent = failed
-        ? `${ok}/${results.length} well(s) computed — ${failed} need attention. Open Processing → details for the report.`
-        : `All ${ok} well(s) computed. Per-well details are in the Processing panel.`;
-      callbacks.setStatus(`${spec.name}: ${ok}/${results.length} well(s) computed`);
+      const clean = results.filter((r) => r.outcome === "clean").length;
+      const degraded = results.filter((r) => r.outcome === "degraded").length;
+      const failed = results.filter((r) => r.outcome === "failed").length;
+      const skipped = results.filter((r) => r.outcome === "skipped").length;
+      const computed = clean + degraded;
+      resultBox.textContent = `${clean} clean · ${degraded} degraded · ${failed} failed${
+        skipped ? ` · ${skipped} skipped` : ""
+      }. Open Processing → details for the per-well report.`;
+      callbacks.setStatus(
+        `${spec.name}: ${clean} clean, ${degraded} degraded, ${failed} failed`,
+      );
       // The names the run actually WROTE, not the manifest's declared ones. Those two used to
       // differ silently for any module that built its own name, so the History panel recorded
       // curves the project did not hold — and now that a name can be renamed they differ by
       // design. The results carry the truth; a well that failed carries none, hence the union.
       const written = [...new Set(results.flatMap((r) => r.output_curves))];
-      if (ok > 0) callbacks.onRunComplete(written, scope.namesFor(wellIds));
+      if (computed > 0) callbacks.onRunComplete(written, scope.namesFor(wellIds));
     } catch (err) {
       resultBox.textContent = `Run failed: ${err}`;
     } finally {

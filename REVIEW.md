@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DBM-039: degraded work cannot look clean
+
+- [x] **Automated:** exact SB-DBM-T39 runs one clamped well, one substituted-input well
+      and one clean well, proves their typed degraded/degraded/clean results and
+      Warned/Warned/Ok job items, proves the aggregate outcome is degraded, forces the
+      25-job prune, then recovers the structured reasons from the durable run record.
+      Exact SB-DBM-T41 separately proves an inspector page over 10,000 rows reports the
+      true total while a 100-row SQL page exposes `returned_rows` and explicitly says it
+      is not a total. The curve rows, outcome and ordered degradation events share one
+      transaction. Full gate is 1005 passed / 0 failed / 36 ignored, including backend
+      948 passed / 0 failed / 36 ignored, with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** at narrow and wide dock widths, run a three-well module batch containing
+      a source-qualified clamp, an explicit documented input substitution and a clean
+      result. Confirm the module dialog distinguishes clean/degraded/failed counts, the
+      Processing card says `Done with warnings`, each affected well names its structured
+      reason without clipping, Curve Catalog exposes the durable outcome/reasons, and the
+      SQL console labels a capped result as rows returned rather than a total.
+- [ ] **Manual:** on a disposable project, produce the same three result classes, record
+      the output set identities, complete at least 25 later jobs, close/reopen the project,
+      and verify the two degraded run records still name their reasons while the clean run
+      remains clean. Jauhar owns this click-through and records any UX defect separately;
+      this automated increment does not claim the click path has been exercised.
+- [ ] **Field:** pending Gate 4. Repeat the durable-result and capped-count checks on
+      sanitized representative pilot output. The synthetic three-well and 10,000-row
+      fixtures prove the reporting boundary, not field suitability or operator acceptance.
+
 ## 2026-08-14 — G2 SB-DBM-037: backend scope is the authority
 
 - [x] **Automated:** exact SB-DBM-T37 creates the cited 540-well project with an active

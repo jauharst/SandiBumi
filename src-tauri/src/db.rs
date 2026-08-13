@@ -333,7 +333,24 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             -- Declared by the writer, never inferred from coincidentally regular depths. Legacy
             -- rows remain NULL because their original declaration cannot be recovered.
             sampling_style VARCHAR,
-            duplicate_resolution VARCHAR
+            duplicate_resolution VARCHAR,
+            -- NULL = legacy/unclassified. Every complete production write starts CLEAN and is
+            -- changed atomically to DEGRADED when a structured event is persisted with its rows.
+            outcome_state VARCHAR CHECK (outcome_state IN ('CLEAN', 'DEGRADED'))
+        );
+
+        -- Structured reasons a durable run is DEGRADED. Multiple workflow steps may append to one
+        -- set_id, so position is monotone per run rather than keyed by a message someone might edit.
+        CREATE TABLE IF NOT EXISTS run_degradations (
+            set_id      UUID NOT NULL,
+            position    INTEGER NOT NULL,
+            module      VARCHAR NOT NULL,
+            kind        VARCHAR NOT NULL CHECK (
+                kind IN ('CLAMPED', 'DEFAULTED', 'TRUNCATED', 'SUBSTITUTED_INPUT')
+            ),
+            detail      VARCHAR NOT NULL,
+            occurrences BIGINT NOT NULL CHECK (occurrences > 0),
+            PRIMARY KEY (set_id, position)
         );
 
         -- Queryable parameter custody for one run. The full ancestry JSON remains the portable
@@ -1037,6 +1054,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
     conn.execute_batch(&format!(
         "ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
          ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
+         ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS outcome_state VARCHAR;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
          ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_value DOUBLE;
@@ -4565,9 +4583,20 @@ pub struct TablePage {
     /// Cells stringified by DuckDB's VARCHAR cast; None = SQL NULL.
     pub rows: Vec<Vec<Option<String>>>,
     pub total_rows: usize,
-    /// True when `total_rows` is a display cap rather than a true count — the SQL console's
-    /// `LIMIT + 1` probe found more rows than it returned, so the real result is larger. The
-    /// paginated inspector path always leaves this false: its `total_rows` is a real COUNT(*).
+    /// Always false on this inspector path: `total_rows` is a real COUNT(*), separate from the
+    /// number of rows returned in this page.
+    pub truncated: bool,
+}
+
+/// SQL-console response. Deliberately not [`TablePage`]: `returned_rows` is the page size after
+/// the cap, never the inspector's true total, and `count_is_total = false` states that distinction
+/// on the wire instead of relying on explanatory UI text.
+#[derive(Debug, Serialize)]
+pub struct QueryPage {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Option<String>>>,
+    pub returned_rows: usize,
+    pub count_is_total: bool,
     pub truncated: bool,
 }
 
@@ -5081,7 +5110,7 @@ pub fn reapply_referential_integrity_prune(conn: &Connection, batch_id: &str) ->
 /// Runs one read-only SELECT (a SQL console, full DuckDB SQL: joins,
 /// window functions, aggregates). Anything that isn't a single SELECT/WITH statement
 /// is rejected before execution.
-pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<TablePage, String> {
+pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<QueryPage, String> {
     let trimmed = sql.trim().trim_end_matches(';').trim();
     let lowered = trimmed.to_lowercase();
     if !(lowered.starts_with("select") || lowered.starts_with("with")) {
@@ -5116,8 +5145,14 @@ pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<
     let columns = stmt.column_names().iter().map(|c| c.to_string()).collect();
     let truncated = rows_out.len() > limit;
     rows_out.truncate(limit);
-    let total = rows_out.len();
-    Ok(TablePage { columns, rows: rows_out, total_rows: total, truncated })
+    let returned_rows = rows_out.len();
+    Ok(QueryPage {
+        columns,
+        rows: rows_out,
+        returned_rows,
+        count_is_total: false,
+        truncated,
+    })
 }
 
 fn value_ref_to_string(value: duckdb::types::ValueRef) -> Option<String> {
@@ -5944,7 +5979,8 @@ mod inspector_tests {
         // Cap BELOW the true count: exactly `limit` rows, and truncated is set.
         let capped = run_readonly_query(&conn, "SELECT well_name FROM wells", 3).unwrap();
         assert_eq!(capped.rows.len(), 3, "returns exactly the cap");
-        assert_eq!(capped.total_rows, 3);
+        assert_eq!(capped.returned_rows, 3);
+        assert!(!capped.count_is_total);
         assert!(capped.truncated, "a result larger than the cap must be flagged truncated");
 
         // Cap ABOVE the true count: complete result, not truncated.
@@ -5956,6 +5992,43 @@ mod inspector_tests {
         let exact = run_readonly_query(&conn, "SELECT well_name FROM wells", 5).unwrap();
         assert_eq!(exact.rows.len(), 5);
         assert!(!exact.truncated, "a result that fills the cap exactly is complete, not truncated");
+    }
+
+    /// CORRECTNESS - SB-DBM-039 / SB-DBM-T41. The exact 10,000-row input, 100-row
+    /// console cap and expected count meanings come from `docs/PRD_v2/22_database-model.md`
+    /// section 6, SB-DBM-T41, sourced there to SB-CORE-002. No expected value is copied
+    /// from the implementation: the fixture creates exactly the two cited cardinalities.
+    #[test]
+    fn the_inspector_reports_the_true_ten_thousand_row_total_while_the_hundred_row_console_page_names_its_count_as_returned_not_total(
+    ) {
+        let conn = mem_db();
+        conn.execute(
+            "INSERT INTO wells (well_id, well_name)
+             SELECT uuid(), 'ROW-' || CAST(i AS VARCHAR) FROM range(10000) AS fixture(i)",
+            [],
+        )
+        .unwrap();
+
+        let inspector = get_table_page(&conn, "wells", None, 0, 100).unwrap();
+        let console = run_readonly_query(&conn, "SELECT well_name FROM wells ORDER BY well_name", 100)
+            .unwrap();
+
+        assert_eq!(inspector.rows.len(), 100, "the inspector returns one requested page");
+        assert_eq!(inspector.total_rows, 10_000, "the inspector's total is the true COUNT(*)");
+        assert!(!inspector.truncated, "the inspector's page count and true total are distinct fields");
+
+        assert_eq!(console.rows.len(), 100, "the SQL console returns only its requested page");
+        assert_eq!(console.returned_rows, 100, "the console names this value as rows returned");
+        assert!(!console.count_is_total, "the console explicitly says its page count is not a total");
+        assert!(console.truncated, "the LIMIT+1 probe proves more than 100 rows exist");
+
+        let wire = serde_json::to_value(&console).unwrap();
+        assert_eq!(wire.get("returned_rows"), Some(&serde_json::json!(100)));
+        assert_eq!(wire.get("count_is_total"), Some(&serde_json::json!(false)));
+        assert!(
+            wire.get("total_rows").is_none(),
+            "one field name must never carry the inspector's true-total meaning and the console's page-count meaning"
+        );
     }
 
     #[test]
@@ -7355,12 +7428,16 @@ mod inspector_tests {
                     depth: depth.clone(),
                     curves: vec![("VSH".into(), vsh1.to_vec()), ("PHIE".into(), phie1.to_vec())],
                     set_id: sets[&w1].clone(),
+                    degradation_module: None,
+                    degradations: None,
                 },
                 WellWrite {
                     well_id: w2.clone(),
                     depth: depth.clone(),
                     curves: vec![("VSH".into(), vsh2.to_vec())],
                     set_id: sets[&w2].clone(),
+                    degradation_module: None,
+                    degradations: None,
                 },
             ];
             write_computed_curves_versioned_batch(conn, &writes).unwrap();

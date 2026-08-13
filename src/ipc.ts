@@ -1117,6 +1117,14 @@ export interface ModuleRunResult {
   rows_written: number;
   output_curves: string[];
   error: string | null;
+  outcome: "clean" | "degraded" | "failed" | "skipped";
+  degradations: RunDegradation[];
+}
+
+export interface RunDegradation {
+  kind: "CLAMPED" | "DEFAULTED" | "TRUNCATED" | "SUBSTITUTED_INPUT";
+  detail: string;
+  occurrences: number;
 }
 
 /** One declared output and the curve name a run with the current settings would write it under. */
@@ -1212,6 +1220,9 @@ export interface LogSetEntry {
   ancestry: CurveAncestry | null;
   /** Present only when this run appended a prior immutable version back as a new version. */
   restored_from: LogSetRestoreRecord | null;
+  /** Null only for a pre-contract run that cannot honestly be classified after the fact. */
+  outcome_state: "CLEAN" | "DEGRADED" | null;
+  degradations: Array<RunDegradation & { module: string }>;
 }
 
 /** A well's version history, newest first per set. */
@@ -1282,6 +1293,8 @@ export interface JobView {
   kind: string;
   label: string;
   phase: "queued" | "running" | "completed" | "cancelled" | "failed";
+  /** Aggregate result is separate from lifecycle: completed work may still be degraded. */
+  outcome: "clean" | "degraded" | "failed" | null;
   total: number;
   done: number;
   current: string | null;
@@ -4439,8 +4452,16 @@ export interface TablePage {
   columns: string[];
   rows: (string | null)[][];
   total_rows: number;
-  /** True when `total_rows` is a display cap, not the true count (SQL console hit the row cap).
-   *  The paginated inspector path leaves this false — its `total_rows` is a real COUNT(*). */
+  /** Always false on the inspector path; total_rows is a real COUNT(*). */
+  truncated: boolean;
+}
+
+export interface QueryPage {
+  columns: string[];
+  rows: (string | null)[][];
+  returned_rows: number;
+  /** Explicitly false: returned_rows is a page count, not a true query-result total. */
+  count_is_total: false;
   truncated: boolean;
 }
 
@@ -4547,8 +4568,8 @@ export function deleteTop(wellId: string, topName: string): Promise<void> {
 }
 
 /** Read-only SQL over the project database (full DuckDB SQL, SELECT-only). */
-export function runQuery(sql: string, limit = 1000): Promise<TablePage> {
-  return invoke<TablePage>("run_query", { sql, limit });
+export function runQuery(sql: string, limit = 1000): Promise<QueryPage> {
+  return invoke<QueryPage>("run_query", { sql, limit });
 }
 
 export interface LasOmission {

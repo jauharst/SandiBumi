@@ -678,15 +678,18 @@ export class InspectorPanel {
     // immutable here, so there is deliberately no ordinary Delete action.
     const setRows = this.logSets
       .map((s) => {
+        const degradationText = s.degradations
+          .map((event) => `${event.module} ${event.kind}: ${event.detail} (${event.occurrences})`)
+          .join("; ");
         const tip = escapeAttr(
-          `params: ${s.params_json ?? "—"}\ninputs: ${s.inputs_json ?? "—"}\ncurves: ${s.curve_names.join(", ") || "—"}`,
+          `outcome: ${s.outcome_state ?? "legacy unclassified"}\ndegradations: ${degradationText || "—"}\nparams: ${s.params_json ?? "—"}\ninputs: ${s.inputs_json ?? "—"}\ncurves: ${s.curve_names.join(", ") || "—"}`,
         );
         return (
           `<div class="catalog-set-row" title="${tip}">` +
           `<span class="catalog-set-badge${s.is_current ? " current" : ""}">${escapeHtml(s.set_name)} v${s.version}</span>` +
           `<span class="catalog-set-info">${escapeHtml(s.module)} · ${escapeHtml(s.created_at)} · ${escapeHtml(
             s.curve_names.join(", ") || "(no curves)",
-          )}${s.restored_from ? ` · restored from v${s.restored_from.source_version}` : ""}${
+          )} · ${escapeHtml(s.outcome_state === "DEGRADED" ? "degraded" : s.outcome_state === "CLEAN" ? "clean" : "legacy unclassified")}${s.restored_from ? ` · restored from v${s.restored_from.source_version}` : ""}${
             s.is_current ? " · current" : ""
           }</span>` +
           `<button class="catalog-set-btn" data-set-ancestry="${escapeAttr(s.set_id)}"${
