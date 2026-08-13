@@ -173,13 +173,13 @@
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DIO-T19`.
 - **Atomic obligations:** make designation mandatory for formats without a positional guarantee; commit nothing before it; record the chosen column and mechanism.
 - **Current source:** `resolve_index_column` refuses when structure/name fail and accepts only an explicit designated column; core import propagates the resolution.
-- **Qualifying acceptance tests:** `a_delimited_table_without_an_index_name_commits_nothing_until_the_user_designates_one` is `CORRECTNESS`; it pins both refusal and successful designation without positional guessing.
-- **Supporting tests:** `unit_qualified_and_bare_depth_aliases_resolve_while_an_unrelated_column_is_not_guessed` protects common headers and the negative side.
-- **Manual evidence:** `core-point-import` 0/52, `delimited-intake` 3/27 and `data-conventions` 0/45.
+- **Qualifying acceptance tests:** exact SB-DIO-T19 `a_delimited_table_without_an_index_name_commits_nothing_until_the_user_designates_one` passed 1/0/0 and is `CORRECTNESS`; the production core-import function commits zero rows for an unresolved `SAMPLE,CPOR` table, then records column zero, `SAMPLE` and `UserDesignation` only after the caller supplies that designation.
+- **Supporting tests:** `unit_qualified_and_bare_depth_aliases_resolve_while_an_unrelated_column_is_not_guessed` passed 1/0/0; it protects `Depth (m)`, `DEPTH (FT)` and bare `DEPTH` while proving an unrelated `MEASURE` header is not guessed.
+- **Manual evidence:** `core-point-import` 0/55, `delimited-intake` 3/27 and `data-conventions` 4/92; this re-verification claims no visual, manual or field exercise.
 - **Git evidence:** reachable `00c22c5`, with follow-up `f02571f`, contains the designation contract and qualified-header regression.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied index guard); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** route every non-positional delimited reader through this resolver and its no-write refusal.
+- **Next action:** retain exact T19 and its qualified-header boundary test for every non-positional delimited reader; Jauhar verifies the rendered designation control against representative deliveries without upgrading automated evidence to field truth.
 
 ## SB-DIO-014 - TVD MUST NOT be read as an MD index.
 

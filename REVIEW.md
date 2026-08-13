@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-013: core import requires explicit index designation
+
+- [ ] **Automated — not manual evidence:** exact SB-DIO-T19 is green at 1 passed /
+      0 failed / 0 ignored. An unresolved `SAMPLE,CPOR` table commits zero
+      `core_data` rows without a designation; selecting column zero imports both rows
+      and reports `UserDesignation`, the selected index and `SAMPLE` mnemonic.
+- [ ] **Positive and negative boundary:** the supporting parser regression is green at
+      1 passed / 0 failed / 0 ignored. `Depth (m)`, `DEPTH (FT)` and bare `DEPTH`
+      resolve by their qualified or bare aliases, while an unrelated `MEASURE` column
+      is not guessed. Explicit designation is therefore required only when structure
+      and documented names genuinely fail.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to exercise the desktop core and
+      delimited-intake designation controls with representative deliveries. These
+      automated no-write and resolution assertions are not operator or field evidence.
+
 ## 2026-08-14 — G2 SB-DIO-012: a decreasing index is refused before commit
 
 - [ ] **Automated — not manual evidence:** exact SB-DIO-T18 drives the production LAS

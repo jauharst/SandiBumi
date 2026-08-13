@@ -14,10 +14,10 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `las-import` | LAS import | Not exercised | 0 / 63 | — | 23 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 14 | — | 9 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 27 | 2026-08-05 | 3 |
-| `core-point-import` | Core and point-data import | Not exercised | 0 / 52 | — | 9 |
+| `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 18 | — | 3 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 89 | 2026-08-13 | 40 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 92 | 2026-08-13 | 41 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 38 | 2026-08-13 | 5 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
