@@ -628,8 +628,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn every_displayed_cancel_reaches_an_observing_worker_and_completed_work_is_never_reported_cancelled(
     ) {
-        // CORRECTNESS — SB-CORE-036 and its 2026-08-07 correction are the source: Cancel is
-        // offered only for an observing worker, and a click alone cannot relabel committed work.
+        // CORRECTNESS for SB-CORE-036: its 2026-08-07 correction is the normative source that
+        // Cancel is offered only for an observing worker and a click cannot relabel committed work.
+        // CHARACTERIZATION for SB-DBM-040 / SB-DBM-T40: the chapter explicitly classifies this
+        // same shipped three-job behavior as characterization rather than a newly derived result.
         let reg = new_registry();
 
         run_job(

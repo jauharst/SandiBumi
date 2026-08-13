@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DBM-040: cancellation reports what the worker observed
+
+- [x] **Automated:** exact SB-DBM-T40 reuses the already-integrated three-job regression
+      that drives an observing worker, a non-observing worker and non-cancellable work.
+      It proves only the observed request finalizes `Cancelled`, an unobserved request
+      preserves actual `Completed`, the non-cancellable view is false, every advertised
+      cancellable registration routes an observing handle, and the Processing source
+      gates its control on active plus cancellable. This is the chapter's declared
+      `CHARACTERIZATION`, not a new behavior or a new test count. Full gate remains 1005
+      passed / 0 failed / 36 ignored, including backend 948 passed / 0 failed / 36 ignored,
+      with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** at narrow and wide Processing-panel widths, inspect one active
+      cancellable job and one active monolithic job. Confirm only the former offers
+      Cancel, the latter visibly says it cannot be interrupted, long job labels do not
+      hide either state, and an observed cancellation ends with an unambiguous status.
+- [ ] **Manual:** on a disposable project, cancel one polling workflow, let one requested
+      cancellation go unobserved until the work actually completes, and run one
+      non-cancellable operation. Verify the final phases match the worker outcomes and no
+      control promises interruption where none is implemented. Jauhar owns this evidence.
+- [ ] **Field:** pending Gate 4. Repeat cancellation on sanitized representative pilot
+      workloads whose duration is long enough to observe the control and final state.
+      Source inventory and synthetic async jobs are not field-performance evidence.
+
 ## 2026-08-14 — G2 SB-DBM-039: degraded work cannot look clean
 
 - [x] **Automated:** exact SB-DBM-T39 runs one clamped well, one substituted-input well

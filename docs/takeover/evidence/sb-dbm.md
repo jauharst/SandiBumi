@@ -528,13 +528,13 @@
 - **Chapter evidence:** P1; chapter status `PRESENT-OK`; owned test `SB-DBM-T40` (`CHARACTERIZATION`); sections 4.6 and 6.7.
 - **Atomic obligations:** an observing worker finalizes cancelled; a non-observing worker reports its actual outcome; non-cancellable jobs expose no cancel control; one regression test pins all three.
 - **Current source:** `jobs.rs` separately records request and worker observation; `run_job` uses observation for final status; `JobView.cancellable` reaches `processingPanel.ts`, which creates a cancel button only for active cancellable jobs.
-- **Qualifying acceptance tests:** none covers all three end-to-end outcomes. T40 as one complete characterization is missing, so test class is `MISSING`.
-- **Supporting tests:** `cancellable_flag_reaches_the_view_both_ways`, `cancel_counts_as_cancelled_only_once_a_worker_observes_it` and `note_cancel_observed_marks_it_for_raw_flag_readers` pin backend halves. There is no DOM test for the absent control and no one test drives actual final phases for both worker behaviors.
+- **Qualifying acceptance tests:** `every_displayed_cancel_reaches_an_observing_worker_and_completed_work_is_never_reported_cancelled` drives the observing, non-observing and non-cancellable jobs, asserts their final views, inventories every cancellable registration/observer and pins the live panel's control condition. It is `CHARACTERIZATION` for SB-DBM-T40 exactly as the chapter requires.
+- **Supporting tests:** `cancellable_flag_reaches_the_view_both_ways`, `cancel_counts_as_cancelled_only_once_a_worker_observes_it` and `note_cancel_observed_marks_it_for_raw_flag_readers` continue to pin the individual state-model halves.
 - **Manual evidence:** `workflow` 0/23 and `machine-learning` 7/189.
-- **Git evidence:** accepted anchor `b332026c` contains the intended behavior; complete regression closure is unverified.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** none; only the complete owned characterization is missing.
-- **Next action:** implement T40 end to end with polling, non-polling and non-cancellable jobs, asserting both final phase and rendered control.
+- **Git evidence:** the exact integrated regression was added during SB-CORE-036 closure and is reverified on `codex/g2-program-plan`; the accepted baseline remains unchanged until review and merge.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated characterization. Source-level UI inventory is not a rendered click-through, so Visual and Manual evidence remain open.
+- **Next action:** retain exact T40 and the cancellation-registration inventory; Jauhar visually and manually verifies the live Processing controls.
 
 ## SB-DBM-041 - A count presented as a total is a total; the inspector exposes the provenance tables
 
