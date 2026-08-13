@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-INS-018: missing units cannot become mappings
+
+- [x] **Automated:** SB-INS-T23 sends an absent unit, an empty unit, placeholder symbols and an
+      empty-to-empty mapping row through one serialized `missing_unit` state. It proves generic
+      import preparation stores no placeholder, all four mapping rows register zero conversions,
+      and a valid `mm`-to-`in` length row still registers so a catch-all refusal cannot pass lazily.
+      The focused missing-unit, observed-token and unit-registry suites are green; the full gate
+      passed 985 / 0 / 36.
+- [ ] **Visual:** import fixtures carrying empty and placeholder unit forms and inspect the completed
+      import presentation. Confirm absence is readable and is never presented as a successful
+      conversion. Typed IPC is not proof that the interface communicates the state well.
+- [ ] **Manual:** inspect stored curve metadata and the import audit together. Confirm placeholders
+      do not leak into the stored unit field while the original observed spelling remains available
+      for diagnosis.
+- [ ] **Field:** exercise representative pilot deliveries containing genuinely absent or placeholder
+      units and confirm no false mapping is produced. This increment adds no alias, conversion
+      factor, physical endpoint or petrophysical default.
+
 ## 2026-08-13 — G2 SB-INS-017: observed unit and encoding evidence survives interpretation
 
 - [x] **Automated:** SB-INS-T21 imports exact `mV` and `mv` spellings through the product LAS

@@ -122,7 +122,7 @@
 "SB-INS-016","CORRECTNESS","src-tauri/src/curves.rs","startup_validates_the_typed_unit_registry_and_only_same_kind_bridges_convert"
 "SB-INS-017","CORRECTNESS","src-tauri/src/ingest.rs","case_variant_unit_tokens_without_an_explicit_alias_remain_distinct_and_record_a_drift_warning"
 "SB-INS-017","CORRECTNESS","src-tauri/src/parameter_pack.rs","a_declared_cp1252_pack_records_its_decoded_encoding_and_original_byte_representation_in_exported_provenance"
-"SB-INS-018","CHARACTERIZATION","src-tauri/src/curves.rs","characterizes_all_missing_unit_spellings_as_no_registry_mapping"
+"SB-INS-018","CORRECTNESS","src-tauri/src/ingest.rs","absent_empty_placeholder_and_empty_to_empty_units_share_one_missing_state_and_register_zero_mappings"
 "SB-INS-021","CHARACTERIZATION","src-tauri/src/installation.rs","characterizes_support_report_as_runtime_fragments_without_release_or_configuration_identity"
 "SB-MIN-001","CHARACTERIZATION","src-tauri/src/multimin2.rs","nonneg_holds_when_truth_is_a_boundary"
 "SB-MIN-001","CHARACTERIZATION","src-tauri/src/multimin2.rs","unity_is_exact_and_bounds_hold"

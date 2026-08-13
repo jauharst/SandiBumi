@@ -815,8 +815,11 @@ fn prepare_generic_curves(
         if values.len() != depth.len() {
             values.resize(depth.len(), f32::NAN);
         }
-        let mut unit = raw.unit.clone();
-        let resolved_ms_per_ft = crate::curves::is_ms_per_ft(raw.unit.as_deref());
+        let mut unit = match crate::curves::unit_token_state(raw.unit.as_deref()) {
+            crate::curves::UnitTokenState::MissingUnit => None,
+            _ => raw.unit.clone(),
+        };
+        let resolved_ms_per_ft = crate::curves::is_ms_per_ft(unit.as_deref());
         let (fam, rejected_alias) = if resolved_ms_per_ft {
             let meaning = ms_per_ft_meaning.ok_or_else(|| {
                 db::DbError::LengthMismatch(format!(
@@ -834,7 +837,7 @@ fn prepare_generic_curves(
                 crate::curves::MsPerFtMeaning::MillisiemensPerFoot => (None, None),
             }
         } else {
-            crate::curves::family_for_import(&raw.mnemonic, raw.unit.as_deref())
+            crate::curves::family_for_import(&raw.mnemonic, unit.as_deref())
         };
         let family = fam.map(|f| f.family);
         if let Some(rejected) = rejected_alias {
@@ -846,7 +849,7 @@ fn prepare_generic_curves(
             if let Some(conversion) = crate::curves::convert_to_canonical(
                 &raw.mnemonic,
                 f.family,
-                raw.unit.as_deref(),
+                unit.as_deref(),
                 &mut values,
             ) {
                 unit = Some(f.canonical_unit.to_string());
@@ -854,12 +857,12 @@ fn prepare_generic_curves(
             } else if let Some(unconverted) = crate::curves::unconverted_unit(
                 &raw.mnemonic,
                 Some(f.family),
-                raw.unit.as_deref(),
+                unit.as_deref(),
             ) {
                 unconverted_units.push(unconverted);
             }
         } else if let Some(unconverted) =
-            crate::curves::unconverted_unit(&raw.mnemonic, None, raw.unit.as_deref())
+            crate::curves::unconverted_unit(&raw.mnemonic, None, unit.as_deref())
         {
             unconverted_units.push(unconverted);
         }
@@ -2439,15 +2442,94 @@ mod tests {
             .iter()
             .find(|token| token.curve == "RAW_B")
             .expect("second raw token is reported");
-        assert_eq!(first.raw_token, "mV");
+        assert_eq!(first.raw_token.as_deref(), Some("mV"));
         assert_eq!(first.canonical_unit.as_deref(), Some("mV"));
-        assert_eq!(second.raw_token, "mv");
+        assert_eq!(second.raw_token.as_deref(), Some("mv"));
         assert_eq!(second.canonical_unit, None);
         assert!(result.unit_token_warnings.iter().any(|warning| {
             warning.contains("mV")
                 && warning.contains("mv")
                 && warning.contains("no explicit alias")
         }));
+    }
+
+    /// CORRECTNESS — SB-INS-018 / SB-INS-T23. Absent, empty, placeholder and empty-to-empty
+    /// fixtures plus the required zero-registration result come from dossier section 2.3 and
+    /// N-NEW-23/N-NEW-28. The valid row is the opposite-side control: a loader that labelled
+    /// every row missing would otherwise pass the four refusal fixtures lazily.
+    #[test]
+    fn absent_empty_placeholder_and_empty_to_empty_units_share_one_missing_state_and_register_zero_mappings(
+    ) {
+        let source_units = [None, Some(""), Some("-"), Some("?")];
+        let raw = source_units
+            .iter()
+            .enumerate()
+            .map(|(index, unit)| parsers::RawLasCurve {
+                mnemonic: format!("MISSING_UNIT_{index}"),
+                unit: unit.map(str::to_string),
+                values: vec![index as f32],
+            })
+            .collect::<Vec<_>>();
+        let observed = raw
+            .iter()
+            .map(|curve| (curve.mnemonic.clone(), curve.unit.clone()))
+            .collect::<Vec<_>>();
+        let (tokens, warnings) = crate::curves::observe_unit_tokens(&observed);
+        assert!(warnings.is_empty(), "missing spellings are not vocabulary drift");
+        assert_eq!(
+            tokens
+                .iter()
+                .map(|token| token.state.clone())
+                .collect::<Vec<_>>(),
+            vec![crate::curves::UnitTokenState::MissingUnit; 4]
+        );
+        assert!(serde_json::to_value(&tokens).unwrap().as_array().unwrap().iter().all(|token| {
+            token["state"] == "missing_unit"
+                && token["canonical_unit"].is_null()
+                && token["quantity_kind"].is_null()
+        }));
+
+        let prepared = prepare_generic_curves(&[1000.0], &raw, None).unwrap();
+        assert!(
+            prepared.curves.iter().all(|curve| curve.unit.is_none()),
+            "the storage boundary must receive one absent unit, never a placeholder"
+        );
+        assert!(prepared.unit_conversions.is_empty());
+        assert!(prepared.unconverted_units.is_empty());
+
+        let missing_fixtures = [
+            (None, Some("m")),
+            (Some(""), Some("m")),
+            (Some("-"), Some("?")),
+            (Some(""), Some("")),
+        ];
+        let states = crate::curves::load_unit_mapping_rows(&missing_fixtures).unwrap();
+        assert_eq!(
+            states,
+            vec![crate::curves::UnitMappingRowState::MissingUnit; 4]
+        );
+        assert_eq!(
+            states
+                .iter()
+                .filter(|state| matches!(state, crate::curves::UnitMappingRowState::Registered(_)))
+                .count(),
+            0,
+            "none of the missing spellings may register a bridge"
+        );
+
+        let valid = crate::curves::load_unit_mapping_rows(&[(Some("mm"), Some("in"))]).unwrap();
+        assert!(matches!(
+            valid.as_slice(),
+            [crate::curves::UnitMappingRowState::Registered(
+                crate::curves::ValidatedUnitBridge {
+                    quantity_kind: crate::curves::QuantityKind::Length,
+                    ..
+                }
+            )]
+        ));
+        assert!(crate::curves::UNIT_TOKENS
+            .iter()
+            .all(|entry| !["", "-", "?"].contains(&entry.token)));
     }
 
     /// SB-DIO-009 / SB-DIO-T14. The ordered NPHI aliases and finite-coverage

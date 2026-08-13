@@ -131,9 +131,29 @@ pub fn resolve_unit_token(token: &str) -> Option<&'static UnitTokenSpec> {
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UnitTokenState {
+    MissingUnit,
+    Recognized,
+    Unrecognized,
+}
+
+pub fn unit_token_state(token: Option<&str>) -> UnitTokenState {
+    let observed = token.map(str::trim);
+    if matches!(observed, None | Some("" | "-" | "?")) {
+        UnitTokenState::MissingUnit
+    } else if resolve_unit_token(observed.unwrap()).is_some() {
+        UnitTokenState::Recognized
+    } else {
+        UnitTokenState::Unrecognized
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
 pub struct UnitTokenObservation {
     pub curve: String,
-    pub raw_token: String,
+    pub state: UnitTokenState,
+    pub raw_token: Option<String>,
     pub canonical_unit: Option<String>,
     pub quantity_kind: Option<QuantityKind>,
     /// Present only when a reviewed registry row explicitly maps this spelling to another
@@ -148,21 +168,22 @@ pub fn observe_unit_tokens(
 ) -> (Vec<UnitTokenObservation>, Vec<String>) {
     let observations = tokens
         .iter()
-        .filter_map(|(curve, token)| {
-            let raw = token.as_deref()?.trim();
-            if raw.is_empty() {
-                return None;
-            }
-            let resolved = resolve_unit_token(raw);
-            Some(UnitTokenObservation {
+        .map(|(curve, token)| {
+            let raw = token.as_deref().map(str::trim);
+            let state = unit_token_state(raw);
+            let resolved = (state == UnitTokenState::Recognized)
+                .then(|| resolve_unit_token(raw.unwrap()))
+                .flatten();
+            UnitTokenObservation {
                 curve: curve.clone(),
-                raw_token: raw.to_string(),
+                state,
+                raw_token: raw.filter(|token| !token.is_empty()).map(str::to_string),
                 canonical_unit: resolved.map(|entry| entry.canonical_unit.to_string()),
                 quantity_kind: resolved.map(|entry| entry.quantity_kind),
                 explicit_alias: resolved
                     .filter(|entry| entry.token != entry.canonical_unit)
                     .map(|entry| format!("{} -> {}", entry.token, entry.canonical_unit)),
-            })
+            }
         })
         .collect::<Vec<_>>();
 
@@ -170,14 +191,21 @@ pub fn observe_unit_tokens(
     let mut seen = std::collections::BTreeSet::new();
     for (index, left) in observations.iter().enumerate() {
         for right in observations.iter().skip(index + 1) {
-            if left.raw_token == right.raw_token
-                || !left.raw_token.eq_ignore_ascii_case(&right.raw_token)
+            let (Some(left_token), Some(right_token)) =
+                (left.raw_token.as_deref(), right.raw_token.as_deref())
+            else {
+                continue;
+            };
+            if left.state == UnitTokenState::MissingUnit
+                || right.state == UnitTokenState::MissingUnit
+                || left_token == right_token
+                || !left_token.eq_ignore_ascii_case(right_token)
             {
                 continue;
             }
             let explicitly_equivalent = match (
-                resolve_unit_token(&left.raw_token),
-                resolve_unit_token(&right.raw_token),
+                resolve_unit_token(left_token),
+                resolve_unit_token(right_token),
             ) {
                 (Some(left), Some(right)) => {
                     left.quantity_kind == right.quantity_kind
@@ -188,20 +216,43 @@ pub fn observe_unit_tokens(
             if explicitly_equivalent {
                 continue;
             }
-            let key = if left.raw_token < right.raw_token {
-                (left.raw_token.clone(), right.raw_token.clone())
+            let key = if left_token < right_token {
+                (left_token.to_string(), right_token.to_string())
             } else {
-                (right.raw_token.clone(), left.raw_token.clone())
+                (right_token.to_string(), left_token.to_string())
             };
             if seen.insert(key) {
                 warnings.push(format!(
                     "unit-token drift: observed '{}' and '{}' remain distinct because no explicit alias declares them equivalent",
-                    left.raw_token, right.raw_token
+                    left_token, right_token
                 ));
             }
         }
     }
     (observations, warnings)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnitMappingRowState {
+    MissingUnit,
+    Registered(ValidatedUnitBridge),
+}
+
+/// Load mapping rows without letting absent/empty/placeholder spellings create bridges. A valid
+/// row still registers normally, which keeps `MissingUnit` from becoming a catch-all success.
+pub fn load_unit_mapping_rows(
+    rows: &[(Option<&str>, Option<&str>)],
+) -> Result<Vec<UnitMappingRowState>, UnitRegistryError> {
+    rows.iter()
+        .map(|(from, to)| {
+            if unit_token_state(*from) == UnitTokenState::MissingUnit
+                || unit_token_state(*to) == UnitTokenState::MissingUnit
+            {
+                return Ok(UnitMappingRowState::MissingUnit);
+            }
+            validate_unit_bridge(from.unwrap(), to.unwrap()).map(UnitMappingRowState::Registered)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -214,6 +265,10 @@ pub struct ValidatedUnitBridge {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnitRegistryError {
     UnknownUnit { token: String },
+    MissingUnitMapping {
+        from_unit: Option<String>,
+        to_unit: Option<String>,
+    },
     QuantityKindMismatch {
         from_unit: String,
         from_kind: QuantityKind,
@@ -226,6 +281,10 @@ impl std::fmt::Display for UnitRegistryError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownUnit { token } => write!(formatter, "unknown unit token {token}"),
+            Self::MissingUnitMapping { from_unit, to_unit } => write!(
+                formatter,
+                "unit mapping is missing a unit: from={from_unit:?}, to={to_unit:?}"
+            ),
             Self::QuantityKindMismatch {
                 from_unit,
                 from_kind,
@@ -270,8 +329,20 @@ pub fn validate_unit_registry() -> Result<(), UnitRegistryError> {
             token: family.canonical_unit.to_string(),
         })?;
     }
-    for rule in UNIT_RULES {
-        validate_unit_bridge(rule.from_unit, rule.to_unit)?;
+    let mapping_rows = UNIT_RULES
+        .iter()
+        .map(|rule| (Some(rule.from_unit), Some(rule.to_unit)))
+        .collect::<Vec<_>>();
+    for ((from_unit, to_unit), state) in mapping_rows
+        .iter()
+        .zip(load_unit_mapping_rows(&mapping_rows)?)
+    {
+        if state == UnitMappingRowState::MissingUnit {
+            return Err(UnitRegistryError::MissingUnitMapping {
+                from_unit: from_unit.map(str::to_string),
+                to_unit: to_unit.map(str::to_string),
+            });
+        }
     }
     Ok(())
 }
@@ -798,30 +869,4 @@ mod tests {
         assert!((slowness[0] - 0.3048).abs() < f32::EPSILON);
     }
 
-    /// CHARACTERIZATION — SB-INS-018 / SB-INS-T23 supplies absent, empty and placeholder
-    /// unit encodings plus the empty-to-empty mapping row. They all produce no registry
-    /// mapping today; `None` is the current PARTIAL state, not the specified richer typed state.
-    #[test]
-    fn characterizes_all_missing_unit_spellings_as_no_registry_mapping() {
-        let encodings = [None, Some(""), Some("-"), Some("?")];
-        let resolved = encodings
-            .iter()
-            .map(|token| token.and_then(resolve_unit_token))
-            .collect::<Vec<_>>();
-        assert!(resolved.iter().all(Option::is_none));
-
-        for token in ["", "-", "?"] {
-            assert!(matches!(
-                validate_unit_bridge(token, "m"),
-                Err(UnitRegistryError::UnknownUnit { .. })
-            ));
-        }
-        assert!(matches!(
-            validate_unit_bridge("", ""),
-            Err(UnitRegistryError::UnknownUnit { .. })
-        ));
-        assert!(UNIT_TOKENS
-            .iter()
-            .all(|entry| !["", "-", "?"].contains(&entry.token)));
-    }
 }

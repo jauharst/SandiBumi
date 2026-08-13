@@ -37,9 +37,9 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 
 ## Live result
 
-- As built: 6 ABSENT, 10 PARTIAL, 7 PRESENT-OK, 2 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
+- As built: 6 ABSENT, 9 PARTIAL, 8 PRESENT-OK, 2 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
 - Release: 22 PILOT-BLOCKER, 4 UNDECIDED, 0 DEFERRED.
-- Test class: 7 CORRECTNESS, 2 CHARACTERIZATION, 17 MISSING qualifying whole-contract proofs.
+- Test class: 8 CORRECTNESS, 1 CHARACTERIZATION, 17 MISSING qualifying whole-contract proofs.
 - Risk: 13 DEPLOYMENT, 7 DATA-INTEGRITY, 2 RECOVERY, 4 SILENT-WRONGNESS.
 - Mechanically after this receipt: 879 adjudicated, 52 unadjudicated, 584 pilot blockers, 198 undecided, 149 deferred.
 
@@ -50,7 +50,7 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 3. The capability manifest covers six named features but not the complete Python-backed product surface. A test that expects those same six rows proves internal consistency, not completeness.
 4. “Re-probe” is text, not a user action. The support dialog exposes only Close, and the real capability messages do not all carry the helper's copyable command.
 5. Parameter-pack identity and ambiguity refusal are now product-reachable through a backend-owned module schema; applying pack values to computation deliberately remains closed until the typed-unit, observed-token, generated-registry and attestation/provenance contracts are complete.
-6. Raw encoding/unit evidence now crosses the product boundary before interpretation. Exact registry rows replace hidden global case folding; `mV` and unknown `mv` remain distinct with a drift warning, while a declared CP1252 parameter pack exports its raw declaration, detected decoder and reversible source bytes. Manual/field review remains open.
+6. Raw encoding/unit evidence now crosses the product boundary before interpretation. Exact registry rows replace hidden global case folding; `mV` and unknown `mv` remain distinct with a drift warning, while absent, empty and placeholder forms converge on one explicit missing-unit state and cannot register mappings. A declared CP1252 parameter pack exports its raw declaration, detected decoder and reversible source bytes. Manual/field review remains open.
 7. The unit-registry validator is now enforced before Tauri construction. This closes disconnected validation, but it does not generate runtime/UI/documentation consumers from one reviewed registry or supply alias source custody; SB-INS-019 remains open.
 8. The third-party generator reports unknown licences but exits successfully, says Python packages are not distributed, and records neither the chosen offline pack nor human legal approval. Its historical PRESENT-OK label is no longer defensible.
 9. Public prerequisite fragments generated from `installation.rs` agree with one another, but other public documents still describe Python distribution/prerequisite decisions as open or user-supplied. One synchronized subset is not one source of truth.
@@ -84,7 +84,7 @@ Each T01-T30 intention is routed once. Shared chapter ownership is shown in one 
 | SB-INS-T20 | SB-INS-016 | CORRECTNESS |
 | SB-INS-T21 | SB-INS-017 | CORRECTNESS |
 | SB-INS-T22 | SB-INS-017 | CORRECTNESS |
-| SB-INS-T23 | SB-INS-018 | CHARACTERIZATION |
+| SB-INS-T23 | SB-INS-018 | CORRECTNESS |
 | SB-INS-T24 | SB-INS-019 | MISSING |
 | SB-INS-T25 | SB-INS-020 | MISSING |
 | SB-INS-T26 | SB-INS-021 | CHARACTERIZATION |
@@ -342,15 +342,15 @@ Section 8 custody remains complete: 57 rows in §8.1, 15 rows in §8.2, 15 rows 
 ### SB-INS-018
 
 - Specified contract: Reject missing and empty unit mappings. Chapter test: SB-INS-T23.
-- Current implementation: Characterized absent/empty/placeholder spellings resolve to no registry mapping. One typed missing-unit state across all intake/mapping forms does not exist.
-- Verdict: `PARTIAL`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
-- Automated evidence: `CHARACTERIZATION` — `characterizes_all_missing_unit_spellings_as_no_registry_mapping` pins current no-mapping behavior and explicitly does not claim the richer specified state.
+- Current implementation: One serialized `MissingUnit` state classifies absent, empty and placeholder tokens. Generic import preparation stores all of them as absent metadata, and mapping-row load returns that state without creating a bridge whenever either side is missing.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
+- Automated evidence: `CORRECTNESS` — `absent_empty_placeholder_and_empty_to_empty_units_share_one_missing_state_and_register_zero_mappings` sends all four T23 fixtures through classification, serialized product representation, storage preparation and mapping load, requires zero registrations, and uses a valid same-kind row to prove the loader does not label every row missing.
 - Manual evidence: SB-INS 0/16; the missing-unit scenario is unchecked; data conventions 0/45.
 - Source/parameter boundary: Empty-to-empty mappings and placeholder tokens must never become successful conversions.
-- Deployment/UI/provenance surface: Registry lookup refuses implicitly; explicit state, ingest convergence, warning/provenance, and export representation remain incomplete.
-- History/reachability: Accepted anchor is reachable; no unified missing-unit type was found.
-- Decision/dependency: “No mapping” is safer than a false mapping but is not the complete observable contract.
-- Next action: Add one explicit missing-unit representation through intake/storage/UI/export and implement T23 across all four fixtures.
+- Deployment/UI/provenance surface: The structured state crosses the typed import IPC and raw placeholder evidence remains observable there; stored curve metadata receives absence rather than a placeholder. No visual/manual evidence is claimed.
+- History/reachability: The former characterization is replaced by T23 correctness evidence on the product import preparation and governed mapping loader.
+- Decision/dependency: No source or product decision remains for missing-unit classification; generated consumer equality is separately owned by SB-INS-019.
+- Next action: Retain T23 and finish G2-T02 with the one-registry generation and drift-refusal contract under SB-INS-019.
 
 ### SB-INS-019
 

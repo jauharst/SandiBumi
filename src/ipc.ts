@@ -176,7 +176,8 @@ export interface ImportResult {
   /** Verbatim observed unit spellings and only their explicitly registered interpretations. */
   unit_tokens: Array<{
     curve: string;
-    raw_token: string;
+    state: "missing_unit" | "recognized" | "unrecognized";
+    raw_token: string | null;
     canonical_unit: string | null;
     quantity_kind:
       | "gamma_ray"
