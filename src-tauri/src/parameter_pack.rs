@@ -385,22 +385,6 @@ mod tests {
         std::fs::remove_dir_all(&temp).unwrap();
     }
 
-    fn fixture_schema() -> ParameterModuleSchema {
-        ParameterModuleSchema {
-            module_schema_version: "fixture/v1".to_string(),
-            parameters: vec![
-                ParameterSchemaEntry {
-                    semantic_id: "fixture.parameter.alpha".to_string(),
-                    ordinal: 1,
-                },
-                ParameterSchemaEntry {
-                    semantic_id: "fixture.parameter.beta".to_string(),
-                    ordinal: 2,
-                },
-            ],
-        }
-    }
-
     fn write_fixture(
         directory: &Path,
         name: &str,
@@ -412,7 +396,8 @@ mod tests {
     }
 
     /// SB-INS-015 / SB-INS-T17. Bidirectional identifier/ordinal agreement and naming both rows
-    /// come from dossier section 3.8. Schema IDs and ordinals are structural test fixtures only.
+    /// come from dossier section 3.8. The fixture takes both identities from the backend-owned
+    /// shipping schema and crosses only their keys; its value is an opaque structural marker.
     #[test]
     fn an_identifier_ordinal_disagreement_stops_loading_and_names_both_schema_rows() {
         let temp = std::env::temp_dir().join(format!(
@@ -420,33 +405,38 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&temp).unwrap();
+        let schema = module_parameter_schema("vsh_gr").expect("a shipping module owns its schema");
+        let first = &schema.parameters[0];
+        let second = &schema.parameters[1];
         let path = write_fixture(
             &temp,
             "crossed-key.json",
             serde_json::json!({
                 "rows": [{
-                    "semantic_id": "fixture.parameter.alpha",
-                    "module_schema_version": "fixture/v1",
-                    "ordinal": 2,
+                    "semantic_id": first.semantic_id,
+                    "module_schema_version": schema.module_schema_version,
+                    "ordinal": second.ordinal,
                     "display_label": "Fixture",
                     "value": { "fixture": true }
                 }]
             }),
         );
 
-        let error = load_parameter_pack_against_schema(&path, &fixture_schema()).unwrap_err();
+        let error = load_parameter_pack("vsh_gr".to_string(), path.to_string_lossy().into_owned())
+            .unwrap_err();
         assert!(error.contains(path.to_string_lossy().as_ref()), "{error}");
         assert!(error.contains("pack row 1"), "{error}");
-        assert!(error.contains("fixture.parameter.alpha"), "{error}");
+        assert!(error.contains(&first.semantic_id), "{error}");
         assert!(error.contains("schema row 1"), "{error}");
-        assert!(error.contains("fixture.parameter.beta"), "{error}");
+        assert!(error.contains(&second.semantic_id), "{error}");
         assert!(error.contains("schema row 2"), "{error}");
 
         std::fs::remove_dir_all(&temp).unwrap();
     }
 
     /// SB-INS-015 / SB-INS-T18. The four refusal shapes and all-or-nothing load come from dossier
-    /// sections 2.4 and 2.13. No fixture value is interpreted or activated after any refusal.
+    /// sections 2.4 and 2.13. Every identity/version comes from the backend-owned shipping schema;
+    /// no fixture value is interpreted or returned after any refusal.
     #[test]
     fn missing_ordinals_duplicate_keys_unsupported_schemas_and_empty_keys_are_all_refused_without_partial_activation(
     ) {
@@ -455,12 +445,14 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&temp).unwrap();
+        let schema = module_parameter_schema("vsh_gr").expect("a shipping module owns its schema");
+        let first = &schema.parameters[0];
         let fixtures = [
             (
                 "missing-ordinal.json",
                 serde_json::json!({ "rows": [{
-                    "semantic_id": "fixture.parameter.alpha",
-                    "module_schema_version": "fixture/v1",
+                    "semantic_id": first.semantic_id,
+                    "module_schema_version": schema.module_schema_version,
                     "display_label": "Fixture",
                     "value": { "fixture": true }
                 }]}),
@@ -470,16 +462,16 @@ mod tests {
                 "duplicate-key.json",
                 serde_json::json!({ "rows": [
                     {
-                        "semantic_id": "fixture.parameter.alpha",
-                        "module_schema_version": "fixture/v1",
-                        "ordinal": 1,
+                        "semantic_id": first.semantic_id,
+                        "module_schema_version": schema.module_schema_version,
+                        "ordinal": first.ordinal,
                         "display_label": "First",
                         "value": { "fixture": "first" }
                     },
                     {
-                        "semantic_id": "fixture.parameter.alpha",
-                        "module_schema_version": "fixture/v1",
-                        "ordinal": 1,
+                        "semantic_id": first.semantic_id,
+                        "module_schema_version": schema.module_schema_version,
+                        "ordinal": first.ordinal,
                         "display_label": "Second",
                         "value": { "fixture": "second" }
                     }
@@ -489,9 +481,9 @@ mod tests {
             (
                 "unsupported-schema.json",
                 serde_json::json!({ "rows": [{
-                    "semantic_id": "fixture.parameter.alpha",
+                    "semantic_id": first.semantic_id,
                     "module_schema_version": "fixture/unsupported",
-                    "ordinal": 1,
+                    "ordinal": first.ordinal,
                     "display_label": "Fixture",
                     "value": { "fixture": true }
                 }]}),
@@ -501,8 +493,8 @@ mod tests {
                 "empty-key.json",
                 serde_json::json!({ "rows": [{
                     "semantic_id": "",
-                    "module_schema_version": "fixture/v1",
-                    "ordinal": 1,
+                    "module_schema_version": schema.module_schema_version,
+                    "ordinal": first.ordinal,
                     "display_label": "Fixture",
                     "value": { "fixture": true }
                 }]}),
@@ -513,7 +505,7 @@ mod tests {
         let mut activated = Vec::new();
         for (name, fixture, expected) in fixtures {
             let path = write_fixture(&temp, name, fixture);
-            match load_parameter_pack_against_schema(&path, &fixture_schema()) {
+            match load_parameter_pack("vsh_gr".to_string(), path.to_string_lossy().into_owned()) {
                 Ok(pack) => activated.push(pack),
                 Err(error) => {
                     assert!(error.contains(path.to_string_lossy().as_ref()), "{error}");

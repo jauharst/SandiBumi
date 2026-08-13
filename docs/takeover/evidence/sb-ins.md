@@ -37,9 +37,9 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 
 ## Live result
 
-- As built: 6 ABSENT, 11 PARTIAL, 5 PRESENT-OK, 3 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
+- As built: 6 ABSENT, 10 PARTIAL, 6 PRESENT-OK, 3 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
 - Release: 22 PILOT-BLOCKER, 4 UNDECIDED, 0 DEFERRED.
-- Test class: 5 CORRECTNESS, 3 CHARACTERIZATION, 18 MISSING qualifying whole-contract proofs.
+- Test class: 6 CORRECTNESS, 3 CHARACTERIZATION, 17 MISSING qualifying whole-contract proofs.
 - Risk: 13 DEPLOYMENT, 7 DATA-INTEGRITY, 2 RECOVERY, 4 SILENT-WRONGNESS.
 - Mechanically after this receipt: 879 adjudicated, 52 unadjudicated, 584 pilot blockers, 198 undecided, 149 deferred.
 
@@ -49,7 +49,7 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 2. The offline Python route is a product decision and a prose/schema contract. The signed pack, exact package lock, digests, zero-network capture, vulnerability review, and real probe results do not exist in the repository.
 3. The capability manifest covers six named features but not the complete Python-backed product surface. A test that expects those same six rows proves internal consistency, not completeness.
 4. “Re-probe” is text, not a user action. The support dialog exposes only Close, and the real capability messages do not all carry the helper's copyable command.
-5. Parameter-pack identity loading is now product-reachable through a backend-owned module schema; applying pack values to computation deliberately remains closed until the mismatch, typed-unit, observed-token, generated-registry and attestation/provenance contracts are complete.
+5. Parameter-pack identity and ambiguity refusal are now product-reachable through a backend-owned module schema; applying pack values to computation deliberately remains closed until the typed-unit, observed-token, generated-registry and attestation/provenance contracts are complete.
 6. Raw encoding/unit evidence is not retained end to end. Global case folding currently makes `mV` and `mv` equivalent without an explicit alias, contrary to the specified observable-drift contract.
 7. The unit-registry validator is unused outside tests. A correct validator that is never enforced cannot block a bad release registry.
 8. The third-party generator reports unknown licences but exits successfully, says Python packages are not distributed, and records neither the chosen offline pack nor human legal approval. Its historical PRESENT-OK label is no longer defensible.
@@ -78,8 +78,8 @@ Each T01-T30 intention is routed once. Shared chapter ownership is shown in one 
 | SB-INS-T14 | SB-INS-012, SB-INS-013 | MISSING |
 | SB-INS-T15 | SB-INS-013 | MISSING |
 | SB-INS-T16 | SB-INS-014 | CORRECTNESS |
-| SB-INS-T17 | SB-INS-015 | MISSING |
-| SB-INS-T18 | SB-INS-015 | MISSING |
+| SB-INS-T17 | SB-INS-015 | CORRECTNESS |
+| SB-INS-T18 | SB-INS-015 | CORRECTNESS |
 | SB-INS-T19 | SB-INS-016 | CORRECTNESS |
 | SB-INS-T20 | SB-INS-016 | CORRECTNESS |
 | SB-INS-T21 | SB-INS-017 | CHARACTERIZATION |
@@ -93,7 +93,7 @@ Each T01-T30 intention is routed once. Shared chapter ownership is shown in one 
 | SB-INS-T29 | SB-INS-024 | MISSING |
 | SB-INS-T30 | SB-INS-025 | MISSING |
 
-The live requirement-level test total counts one class per requirement, not one per table row above: 5 correctness requirements, 3 characterization requirements, and 18 requirements missing a qualifying whole-contract proof. T05/T06 and T19/T20 remain two test intentions under one correctness-classified requirement.
+The live requirement-level test total counts one class per requirement, not one per table row above: 6 correctness requirements, 3 characterization requirements, and 17 requirements missing a qualifying whole-contract proof. T05/T06, T17/T18 and T19/T20 remain two test intentions under one correctness-classified requirement.
 
 ## Parameter, open-item, and source custody
 
@@ -303,15 +303,15 @@ Section 8 custody remains complete: 57 rows in §8.1, 15 rows in §8.2, 15 rows 
 ### SB-INS-015
 
 - Specified contract: Refuse registry mismatch and ambiguity. Chapter tests: SB-INS-T17 and T18.
-- Current implementation: The isolated loader refuses ID/ordinal disagreement, missing ordinal, duplicate key, unsupported schema, and empty key, naming file/row conflicts. No live pack activation calls it.
-- Verdict: `PARTIAL`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
-- Automated evidence: `MISSING` at the whole-product contract — two direct tests cover the loader's refusal matrix but not a customer-reachable activation-before-computation boundary.
+- Current implementation: The registered product loader obtains the selected shipping module's schema in the backend, then refuses ID/ordinal disagreement, missing ordinal, duplicate key, unsupported schema and empty key before returning any pack, with file/row and conflicting-schema detail.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
+- Automated evidence: `CORRECTNESS` — T17 crosses two real shipping-schema rows through the product command and requires both to be named; T18 routes all four remaining refusal fixtures through that command and proves no partial pack is returned.
 - Manual evidence: SB-INS 0/16; the ambiguous-pack refusal scenario is unchecked; security integrity 0/63.
 - Source/parameter boundary: No positional/name guess and no partial activation are allowed.
-- Deployment/UI/provenance surface: Internal refusal exists; product selection, visible error, run prevention, and audit/provenance are absent.
-- History/reachability: Accepted anchor is reachable; no production caller closes the contract.
-- Decision/dependency: The refusal must sit on the actual activation path, not beside it.
-- Next action: Route all pack activation through the loader, surface the exact refusal before computation, and implement observable T17-T18.
+- Deployment/UI/provenance surface: The refusal sits on registered Tauri and typed IPC load boundaries; no selection UI, automatic computation application or field evidence is claimed.
+- History/reachability: The formerly isolated guards now execute behind the product command and the acceptance tests no longer supply their own schema.
+- Decision/dependency: Applying a successfully loaded value remains closed until SB-INS-016 through SB-INS-020 are satisfied; this refusal contract does not bypass them.
+- Next action: Retain T17/T18 and continue with product-path typed-unit enforcement under SB-INS-016.
 
 ### SB-INS-016
 

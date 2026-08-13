@@ -63,5 +63,5 @@ Capabilities with recorded exercise: **18 / 54**. Fully exercised: **1 / 54**.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 50 | — | 9 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 1 / 66 | 2026-08-13 | 28 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 2 / 70 | 2026-08-13 | 29 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 3 / 43 | 2026-08-13 | 18 |

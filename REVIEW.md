@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-INS-015: ambiguous parameter packs refuse at the product boundary
+
+- [x] **Automated:** SB-INS-T17 now crosses the semantic ID of one real shipping-schema row with
+      another row's ordinal through the registered load command and requires the refusal to name
+      the file, pack row and both schema rows. SB-INS-T18 sends missing-ordinal, duplicate-key,
+      unsupported-version and empty-key files through the same command; all four refuse and none
+      returns a partial pack. No existing guard or error detail was loosened. The full gate passed
+      983 / 0 / 36.
+- [ ] **Visual:** no parameter-pack picker or refusal panel exists yet. If later work adds one,
+      confirm the exact backend error is visible without replacing IDs/ordinals with ambiguous
+      labels; automated command tests are not visual evidence.
+- [ ] **Manual:** exercise all five refusal shapes from a future governed pack-selection surface
+      and confirm no value can be applied after any failed load.
+- [ ] **Field:** pack values remain unapplied to computation. Field acceptance waits for the later
+      typed-unit, observed-token, generated-registry and attestation/provenance contracts.
+
 ## 2026-08-13 — G2 SB-INS-014: parameter-pack identity is product-reachable
 
 - [x] **Automated:** the backend now derives every configurable module row from the shipping
