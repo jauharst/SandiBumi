@@ -82,13 +82,13 @@
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T10`.
 - **Atomic obligations:** retain every name pattern and every null value/no-null declaration in one rule; reject ambiguous or empty rules instead of truncating them.
 - **Current source:** `NullExceptionRule` stores `names: Vec<String>` plus one plural/no-null mode; resolution compiles all patterns, rejects overlaps and preserves all matches.
-- **Qualifying acceptance tests:** `one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset` is `CORRECTNESS`; the six-name shape and explicit no-null case are sourced to chapter section 5.2.
+- **Qualifying acceptance tests:** `one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset` is `CORRECTNESS`; the six-name shape and explicit no-null case are sourced to chapter section 5.2, and exact T10 now loads the serialized one-entry document before requiring all six patterns to remain active.
 - **Supporting tests:** SB-DIO-005 verifies plural values after resolution.
-- **Manual evidence:** `data-conventions` 0/45 and `las-import` 0/57 - unexercised.
-- **Git evidence:** reachable `23d6b28` contains the closing rule loader.
+- **Manual evidence:** the generated matrix currently shows `data-conventions` 4/77 and `las-import` 0/60, but legacy checked Automated entries contaminate its checked count; this increment claims no Jauhar-confirmed manual or field exercise.
+- **Git evidence:** reachable `23d6b28` contains the closing rule loader; the current `codex/g2-program-plan` increment closes the serialized-boundary proof without changing production behavior.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** require future rule loaders to deserialize this same shape rather than flattening it.
+- **Next action:** retain exact T10 at the serialized boundary and require future rule loaders to deserialize this same shape rather than flattening it; Jauhar's representative rule-and-delivery exercise remains Visual/Manual/Field evidence.
 
 ## SB-DIO-007 - Absent MUST be distinguishable from nulled.
 

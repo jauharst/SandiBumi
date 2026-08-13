@@ -3552,10 +3552,15 @@ mod las_depth_tests {
             .iter()
             .map(|name| name.to_string())
             .collect();
-        let rule = NullExceptionRule {
-            names: names.iter().map(|name| format!("^{name}$")).collect(),
-            nulls: ChannelNullMode::NoNull(NoNullMarker::NoNull),
-        };
+        let document = serde_json::json!([{
+            "names": names.iter().map(|name| format!("^{name}$")).collect::<Vec<_>>(),
+            "nulls": "NoNull"
+        }]);
+        let rules: Vec<NullExceptionRule> = serde_json::from_value(document)
+            .expect("the one-entry many-to-many rule document must load");
+        assert_eq!(rules.len(), 1, "six patterns remain one rule entry");
+        let rule = rules.into_iter().next().unwrap();
+        assert_eq!(rule.names.len(), 6, "the loader must not flatten or drop name patterns");
         let mut channels = names.clone();
         channels.push("OTHER".into());
         let resolved = resolve_null_exception_rules(&channels, &[rule.clone()]).unwrap();

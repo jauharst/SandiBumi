@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-006: one null-exception entry retains all six name patterns
+
+- **Automated — not manual evidence:** exact SB-DIO-T10 loads the chapter's cited
+      one-entry, six-pattern rule shape from its serialized representation, requires the
+      loader to keep one rule and all six patterns, resolves every matching source channel,
+      excludes an unmatched channel, and pins explicit `NoNull` against the ordinary unset
+      screen. Full gate: 1006 passed / 0 failed / 36 ignored, including backend 949 passed /
+      0 failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** load a disposable rule document with six patterns in one entry and inspect
+      the import preview/result so all six matched channels are reported without flattening
+      or truncation.
+- [ ] **Manual:** Jauhar independently confirms a genuine sentinel-shaped amplitude is
+      preserved for a matched `NoNull` channel while an unmatched channel follows the LAS
+      convention. The serialized automated fixture is not this operator check.
+- [ ] **Field:** pending Gate 4; no representative vendor rule document and delivery have
+      been exercised together through the installed application.
+
 ## 2026-08-14 — G2 SB-DIO-005: plural nulls stay attached to their source channel in every LAS reader
 
 - **Automated — not manual evidence:** exact SB-DIO-T09 imports the chapter's cited
