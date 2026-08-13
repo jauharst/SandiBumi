@@ -1,5 +1,25 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-009: legacy timestamp meaning is decision-blocked
+
+- [ ] **Automated implementation:** blocked, so no test is presented as proof that the whole UTC
+      storage/local-display contract ships. Current curve ancestry records a Unix-epoch instant,
+      but Inspector renders it in UTC; process history records an epoch instant and renders it
+      locally on screen, while its text export drops an explicit zone; `log_sets.created_at`
+      remains local/unspecified. The unchanged repository gate remains 992 / 0 / 36 with 55 owned
+      Rust warnings.
+- [ ] **Product/data decision:** settle DEC-022. The engineering recommendation is to mark every
+      pre-migration timestamp `ZONE_UNKNOWN`, preserve its literal legacy text, store every new
+      timestamp as an unambiguous UTC instant and convert only at the UI edge. Do not infer the old
+      authoring zone from the machine that later opens the project.
+- [ ] **Visual / Manual:** blocked until DEC-022 and the shared timestamp representation are
+      implemented. Then inspect one new record in two machine zones and one legacy record: the new
+      instant must remain identical while its display changes, and the legacy value must remain
+      visibly zone-unknown rather than being silently shifted.
+- [ ] **Field:** blocked on the same decision and on SB-DBM-011's structured audit store. Jauhar
+      must record representative cross-zone and legacy-project evidence; a synthetic epoch test
+      alone cannot close project-history custody.
+
 ## 2026-08-13 — G2 SB-DBM-007: provenance absence has a name
 
 - [x] **Automated:** SB-DBM-T09 executes a real equation whose run has no configurable

@@ -124,14 +124,14 @@
 
 - **Chapter evidence:** P2; chapter status `PRESENT-DIVERGENT`; owned test `SB-DBM-T11`; sections 4.1, 5.5 and 6.2.
 - **Atomic obligations:** store UTC; render local only at the display edge; migrate or explicitly classify legacy local timestamps without guessing.
-- **Current source:** `log_sets.created_at` and related tables use DuckDB `TIMESTAMP DEFAULT now()` without a UTC contract or offset, and no legacy-local migration policy exists.
+- **Current source:** schema-v3 curve ancestry stores Unix-epoch milliseconds from `SystemTime`, but Inspector renders that instant with `toISOString()` rather than in the viewer's local zone. Process history stores `Date.now()` milliseconds and the History panel renders locally, while its text export emits zone-less UTC text. `log_sets.created_at` still uses DuckDB `TIMESTAMP DEFAULT now()` without a UTC contract or offset. No policy classifies its existing local/unspecified values.
 - **Qualifying acceptance tests:** none; T11's cross-zone UTC storage/local-display fixture is missing. Test class is `MISSING`.
 - **Supporting tests:** timestamp presence/order tests do not prove UTC semantics.
 - **Manual evidence:** `processing-history` 0/7 and `project-lifecycle` 3/24.
-- **Git evidence:** accepted anchor `b332026c` contains the local/unspecified timestamp schema.
+- **Git evidence:** live re-verification on `codex/g2-program-plan` finds a UTC instant in current ancestry and process-history records, but local-display and legacy `log_sets` semantics remain divergent.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the UTC migration policy for legacy local timestamps is deliberately unresolved.
-- **Next action:** adjudicate legacy migration, introduce an unambiguous UTC representation, convert only for display and implement the time-zone arms of T11.
+- **Blocker or decision:** `DEC-022` must classify legacy local/unspecified values before any migration can avoid inventing their zone. The full T11 audit fixture also depends on SB-DBM-011's structured audit store.
+- **Next action:** after Jauhar settles DEC-022, introduce one unambiguous UTC representation, label legacy values without guessing, convert only at display, reuse that timestamp contract in SB-DBM-011's audit store and implement the time-zone arm of T11.
 
 ## SB-DBM-010 - Provenance travels into the deliverable
 
