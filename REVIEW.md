@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-007: empty versus explicitly nulled is blocked on its deliverable representation
+
+- [ ] **Automated contract:** BLOCKED. Exact SB-DIO-T11 requires consecutive empty and
+      explicit-sentinel cells to remain absent for arithmetic while an import/export
+      round trip distinguishes their source states. No qualifying test was written against
+      a representation the chapter does not select.
+- **Read-only evidence — not acceptance:** Intake retains raw preview strings and a
+      column-level kind, but its import rows reduce both cases to `f32::NAN`; curve storage
+      has no per-sample source-state channel, and the LAS writer emits the same project
+      sentinel for every NaN.
+- [ ] **Decision / architecture:** select and version one compact source-cell-state
+      representation, define how each supported deliverable carries or accompanies it, and
+      preserve `f32::NAN` as the arithmetic value. A bitset, table column, sidecar, or
+      manifest is not chosen by this increment.
+- [ ] **Visual / Manual / Field:** unavailable until the representation is adjudicated and
+      exact T11 exists. The current Intake preview is not proof that the distinction survives
+      storage or export.
+
 ## 2026-08-14 — G2 SB-DIO-006: one null-exception entry retains all six name patterns
 
 - **Automated — not manual evidence:** exact SB-DIO-T10 loads the chapter's cited

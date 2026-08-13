@@ -94,14 +94,14 @@
 
 - **Chapter evidence:** P2; chapter status `ABSENT`; owned test `SB-DIO-T11`.
 - **Atomic obligations:** preserve source empty-cell versus explicit-sentinel provenance through import and export while both remain `f32::NAN` for arithmetic.
-- **Current source:** CSV/LAS arithmetic values converge to `f32::NAN`; no sidecar bitset, cell-state column or export convention records which source state produced the NaN.
+- **Current source:** Intake keeps raw preview strings plus a column-level kind, but import rows reduce empty and explicit-null-shaped cells to `f32::NAN`; curve storage has no per-sample source-state channel and LAS export emits the same project sentinel for every NaN.
 - **Qualifying acceptance tests:** none; test class is `MISSING`.
-- **Supporting tests:** Intake can classify cells before commit, but that type is not carried into curve storage or a round-trip deliverable.
-- **Manual evidence:** `delimited-intake` 3/27 is partial; `data-conventions` 0/45 and `las-export` 0/2 are unexercised.
+- **Supporting tests:** existing Intake tests prove preview and missing-value behavior only; none carries a per-cell empty-versus-explicit-null state into storage or a round-trip deliverable.
+- **Manual evidence:** the generated matrix currently shows `delimited-intake` 3/27, `data-conventions` 4/80, `las-export` 0/2 and `verification-stewardship` 6/74, but legacy checked Automated entries contaminate the checked counts; this increment claims no Jauhar-confirmed manual or field exercise.
 - **Git evidence:** no implementation commit exists for the provenance half; commit state is `UNIMPLEMENTED`.
-- **Verdict:** `ABSENT`; `DEFERRED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** a storage/export representation for source cell state must be designed without changing the `f32::NAN` arithmetic contract.
-- **Next action:** design one compact provenance channel beside samples, then implement T11 as an import/export round trip without introducing `Option<f32>`.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** `BLOCKED` - the chapter requires the distinction to survive but does not select or version its storage and deliverable representation. Choosing a bitset, table column, sidecar or manifest here would invent a data contract; `f32::NAN` must remain the arithmetic value.
+- **Next action:** adjudicate one versioned source-cell-state representation and how every supported deliverable carries or accompanies it; then implement exact T11 as the specified import/export round trip without introducing `Option<f32>`.
 
 ## SB-DIO-008 - Coverage-aware alias resolution MUST be preserved.
 
