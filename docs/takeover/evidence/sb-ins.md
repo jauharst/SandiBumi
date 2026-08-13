@@ -51,7 +51,7 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 4. “Re-probe” is text, not a user action. The support dialog exposes only Close, and the real capability messages do not all carry the helper's copyable command.
 5. Parameter-pack identity and ambiguity refusal are now product-reachable through a backend-owned module schema; applying pack values to computation deliberately remains closed until the typed-unit, observed-token, generated-registry and attestation/provenance contracts are complete.
 6. Raw encoding/unit evidence is not retained end to end. Global case folding currently makes `mV` and `mv` equivalent without an explicit alias, contrary to the specified observable-drift contract.
-7. The unit-registry validator is unused outside tests. A correct validator that is never enforced cannot block a bad release registry.
+7. The unit-registry validator is now enforced before Tauri construction. This closes disconnected validation, but it does not generate runtime/UI/documentation consumers from one reviewed registry or supply alias source custody; SB-INS-019 remains open.
 8. The third-party generator reports unknown licences but exits successfully, says Python packages are not distributed, and records neither the chosen offline pack nor human legal approval. Its historical PRESENT-OK label is no longer defensible.
 9. Public prerequisite fragments generated from `installation.rs` agree with one another, but other public documents still describe Python distribution/prerequisite decisions as open or user-supplied. One synchronized subset is not one source of truth.
 10. All 16 installer-specific manual scenarios remain unchecked, and installation/deployment is absent from the capability matrix. The software has no field evidence for the deployment claim.
@@ -316,15 +316,15 @@ Section 8 custody remains complete: 57 rows in §8.1, 15 rows in §8.2, 15 rows 
 ### SB-INS-016
 
 - Specified contract: Use a canonical typed unit registry. Chapter tests: SB-INS-T19 and T20.
-- Current implementation: `curves.rs` resolves quantity kinds/canonical units, refuses permeability-to-length, and performs cited length/slowness conversions while preserving missing values.
+- Current implementation: `curves.rs` resolves quantity kinds/canonical units, refuses permeability-to-length, and performs cited length/slowness conversions while preserving missing values; `lib.rs` validates every shipping token and bridge before constructing Tauri.
 - Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
-- Automated evidence: `CORRECTNESS` — the named tests pin the wrong-kind refusal before arithmetic and the independently derived same-kind factors from both sides.
+- Automated evidence: `CORRECTNESS` — T19 pins the wrong-kind refusal before arithmetic; `startup_validates_the_typed_unit_registry_and_only_same_kind_bridges_convert` pins startup enforcement plus the independently derived same-kind factors and NaN custody.
 - Manual evidence: SB-INS 0/16; the typed-unit scenario is unchecked; data conventions 0/45.
 - Source/parameter boundary: Only registered, source-derived same-kind bridges compute; no physical-family value is invented.
-- Deployment/UI/provenance surface: Registry and conversions are live in ingest paths; release-wide registry validation remains unenforced because `validate_unit_registry` is otherwise unused.
-- History/reachability: Accepted anchor is reachable and current tests prove the numerical/refusal core.
-- Decision/dependency: Preserve the typed guard, then enforce validation at startup/build/release rather than tests only.
-- Next action: Keep T19-T20 and connect registry validation to a product/release gate without weakening unknown-unit preservation.
+- Deployment/UI/provenance surface: Registry and conversions are live in ingest; invalid compiled registry content now refuses installed startup before any project or conversion path can run.
+- History/reachability: The formerly dead validator is production-reachable; its exact warning owner is removed and the maintained warning inventory is 55.
+- Decision/dependency: No open engineering dependency remains for the typed bridge contract; manual/field conversion-provenance review remains separate.
+- Next action: Retain T19/T20 and preserve unknown-unit custody while SB-INS-017 addresses raw observed tokens and encoding evidence.
 
 ### SB-INS-017
 
@@ -355,14 +355,14 @@ Section 8 custody remains complete: 57 rows in §8.1, 15 rows in §8.2, 15 rows 
 ### SB-INS-019
 
 - Specified contract: Generate aliases, families, and units from one registry. Chapter test: SB-INS-T24.
-- Current implementation: Unit families/aliases remain code-resident; no versioned canonical source generates runtime, UI, documentation, and tests. `validate_unit_registry` is test-only and no release drift gate exists.
+- Current implementation: Unit families/aliases remain code-resident; startup now validates internal registry consistency, but no versioned canonical source generates runtime, UI, documentation, and tests and no generated-population drift gate exists.
 - Verdict: `ABSENT`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
 - Automated evidence: `MISSING` — no generated-population equality or release-failure test exists.
 - Manual evidence: SB-INS 0/16; data conventions 0/45; verification stewardship 0/24.
 - Source/parameter boundary: Registry content and aliases need reviewed source custody; current code tables cannot self-certify completeness.
-- Deployment/UI/provenance surface: Runtime lookup exists, but shared version identity, generated UI/docs, and release enforcement do not.
+- Deployment/UI/provenance surface: Runtime lookup and startup validation exist, but shared version identity, generated UI/docs, and cross-consumer release enforcement do not.
 - History/reachability: Accepted anchor is reachable; no generator or checked artifact family was found.
-- Decision/dependency: Multiple hand-maintained vocabularies can drift silently while unit tests remain green.
+- Decision/dependency: Multiple hand-maintained consumers can drift silently even when the Rust registry is internally valid at startup.
 - Next action: Establish one reviewed versioned registry source, generate every consumer artifact, and add T24 as a release gate.
 
 ### SB-INS-020

@@ -3,11 +3,10 @@
   "captured_at_commit": "02c8ac539537c398c8f89bf75a7679e1df71056c",
   "capture_command": "cd src-tauri && cargo check --message-format=json",
   "evidence_class": "CHARACTERIZATION",
-  "evidence_note": "These are the warnings emitted by the accepted Gate 2 planning baseline. Ownership is not proof that a disconnected product path works.",
-  "expected_warning_count": 56,
+  "evidence_note": "This inventory was anchored at the accepted Gate 2 planning baseline and is maintained as owner requirements close warnings. Ownership is not proof that a disconnected product path works.",
+  "expected_warning_count": 55,
   "expected_warning_counts_by_file": {
     "src/coreimage.rs": 1,
-    "src/curves.rs": 1,
     "src/distribution.rs": 3,
     "src/ingest.rs": 1,
     "src/ml.rs": 2,
@@ -22,15 +21,6 @@
       "rationale": "The unused fluorescence classifier belongs to the deferred core-photo illumination contract; Gate 2 must not surface it as a pilot capability.",
       "warning_keys": [
         "src/coreimage.rs|dead_code|method `contains` is never used"
-      ]
-    },
-    {
-      "owner_requirement": "SB-INS-016",
-      "owner_gate": "G2",
-      "disposition": "CONNECT-OR-REMOVE-DURING-OWNER-REQUIREMENT",
-      "rationale": "A canonical typed registry is not release-enforced while its validator is disconnected.",
-      "warning_keys": [
-        "src/curves.rs|dead_code|function `validate_unit_registry` is never used"
       ]
     },
     {

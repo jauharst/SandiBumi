@@ -119,7 +119,7 @@
 "SB-INS-015","CORRECTNESS","src-tauri/src/parameter_pack.rs","an_identifier_ordinal_disagreement_stops_loading_and_names_both_schema_rows"
 "SB-INS-015","CORRECTNESS","src-tauri/src/parameter_pack.rs","missing_ordinals_duplicate_keys_unsupported_schemas_and_empty_keys_are_all_refused_without_partial_activation"
 "SB-INS-016","CORRECTNESS","src-tauri/src/curves.rs","a_permeability_to_length_bridge_is_refused_before_any_numeric_conversion_exists"
-"SB-INS-016","CORRECTNESS","src-tauri/src/curves.rs","recognised_length_and_slowness_bridges_convert_only_within_their_quantity_kind"
+"SB-INS-016","CORRECTNESS","src-tauri/src/curves.rs","startup_validates_the_typed_unit_registry_and_only_same_kind_bridges_convert"
 "SB-INS-017","CHARACTERIZATION","src-tauri/src/parsers.rs","characterizes_raw_unit_and_encoding_preservation_before_the_current_case_fold"
 "SB-INS-018","CHARACTERIZATION","src-tauri/src/curves.rs","characterizes_all_missing_unit_spellings_as_no_registry_mapping"
 "SB-INS-021","CHARACTERIZATION","src-tauri/src/installation.rs","characterizes_support_report_as_runtime_fragments_without_release_or_configuration_identity"

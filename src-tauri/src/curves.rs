@@ -659,8 +659,19 @@ mod tests {
     /// derivations already cited on curves.rs rules 64-80. Both conversions must stay within
     /// their declared quantity kind, and NaN remains missing.
     #[test]
-    fn recognised_length_and_slowness_bridges_convert_only_within_their_quantity_kind() {
+    fn startup_validates_the_typed_unit_registry_and_only_same_kind_bridges_convert() {
         validate_unit_registry().expect("every runtime token and rule is typed");
+        let startup = include_str!("lib.rs");
+        let validation = startup
+            .find("curves::validate_unit_registry()")
+            .expect("startup must validate the shipping registry");
+        let builder = startup
+            .find("tauri::Builder::default()")
+            .expect("the desktop builder must remain visible");
+        assert!(
+            validation < builder,
+            "the registry must be validated before the desktop runtime is constructed"
+        );
         assert_eq!(
             validate_unit_bridge("mm", "in")
                 .unwrap()

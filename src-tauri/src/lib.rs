@@ -3690,6 +3690,12 @@ pub fn run() {
     // `project.duckdb` in the cwd — so existing installs open exactly as before.
     let startup = project::startup_path();
 
+    // Unit conversion is a static shipping contract, not per-project data. Refuse launch before
+    // constructing the desktop runtime if any recognised bridge crosses quantity kinds or names
+    // an unregistered canonical token; a test-only validator cannot protect an installed build.
+    curves::validate_unit_registry()
+        .unwrap_or_else(|error| panic!("invalid canonical unit registry: {error}"));
+
     // The window is built on an EMPTY IN-MEMORY database and the real project is opened on a
     // background thread. This is what turns a slow first open from "the app didn't launch"
     // into "the app is open and telling me what it's doing". Nothing reads this placeholder:

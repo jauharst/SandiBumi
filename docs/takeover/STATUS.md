@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `16 / 222 handled — 11 DONE, 5 BLOCKED, 206 remaining`
+- Gate 2 requirement progress: `17 / 222 handled — 12 DONE, 5 BLOCKED, 205 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T02 / SB-INS-015 - DONE; crossed identity/ordinal, missing ordinal, duplicate or empty key and unsupported schema now refuse through the product-reachable loader without returning a partial pack`
+- Active increment: `G2-T02 / SB-INS-016 - DONE; the typed canonical-unit registry is now validated before Tauri construction, so cross-quantity bridges stop installed startup rather than surviving as disconnected test-only validation`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-INS-015 T17/T18 and all three parameter-pack tests are green; full gate 983 passed / 0 failed / 36 ignored`
+- Automated gate: `SB-INS-016 T19/T20 and all seven curves tests are green; the live owned-warning count falls from 56 to 55 without suppression; full gate 983 passed / 0 failed / 36 ignored`
 - Pilot field evidence: `OPEN`
-- Open blockers: `206 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `After committing SB-INS-015, continue G2-T02 with SB-INS-016 and reverify that typed quantity-kind validation is enforced on the product conversion path rather than only by an unused registry validator.`
+- Open blockers: `205 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `After committing SB-INS-016, continue G2-T02 with SB-INS-017 and preserve observed unit/encoding evidence without inventing a universal case or encoding policy.`
 
 ## Gate dashboard
 
@@ -157,6 +157,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G2-T02 SB-INS-016 — startup-enforced typed unit registry | DONE; REVIEW REQUIRED | Tauri startup now refuses an invalid shipping registry before runtime construction; T19 preserves recognised cross-kind refusal before arithmetic, T20 pins startup plus independently derived same-kind conversions and NaN custody; no token/factor/default changed; warning inventory drops honestly from 56 to 55; full gate 983 passed / 0 failed / 36 ignored | current topic-branch worktree |
 | G2-T02 SB-INS-015 — parameter-pack mismatch refusal | DONE; REVIEW REQUIRED | T17/T18 now use backend-owned shipping identities and the registered load command; crossed ID/ordinal names both schema rows, and missing ordinal, duplicate/empty key and unsupported version all refuse without returning a partial pack; full gate 983 passed / 0 failed / 36 ignored; no computation application or UI is claimed | current topic-branch worktree |
 | G2-T02 SB-INS-014 — semantic parameter-pack identity | DONE; REVIEW REQUIRED | backend-owned schema reuses stable module/argument wire IDs, assigns configurable-row ordinals and deterministically versions the exact manifest; typed Tauri/TypeScript load path accepts no caller-supplied schema; T16 proves duplicate labels remain separately addressable and crossed keys do not resolve; full gate 983 passed / 0 failed / 36 ignored; no pack value is applied to computation | current topic-branch worktree |
 | G2-T01 SB-CORE-044 — Tier-C release policy | BLOCKED; REVIEW REQUIRED | distributed dependency notice repaired to exclude hoisted dev tools, regenerated at 292 Rust / 111 npm packages with six MPL-family attention items and zero undeclared licences, and enforced for freshness by the full gate; chart payload, endpoint-library and branded-theme source/legal routes remain open, so no whole-contract proof or clearance is claimed; full gate 983 passed / 0 failed / 36 ignored | current topic-branch worktree |

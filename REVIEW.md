@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-INS-016: typed unit registry is enforced before launch
+
+- [x] **Automated:** startup now validates every shipping canonical token and conversion bridge
+      before constructing Tauri. SB-INS-T19 still proves the recognised `md` permeability to `m`
+      length bridge refuses before arithmetic; renamed SB-INS-T20 proves startup enforcement,
+      exact cited `mm` to `in` and `us/m` to `us/ft` conversions, and NaN preservation. The dead
+      validator warning was closed, not silenced; live warning inventory is now 55. The full gate
+      passed 983 / 0 / 36.
+- [ ] **Visual:** deliberately corrupting the compiled registry is not an ordinary UI scenario.
+      If a startup problem surface later replaces the fail-fast launch refusal, visually confirm
+      it names the invalid tokens and quantity kinds; do not infer that from the unit tests.
+- [ ] **Manual:** import real same-kind convertible units and confirm the conversion provenance is
+      visible, then present an unknown token and confirm it remains unconverted rather than guessed.
+- [ ] **Field:** confirm representative pilot imports use only reviewed same-kind bridges. This
+      increment adds no unit alias, factor, physical endpoint or default.
+
 ## 2026-08-13 — G2 SB-INS-015: ambiguous parameter packs refuse at the product boundary
 
 - [x] **Automated:** SB-INS-T17 now crosses the semantic ID of one real shipping-schema row with
