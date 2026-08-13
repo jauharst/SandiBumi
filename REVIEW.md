@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-009: the import result reports the chosen and passed-over aliases
+
+- **Automated — not manual evidence:** exact SB-DIO-T14 drives the production LAS import
+      function with the chapter's all-null `NPHIED` and populated `NPHI_LS` fixture. The
+      returned public result has one competing-alias decision, names `NPHI_LS` as chosen
+      and `NPHIED` as passed over, carries finite counts 2 and 0, and marks both chosen
+      states. The Tauri command and TypeScript IPC contract carry that same typed result.
+      Full gate: 1007 passed / 0 failed / 36 ignored, including backend 950 passed / 0
+      failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** import the disposable fixture and inspect the desktop result surface; it
+      must display the chosen and passed-over mnemonics and both coverage counts, not merely
+      receive them over IPC.
+- [ ] **Manual:** Jauhar confirms the displayed decision is understandable enough to
+      diagnose a wrong heuristic choice. The green backend result is not this usability
+      judgment.
+- [ ] **Field:** pending Gate 4; no representative delivery with competing aliases has
+      verified the operator-facing report.
+
 ## 2026-08-14 — G2 SB-DIO-008: alias coverage wins and exact ties follow the declared priority
 
 - **Automated characterization — not correctness or manual evidence:** exact

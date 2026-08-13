@@ -120,14 +120,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T14`.
 - **Atomic obligations:** report chosen and passed-over mnemonics plus each finite-coverage count whenever aliases compete.
-- **Current source:** `AliasDecision` and `AliasCandidateCoverage` travel from both LAS parsers through `ImportResult` and IPC.
-- **Qualifying acceptance tests:** `the_alias_result_names_the_chosen_and_passed_over_columns_with_both_coverage_counts` is `CORRECTNESS`; its fixture and expectation come from the chapter's T12/T14 contract.
+- **Current source:** `AliasDecision` and `AliasCandidateCoverage` travel from the coverage-aware LAS parser through the public serializable `ImportResult`, the whitelisted Tauri command and the typed TypeScript IPC contract.
+- **Qualifying acceptance tests:** `the_alias_result_names_the_chosen_and_passed_over_columns_with_both_coverage_counts` is `CORRECTNESS`; its fixture and expectation come from the chapter's T12/T14 contract, and it drives the production import function before asserting one decision, chosen/passed-over identities, both coverage counts and both chosen flags.
 - **Supporting tests:** SB-DIO-030 tests the rename/table-entry arm of the same result model.
-- **Manual evidence:** `las-import` 0/57 and `generic-curve-store` 0/18 - unexercised.
-- **Git evidence:** reachable `ef5f222` contains the closing report surface.
+- **Manual evidence:** the generated matrix currently shows `las-import` 0/60 and `generic-curve-store` 0/18; this increment claims no Jauhar-confirmed visual, manual or field exercise.
+- **Git evidence:** reachable `ef5f222` contains the closing report surface; the current `codex/g2-program-plan` increment reverified it against current source and exact T14 without changing production behavior.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied audit contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** keep the full candidate list in any future alias-based reader rather than emitting only the winner.
+- **Next action:** retain exact T14 and keep the full candidate list in any future alias-based reader rather than emitting only the winner; Jauhar must still confirm that the desktop result actually renders the decision readably.
 
 ## SB-DIO-010 - Prefer a structural index declaration; fall back to names; record which mechanism fired.
 
