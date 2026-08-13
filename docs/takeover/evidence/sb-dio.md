@@ -225,13 +225,13 @@
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T27`, `SB-DIO-T28`.
 - **Atomic obligations:** obtain the stored/project depth unit from the unit model; write it on STRT, STOP, STEP and the index curve; prohibit a writer-owned unit literal; survive metre and feet round trips.
 - **Current source:** `export.rs::write_las` resolves the project depth unit and writes its code to every depth declaration; the output validator checks the same declared unit before success.
-- **Qualifying acceptance tests:** `the_las_writer_declares_the_unit_it_wrote_for_both_feet_and_metres` is `CORRECTNESS`; the conversion/round-trip expectation is sourced to NIST SP 811 and pins both units.
-- **Supporting tests:** `a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success` protects the failure surface.
-- **Manual evidence:** `las-export` 0/2, `las-import` 0/57 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** reachable `f536578` contains the closing writer change.
+- **Qualifying acceptance tests:** exact SB-DIO-T27 `a_feet_project_las_round_trip_preserves_depths_and_declares_ft_on_every_depth_header` passed 1/0/0 and is `CORRECTNESS`: every required header declares `FT`, none declares `M`, the fresh project adopts feet and `2000.0` returns unchanged. `a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success` also passed 1/0/0 and refuses the syntactically valid unit lie by naming expected and declared units.
+- **Supporting tests:** exact SB-DIO-T28 `characterizes_a_metre_project_las_round_trip_as_preserving_depths_and_declaring_m` passed 1/0/0 and is explicitly `CHARACTERIZATION` because the chapter labels the metre scenario char; it separately pins all four `M` declarations, absence of `FT`, and the current `2000.0` round trip.
+- **Manual evidence:** `las-export` 0/5, `las-import` 0/69 and `data-conventions` 4/101; this increment claims no third-party reader or representative-delivery exercise.
+- **Git evidence:** reachable `f536578` contains the closing writer change; this increment separates T27 correctness from T28 characterization, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied P0 contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** keep all future depth-writing formats on the shared unit model and preserve both-unit round trips.
+- **Next action:** retain the separate exact T27/T28 proofs, keep all future depth-writing formats on the shared unit model, and reserve representative-file interoperability for Gate 4.
 
 ## SB-DIO-018 - Canonical units MUST have exactly one definition.
 

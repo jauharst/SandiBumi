@@ -1250,53 +1250,53 @@ mod tests {
         assert!(error.contains("declares M"), "the false declaration must be named: {error}");
     }
 
-    /// SB-DIO-017 / SB-DIO-T27..T28. The LAS unit spellings and the project-unit
-    /// source are specified in `docs/PRD_v2/21_data-io.md` §§4 and 5.1.
-    #[test]
-    fn the_las_writer_declares_the_unit_it_wrote_for_both_feet_and_metres() {
-        for (unit, code, tag) in [
-            (crate::units::DepthUnit::Feet, "FT", "feet-unit"),
-            (crate::units::DepthUnit::Metres, "M", "metre-unit"),
-        ] {
-            let src = Connection::open_in_memory().unwrap();
-            let (id, _, _) = seed(&src);
-            crate::units::set_project_depth_unit(&src, unit).unwrap();
-            let dest = tmp_path(tag);
-            export_las(&src, &id.to_string(), dest.to_str().unwrap()).unwrap();
+    fn assert_las_depth_unit_round_trip(unit: crate::units::DepthUnit, code: &str, tag: &str) {
+        let src = Connection::open_in_memory().unwrap();
+        let (id, _, _) = seed(&src);
+        crate::units::set_project_depth_unit(&src, unit).unwrap();
+        let dest = tmp_path(tag);
+        export_las(&src, &id.to_string(), dest.to_str().unwrap()).unwrap();
 
-            let text = crate::parsers::read_text_file(&dest).unwrap();
-            for mnemonic in ["STRT", "STOP", "STEP", "DEPT"] {
-                assert!(
-                    text.lines().any(|line| line.trim_start().starts_with(&format!("{mnemonic}.{code}"))),
-                    "{mnemonic} must declare {code} when those are the depths written"
-                );
-            }
-            let other = if code == "FT" { "M" } else { "FT" };
+        let text = crate::parsers::read_text_file(&dest).unwrap();
+        for mnemonic in ["STRT", "STOP", "STEP", "DEPT"] {
             assert!(
-                !text.lines().any(|line| {
-                    ["STRT", "STOP", "STEP", "DEPT"]
-                        .iter()
-                        .any(|mnemonic| line.trim_start().starts_with(&format!("{mnemonic}.{other}")))
-                }),
-                "the opposite unit must not remain on any depth declaration"
+                text.lines().any(|line| line.trim_start().starts_with(&format!("{mnemonic}.{code}"))),
+                "{mnemonic} must declare {code} when those are the depths written"
             );
-
-            let dst = Connection::open_in_memory().unwrap();
-            db::create_schema(&dst).unwrap();
-            let imported = crate::ingest::import_las_files(
-                &dst,
-                &[dest.to_str().unwrap().to_string()],
-                None,
-            );
-            let _ = std::fs::remove_file(&dest);
-            assert!(imported[0].error.is_none(), "{code} round trip failed: {:?}", imported[0].error);
-            let imported_unit = crate::units::project_depth_unit(&dst).unwrap();
-            assert_eq!(imported_unit, Some(unit));
-            let first_depth: f32 = dst
-                .query_row("SELECT depth FROM standard_curves ORDER BY depth LIMIT 1", [], |row| row.get(0))
-                .unwrap();
-            assert!((first_depth - 2000.0).abs() < 1e-4, "{code} depths must survive unchanged");
         }
+        let other = if code == "FT" { "M" } else { "FT" };
+        assert!(
+            !text.lines().any(|line| {
+                ["STRT", "STOP", "STEP", "DEPT"]
+                    .iter()
+                    .any(|mnemonic| line.trim_start().starts_with(&format!("{mnemonic}.{other}")))
+            }),
+            "the opposite unit must not remain on any depth declaration"
+        );
+
+        let dst = Connection::open_in_memory().unwrap();
+        db::create_schema(&dst).unwrap();
+        let imported = crate::ingest::import_las_files(&dst, &[dest.to_str().unwrap().to_string()], None);
+        let _ = std::fs::remove_file(&dest);
+        assert!(imported[0].error.is_none(), "{code} round trip failed: {:?}", imported[0].error);
+        let imported_unit = crate::units::project_depth_unit(&dst).unwrap();
+        assert_eq!(imported_unit, Some(unit));
+        let first_depth: f32 = dst
+            .query_row("SELECT depth FROM standard_curves ORDER BY depth LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        assert!((first_depth - 2000.0).abs() < 1e-4, "{code} depths must survive unchanged");
+    }
+
+    #[test]
+    fn a_feet_project_las_round_trip_preserves_depths_and_declares_ft_on_every_depth_header() {
+        // CORRECTNESS — source: docs/PRD_v2/21_data-io.md §6 SB-DIO-T27.
+        assert_las_depth_unit_round_trip(crate::units::DepthUnit::Feet, "FT", "feet-unit");
+    }
+
+    #[test]
+    fn characterizes_a_metre_project_las_round_trip_as_preserving_depths_and_declaring_m() {
+        // CHARACTERIZATION — docs/PRD_v2/21_data-io.md §6 labels SB-DIO-T28 as char.
+        assert_las_depth_unit_round_trip(crate::units::DepthUnit::Metres, "M", "metre-unit");
     }
 
     fn prefixed_json(text: &str, prefix: &str) -> Vec<serde_json::Value> {

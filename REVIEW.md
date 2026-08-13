@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-017: LAS export depth units survive round trips
+
+- [ ] **Correctness — not manual evidence:** exact SB-DIO-T27 is green at 1 passed /
+      0 failed / 0 ignored. A feet project writes `FT` on `STRT`, `STOP`, `STEP` and
+      `DEPT`, writes no opposite `M` declaration, re-imports as a feet project, and
+      returns the original `2000.0` depth unchanged.
+- [ ] **Characterization — not correctness:** exact SB-DIO-T28 is separately green at
+      1 passed / 0 failed / 0 ignored. The corresponding metre project currently writes
+      `M` on all four declarations and round-trips `2000.0`; the chapter deliberately
+      labels this metre scenario as characterization. The negative self-check is also
+      green and rejects feet-valued output falsely declared as metres.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export representative feet and
+      metre projects, inspect all four LAS header declarations in the delivered files,
+      re-import them through the UI, and confirm the result messaging is clear. Automated
+      round trips are not representative-client or interoperability evidence.
+
 ## 2026-08-14 — G2 SB-DIO-015: undeclared LAS depth units refuse
 
 - [ ] **Automated — not manual evidence:** exact SB-DIO-T22 and T23 are separately green

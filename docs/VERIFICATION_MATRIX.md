@@ -11,13 +11,13 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 66 | — | 24 |
+| `las-import` | LAS import | Not exercised | 0 / 69 | — | 25 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 14 | — | 9 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 27 | 2026-08-05 | 3 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 18 | — | 3 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 98 | 2026-08-13 | 43 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 101 | 2026-08-13 | 44 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 38 | 2026-08-13 | 5 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
@@ -56,7 +56,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |
 | `report` | Report deliverables | Partially exercised | 8 / 64 | 2026-08-14 | 16 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
-| `las-export` | LAS export | Not exercised | 0 / 2 | — | 2 |
+| `las-export` | LAS export | Not exercised | 0 / 5 | — | 3 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |
 | `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 24 | 2026-07-19 | 7 |
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 2 | — | 2 |
