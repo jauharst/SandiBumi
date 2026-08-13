@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `23 / 222 handled — 17 DONE, 6 BLOCKED, 199 remaining`
+- Gate 2 requirement progress: `24 / 222 handled — 18 DONE, 6 BLOCKED, 198 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T03 / SB-DBM-003 - DONE; every complete run writes indexed source-bearing parameter rows, while uncited required inputs remain queryable REQUIRED_UNSET with NULL value/source`
+- Active increment: `G2-T03 / SB-DBM-004 - DONE; every declared effective ModuleSpec parameter is recorded as EXPLICIT or DEFAULTED, and every default retains the exact configurable-manifest version that supplied it`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-DBM-003 adds one owned correctness test; focused migration, all 14 equations controls and the full repository gate are green at 988 passed / 0 failed / 36 ignored`
+- Automated gate: `SB-DBM-004 adds one owned correctness test; focused source-state, chain and parameter-pack controls plus the full repository gate are green at 989 passed / 0 failed / 36 ignored; the owned Rust warning inventory remains 55`
 - Pilot field evidence: `OPEN`
-- Open blockers: `199 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `After committing SB-DBM-003, adjudicate SB-DBM-004's effective-parameter-set contract without treating the blocked SB-DBM-002 module identity as resolved.`
+- Open blockers: `198 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `After committing SB-DBM-004, adjudicate SB-DBM-005's universal method-derivation citation without inventing any missing method source.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 34 implement-or-refuse / 113 remediate / 18 prove / 57 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 34 implement-or-refuse / 111 remediate / 18 prove / 59 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
@@ -35,7 +35,7 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `116` present-OK, `24` present-unverified, `169` present-divergent, `171` partial,
+- As-built states: `117` present-OK, `24` present-unverified, `169` present-divergent, `170` partial,
   `399` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
@@ -55,9 +55,9 @@ Do not replace it with an estimated percentage.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `49` pilot blockers and `14` deferred; `42`
   correctness-tested and `21` missing qualifying owned proof.
-- SB-DBM: `43/43` adjudicated - `3` present-OK, `3` present-unverified, `12` present-divergent,
-  `11` partial and `14` absent; `30` pilot blockers and `13` deferred; `2` correctness proofs, `1`
-  optional-package proof and `40` missing qualifying whole-contract proofs.
+- SB-DBM: `43/43` adjudicated - `4` present-OK, `3` present-unverified, `12` present-divergent,
+  `10` partial and `14` absent; `30` pilot blockers and `13` deferred; `3` correctness proofs, `1`
+  optional-package proof and `39` missing qualifying whole-contract proofs.
 - SB-PLT: `35/35` adjudicated - `4` present-unverified, `10` present-divergent, `14` partial and
   `7` absent; `18` pilot blockers and `17` deferred; `6` characterization tests and
   `29` missing qualifying whole-contract proofs.

@@ -206,6 +206,16 @@ pub fn module_parameter_schema(module_name: &str) -> Result<ParameterModuleSchem
         .iter()
         .find(|candidate| candidate.name == module_name)
         .ok_or_else(|| format!("unknown parameter module '{module_name}'"))?;
+    module_parameter_schema_from_spec(module)
+}
+
+/// Deterministic identity of a supplied manifest. Kept beside the shipping-module lookup so the
+/// workflow can persist the exact manifest it already has in hand, and acceptance fixtures can
+/// prove that changing a default changes the identity without registering a fake product module.
+pub(crate) fn module_parameter_schema_from_spec(
+    module: &crate::modules::ModuleSpec,
+) -> Result<ParameterModuleSchema, String> {
+    let module_name = module.name.as_str();
     let configurable = module
         .args
         .iter()

@@ -156,26 +156,19 @@ fn complete_chain_sets(
                 .get(&step.module)
                 .ok_or_else(|| format!("unknown module '{}'", step.module))?;
             let opts = workflow::build_opts(manifest, &step.opts, &step.log_inputs);
+            let parameter_prefix = format!("step[{}].", index + 1);
+            let (effective_parameters, _) = workflow::effective_module_parameters(
+                manifest,
+                &step.params,
+                &step.opts,
+                &opts,
+                custody.source_note.trim(),
+                &parameter_prefix,
+            )?;
+            parameters.extend(effective_parameters);
 
             for arg in &manifest.args {
                 if arg.kind == crate::modules::ArgKind::Param {
-                    let (value, source) = if let Some(value) = step.params.get(&arg.name) {
-                        (serde_json::json!(value), custody.source_note.clone())
-                    } else if let Ok(value) = arg.default.parse::<f64>() {
-                        (serde_json::json!(value), arg.default_source.clone())
-                    } else {
-                        (
-                            serde_json::json!("ABSENT"),
-                            crate::modules::ABSENT_DEFAULT_SOURCE.to_string(),
-                        )
-                    };
-                    let decision = crate::param_sources::decision_for(&arg.sources_topic, &value);
-                    parameters.push(crate::equations::AncestryParameter {
-                        name: format!("step[{}].{}", index + 1, arg.name),
-                        value,
-                        source,
-                        decision,
-                    });
                     for zone in zone_params
                         .iter()
                         .filter(|entry| entry.param_name == arg.name)
@@ -193,21 +186,14 @@ fn complete_chain_sets(
                             name: format!("step[{}].{}@{}", index + 1, arg.name, zone.zone_name),
                             value: serde_json::json!(value),
                             source: source.to_string(),
+                            resolution: Some(
+                                crate::equations::ParameterResolution::Explicit,
+                            ),
+                            manifest_version: None,
                             decision: crate::param_sources::decision_for(
                                 &arg.sources_topic,
                                 &serde_json::json!(value),
                             ),
-                        });
-                    }
-                } else if arg.kind == crate::modules::ArgKind::Option
-                    || arg.kind == crate::modules::ArgKind::Text
-                {
-                    if let Some(value) = opts.get(&arg.name) {
-                        parameters.push(crate::equations::AncestryParameter {
-                            name: format!("step[{}].{}", index + 1, arg.name),
-                            value: serde_json::json!(value),
-                            source: custody.source_note.clone(),
-                            decision: None,
                         });
                     }
                 }

@@ -395,6 +395,96 @@ pub(crate) fn build_opts(
     opts
 }
 
+/// Build the effective configurable-parameter record from one module manifest. The runner has
+/// already resolved options with [`build_opts`]; this function records the same values and says
+/// whether each came from the request or the manifest. It never supplies a missing numeric
+/// default: an uncited/ABSENT manifest entry remains REQUIRED_UNSET.
+pub(crate) fn effective_module_parameters(
+    spec: &modules::ModuleSpec,
+    explicit_params: &HashMap<String, f64>,
+    explicit_opts: &HashMap<String, String>,
+    effective_opts: &HashMap<String, String>,
+    source_note: &str,
+    name_prefix: &str,
+) -> Result<
+    (
+        Vec<equations::AncestryParameter>,
+        serde_json::Map<String, serde_json::Value>,
+    ),
+    String,
+> {
+    let manifest_version = crate::parameter_pack::module_parameter_schema_from_spec(spec)?
+        .module_schema_version;
+    let manifest_source = format!("module manifest {manifest_version}");
+    let mut parameters = Vec::new();
+    let mut legacy = serde_json::Map::new();
+
+    for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Param) {
+        let (value, source, resolution, value_manifest_version) =
+            if let Some(value) = explicit_params.get(&arg.name) {
+                (
+                    serde_json::json!(value),
+                    source_note.to_string(),
+                    Some(equations::ParameterResolution::Explicit),
+                    None,
+                )
+            } else if let Ok(value) = arg.default.parse::<f64>() {
+                (
+                    serde_json::json!(value),
+                    arg.default_source.clone(),
+                    Some(equations::ParameterResolution::Defaulted),
+                    Some(manifest_version.clone()),
+                )
+            } else {
+                (
+                    serde_json::json!(modules::ABSENT_DEFAULT_SOURCE),
+                    modules::ABSENT_DEFAULT_SOURCE.to_string(),
+                    None,
+                    None,
+                )
+            };
+        legacy.insert(arg.name.clone(), value.clone());
+        let decision = crate::param_sources::decision_for(&arg.sources_topic, &value);
+        parameters.push(equations::AncestryParameter {
+            name: format!("{name_prefix}{}", arg.name),
+            value,
+            source,
+            resolution,
+            manifest_version: value_manifest_version,
+            decision,
+        });
+    }
+
+    for arg in spec
+        .args
+        .iter()
+        .filter(|arg| arg.kind == ArgKind::Option || arg.kind == ArgKind::Text)
+    {
+        if let Some(value) = effective_opts.get(&arg.name) {
+            let explicit = explicit_opts.contains_key(&arg.name);
+            legacy.insert(arg.name.clone(), serde_json::json!(value));
+            parameters.push(equations::AncestryParameter {
+                name: format!("{name_prefix}{}", arg.name),
+                value: serde_json::json!(value),
+                source: if explicit {
+                    source_note.to_string()
+                } else {
+                    manifest_source.clone()
+                },
+                resolution: Some(if explicit {
+                    equations::ParameterResolution::Explicit
+                } else {
+                    equations::ParameterResolution::Defaulted
+                }),
+                manifest_version: (!explicit).then(|| manifest_version.clone()),
+                decision: None,
+            });
+        }
+    }
+
+    Ok((parameters, legacy))
+}
+
 /// Test-only view of the legacy flat parameter payload. Existing module tests pin the
 /// stable saturation method identifiers through this view; production persistence uses
 /// `complete_module_log_spec`, which adds a source to every recorded value.
@@ -437,28 +527,15 @@ fn complete_module_log_spec(
     req.custody.validate()?;
 
     let zone_params = db::list_zone_params(conn, well_id).map_err(|error| error.to_string())?;
-    let mut parameters = Vec::new();
-    let mut legacy = serde_json::Map::new();
+    let (mut parameters, mut legacy) = effective_module_parameters(
+        spec,
+        &req.params,
+        &req.opts,
+        opts,
+        req.custody.source_note.trim(),
+        "",
+    )?;
     for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Param) {
-        let (value, source) = if let Some(value) = req.params.get(&arg.name) {
-            (serde_json::json!(value), req.custody.source_note.clone())
-        } else if let Ok(value) = arg.default.parse::<f64>() {
-            (serde_json::json!(value), arg.default_source.clone())
-        } else {
-            (
-                serde_json::json!("ABSENT"),
-                modules::ABSENT_DEFAULT_SOURCE.to_string(),
-            )
-        };
-        legacy.insert(arg.name.clone(), value.clone());
-        let decision = crate::param_sources::decision_for(&arg.sources_topic, &value);
-        parameters.push(equations::AncestryParameter {
-            name: arg.name.clone(),
-            value,
-            source,
-            decision,
-        });
-
         for zone_value in zone_params
             .iter()
             .filter(|entry| entry.param_name == arg.name)
@@ -476,25 +553,12 @@ fn complete_module_log_spec(
                 name: format!("{}@{}", arg.name, zone_value.zone_name),
                 value: serde_json::json!(value),
                 source: source.to_string(),
+                resolution: Some(equations::ParameterResolution::Explicit),
+                manifest_version: None,
                 decision: crate::param_sources::decision_for(
                     &arg.sources_topic,
                     &serde_json::json!(value),
                 ),
-            });
-        }
-    }
-    for arg in spec
-        .args
-        .iter()
-        .filter(|arg| arg.kind == ArgKind::Option || arg.kind == ArgKind::Text)
-    {
-        if let Some(value) = opts.get(&arg.name) {
-            legacy.insert(arg.name.clone(), serde_json::json!(value));
-            parameters.push(equations::AncestryParameter {
-                name: arg.name.clone(),
-                value: serde_json::json!(value),
-                source: req.custody.source_note.clone(),
-                decision: None,
             });
         }
     }
@@ -513,6 +577,8 @@ fn complete_module_log_spec(
             name: "method_id".into(),
             value: serde_json::json!(method_id),
             source: req.custody.source_note.clone(),
+            resolution: None,
+            manifest_version: None,
             decision: None,
         });
     }
@@ -1999,7 +2065,155 @@ pub fn run_cutoff_sweep(
 mod tests {
     use super::*;
     use crate::ingest;
+    use sha2::{Digest, Sha256};
     use std::collections::HashMap;
+
+    /// CORRECTNESS — SB-DBM-004 / SB-DBM-T06, sourced to SB-CORE-011 and F-18 / ledger R-10.
+    /// The five values below are synthetic fixture inputs, not petrophysical defaults: the proof
+    /// is that the saved run contains the complete effective set, distinguishes the two explicit
+    /// values from the three defaults, and retains the exact manifest identity that supplied those
+    /// defaults after a later manifest changes.
+    #[test]
+    fn a_run_records_all_effective_parameters_and_keeps_the_default_manifest_version_after_that_manifest_changes(
+    ) {
+        fn manifest(defaults: [f64; 5]) -> modules::ModuleSpec {
+            let arguments = ["P_ALPHA", "P_BETA", "P_GAMMA", "P_DELTA", "P_EPSILON"];
+            modules::ModuleSpec {
+                name: "sb_dbm_t06_fixture".into(),
+                title: "Synthetic effective-parameter fixture".into(),
+                category: "Test fixture".into(),
+                doc: "SB-DBM-T06 synthetic fixture".into(),
+                args: arguments
+                    .into_iter()
+                    .zip(defaults)
+                    .map(|(name, default)| {
+                        let mut argument = modules::param(
+                            name,
+                            "Synthetic scalar",
+                            "unitless",
+                            default,
+                            -1.0,
+                            1.0,
+                            "docs/PRD_v2/22_database-model.md SB-DBM-T06 synthetic fixture",
+                        );
+                        // Ranges are irrelevant to this persistence contract. Removing them keeps
+                        // the fixture from resembling a product validity limit.
+                        argument.min = None;
+                        argument.max = None;
+                        argument
+                    })
+                    .collect(),
+            }
+        }
+
+        fn manifest_version(spec: &modules::ModuleSpec) -> String {
+            let configurable = spec
+                .args
+                .iter()
+                .filter(|argument| {
+                    matches!(argument.kind, ArgKind::Param | ArgKind::Option | ArgKind::Text)
+                })
+                .collect::<Vec<_>>();
+            let canonical = serde_json::to_vec(&(spec.name.as_str(), &configurable)).unwrap();
+            let digest = Sha256::digest(canonical);
+            format!(
+                "sha256:{}",
+                digest
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            )
+        }
+
+        fn recorded(
+            conn: &duckdb::Connection,
+            set_id: &str,
+        ) -> Vec<(String, f64, String, Option<String>)> {
+            let mut statement = conn
+                .prepare(
+                    "SELECT name, value_json, resolution, manifest_version
+                     FROM run_parameters
+                     WHERE set_id = ?1
+                     ORDER BY position",
+                )
+                .unwrap();
+            statement
+                .query_map(duckdb::params![set_id], |row| {
+                    let value_json: String = row.get(1)?;
+                    let value = serde_json::from_str::<f64>(&value_json).unwrap();
+                    Ok((row.get(0)?, value, row.get(2)?, row.get(3)?))
+                })
+                .unwrap()
+                .collect::<duckdb::Result<Vec<_>>>()
+                .unwrap()
+        }
+
+        fn save(
+            conn: &duckdb::Connection,
+            well_id: &str,
+            spec: &modules::ModuleSpec,
+        ) -> equations::CompleteSetId {
+            let request = RunModuleRequest {
+                module: spec.name.clone(),
+                well_ids: vec![well_id.to_string()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([("P_ALPHA".into(), 11.0), ("P_DELTA".into(), 44.0)]),
+                opts: HashMap::new(),
+                output_set: Some("EFFECTIVE_PARAMETERS".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            };
+            let complete = complete_module_log_spec(
+                conn,
+                well_id,
+                &request,
+                spec,
+                &build_opts(spec, &request.opts, &request.log_inputs),
+                &[],
+                &["FIXTURE_RESULT".into()],
+            )
+            .unwrap();
+            equations::create_complete_log_set(conn, well_id, &complete)
+                .unwrap()
+                .0
+        }
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_uuid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_uuid, "SYNTHETIC", Some("Synthetic"), None, None).unwrap();
+        let well_id = well_uuid.to_string();
+
+        let first_manifest = manifest([10.0, 20.0, 30.0, 40.0, 50.0]);
+        let first_version = manifest_version(&first_manifest);
+        let first_set = save(&conn, &well_id, &first_manifest);
+        let original = recorded(&conn, first_set.as_str());
+        assert_eq!(
+            original,
+            vec![
+                ("P_ALPHA".into(), 11.0, "EXPLICIT".into(), None),
+                ("P_BETA".into(), 20.0, "DEFAULTED".into(), Some(first_version.clone())),
+                ("P_GAMMA".into(), 30.0, "DEFAULTED".into(), Some(first_version.clone())),
+                ("P_DELTA".into(), 44.0, "EXPLICIT".into(), None),
+                ("P_EPSILON".into(), 50.0, "DEFAULTED".into(), Some(first_version.clone())),
+            ]
+        );
+
+        let changed_manifest = manifest([10.0, 20.0, 300.0, 40.0, 50.0]);
+        let changed_version = manifest_version(&changed_manifest);
+        assert_ne!(changed_version, first_version, "changing a default changes manifest identity");
+        let changed_set = save(&conn, &well_id, &changed_manifest);
+        let changed = recorded(&conn, changed_set.as_str());
+        assert_eq!(changed[2].1, 300.0);
+        assert_eq!(changed[2].2, "DEFAULTED");
+        assert_eq!(changed[2].3.as_deref(), Some(changed_version.as_str()));
+
+        assert_eq!(
+            recorded(&conn, first_set.as_str()),
+            original,
+            "a later manifest must not reinterpret the original run"
+        );
+    }
 
     /// SB-MLA-055, the declaration half. A class output is registered under the name the run
     /// actually wrote — through the per-output rename AND the universal prefix — because a

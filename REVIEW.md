@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-004: effective parameters retain their manifest origin
+
+- [x] **Automated:** SB-DBM-T06 now saves every declared effective ModuleSpec parameter, not just
+      request overrides. The owned correctness test independently derives the configurable-manifest
+      hash, requires five synthetic parameters to persist as exactly two `EXPLICIT` and three
+      `DEFAULTED`, changes one later manifest default, and proves the original value and manifest
+      identity remain unchanged. Ordinary module runs and workflow chains share the same recorder;
+      REQUIRED_UNSET remains value-less and no petrophysical value, default, endpoint or range was
+      added. The full repository gate passes 989 / 0 / 36, with the existing 55 owned Rust warnings.
+- [ ] **Visual:** run a disposable module once with two visible overrides and other controls left at
+      their manifest defaults. In Sets / Inspector, confirm the saved ancestry shows all effective
+      values, the two `EXPLICIT` flags, the `DEFAULTED` flags and a manifest version for every
+      default. Raw JSON presence alone is not proof that the presentation is readable.
+- [ ] **Manual:** inspect `run_parameters` for an ordinary run and a workflow-chain run. Confirm
+      explicit rows have no default-manifest version, defaulted rows share the manifest identity
+      used by that module, and historical schema-v1 rows remain unclassified rather than being
+      guessed into either state.
+- [ ] **Field:** repeat one representative pilot interpretation after the parameter manifests are
+      frozen. Confirm the run record matches every value actually consumed. This increment does not
+      close SB-DBM-002's build-derived module identity or SB-DBM-015's full rerun manifest; those
+      remain separate contracts.
+
 ## 2026-08-13 — G2 SB-DBM-003: parameter absence is named and queryable
 
 - [x] **Automated:** SB-DBM-T05/T09/T30's source-state contract now writes every complete run's

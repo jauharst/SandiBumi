@@ -12,8 +12,9 @@
 - Source-navigation boundary: the codebase index was not callable in this task, so targeted `rg`, direct source reads, executable tests and reachable Git history were used as the declared fallback. Consequential negative findings were checked in the expected Rust, TypeScript, schema, test and history paths.
 - Verification boundary: a supporting test is named only for the clause it exercises. A test that does not cover every clause of its owned DBM contract is not promoted to qualifying proof. Manual checkboxes remain separate from automated evidence.
 - Fresh verification: 21 focused supporting Rust tests passed. The repository gate passed 16 takeover-ledger + 13 frontend + 917 Rust tests, with 0 failed and 36 ignored; production build and generated verification matrix were green.
-- Gate 2 update (2026-08-13): SB-DBM-001 and SB-DBM-003 now have owned correctness proofs. The
-  repository gate passes 988 / 0 / 36. Automated, visual, manual and field evidence remain separate.
+- Gate 2 update (2026-08-13): SB-DBM-001, SB-DBM-003 and SB-DBM-004 now have owned correctness
+  proofs. The repository gate passes 989 / 0 / 36. Automated, visual, manual and field evidence
+  remain separate.
 
 ## SB-DBM-001 - One run record per computed curve, resolvable in one hop
 
@@ -58,14 +59,14 @@
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DBM-T06`, `SB-DBM-T15`; sections 4.1 and 6.2-6.3.
 - **Atomic obligations:** persist every effective value; distinguish explicit from defaulted; pin the manifest version/source of each default; keep old records invariant after a default changes.
-- **Current source:** `ml.rs` records its effective runner parameters with supplied/defaulted flags. `workflow.rs` records request overrides rather than the fully resolved `build_opts`, and the equation path writes an empty parameter string.
-- **Qualifying acceptance tests:** none; T06's five-parameter/default-change fixture and the effective-parameter arm of T15 are missing. Test class is `MISSING`.
-- **Supporting tests:** `ml.rs::every_parameter_the_runner_reads_is_recorded_as_supplied_or_defaulted` covers one subsystem only.
+- **Current source:** `workflow.rs::effective_module_parameters` records every configurable value from the exact `ModuleSpec` the runner used. Numeric parameters and string options are labelled `EXPLICIT` or `DEFAULTED`; absent numeric defaults remain `REQUIRED_UNSET`. Every defaulted value carries the deterministic configurable-manifest hash already owned by `parameter_pack.rs`, while explicit and zone-override values carry no default-manifest version. Ordinary runs and workflow chains call the same recorder. `AncestryParameter` and typed IPC preserve the fields, and `run_parameters` stores them queryably in the same transaction as the run record. Existing databases gain the two nullable columns additively; old rows remain unclassified rather than being relabelled without evidence.
+- **Qualifying acceptance test:** `a_run_records_all_effective_parameters_and_keeps_the_default_manifest_version_after_that_manifest_changes` is `CORRECTNESS`. It independently derives the manifest hash for a synthetic five-parameter module, requires two explicit plus three defaulted records, changes one default, and proves both the new run's changed value/version and the original run's unchanged value/version. All values are declared synthetic fixture inputs, not product defaults.
+- **Supporting tests:** SB-DBM-003's source/absence/migration proof, all chain controls and all parameter-pack controls remain green. The ML-specific effective-parameter test remains supporting evidence for that separate subsystem.
 - **Manual evidence:** `workflow` 0/23, `machine-learning` 7/189 and `processing-history` 0/7.
-- **Git evidence:** accepted anchor `b332026c` contains the ML implementation and the general-writer gaps.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** module version/source identity from SB-DBM-002 is also required for default provenance.
-- **Next action:** serialize the post-resolution effective parameter set for every writer and implement T06 with explicit/defaulted controls and a changed-manifest control.
+- **Git evidence:** the Gate 2 topic branch contains the typed record, additive schema migration, shared ordinary-run/chain recorder and owned proof. `computed_curves` remains deliberately PK-less and no upsert path was added.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for T06. SB-DBM-002's deliberately absent build-derived module identity remains blocked and is not substituted by the parameter-manifest hash. The full T15 rerun manifest remains owned by SB-DBM-015.
+- **Next action:** retain T06 and the shared recorder; visually/manual-review the effective-set presentation and proceed to SB-DBM-005 without claiming T15 or SB-DBM-002 closed.
 
 ## SB-DBM-005 - The run record carries a method-derivation citation, not only parameter values
 

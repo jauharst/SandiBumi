@@ -1901,6 +1901,8 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                 name: name.clone(),
                 value: value.clone(),
                 source: custody.source_note.clone(),
+                resolution: Some(crate::equations::ParameterResolution::Explicit),
+                manifest_version: None,
                 decision: None,
             })
             .collect();

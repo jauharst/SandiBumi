@@ -1038,6 +1038,10 @@ export interface AncestryParameter {
   source: string | null;
   /** Present only when no numeric value exists; a sourced value has no absent-state token. */
   state?: "REQUIRED_UNSET";
+  /** Whether the effective value came from this run request or the module manifest. */
+  resolution?: "EXPLICIT" | "DEFAULTED";
+  /** Exact module-manifest identity for a DEFAULTED value; absent for explicit and legacy rows. */
+  manifest_version?: string;
   decision?: {
     topic: string;
     parameter: string;

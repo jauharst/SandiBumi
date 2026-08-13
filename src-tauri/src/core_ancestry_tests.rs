@@ -27,6 +27,8 @@ fn complete_record() -> equations::CurveAncestry {
             name: "REFERENCE_VALUE".into(),
             value: json!(0.25),
             source: "SB-CORE-T14 structural acceptance fixture; not a scientific default".into(),
+            resolution: Some(equations::ParameterResolution::Explicit),
+            manifest_version: None,
             decision: None,
         }],
         zone_scope: equations::AncestryZoneScope::WholeWell,

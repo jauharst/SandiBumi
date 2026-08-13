@@ -947,11 +947,34 @@ pub struct AncestryInput {
 
 pub(crate) const REQUIRED_UNSET_PARAMETER_STATE: &str = "REQUIRED_UNSET";
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ParameterResolution {
+    Explicit,
+    Defaulted,
+}
+
+impl ParameterResolution {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Explicit => "EXPLICIT",
+            Self::Defaulted => "DEFAULTED",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AncestryParameter {
     pub name: String,
     pub value: serde_json::Value,
     pub source: String,
+    /// How a declared module parameter obtained its effective value. `None` is retained only for
+    /// schema-v1 legacy rows and derived metadata such as `method_id`, neither of which may be
+    /// relabelled as a user decision after the fact.
+    pub resolution: Option<ParameterResolution>,
+    /// Present only for DEFAULTED values and identifies the exact module manifest that supplied
+    /// the default. Historical runs therefore cannot be reinterpreted by a later manifest.
+    pub manifest_version: Option<String>,
     /// Present only when the corpus records competing positions for this parameter. Optional so
     /// schema-v1 ancestry written before SB-CORE-013 remains readable without being relabelled.
     pub decision: Option<crate::param_sources::ParameterDecision>,
@@ -964,6 +987,10 @@ struct AncestryParameterWire {
     source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolution: Option<ParameterResolution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    manifest_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     decision: Option<crate::param_sources::ParameterDecision>,
 }
@@ -986,6 +1013,8 @@ impl Serialize for AncestryParameter {
             value: (!required_unset).then(|| self.value.clone()),
             source: (!required_unset).then(|| self.source.clone()),
             state: required_unset.then(|| REQUIRED_UNSET_PARAMETER_STATE.to_string()),
+            resolution: self.resolution,
+            manifest_version: self.manifest_version.clone(),
             decision: self.decision.clone(),
         }
         .serialize(serializer)
@@ -1000,15 +1029,21 @@ impl<'de> Deserialize<'de> for AncestryParameter {
         let wire = AncestryParameterWire::deserialize(deserializer)?;
         match wire.state.as_deref() {
             Some(REQUIRED_UNSET_PARAMETER_STATE) => {
-                if wire.value.is_some() || wire.source.is_some() {
+                if wire.value.is_some()
+                    || wire.source.is_some()
+                    || wire.resolution.is_some()
+                    || wire.manifest_version.is_some()
+                {
                     return Err(serde::de::Error::custom(
-                        "REQUIRED_UNSET parameter must have null value and null source",
+                        "REQUIRED_UNSET parameter must have null value, source, resolution, and manifest version",
                     ));
                 }
                 Ok(Self {
                     name: wire.name,
                     value: serde_json::json!(crate::modules::ABSENT_DEFAULT_SOURCE),
                     source: crate::modules::ABSENT_DEFAULT_SOURCE.to_string(),
+                    resolution: None,
+                    manifest_version: None,
                     decision: wire.decision,
                 })
             }
@@ -1022,10 +1057,32 @@ impl<'de> Deserialize<'de> for AncestryParameter {
                 let source = wire
                     .source
                     .ok_or_else(|| serde::de::Error::custom("sourced parameter is missing source"))?;
+                match (wire.resolution, wire.manifest_version.as_deref()) {
+                    (Some(ParameterResolution::Explicit), Some(_)) => {
+                        return Err(serde::de::Error::custom(
+                            "EXPLICIT parameter must not name a default manifest version",
+                        ));
+                    }
+                    (Some(ParameterResolution::Defaulted), Some(version))
+                        if !version.trim().is_empty() => {}
+                    (Some(ParameterResolution::Defaulted), _) => {
+                        return Err(serde::de::Error::custom(
+                            "DEFAULTED parameter must name a non-empty manifest version",
+                        ));
+                    }
+                    (None, Some(_)) => {
+                        return Err(serde::de::Error::custom(
+                            "legacy parameter without a resolution cannot name a manifest version",
+                        ));
+                    }
+                    _ => {}
+                }
                 Ok(Self {
                     name: wire.name,
                     value,
                     source,
+                    resolution: wire.resolution,
+                    manifest_version: wire.manifest_version,
                     decision: wire.decision,
                 })
             }
@@ -1119,6 +1176,12 @@ impl CurveAncestry {
                 return Err("complete curve ancestry contains an unnamed parameter".into());
             }
             if parameter.is_required_unset() {
+                if parameter.resolution.is_some() || parameter.manifest_version.is_some() {
+                    return Err(format!(
+                        "parameter '{}' has provenance on a REQUIRED_UNSET state",
+                        parameter.name
+                    ));
+                }
                 continue;
             }
             if parameter.source == crate::modules::ABSENT_DEFAULT_SOURCE {
@@ -1138,6 +1201,29 @@ impl CurveAncestry {
                     "parameter '{}' has no source string",
                     parameter.name
                 ));
+            }
+            match (parameter.resolution, parameter.manifest_version.as_deref()) {
+                (Some(ParameterResolution::Explicit), Some(_)) => {
+                    return Err(format!(
+                        "explicit parameter '{}' names a default manifest version",
+                        parameter.name
+                    ));
+                }
+                (Some(ParameterResolution::Defaulted), Some(version))
+                    if !version.trim().is_empty() => {}
+                (Some(ParameterResolution::Defaulted), _) => {
+                    return Err(format!(
+                        "defaulted parameter '{}' has no manifest version",
+                        parameter.name
+                    ));
+                }
+                (None, Some(_)) => {
+                    return Err(format!(
+                        "legacy parameter '{}' names a manifest version without a resolution",
+                        parameter.name
+                    ));
+                }
+                _ => {}
             }
             if parameter
                 .value
@@ -1473,6 +1559,8 @@ pub(crate) fn complete_curve_run_spec(
                     value.clone()
                 },
                 source: custody.source_note.trim().to_string(),
+                resolution: Some(ParameterResolution::Explicit),
+                manifest_version: None,
                 decision: None,
             })
             .collect(),
@@ -1481,6 +1569,8 @@ pub(crate) fn complete_curve_run_spec(
             name: "request".into(),
             value: value.clone(),
             source: custody.source_note.trim().to_string(),
+            resolution: Some(ParameterResolution::Explicit),
+            manifest_version: None,
             decision: None,
         }],
     };
@@ -1580,15 +1670,18 @@ fn write_run_parameters(
                 (Some(parameter.value.to_string()), Some(parameter.source.as_str()), None)
             };
         conn.execute(
-            "INSERT INTO run_parameters (set_id, position, name, value_json, source, state)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO run_parameters
+                (set_id, position, name, value_json, source, state, resolution, manifest_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 set_id,
                 position as i64,
                 parameter.name,
                 value_json,
                 source,
-                state
+                state,
+                parameter.resolution.map(ParameterResolution::as_str),
+                parameter.manifest_version
             ],
         )?;
     }
@@ -3685,12 +3778,16 @@ mod tests {
                     name: "SOURCED_FIXTURE".into(),
                     value: serde_json::json!(2.0),
                     source: "22_database-model.md §6 SB-DBM-T05 fixture input".into(),
+                    resolution: Some(ParameterResolution::Explicit),
+                    manifest_version: None,
                     decision: None,
                 },
                 AncestryParameter {
                     name: "REQUIRED_INPUT".into(),
                     value: serde_json::json!("ABSENT"),
                     source: crate::modules::ABSENT_DEFAULT_SOURCE.into(),
+                    resolution: None,
+                    manifest_version: None,
                     decision: None,
                 },
             ],

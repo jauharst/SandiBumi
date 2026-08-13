@@ -349,11 +349,20 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             value_json  VARCHAR,
             source      VARCHAR,
             state       VARCHAR,
+            resolution  VARCHAR,
+            manifest_version VARCHAR,
             PRIMARY KEY (set_id, position),
             CHECK (
-                (state = 'REQUIRED_UNSET' AND value_json IS NULL AND source IS NULL)
+                (state = 'REQUIRED_UNSET' AND value_json IS NULL AND source IS NULL
+                    AND resolution IS NULL AND manifest_version IS NULL)
                 OR
-                (state IS NULL AND value_json IS NOT NULL AND source IS NOT NULL AND length(trim(source)) > 0)
+                (state IS NULL AND value_json IS NOT NULL AND source IS NOT NULL
+                    AND length(trim(source)) > 0 AND (
+                        (resolution IS NULL AND manifest_version IS NULL)
+                        OR (resolution = 'EXPLICIT' AND manifest_version IS NULL)
+                        OR (resolution = 'DEFAULTED' AND manifest_version IS NOT NULL
+                            AND length(trim(manifest_version)) > 0)
+                    ))
             )
         );
         CREATE INDEX IF NOT EXISTS idx_run_parameters_state ON run_parameters(state);
@@ -914,6 +923,13 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         );
         "#,
     )?;
+    // Projects first opened by SB-DBM-003 already own the indexed parameter relation. Preserve
+    // those rows and extend it additively; historical records remain unclassified rather than
+    // being relabelled as explicit/defaulted without evidence.
+    conn.execute_batch(
+        "ALTER TABLE run_parameters ADD COLUMN IF NOT EXISTS resolution VARCHAR;
+         ALTER TABLE run_parameters ADD COLUMN IF NOT EXISTS manifest_version VARCHAR;",
+    )?;
     backfill_run_parameters(conn)?;
     Ok(())
 }
@@ -931,6 +947,8 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
         value_json: Option<String>,
         source: Option<String>,
         state: Option<String>,
+        resolution: Option<String>,
+        manifest_version: Option<String>,
     }
 
     let candidates: Vec<(String, String)> = {
@@ -976,15 +994,25 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
             let value = parameter.get("value");
             let source = parameter.get("source");
             let state = parameter.get("state").and_then(serde_json::Value::as_str);
+            let resolution = parameter
+                .get("resolution")
+                .and_then(serde_json::Value::as_str);
+            let manifest_version = parameter
+                .get("manifest_version")
+                .and_then(serde_json::Value::as_str);
             let historical_required_unset = state.is_none()
                 && value.and_then(serde_json::Value::as_str)
                     == Some(crate::modules::ABSENT_DEFAULT_SOURCE)
                 && source.and_then(serde_json::Value::as_str)
-                    == Some(crate::modules::ABSENT_DEFAULT_SOURCE);
+                    == Some(crate::modules::ABSENT_DEFAULT_SOURCE)
+                && resolution.is_none()
+                && manifest_version.is_none();
             let canonical_required_unset =
                 state == Some(crate::equations::REQUIRED_UNSET_PARAMETER_STATE)
                     && value.is_some_and(serde_json::Value::is_null)
-                    && source.is_some_and(serde_json::Value::is_null);
+                    && source.is_some_and(serde_json::Value::is_null)
+                    && resolution.is_none()
+                    && manifest_version.is_none();
 
             let row = if historical_required_unset || canonical_required_unset {
                 BackfillRow {
@@ -994,6 +1022,8 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
                     value_json: None,
                     source: None,
                     state: Some(crate::equations::REQUIRED_UNSET_PARAMETER_STATE.to_string()),
+                    resolution: None,
+                    manifest_version: None,
                 }
             } else if state.is_none() {
                 let Some(value) = value.filter(|value| !value.is_null()) else {
@@ -1007,6 +1037,15 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
                     complete = false;
                     break;
                 };
+                let legal_resolution = match (resolution, manifest_version) {
+                    (None, None) | (Some("EXPLICIT"), None) => true,
+                    (Some("DEFAULTED"), Some(version)) if !version.trim().is_empty() => true,
+                    _ => false,
+                };
+                if !legal_resolution {
+                    complete = false;
+                    break;
+                }
                 BackfillRow {
                     set_id: set_id.clone(),
                     position: position as i64,
@@ -1014,6 +1053,8 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
                     value_json: Some(value.to_string()),
                     source: Some(source.to_string()),
                     state: None,
+                    resolution: resolution.map(str::to_string),
+                    manifest_version: manifest_version.map(str::to_string),
                 }
             } else {
                 complete = false;
@@ -1032,15 +1073,18 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
     with_txn(conn, |conn| {
         for row in rows {
             conn.execute(
-                "INSERT INTO run_parameters (set_id, position, name, value_json, source, state)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO run_parameters
+                    (set_id, position, name, value_json, source, state, resolution, manifest_version)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     row.set_id,
                     row.position,
                     row.name,
                     row.value_json,
                     row.source,
-                    row.state
+                    row.state,
+                    row.resolution,
+                    row.manifest_version
                 ],
             )?;
         }
