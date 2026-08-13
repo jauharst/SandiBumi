@@ -87,15 +87,6 @@ pub fn unpack_pairs(point_count: usize, data: &[u8]) -> Result<(Vec<f32>, Vec<f3
     Ok((depth, value))
 }
 
-const STANDARD_COLUMNS: &[(&str, &str)] = &[
-    ("GR", "gr"),
-    ("RES_DEEP", "res_deep"),
-    ("NPHI", "nphi"),
-    ("RHOB", "rhob"),
-    ("DT", "dt"),
-    ("SP", "sp"),
-];
-
 enum CurveStore {
     /// Column name within `standard_curves`.
     Standard(&'static str),
@@ -121,7 +112,7 @@ impl CurveStore {
 fn locate_curve(conn: &Connection, well_id: &str, curve: &str) -> Result<CurveStore, String> {
     let upper = curve.trim().to_uppercase();
 
-    if let Some((_, col)) = STANDARD_COLUMNS.iter().find(|(m, _)| *m == upper) {
+    if let Some(column) = crate::schema_vocab::standard_column(&upper).filter(|column| column.editable) {
         let n: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM standard_curves WHERE well_id = ?1",
@@ -130,7 +121,7 @@ fn locate_curve(conn: &Connection, well_id: &str, curve: &str) -> Result<CurveSt
             )
             .map_err(|e| e.to_string())?;
         if n > 0 {
-            return Ok(CurveStore::Standard(col));
+            return Ok(CurveStore::Standard(column.storage_column));
         }
     }
 
@@ -258,21 +249,19 @@ fn write_curve_inner(
             // Read every column of the well's grid, patch the edited one, rewrite whole
             // rows. NaN in a nullable column is stored as NULL to keep the import
             // discipline (dt/sp arrive as NULL where absent).
+            let projections = crate::schema_vocab::standard_projections();
+            let sql = format!(
+                "SELECT {} FROM standard_curves WHERE well_id = ?1 ORDER BY depth",
+                projections.select_list
+            );
             let mut stmt = conn
-                .prepare("SELECT depth, gr, res_deep, nphi, rhob, dt, sp FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
+                .prepare(&sql)
                 .map_err(|e| e.to_string())?;
-            type Row = (f32, Option<f32>, Option<f32>, Option<f32>, Option<f32>, Option<f32>, Option<f32>);
-            let rows: Vec<Row> = stmt
+            let mut rows: Vec<Vec<Option<f32>>> = stmt
                 .query_map(params![well_id], |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                        row.get(6)?,
-                    ))
+                    (0..crate::schema_vocab::STANDARD_COLUMNS.len())
+                        .map(|index| row.get(index))
+                        .collect::<duckdb::Result<Vec<_>>>()
                 })
                 .map_err(|e| e.to_string())?
                 .collect::<Result<_, _>>()
@@ -280,19 +269,34 @@ fn write_curve_inner(
             if rows.len() != depth.len() {
                 return Err("curve changed while editing — retry".into());
             }
-            let col_idx = ["gr", "res_deep", "nphi", "rhob", "dt", "sp"]
+            let col_idx = crate::schema_vocab::STANDARD_COLUMNS
                 .iter()
-                .position(|c| c == col)
+                .position(|column| column.storage_column == *col)
                 .expect("known column");
+            for (row, new_value) in rows.iter_mut().zip(new_values) {
+                row[col_idx] = (!new_value.is_nan()).then_some(*new_value);
+            }
 
             conn.execute("DELETE FROM standard_curves WHERE well_id = ?1", params![well_id])
                 .map_err(|e| e.to_string())?;
             let mut appender = conn.appender("standard_curves").map_err(|e| e.to_string())?;
-            for (i, (d, gr, res, nphi, rhob, dt, sp)) in rows.into_iter().enumerate() {
-                let mut cols = [gr, res, nphi, rhob, dt, sp];
-                cols[col_idx] = if new_values[i].is_nan() { None } else { Some(new_values[i]) };
+            for row in rows {
+                let mut values = Vec::with_capacity(row.len() + 1);
+                values.push(duckdb::types::Value::Text(well_id.to_string()));
+                for (column, value) in crate::schema_vocab::STANDARD_COLUMNS.iter().zip(row) {
+                    match value {
+                        Some(value) => values.push(duckdb::types::Value::Float(value)),
+                        None if column.required => {
+                            return Err(format!(
+                                "required standard column '{}' became absent while editing",
+                                column.mnemonic
+                            ));
+                        }
+                        None => values.push(duckdb::types::Value::Null),
+                    }
+                }
                 appender
-                    .append_row(params![well_id, d, cols[0], cols[1], cols[2], cols[3], cols[4], cols[5]])
+                    .append_row(duckdb::appender_params_from_iter(values.iter()))
                     .map_err(|e| e.to_string())?;
             }
             appender.flush().map_err(|e| e.to_string())?;

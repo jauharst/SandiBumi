@@ -678,15 +678,22 @@ fn build_frame(
 pub(crate) fn set_frame(conn: &Connection, well_id: &str, set_name: &str) -> duckdb::Result<Option<Vec<f32>>> {
     let row: Option<(String, String)> = conn
         .query_row(
-            "SELECT set_id, COALESCE(frame, 'STANDARD') FROM log_sets
+            "SELECT set_id, COALESCE(frame, ?3) FROM log_sets
              WHERE well_id = ?1 AND upper(set_name) = upper(?2) ORDER BY version DESC LIMIT 1",
-            params![well_id, set_name],
+            params![
+                well_id,
+                set_name,
+                crate::schema_vocab::LogSetFrame::Standard.as_str()
+            ],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .ok();
     let Some((set_id, frame)) = row else { return Ok(None) ;
     };
-    if frame != "OWN" {
+    let frame = crate::schema_vocab::LogSetFrame::parse(&frame).ok_or_else(|| {
+        duckdb::Error::InvalidParameterName(format!("unknown stored log-set frame '{frame}'"))
+    })?;
+    if frame != crate::schema_vocab::LogSetFrame::Own {
         return Ok(None);
     }
     let mut stmt = conn.prepare(
@@ -777,25 +784,43 @@ fn read_source(
             grouped.into_iter().collect()
         }
         _ => {
+            let projections = crate::schema_vocab::standard_projections();
+            let sql = format!(
+                "SELECT {} FROM standard_curves WHERE well_id = ?1 ORDER BY depth",
+                projections.select_list
+            );
             let mut stmt = conn
-                .prepare(
-                    "SELECT depth, gr, res_deep, nphi, rhob, dt, sp FROM standard_curves
-                     WHERE well_id = ?1 ORDER BY depth",
-                )
+                .prepare(&sql)
                 .map_err(|e| e.to_string())?;
-            let rows: Vec<[f32; 7]> = stmt
+            let rows: Vec<Vec<f32>> = stmt
                 .query_map(params![well_id], |r| {
-                    Ok([r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?])
+                    (0..crate::schema_vocab::STANDARD_COLUMNS.len())
+                        .map(|index| {
+                            r.get::<_, Option<f32>>(index)
+                                .map(|value| value.unwrap_or(MISSING))
+                        })
+                        .collect::<duckdb::Result<Vec<_>>>()
                 })
                 .map_err(|e| e.to_string())?
                 .collect::<duckdb::Result<_>>()
                 .map_err(|e| e.to_string())?;
-            ["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"]
+            crate::schema_vocab::STANDARD_COLUMNS
                 .iter()
                 .enumerate()
-                .filter(|(_, n)| wanted.is_empty() || wanted.iter().any(|w| w.eq_ignore_ascii_case(n)))
-                .map(|(k, n)| {
-                    ((*n).to_string(), rows.iter().map(|r| (r[0], r[k + 1])).collect::<Vec<_>>())
+                .filter(|(_, column)| column.editable)
+                .filter(|(_, column)| {
+                    wanted.is_empty()
+                        || wanted
+                            .iter()
+                            .any(|wanted| wanted.eq_ignore_ascii_case(column.mnemonic))
+                })
+                .map(|(index, column)| {
+                    (
+                        column.mnemonic.to_string(),
+                        rows.iter()
+                            .map(|row| (row[0], row[index]))
+                            .collect::<Vec<_>>(),
+                    )
                 })
                 // A standard column that was never delivered is all-NaN; carrying it would write a
                 // curve of nothing and report it as re-framed.
@@ -875,23 +900,30 @@ pub fn source_curve_names(conn: &Connection, well_id: &str, source: &SourceSpec)
                 .map_err(|e| e.to_string())
         }
         _ => {
-            let counts: (i64, i64, i64, i64, i64, i64) = conn
-                .query_row(
-                    "SELECT
-                         COUNT(*) FILTER (WHERE NOT isnan(gr)),
-                         COUNT(*) FILTER (WHERE NOT isnan(res_deep)),
-                         COUNT(*) FILTER (WHERE NOT isnan(nphi)),
-                         COUNT(*) FILTER (WHERE NOT isnan(rhob)),
-                         COUNT(*) FILTER (WHERE dt IS NOT NULL AND NOT isnan(dt)),
-                         COUNT(*) FILTER (WHERE sp IS NOT NULL AND NOT isnan(sp))
-                     FROM standard_curves WHERE well_id = ?1",
-                    params![well_id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
-                )
+            let columns = crate::schema_vocab::standard_projections().editable;
+            let count_list = columns
+                .iter()
+                .map(|(_, storage)| {
+                    format!(
+                        "COUNT(*) FILTER (WHERE {storage} IS NOT NULL AND NOT isnan({storage}))"
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "SELECT {count_list} FROM standard_curves WHERE well_id = ?1"
+            );
+            let counts: Vec<i64> = conn
+                .query_row(&sql, params![well_id], |row| {
+                    (0..columns.len())
+                        .map(|index| row.get(index))
+                        .collect::<duckdb::Result<Vec<_>>>()
+                })
                 .map_err(|e| e.to_string())?;
-            Ok(["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"]
+            Ok(columns
                 .into_iter()
-                .zip([counts.0, counts.1, counts.2, counts.3, counts.4, counts.5])
+                .map(|(mnemonic, _)| mnemonic)
+                .zip(counts)
                 .filter_map(|(name, count)| (count > 0).then_some(name.to_string()))
                 .collect())
         }
@@ -1321,7 +1353,10 @@ fn write_own_frame(
 ) -> duckdb::Result<i64> {
     crate::db::with_txn(conn, |conn| {
         let (set_id, version) = equations::create_log_set(conn, well_id, spec)?;
-        conn.execute("UPDATE log_sets SET frame = 'OWN' WHERE set_id = ?1", params![set_id])?;
+        conn.execute(
+            "UPDATE log_sets SET frame = ?2 WHERE set_id = ?1",
+            params![set_id, crate::schema_vocab::LogSetFrame::Own.as_str()],
+        )?;
         // The appender is POSITIONAL: (set_id, well_id, depth, curve_name, value), which is not
         // the order `computed_curves` uses.
         let mut app = conn.appender("computed_curves_archive")?;

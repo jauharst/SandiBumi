@@ -343,7 +343,7 @@ pub(crate) fn resolve_output_names(
                 arg.name
             ));
         }
-        if crate::equations::STANDARD_COLUMNS.contains(&name.as_str()) {
+        if crate::schema_vocab::standard_column(&name).is_some() {
             return Err(format!(
                 "{} = {name} would be shadowed: {name} is read from the raw log first, so a \
                  computed copy stored under that name is never the one anything reads. Give the \

@@ -483,44 +483,37 @@ type CurveFrame = (Vec<f32>, HashMap<String, Vec<f32>>);
 /// ONE list, consulted by [`crate::workflow::resolve_output_names`] before a run writes anything.
 /// It lived in `condition.rs` and again in `frame.rs`, which is two places for a seventh standard
 /// column to be forgotten.
-pub(crate) const STANDARD_COLUMNS: [&str; 7] = ["DEPTH", "GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"];
-
 /// Reads the requested curve mnemonics for one well, aligned onto that well's standard
 /// depth grid. Non-standard names are looked up in `computed_curves` (so equations can
 /// chain off previously computed curves).
 pub(crate) fn fetch_curve_frame(conn: &Connection, well_id: &str, curve_names: &[String]) -> duckdb::Result<CurveFrame> {
-    let mut stmt = conn.prepare(
-        "SELECT depth, gr, res_deep, nphi, rhob, dt, sp FROM standard_curves WHERE well_id = ?1 ORDER BY depth",
-    )?;
-    let mut depth = Vec::new();
-    let mut gr = Vec::new();
-    let mut res_deep = Vec::new();
-    let mut nphi = Vec::new();
-    let mut rhob = Vec::new();
-    let mut dt = Vec::new();
-    let mut sp = Vec::new();
-
+    let projections = crate::schema_vocab::standard_projections();
+    let sql = format!(
+        "SELECT {} FROM standard_curves WHERE well_id = ?1 ORDER BY depth",
+        projections.select_list
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params![well_id], |row| {
-        Ok((
-            row.get::<_, f32>(0)?,
-            row.get::<_, f32>(1)?,
-            row.get::<_, f32>(2)?,
-            row.get::<_, f32>(3)?,
-            row.get::<_, f32>(4)?,
-            row.get::<_, Option<f32>>(5)?,
-            row.get::<_, Option<f32>>(6)?,
-        ))
+        (0..crate::schema_vocab::STANDARD_COLUMNS.len())
+            .map(|index| row.get::<_, Option<f32>>(index).map(|value| value.unwrap_or(f32::NAN)))
+            .collect::<duckdb::Result<Vec<_>>>()
     })?;
-    for r in rows {
-        let (d, g, rd, np, rb, sdt, ssp) = r?;
-        depth.push(d);
-        gr.push(g);
-        res_deep.push(rd);
-        nphi.push(np);
-        rhob.push(rb);
-        dt.push(sdt.unwrap_or(f32::NAN));
-        sp.push(ssp.unwrap_or(f32::NAN));
+    let mut standard = crate::schema_vocab::STANDARD_COLUMNS
+        .iter()
+        .map(|column| (column.mnemonic, Vec::new()))
+        .collect::<HashMap<_, _>>();
+    for row in rows {
+        for (column, value) in crate::schema_vocab::STANDARD_COLUMNS.iter().zip(row?) {
+            standard
+                .get_mut(column.mnemonic)
+                .expect("registered standard column")
+                .push(value);
+        }
     }
+    let depth = standard
+        .get("DEPTH")
+        .expect("validated standard depth column")
+        .clone();
 
     let mut columns: HashMap<String, Vec<f32>> = HashMap::new();
     // Names that miss the standard six (or whose standard column is all-NaN because import
@@ -530,16 +523,7 @@ pub(crate) fn fetch_curve_frame(conn: &Connection, well_id: &str, curve_names: &
     let mut resolve: Vec<String> = Vec::new();
     for name in curve_names {
         let upper = name.trim().to_uppercase();
-        let std_col = match upper.as_str() {
-            "DEPTH" => Some(&depth),
-            "GR" => Some(&gr),
-            "RES_DEEP" => Some(&res_deep),
-            "NPHI" => Some(&nphi),
-            "RHOB" => Some(&rhob),
-            "DT" => Some(&dt),
-            "SP" => Some(&sp),
-            _ => None,
-        };
+        let std_col = standard.get(upper.as_str());
         match std_col {
             Some(col) if upper == "DEPTH" || col.iter().any(|v| !v.is_nan()) => {
                 columns.insert(upper, col.clone());
@@ -921,7 +905,7 @@ fn overlay_resolved_native_standard_inputs(
     for name in curve_names {
         let upper = name.trim().to_uppercase();
         if upper == "DEPTH"
-            || !STANDARD_COLUMNS.contains(&upper.as_str())
+            || crate::schema_vocab::standard_column(&upper).is_none()
             || resolved_from_selected_set.contains(&upper)
         {
             continue;
@@ -1118,23 +1102,7 @@ pub struct AncestryInput {
 /// The one controlled vocabulary for provenance that is absent for a known reason. These are
 /// states, not substitute values: sample absence remains `f32::NAN`, and a serialization failure
 /// remains an error that prevents the run record from being written.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ProvenanceAbsentState {
-    NotApplicable,
-    RequiredUnset,
-    LegacyUnrecorded,
-}
-
-impl ProvenanceAbsentState {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::NotApplicable => "NOT_APPLICABLE",
-            Self::RequiredUnset => "REQUIRED_UNSET",
-            Self::LegacyUnrecorded => "LEGACY_UNRECORDED",
-        }
-    }
-}
+pub use crate::schema_vocab::ProvenanceAbsentState;
 
 pub(crate) const REQUIRED_UNSET_PARAMETER_STATE: &str =
     ProvenanceAbsentState::RequiredUnset.as_str();
@@ -1990,9 +1958,19 @@ fn create_log_set_raw(conn: &Connection, well_id: &str, spec: &LogSetSpec) -> du
     )?;
     let set_id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO log_sets (set_id, well_id, set_name, version, module, params_json, inputs_json)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![set_id, well_id, spec.set_name, version, spec.module, spec.params_json, spec.inputs_json],
+        "INSERT INTO log_sets
+            (set_id, well_id, set_name, version, module, params_json, inputs_json, frame)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            set_id,
+            well_id,
+            spec.set_name,
+            version,
+            spec.module,
+            spec.params_json,
+            spec.inputs_json,
+            crate::schema_vocab::LogSetFrame::Standard.as_str()
+        ],
     )?;
     Ok((set_id, version))
 }
@@ -2249,8 +2227,8 @@ pub(crate) fn write_complete_own_frame(
     crate::db::with_txn(conn, |conn| {
         let (set_id, version) = create_log_set_raw(conn, well_id, &spec.storage)?;
         conn.execute(
-            "UPDATE log_sets SET frame = 'OWN' WHERE set_id = ?1",
-            params![set_id],
+            "UPDATE log_sets SET frame = ?2 WHERE set_id = ?1",
+            params![set_id, crate::schema_vocab::LogSetFrame::Own.as_str()],
         )?;
         let mut archive = conn.appender("computed_curves_archive")?;
         for (name, values) in curves {
@@ -2678,9 +2656,19 @@ pub(crate) fn create_log_sets_batch(
     crate::db::with_txn(conn, |conn| {
         for (well_id, version, set_id) in &planned {
             conn.execute(
-                "INSERT INTO log_sets (set_id, well_id, set_name, version, module, params_json, inputs_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![set_id, well_id, spec.set_name, version, spec.module, spec.params_json, spec.inputs_json],
+                "INSERT INTO log_sets
+                    (set_id, well_id, set_name, version, module, params_json, inputs_json, frame)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    set_id,
+                    well_id,
+                    spec.set_name,
+                    version,
+                    spec.module,
+                    spec.params_json,
+                    spec.inputs_json,
+                    crate::schema_vocab::LogSetFrame::Standard.as_str()
+                ],
             )?;
         }
         Ok::<(), duckdb::Error>(())
@@ -2773,8 +2761,9 @@ pub(crate) fn create_complete_log_sets_batch(
     crate::db::with_txn(conn, |conn| {
         for (well_id, version, set_id, spec) in &planned {
             conn.execute(
-                "INSERT INTO log_sets (set_id, well_id, set_name, version, module, params_json, inputs_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO log_sets
+                    (set_id, well_id, set_name, version, module, params_json, inputs_json, frame)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     set_id,
                     well_id,
@@ -2782,7 +2771,8 @@ pub(crate) fn create_complete_log_sets_batch(
                     version,
                     spec.storage.module,
                     spec.storage.params_json,
-                    spec.storage.inputs_json
+                    spec.storage.inputs_json,
+                    crate::schema_vocab::LogSetFrame::Standard.as_str()
                 ],
             )?;
             write_run_parameters(conn, set_id, &spec.ancestry.parameters)?;
@@ -3174,7 +3164,7 @@ pub(crate) fn list_computed_catalog(conn: &Connection, well_id: &str) -> duckdb:
     let mut stmt = conn.prepare(
         "SELECT cc.curve_name,
                 CASE WHEN s.set_id IS NOT NULL THEN 'RECORDED'
-                     ELSE 'LEGACY_UNRECORDED' END,
+                     ELSE ?2 END,
                 COUNT(*), s.set_name, s.version, s.module,
                 strftime(s.created_at, '%Y-%m-%d %H:%M'),
                 COUNT(*) FILTER (WHERE NOT isnan(cc.value)),
@@ -3189,7 +3179,7 @@ pub(crate) fn list_computed_catalog(conn: &Connection, well_id: &str) -> duckdb:
                   s.created_at, s.params_json
          ORDER BY cc.curve_name, s.set_id NULLS FIRST",
     )?;
-    let rows = stmt.query_map(params![well_id], |r| {
+    let rows = stmt.query_map(params![well_id, LEGACY_UNRECORDED], |r| {
         let provenance_class = match r.get::<_, String>(1)?.as_str() {
             "RECORDED" => ComputedProvenanceClass::Recorded,
             _ => ComputedProvenanceClass::LegacyUnrecorded,

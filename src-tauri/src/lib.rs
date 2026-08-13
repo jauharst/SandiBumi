@@ -61,6 +61,7 @@ mod report;
 mod resultsqc;
 mod rocktyping;
 mod satheight;
+mod schema_vocab;
 mod shf_fit;
 mod ssc;
 mod statistics;

@@ -209,7 +209,9 @@ pub fn init_db_resilient(path: &str) -> DbResult<Connection> {
 }
 
 pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
-    conn.execute_batch(
+    crate::schema_vocab::validate_schema_vocabularies().map_err(DbError::Invalid)?;
+    let standard = crate::schema_vocab::standard_projections();
+    let schema = format!(
         r#"
         CREATE TABLE IF NOT EXISTS wells (
             well_id     UUID PRIMARY KEY,
@@ -236,17 +238,9 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
 
         CREATE TABLE IF NOT EXISTS standard_curves (
             well_id     UUID NOT NULL,
-            depth       FLOAT NOT NULL,
-            gr          FLOAT,
-            res_deep    FLOAT,
-            nphi        FLOAT,
-            rhob        FLOAT,
-            dt          FLOAT,
-            sp          FLOAT,
+{standard_table_ddl},
             PRIMARY KEY (well_id, depth)
         );
-        ALTER TABLE standard_curves ADD COLUMN IF NOT EXISTS dt FLOAT;
-        ALTER TABLE standard_curves ADD COLUMN IF NOT EXISTS sp FLOAT;
 
         CREATE TABLE IF NOT EXISTS high_res_curves (
             well_id     UUID NOT NULL,
@@ -335,7 +329,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             -- 'STANDARD' = written on the well's own depth grid (every module).
             -- 'OWN'      = the set carries its own depth column (reframe.rs), and every read
             --              through it runs on that frame instead. Declared, never inferred.
-            frame       VARCHAR NOT NULL DEFAULT 'STANDARD'
+            frame       VARCHAR NOT NULL DEFAULT '{standard_frame}'
         );
 
         -- Queryable parameter custody for one run. The full ancestry JSON remains the portable
@@ -940,7 +934,11 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             well_id     UUID PRIMARY KEY
         );
         "#,
-    )?;
+        standard_table_ddl = standard.table_ddl,
+        standard_frame = crate::schema_vocab::LogSetFrame::Standard.as_str(),
+    );
+    conn.execute_batch(&schema)?;
+    conn.execute_batch(&standard.migration_ddl)?;
     // Projects first opened by SB-DBM-003 already own the indexed parameter relation. Preserve
     // those rows and extend it additively; historical records remain unclassified rather than
     // being relabelled as explicit/defaulted without evidence.
@@ -1117,18 +1115,6 @@ fn backfill_run_parameters(conn: &Connection) -> DbResult<()> {
 /// source = 'standard_curves migration' before doing any work, so it runs at most once
 /// per well per column even if called on every launch.
 pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<()> {
-    const COLUMNS: &[(&str, &str, &str)] = &[
-        // (db column, mnemonic, family)
-        ("gr", "GR", "GR"),
-        ("res_deep", "RES_DEEP", "RES"),
-        ("nphi", "NPHI", "NPHI"),
-        ("rhob", "RHOB", "RHOB"),
-        ("dt", "DT", "DT"),
-        ("sp", "SP", "SP"),
-    ];
-    const UNITS: &[(&str, &str)] =
-        &[("GR", "gAPI"), ("RES", "ohm.m"), ("NPHI", "v/v"), ("RHOB", "g/cc"), ("DT", "us/ft"), ("SP", "mV")];
-
     // Only wells not yet fully backfilled. Once a well is in curve_migration_done it is skipped
     // entirely, so this whole function is ~instant on an already-migrated project instead of
     // re-scanning standard_curves for every well's absent columns on each launch.
@@ -1138,7 +1124,17 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
     drop(stmt);
 
     for well_id in well_ids {
-        for (col, mnemonic, family) in COLUMNS {
+        for column in crate::schema_vocab::STANDARD_COLUMNS
+            .iter()
+            .filter(|column| column.editable)
+        {
+            let col = column.storage_column;
+            let mnemonic = column.mnemonic;
+            let family = crate::curves::family_for(mnemonic).ok_or_else(|| {
+                DbError::Invalid(format!(
+                    "registered standard column '{mnemonic}' has no curve-family definition"
+                ))
+            })?;
             let already: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM curve_meta WHERE well_id = ?1 AND mnemonic = ?2 AND source = 'standard_curves migration'",
                 params![well_id, mnemonic],
@@ -1160,14 +1156,19 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
             }
 
             let curve_id = Uuid::new_v4().to_string();
-            let unit = UNITS.iter().find(|(f, _)| f == family).map(|(_, u)| *u);
             conn.execute(
                 "INSERT INTO curve_meta
                     (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no,
                      set_version, final_flag, modified_seq)
                  VALUES (?1, ?2, 'RAW', ?3, ?4, ?5, 'standard_curves migration', NULL,
                          1, 0, nextval('curve_meta_modified_seq'))",
-                params![curve_id, well_id, mnemonic, unit, family],
+                params![
+                    curve_id,
+                    well_id,
+                    mnemonic,
+                    family.canonical_unit,
+                    family.family
+                ],
             )?;
             conn.execute(
                 &format!(
@@ -1699,7 +1700,10 @@ pub fn migrate_log_set_frame(conn: &Connection) -> DbResult<()> {
         |r| r.get(0),
     )?;
     if has == 0 {
-        conn.execute_batch("ALTER TABLE log_sets ADD COLUMN frame VARCHAR NOT NULL DEFAULT 'STANDARD';")?;
+        conn.execute_batch(&format!(
+            "ALTER TABLE log_sets ADD COLUMN frame VARCHAR NOT NULL DEFAULT '{}';",
+            crate::schema_vocab::LogSetFrame::Standard.as_str()
+        ))?;
     }
     Ok(())
 }
@@ -1892,16 +1896,31 @@ pub fn insert_standard_curves(
     let well_id_str = well_id.to_string();
     let mut appender: Appender = conn.appender("standard_curves")?;
     for i in 0..n {
-        appender.append_row(params![
-            well_id_str,
-            depths[i],
-            gr[i],
-            res_deep[i],
-            nphi[i],
-            rhob[i],
-            dt[i],
-            sp[i],
-        ])?;
+        let supplied = |mnemonic: &str| match mnemonic {
+            "DEPTH" => Some(depths[i]),
+            "GR" => Some(gr[i]),
+            "RES_DEEP" => Some(res_deep[i]),
+            "NPHI" => Some(nphi[i]),
+            "RHOB" => Some(rhob[i]),
+            "DT" => Some(dt[i]),
+            "SP" => Some(sp[i]),
+            _ => None,
+        };
+        let mut values = Vec::with_capacity(crate::schema_vocab::STANDARD_COLUMNS.len() + 1);
+        values.push(duckdb::types::Value::Text(well_id_str.clone()));
+        for column in crate::schema_vocab::STANDARD_COLUMNS {
+            match supplied(column.mnemonic) {
+                Some(value) => values.push(duckdb::types::Value::Float(value)),
+                None if column.required => {
+                    return Err(DbError::Invalid(format!(
+                        "required standard column '{}' has no insert projection",
+                        column.mnemonic
+                    )));
+                }
+                None => values.push(duckdb::types::Value::Null),
+            }
+        }
+        appender.append_row(duckdb::appender_params_from_iter(values.iter()))?;
     }
     appender.flush()?;
     Ok(())
@@ -3896,20 +3915,75 @@ pub fn zones_from_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<ZoneEnt
 // SQL — table and column names are validated against these specs.
 // ---------------------------------------------------------------------------
 
-/// (table, columns, well_scoped, ORDER BY clause)
-const TABLE_SPECS: &[(&str, &[&str], bool, &str)] = &[
-    ("wells", &["well_id", "well_name", "field_name", "td", "kb"], false, "well_name"),
-    ("standard_curves", &["depth", "gr", "res_deep", "nphi", "rhob", "dt", "sp"], true, "depth"),
-    ("computed_curves", &["depth", "curve_name", "value"], true, "curve_name, depth"),
-    ("tops", &["top_name", "depth", "color"], true, "depth"),
-    ("zones", &["zone_name", "top_depth", "bottom_depth"], true, "top_depth"),
-    ("zone_params", &["zone_name", "param_name", "value_num", "value_text"], true, "zone_name, param_name"),
-    // set_name is listed (read-only, like every non-editable column) so a well carrying
-    // several core deliveries can be told apart in the grid; edits still target the
-    // ACTIVE set only (see `update_core_sample`).
-    ("core_data", &["set_name", "depth", "cpor", "cperm", "cgd", "csw"], true, "set_name, depth"),
-    ("aux_data", &["dataset", "depth_top", "depth_base", "item", "value_num", "value_text"], true, "dataset, depth_top, item"),
-];
+struct TableSpec {
+    table: &'static str,
+    columns: Vec<&'static str>,
+    well_scoped: bool,
+    order: &'static str,
+}
+
+fn table_specs() -> Vec<TableSpec> {
+    vec![
+        TableSpec {
+            table: "wells",
+            columns: vec!["well_id", "well_name", "field_name", "td", "kb"],
+            well_scoped: false,
+            order: "well_name",
+        },
+        TableSpec {
+            table: "standard_curves",
+            columns: crate::schema_vocab::standard_projections().inspector_columns,
+            well_scoped: true,
+            order: crate::schema_vocab::STANDARD_COLUMNS[0].storage_column,
+        },
+        TableSpec {
+            table: "computed_curves",
+            columns: vec!["depth", "curve_name", "value"],
+            well_scoped: true,
+            order: "curve_name, depth",
+        },
+        TableSpec {
+            table: "tops",
+            columns: vec!["top_name", "depth", "color"],
+            well_scoped: true,
+            order: "depth",
+        },
+        TableSpec {
+            table: "zones",
+            columns: vec!["zone_name", "top_depth", "bottom_depth"],
+            well_scoped: true,
+            order: "top_depth",
+        },
+        TableSpec {
+            table: "zone_params",
+            columns: vec!["zone_name", "param_name", "value_num", "value_text"],
+            well_scoped: true,
+            order: "zone_name, param_name",
+        },
+        // set_name is listed (read-only, like every non-editable column) so a well carrying
+        // several core deliveries can be told apart in the grid; edits still target the
+        // ACTIVE set only (see `update_core_sample`).
+        TableSpec {
+            table: "core_data",
+            columns: vec!["set_name", "depth", "cpor", "cperm", "cgd", "csw"],
+            well_scoped: true,
+            order: "set_name, depth",
+        },
+        TableSpec {
+            table: "aux_data",
+            columns: vec![
+                "dataset",
+                "depth_top",
+                "depth_base",
+                "item",
+                "value_num",
+                "value_text",
+            ],
+            well_scoped: true,
+            order: "dataset, depth_top, item",
+        },
+    ]
+}
 
 #[derive(Debug, Serialize)]
 pub struct TablePage {
@@ -3932,11 +4006,14 @@ pub fn get_table_page(
     offset: usize,
     limit: usize,
 ) -> Result<TablePage, String> {
-    let spec = TABLE_SPECS
+    let specs = table_specs();
+    let spec = specs
         .iter()
-        .find(|(t, ..)| *t == table)
+        .find(|spec| spec.table == table)
         .ok_or_else(|| format!("unknown table '{table}'"))?;
-    let (_, columns, well_scoped, order) = *spec;
+    let columns = &spec.columns;
+    let well_scoped = spec.well_scoped;
+    let order = spec.order;
     if well_scoped && well_id.is_none() {
         return Err(format!("table '{table}' requires a well"));
     }
@@ -4825,21 +4902,23 @@ mod inspector_tests {
         insert_well(&conn, id, "SANDI-INSP", Some("Sandi Field"), Some(2000.0), Some(25.0)).unwrap();
         let w = id.to_string();
 
-        for (table, columns, well_scoped, _order) in TABLE_SPECS {
-            let scope = if *well_scoped { Some(w.as_str()) } else { None };
-            let page = get_table_page(&conn, table, scope, 0, 200)
-                .unwrap_or_else(|e| panic!("table '{table}' failed to browse: {e}"));
+        for spec in table_specs() {
+            let scope = if spec.well_scoped { Some(w.as_str()) } else { None };
+            let page = get_table_page(&conn, spec.table, scope, 0, 200)
+                .unwrap_or_else(|e| panic!("table '{}' failed to browse: {e}", spec.table));
             assert_eq!(
                 page.columns,
-                columns.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
-                "table '{table}' returned the wrong column set"
+                spec.columns.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
+                "table '{}' returned the wrong column set",
+                spec.table
             );
             assert!(!page.truncated, "the paginated path always knows its true count");
 
-            if *well_scoped {
+            if spec.well_scoped {
                 assert!(
-                    get_table_page(&conn, table, None, 0, 200).is_err(),
-                    "well-scoped table '{table}' must refuse rather than return the whole project"
+                    get_table_page(&conn, spec.table, None, 0, 200).is_err(),
+                    "well-scoped table '{}' must refuse rather than return the whole project",
+                    spec.table
                 );
             }
         }
@@ -5002,7 +5081,8 @@ mod inspector_tests {
 
         // Nothing writes to it. The numeric editors reject every one of its columns by name,
         // including `value_num`, which is the one a reader would assume is editable.
-        let aux_columns = TABLE_SPECS.iter().find(|(t, ..)| *t == "aux_data").unwrap().1;
+        let specs = table_specs();
+        let aux_columns = &specs.iter().find(|spec| spec.table == "aux_data").unwrap().columns;
         for col in aux_columns {
             assert!(
                 update_standard_sample(&conn, &w, 1000.0, col, 1.0).is_err(),

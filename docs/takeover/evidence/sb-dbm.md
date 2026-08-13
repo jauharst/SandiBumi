@@ -306,14 +306,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned test `SB-DBM-T23`; sections 4.4 and 6.5.
 - **Atomic obligations:** one registry owns every schema vocabulary and every projection derives from it; a second literal declaration fails; adding one registry item reaches every consumer.
-- **Current source:** `equations.rs` and `curve_edit.rs` still declare independent standard-column lists with different membership (`DEPTH` is included in only one). Frame, sampling, datum, audit and absent-state vocabularies are also not generated from one registry.
-- **Qualifying acceptance tests:** none; T23's source-tree failure/one-item propagation/second-literal controls are missing. Test class is `MISSING`.
-- **Supporting tests:** current output-shadow tests compare behavior, not derivation from one source.
+- **Current source:** `schema_vocab.rs` owns one typed registry for standard columns plus the exact sampling-style, log-set-frame, depth-datum, audit-location, audit-mode and provenance-absence populations. Schema DDL/migration, standard-frame reads and inserts, curve editing, plotting resolution, inspector columns, output-shadow refusal and frame reads/writes consume exported entries or derived projections; the former `equations.rs` and `curve_edit.rs` duplicate declarations are gone.
+- **Qualifying acceptance tests:** `vocabularies_have_one_source_and_every_projection_derives_from_it` passed and is `CORRECTNESS`. It adds a synthetic eighth schema member and independently requires its select, editable, inspector, DDL and migration projections, checks the six exact vocabulary populations, scans for exactly one declaration owner and rejects a second full literal standard-column declaration.
+- **Supporting tests:** existing standard-curve read, edit, inspector and Reframe regressions remain green, but only T23 owns the source-of-truth mutation contract.
 - **Manual evidence:** `data-conventions` 0/45 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the duplicate declarations and therefore the live divergence.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** none; centralization must preserve deliberate membership differences as derived projections, not copy another list.
-- **Next action:** build one typed vocabulary registry with derived projections and implement every T23 mutation control.
+- **Git evidence:** current topic-branch increment centralizes the registry and removes the divergent declarations without adding a scientific value, computed-curve key or upsert path.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` satisfied; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. `DEPTH` remains non-editable by a derived projection rather than disappearing from a copied list.
+- **Next action:** preserve the source-tree guard; Gate 4 may inspect representative imported and own-frame sets, but manual inspection is not automated proof of registry completeness.
 
 ## SB-DBM-024 - Every capacity limit is unit-typed, carries a source string, and is the source of its own documentation
 

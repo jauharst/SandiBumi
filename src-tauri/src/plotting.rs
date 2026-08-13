@@ -1120,16 +1120,13 @@ fn plotted_bytes(conn: &Connection, well_id: &str, request: &str) -> Result<Vec<
 }
 
 fn standard_source(request: &str) -> Option<(&'static str, &'static str)> {
-    match request {
-        "DEPTH" => Some(("depth", "m")),
-        "GR" => Some(("gr", "gAPI")),
-        "RES_DEEP" => Some(("res_deep", "ohm.m")),
-        "NPHI" => Some(("nphi", "v/v")),
-        "RHOB" => Some(("rhob", "g/cc")),
-        "DT" => Some(("dt", "us/ft")),
-        "SP" => Some(("sp", "mV")),
-        _ => None,
-    }
+    let column = crate::schema_vocab::standard_column(request)?;
+    let unit = if column.mnemonic == "DEPTH" {
+        "m"
+    } else {
+        crate::curves::family_for(column.mnemonic)?.canonical_unit
+    };
+    Some((column.storage_column, unit))
 }
 
 fn finite_standard_count(conn: &Connection, well_id: &str, column: &str) -> i64 {

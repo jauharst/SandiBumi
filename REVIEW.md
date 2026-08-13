@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-023: schema vocabularies have one source
+
+- [x] **Automated:** one typed registry now owns standard columns, sampling style, set frame,
+      depth datum, audit location/mode and named provenance absence. Exact SB-DBM-T23 adds a
+      synthetic eighth schema member and requires every derived projection to see it, then scans
+      the Rust source tree for a second declaration or copied full standard-column registry. The
+      full gate passes 995 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Visual:** no new control is intended. In Gate 4, confirm a representative standard curve,
+      an edited standard curve and an OWN-frame set still appear under their existing names and
+      units; an unchanged screen is useful regression evidence, not proof that every code consumer
+      derives from the registry.
+- [ ] **Manual:** on a disposable project, import a representative delivery, edit and undo one
+      standard curve, browse `standard_curves`, and create/read one Reframe set. Jauhar owns this
+      click-through; the automated source mutation test remains the registry-completeness proof.
+- [ ] **Field:** pending Gate 4. A real pilot delivery must preserve native curve identities and
+      frame behavior. Synthetic PEF in T23 is only a schema-name mutation and carries no invented
+      petrophysical value, endpoint or default.
+
 ## 2026-08-13 — G2 SB-DBM-017: physics-driving metadata is scope-blocked
 
 - [ ] **Automated implementation:** blocked, so explicit `nphimat` parameters are not presented as
