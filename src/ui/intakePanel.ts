@@ -227,7 +227,7 @@ export async function buildIntakeContent(
   noneOpt.value = "";
   noneOpt.textContent = "(route by the Well column)";
   wellSel.appendChild(noneOpt);
-  void listWells()
+  void listWells({ kind: "all" })
     .then((wells) => {
       for (const w of wells) {
         const o = document.createElement("option");

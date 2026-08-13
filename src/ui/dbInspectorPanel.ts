@@ -172,7 +172,7 @@ export class DbInspectorPanel {
   private renderIntegrity(report: IntegrityReport): void {
     const summary = document.createElement("div");
     summary.className = report.finding_count === 0 ? "dbi-integrity-summary ok" : "dbi-integrity-summary warned";
-    summary.textContent = report.summary;
+    summary.textContent = `${report.scope.replace("_", " ")} — ${report.wells_touched.toLocaleString()} wells examined. ${report.summary}`;
 
     const table = document.createElement("table");
     table.className = "dbgrid dbi-integrity-table";

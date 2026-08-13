@@ -6,12 +6,12 @@ proves more than the sentence it pins.
 
 ## Scope and result
 
-- The current source tree exposes 1,073 discoverable Rust and JavaScript/TypeScript tests: 1,037 in
+- The current source tree exposes 1,074 discoverable Rust and JavaScript/TypeScript tests: 1,038 in
   the default catalog and 36 marked ignored.
-- The 931-row takeover ledger contains 201 rows that claim automated proof: 77 `CORRECTNESS`, 120
+- The 931-row takeover ledger contains 202 rows that claim automated proof: 78 `CORRECTNESS`, 120
   `CHARACTERIZATION`, and 4 `OPTIONAL-PACKAGE-IGNORED`.
-- `docs/takeover/test-evidence.csv` resolves those 201 claimed rows to 251 exact
-  `test_path::test_name` references: 106 correctness references, 141 characterization references,
+- `docs/takeover/test-evidence.csv` resolves those 202 claimed rows to 252 exact
+  `test_path::test_name` references: 107 correctness references, 141 characterization references,
   and 4 optional-package ignored references.
 - Every exact reference exists in the current source catalog. Ordinary correctness and
   characterization evidence resolves only to default tests; optional-package evidence resolves

@@ -488,14 +488,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DBM-T37`; sections 4.6 and 6.7.
 - **Atomic obligations:** every well-iterating backend command enforces the active group or explicitly declares project-wide scope; direct invocation cannot bypass it; evidence uses query/row counts.
-- **Current source:** well groups and active membership are persisted in `db.rs`, but `list_wells` and many backend commands remain project-wide. `src/state.ts`/`wellScope.ts` filter or pass selected ids from the client, so a direct backend invocation can bypass the active-group policy.
-- **Qualifying acceptance tests:** none; T37's direct-invocation inventory over 540/12 wells is missing. Test class is `MISSING`.
-- **Supporting tests:** UI scope tests and selected command fixtures prove caller-supplied subsets, not backend enforcement across every iterator.
+- **Current source:** `well_scope.rs` owns a 44-entry command registry: 43 operations are `BACKEND_SCOPED`, while the deliberately exhaustive referential-integrity command is `PROJECT_WIDE`. Registered scoped commands accept a typed scope identity and resolve current membership inside their Tauri boundary; an unknown operation fails closed. `db.rs::list_wells_by_ids`, the scoped contact loader, `tops.rs`, `statistics.rs` and job-name loaders constrain the authorized ids in SQL rather than resolving 12 and then materializing 540. TypeScript defaults ordinary well inventory to `ActiveGroup`; project-administration surfaces request `All` explicitly. The integrity response carries `scope: PROJECT_WIDE` and `wells_touched` to the Database Inspector.
+- **Qualifying acceptance test:** `every_well_iterating_backend_command_scopes_the_sql_to_the_active_twelve_of_five_hundred_and_forty_or_declares_project_wide` passed; test class is `CORRECTNESS`. It builds the exact 540-well project and active group of 12 from T37, directly invokes every registered backend authorization boundary, proves the current 12 identities are returned, inventories the corresponding Tauri wrapper, pins the downstream `WHERE well_id IN (...)` loaders and proves the exhaustive integrity path declares `PROJECT_WIDE` with 540 wells touched. This is shared-boundary plus source-inventory evidence; it does not pretend to execute every expensive scientific job end to end.
+- **Supporting tests:** `every_backend_scoped_operation_uses_current_group_membership_and_refuses_stale_or_unknown_scope` preserves the distinct Group, ActiveGroup, All and Explicit alternatives, proves stale membership disappears, and refuses missing or repeated identities. TypeScript compilation pins callers to the typed scope API.
 - **Manual evidence:** `well-scope` 3/9, `workflow` 0/23 and `security-integrity` 0/63.
-- **Git evidence:** accepted anchor `b332026c` contains persisted groups and the client-enforced divergent boundary.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** a command-scope registry must distinguish deliberately project-wide operations from group-scoped operations.
-- **Next action:** enforce/declare scope in one backend wrapper and implement T37 by direct command invocation with instrumented touched-well counts.
+- **Git evidence:** implementation is on `codex/g2-program-plan` pending the per-requirement commit and PR; the accepted anchor remains the earlier client-enforced boundary.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied engineering contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED` after the requirement commit.
+- **Blocker or decision:** none for Gate 2 engineering. The synthetic 540/12 fixture is automated evidence, not manual or representative-field qualification.
+- **Next action:** retain exact T37 and SB-CORE-035; Jauhar visually and manually exercises Active Group, named Group, All and Explicit modes plus a membership change, then confirms the integrity command visibly declares project-wide scope. Gate 4 repeats the scope contract on sanitized representative data.
 
 ## SB-DBM-038 - The interactive set is the only thing materialised
 

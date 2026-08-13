@@ -155,7 +155,7 @@ export async function buildMultiminContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
   const [wells, library, swModels] = await Promise.all([
-    listWells().catch(() => [] as WellSummary[]),
+    listWells({ kind: "all" }).catch(() => [] as WellSummary[]),
     multiminLibrary().catch(() => [] as MmComponent[]),
     multiminSwModels().catch(() => []),
   ]);

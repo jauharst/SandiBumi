@@ -11,7 +11,11 @@ use std::collections::HashMap;
 /// the same top names. A pair that is stratigraphically reversed relative to the
 /// majority of other wells produces a human-readable warning — the field-standard
 /// "your marker crosses" check done at pick time.
-pub fn check_top_order(conn: &Connection, well_id: &str) -> Result<Vec<String>, String> {
+pub fn check_top_order(
+    conn: &Connection,
+    well_id: &str,
+    well_ids: &[String],
+) -> Result<Vec<String>, String> {
     let this_tops = db::list_tops(conn, well_id).map_err(|e| e.to_string())?;
     if this_tops.len() < 2 {
         return Ok(Vec::new());
@@ -19,7 +23,7 @@ pub fn check_top_order(conn: &Connection, well_id: &str) -> Result<Vec<String>, 
 
     // name(upper) -> depth for every OTHER well.
     let mut others: Vec<HashMap<String, f32>> = Vec::new();
-    for well in db::list_wells(conn).map_err(|e| e.to_string())? {
+    for well in db::list_wells_by_ids(conn, well_ids).map_err(|e| e.to_string())? {
         if well.well_id == well_id {
             continue;
         }
@@ -782,12 +786,13 @@ mod tests {
         db::upsert_top(&conn, &w3, "TOP_A", 1120.0, None).unwrap();
         db::upsert_top(&conn, &w3, "TOP_B", 1080.0, None).unwrap();
 
-        let w3_warnings = check_top_order(&conn, &w3).unwrap();
+        let scope = vec![w1.clone(), w2.clone(), w3.clone()];
+        let w3_warnings = check_top_order(&conn, &w3, &scope).unwrap();
         assert_eq!(w3_warnings.len(), 1, "expected one crossing warning: {w3_warnings:?}");
         assert!(w3_warnings[0].contains("TOP_B") && w3_warnings[0].contains("2 of 2"), "{}", w3_warnings[0]);
         // The conforming wells are outvoted 1:1? No — each sees one reversed (w3) vs one same,
         // tie means "same or better" wins and no warning is raised.
-        assert!(check_top_order(&conn, &w1).unwrap().is_empty());
+        assert!(check_top_order(&conn, &w1, &scope).unwrap().is_empty());
     }
 
     #[test]

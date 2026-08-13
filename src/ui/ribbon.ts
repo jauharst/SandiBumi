@@ -1934,7 +1934,7 @@ export class Ribbon {
         setStatus("No wells in the project");
         return;
       }
-      const results = await materializeTvd(wells.map((w) => w.well_id));
+      const results = await materializeTvd({ kind: "active_group" });
       const surveyed = results.filter((r) => r.has_survey);
       if (surveyed.length === 0) {
         setStatus("No deviation surveys found — import one first (Import Deviation…)");
@@ -2037,7 +2037,7 @@ export class Ribbon {
     // (often null) coordinates. Re-read the well from the DB so the X/Y/zone fields show
     // current values — otherwise the unconditional coordinate writes below would clobber
     // a just-imported/entered location with the stale snapshot.
-    const fresh = await listWells()
+    const fresh = await listWells({ kind: "explicit", well_ids: [selected.well_id] })
       .then((ws) => ws.find((w) => w.well_id === selected.well_id))
       .catch(() => undefined);
     const well = fresh ?? selected;

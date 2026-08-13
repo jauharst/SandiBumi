@@ -269,7 +269,7 @@ function wrapCol(el: HTMLElement): HTMLElement {
 
 async function safeWells(): Promise<WellSummary[]> {
   try {
-    return await listWells();
+    return await listWells({ kind: "all" });
   } catch {
     return [];
   }

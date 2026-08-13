@@ -589,6 +589,7 @@ pub fn check_contact_consistency(
     compartment: Option<&str>,
     zones: &[String],
     flag_abs: f32,
+    well_ids: &[String],
 ) -> ContactConsistency {
     let want_comp =
         compartment.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
@@ -608,11 +609,11 @@ pub fn check_contact_consistency(
         wells: Vec::new(),
         error: Some(msg.to_string()),
     };
-    let contacts = match db::list_fluid_contacts(conn) {
+    let contacts = match db::list_fluid_contacts_for_wells(conn, well_ids) {
         Ok(c) => c,
         Err(e) => return none(&e.to_string()),
     };
-    let wells = db::list_wells(conn).unwrap_or_default();
+    let wells = db::list_wells_by_ids(conn, well_ids).unwrap_or_default();
     let wmap: HashMap<String, &db::WellSummary> = wells.iter().map(|w| (w.well_id.clone(), w)).collect();
 
     let mut meta: Vec<(String, String, Option<f64>, Option<f64>, f32)> = Vec::new();
@@ -717,9 +718,13 @@ pub struct FwlCheck {
 /// hydraulic unit share a contact, and the parameter they are computed from is per marker — so a
 /// shared contact has to be checked against, and written to, every sand it governs. Reporting one
 /// row for the contact would hide a sand whose parameter had drifted.
-pub fn check_fwl_agreement(conn: &Connection, tolerance: f32) -> Vec<FwlCheck> {
-    let contacts = db::list_fluid_contacts(conn).unwrap_or_default();
-    let wells = db::list_wells(conn).unwrap_or_default();
+pub fn check_fwl_agreement(
+    conn: &Connection,
+    tolerance: f32,
+    well_ids: &[String],
+) -> Vec<FwlCheck> {
+    let contacts = db::list_fluid_contacts_for_wells(conn, well_ids).unwrap_or_default();
+    let wells = db::list_wells_by_ids(conn, well_ids).unwrap_or_default();
     let wmap: HashMap<&str, &db::WellSummary> =
         wells.iter().map(|w| (w.well_id.as_str(), w)).collect();
 
@@ -843,6 +848,14 @@ mod tests {
         )
         .unwrap();
         id
+    }
+
+    fn all_well_ids(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn.prepare("SELECT CAST(well_id AS VARCHAR) FROM wells ORDER BY well_id").unwrap();
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<duckdb::Result<Vec<_>>>()
+            .unwrap()
     }
 
     fn add_contact(conn: &Connection, well: &str, kind: &str, zones: &[&str], depth: f64) {
@@ -1046,12 +1059,12 @@ mod tests {
             add_contact(&conn, w, "OWC", &["LOWER"], -2400.0);
         }
 
-        let upper = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], 3.0);
+        let upper = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], 3.0, &all_well_ids(&conn));
         assert_eq!(upper.n, 3, "the upper sand sees only its own three picks");
         assert!(upper.rms < 0.01, "and they are flat: rms {}", upper.rms);
         assert!(upper.wells.iter().all(|w| !w.flagged), "so nothing is flagged");
 
-        let lower = check_contact_consistency(&conn, "OWC", None, &["LOWER".into()], 3.0);
+        let lower = check_contact_consistency(&conn, "OWC", None, &["LOWER".into()], 3.0, &all_well_ids(&conn));
         assert_eq!(lower.n, 3);
         assert!(lower.rms < 0.01, "rms {}", lower.rms);
         assert!((lower.mean_tvdss - (-2400.0)).abs() < 0.01, "on its own surface, not a blend");
@@ -1066,10 +1079,10 @@ mod tests {
         // checked against anything) and neither sand moves.
         add_contact(&conn, &a, "OWC", &[], -2200.0);
         add_contact(&conn, &b, "OWC", &[], -2200.0);
-        let upper2 = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], 3.0);
+        let upper2 = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], 3.0, &all_well_ids(&conn));
         assert_eq!(upper2.n, 3, "the unmarked picks did not join the upper sand");
         assert!((upper2.mean_tvdss - (-2000.0)).abs() < 0.01);
-        let unmarked = check_contact_consistency(&conn, "OWC", None, &[], 3.0);
+        let unmarked = check_contact_consistency(&conn, "OWC", None, &[], 3.0, &all_well_ids(&conn));
         assert_eq!(unmarked.n, 2, "they are their own group");
         assert!((unmarked.mean_tvdss - (-2200.0)).abs() < 0.01);
     }
@@ -1094,7 +1107,7 @@ mod tests {
         assert_eq!(groups[0].n_well, 2);
 
         let g = &groups[0];
-        let chk = check_contact_consistency(&conn, "OWC", g.compartment.as_deref(), &g.zones, 3.0);
+        let chk = check_contact_consistency(&conn, "OWC", g.compartment.as_deref(), &g.zones, 3.0, &all_well_ids(&conn));
         assert_eq!(chk.n, 2, "both wells are in the same group");
         assert!(chk.rms < 1.0);
 
@@ -1126,13 +1139,13 @@ mod tests {
         assert_eq!(groups.len(), 2, "one sand, two compartments, two groups: {groups:?}");
 
         let north =
-            check_contact_consistency(&conn, "OWC", Some("NORTH"), &["UPPER".into()], 3.0);
+            check_contact_consistency(&conn, "OWC", Some("NORTH"), &["UPPER".into()], 3.0, &all_well_ids(&conn));
         assert_eq!(north.n, 2);
         assert!(north.rms < 1.0, "the north block is flat within itself: {}", north.rms);
         assert!((north.mean_tvdss - (-2000.25)).abs() < 0.5);
 
         let south =
-            check_contact_consistency(&conn, "OWC", Some("SOUTH"), &["UPPER".into()], 3.0);
+            check_contact_consistency(&conn, "OWC", Some("SOUTH"), &["UPPER".into()], 3.0, &all_well_ids(&conn));
         assert!((south.mean_tvdss - (-2060.25)).abs() < 0.5, "and sits on its own level");
 
         // The control: the compartment is doing the work. Strip it and all four pool into one fit
@@ -1140,7 +1153,7 @@ mod tests {
         for w in [&a, &b, &c, &d] {
             add_contact(&conn, w, "GWC", &["UPPER"], if w == &a || w == &b { -2000.0 } else { -2060.0 });
         }
-        let pooled = check_contact_consistency(&conn, "GWC", None, &["UPPER".into()], 3.0);
+        let pooled = check_contact_consistency(&conn, "GWC", None, &["UPPER".into()], 3.0, &all_well_ids(&conn));
         assert_eq!(pooled.n, 4);
         assert!(
             pooled.rms > 10.0,
@@ -1162,7 +1175,7 @@ mod tests {
         db::set_zone_param_batch(&mut conn, "UPPER", &[(w.clone(), "FWL".into(), Some(-2035.0))])
             .unwrap();
 
-        let checks = check_fwl_agreement(&conn, 0.1);
+        let checks = check_fwl_agreement(&conn, 0.1, &all_well_ids(&conn));
         assert_eq!(checks.len(), 1);
         let c = &checks[0];
         assert!((c.difference - 35.0).abs() < 0.01, "the gap is reported: {}", c.difference);
@@ -1170,7 +1183,7 @@ mod tests {
         assert!(c.can_apply);
 
         apply_fwl_to_zone_params(&mut conn, &[(w.clone(), "UPPER".into(), -2000.0)]).unwrap();
-        let after = check_fwl_agreement(&conn, 0.1);
+        let after = check_fwl_agreement(&conn, 0.1, &all_well_ids(&conn));
         assert!(after[0].verdict.starts_with("Agrees"), "{}", after[0].verdict);
         assert!(!after[0].can_apply);
         // And it really went where the module reads it from.
@@ -1201,7 +1214,7 @@ mod tests {
             &["UPPER".to_string()],
         )
         .unwrap();
-        let checks = check_fwl_agreement(&conn, 0.1);
+        let checks = check_fwl_agreement(&conn, 0.1, &all_well_ids(&conn));
         assert_eq!(checks.len(), 1);
         assert!(!checks[0].can_apply, "nothing may be written from it");
         assert!(checks[0].verdict.contains("MEASURED depth"), "{}", checks[0].verdict);
@@ -1218,7 +1231,7 @@ mod tests {
         add_contact(&conn, &w, "FWL", &[], -2000.0);
         db::set_zone_param_batch(&mut conn, "*", &[(w.clone(), "FWL".into(), Some(-2500.0))])
             .unwrap();
-        assert!(check_fwl_agreement(&conn, 0.1).is_empty(), "no marker, no comparison");
+        assert!(check_fwl_agreement(&conn, 0.1, &all_well_ids(&conn)).is_empty(), "no marker, no comparison");
     }
 
     #[test]

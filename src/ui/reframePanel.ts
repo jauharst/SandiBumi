@@ -358,7 +358,7 @@ export async function buildReframeContent(
       if (disposed) return;
       fill(srcName, srcKind.value === "import" ? deliveries : logSets, srcName.value);
       fill(matchSet, logSets, matchSet.value);
-      allWells = await listWells().catch(() => allWells);
+      allWells = await listWells({ kind: "all" }).catch(() => allWells);
       if (disposed) return;
       fill(
         matchWell,

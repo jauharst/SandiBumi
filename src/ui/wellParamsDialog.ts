@@ -132,7 +132,7 @@ export async function openWellParamsDialog(steps: ChainStep[]): Promise<void> {
   const specList = await listModules().catch(() => [] as ModuleSpec[]);
   const specs = new Map(specList.map((s) => [s.name, s] as const));
   const columns = buildParamColumns(steps, specs);
-  const allWells: WellSummary[] = await listWells().catch(() => []);
+  const allWells: WellSummary[] = await listWells({ kind: "all" }).catch(() => []);
   const wellName = new Map(allWells.map((w) => [w.well_id, w.well_name] as const));
   let overrides = indexOverrides(await listWellParamOverrides().catch(() => []));
 

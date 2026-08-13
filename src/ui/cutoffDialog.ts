@@ -566,7 +566,7 @@ export async function buildCutoffContent(
 
   async function computeCrossplot(): Promise<void> {
     const ids = new Set(await resolveWellScope(scope.backend()));
-    const checked = (await listWells()).filter((w) => ids.has(w.well_id));
+    const checked = (await listWells(scope.backend())).filter((w) => ids.has(w.well_id));
     if (checked.length === 0) {
       setStatus("No wells in scope — pick a group, pin/select wells, or choose All.");
       return;

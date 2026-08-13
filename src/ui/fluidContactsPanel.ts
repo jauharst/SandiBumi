@@ -537,7 +537,7 @@ export async function buildFluidContactsContent(): Promise<{ el: HTMLElement }> 
   // ---- loading ------------------------------------------------------------
   async function reload(): Promise<void> {
     contacts = await listFluidContacts().catch(() => [] as FluidContact[]);
-    wells = await listWells().catch(() => [] as WellSummary[]);
+    wells = await listWells({ kind: "all" }).catch(() => [] as WellSummary[]);
 
     wellIn.innerHTML = "";
     const anyWell = document.createElement("option");

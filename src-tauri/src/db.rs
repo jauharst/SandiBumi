@@ -4,7 +4,7 @@ use duckdb::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    params, Appender, Connection, OptionalExt,
+    params, params_from_iter, Appender, Connection, OptionalExt,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -3892,6 +3892,9 @@ pub struct WellSummary {
 
 /// Lists every well for the object tree, along with which curve tables actually hold data
 /// for it (so the tree can show real children instead of a fixed guess).
+/// Kept for project-wide diagnostics and integration fixtures; production IPC must use
+/// `list_wells_by_ids` after the backend resolves or declares scope.
+#[allow(dead_code)]
 pub fn list_wells(conn: &Connection) -> DbResult<Vec<WellSummary>> {
     let mut stmt = conn.prepare(
         "SELECT well_id, well_name, field_name, td, kb, surface_x, surface_y, utm_zone FROM wells ORDER BY well_name",
@@ -3913,6 +3916,37 @@ pub fn list_wells(conn: &Connection) -> DbResult<Vec<WellSummary>> {
         wells.push(r?);
     }
     Ok(wells)
+}
+
+/// Lists only the backend-authorized wells. The `IN` predicate is deliberate: resolving a
+/// 12-well group and then loading all 540 summaries before filtering would preserve the original
+/// SB-DBM-037 defect behind a correctly scoped id list.
+pub fn list_wells_by_ids(conn: &Connection, well_ids: &[String]) -> DbResult<Vec<WellSummary>> {
+    if well_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = std::iter::repeat("?")
+        .take(well_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT well_id, well_name, field_name, td, kb, surface_x, surface_y, utm_zone
+         FROM wells WHERE well_id IN ({placeholders}) ORDER BY well_name, well_id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(well_ids.iter()), |row| {
+        Ok(WellSummary {
+            well_id: row.get(0)?,
+            well_name: row.get(1)?,
+            field_name: row.get(2)?,
+            td: row.get(3)?,
+            kb: row.get(4)?,
+            surface_x: row.get(5)?,
+            surface_y: row.get(6)?,
+            utm_zone: row.get(7)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -4099,14 +4133,28 @@ pub struct FluidContact {
     pub zones: Vec<String>,
 }
 
-/// Every fluid contact in the project. There are few of these (one per reservoir/field),
-/// so the correlation view fetches them all and decides per well which apply.
-pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
-    let mut stmt = conn.prepare(
+/// Shared loader for either every project contact or only contacts owned by a backend-authorized
+/// well set. The scoped branch constrains both contact rows and marker links in SQL.
+fn list_fluid_contacts_scoped(
+    conn: &Connection,
+    well_ids: Option<&[String]>,
+) -> DbResult<Vec<FluidContact>> {
+    if well_ids.is_some_and(|ids| ids.is_empty()) {
+        return Ok(Vec::new());
+    }
+    let placeholders = well_ids.map(|ids| {
+        std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(", ")
+    });
+    let where_clause = placeholders
+        .as_ref()
+        .map(|items| format!(" WHERE well_id IN ({items})"))
+        .unwrap_or_default();
+    let contact_sql = format!(
         "SELECT contact_id, field_name, well_id, contact_type, depth, depth_datum, color, label, compartment
-         FROM fluid_contacts ORDER BY depth",
-    )?;
-    let rows = stmt.query_map([], |row| {
+         FROM fluid_contacts{where_clause} ORDER BY depth"
+    );
+    let mut stmt = conn.prepare(&contact_sql)?;
+    let mut read_row = |row: &duckdb::Row<'_>| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, Option<String>>(1)?,
@@ -4118,7 +4166,11 @@ pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
             row.get::<_, Option<String>>(7)?,
             row.get::<_, Option<String>>(8)?,
         ))
-    })?;
+    };
+    let rows = match well_ids {
+        Some(ids) => stmt.query_map(params_from_iter(ids.iter()), &mut read_row)?,
+        None => stmt.query_map([], &mut read_row)?,
+    };
     let mut contacts = Vec::new();
     for r in rows {
         let (contact_id, field_name, well_id, contact_type, depth, datum, color, label, compartment) = r?;
@@ -4141,8 +4193,25 @@ pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
     }
     // One scan of the link table rather than a query per contact: there are few contacts, but a
     // per-row query is how a list turns into N round trips on a field-scale project.
-    let mut zstmt = conn.prepare("SELECT contact_id, zone_name FROM contact_zones ORDER BY zone_name")?;
-    let links = zstmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let zone_where = placeholders
+        .as_ref()
+        .map(|items| {
+            format!(
+                " WHERE contact_id IN (SELECT contact_id FROM fluid_contacts WHERE well_id IN ({items}))"
+            )
+        })
+        .unwrap_or_default();
+    let zone_sql = format!(
+        "SELECT contact_id, zone_name FROM contact_zones{zone_where} ORDER BY zone_name"
+    );
+    let mut zstmt = conn.prepare(&zone_sql)?;
+    let mut read_link = |row: &duckdb::Row<'_>| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    };
+    let links = match well_ids {
+        Some(ids) => zstmt.query_map(params_from_iter(ids.iter()), &mut read_link)?,
+        None => zstmt.query_map([], &mut read_link)?,
+    };
     let mut by_id: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     for l in links {
         let (id, zone) = l?;
@@ -4154,6 +4223,21 @@ pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
         }
     }
     Ok(contacts)
+}
+
+/// Every fluid contact in the project. There are few of these (one per reservoir/field),
+/// so the correlation view fetches them all and decides per well which apply.
+pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
+    list_fluid_contacts_scoped(conn, None)
+}
+
+/// Only contacts owned by the backend-authorized wells. Project/field contacts with no well id
+/// are deliberately absent: cross-well consistency and FWL agreement operate on well picks only.
+pub fn list_fluid_contacts_for_wells(
+    conn: &Connection,
+    well_ids: &[String],
+) -> DbResult<Vec<FluidContact>> {
+    list_fluid_contacts_scoped(conn, Some(well_ids))
 }
 
 #[allow(clippy::too_many_arguments)]

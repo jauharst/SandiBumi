@@ -339,7 +339,7 @@ export async function buildMlContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
   const [wells, catalog] = await Promise.all([
-    listWells().catch(() => [] as WellSummary[]),
+    listWells({ kind: "all" }).catch(() => [] as WellSummary[]),
     listCurveCatalog().catch(() => []),
   ]);
   const curveNames = catalog.map((c) => c.name);

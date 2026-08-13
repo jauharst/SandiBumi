@@ -72,14 +72,11 @@ fn in_interval(iv: &Interval, d: f32) -> bool {
 
 /// Well id → display name, so every row names the well rather than a UUID.
 fn well_names(conn: &Connection, ids: &[String]) -> std::collections::HashMap<String, String> {
-    let mut out = std::collections::HashMap::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT well_id, well_name FROM wells") {
-        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
-            for (id, name) in rows.flatten() {
-                out.insert(id, name);
-            }
-        }
-    }
+    let mut out: std::collections::HashMap<String, String> = db::list_wells_by_ids(conn, ids)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|well| (well.well_id, well.well_name))
+        .collect();
     for id in ids {
         out.entry(id.clone()).or_insert_with(|| id.clone());
     }

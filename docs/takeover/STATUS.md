@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `45 / 222 handled — 29 DONE, 16 BLOCKED, 177 remaining`
+- Gate 2 requirement progress: `46 / 222 handled — 30 DONE, 16 BLOCKED, 176 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T03 / SB-DBM-035 - DONE; ordinary archive mutation refuses, restoring v1 while v3 is current appends v4 with a fresh set identity and structured source link, and all earlier versions remain unchanged`
+- Active increment: `G2-T03 / SB-DBM-037 - DONE; every registered backend well operation resolves current membership at its command boundary or declares PROJECT_WIDE, and downstream well/contact/top/statistics loading is SQL-scoped rather than client-filtered`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `Exact SB-DBM-T35 is active; full gate 1002 passed / 0 failed / 36 ignored, including backend 945 passed / 0 failed / 36 ignored; the owned Rust warning inventory remains 55`
+- Automated gate: `Exact SB-DBM-T37 is active on the cited 540/12 fixture; full gate 1003 passed / 0 failed / 36 ignored, including backend 946 passed / 0 failed / 36 ignored; the owned Rust warning inventory remains 55`
 - Pilot field evidence: `OPEN`
-- Open blockers: `177 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; SB-DBM-005 is BLOCKED on the complete registered-module derivation-source map; SB-DBM-009 is BLOCKED on DEC-022 classifying legacy local/unspecified timestamps; SB-DBM-010 is BLOCKED on SB-DBM-005's source-controlled derivation citations; SB-DBM-011 is BLOCKED on DEC-022 plus DEC-023 reconciling T11's zone-set requirement with SB-DBM-008's exclusion; SB-DBM-015 is BLOCKED on DEC-021, DEC-023 and DEC-024 settling the complete identities required by T15, including the pilot-excluded SB-DBM-008, SB-DBM-014 and SB-DBM-019/020 paths; SB-DBM-017 is BLOCKED on DEC-025 reconciling its typed neutron-scale attribute with pilot-excluded SB-ENV-012; SB-DBM-025 is BLOCKED on DEC-026 settling the binding 0.001 PHIE-floor rule versus SB-POR-045's no-default contract before any cross-module registry can claim cited authority; SB-DBM-030 is BLOCKED on DEC-027 reconciling the required queryable REQUIRED_UNSET row versus absence-of-row and T29's export-bound dependency versus the non-adopted Geolog magnitude; SB-DBM-031 is BLOCKED on source/operator declarations for the untyped legacy/imported depth frames and source TVDSS signs that cannot be recovered from a mnemonic, unit, value or neighbouring row; SB-DBM-032 is BLOCKED on DEC-028 choosing the single-handle policy without weakening the closed SB-INS-015 refusal; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Commit SB-DBM-035 with exact T35 evidence, then adjudicate pilot-blocker SB-DBM-037 / SB-DBM-T37; SB-DBM-036 remains deferred beyond the first pilot.`
+- Open blockers: `176 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; SB-DBM-005 is BLOCKED on the complete registered-module derivation-source map; SB-DBM-009 is BLOCKED on DEC-022 classifying legacy local/unspecified timestamps; SB-DBM-010 is BLOCKED on SB-DBM-005's source-controlled derivation citations; SB-DBM-011 is BLOCKED on DEC-022 plus DEC-023 reconciling T11's zone-set requirement with SB-DBM-008's exclusion; SB-DBM-015 is BLOCKED on DEC-021, DEC-023 and DEC-024 settling the complete identities required by T15, including the pilot-excluded SB-DBM-008, SB-DBM-014 and SB-DBM-019/020 paths; SB-DBM-017 is BLOCKED on DEC-025 reconciling its typed neutron-scale attribute with pilot-excluded SB-ENV-012; SB-DBM-025 is BLOCKED on DEC-026 settling the binding 0.001 PHIE-floor rule versus SB-POR-045's no-default contract before any cross-module registry can claim cited authority; SB-DBM-030 is BLOCKED on DEC-027 reconciling the required queryable REQUIRED_UNSET row versus absence-of-row and T29's export-bound dependency versus the non-adopted Geolog magnitude; SB-DBM-031 is BLOCKED on source/operator declarations for the untyped legacy/imported depth frames and source TVDSS signs that cannot be recovered from a mnemonic, unit, value or neighbouring row; SB-DBM-032 is BLOCKED on DEC-028 choosing the single-handle policy without weakening the closed SB-INS-015 refusal; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Adjudicate pilot-blocker SB-DBM-039 / SB-DBM-T39 and T41; SB-DBM-038 remains deferred beyond the first pilot.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 31 implement-or-refuse / 105 remediate / 16 prove / 70 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 31 implement-or-refuse / 104 remediate / 16 prove / 71 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
@@ -35,7 +35,7 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `117` present-OK, `24` present-unverified, `169` present-divergent, `170` partial,
+- As-built states: `118` present-OK, `24` present-unverified, `168` present-divergent, `170` partial,
   `399` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
@@ -55,9 +55,9 @@ Do not replace it with an estimated percentage.
 - SB-DIO: `63/63` adjudicated - `42` present-OK, `6` present-unverified, `6` present-divergent,
   `2` partial and `7` absent; `49` pilot blockers and `14` deferred; `42`
   correctness-tested and `21` missing qualifying owned proof.
-- SB-DBM: `43/43` adjudicated - `5` present-OK, `3` present-unverified, `11` present-divergent,
-  `10` partial and `14` absent; `30` pilot blockers and `13` deferred; `4` correctness proofs, `1`
-  optional-package proof and `38` missing qualifying whole-contract proofs.
+- SB-DBM: `43/43` adjudicated - `6` present-OK, `3` present-unverified, `10` present-divergent,
+  `10` partial and `14` absent; `30` pilot blockers and `13` deferred; `5` correctness proofs, `1`
+  optional-package proof and `37` missing qualifying whole-contract proofs.
 - SB-PLT: `35/35` adjudicated - `4` present-unverified, `10` present-divergent, `14` partial and
   `7` absent; `18` pilot blockers and `17` deferred; `6` characterization tests and
   `29` missing qualifying whole-contract proofs.

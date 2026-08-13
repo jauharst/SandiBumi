@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DBM-037: backend scope is the authority
+
+- [x] **Automated:** exact SB-DBM-T37 creates the cited 540-well project with an active
+      group of 12, directly exercises all 44 registered backend authorization boundaries, and
+      proves the 43 scoped operations resolve exactly the current 12 while the deliberately
+      exhaustive integrity operation reports `PROJECT_WIDE` and 540 wells touched. The test also
+      inventories every corresponding Tauri wrapper and pins the downstream well, contact, top and
+      statistics loaders to SQL-scoped ids, so resolving 12 and then loading/filtering 540 cannot
+      satisfy it. SB-CORE-035 still proves Active Group, named Group, All and Explicit remain
+      distinct and stale membership is refused. Full gate is 1003 passed / 0 failed / 36 ignored,
+      including backend 946 passed / 0 failed / 36 ignored, with the unchanged 55 owned Rust
+      warnings.
+- [ ] **Visual:** with an active group, inspect the object tree, map, contact-consistency pane,
+      FWL check, top-order warning and TVD materialization at narrow and wide dock widths. Confirm
+      ordinary surfaces show only the active wells, explicit project-administration surfaces still
+      offer All, and Database Inspector visibly says `PROJECT WIDE — N wells examined` for the
+      exhaustive integrity check without clipping the finding table.
+- [ ] **Manual:** on a disposable project, create a named group, invoke Active Group and named
+      Group directly, then change membership while a dialog remains open and verify the next run
+      uses the new membership. Exercise All and an Explicit selection as separate intentional
+      modes, and confirm an out-of-scope top check is refused. Jauhar owns this click-through.
+- [ ] **Field:** pending Gate 4. Repeat the scope and project-wide-disclosure checks on a sanitized
+      representative pilot project and compare the touched well identities to the operator's group.
+      The synthetic 540/12 fixture proves the engineering boundary, not field qualification or
+      acceptable performance at representative project scale.
+
 ## 2026-08-14 — G2 SB-DBM-035: restore appends history instead of rewinding it
 
 - [x] **Automated:** exact SB-DBM-T35 begins with archived versions 1 and 2 plus current

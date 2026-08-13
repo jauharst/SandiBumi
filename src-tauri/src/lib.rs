@@ -368,11 +368,15 @@ fn set_project_null_sentinel(db: tauri::State<DbState>, null_sentinel: f32) -> R
     export::set_project_null_sentinel(&conn, null_sentinel)
 }
 
-/// Lists every well in the project, for the object tree panel.
+/// Lists the wells in the backend-resolved scope, for the object tree and scoped tools.
 #[tauri::command]
-fn list_wells(db: tauri::State<DbState>) -> Result<Vec<db::WellSummary>, String> {
+fn list_wells(
+    db: tauri::State<DbState>,
+    scope: well_scope::WellScopeSelection,
+) -> Result<Vec<db::WellSummary>, String> {
     let conn = db.0.lock().unwrap();
-    db::list_wells(&conn).map_err(|e| e.to_string())
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "well inventory")?;
+    db::list_wells_by_ids(&conn, &well_ids).map_err(|e| e.to_string())
 }
 
 /// Parses and ingests a batch of LAS 2.0 files (parsed concurrently via `rayon`), inserting
@@ -1494,8 +1498,12 @@ struct TvdMaterialize {
 #[tauri::command]
 async fn materialize_tvd(
     db: tauri::State<'_, DbState>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<TvdMaterialize>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "TVD materialization")?
+    };
     let handle = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = handle.lock().unwrap();
@@ -1742,14 +1750,11 @@ fn list_modules() -> Vec<modules::ModuleSpec> {
 /// well_id → (well_id, well_name) pairs for a job's item list, so the Processing panel shows
 /// well names instead of UUIDs. One cheap query; ids without a matching row fall back to the id.
 fn well_items(conn: &duckdb::Connection, well_ids: &[String]) -> Vec<(String, String)> {
-    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT well_id, well_name FROM wells") {
-        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
-            for row in rows.flatten() {
-                names.insert(row.0, row.1);
-            }
-        }
-    }
+    let names: std::collections::HashMap<String, String> = db::list_wells_by_ids(conn, well_ids)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|well| (well.well_id, well.well_name))
+        .collect();
     well_ids
         .iter()
         .map(|id| (id.clone(), names.get(id).cloned().unwrap_or_else(|| id.clone())))
@@ -2737,9 +2742,12 @@ fn get_table_page(
 
 /// Complete, read-only project integrity inventory. Every class is returned even at zero.
 #[tauri::command]
-fn check_referential_integrity(db: tauri::State<DbState>) -> Result<db::IntegrityReport, String> {
+fn check_referential_integrity(
+    db: tauri::State<DbState>,
+) -> Result<well_scope::ProjectWideResult<db::IntegrityReport>, String> {
     let conn = db.0.lock().unwrap();
-    db::check_referential_integrity(&conn)
+    let report = db::check_referential_integrity(&conn)?;
+    well_scope::declare_project_wide(&conn, "referential-integrity check", report)
 }
 
 /// Explicitly quarantines only the caller-selected, backend-whitelisted orphan classes.
@@ -2798,9 +2806,14 @@ async fn import_well_locations(
 /// `[[x, y], …]` ring in UTM metres) — the "draw a polygon → select wells" hit test
 /// behind assigning a map lasso to a well group. Wells without coordinates are excluded.
 #[tauri::command]
-fn wells_in_polygon(db: tauri::State<DbState>, polygon: Vec<[f64; 2]>) -> Result<Vec<db::WellSummary>, String> {
+fn wells_in_polygon(
+    db: tauri::State<DbState>,
+    polygon: Vec<[f64; 2]>,
+    scope: well_scope::WellScopeSelection,
+) -> Result<Vec<db::WellSummary>, String> {
     let conn = db.0.lock().unwrap();
-    let wells = db::list_wells(&conn).map_err(|e| e.to_string())?;
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "map polygon selection")?;
+    let wells = db::list_wells_by_ids(&conn, &well_ids).map_err(|e| e.to_string())?;
     let ring: Vec<(f64, f64)> = polygon.iter().map(|p| (p[0], p[1])).collect();
     Ok(geo::wells_in_polygon(&wells, &ring))
 }
@@ -3271,9 +3284,19 @@ fn delete_top(db: tauri::State<DbState>, well_id: String, top_name: String) -> R
 /// Stratigraphic crossing check: warnings for top pairs in this well whose depth order
 /// contradicts the majority of other wells (run after every interactive pick/drag).
 #[tauri::command]
-fn check_top_order(db: tauri::State<DbState>, well_id: String) -> Result<Vec<String>, String> {
+fn check_top_order(
+    db: tauri::State<DbState>,
+    well_id: String,
+    scope: well_scope::WellScopeSelection,
+) -> Result<Vec<String>, String> {
     let conn = db.0.lock().unwrap();
-    tops::check_top_order(&conn, &well_id)
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "top-order check")?;
+    if !well_ids.contains(&well_id) {
+        return Err(format!(
+            "top-order check: well '{well_id}' is outside the backend-resolved scope"
+        ));
+    }
+    tops::check_top_order(&conn, &well_id, &well_ids)
 }
 
 /// Proposes marker depths in target wells by correlating a log shape around the source
@@ -3342,14 +3365,18 @@ fn check_contact_consistency(
     compartment: Option<String>,
     zones: Option<Vec<String>>,
     flag_abs: Option<f32>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<contacts::ContactConsistency, String> {
     let conn = db.0.lock().unwrap();
+    let well_ids =
+        well_scope::resolve_well_scope(&conn, &scope, "contact-consistency check")?;
     Ok(contacts::check_contact_consistency(
         &conn,
         &contact_type,
         compartment.as_deref(),
         &zones.unwrap_or_default(),
         flag_abs.unwrap_or(3.0),
+        &well_ids,
     ))
 }
 
@@ -3379,9 +3406,15 @@ fn contact_groups(db: tauri::State<DbState>) -> Result<Vec<contacts::ContactGrou
 fn check_fwl_agreement(
     db: tauri::State<DbState>,
     tolerance: Option<f32>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<contacts::FwlCheck>, String> {
     let conn = db.0.lock().unwrap();
-    Ok(contacts::check_fwl_agreement(&conn, tolerance.unwrap_or(0.1)))
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "FWL-agreement check")?;
+    Ok(contacts::check_fwl_agreement(
+        &conn,
+        tolerance.unwrap_or(0.1),
+        &well_ids,
+    ))
 }
 
 /// Copies picked FWL contacts into `zone_params`, so the arithmetic reads what the panel draws.
@@ -3481,16 +3514,12 @@ fn run_workflow_chain(
     // panel shows "WELL_12" rather than a UUID.
     let items: Vec<(String, String)> = {
         let conn = db.0.lock().unwrap();
-        let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-        if let Ok(mut stmt) = conn.prepare("SELECT well_id, well_name FROM wells") {
-            if let Ok(rows) =
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-            {
-                for row in rows.flatten() {
-                    names.insert(row.0, row.1);
-                }
-            }
-        }
+        let names: std::collections::HashMap<String, String> =
+            db::list_wells_by_ids(&conn, &well_ids)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|well| (well.well_id, well.well_name))
+                .collect();
         well_ids
             .iter()
             .map(|id| (id.clone(), names.get(id).cloned().unwrap_or_else(|| id.clone())))

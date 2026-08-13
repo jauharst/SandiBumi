@@ -93,8 +93,8 @@ export interface WellSummary {
   utm_zone?: string | null;
 }
 
-export function listWells(): Promise<WellSummary[]> {
-  return invoke<WellSummary[]>("list_wells");
+export function listWells(scope: BackendWellScope = { kind: "active_group" }): Promise<WellSummary[]> {
+  return invoke<WellSummary[]>("list_wells", { scope });
 }
 
 export interface LocationsImportResult {
@@ -117,8 +117,11 @@ export function importWellLocations(
 
 /** Wells whose surface location falls inside `polygon` (ordered [x, y] UTM-metre ring) —
  *  the authoritative hit test behind assigning a map polygon to a well group. */
-export function wellsInPolygon(polygon: [number, number][]): Promise<WellSummary[]> {
-  return invoke<WellSummary[]>("wells_in_polygon", { polygon });
+export function wellsInPolygon(
+  polygon: [number, number][],
+  scope: BackendWellScope = { kind: "active_group" },
+): Promise<WellSummary[]> {
+  return invoke<WellSummary[]>("wells_in_polygon", { polygon, scope });
 }
 
 export interface ImportResult {
@@ -251,8 +254,11 @@ export function listTops(wellId: string): Promise<TopEntry[]> {
 }
 
 /** Crossing warnings: top pairs in this well whose order contradicts most other wells. */
-export function checkTopOrder(wellId: string): Promise<string[]> {
-  return invoke<string[]>("check_top_order", { wellId });
+export function checkTopOrder(
+  wellId: string,
+  scope: BackendWellScope = { kind: "active_group" },
+): Promise<string[]> {
+  return invoke<string[]>("check_top_order", { wellId, scope });
 }
 
 export interface AutoCorrRequest {
@@ -2594,12 +2600,14 @@ export function checkContactConsistency(
   compartment?: string | null,
   zones?: string[],
   flagAbs?: number,
+  scope: BackendWellScope = { kind: "active_group" },
 ): Promise<ContactConsistency> {
   return invoke<ContactConsistency>("check_contact_consistency", {
     contactType,
     compartment: compartment ?? null,
     zones: zones ?? [],
     flagAbs,
+    scope,
   });
 }
 
@@ -2618,8 +2626,11 @@ export interface FwlCheck {
 }
 
 /** Compares each marker-tagged FWL contact against the parameter `sw_height` computes from. */
-export function checkFwlAgreement(tolerance?: number): Promise<FwlCheck[]> {
-  return invoke<FwlCheck[]>("check_fwl_agreement", { tolerance });
+export function checkFwlAgreement(
+  tolerance?: number,
+  scope: BackendWellScope = { kind: "active_group" },
+): Promise<FwlCheck[]> {
+  return invoke<FwlCheck[]>("check_fwl_agreement", { tolerance, scope });
 }
 
 /** Copies picked FWL contacts into `zone_params`, so the arithmetic reads what the panel draws.
@@ -4461,6 +4472,8 @@ export interface RecoverableIntegrityPrune {
 }
 
 export interface IntegrityReport {
+  scope: "PROJECT_WIDE";
+  wells_touched: number;
   classes: IntegrityClassReport[];
   checked_class_count: number;
   finding_count: number;
@@ -4950,8 +4963,10 @@ export interface TvdMaterializeResult {
  *  grid, so sw_height's TVD input, the SHF fits, and the TVDSS correlation view can fetch them.
  *  Deviation import already does this automatically; use this after importing logs later or
  *  editing the KB datum. Wells with no survey or no logs report samples = 0. */
-export function materializeTvd(wellIds: string[]): Promise<TvdMaterializeResult[]> {
-  return invoke<TvdMaterializeResult[]>("materialize_tvd", { wellIds });
+export function materializeTvd(
+  scope: BackendWellScope = { kind: "active_group" },
+): Promise<TvdMaterializeResult[]> {
+  return invoke<TvdMaterializeResult[]>("materialize_tvd", { scope });
 }
 
 export interface DlisImportResult {

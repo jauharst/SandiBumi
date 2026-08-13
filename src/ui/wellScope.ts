@@ -58,7 +58,7 @@ export interface WellScopeOptions {
 }
 
 export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellScope> {
-  const wells: WellSummary[] = await listWells().catch(() => []);
+  const wells: WellSummary[] = await listWells({ kind: "all" }).catch(() => []);
   const groups: WellGroupEntry[] = await listWellGroups().catch(() => []);
   const wellById = new Map(wells.map((w) => [w.well_id, w] as const));
   const allIds = wells.map((w) => w.well_id);
