@@ -7162,8 +7162,8 @@ mod inspector_tests {
     }
 
     /// P1-c log-set versioning: re-runs bump the version and preserve history in the
-    /// archive; any version can be restored into current; deleting a version keeps
-    /// current values (provenance tag cleared); the catalog reports provenance + stats.
+    /// archive; restoring a version appends another version; ordinary deletion is refused;
+    /// the catalog reports the new current provenance + stats.
     #[test]
     fn log_set_versioning_never_overwrites() {
         use crate::equations::{
@@ -7213,27 +7213,30 @@ mod inspector_tests {
         assert_eq!(sets[0].curve_names, vec!["VSH".to_string()]);
         assert!(sets[0].is_current && !sets[1].is_current);
 
-        // Restore version 1 → current shows the old values again; archive untouched.
+        // Restore version 1 → version 3 becomes current with the old values; v1/v2 remain.
         let restored = restore_log_set(&conn, &set1).unwrap();
-        assert_eq!(restored, 3);
+        assert_eq!(restored.rows_restored, 3);
+        assert_eq!(restored.new_version, 3);
+        assert_eq!(restored.restored_from.source_version, 1);
         assert!((current(1000.0) - 0.10).abs() < 1e-6, "restored to version 1");
 
-        // Catalog: provenance of the current value now points at version 1, stats sane.
+        // Catalog: provenance of the current value points at the appended restore version.
         let cat = list_computed_catalog(&conn, &w).unwrap();
         let vsh = cat.iter().find(|e| e.curve_name == "VSH").unwrap();
         assert_eq!(vsh.set_name.as_deref(), Some("INTERP"));
-        assert_eq!(vsh.version, Some(1));
+        assert_eq!(vsh.version, Some(3));
         assert_eq!(vsh.n_samples, 3);
         assert!((vsh.min.unwrap() - 0.10).abs() < 1e-6 && (vsh.max.unwrap() - 0.30).abs() < 1e-6);
 
-        // Deleting version 2's history keeps current values; v1 remains restorable.
-        delete_log_set(&conn, &set2).unwrap();
-        assert_eq!(list_log_sets(&conn, &w).unwrap().len(), 1);
-        assert!((current(1000.0) - 0.10).abs() < 1e-6, "delete never changes current values");
+        // Ordinary deletion cannot mutate immutable history.
+        let delete_error = delete_log_set(&conn, &set2).expect_err("archive deletion must refuse");
+        assert!(delete_error.contains("append-only"), "{delete_error}");
+        assert_eq!(list_log_sets(&conn, &w).unwrap().len(), 3);
+        assert!((current(1000.0) - 0.10).abs() < 1e-6, "delete refusal leaves current values");
         let n_archive: i64 = conn
             .query_row("SELECT COUNT(*) FROM computed_curves_archive WHERE well_id = ?1", params![w], |r| r.get(0))
             .unwrap();
-        assert_eq!(n_archive, 3, "only version 2's history removed");
+        assert_eq!(n_archive, 9, "versions 1, 2 and the appended restore all remain");
     }
 
     /// Batched multi-well versioned write (the field-scale write path): many wells land in ONE

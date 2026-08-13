@@ -1184,6 +1184,12 @@ export async function runWorkflowChain(
 
 // --- P1-c log-set versioning (never overwrite) ------------------------------
 
+export interface LogSetRestoreRecord {
+  schema_version: number;
+  source_set_id: string;
+  source_version: number;
+}
+
 /** One run event into a named log set (the version history of computed outputs). */
 export interface LogSetEntry {
   set_id: string;
@@ -1198,6 +1204,8 @@ export interface LogSetEntry {
   is_current: boolean;
   /** Complete SB-CORE-010 record; null only for a pre-contract legacy project. */
   ancestry: CurveAncestry | null;
+  /** Present only when this run appended a prior immutable version back as a new version. */
+  restored_from: LogSetRestoreRecord | null;
 }
 
 /** A well's version history, newest first per set. */
@@ -1211,14 +1219,16 @@ export function listLogSetNames(): Promise<string[]> {
   return invoke<string[]>("list_log_set_names");
 }
 
-/** Copies an archived version back into the current store; returns restored row count. */
-export function restoreLogSet(setId: string): Promise<number> {
-  return invoke<number>("restore_log_set", { setId });
+export interface RestoreLogSetResult {
+  rows_restored: number;
+  new_set_id: string;
+  new_version: number;
+  restored_from: LogSetRestoreRecord;
 }
 
-/** Deletes one version's history (current values are kept). */
-export function deleteLogSet(setId: string): Promise<void> {
-  return invoke<void>("delete_log_set", { setId });
+/** Restores an archived version as a new append-only version and returns its source link. */
+export function restoreLogSet(setId: string): Promise<RestoreLogSetResult> {
+  return invoke<RestoreLogSetResult>("restore_log_set", { setId });
 }
 
 /** Current computed curves of a well with provenance + basic statistics. */

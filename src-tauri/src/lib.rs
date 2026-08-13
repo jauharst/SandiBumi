@@ -1303,20 +1303,23 @@ fn list_log_set_names(db: tauri::State<DbState>) -> Result<Vec<String>, String> 
     equations::list_log_set_names(&conn).map_err(|e| e.to_string())
 }
 
-/// P1-c: copies one archived set version back into the current store (its curves become
-/// the values every panel shows again). Returns the number of restored rows.
+/// P1-c: restores one archived set as a new version and returns the complete source/new-version
+/// receipt. The selected source and every intervening version remain immutable.
 #[tauri::command]
-fn restore_log_set(db: tauri::State<DbState>, set_id: String) -> Result<usize, String> {
+fn restore_log_set(
+    db: tauri::State<DbState>,
+    set_id: String,
+) -> Result<equations::RestoreLogSetResult, String> {
     let conn = db.0.lock().unwrap();
-    equations::restore_log_set(&conn, &set_id).map_err(|e| e.to_string())
+    equations::restore_log_set(&conn, &set_id)
 }
 
-/// P1-c: deletes one set version's history rows (current values are kept, provenance tag
-/// cleared) — for pruning old versions once they're no longer needed.
+/// Retained as an explicit refusal for stale frontends: ordinary deletion is not an authorized
+/// archive-retention policy and cannot mutate immutable version history.
 #[tauri::command]
 fn delete_log_set(db: tauri::State<DbState>, set_id: String) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
-    equations::delete_log_set(&conn, &set_id).map_err(|e| e.to_string())
+    equations::delete_log_set(&conn, &set_id)
 }
 
 /// P1-c: per-well catalog of current computed curves with provenance (set/version/module/

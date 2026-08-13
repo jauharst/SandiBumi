@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DBM-035: restore appends history instead of rewinding it
+
+- [x] **Automated:** exact SB-DBM-T35 begins with archived versions 1 and 2 plus current
+      version 3. It proves SQL-console UPDATE/DELETE and the stale ordinary-delete command refuse,
+      restoring version 1 creates a fresh set identity at version 4, the structured run record
+      names source version 1, current rows cite version 4, version 4 contains the source values,
+      and every row in versions 1–3 is unchanged. The existing catalog and downstream-workflow
+      integration tests also pass. Full gate is 1002 passed / 0 failed / 36 ignored, including
+      backend 945 passed / 0 failed / 36 ignored, with the unchanged 55 owned Rust warnings.
+- [ ] **Visual:** in Curve Catalog at narrow and wide dock widths, inspect a set with at least
+      three versions. Confirm there is no ordinary Delete action, restore version 1, and verify the
+      new version 4 row visibly says `restore`, `restored from v1`, and `current` without clipping
+      the curve list, date, or Ancestry/Restore controls.
+- [ ] **Manual:** on a disposable project, record the values and identities of versions 1–3,
+      restore version 1 while version 3 is current, close/reopen the project, and verify the
+      current values now cite version 4 while all four versions remain selectable. Restore version
+      3 again to reverse the operation as another append-only run. Jauhar owns this click-through.
+- [ ] **Field:** pending Gate 4. Repeat on sanitized representative pilot output and compare the
+      restored curve bytes and complete run record against the selected source version. The green
+      synthetic fixture is not evidence that a real delivery, large archive, or operator workflow
+      has been qualified. Backed-up format migration and typed reversible integrity quarantine are
+      separately bounded maintenance paths; neither is an ordinary history-delete permission.
+
 ## 2026-08-14 — G2 SB-DBM-033: categorical curves never become arithmetic quantities
 
 - [x] **Automated:** exact SB-DBM-T33 uses the chapter's cited 0.1524 m-to-0.1 m

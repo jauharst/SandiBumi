@@ -16,7 +16,6 @@ import {
   promoteGenericCurve,
   setGenericCurveFinal,
   listLogSets,
-  deleteLogSet,
   pythonStatus,
   restoreLogSet,
   resolveWellScope,
@@ -675,7 +674,8 @@ export class InspectorPanel {
         )
         .join("") + `<th>Actions</th>`;
 
-    // Log-set version history (newest first per set); restore any version, prune old ones.
+    // Log-set version history (newest first per set). Restore appends a new version; history is
+    // immutable here, so there is deliberately no ordinary Delete action.
     const setRows = this.logSets
       .map((s) => {
         const tip = escapeAttr(
@@ -686,12 +686,13 @@ export class InspectorPanel {
           `<span class="catalog-set-badge${s.is_current ? " current" : ""}">${escapeHtml(s.set_name)} v${s.version}</span>` +
           `<span class="catalog-set-info">${escapeHtml(s.module)} · ${escapeHtml(s.created_at)} · ${escapeHtml(
             s.curve_names.join(", ") || "(no curves)",
-          )}${s.is_current ? " · current" : ""}</span>` +
+          )}${s.restored_from ? ` · restored from v${s.restored_from.source_version}` : ""}${
+            s.is_current ? " · current" : ""
+          }</span>` +
           `<button class="catalog-set-btn" data-set-ancestry="${escapeAttr(s.set_id)}"${
             s.ancestry ? "" : ' disabled title="This pre-contract version has no complete ancestry record"'
           }>Ancestry</button>` +
           `<button class="catalog-set-btn" data-restore="${escapeAttr(s.set_id)}">Restore</button>` +
-          `<button class="catalog-set-btn danger" data-del="${escapeAttr(s.set_id)}">Delete</button>` +
           `</div>`
         );
       })
@@ -749,36 +750,19 @@ export class InspectorPanel {
       btn.addEventListener("click", async () => {
         btn.disabled = true;
         try {
-          const n = await restoreLogSet(btn.dataset.restore!);
-          globalStatus(`Version restored (${n} samples back in the current curves)`);
-          recordProcess("Log set", `Restored a curve version (${n} samples)`);
+          const receipt = await restoreLogSet(btn.dataset.restore!);
+          globalStatus(
+            `Restored version ${receipt.restored_from.source_version} as new version ${receipt.new_version} ` +
+              `(${receipt.rows_restored} samples)`,
+          );
+          recordProcess(
+            "Log set",
+            `Restored version ${receipt.restored_from.source_version} as version ${receipt.new_version} ` +
+              `(${receipt.rows_restored} samples)`,
+          );
           bumpDataVersion(); // every open panel (log views, plots, this catalog) refreshes
         } catch (err) {
           globalStatus(`Restore failed: ${err}`);
-          btn.disabled = false;
-        }
-      });
-    }
-    for (const btn of this.catalogTab.querySelectorAll<HTMLButtonElement>("[data-del]")) {
-      // Two-click confirm: deleting history is allowed but must be deliberate.
-      btn.addEventListener("click", async () => {
-        if (!btn.dataset.armed) {
-          btn.dataset.armed = "1";
-          btn.textContent = "Confirm delete";
-          window.setTimeout(() => {
-            btn.textContent = "Delete";
-            delete btn.dataset.armed;
-          }, 2500);
-          return;
-        }
-        btn.disabled = true;
-        try {
-          await deleteLogSet(btn.dataset.del!);
-          globalStatus("Log-set version deleted (current curve values kept)");
-          recordProcess("Log set", "Deleted a log-set version");
-          void this.refreshCatalog();
-        } catch (err) {
-          globalStatus(`Delete failed: ${err}`);
           btn.disabled = false;
         }
       });

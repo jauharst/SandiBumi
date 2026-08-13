@@ -1964,6 +1964,26 @@ pub(crate) struct CompleteWellWrite {
     pub set_id: CompleteSetId,
 }
 
+pub(crate) const LOG_SET_RESTORE_KEY: &str = "_sandibumi_restore_v1";
+
+/// Structured link carried by a restore run. The restored version keeps the source calculation's
+/// ancestry and parameters, while this record says which immutable historical version supplied
+/// its rows. A second restore points at the version it actually copied; history is never rewound.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LogSetRestoreRecord {
+    pub schema_version: u32,
+    pub source_set_id: String,
+    pub source_version: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RestoreLogSetResult {
+    pub rows_restored: usize,
+    pub new_set_id: String,
+    pub new_version: i64,
+    pub restored_from: LogSetRestoreRecord,
+}
+
 /// One version of a log set as listed in the catalog / Sets manager.
 #[derive(Debug, Clone, Serialize)]
 pub struct LogSetEntry {
@@ -1976,8 +1996,39 @@ pub struct LogSetEntry {
     pub created_at: String,
     pub curve_names: Vec<String>,
     pub is_current: bool
-,
+    ,
     pub ancestry: Option<CurveAncestry>,
+    pub restored_from: Option<LogSetRestoreRecord>,
+}
+
+fn restore_record(params_json: Option<&str>) -> Option<LogSetRestoreRecord> {
+    let value: serde_json::Value = serde_json::from_str(params_json?).ok()?;
+    serde_json::from_value(value.get(LOG_SET_RESTORE_KEY)?.clone()).ok()
+}
+
+fn params_json_with_restore_record(
+    params_json: Option<&str>,
+    restored_from: &LogSetRestoreRecord,
+) -> Result<String, String> {
+    let mut parameters = match params_json {
+        None => serde_json::Map::new(),
+        Some(raw) => match serde_json::from_str::<serde_json::Value>(raw)
+            .map_err(|error| format!("cannot restore a run with invalid parameter JSON: {error}"))?
+        {
+            serde_json::Value::Object(map) => map,
+            legacy => {
+                let mut map = serde_json::Map::new();
+                map.insert("legacy_parameters".into(), legacy);
+                map
+            }
+        },
+    };
+    parameters.insert(
+        LOG_SET_RESTORE_KEY.into(),
+        serde_json::to_value(restored_from)
+            .map_err(|error| format!("cannot serialize restore provenance: {error}"))?,
+    );
+    Ok(serde_json::Value::Object(parameters).to_string())
 }
 
 /// Registers a new run event: version = 1 + the well's highest version of `set_name`
@@ -3365,6 +3416,7 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
         let ancestry = params_json
             .as_deref()
             .and_then(|text| parse_curve_ancestry(text).ok());
+        let restored_from = restore_record(params_json.as_deref());
         Ok(LogSetEntry {
             set_id: r.get(0)?,
             set_name: r.get(1)?,
@@ -3377,6 +3429,7 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
             is_current: r.get(7)?
         ,
             ancestry,
+            restored_from,
         })
     })?;
     let mut entries = Vec::new();
@@ -3415,42 +3468,151 @@ pub(crate) fn list_log_set_names(conn: &Connection) -> duckdb::Result<Vec<String
     Ok(names)
 }
 
-/// Copies a version's archived rows back into the current store (delete-then-append on
-/// exactly the curve names that version wrote). Returns the number of restored rows.
-pub(crate) fn restore_log_set(conn: &Connection, set_id: &str) -> Result<usize, String> {
+/// Copies an archived version into a new run event, then makes that new version current for exactly
+/// the curves the source version wrote. The source and every intervening version remain unchanged;
+/// restoring is another append-only version, never a history rewind.
+pub(crate) fn restore_log_set(
+    conn: &Connection,
+    set_id: &str,
+) -> Result<RestoreLogSetResult, String> {
     load_set_write_discipline(conn, set_id)?;
     validate_archived_continuous_depth_uniqueness(conn, set_id)?;
-    // Atomic: the DELETE of current rows and the re-INSERT from the archive must not be split
-    // by a crash (which would drop the current rows and leave them un-restored).
-    crate::db::with_txn(conn, |conn| {
+    let source: Option<(
+        String,
+        String,
+        i64,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+    )> = conn
+        .query_row(
+            "SELECT well_id, set_name, version, params_json, inputs_json, frame,
+                    sampling_style, duplicate_resolution
+             FROM log_sets WHERE set_id = ?1",
+            params![set_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let Some((
+        well_id,
+        set_name,
+        source_version,
+        source_params_json,
+        inputs_json,
+        frame,
+        sampling_style,
+        duplicate_resolution,
+    )) = source
+    else {
+        return Err(format!("log-set version '{set_id}' does not exist"));
+    };
+    let source_rows: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM computed_curves_archive WHERE set_id = ?1",
+            params![set_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if source_rows == 0 {
+        return Err(format!(
+            "log-set '{set_name}' version {source_version} has no archived rows to restore"
+        ));
+    }
+
+    let restored_from = LogSetRestoreRecord {
+        schema_version: 1,
+        source_set_id: set_id.to_string(),
+        source_version,
+    };
+    let restored_params_json =
+        params_json_with_restore_record(source_params_json.as_deref(), &restored_from)?;
+    let new_set_id = Uuid::new_v4().to_string();
+
+    // Atomic: append the run record and archive copy, then replace only the current projection.
+    // A crash can therefore expose neither a half-created version nor current rows without their
+    // immutable archive counterpart.
+    let (rows_restored, new_version) = crate::db::with_txn(conn, |conn| {
+        let new_version: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM log_sets
+             WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+            |row| row.get(0),
+        )?;
+        conn.execute(
+            "INSERT INTO log_sets
+                (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
+                 sampling_style, duplicate_resolution)
+             VALUES (?1, ?2, ?3, ?4, 'restore', ?5, ?6, ?7, ?8, ?9)",
+            params![
+                new_set_id,
+                well_id,
+                set_name,
+                new_version,
+                restored_params_json,
+                inputs_json,
+                frame,
+                sampling_style,
+                duplicate_resolution
+            ],
+        )?;
+        conn.execute(
+            "INSERT INTO run_parameters
+                (set_id, position, name, value_json, source, state, resolution, manifest_version)
+             SELECT ?1, position, name, value_json, source, state, resolution, manifest_version
+             FROM run_parameters WHERE set_id = ?2",
+            params![new_set_id, set_id],
+        )?;
         conn.execute(
             "DELETE FROM computed_curves
-             WHERE well_id = (SELECT well_id FROM log_sets WHERE set_id = ?1)
+             WHERE well_id = ?2
                AND upper(curve_name) IN (SELECT DISTINCT upper(curve_name) FROM computed_curves_archive WHERE set_id = ?1)",
-            params![set_id],
+            params![set_id, well_id],
         )?;
         let restored = conn.execute(
             "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
-             SELECT well_id, depth, curve_name, value, set_id FROM computed_curves_archive WHERE set_id = ?1",
-            params![set_id],
+             SELECT well_id, depth, curve_name, value, ?2
+             FROM computed_curves_archive WHERE set_id = ?1",
+            params![set_id, new_set_id],
         )?;
-        Ok::<usize, duckdb::Error>(restored)
+        conn.execute(
+            "INSERT INTO computed_curves_archive (set_id, well_id, depth, curve_name, value)
+             SELECT ?2, well_id, depth, curve_name, value
+             FROM computed_curves_archive WHERE set_id = ?1",
+            params![set_id, new_set_id],
+        )?;
+        Ok::<(usize, i64), duckdb::Error>((restored, new_version))
     })
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+
+    Ok(RestoreLogSetResult {
+        rows_restored,
+        new_set_id,
+        new_version,
+        restored_from,
+    })
 }
 
-/// Deletes one version's archive rows + its log_sets row. Current values are kept (their
-/// provenance tag is cleared) so deleting history can never change any plot or result.
-pub(crate) fn delete_log_set(conn: &Connection, set_id: &str) -> duckdb::Result<()> {
-    // Atomic: clearing provenance + dropping archive rows + dropping the log_sets row must not
-    // be split by a crash (which could orphan archive rows or a dangling set_id reference).
-    crate::db::with_txn(conn, |conn| {
-        conn.execute("UPDATE computed_curves SET set_id = NULL WHERE set_id = ?1", params![set_id])?;
-        conn.execute("DELETE FROM computed_curves_archive WHERE set_id = ?1", params![set_id])?;
-        conn.execute("DELETE FROM run_parameters WHERE set_id = ?1", params![set_id])?;
-        conn.execute("DELETE FROM log_sets WHERE set_id = ?1", params![set_id])?;
-        Ok(())
-    })
+/// Ordinary version deletion is not a retention policy. Keep this explicit refusal behind the
+/// command so a stale frontend or saved UI cannot revive the former destructive path.
+pub(crate) fn delete_log_set(_conn: &Connection, _set_id: &str) -> Result<(), String> {
+    Err(
+        "computed curve history is append-only; deleting a log-set version is refused. No explicit, user-visible and logged version-retention policy is configured"
+            .into(),
+    )
 }
 
 /// Catalog of a well's CURRENT computed curves with per-curve provenance (which set
@@ -3857,6 +4019,145 @@ pub(crate) fn write_equation_output(
 
 #[cfg(test)]
 mod tests {
+    /// CORRECTNESS — SB-DBM-035 / SB-DBM-T35. The exact v1/v2 archive plus current v3,
+    /// refused archive UPDATE/DELETE, restore-to-v4, source-version record and unchanged v1-v3
+    /// expectations come from `22_database-model.md` §6 T35, sourced there to SB-CORE-010,
+    /// F-06 and the shipped archive-purpose statement. The numeric rows are non-physical fixture
+    /// labels, not petrophysical values or defaults.
+    #[test]
+    fn archive_updates_and_deletes_are_refused_and_restoring_version_one_creates_version_four_without_changing_versions_one_through_three() {
+        use crate::db;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = uuid::Uuid::new_v4();
+        db::insert_well(
+            &conn,
+            well_id,
+            "ARCHIVE-RESTORE",
+            None,
+            None,
+            Some(0.0),
+        )
+        .unwrap();
+        let well_id = well_id.to_string();
+        let depth = [1000.0_f32, 1000.5];
+        let spec = LogSetSpec {
+            set_name: "HISTORY".into(),
+            module: "SB-DBM-T35 fixture".into(),
+            params_json: "{\"fixture\":\"versioned rows\"}".into(),
+            inputs_json: "[]".into(),
+        };
+        let generations = [[0.1_f32, 0.2], [0.4, 0.5], [0.7, 0.8]];
+        let mut set_ids = Vec::new();
+        for (index, values) in generations.iter().enumerate() {
+            let (set_id, version) = create_log_set(&conn, &well_id, &spec).unwrap();
+            assert_eq!(version, index as i64 + 1);
+            write_computed_curves_versioned(
+                &conn,
+                &well_id,
+                &depth,
+                &[("FIXTURE_CODE", values)],
+                &set_id,
+            )
+            .unwrap();
+            set_ids.push(set_id);
+        }
+
+        let archived_rows = |set_id: &str| -> Vec<(f32, String, f32)> {
+            let mut statement = conn
+                .prepare(
+                    "SELECT depth, curve_name, value FROM computed_curves_archive
+                     WHERE set_id = ?1 ORDER BY depth, curve_name",
+                )
+                .unwrap();
+            statement
+                .query_map(duckdb::params![set_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        let before: Vec<Vec<(f32, String, f32)>> =
+            set_ids.iter().map(|set_id| archived_rows(set_id)).collect();
+
+        for sql in [
+            "UPDATE computed_curves_archive SET value = 99",
+            "DELETE FROM computed_curves_archive",
+        ] {
+            let error = db::run_readonly_query(&conn, sql, 100)
+                .expect_err("the SQL reporting surface must refuse archive mutation");
+            assert!(error.contains("only SELECT"), "archive mutation refusal: {error}");
+        }
+        let delete_error = delete_log_set(&conn, &set_ids[1])
+            .expect_err("ordinary log-set deletion must not mutate append-only history");
+        assert!(
+            delete_error.to_string().contains("append-only"),
+            "ordinary archive deletion must name the append-only rule: {delete_error}"
+        );
+
+        let receipt = restore_log_set(&conn, &set_ids[0]).unwrap();
+        assert_eq!(receipt.rows_restored, 2);
+        assert_eq!(receipt.new_version, 4);
+        assert_eq!(receipt.restored_from.source_version, 1);
+        assert_eq!(receipt.restored_from.source_set_id, set_ids[0]);
+        let sets = list_log_sets(&conn, &well_id).unwrap();
+        assert_eq!(
+            sets.iter().map(|set| set.version).collect::<Vec<_>>(),
+            vec![4, 3, 2, 1],
+            "restoring v1 while v3 is current must append v4"
+        );
+        let restored = &sets[0];
+        assert_eq!(restored.set_id, receipt.new_set_id);
+        assert_eq!(restored.module, "restore");
+        assert_eq!(restored.restored_from, Some(receipt.restored_from.clone()));
+        let record: serde_json::Value =
+            serde_json::from_str(restored.params_json.as_deref().unwrap()).unwrap();
+        assert_eq!(record["_sandibumi_restore_v1"]["source_version"], 1);
+        assert_eq!(
+            record["_sandibumi_restore_v1"]["source_set_id"],
+            set_ids[0]
+        );
+
+        let current: Vec<(String, f32, f32)> = {
+            let mut statement = conn
+                .prepare(
+                    "SELECT set_id, depth, value FROM computed_curves
+                     WHERE well_id = ?1 AND curve_name = 'FIXTURE_CODE' ORDER BY depth",
+                )
+                .unwrap();
+            statement
+                .query_map(duckdb::params![well_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        assert_eq!(
+            current,
+            vec![
+                (restored.set_id.clone(), 1000.0, 0.1),
+                (restored.set_id.clone(), 1000.5, 0.2),
+            ],
+            "current rows carry v1 values under the new v4 identity"
+        );
+        for (index, set_id) in set_ids.iter().enumerate() {
+            assert_eq!(
+                archived_rows(set_id),
+                before[index],
+                "source archive version {} changed during restore",
+                index + 1
+            );
+        }
+        assert_eq!(
+            archived_rows(&restored.set_id),
+            before[0],
+            "v4 is an appended copy of restored v1"
+        );
+    }
+
     /// CORRECTNESS — SB-DBM-026 / SB-DBM-T25. Dossier invariant 12 and T-DB-20 require
     /// continuous sets to refuse a duplicate depth with both source rows, while POINT sets keep
     /// legitimate duplicates. F-26 cites IP's explicit 0.01 ft FPRESS perturbation; it is fixture

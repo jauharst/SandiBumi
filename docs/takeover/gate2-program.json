@@ -8,9 +8,9 @@
   "later_gate_requirement_count": 20,
   "action_mode_counts": {
     "IMPLEMENT-OR-REFUSE": 31,
-    "REMEDIATE": 106,
+    "REMEDIATE": 105,
     "PROVE": 16,
-    "RETAIN": 69
+    "RETAIN": 70
   },
   "execution": {
     "implementation_model": "gpt-5.6-sol-xhigh",
@@ -94,7 +94,7 @@
       "exclude_ids": []
     }
   ],
-  "completed_requirements": ["SB-CORE-001", "SB-CORE-002", "SB-CORE-004", "SB-CORE-006", "SB-CORE-010", "SB-CORE-011", "SB-CORE-013", "SB-CORE-035", "SB-CORE-036", "SB-INS-014", "SB-INS-015", "SB-INS-016", "SB-INS-017", "SB-INS-018", "SB-INS-019", "SB-DBM-001", "SB-DBM-003", "SB-DBM-004", "SB-DBM-006", "SB-DBM-007", "SB-DBM-013", "SB-DBM-016", "SB-DBM-023", "SB-DBM-026", "SB-DBM-027", "SB-DBM-028", "SB-DBM-029", "SB-DBM-033"],
+  "completed_requirements": ["SB-CORE-001", "SB-CORE-002", "SB-CORE-004", "SB-CORE-006", "SB-CORE-010", "SB-CORE-011", "SB-CORE-013", "SB-CORE-035", "SB-CORE-036", "SB-INS-014", "SB-INS-015", "SB-INS-016", "SB-INS-017", "SB-INS-018", "SB-INS-019", "SB-DBM-001", "SB-DBM-003", "SB-DBM-004", "SB-DBM-006", "SB-DBM-007", "SB-DBM-013", "SB-DBM-016", "SB-DBM-023", "SB-DBM-026", "SB-DBM-027", "SB-DBM-028", "SB-DBM-029", "SB-DBM-033", "SB-DBM-035"],
   "blocked_requirements": ["SB-CORE-003", "SB-CORE-005", "SB-CORE-007", "SB-CORE-015", "SB-CORE-044", "SB-DBM-002", "SB-DBM-005", "SB-DBM-009", "SB-DBM-010", "SB-DBM-011", "SB-DBM-015", "SB-DBM-017", "SB-DBM-025", "SB-DBM-030", "SB-DBM-031", "SB-DBM-032"],
   "later_gate_only": [
     {"requirement_id": "SB-CORE-041", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Fresh-clone and clean-machine build evidence belongs to Windows and offline qualification"},

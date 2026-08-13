@@ -462,14 +462,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DBM-T35`; sections 4.5 and 6.6.
 - **Atomic obligations:** archive UPDATE/DELETE refuse; restore creates the next version with a source-version link; all earlier versions remain unchanged.
-- **Current source:** `restore_log_set` is a first-class backend/Tauri/UI operation, but it replaces current rows with archive rows under the old `set_id` rather than creating a new version. `delete_log_set` deletes archive rows and the run record, so the archive is not append-only.
-- **Qualifying acceptance tests:** none; T35's refused UPDATE/DELETE and version-4 restore/source-link fixture is missing. Test class is `MISSING`.
-- **Supporting tests:** `db.rs::log_set_versioning_never_overwrites` and `workflow.rs::a_restored_log_set_version_feeds_the_next_module_run` prove current restore and history behavior while also characterizing archive deletion/old-id reuse.
+- **Current source:** `equations.rs::restore_log_set` validates the archived source, then in one transaction appends a new log-set row, copies its queryable run parameters, replaces only the current projection, and appends a new archive copy under the next version and a fresh `set_id`. `_sandibumi_restore_v1` records the immediate source set/version. `delete_log_set` is now an explicit append-only refusal retained behind the Tauri command for stale clients. `ipc.ts` returns the typed source/new-version receipt; `inspectorPanel.ts` names it and exposes no ordinary Delete action.
+- **Qualifying acceptance tests:** exact correctness test `archive_updates_and_deletes_are_refused_and_restoring_version_one_creates_version_four_without_changing_versions_one_through_three` starts with archived v1/v2 and current v3, refuses SQL-console UPDATE/DELETE plus the stale ordinary-delete command, restores v1 as v4, verifies the source record and new current identity, and compares every v1-v3 archive row before/after. Test class is `CORRECTNESS`.
+- **Supporting tests:** `db.rs::log_set_versioning_never_overwrites` now proves restore appends the next catalog version and deletion refuses; `workflow.rs::a_restored_log_set_version_feeds_the_next_module_run` proves the restored values remain consumable downstream. Neither is credited as T35's owned proof.
 - **Manual evidence:** `delivery-sets` 0/33, `project-lifecycle` 3/24 and `security-integrity` 0/63.
-- **Git evidence:** accepted anchor `b332026c` contains the divergent restore/delete implementation.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `RECOVERY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** archive retention/prune policy must distinguish immutable history from separately authorized space reclamation.
-- **Next action:** make restore append a new version with `restored_from`, prohibit ordinary archive mutation and implement every T35 arm; keep any future prune explicit and auditable.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `RECOVERY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for ordinary history operations. The backed-up format migration and the typed, logged, reversible integrity quarantine are separately bounded maintenance paths; neither authorizes ordinary version deletion.
+- **Next action:** retain exact T35; Jauhar manually restores v1 while v3 is current and visually verifies the v4/source disclosure; Gate 4 repeats on a sanitized project without treating synthetic automation as field evidence.
 
 ## SB-DBM-036 - No operation whose duration scales with well count holds the global lock
 
