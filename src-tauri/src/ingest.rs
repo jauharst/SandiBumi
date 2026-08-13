@@ -3204,63 +3204,68 @@ mod tests {
         assert_eq!(mean.gr, vec![25.0, 50.0], "mean averages the four finite repeated samples");
     }
 
-    /// SB-DIO-015 / SB-DIO-T22..T24. The accepted depth-unit spellings and the
-    /// international-foot factor are cited in `docs/PRD_v2/21_data-io.md` §5.1.
-    /// A project declaration is deliberately not used as evidence for an undeclared file.
-    #[test]
-    fn an_undeclared_index_unit_refuses_until_the_files_unit_is_explicitly_confirmed() {
-        let make = |name: &str, unit: &str, well: &str| {
-            let path = std::env::temp_dir().join(name);
-            std::fs::write(
-                &path,
-                format!(
-                    "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. {well} :\n~CURVE\nDEPT.{unit} : depth\nGR.GAPI :\n~ASCII\n1000 50\n1001 55\n"
-                ),
-            )
-            .unwrap();
-            path
-        };
+    fn make_dio015_las(name: &str, unit: &str, well: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(
+            &path,
+            format!(
+                "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. {well} :\n~CURVE\nDEPT.{unit} : depth\nGR.GAPI :\n~ASCII\n1000 50\n1001 55\n"
+            ),
+        )
+        .unwrap();
+        path
+    }
 
+    fn import_dio015_las(
+        conn: &Connection,
+        path: &std::path::Path,
+        options: &LasImportOptions,
+    ) -> ImportResult {
+        import_las_files_with(conn, &[path.to_str().unwrap().to_string()], None, options)
+            .into_iter()
+            .next()
+            .expect("one input path produces one import result")
+    }
+
+    #[test]
+    fn an_index_with_no_file_or_project_unit_refuses_names_both_sources_and_commits_nothing() {
+        // CORRECTNESS — source: docs/PRD_v2/21_data-io.md §6 SB-DIO-T22.
         let fresh = Connection::open_in_memory().unwrap();
         db::create_schema(&fresh).unwrap();
-        let no_unit = make("sandibumi_dio015_none.las", "", "SANDI-NONE");
-        let fresh_result = &import_las_files_with(
-            &fresh,
-            &[no_unit.to_str().unwrap().to_string()],
-            None,
-            &LasImportOptions::default(),
-        )[0];
+        let no_unit = make_dio015_las("sandibumi_dio015_none.las", "", "UNIT_ABSENT");
+        let fresh_result = import_dio015_las(&fresh, &no_unit, &LasImportOptions::default());
         assert!(
             fresh_result.error.as_deref().is_some_and(|e| e.contains("file index") && e.contains("project")),
             "the refusal must name both possible sources: {:?}",
             fresh_result.error
         );
+        let wells: i64 = fresh.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get(0)).unwrap();
+        assert_eq!(wells, 0, "the unit refusal happens before any well is committed");
+        std::fs::remove_file(no_unit).ok();
+    }
 
+    #[test]
+    fn a_project_unit_never_becomes_an_undeclared_files_unit_without_per_import_confirmation() {
+        // CORRECTNESS — source: docs/PRD_v2/21_data-io.md §6 SB-DIO-T23.
+        // The 0.3048 m/ft conversion is NIST SP 811, cited by chapter §5.1.
         let metric = Connection::open_in_memory().unwrap();
         db::create_schema(&metric).unwrap();
         crate::units::set_project_depth_unit(&metric, crate::units::DepthUnit::Metres).unwrap();
-        let still_refused = &import_las_files_with(
-            &metric,
-            &[no_unit.to_str().unwrap().to_string()],
-            None,
-            &LasImportOptions::default(),
-        )[0];
+        let no_unit = make_dio015_las("sandibumi_dio015_confirm.las", "", "UNIT_CONFIRMATION");
+        let still_refused = import_dio015_las(&metric, &no_unit, &LasImportOptions::default());
         assert!(
             still_refused.error.as_deref().is_some_and(|e| e.contains("project setting is not a file declaration")),
             "a declared project must not silently lend its unit to the file: {:?}",
             still_refused.error
         );
+        let before: i64 = metric.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get(0)).unwrap();
+        assert_eq!(before, 0, "the unresolved file unit commits no well");
 
         let confirmed = LasImportOptions {
             file_depth_unit: Some("FT".into()),
             ..Default::default()
         };
-        let accepted = &import_las_files_with(
-            &metric,
-            &[no_unit.to_str().unwrap().to_string()],
-            None,
-            &confirmed,
-        )[0];
+        let accepted = import_dio015_las(&metric, &no_unit, &confirmed);
         assert!(accepted.error.is_none(), "explicit confirmation must unblock: {:?}", accepted.error);
         assert!(
             accepted.warning.as_deref().unwrap_or("").contains("explicitly confirmed as FT"),
@@ -3275,22 +3280,28 @@ mod tests {
             )
             .unwrap();
         assert!((first_depth - 304.8).abs() < 1e-3, "confirmed feet convert by the cited 0.3048 factor");
+        std::fs::remove_file(no_unit).ok();
+    }
 
-        let declared = make("sandibumi_dio015_declared.las", "FT", "SANDI-DECLARED");
-        let declared_result = &import_las_files_with(
-            &metric,
-            &[declared.to_str().unwrap().to_string()],
-            None,
-            &LasImportOptions::default(),
-        )[0];
+    #[test]
+    fn characterizes_a_declared_feet_index_into_a_metre_project_as_converted_with_a_report() {
+        // CHARACTERIZATION — SB-DIO-T24 labels the conversion report as char; the numeric
+        // 0.3048 m/ft check remains independently sourced to NIST SP 811 in chapter §5.1.
+        let metric = Connection::open_in_memory().unwrap();
+        db::create_schema(&metric).unwrap();
+        crate::units::set_project_depth_unit(&metric, crate::units::DepthUnit::Metres).unwrap();
+        let declared = make_dio015_las("sandibumi_dio015_declared.las", "FT", "UNIT_DECLARED");
+        let declared_result = import_dio015_las(&metric, &declared, &LasImportOptions::default());
         assert!(declared_result.error.is_none(), "a declared file needs no confirmation");
         assert!(
             declared_result.warning.as_deref().unwrap_or("").contains("converted from ft"),
             "the declared-unit conversion is still reported: {:?}",
             declared_result.warning
         );
-
-        std::fs::remove_file(no_unit).ok();
+        let first_depth: f32 = metric
+            .query_row("SELECT MIN(depth) FROM standard_curves", [], |row| row.get(0))
+            .unwrap();
+        assert!((first_depth - 304.8).abs() < 1e-3, "declared feet convert by the cited 0.3048 factor");
         std::fs::remove_file(declared).ok();
     }
 

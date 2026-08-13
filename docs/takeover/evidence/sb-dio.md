@@ -199,13 +199,13 @@
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DIO-T22`, `SB-DIO-T23`, `SB-DIO-T24`.
 - **Atomic obligations:** refuse when both project and file units are absent; when only the file unit is absent, require a per-import declaration rather than inheriting the project unit; name both possible sources; commit nothing before resolution.
 - **Current source:** `units.rs::resolve_index_unit` returns errors for both absent-file cases, and LAS/core import accepts an explicit file-unit confirmation before applying the normal adopted/matched/converted action.
-- **Qualifying acceptance tests:** `an_undeclared_index_unit_refuses_until_the_files_unit_is_explicitly_confirmed` is `CORRECTNESS`; it pins both refusal arms and the explicit-confirmation success arm against the chapter contract.
-- **Supporting tests:** unit spelling and DLIS reconciliation tests exercise the shared resolver.
-- **Manual evidence:** `data-conventions` 0/45, `las-import` 0/57, `dlis-import` 0/11 and `core-point-import` 0/52 - unexercised.
-- **Git evidence:** reachable `a98c154` contains the closing refusal.
+- **Qualifying acceptance tests:** exact SB-DIO-T22 `an_index_with_no_file_or_project_unit_refuses_names_both_sources_and_commits_nothing` passed 1/0/0 and is `CORRECTNESS`: both possible sources are named and zero wells commit. Exact SB-DIO-T23 `a_project_unit_never_becomes_an_undeclared_files_unit_without_per_import_confirmation` passed 1/0/0 and is `CORRECTNESS`: the metre project lends no unit and writes zero wells, while explicit `FT` confirmation stores `1000 ft` as `304.8 m` by the cited factor.
+- **Supporting tests:** exact SB-DIO-T24 `characterizes_a_declared_feet_index_into_a_metre_project_as_converted_with_a_report` passed 1/0/0 and is explicitly `CHARACTERIZATION` for the current report text; its `304.8 m` numeric assertion remains independently sourced. Unit spelling and DLIS reconciliation tests exercise the shared resolver.
+- **Manual evidence:** `data-conventions` 4/98 and `las-import` 0/66; this increment claims no operator or representative-delivery exercise.
+- **Git evidence:** reachable `a98c154` contains the closing refusal; this increment separates T22/T23 correctness from T24 characterization and adds pre-write assertions, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied P0 contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** require every new index-bearing reader to call the shared resolver before writes.
+- **Next action:** retain the separate exact T22/T23/T24 proofs and require every new index-bearing reader to call the shared resolver before writes; Jauhar judges the rendered refusal/confirmation messages under Gate 4.
 
 ## SB-DIO-016 - The DLIS index unit MUST be read and reconciled.
 

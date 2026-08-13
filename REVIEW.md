@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-015: undeclared LAS depth units refuse
+
+- [ ] **Automated — not manual evidence:** exact SB-DIO-T22 and T23 are separately green
+      at 1 passed / 0 failed / 0 ignored each. With neither unit source declared, the
+      refusal names both the file index and project and commits zero wells. A metre project
+      still refuses an undeclared file and commits zero wells until that import explicitly
+      confirms `FT`; the stored `1000 ft` sample is then `304.8 m` by the cited NIST factor.
+- [ ] **Characterization — not correctness:** exact SB-DIO-T24 is separately green at
+      1 passed / 0 failed / 0 ignored. A file-declared `FT` index is converted to metres and
+      the current result text reports `converted from ft`; the numeric conversion is sourced,
+      but the chapter deliberately classifies the report wording scenario as characterization.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to exercise all three imports in the
+      LAS dialog, confirm the two refusals keep the project tree unchanged, and judge whether
+      the confirmation and conversion messages are readable and actionable. Automated tests
+      do not establish operator comprehension or representative-delivery evidence.
+
 ## 2026-08-14 — G2 SB-DIO-014: TVD tops require survey-backed MD correlation
 
 - [ ] **Automated — not manual evidence:** exact SB-DIO-T20 is green at 1 passed /
