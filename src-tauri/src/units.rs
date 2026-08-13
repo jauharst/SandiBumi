@@ -366,8 +366,10 @@ mod tests {
         );
     }
 
-    /// SB-DIO-019 / SB-DIO-T31. The requirement permits either an explicit
-    /// migration or refusal while data exists; this project deliberately chooses refusal.
+    /// CORRECTNESS - SB-DIO-019 / SB-DIO-T31. `21_data-io.md` section 6 T31
+    /// permits either an explicit counted migration or refusal while committed data
+    /// exists; this project deliberately chooses refusal. The depths are test inputs,
+    /// not sourced physical defaults, and their packed bytes are the expected custody.
     #[test]
     fn changing_the_project_depth_unit_is_refused_while_committed_curves_exist_and_nothing_is_rescaled() {
         let conn = Connection::open_in_memory().unwrap();
@@ -389,17 +391,32 @@ mod tests {
         )
         .unwrap();
 
-        let refusal = set_project_depth_unit_checked(&conn, DepthUnit::Feet).unwrap_err();
-        assert!(refusal.contains("1 well(s)"), "the affected well count is named: {refusal}");
-        assert!(refusal.contains("reinterpret"), "the refusal explains the failure mode: {refusal}");
-        assert_eq!(project_depth_unit(&conn).unwrap(), Some(DepthUnit::Metres));
-        let stored: Vec<f32> = conn
+        let stored_before: Vec<f32> = conn
             .prepare("SELECT depth FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
             .unwrap()
             .query_map(params![well.to_string()], |row| row.get(0))
             .unwrap()
             .collect::<duckdb::Result<_>>()
             .unwrap();
-        assert_eq!(stored, depth, "a refused declaration change cannot rescale stored samples");
+        set_project_depth_unit_checked(&conn, DepthUnit::Metres)
+            .expect("reasserting the stored unit remains a safe no-op");
+        assert_eq!(project_depth_unit(&conn).unwrap(), Some(DepthUnit::Metres));
+
+        let refusal = set_project_depth_unit_checked(&conn, DepthUnit::Feet).unwrap_err();
+        assert!(refusal.contains("1 well(s)"), "the affected well count is named: {refusal}");
+        assert!(refusal.contains("reinterpret"), "the refusal explains the failure mode: {refusal}");
+        assert_eq!(project_depth_unit(&conn).unwrap(), Some(DepthUnit::Metres));
+        let stored_after: Vec<f32> = conn
+            .prepare("SELECT depth FROM standard_curves WHERE well_id = ?1 ORDER BY depth")
+            .unwrap()
+            .query_map(params![well.to_string()], |row| row.get(0))
+            .unwrap()
+            .collect::<duckdb::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            bytemuck::cast_slice::<f32, u8>(&stored_after),
+            bytemuck::cast_slice::<f32, u8>(&stored_before),
+            "a refused declaration change cannot alter any stored depth byte"
+        );
     }
 }

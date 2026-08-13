@@ -251,13 +251,13 @@
 - **Chapter evidence:** P1; chapter status `PRESENT-UNVERIFIED`; owned test `SB-DIO-T31`.
 - **Atomic obligations:** either perform an explicit counted migration or refuse a declaration change while committed data exists; never reinterpret or rescale silently.
 - **Current source:** `units.rs::set_project_depth_unit_checked` permits no-op/safe empty-project declarations and refuses a changed unit once any well exists; the Tauri command uses this guarded entry point.
-- **Qualifying acceptance tests:** `changing_the_project_depth_unit_is_refused_while_committed_curves_exist_and_nothing_is_rescaled` is `CORRECTNESS`; it pins the permitted refusal alternative and verifies stored depths remain byte-for-byte equal.
-- **Supporting tests:** project-unit resolver tests cover the empty-project/adoption path.
-- **Manual evidence:** `project-lifecycle` 3/24 is partial; `data-conventions` 0/45 is unexercised.
-- **Git evidence:** reachable `4776c9d` contains the guarded declaration path.
+- **Qualifying acceptance tests:** exact T31 `changing_the_project_depth_unit_is_refused_while_committed_curves_exist_and_nothing_is_rescaled` passed 1/0/0 and is `CORRECTNESS`. It pins the permitted refusal alternative from both sides: reasserting metres is a safe no-op; changing to feet with one committed well refuses, names the well count and reinterpretation risk, keeps the declaration in metres, and leaves the packed database depth bytes identical to the pre-attempt snapshot.
+- **Supporting tests:** project-unit resolver tests cover the empty-project/adoption path; they do not replace T31's committed-data custody proof.
+- **Manual evidence:** `project-lifecycle` 3/24 and `data-conventions` 4/104 are partial; this increment claims no operator or reopen/replot exercise.
+- **Git evidence:** reachable `4776c9d` contains the guarded declaration path; this increment strengthens exact T31 with a database byte snapshot and same-unit positive control, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied mutation guard); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none; an actual bulk migration remains outside this requirement because refusal is an explicitly permitted implementation.
-- **Next action:** preserve the guarded entry point and keep display-unit changes separate from stored-unit declarations.
+- **Next action:** preserve the guarded entry point, retain the two-sided T31 byte proof, keep display-unit changes separate from stored-unit declarations, and leave any future bulk migration to its own explicit counted contract.
 
 ## SB-DIO-020 - Duplicate depths MUST be resolved by a declared policy, and the count reported.
 

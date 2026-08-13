@@ -1,5 +1,19 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-019: committed depths cannot be re-declared
+
+- [ ] **Automated custody proof — not manual evidence:** exact SB-DIO-T31 is green at
+      1 passed / 0 failed / 0 ignored. Reasserting the stored metre unit remains a safe
+      no-op; changing to feet is refused, names the one affected well and explains that
+      re-declaration would reinterpret rather than convert the stored depths.
+- [ ] **Two-sided persistence boundary:** after refusal, the project declaration is still
+      metres and every packed depth byte matches the pre-attempt database snapshot. The
+      check does not infer a conversion or treat an in-memory fixture as post-write custody.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to attempt the same change through
+      Data Conventions in a representative populated project, confirm the message is clear,
+      and reopen/replot the project. The automated database proof is not operator or field
+      evidence.
+
 ## 2026-08-14 — G2 SB-DIO-018: LAS family units have one canonical owner
 
 - [ ] **Automated ownership proof — not manual evidence:** exact SB-DIO-T29 is green at
