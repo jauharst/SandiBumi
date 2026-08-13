@@ -45,7 +45,7 @@
 - **Current source:** `parsers.rs::ChannelNullMode` has distinct `Values` and `NoNull` variants, and `is_null_value_for_channel` preserves values under `NoNull` while an absent key uses normal LAS screening. The result model does not expose a dedicated per-channel no-null/unset record.
 - **Qualifying acceptance tests:** no tests are mapped to T04/T05; test class is `MISSING`.
 - **Supporting tests:** `one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset` proves the two screening outcomes, but it is owned by SB-DIO-006/T10 and does not assert a visible import-result distinction for SB-DIO-003.
-- **Manual evidence:** `data-conventions` 0/45 and `las-import` 0/57 - unexercised.
+- **Manual evidence:** the generated matrix currently shows `data-conventions` 4/71 and `las-import` 0/57, but legacy checked Automated entries contaminate its checked count; this increment claims no Jauhar-confirmed manual or field exercise.
 - **Git evidence:** the first-class enum is integrated through reachable `23d6b28`; no separate result-surface closure exists.
 - **Verdict:** `PARTIAL`; `DEFERRED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
 - **Blocker or decision:** no numerical source is missing; the result-surface contract and its two owned tests are missing.
@@ -55,14 +55,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T06`, `SB-DIO-T07`, `SB-DIO-T08`.
 - **Atomic obligations:** use one relative comparison with the specified 1.0 floor; survive one f32/f64 representation cycle; convert a recognised sentinel only to internal missing; retain finite nonmatches unchanged.
-- **Current source:** `parsers.rs::matches_null` is the single comparison helper used by global, declared and per-channel screening; the former absolute comparison is gone.
-- **Qualifying acceptance tests:** `null_recognition_is_one_relative_tolerance_transform_and_recognition_never_rewrites` is `CORRECTNESS`; its tolerance and floor come from chapter section 5.2 and it pins both recognition and a surviving finite value.
+- **Current source:** `parsers.rs::matches_null` is the single comparison helper used by global, declared and per-channel screening; the former absolute comparison is gone and recognition produces only the internal `f32::NAN` missing state.
+- **Qualifying acceptance tests:** `null_recognition_is_one_relative_tolerance_transform_and_recognition_never_rewrites` is `CORRECTNESS`; its tolerance and floor come from chapter section 5.2, it pins near-sentinel and f32/f64 recognition plus a surviving finite value and declared-null import, and exact T08 now reads every Rust source through `read_text_file` to require one parser-owned transform and reject the retired epsilon form.
 - **Supporting tests:** per-channel and malformed-input tests exercise the helper through full readers.
-- **Manual evidence:** `data-conventions` 0/45 and `las-import` 0/57 - unexercised.
-- **Git evidence:** reachable `29d6d7d` contains the closing transform.
+- **Manual evidence:** the generated matrix currently shows `data-conventions` 4/71 and `las-import` 0/57, but legacy checked Automated entries contaminate its checked count; this increment claims no Jauhar-confirmed manual or field exercise.
+- **Git evidence:** reachable `29d6d7d` contains the closing transform; the current `codex/g2-program-plan` increment adds the missing executable T08 source inventory without changing production behavior.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied P0 contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** preserve the one-helper inventory and keep environment correction from rewriting values during import.
+- **Next action:** retain exact T06/T07/T08, preserve the one-helper inventory and keep environmental correction separate from import recognition; Jauhar's representative import remains Visual/Manual/Field evidence.
 
 ## SB-DIO-005 - Null values MUST be per-channel and plural.
 

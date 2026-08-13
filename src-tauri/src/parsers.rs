@@ -3402,6 +3402,33 @@ mod las_depth_tests {
         path
     }
 
+    fn rust_sources() -> Vec<(std::path::PathBuf, String)> {
+        fn collect(dir: &std::path::Path, paths: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("read Rust source directory") {
+                let path = entry.expect("read Rust source entry").path();
+                if path.is_dir() {
+                    collect(&path, paths);
+                } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+                    paths.push(path);
+                }
+            }
+        }
+
+        let mut paths = Vec::new();
+        collect(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut paths,
+        );
+        paths.sort();
+        paths
+            .into_iter()
+            .map(|path| {
+                let source = read_text_file(&path).expect("mandatory decoder reads Rust source");
+                (path, source)
+            })
+            .collect()
+    }
+
     // Build a CurveColumns whose companion curves carry their row index as a marker value, so
     // a test can prove the companion columns were filtered in lockstep with the depth column.
     fn cols_from(depth: Vec<f32>) -> CurveColumns {
@@ -3434,6 +3461,39 @@ mod las_depth_tests {
     /// finite sentinel into another finite value.
     #[test]
     fn null_recognition_is_one_relative_tolerance_transform_and_recognition_never_rewrites() {
+        let helper_signature = ["fn matches", "_null("].concat();
+        let relative_transform = [
+            "(v - null).abs() <= null.abs().max(1.0) * NULL_REL_",
+            "TOLERANCE",
+        ]
+        .concat();
+        let retired_absolute_form = ["f32::", "EPSILON"].concat();
+        let sources = rust_sources();
+        let owners: Vec<_> = sources
+            .iter()
+            .filter(|(_, source)| source.contains(&helper_signature))
+            .collect();
+        assert_eq!(
+            owners.len(),
+            1,
+            "the Rust source tree must have exactly one null-comparison helper owner: {:?}",
+            owners.iter().map(|(path, _)| path).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            owners[0].0.file_name().and_then(|name| name.to_str()),
+            Some("parsers.rs"),
+            "null recognition belongs to the mandatory parser boundary"
+        );
+        assert_eq!(
+            owners[0].1.matches(&relative_transform).count(),
+            1,
+            "the one owner must contain the cited relative transform exactly once"
+        );
+        assert!(
+            !owners[0].1.contains(&retired_absolute_form),
+            "the retired absolute epsilon comparison must stay absent from parsers.rs"
+        );
+
         let represented = (-999.250_06_f32 as f64) as f32;
         assert!(is_las_null(represented), "one f32/f64 representation change stays within tolerance");
         assert!(is_las_null(-999.251), "the relative tolerance accepts a nearby formatter result");

@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-004: null recognition has one relative transform and never rewrites
+
+- **Automated — not manual evidence:** exact SB-DIO-T06/T07/T08 recognises the cited
+      near-sentinel and f32/f64 representation controls, preserves a finite nonmatch,
+      converts a declared near-sentinel only to `f32::NAN`, and scans every Rust source
+      file through the mandatory decoder to require one parser-owned relative-comparison
+      helper while rejecting the retired epsilon form. Full gate: 1006 passed / 0 failed /
+      36 ignored, including backend 949 passed / 0 failed / 36 ignored and 55 owned Rust
+      warnings.
+- [ ] **Visual:** import a disposable LAS containing one declared near-sentinel and one
+      nearby genuine reading; inspect the curve and QC surfaces to confirm only the former
+      appears missing.
+- [ ] **Manual:** Jauhar independently queries the imported samples and confirms absence is
+      `f32::NAN` internally while the genuine finite value is byte-preserved. The static
+      inventory is not this operator/data check.
+- [ ] **Field:** pending Gate 4; no representative delivery was used to assess whether its
+      observed formatter noise is covered without false-positive screening.
+
 ## 2026-08-14 — G2 SB-DIO-002: the only default export path honours the project sentinel
 
 - **Automated — not manual evidence:** exact SB-DIO-T03 proves the registry has exactly
