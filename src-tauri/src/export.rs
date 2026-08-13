@@ -773,18 +773,33 @@ mod tests {
         (id, gr, vsh)
     }
 
-    /// SB-DIO-018 / SB-DIO-T29..T30. The fourteen canonical family units are
-    /// the code-resident T1 table cited in chapter §5.1.
+    /// CORRECTNESS - SB-DIO-018 / SB-DIO-T29. The expected ownership boundary is
+    /// specified by `21_data-io.md` section 6 T29: no writer-owned table, and the
+    /// production writer must query `curves::canonical_unit`.
     #[test]
-    fn every_exported_family_unit_comes_from_the_one_canonical_table() {
+    fn the_las_writer_has_no_unit_table_and_queries_the_canonical_family_registry() {
         let source = include_str!("export.rs");
+        let production_source = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("export production source precedes its test module");
         let duplicate_definition = ["fn standard", "_units"].concat();
-        assert!(!source.contains(&duplicate_definition), "the duplicate writer table must stay deleted");
+        let registry_call = ["crate::curves::", "canonical_unit"].concat();
         assert!(
-            source.contains("crate::curves::canonical_unit"),
+            !production_source.contains(&duplicate_definition),
+            "the duplicate writer table must stay deleted"
+        );
+        assert!(
+            production_source.contains(&registry_call),
             "the writer must consult curves::canonical_unit"
         );
+    }
 
+    /// CORRECTNESS - SB-DIO-018 / SB-DIO-T30. The expected unit for each family
+    /// is the reviewed canonical family table cited by `21_data-io.md` section 5.1;
+    /// comparison is exact so spelling and case cannot drift at the file boundary.
+    #[test]
+    fn every_exported_family_declares_the_canonical_registry_unit_with_exact_case() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();

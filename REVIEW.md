@@ -1,5 +1,19 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-018: LAS family units have one canonical owner
+
+- [ ] **Automated ownership proof — not manual evidence:** exact SB-DIO-T29 is green at
+      1 passed / 0 failed / 0 ignored. Its static check is restricted to production source,
+      proves `export.rs` has no writer-owned unit table, and proves the LAS writer calls the
+      canonical family registry; the assertion cannot satisfy itself from test-source text.
+- [ ] **Automated file-boundary proof — not manual evidence:** exact SB-DIO-T30 is green at
+      1 passed / 0 failed / 0 ignored. One exported curve from every registered family declares
+      that family's reviewed canonical unit with exact spelling and case.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export representative held curves,
+      inspect their LAS unit tokens in another reader, and confirm the UI identifies any omitted
+      or unsupported curve clearly. Automated source and synthetic-file checks are not
+      interoperability or operator evidence.
+
 ## 2026-08-14 — G2 SB-DIO-017: LAS export depth units survive round trips
 
 - [ ] **Correctness — not manual evidence:** exact SB-DIO-T27 is green at 1 passed /

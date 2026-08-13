@@ -237,14 +237,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T29`, `SB-DIO-T30`.
 - **Atomic obligations:** define each canonical family unit once in `curves.rs`; delete the export duplicate; make writers query the canonical table.
-- **Current source:** `curves.rs` owns the family registry and `canonical_unit`; `export.rs` calls it and no longer contains `standard_units`.
-- **Qualifying acceptance tests:** `every_exported_family_unit_comes_from_the_one_canonical_table` is `CORRECTNESS`; the fourteen-family expectation is the code-resident T1 table cited in chapter section 5.1 and the static negative pins deletion of the duplicate.
-- **Supporting tests:** LAS unit round trips exercise actual file output.
-- **Manual evidence:** `data-conventions` 0/45 and `las-export` 0/2 - unexercised.
-- **Git evidence:** reachable `34652cd` contains the single-definition closure.
+- **Current source:** the reviewed `registry/unit-registry.json` is the single source introduced by SB-INS-019; it generates the `curves.rs` `FAMILIES` table, while `export.rs` calls `curves::canonical_unit` and contains no writer-owned `standard_units` table.
+- **Qualifying acceptance tests:** exact T29 `the_las_writer_has_no_unit_table_and_queries_the_canonical_family_registry` passed 1/0/0 and checks production source only, so its own assertion text cannot satisfy the positive arm. Exact T30 `every_exported_family_declares_the_canonical_registry_unit_with_exact_case` passed 1/0/0 and compares one file-boundary curve per registered family against the reviewed section 5.1 table with exact spelling and case. Both are `CORRECTNESS`.
+- **Supporting tests:** SB-INS-019's generated-consumer drift gate and SB-DIO-017's LAS unit round trips exercise the registry lifecycle and actual file output without replacing T29/T30.
+- **Manual evidence:** `data-conventions` 4/104 and `las-export` 0/5; this increment claims no other-reader interoperability or representative-delivery exercise.
+- **Git evidence:** reachable `34652cd` contains the single-definition closure; this increment separates T29/T30 and removes the self-satisfying static-test path, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied unit contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** register any new family only in `curves.rs` and keep writer-side duplicate-definition checks.
+- **Next action:** register any new family only in the reviewed source registry, regenerate `curves.rs`, and retain both the production-only duplicate-definition check and exact exported-unit comparison; Jauhar owns representative-reader verification.
 
 ## SB-DIO-019 - Changing the project depth unit MUST NOT silently rescale stored data.
 
