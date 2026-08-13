@@ -173,6 +173,28 @@ export interface ImportResult {
     recorded_unit: string;
     family: string | null;
   }>;
+  /** Verbatim observed unit spellings and only their explicitly registered interpretations. */
+  unit_tokens: Array<{
+    curve: string;
+    raw_token: string;
+    canonical_unit: string | null;
+    quantity_kind:
+      | "gamma_ray"
+      | "electric_potential"
+      | "length"
+      | "bulk_density"
+      | "photoelectric_factor"
+      | "fraction"
+      | "slowness"
+      | "temperature"
+      | "resistivity"
+      | "charge_per_volume"
+      | "permeability"
+      | null;
+    explicit_alias: string | null;
+  }>;
+  /** Look-alike spellings kept distinct because the registry declares no alias. */
+  unit_token_warnings: string[];
 }
 
 /** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */
@@ -957,6 +979,12 @@ export interface ParameterPackRow {
 
 export interface ParameterPack {
   source_file: string;
+  text_provenance: {
+    declared_encoding: string | null;
+    decoded_encoding: string;
+    /** Reversible original-byte representation; never a JSON numeric array. */
+    original_bytes_hex: string;
+  };
   rows: ParameterPackRow[];
 }
 

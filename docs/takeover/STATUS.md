@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `17 / 222 handled — 12 DONE, 5 BLOCKED, 205 remaining`
+- Gate 2 requirement progress: `18 / 222 handled — 13 DONE, 5 BLOCKED, 204 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T02 / SB-INS-016 - DONE; the typed canonical-unit registry is now validated before Tauri construction, so cross-quantity bridges stop installed startup rather than surviving as disconnected test-only validation`
+- Active increment: `G2-T02 / SB-INS-017 - DONE; LAS ingestion reports verbatim unit spellings and unresolved look-alike drift, while declared parameter-pack encoding and a reversible source-byte representation cross the product boundary as provenance`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-INS-016 T19/T20 and all seven curves tests are green; the live owned-warning count falls from 56 to 55 without suppression; full gate 983 passed / 0 failed / 36 ignored`
+- Automated gate: `SB-INS-017 T21/T22 are green with explicit opposite-side controls; focused unit/pack/parser suites are green; full gate 985 passed / 0 failed / 36 ignored`
 - Pilot field evidence: `OPEN`
-- Open blockers: `205 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `After committing SB-INS-016, continue G2-T02 with SB-INS-017 and preserve observed unit/encoding evidence without inventing a universal case or encoding policy.`
+- Open blockers: `204 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `After committing SB-INS-017, continue G2-T02 with SB-INS-018 and carry one explicit missing-unit state through all four specified absence/empty/placeholder fixtures without registering a conversion.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 115 remediate / 18 prove / 53 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 36 implement-or-refuse / 114 remediate / 18 prove / 54 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
@@ -35,13 +35,13 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `105` present-OK, `24` present-unverified, `171` present-divergent, `178` partial,
+- As-built states: `112` present-OK, `24` present-unverified, `168` present-divergent, `174` partial,
   `401` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
-- SB-INS: `26/26` adjudicated - `4` present-OK, `1` present-unverified, `3` present-divergent,
-  `12` partial and `6` absent; `22` pilot blockers and `4` deferred; `4` correctness proofs, `3`
-  characterizations and `19` missing qualifying whole-contract proofs; all `30` test intentions,
+- SB-INS: `26/26` adjudicated - `7` present-OK, `1` present-unverified, `2` present-divergent,
+  `10` partial and `6` absent; `22` pilot blockers and `4` deferred; `7` correctness proofs, `2`
+  characterizations and `17` missing qualifying whole-contract proofs; all `30` test intentions,
   `18` parameter rows, `6` opens, `4` escalations, `6` refusals and `95` traceability rows are
   routed, while all `16` SB-INS manual scenarios remain unchecked and installation/deployment is
   `0/0` and not listed.

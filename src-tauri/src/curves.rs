@@ -82,34 +82,126 @@ pub struct UnitTokenSpec {
 
 pub const UNIT_TOKENS: &[UnitTokenSpec] = &[
     UnitTokenSpec { token: "gAPI", quantity_kind: QuantityKind::GammaRay, canonical_unit: "gAPI" },
+    UnitTokenSpec { token: "GAPI", quantity_kind: QuantityKind::GammaRay, canonical_unit: "gAPI" },
     UnitTokenSpec { token: "mV", quantity_kind: QuantityKind::ElectricPotential, canonical_unit: "mV" },
     UnitTokenSpec { token: "m", quantity_kind: QuantityKind::Length, canonical_unit: "m" },
+    UnitTokenSpec { token: "M", quantity_kind: QuantityKind::Length, canonical_unit: "m" },
     UnitTokenSpec { token: "mm", quantity_kind: QuantityKind::Length, canonical_unit: "mm" },
+    UnitTokenSpec { token: "MM", quantity_kind: QuantityKind::Length, canonical_unit: "mm" },
     UnitTokenSpec { token: "cm", quantity_kind: QuantityKind::Length, canonical_unit: "cm" },
+    UnitTokenSpec { token: "CM", quantity_kind: QuantityKind::Length, canonical_unit: "cm" },
     UnitTokenSpec { token: "in", quantity_kind: QuantityKind::Length, canonical_unit: "in" },
+    UnitTokenSpec { token: "IN", quantity_kind: QuantityKind::Length, canonical_unit: "in" },
     UnitTokenSpec { token: "g/cc", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "g/cc" },
+    UnitTokenSpec { token: "G/CC", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "g/cc" },
     UnitTokenSpec { token: "kg/m3", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "kg/m3" },
+    UnitTokenSpec { token: "KG/M3", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "kg/m3" },
     UnitTokenSpec { token: "b/e", quantity_kind: QuantityKind::PhotoelectricFactor, canonical_unit: "b/e" },
+    UnitTokenSpec { token: "B/E", quantity_kind: QuantityKind::PhotoelectricFactor, canonical_unit: "b/e" },
     UnitTokenSpec { token: "v/v", quantity_kind: QuantityKind::Fraction, canonical_unit: "v/v" },
+    UnitTokenSpec { token: "V/V", quantity_kind: QuantityKind::Fraction, canonical_unit: "v/v" },
     UnitTokenSpec { token: "pu", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
+    UnitTokenSpec { token: "PU", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
     UnitTokenSpec { token: "%", quantity_kind: QuantityKind::Fraction, canonical_unit: "%" },
     UnitTokenSpec { token: "p.u.", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
+    UnitTokenSpec { token: "P.U.", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
     UnitTokenSpec { token: "us/m", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
+    UnitTokenSpec { token: "US/M", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
     UnitTokenSpec { token: "usec/m", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
+    UnitTokenSpec { token: "USEC/M", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
     UnitTokenSpec { token: "us/ft", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/ft" },
+    UnitTokenSpec { token: "US/FT", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/ft" },
+    UnitTokenSpec { token: "degF", quantity_kind: QuantityKind::Temperature, canonical_unit: "degF" },
     UnitTokenSpec { token: "DEGF", quantity_kind: QuantityKind::Temperature, canonical_unit: "degF" },
+    UnitTokenSpec { token: "degC", quantity_kind: QuantityKind::Temperature, canonical_unit: "degC" },
     UnitTokenSpec { token: "DEGC", quantity_kind: QuantityKind::Temperature, canonical_unit: "degC" },
     UnitTokenSpec { token: "ohm.m", quantity_kind: QuantityKind::Resistivity, canonical_unit: "ohm.m" },
+    UnitTokenSpec { token: "OHM.M", quantity_kind: QuantityKind::Resistivity, canonical_unit: "ohm.m" },
+    UnitTokenSpec { token: "meq/L", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/L" },
     UnitTokenSpec { token: "MEQ/L", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/L" },
     UnitTokenSpec { token: "meq/mL", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/mL" },
+    UnitTokenSpec { token: "MEQ/ML", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/mL" },
     UnitTokenSpec { token: "md", quantity_kind: QuantityKind::Permeability, canonical_unit: "mD" },
+    UnitTokenSpec { token: "mD", quantity_kind: QuantityKind::Permeability, canonical_unit: "mD" },
 ];
 
 pub fn resolve_unit_token(token: &str) -> Option<&'static UnitTokenSpec> {
-    let normalized = normalize_unit(token);
-    UNIT_TOKENS
+    let observed = token.trim();
+    UNIT_TOKENS.iter().find(|entry| entry.token == observed)
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub struct UnitTokenObservation {
+    pub curve: String,
+    pub raw_token: String,
+    pub canonical_unit: Option<String>,
+    pub quantity_kind: Option<QuantityKind>,
+    /// Present only when a reviewed registry row explicitly maps this spelling to another
+    /// canonical spelling. Similar typography alone never creates an alias.
+    pub explicit_alias: Option<String>,
+}
+
+/// Preserve each observed spelling before interpretation and report look-alike vocabulary that
+/// has no explicit equivalence row. The comparison is warning-only; it never selects a unit.
+pub fn observe_unit_tokens(
+    tokens: &[(String, Option<String>)],
+) -> (Vec<UnitTokenObservation>, Vec<String>) {
+    let observations = tokens
         .iter()
-        .find(|entry| normalize_unit(entry.token) == normalized)
+        .filter_map(|(curve, token)| {
+            let raw = token.as_deref()?.trim();
+            if raw.is_empty() {
+                return None;
+            }
+            let resolved = resolve_unit_token(raw);
+            Some(UnitTokenObservation {
+                curve: curve.clone(),
+                raw_token: raw.to_string(),
+                canonical_unit: resolved.map(|entry| entry.canonical_unit.to_string()),
+                quantity_kind: resolved.map(|entry| entry.quantity_kind),
+                explicit_alias: resolved
+                    .filter(|entry| entry.token != entry.canonical_unit)
+                    .map(|entry| format!("{} -> {}", entry.token, entry.canonical_unit)),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let mut warnings = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, left) in observations.iter().enumerate() {
+        for right in observations.iter().skip(index + 1) {
+            if left.raw_token == right.raw_token
+                || !left.raw_token.eq_ignore_ascii_case(&right.raw_token)
+            {
+                continue;
+            }
+            let explicitly_equivalent = match (
+                resolve_unit_token(&left.raw_token),
+                resolve_unit_token(&right.raw_token),
+            ) {
+                (Some(left), Some(right)) => {
+                    left.quantity_kind == right.quantity_kind
+                        && left.canonical_unit == right.canonical_unit
+                }
+                _ => false,
+            };
+            if explicitly_equivalent {
+                continue;
+            }
+            let key = if left.raw_token < right.raw_token {
+                (left.raw_token.clone(), right.raw_token.clone())
+            } else {
+                (right.raw_token.clone(), left.raw_token.clone())
+            };
+            if seen.insert(key) {
+                warnings.push(format!(
+                    "unit-token drift: observed '{}' and '{}' remain distinct because no explicit alias declares them equivalent",
+                    left.raw_token, right.raw_token
+                ));
+            }
+        }
+    }
+    (observations, warnings)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -327,7 +419,7 @@ impl UnitDesignation {
 }
 
 pub fn is_ms_per_ft(unit: Option<&str>) -> bool {
-    matches!(unit.map(normalize_unit).as_deref(), Some("ms/ft" | "msft"))
+    matches!(unit.map(str::trim), Some("MS/FT" | "ms/ft" | "MSFT" | "msft"))
 }
 
 pub fn ms_per_ft_designation(
@@ -427,7 +519,14 @@ pub fn unconverted_unit(
     }
     if family
         .and_then(canonical_unit)
-        .is_some_and(|canonical| normalize_unit(canonical) == normalize_unit(declared))
+        .is_some_and(|canonical| {
+            matches!(
+                (resolve_unit_token(canonical), resolve_unit_token(declared)),
+                (Some(expected), Some(observed))
+                    if expected.quantity_kind == observed.quantity_kind
+                        && expected.canonical_unit == observed.canonical_unit
+            )
+        })
     {
         return None;
     }
@@ -457,7 +556,7 @@ pub fn family_for_import(
 ) -> (Option<&'static FamilySpec>, Option<UnconvertedUnit>) {
     let inferred = family_for(curve);
     let declared = src_unit.map(str::trim).unwrap_or_default();
-    if normalize_unit(declared) == "meq/l" {
+    if matches!(declared, "MEQ/L" | "meq/L") {
         return (
             None,
             Some(UnconvertedUnit {
@@ -471,7 +570,7 @@ pub fn family_for_import(
             }),
         );
     }
-    if normalize_unit(declared) != "ppg" {
+    if declared != "PPG" {
         return (inferred, None);
     }
     (
@@ -504,17 +603,27 @@ pub fn convert_to_canonical(
         return None;
     }
     let typed_bridge = validate_unit_bridge(declared, target).ok()?;
-    let src = normalize_unit(declared);
-    let tgt = normalize_unit(target);
-    if src == tgt {
+    let target_token = resolve_unit_token(target)?;
+    let declared_token = resolve_unit_token(declared)?;
+    if declared_token.quantity_kind == target_token.quantity_kind
+        && declared_token.canonical_unit == target_token.canonical_unit
+    {
         return None;
     }
 
     let rule = UNIT_RULES.iter().find(|rule| {
+        let from = resolve_unit_token(rule.from_unit);
+        let to = resolve_unit_token(rule.to_unit);
         rule.automatic
             && rule.families.contains(&family)
-            && normalize_unit(rule.from_unit) == src
-            && normalize_unit(rule.to_unit) == tgt
+            && from.is_some_and(|entry| {
+                entry.quantity_kind == declared_token.quantity_kind
+                    && entry.canonical_unit == declared_token.canonical_unit
+            })
+            && to.is_some_and(|entry| {
+                entry.quantity_kind == target_token.quantity_kind
+                    && entry.canonical_unit == target_token.canonical_unit
+            })
             && validate_unit_bridge(rule.from_unit, rule.to_unit)
                 .is_ok_and(|rule_bridge| rule_bridge.quantity_kind == typed_bridge.quantity_kind)
     })?;
@@ -532,16 +641,6 @@ pub fn convert_to_canonical(
         offset,
         derivation: rule.derivation.to_string(),
     })
-}
-
-/// Lowercases and strips punctuation/spacing so "US/FT", "us/ft", "usft", "US / FT" all
-/// compare equal.
-fn normalize_unit(u: &str) -> String {
-    u.trim()
-        .to_lowercase()
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect()
 }
 
 #[cfg(test)]

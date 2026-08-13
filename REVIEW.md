@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-INS-017: observed unit and encoding evidence survives interpretation
+
+- [x] **Automated:** SB-INS-T21 imports exact `mV` and `mv` spellings through the product LAS
+      path, proves both spellings survive in stored curve metadata, permits only registered `mV`
+      to acquire the canonical electric-potential interpretation, and requires the unaliased pair
+      to emit a drift warning. SB-INS-T22 loads a declared CP1252 parameter pack carrying byte
+      `0x92`, reconstructs every original byte from exported typed provenance, and proves a false
+      UTF-8 declaration refuses. Focused unit, parser and pack suites are green; the full gate
+      passed 985 / 0 / 36.
+- [ ] **Visual:** import a LAS carrying the case-variant pair and inspect the completed import
+      report. Confirm both raw spellings and the explicit drift warning remain readable; a unit
+      test or stored row is not evidence that the UI presents them well.
+- [ ] **Manual:** load a CP1252 pack through the governed product surface and inspect declared
+      versus decoded encoding plus source-byte provenance. Confirm a contradictory declaration
+      blocks before rows become available.
+- [ ] **Field:** exercise representative pilot deliveries and confirm registry aliases cover only
+      reviewed source spellings. This increment adds no universal case rule, encoding default,
+      conversion factor, physical endpoint or petrophysical default.
+
 ## 2026-08-13 — G2 SB-INS-016: typed unit registry is enforced before launch
 
 - [x] **Automated:** startup now validates every shipping canonical token and conversion bridge

@@ -31,12 +31,24 @@ struct RawParameterPackRow {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawParameterPack {
+    #[serde(default)]
+    text_encoding: Option<String>,
     rows: Vec<RawParameterPackRow>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TextFileProvenance {
+    pub declared_encoding: Option<String>,
+    pub decoded_encoding: String,
+    /// Reversible source-byte representation. A string is deliberate: raw byte vectors must
+    /// never cross Tauri as JSON number arrays.
+    pub original_bytes_hex: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ParameterPack {
     pub source_file: String,
+    pub text_provenance: TextFileProvenance,
     pub rows: Vec<ParameterPackRow>,
     #[serde(skip)]
     by_semantic_id: BTreeMap<String, usize>,
@@ -65,10 +77,43 @@ impl ParameterPack {
 }
 
 fn parse_parameter_pack_structure(path: &Path) -> Result<ParameterPack, String> {
-    let text = crate::parsers::read_text_file(path)
+    let decoded = crate::parsers::read_text_file_with_encoding(path)
         .map_err(|error| format!("{}: cannot read parameter pack: {error}", path.display()))?;
-    let raw: RawParameterPack = serde_json::from_str(&text)
+    let raw: RawParameterPack = serde_json::from_str(&decoded.text)
         .map_err(|error| format!("{}: invalid parameter-pack JSON: {error}", path.display()))?;
+    if let Some(declared) = raw.text_encoding.as_deref() {
+        let declared_interpretation = match declared {
+            "CP1252" | "Windows-1252" => "Windows-1252",
+            "UTF-8" => "UTF-8",
+            "UTF-8 with BOM" => "UTF-8 with BOM",
+            "UTF-16LE with BOM" => "UTF-16LE with BOM",
+            "UTF-16BE with BOM" => "UTF-16BE with BOM",
+            "UTF-16LE without BOM" => "UTF-16LE without BOM",
+            "UTF-16BE without BOM" => "UTF-16BE without BOM",
+            _ => {
+                return Err(format!(
+                    "{}: parameter pack declares unsupported text encoding {declared}",
+                    path.display()
+                ))
+            }
+        };
+        if declared_interpretation != decoded.encoding {
+            return Err(format!(
+                "{}: parameter pack declares text encoding {declared}, but source bytes decoded as {}",
+                path.display(),
+                decoded.encoding
+            ));
+        }
+    }
+    let text_provenance = TextFileProvenance {
+        declared_encoding: raw.text_encoding,
+        decoded_encoding: decoded.encoding,
+        original_bytes_hex: decoded
+            .original_bytes
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    };
 
     let mut rows = Vec::with_capacity(raw.rows.len());
     let mut by_semantic_id = BTreeMap::new();
@@ -120,6 +165,7 @@ fn parse_parameter_pack_structure(path: &Path) -> Result<ParameterPack, String> 
 
     Ok(ParameterPack {
         source_file: path.to_string_lossy().into_owned(),
+        text_provenance,
         rows,
         by_semantic_id,
         by_ordinal,
@@ -517,6 +563,86 @@ mod tests {
             activated.is_empty(),
             "no refused fixture may partially activate"
         );
+
+        std::fs::remove_dir_all(&temp).unwrap();
+    }
+
+    /// CORRECTNESS — SB-INS-017 / SB-INS-T22. The CP1252 byte `0x92`, explicit CP1252
+    /// declaration, and required exported byte/encoding provenance come from dossier sections
+    /// 2.1 and 3.9 plus N-NEW-12. A contradictory declaration is the opposite-side control:
+    /// merely auto-decoding the same bytes must not make the declaration ceremonial.
+    #[test]
+    fn a_declared_cp1252_pack_records_its_decoded_encoding_and_original_byte_representation_in_exported_provenance(
+    ) {
+        let temp = std::env::temp_dir().join(format!(
+            "sandibumi-parameter-encoding-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&temp).unwrap();
+        let schema = module_parameter_schema("vsh_gr").expect("a shipping module owns its schema");
+        let parameter = &schema.parameters[0];
+        let encoded_fixture = |declared_encoding: &str| {
+            let fixture = serde_json::json!({
+                "text_encoding": declared_encoding,
+                "rows": [{
+                    "semantic_id": parameter.semantic_id,
+                    "module_schema_version": schema.module_schema_version,
+                    "ordinal": parameter.ordinal,
+                    "display_label": "Observed ’ label",
+                    "value": { "fixture": true }
+                }]
+            });
+            let mut utf8 = serde_json::to_vec_pretty(&fixture).unwrap();
+            let position = utf8
+                .windows(3)
+                .position(|window| window == [0xE2, 0x80, 0x99])
+                .expect("fixture contains the CP1252 smart-apostrophe character");
+            utf8.splice(position..position + 3, [0x92]);
+            utf8
+        };
+
+        let body = encoded_fixture("CP1252");
+        let path = temp.join("declared-cp1252.json");
+        std::fs::write(&path, &body).unwrap();
+        let pack = load_parameter_pack_for_module(&path, "vsh_gr")
+            .expect("the matching explicit encoding declaration must load");
+        assert_eq!(
+            pack.text_provenance.declared_encoding.as_deref(),
+            Some("CP1252")
+        );
+        assert_eq!(pack.text_provenance.decoded_encoding, "Windows-1252");
+        let reconstructed = pack
+            .text_provenance
+            .original_bytes_hex
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| {
+                let digits = std::str::from_utf8(pair).unwrap();
+                u8::from_str_radix(digits, 16).unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(reconstructed, body, "the exported hex must represent every source byte");
+        assert!(reconstructed.contains(&0x92));
+
+        let exported = serde_json::to_value(&pack).expect("the product result exports provenance");
+        assert_eq!(
+            exported["text_provenance"]["declared_encoding"],
+            "CP1252"
+        );
+        assert_eq!(
+            exported["text_provenance"]["decoded_encoding"],
+            "Windows-1252"
+        );
+        assert_eq!(
+            exported["text_provenance"]["original_bytes_hex"],
+            pack.text_provenance.original_bytes_hex
+        );
+
+        let mismatch = temp.join("contradictory-utf8.json");
+        std::fs::write(&mismatch, encoded_fixture("UTF-8")).unwrap();
+        let error = load_parameter_pack_for_module(&mismatch, "vsh_gr").unwrap_err();
+        assert!(error.contains("declares text encoding UTF-8"), "{error}");
+        assert!(error.contains("decoded as Windows-1252"), "{error}");
 
         std::fs::remove_dir_all(&temp).unwrap();
     }

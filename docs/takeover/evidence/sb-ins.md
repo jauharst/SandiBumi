@@ -37,9 +37,9 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 
 ## Live result
 
-- As built: 6 ABSENT, 10 PARTIAL, 6 PRESENT-OK, 3 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
+- As built: 6 ABSENT, 10 PARTIAL, 7 PRESENT-OK, 2 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
 - Release: 22 PILOT-BLOCKER, 4 UNDECIDED, 0 DEFERRED.
-- Test class: 6 CORRECTNESS, 3 CHARACTERIZATION, 17 MISSING qualifying whole-contract proofs.
+- Test class: 7 CORRECTNESS, 2 CHARACTERIZATION, 17 MISSING qualifying whole-contract proofs.
 - Risk: 13 DEPLOYMENT, 7 DATA-INTEGRITY, 2 RECOVERY, 4 SILENT-WRONGNESS.
 - Mechanically after this receipt: 879 adjudicated, 52 unadjudicated, 584 pilot blockers, 198 undecided, 149 deferred.
 
@@ -50,7 +50,7 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 3. The capability manifest covers six named features but not the complete Python-backed product surface. A test that expects those same six rows proves internal consistency, not completeness.
 4. “Re-probe” is text, not a user action. The support dialog exposes only Close, and the real capability messages do not all carry the helper's copyable command.
 5. Parameter-pack identity and ambiguity refusal are now product-reachable through a backend-owned module schema; applying pack values to computation deliberately remains closed until the typed-unit, observed-token, generated-registry and attestation/provenance contracts are complete.
-6. Raw encoding/unit evidence is not retained end to end. Global case folding currently makes `mV` and `mv` equivalent without an explicit alias, contrary to the specified observable-drift contract.
+6. Raw encoding/unit evidence now crosses the product boundary before interpretation. Exact registry rows replace hidden global case folding; `mV` and unknown `mv` remain distinct with a drift warning, while a declared CP1252 parameter pack exports its raw declaration, detected decoder and reversible source bytes. Manual/field review remains open.
 7. The unit-registry validator is now enforced before Tauri construction. This closes disconnected validation, but it does not generate runtime/UI/documentation consumers from one reviewed registry or supply alias source custody; SB-INS-019 remains open.
 8. The third-party generator reports unknown licences but exits successfully, says Python packages are not distributed, and records neither the chosen offline pack nor human legal approval. Its historical PRESENT-OK label is no longer defensible.
 9. Public prerequisite fragments generated from `installation.rs` agree with one another, but other public documents still describe Python distribution/prerequisite decisions as open or user-supplied. One synchronized subset is not one source of truth.
@@ -82,8 +82,8 @@ Each T01-T30 intention is routed once. Shared chapter ownership is shown in one 
 | SB-INS-T18 | SB-INS-015 | CORRECTNESS |
 | SB-INS-T19 | SB-INS-016 | CORRECTNESS |
 | SB-INS-T20 | SB-INS-016 | CORRECTNESS |
-| SB-INS-T21 | SB-INS-017 | CHARACTERIZATION |
-| SB-INS-T22 | SB-INS-017 | CHARACTERIZATION |
+| SB-INS-T21 | SB-INS-017 | CORRECTNESS |
+| SB-INS-T22 | SB-INS-017 | CORRECTNESS |
 | SB-INS-T23 | SB-INS-018 | CHARACTERIZATION |
 | SB-INS-T24 | SB-INS-019 | MISSING |
 | SB-INS-T25 | SB-INS-020 | MISSING |
@@ -329,15 +329,15 @@ Section 8 custody remains complete: 57 rows in §8.1, 15 rows in §8.2, 15 rows 
 ### SB-INS-017
 
 - Specified contract: Preserve observed unit and encoding tokens. Chapter tests: SB-INS-T21 and T22.
-- Current implementation: Parser results expose raw unit spelling and selected decoded encoding, but persistence/export provenance is incomplete; global normalization case-folds `mV` and `mv` without an explicit alias.
-- Verdict: `PRESENT-DIVERGENT`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
-- Automated evidence: `CHARACTERIZATION` — `characterizes_raw_unit_and_encoding_preservation_before_the_current_case_fold` explicitly records the current partial/raw behavior and divergence; it is not correctness proof.
+- Current implementation: LAS product results and stored curve metadata retain raw unit spellings; exact registry rows alone supply canonical interpretations, and unaliased case variants emit drift warnings. Parameter-pack provenance exports the raw declared encoding, detected decoding and reversible exact source bytes.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `DATA-INTEGRITY`.
+- Automated evidence: `CORRECTNESS` — T21 proves stored `mV`/`mv` identity, canonical versus absent interpretation and drift warning; T22 proves declared CP1252 byte `0x92` round trips through typed exported provenance and a contradictory UTF-8 declaration refuses.
 - Manual evidence: SB-INS 0/16; the raw-token/encoding scenario is unchecked; data conventions 0/45 and LAS export 0/2.
 - Source/parameter boundary: No universal encoding or case policy is selected; raw evidence must precede format-specific aliases.
-- Deployment/UI/provenance surface: Parse-time observation exists; stored provenance, drift warning, explicit alias record, and export round trip are absent.
-- History/reachability: Accepted anchor is reachable; current source confirms global case folding.
-- Decision/dependency: Silent case equivalence erases evidence even when numerical samples survive.
-- Next action: Preserve raw bytes/token/encoding through storage and export, require explicit format aliases, emit drift warnings, and add correctness T21-T22.
+- Deployment/UI/provenance surface: Tauri import and parameter-pack results expose the structured evidence; raw unit spelling is also stored as curve metadata. No visual/manual evidence is claimed.
+- History/reachability: Accepted anchor is product-reachable through registered LAS import and parameter-pack load commands; the former characterization was replaced by two correctness tests.
+- Decision/dependency: No source or product decision remains for this contract; exact registries avoid choosing a universal case or encoding policy.
+- Next action: Retain T21/T22 and carry an explicit missing-unit state through SB-INS-018 without registering any empty mapping.
 
 ### SB-INS-018
 

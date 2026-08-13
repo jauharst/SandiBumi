@@ -47,9 +47,12 @@ const CP1252_HIGH: [char; 32] = [
 pub struct DecodedTextFile {
     pub text: String,
     pub encoding: String,
+    /// Exact source bytes retained by the one mandatory read. This stays backend-local; IPC
+    /// provenance exports a reversible hex string, never a JSON numeric array.
+    pub original_bytes: Vec<u8>,
 }
 
-fn decode_text(bytes: &[u8]) -> DecodedTextFile {
+fn decode_text(bytes: Vec<u8>) -> DecodedTextFile {
     let utf16 = |chunks: &[u8], be: bool| -> String {
         let units: Vec<u16> = chunks
             .chunks_exact(2)
@@ -57,27 +60,25 @@ fn decode_text(bytes: &[u8]) -> DecodedTextFile {
             .collect();
         String::from_utf16_lossy(&units)
     };
-    let decoded = |text: String, encoding: &str| DecodedTextFile {
-        text,
-        encoding: encoding.to_string(),
-    };
-    match bytes {
-        [0xEF, 0xBB, 0xBF, rest @ ..] => decoded(String::from_utf8_lossy(rest).into_owned(), "UTF-8 with BOM"),
-        [0xFF, 0xFE, rest @ ..] => decoded(utf16(rest, false), "UTF-16LE with BOM"),
-        [0xFE, 0xFF, rest @ ..] => decoded(utf16(rest, true), "UTF-16BE with BOM"),
+    let (text, encoding) = match bytes.as_slice() {
+        [0xEF, 0xBB, 0xBF, rest @ ..] => {
+            (String::from_utf8_lossy(rest).into_owned(), "UTF-8 with BOM")
+        }
+        [0xFF, 0xFE, rest @ ..] => (utf16(rest, false), "UTF-16LE with BOM"),
+        [0xFE, 0xFF, rest @ ..] => (utf16(rest, true), "UTF-16BE with BOM"),
         _ if bytes.len() >= 4 && bytes.len() % 2 == 0
             && bytes.chunks_exact(2).any(|pair| matches!(pair, [0x0A | 0x0D, 0x00])) =>
         {
-            decoded(utf16(bytes, false), "UTF-16LE without BOM")
+            (utf16(&bytes, false), "UTF-16LE without BOM")
         }
         _ if bytes.len() >= 4 && bytes.len() % 2 == 0
             && bytes.chunks_exact(2).any(|pair| matches!(pair, [0x00, 0x0A | 0x0D])) =>
         {
-            decoded(utf16(bytes, true), "UTF-16BE without BOM")
+            (utf16(&bytes, true), "UTF-16BE without BOM")
         }
-        _ => match std::str::from_utf8(bytes) {
-            Ok(s) => decoded(s.to_string(), "UTF-8"),
-            Err(_) => decoded(
+        _ => match std::str::from_utf8(&bytes) {
+            Ok(s) => (s.to_string(), "UTF-8"),
+            Err(_) => (
                 bytes
                 .iter()
                 .map(|&b| match b {
@@ -88,6 +89,11 @@ fn decode_text(bytes: &[u8]) -> DecodedTextFile {
                 "Windows-1252",
             ),
         },
+    };
+    DecodedTextFile {
+        text,
+        encoding: encoding.to_string(),
+        original_bytes: bytes,
     }
 }
 
@@ -102,7 +108,7 @@ pub fn read_text_file<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
 /// The same mandatory decoder as [`read_text_file`], with the chosen encoding retained
 /// for an import result or preview. Callers must not re-decode bytes to obtain this report.
 pub fn read_text_file_with_encoding<P: AsRef<Path>>(path: P) -> std::io::Result<DecodedTextFile> {
-    Ok(decode_text(&std::fs::read(path)?))
+    Ok(decode_text(std::fs::read(path)?))
 }
 
 /// A single deserialized row from a generic curve CSV export.
@@ -3246,12 +3252,11 @@ mod encoding_tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    /// CHARACTERIZATION — SB-INS-017 / SB-INS-T21/T22 supplies the distinct `mV`/`mv`
-    /// unit-token pair and CP1252 byte 0x92. Raw spellings and chosen encoding are retained;
-    /// the shared canonical result documents today's PARTIAL case-folding behaviour rather
-    /// than claiming the required explicit-alias/drift-warning contract is complete.
+    /// SUPPORTING REGRESSION — the mandatory decoder and shared LAS parser must hand the
+    /// product ingestion layer the exact evidence it needs for SB-INS-T21/T22. Acceptance is
+    /// owned by the product-path tests in `ingest.rs` and `parameter_pack.rs`.
     #[test]
-    fn characterizes_raw_unit_and_encoding_preservation_before_the_current_case_fold() {
+    fn raw_unit_spellings_and_decoded_encoding_survive_the_shared_parser_before_registry_interpretation() {
         let mut body = b"~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\n~CURVE\n\
                          DEPT.M :\nRAW_A.mV :\nRAW_B.mv :\n".to_vec();
         body.extend_from_slice(b"# CP1252 punctuation ");
@@ -3274,9 +3279,11 @@ mod encoding_tests {
         assert_eq!(units, [Some("mV"), Some("mv")]);
 
         let first = crate::curves::resolve_unit_token(units[0].unwrap()).unwrap();
-        let second = crate::curves::resolve_unit_token(units[1].unwrap()).unwrap();
         assert_eq!(first.canonical_unit, "mV");
-        assert_eq!(second.canonical_unit, "mV");
+        assert!(
+            crate::curves::resolve_unit_token(units[1].unwrap()).is_none(),
+            "the parser preserves `mv`, but no explicit registry alias interprets it"
+        );
 
         std::fs::remove_file(&path).expect("remove isolated encoding fixture");
     }

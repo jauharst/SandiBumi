@@ -28,6 +28,10 @@ pub struct ImportResult {
     pub unconverted_units: Vec<crate::curves::UnconvertedUnit>,
     /// Per-file answers to genuinely ambiguous unit symbols.
     pub unit_designations: Vec<crate::curves::UnitDesignation>,
+    /// Every non-empty source spelling paired with only its registry-declared interpretation.
+    pub unit_tokens: Vec<crate::curves::UnitTokenObservation>,
+    /// Look-alike spellings that remain distinct because no explicit alias joins them.
+    pub unit_token_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -130,6 +134,8 @@ fn cancelled_las_import(path: &str) -> ImportResult {
         unit_conversions: Vec::new(),
         unconverted_units: Vec::new(),
         unit_designations: Vec::new(),
+        unit_tokens: Vec::new(),
+        unit_token_warnings: Vec::new(),
     }
 }
 
@@ -199,7 +205,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new() },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -246,6 +252,12 @@ fn insert_parsed_well(
     let unread_sections = columns.unread_sections.clone();
     let text_encoding = columns.text_encoding.clone();
     let declared_step_note = columns.declared_step_mismatch_note.clone();
+    let observed_units = columns
+        .raw_curves
+        .iter()
+        .map(|curve| (curve.mnemonic.clone(), curve.unit.clone()))
+        .collect::<Vec<_>>();
+    let (unit_tokens, unit_token_warnings) = crate::curves::observe_unit_tokens(&observed_units);
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
@@ -272,6 +284,8 @@ fn insert_parsed_well(
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
+                    unit_tokens: unit_tokens.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(),
                 }
             }
         },
@@ -295,6 +309,8 @@ fn insert_parsed_well(
                 unit_conversions: Vec::new(),
                 unconverted_units: Vec::new(),
                 unit_designations: unit_designations.clone(),
+                unit_tokens: unit_tokens.clone(),
+                unit_token_warnings: unit_token_warnings.clone(),
             }
         }
     };
@@ -334,6 +350,8 @@ fn insert_parsed_well(
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
+                    unit_tokens: unit_tokens.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(),
                 }
             }
         }
@@ -361,6 +379,8 @@ fn insert_parsed_well(
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
+                    unit_tokens: unit_tokens.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(),
                 }
             }
             Some(parsers::DuplicateDepthPolicy::Refuse) => {
@@ -380,6 +400,8 @@ fn insert_parsed_well(
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
+                    unit_tokens: unit_tokens.clone(),
+                    unit_token_warnings: unit_token_warnings.clone(),
                 }
             }
             Some(policy) => {
@@ -420,6 +442,8 @@ fn insert_parsed_well(
             unit_conversions: Vec::new(),
             unconverted_units: Vec::new(),
             unit_designations: unit_designations.clone(),
+            unit_tokens: unit_tokens.clone(),
+            unit_token_warnings: unit_token_warnings.clone(),
         };
     }
 
@@ -443,6 +467,7 @@ fn insert_parsed_well(
         }
     }
     notes.extend(unit_designations.iter().map(crate::curves::UnitDesignation::note));
+    notes.extend(unit_token_warnings.iter().cloned());
     notes.extend(alias_decisions.iter().filter_map(|decision| {
         decision.table_entry.as_ref().map(|entry| {
             format!(
@@ -487,7 +512,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
             }
         };
         match stmt
@@ -496,7 +521,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
             }
         }
     };
@@ -512,6 +537,8 @@ fn insert_parsed_well(
             alias_decisions.clone(),
             index_resolution.clone(),
             unit_designations.clone(),
+            unit_tokens.clone(),
+            unit_token_warnings.clone(),
             text_encoding.clone(),
             &columns.depth,
             &columns.raw_curves,
@@ -561,6 +588,8 @@ fn insert_parsed_well(
                 unit_conversions: Vec::new(),
                 unconverted_units: Vec::new(),
                 unit_designations,
+                unit_tokens,
+                unit_token_warnings,
             };
         }
     };
@@ -615,9 +644,9 @@ fn insert_parsed_well(
             notes.extend(unit_conversions.iter().map(crate::curves::UnitConversion::note));
             notes.extend(unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions, unconverted_units, unit_designations }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
     }
 }
 
@@ -636,6 +665,8 @@ fn attach_curves_to_existing_well(
     alias_decisions: Vec<parsers::AliasDecision>,
     index_resolution: Option<parsers::IndexResolution>,
     unit_designations: Vec<crate::curves::UnitDesignation>,
+    unit_tokens: Vec<crate::curves::UnitTokenObservation>,
+    unit_token_warnings: Vec<String>,
     text_encoding: String,
     depth: &[f32],
     curves: &[parsers::RawLasCurve],
@@ -664,11 +695,13 @@ fn attach_curves_to_existing_well(
                 unit_conversions: report.unit_conversions,
                 unconverted_units: report.unconverted_units,
                 unit_designations,
+                unit_tokens,
+                unit_token_warnings,
             }
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
     }
 }
 
@@ -2344,6 +2377,77 @@ mod tests {
             r2.warning
         );
         assert_ne!(r1.well_id, r2.well_id, "still two distinct records (no auto-merge)");
+    }
+
+    /// CORRECTNESS — SB-INS-017 / SB-INS-T21. The distinct `mV` and `mv` source tokens,
+    /// absent equivalence declaration, and required drift warning come from dossier section
+    /// 2.3 and N-NEW-17. The two raw spellings must survive the product import and its stored
+    /// metadata; only the registry-declared spelling may acquire a canonical interpretation.
+    #[test]
+    fn case_variant_unit_tokens_without_an_explicit_alias_remain_distinct_and_record_a_drift_warning(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-unit-token-drift-{}-{}.las",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. UNIT-TOKEN-DRIFT :\n\
+             ~CURVE\nDEPT.M : depth\nRAW_A.mV : first observed token\n\
+             RAW_B.mv : second observed token\n~ASCII\n1000.0 1.0 2.0\n",
+        )
+        .unwrap();
+
+        let result = import_las_files(
+            &conn,
+            &[path.to_string_lossy().into_owned()],
+            None,
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+
+        assert!(result.error.is_none(), "fixture import failed: {:?}", result.error);
+        let stored = conn
+            .prepare(
+                "SELECT mnemonic, unit FROM curve_meta \
+                 WHERE mnemonic IN ('RAW_A', 'RAW_B') ORDER BY mnemonic",
+            )
+            .unwrap()
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            stored,
+            vec![
+                ("RAW_A".to_string(), "mV".to_string()),
+                ("RAW_B".to_string(), "mv".to_string()),
+            ],
+            "source tokens must not be collapsed in stored metadata"
+        );
+
+        let first = result
+            .unit_tokens
+            .iter()
+            .find(|token| token.curve == "RAW_A")
+            .expect("first raw token is reported");
+        let second = result
+            .unit_tokens
+            .iter()
+            .find(|token| token.curve == "RAW_B")
+            .expect("second raw token is reported");
+        assert_eq!(first.raw_token, "mV");
+        assert_eq!(first.canonical_unit.as_deref(), Some("mV"));
+        assert_eq!(second.raw_token, "mv");
+        assert_eq!(second.canonical_unit, None);
+        assert!(result.unit_token_warnings.iter().any(|warning| {
+            warning.contains("mV")
+                && warning.contains("mv")
+                && warning.contains("no explicit alias")
+        }));
     }
 
     /// SB-DIO-009 / SB-DIO-T14. The ordered NPHI aliases and finite-coverage
