@@ -1,5 +1,18 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-012: a decreasing index is refused before commit
+
+- [ ] **Automated — not manual evidence:** exact SB-DIO-T18 drives the production LAS
+      importer with 400 finite, non-duplicated rows whose final depth decreases. It is
+      green at 1 passed / 0 failed / 0 ignored: the result names data row 400 and the
+      required user decision, and the database still contains zero wells.
+- [ ] **Decision control:** the same file imports only after the fixture supplies
+      `AcceptAsDelivered`; the public result retains data row 400 in its warning. No
+      implicit sorting, duplicate policy, or guessed correction is introduced.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to confirm the desktop refusal,
+      decision control and accepted-warning readability against a representative
+      delivery. The automated database assertion is not that evidence.
+
 ## 2026-08-14 — G2 SB-DIO-011: the deviation index aliases have no documented source
 
 - [ ] **Automated contract:** BLOCKED. The exact source-tree audit found four

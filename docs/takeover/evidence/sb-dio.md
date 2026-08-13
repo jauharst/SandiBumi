@@ -160,13 +160,13 @@
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DIO-T18`.
 - **Atomic obligations:** locate the first non-increasing row; block before commit until a user decision; report acceptance without sorting or rewriting.
 - **Current source:** `ingest.rs` checks the parsed index before writes, returns the row and requires `NonMonotonicDecision`; accepted data remains in delivered order.
-- **Qualifying acceptance tests:** `a_non_increasing_index_is_blocked_at_the_reported_row_until_the_user_accepts_it` is `CORRECTNESS`; it pins refusal and explicit-accept controls from T18.
+- **Qualifying acceptance tests:** `a_non_increasing_index_is_blocked_at_the_reported_row_until_the_user_accepts_it` passed 1/0/0 and is `CORRECTNESS`; its 400 finite, non-duplicated rows pin the exact decreasing row, zero-write refusal, explicit `AcceptAsDelivered` control and retained warning from T18.
 - **Supporting tests:** duplicate-depth policy tests distinguish repeated from decreasing indexes.
-- **Manual evidence:** `las-import` 0/57 and `data-conventions` 0/45 - unexercised.
+- **Manual evidence:** `las-import` 0/63 and `data-conventions` 4/89; this re-verification claims no visual, manual or field exercise.
 - **Git evidence:** reachable `cc7c8f5` contains the pre-commit decision gate.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied structural guard); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** preserve the separate non-increasing and duplicate decisions when adding readers.
+- **Next action:** retain exact T18 and preserve the separate non-increasing and duplicate decisions when adding readers; Jauhar verifies the rendered refusal and accepted-warning surfaces without upgrading automated evidence to field truth.
 
 ## SB-DIO-013 - When neither structure nor name resolves an index, the user MUST designate it.
 
