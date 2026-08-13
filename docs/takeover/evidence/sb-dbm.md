@@ -228,14 +228,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DBM-T17`; sections 4.2 and 6.3.
 - **Atomic obligations:** declare every physics-driving metadata attribute as a module input; record runtime value; mark prior output stale on change; refuse a named unset attribute instead of defaulting.
-- **Current source:** no registry attribute declares metadata-to-physics dependencies, no run record stores them generically, and no stale-output invalidation follows such changes.
+- **Current source:** no registry attribute declares metadata-to-physics dependencies, no run record stores them generically, and no stale-output invalidation follows such changes. `nphimat` consumes explicit `TOOL`, `SALINITY` and `MATRIX_IN` options; those are not persisted curve attributes and missing options resolve through module defaults rather than T17's named refusal.
 - **Qualifying acceptance tests:** none; T17's changed and unset controls are missing. Test class is `MISSING`.
 - **Supporting tests:** bespoke module arguments and warnings do not prove the universal metadata dependency contract.
 - **Manual evidence:** `workflow` 0/23, `data-conventions` 0/45 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; the registry/run/staleness mechanism is absent at the accepted anchor.
-- **Verdict:** `ABSENT`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** `DEC-003` must identify pilot methods before their physics-driving attributes can be source-audited; uncited values remain absent.
-- **Next action:** for the selected pilot methods only, declare source-cited attribute inputs, add stale tracking and implement both arms of T17.
+- **Git evidence:** `UNIMPLEMENTED`; the registry/run/staleness mechanism is absent. DEC-003 already fixes the pilot chain, and DEC-018 includes SB-DBM-017 and SB-POR-024 but excludes the owning SB-ENV-012 metadata contract.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** DEC-025. The chapter-cited first-pilot candidate is neutron matrix scale: SB-POR-024 requires the basis and provenance, while SB-ENV-012 owns the typed curve attribute, persistence and every-consumer validation. SB-ENV-012 is outside DEC-018's immutable manifest. No source authorizes inventing a Logging Contractor field or default tool, salinity or matrix selection.
+- **Next action:** authorize SB-ENV-012's typed neutron-scale seam as required infrastructure or revise and re-approve DEC-018 to include it; then implement T17's changed and unset controls without a default.
 
 ## SB-DBM-018 - Training-set identity is recorded as ids and intervals, not as names
 

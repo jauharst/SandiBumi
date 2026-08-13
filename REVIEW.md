@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-017: physics-driving metadata is scope-blocked
+
+- [ ] **Automated implementation:** blocked, so explicit `nphimat` parameters are not presented as
+      the stored metadata contract and no synthetic T17 was added. Exact T17 still needs the
+      run-time attribute value, stale-output invalidation after a change and named refusal when the
+      attribute is absent. The unchanged full gate remains 994 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Architecture / scope:** settle DEC-025. SB-POR-024 requires neutron matrix-basis metadata,
+      but SB-ENV-012 owns its typed enum, persistence and consumer validation and is outside
+      DEC-018's immutable pilot manifest. Either authorize that seam as infrastructure or revise and
+      re-approve the manifest; do not invent a Logging Contractor, tool, salinity or matrix default.
+- [ ] **Visual / Manual:** after implementation, show the declared curve basis in the run review,
+      change it in a disposable project and confirm prior outputs become visibly stale. Remove it
+      and confirm the UI names the missing attribute instead of substituting a default. Jauhar owns
+      this click-through evidence; source inspection is not visual or manual proof.
+- [ ] **Field:** blocked. A representative pilot delivery must preserve the imported basis and make
+      a changed or absent value fail visibly. Vendor precedent and a synthetic project do not prove
+      the real delivery's metadata is trustworthy.
+
 ## 2026-08-13 — G2 SB-DBM-016: fresh-process order independence
 
 - [x] **Automated:** exact SB-DBM-T16 runs two byte-identical copies of one imported two-well
