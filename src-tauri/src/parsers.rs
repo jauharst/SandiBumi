@@ -3521,15 +3521,27 @@ mod las_depth_tests {
             ("B".into(), ChannelNullMode::Values(vec![-32767.0])),
         ]);
         let frame = parse_las_2_all_with_channel_nulls(&path, &channel_nulls).unwrap();
+        let columns = parse_las_2_with_channel_nulls(&path, &channel_nulls).unwrap();
         std::fs::remove_file(&path).ok();
-        let a = &frame.curves.iter().find(|curve| curve.mnemonic == "A").unwrap().values;
-        let b = &frame.curves.iter().find(|curve| curve.mnemonic == "B").unwrap().values;
+        let assert_reader = |reader: &str, curves: &[RawLasCurve]| {
+            let a = &curves.iter().find(|curve| curve.mnemonic == "A").unwrap().values;
+            let b = &curves.iter().find(|curve| curve.mnemonic == "B").unwrap().values;
 
-        assert!(a[0].is_nan() && a[1].is_nan(), "both nulls declared for A are active");
-        assert_eq!(a[2], -32767.0, "B's null remains a real value on A");
-        assert_eq!(b[0], -999.0, "A's first null remains a real value on B");
-        assert_eq!(b[1], -999.25, "A's second and the LAS-global null remain real on overridden B");
-        assert!(b[2].is_nan(), "B's own null is screened");
+            assert!(
+                a[0].is_nan() && a[1].is_nan(),
+                "{reader}: both nulls declared for A are active"
+            );
+            assert_eq!(a[2], -32767.0, "{reader}: B's null remains a real value on A");
+            assert_eq!(b[0], -999.0, "{reader}: A's first null remains a real value on B");
+            assert_eq!(
+                b[1],
+                -999.25,
+                "{reader}: A's second and the LAS-global null remain real on overridden B"
+            );
+            assert!(b[2].is_nan(), "{reader}: B's own null is screened");
+        };
+        assert_reader("all-curves reader", &frame.curves);
+        assert_reader("standard reader", &columns.raw_curves);
     }
 
     /// SB-DIO-006 / SB-DIO-T10. The six-name Weatherford CXD shape and its explicit

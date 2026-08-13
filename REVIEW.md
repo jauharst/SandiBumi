@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-005: plural nulls stay attached to their source channel in every LAS reader
+
+- **Automated — not manual evidence:** exact SB-DIO-T09 imports the chapter's cited
+      `-999`, `-999.25`, and `-32767` controls through both shipping LAS readers. It
+      requires both nulls declared for one channel to screen there, the other channel's
+      distinct null to screen there, and all three values to survive when they belong to
+      the other channel. Full gate: 1006 passed / 0 failed / 36 ignored, including backend
+      949 passed / 0 failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** import a disposable LAS with two channels carrying the three cited
+      controls; inspect both curve surfaces and confirm gaps appear only under each
+      channel's declared convention.
+- [ ] **Manual:** Jauhar independently queries both imported source channels and confirms
+      their own sentinels became `f32::NAN` while the cross-channel controls remained
+      finite and exact. The two-reader automated fixture is not this operator check.
+- [ ] **Field:** pending Gate 4; no representative delivery has confirmed that its
+      channel-identity and plural-null metadata reach the same reader paths unchanged.
+
 ## 2026-08-14 — G2 SB-DIO-004: null recognition has one relative transform and never rewrites
 
 - **Automated — not manual evidence:** exact SB-DIO-T06/T07/T08 recognises the cited

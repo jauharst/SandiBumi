@@ -69,13 +69,13 @@
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T09`.
 - **Atomic obligations:** allow multiple null values per channel and screen each channel only against its own override.
 - **Current source:** `ChannelNullValues` maps channel names to plural `ChannelNullMode::Values`, and both LAS parse paths merge and apply those per-channel modes.
-- **Qualifying acceptance tests:** `two_channels_with_different_plural_nulls_are_screened_against_their_own_values_only` is `CORRECTNESS`; the three sentinel values are cited in chapter section 5.2 and the test pins cross-channel non-screening from both sides.
+- **Qualifying acceptance tests:** `two_channels_with_different_plural_nulls_are_screened_against_their_own_values_only` is `CORRECTNESS`; the three sentinel values are cited in chapter section 5.2, and exact T09 drives both shipping LAS readers while pinning plural own-channel screening and cross-channel survival from both sides.
 - **Supporting tests:** SB-DIO-006 exercises rule-derived per-channel modes.
-- **Manual evidence:** `data-conventions` 0/45 and `las-import` 0/57 - unexercised.
-- **Git evidence:** reachable `ff58416` contains the closing plural override.
+- **Manual evidence:** the generated matrix currently shows `data-conventions` 4/74 and `las-import` 0/60, but legacy checked Automated entries contaminate its checked count; this increment claims no Jauhar-confirmed manual or field exercise.
+- **Git evidence:** reachable `ff58416` contains the closing plural override; the current `codex/g2-program-plan` increment closes the two-reader test gap without changing production behavior.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** keep per-channel overrides attached to source channel identity through every new reader.
+- **Next action:** retain exact T09 across both shipping LAS readers and keep per-channel overrides attached to source channel identity through every new reader; Jauhar's representative import remains Visual/Manual/Field evidence.
 
 ## SB-DIO-006 - The null-exception rule shape MUST be many-to-many.
 
