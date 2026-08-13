@@ -35,7 +35,7 @@
     {
       "id": "data-conventions",
       "title": "Depth, unit, null and encoding conventions",
-      "review_section_patterns": ["Depth unit", "unit", "NULL", "null", "encoding", "depth grid", "depth.step"]
+      "review_section_patterns": ["Depth unit", "unit", "NULL", "null", "encoding", "depth grid", "depth.step", "index alias"]
     },
     {
       "id": "reframe",

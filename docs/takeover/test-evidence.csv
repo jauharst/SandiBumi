@@ -81,7 +81,6 @@
 "SB-DIO-006","CORRECTNESS","src-tauri/src/parsers.rs","one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset"
 "SB-DIO-008","CHARACTERIZATION","src-tauri/src/parsers.rs","characterizes_greater_finite_coverage_as_winner_and_an_equal_coverage_tie_as_declared_alias_priority"
 "SB-DIO-009","CORRECTNESS","src-tauri/src/ingest.rs","the_alias_result_names_the_chosen_and_passed_over_columns_with_both_coverage_counts"
-"SB-DIO-011","CORRECTNESS","src-tauri/src/parsers.rs","every_index_alias_list_cites_one_source_and_tvd_is_not_in_an_md_namespace"
 "SB-DIO-012","CORRECTNESS","src-tauri/src/ingest.rs","a_non_increasing_index_is_blocked_at_the_reported_row_until_the_user_accepts_it"
 "SB-DIO-013","CORRECTNESS","src-tauri/src/ingest.rs","a_delimited_table_without_an_index_name_commits_nothing_until_the_user_designates_one"
 "SB-DIO-013","CORRECTNESS","src-tauri/src/parsers.rs","unit_qualified_and_bare_depth_aliases_resolve_while_an_unrelated_column_is_not_guessed"

@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-011: the deviation index aliases have no documented source
+
+- [ ] **Automated contract:** BLOCKED. The exact source-tree audit found four
+      index-bearing alias lists, while the passing test named “every” inspected only the
+      three lists enumerated in chapter §5.3. It has been renamed as supporting evidence:
+      those three declarations cite §5.3, and `TVD` remains outside every MD list. The
+      uncited `DEV_MD_ALIASES = [MD, DEPTH, DEPT, MEASURED_DEPTH]` path means no
+      qualifying SB-DIO-T17 proof exists. Focused supporting test: 1 passed / 0 failed /
+      0 ignored. Full gate: 1007 passed / 0 failed / 36 ignored, including backend 950
+      passed / 0 failed / 36 ignored and 55 owned Rust warnings.
+- **Source boundary — not acceptance:** the immutable chapter owns deviation-survey
+      ingestion but §5.3 names values and sources only for LAS, core-table and tops
+      index aliases. Git history proves the deviation list arrived with the baseline; it
+      does not supply an authority for those four accepted headers.
+- [ ] **Source required:** supply a named, auditable source for the deviation-survey MD
+      alias list. Then cite it beside the declaration and make T17 discover every
+      index-alias declaration mechanically, so adding a fifth undocumented path fails.
+      No historical implementation and no plausible industry spelling becomes a source.
+- [ ] **Visual / Manual / Field:** no operator or representative-delivery evidence is
+      claimed. A green partial static test is not proof that all import paths have sourced
+      namespaces.
+
 ## 2026-08-14 — G2 SB-DIO-010: LAS index proof does not prove the structural-reader arm
 
 - [ ] **Automated contract:** BLOCKED. The existing exact test is green at 1 passed / 0

@@ -146,14 +146,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned test `SB-DIO-T17`.
 - **Atomic obligations:** define one sourced alias list per path; keep vendor namespaces separate; retain TVD only in its own reference namespace.
-- **Current source:** LAS, core and tops-MD lists are separate and source-commented; `TVD` exists only in `TOPS_TVD_ALIASES`, not any MD list.
-- **Qualifying acceptance tests:** `every_index_alias_list_cites_one_source_and_tvd_is_not_in_an_md_namespace` is `CORRECTNESS`; expected membership comes from chapter section 5.3 and the cited Geolog namespaces.
-- **Supporting tests:** unit-qualified depth header tests protect the MD lists without restoring positional guessing.
-- **Manual evidence:** `data-conventions` 0/45, `las-import` 0/57 and `core-point-import` 0/52 - unexercised.
-- **Git evidence:** reachable `8262c6b` contains the namespace split.
-- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied namespace contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** none for alias membership; SB-DIO-014 still owns reference semantics after resolution.
-- **Next action:** keep the alias test and require every new list to name one source and one reference namespace.
+- **Current source:** LAS, core and tops-MD lists are separate and source-commented, and `TVD` exists only in `TOPS_TVD_ALIASES`. A fourth index-bearing path, `DEV_MD_ALIASES = [MD, DEPTH, DEPT, MEASURED_DEPTH]`, has no source comment and no value/source row in chapter §5.3.
+- **Qualifying acceptance tests:** none; test class is `MISSING`. The former test named “every” enumerated three known source comments, so adding or retaining an undocumented fourth list still passed.
+- **Supporting tests:** `the_three_documented_index_alias_lists_cite_their_sources_and_tvd_is_not_in_an_md_namespace` passed 1/0/0 and pins the three cited chapter lists plus the negative TVD membership controls. Unit-qualified depth-header tests protect the MD lists without restoring positional guessing.
+- **Manual evidence:** `data-conventions` 4/84, `las-import` 0/63 and `core-point-import` 0/52; this re-verification claims no visual, manual or field exercise.
+- **Git evidence:** reachable `8262c6b` contains the namespace split; `git blame` and `git log -S` trace the uncited deviation list to baseline commit `a659096` but provide no external or chapter authority for its values.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-SOURCE`. The deviation-survey MD alias list lacks the single documented source SB-DIO-011 requires. Existing code and generic industry familiarity are not sources, and removing or narrowing accepted headers without authority would change import behavior by guess.
+- **Next action:** supply a named source for every `DEV_MD_ALIASES` value, cite it beside the declaration, then rewrite exact T17 to discover every index-alias declaration mechanically; retain the passing TVD namespace controls and leave SB-DIO-014's reference semantics separate.
 
 ## SB-DIO-012 - A non-monotonic index MUST be detected and reported, never silently accepted.
 

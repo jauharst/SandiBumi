@@ -3623,10 +3623,12 @@ mod las_depth_tests {
         assert_eq!(second.res, first.res, "re-importing the same tie makes the identical choice");
     }
 
-    /// SB-DIO-011 / SB-DIO-T17. The three path-specific lists and Geolog's
-    /// separate reference/welltie namespaces are cited in chapter §5.3.
+    /// Supporting evidence for SB-DIO-011. The three index lists documented in chapter §5.3
+    /// cite that source and preserve Geolog's separate reference/welltie namespaces. This is not
+    /// the whole T17 contract: `DEV_MD_ALIASES` is a fourth index-bearing path with no cited
+    /// definition in §5.3, so the requirement remains blocked rather than hidden by this test.
     #[test]
-    fn every_index_alias_list_cites_one_source_and_tvd_is_not_in_an_md_namespace() {
+    fn the_three_documented_index_alias_lists_cite_their_sources_and_tvd_is_not_in_an_md_namespace() {
         let source = include_str!("parsers.rs");
         for declaration in [
             "Source: `docs/PRD_v2/21_data-io.md` §5.3, LAS-path aliases",

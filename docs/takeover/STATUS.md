@@ -8,21 +8,21 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `59 / 222 handled — 40 DONE, 19 BLOCKED, 163 remaining`
+- Gate 2 requirement progress: `60 / 222 handled — 40 DONE, 20 BLOCKED, 162 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T04 / SB-DIO-010 - BLOCKED; production LAS records its positional index resolution, but the structural T15 arm tests only the resolver because no Geolog flat-ASCII reader exists`
+- Active increment: `G2-T04 / SB-DIO-011 - BLOCKED-SOURCE; the test named every index alias list enumerated only three while the uncited deviation-survey MD list remained invisible`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `The existing SB-DIO-T15/T16 test is green 1 passed / 0 failed / 0 ignored, but only T16 drives a production file import; T15 supplies structure directly to the resolver and is not counted as a qualifying Geolog import proof. Full gate 1007 passed / 0 failed / 36 ignored, including backend 950 passed / 0 failed / 36 ignored; the owned Rust warning inventory remains 55`
+- Automated gate: `The renamed supporting alias-namespace test is green 1 passed / 0 failed / 0 ignored for the three §5.3 lists and TVD negative controls; no qualifying T17 exists because DEV_MD_ALIASES is a fourth uncited index path. Full gate 1007 passed / 0 failed / 36 ignored, including backend 950 passed / 0 failed / 36 ignored; the owned Rust warning inventory remains 55`
 - Pilot field evidence: `OPEN`
-- Open blockers: `163 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; SB-DBM-005 is BLOCKED on the complete registered-module derivation-source map; SB-DBM-009 is BLOCKED on DEC-022 classifying legacy local/unspecified timestamps; SB-DBM-010 is BLOCKED on SB-DBM-005's source-controlled derivation citations; SB-DBM-011 is BLOCKED on DEC-022 plus DEC-023 reconciling T11's zone-set requirement with SB-DBM-008's exclusion; SB-DBM-015 is BLOCKED on DEC-021, DEC-023 and DEC-024 settling the complete identities required by T15, including the pilot-excluded SB-DBM-008, SB-DBM-014 and SB-DBM-019/020 paths; SB-DBM-017 is BLOCKED on DEC-025 reconciling its typed neutron-scale attribute with pilot-excluded SB-ENV-012; SB-DBM-025 is BLOCKED on DEC-026 settling the binding 0.001 PHIE-floor rule versus SB-POR-045's no-default contract before any cross-module registry can claim cited authority; SB-DBM-030 is BLOCKED on DEC-027 reconciling the required queryable REQUIRED_UNSET row versus absence-of-row and T29's export-bound dependency versus the non-adopted Geolog magnitude; SB-DBM-031 is BLOCKED on source/operator declarations for the untyped legacy/imported depth frames and source TVDSS signs that cannot be recovered from a mnemonic, unit, value or neighbouring row; SB-DBM-032 is BLOCKED on DEC-028 choosing the single-handle policy without weakening the closed SB-INS-015 refusal; SB-DBM-041 is BLOCKED on SB-DBM-011's absent audit_entry/audit_detail relations plus DEC-022 and DEC-023; SB-DIO-007 is BLOCKED on a versioned per-sample source-cell-state model and per-deliverable encoding that preserves f32::NAN arithmetic; SB-DIO-010 is BLOCKED on DEC-029 reconciling exact T15's Geolog structural-reader proof with the LAS-2/delimited pilot import surface; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Adjudicate G2-T04 pilot-blocker SB-DIO-011 and exact SB-DIO-T17; verify one cited alias definition per path and keep TVD outside every MD namespace.`
+- Open blockers: `162 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; SB-DBM-005 is BLOCKED on the complete registered-module derivation-source map; SB-DBM-009 is BLOCKED on DEC-022 classifying legacy local/unspecified timestamps; SB-DBM-010 is BLOCKED on SB-DBM-005's source-controlled derivation citations; SB-DBM-011 is BLOCKED on DEC-022 plus DEC-023 reconciling T11's zone-set requirement with SB-DBM-008's exclusion; SB-DBM-015 is BLOCKED on DEC-021, DEC-023 and DEC-024 settling the complete identities required by T15, including the pilot-excluded SB-DBM-008, SB-DBM-014 and SB-DBM-019/020 paths; SB-DBM-017 is BLOCKED on DEC-025 reconciling its typed neutron-scale attribute with pilot-excluded SB-ENV-012; SB-DBM-025 is BLOCKED on DEC-026 settling the binding 0.001 PHIE-floor rule versus SB-POR-045's no-default contract before any cross-module registry can claim cited authority; SB-DBM-030 is BLOCKED on DEC-027 reconciling the required queryable REQUIRED_UNSET row versus absence-of-row and T29's export-bound dependency versus the non-adopted Geolog magnitude; SB-DBM-031 is BLOCKED on source/operator declarations for the untyped legacy/imported depth frames and source TVDSS signs that cannot be recovered from a mnemonic, unit, value or neighbouring row; SB-DBM-032 is BLOCKED on DEC-028 choosing the single-handle policy without weakening the closed SB-INS-015 refusal; SB-DBM-041 is BLOCKED on SB-DBM-011's absent audit_entry/audit_detail relations plus DEC-022 and DEC-023; SB-DIO-007 is BLOCKED on a versioned per-sample source-cell-state model and per-deliverable encoding that preserves f32::NAN arithmetic; SB-DIO-010 is BLOCKED on DEC-029 reconciling exact T15's Geolog structural-reader proof with the LAS-2/delimited pilot import surface; SB-DIO-011 is BLOCKED-SOURCE on the undocumented DEV_MD_ALIASES values and a T17 that discovers every index list; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Adjudicate G2-T04 pilot-blocker SB-DIO-012 and exact SB-DIO-T18; verify the production importer blocks and reports non-increasing index data without silently sorting or accepting it.`
 
 ## Gate dashboard
 
 | Gate | State | Exit evidence |
 |---|---|---|
 | G1 — Baseline reconciliation | COMPLETE | Final audit: 7/7 PASS; 931 rows accounted for exactly once; 879 live-adjudicated plus the exact approved 52-row GEO exception; 242 blockers / 689 deferred / 0 undecided; fresh gate 957 passed / 0 failed / 36 ignored on b4ebe09; zero production-path changes |
-| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 31 implement-or-refuse / 103 remediate / 16 prove / 72 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
+| G2 — Silent-wrongness closure | IN PROGRESS | exact program: 222 owned here / 20 later-gate-only; current live classes 31 implement-or-refuse / 104 remediate / 16 prove / 71 retain; initial routing was 36 / 124 / 19 / 43; ten serial tranches; final audit remains open |
 | G3 — Windows/offline deployment and recovery | NOT STARTED | clean-machine, offline-runtime, rollback and recovery matrix |
 | G4 — Real-data pilot verification | NOT STARTED | Jauhar-confirmed representative workflow evidence |
 | G5 — Release freeze and pilot acceptance | NOT STARTED | one frozen candidate accepted through deployment and pilot use |
@@ -35,7 +35,7 @@ Do not replace it with an estimated percentage.
 - Consolidated requirements: `931`.
 - Adjudicated: `879`.
 - Unadjudicated: `52`.
-- As-built states: `131` present-OK, `21` present-unverified, `162` present-divergent, `169` partial,
+- As-built states: `130` present-OK, `21` present-unverified, `162` present-divergent, `170` partial,
   `396` absent and `52` unadjudicated.
 - Release dispositions: `242` pilot blockers, `0` undecided and `689` deferred. Disposition is not
   defect state: a satisfied safety contract can remain a pilot blocker until field evidence closes.
@@ -52,9 +52,9 @@ Do not replace it with an estimated percentage.
 - SB-CORE: `25/25` adjudicated - `10` present-OK, `1` present-unverified, `2` present-divergent,
   `7` partial and `5` absent; `17` pilot blockers and `8` deferred; `12` correctness proofs and
   `13` missing qualifying whole-contract proofs.
-- SB-DIO: `63/63` adjudicated - `41` present-OK, `6` present-unverified, `6` present-divergent,
-  `3` partial and `7` absent; `49` pilot blockers and `14` deferred; `41`
-  correctness-tested and `22` missing qualifying owned proof.
+- SB-DIO: `63/63` adjudicated - `40` present-OK, `6` present-unverified, `6` present-divergent,
+  `4` partial and `7` absent; `49` pilot blockers and `14` deferred; `40`
+  correctness-tested and `23` missing qualifying owned proof.
 - SB-DBM: `43/43` adjudicated - `19` present-OK, `5` present-divergent, `8` partial and `11` absent;
   `30` pilot blockers and `13` deferred; `18` correctness proofs, `1` characterization, `1`
   optional-package proof and `23` missing qualifying whole-contract proofs.
@@ -135,8 +135,8 @@ Do not replace it with an estimated percentage.
 
 ## Manual and field verification
 
-- Mechanically checked REVIEW capability-scenario mappings: `87 / 1,895` (`4.6%`).
-- Mechanically unchecked REVIEW capability-scenario mappings: `1,808`.
+- Mechanically checked REVIEW capability-scenario mappings: `87 / 1,902` (`4.6%`).
+- Mechanically unchecked REVIEW capability-scenario mappings: `1,815`.
 - Capabilities with recorded exercise: `20 / 54`.
 - Fully exercised capabilities: `1 / 54`.
 - Capability states: `1` exercised, `19` partial, `32` not exercised, `1` not recorded,
