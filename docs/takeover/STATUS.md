@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `10 / 222 handled — 7 DONE, 3 BLOCKED, 212 remaining`
+- Gate 2 requirement progress: `11 / 222 handled — 7 DONE, 4 BLOCKED, 211 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T01 / SB-CORE-013 - DONE for the exact DEC-003 pilot inventory; every selected contested parameter shows cited positions at the editor and persists the interpreter's decision in curve ancestry`
+- Active increment: `G2-T01 / SB-CORE-015 - BLOCKED; LAS passes its non-default self-reader round trips, but T15 requires a DLIS writer that does not ship and 21_data-io.md §7.2 A-1 explicitly withholds the RP66 write source needed to build it correctly`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-CORE-013 is green at 981 passed / 0 failed / 36 ignored; its one owned correctness test is value-sensitive; Rust retains the owned 56-warning inventory`
+- Automated gate: `SB-CORE-015 evidence-only blocked increment is green at 981 passed / 0 failed / 36 ignored in 150s; its focused export module passed 13/0/0, no DLIS writer symbol exists, and Rust retains the owned 56-warning inventory`
 - Pilot field evidence: `OPEN`
-- Open blockers: `212 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `Start G2-T01 / SB-CORE-015 from the verified SB-CORE-013 evidence boundary; SB-CORE-014 remains explicitly deferred outside the approved pilot scope.`
+- Open blockers: `211 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `Start G2-T01 / SB-CORE-035 from the verified SB-CORE-015 evidence boundary; do not turn a missing DLIS writer into an invented format contract.`
 
 ## Gate dashboard
 
@@ -135,8 +135,8 @@ Do not replace it with an estimated percentage.
 
 ## Manual and field verification
 
-- Checked scenarios: `78 / 1,479` (`5.3%`).
-- Unchecked scenarios: `1,401`.
+- Checked scenarios: `78 / 1,485` (`5.3%`).
+- Unchecked scenarios: `1,407`.
 - Capabilities with recorded exercise: `14 / 54`.
 - Fully exercised capabilities: `1 / 54`.
 - Capability states: `1` exercised, `13` partial, `38` not exercised, `1` not recorded,

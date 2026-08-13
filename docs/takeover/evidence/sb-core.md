@@ -173,14 +173,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-CORE-T14`, `SB-CORE-T15`, `SB-CORE-T16` as defined by this writer-round-trip section.
 - **Atomic obligations:** every file writer's output is accepted by its own reader; values round-trip; declared units/null/index conventions match bytes; every writer is tested on a non-default fixture.
-- **Current source:** `export.rs` has a registered LAS 2.0 writer whose shared wrapper invokes the SandiBumi reader and treats a rejected round trip as an error. LAS tests cover feet/metres, nulls/index and non-default conventions. The writer inventory covers only the LAS data writer; office/project/report artifacts are outside it, and no DLIS export/T15 round trip exists. Therefore the universal “every file” inventory is incomplete even though the LAS defect is closed.
+- **Current source:** `export.rs` has one registered LAS 2.0 writer whose shared wrapper invokes the SandiBumi reader and treats a rejected round trip as an error. LAS tests cover feet/metres, nulls/index and non-default conventions. A live source search found no `export_dlis`/`write_dlis` path; `dlis.rs` is read-only. Office, project and report artifacts remain outside the data-writer registry. Therefore the universal “every file” inventory and the named DLIS T15 contract are incomplete even though the LAS defect is closed.
 - **Qualifying acceptance tests:** `an_exported_las_reimports_with_the_same_values`, `the_las_writer_declares_the_unit_it_wrote_for_both_feet_and_metres`, and `every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error` are `CORRECTNESS`, using the declared fixture values and NIST SP 811 conversion. T15 remains missing.
 - **Supporting tests:** optional-package office round trips are ignored correctly but do not provide an always-green universal writer inventory.
 - **Manual evidence:** `las-export` 0/2, `las-import` 0/57, `dlis-import` 0/11 and `office-deliverables` 0/39 are unexercised; `project-lifecycle` 3/24 and `report` 6/53 are partial.
-- **Git evidence:** the LAS writer/reader discipline is integrated at the accepted anchor; no complete all-writer/DLIS closing commit exists.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** a complete shipped-writer inventory and the intended DLIS export boundary are unresolved; no format convention is invented here.
-- **Next action:** register every shipped number-carrying writer or define its external-reader contract, add non-default round trips, and implement T15 only if a DLIS writer is an approved shipped capability.
+- **Git evidence:** the LAS writer/reader discipline is integrated at the accepted anchor. On 2026-08-13 the complete focused `export::tests` module passed 13/0/0, including all three qualifying LAS proofs, and the full gate passed 981/0/36 in 150s; no complete all-writer/DLIS closing commit exists.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 progress state `BLOCKED`.
+- **Blocker or decision:** T15 requires a DLIS export/re-import path that does not ship. `21_data-io.md` §7.2 A-1 states that the normative API RP66 V1 multi-dimensional write sections are not held and explicitly recommends acquiring them before the write half is built. Reproducing `dlisio` behavior, inventing a format convention, or counting file existence as a round trip would violate the source and correctness contracts.
+- **Next action:** acquire the normative API RP66 V1 writer source and approve DLIS export scope; then build its writer against that source and prove non-default values, units, nulls and index conventions through SandiBumi's own DLIS reader. Complete the remaining shipped-writer/external-reader inventory without weakening T15.
 
 ## SB-CORE-030 — Portfolio-scale target is declared and measured
 

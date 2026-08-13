@@ -7,6 +7,22 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-015: DLIS round-trip closure is source-blocked
+
+- [ ] **Automated implementation:** blocked, not declared green from the working LAS subset. The
+      complete `export::tests` module passes 13 / 0 / 0 and re-proves non-default LAS values,
+      feet/metres declarations and mandatory self-reader refusal. No DLIS writer exists, so the
+      named T15 and the universal T16 cannot execute. No file-existence or internal-`Result` test was
+      substituted for a semantic round trip. Full gate: 981 passed / 0 failed / 36 ignored in 150s;
+      Rust retains the owned 56-warning inventory.
+- [ ] **Source acquisition:** obtain the normative API RP66 V1 multi-dimensional writer sections
+      named by `21_data-io.md` §7.2 A-1 and approve DLIS export scope. Do not derive the writer from
+      `dlisio` behavior: the chapter explicitly warns that doing so can produce a file readable only
+      by the implementation it copied.
+- [ ] **Visual/manual and field:** after a sourced writer exists, export one non-default DLIS fixture,
+      re-import it in a fresh SandiBumi project, and compare values, units, nulls, index conventions
+      and user-visible success/refusal. This remains Gate 4 evidence and is not inferred from LAS.
+
 ## 2026-08-13 — G2 SB-CORE-013: cited disagreement stays beside the choice and with the run
 
 - [x] **Automated:** the exact DEC-003 pilot registry covers 15 contested topics without turning
