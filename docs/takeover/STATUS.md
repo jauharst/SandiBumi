@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `24 / 222 handled — 18 DONE, 6 BLOCKED, 198 remaining`
+- Gate 2 requirement progress: `25 / 222 handled — 18 DONE, 7 BLOCKED, 197 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T03 / SB-DBM-004 - DONE; every declared effective ModuleSpec parameter is recorded as EXPLICIT or DEFAULTED, and every default retains the exact configurable-manifest version that supplied it`
+- Active increment: `G2-T03 / SB-DBM-005 - BLOCKED; the mechanism is specified but no complete source-controlled map assigns every registered shipping module a primary citation or approved FIRST-PRINCIPLES derivation document`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-DBM-004 adds one owned correctness test; focused source-state, chain and parameter-pack controls plus the full repository gate are green at 989 passed / 0 failed / 36 ignored; the owned Rust warning inventory remains 55`
+- Automated gate: `SB-DBM-005 adds no costume test for absent shipping metadata; the unchanged full repository gate remains green at 989 passed / 0 failed / 36 ignored and the owned Rust warning inventory remains 55`
 - Pilot field evidence: `OPEN`
-- Open blockers: `198 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `After committing SB-DBM-004, adjudicate SB-DBM-005's universal method-derivation citation without inventing any missing method source.`
+- Open blockers: `197 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; SB-DBM-002 is BLOCKED on DEC-021 selecting the exact build-derived module identity source; SB-DBM-005 is BLOCKED on the complete registered-module derivation-source map; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `After committing the SB-DBM-005 source block, adjudicate SB-DBM-006's resolved-input identity and candidate-decision record.`
 
 ## Gate dashboard
 

@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-005: method derivation is source-blocked
+
+- [ ] **Automated implementation:** blocked, so no synthetic mechanism test is presented as proof
+      that shipping metadata exists. Live source still has no derivation field in `ModuleSpec` or
+      `CurveAncestry`, no fail-closed registration, and no citation to propagate through LAS,
+      report or Office deliverables. The unchanged full gate remains 989 / 0 / 36 with 55 owned
+      Rust warnings.
+- [ ] **Source decision:** approve a complete, source-controlled map assigning every registered
+      shipping module either its primary literature/specification/patent citation or an explicit
+      `FIRST-PRINCIPLES` marker naming the module's own derivation document. Comments, neighboring
+      chapters and engineering memory are not sufficient custody for an audit claim.
+- [ ] **Visual / Manual:** blocked until the registered metadata exists. After implementation,
+      confirm a normal run shows the method citation beside its effective parameters and a module
+      without one is refused before it can write a run record.
+- [ ] **Field:** blocked on the same inventory. Once approved and implemented, confirm the exact
+      citation travels into representative pilot run records and every number-carrying deliverable;
+      do not close this from a repository-only citation.
+
 ## 2026-08-13 — G2 SB-DBM-004: effective parameters retain their manifest origin
 
 - [x] **Automated:** SB-DBM-T06 now saves every declared effective ModuleSpec parameter, not just

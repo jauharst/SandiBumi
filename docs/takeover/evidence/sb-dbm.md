@@ -72,14 +72,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T07`, `SB-DBM-T10`; sections 4.1 and 6.2.
 - **Atomic obligations:** require a literature citation or `FIRST-PRINCIPLES` marker at registration; persist it per run; propagate it into the deliverable.
-- **Current source:** module metadata and run records do not enforce or persist a derivation citation, and the LAS provenance JSON has no such field.
+- **Current source:** live re-verification after SB-DBM-004 confirms `ModuleSpec` still has no derivation-citation field or fail-closed registration result, `CurveAncestry` has no method-derivation field, and LAS/report/Office provenance can only propagate the ancestry fields that exist. Module comments and method-chapter prose are not a registered, complete, source-controlled metadata inventory.
 - **Qualifying acceptance tests:** none; the registration refusal, run-record and export arms of T07/T10 are missing. Test class is `MISSING`.
-- **Supporting tests:** module-specific comments/citations and model-citation UI rows are not durable derivation records for every run.
+- **Supporting tests:** module-specific comments/citations and model-citation UI rows are not durable derivation records for every run. A synthetic T07 mechanism test alone would not make the shipping registry compliant and therefore is not added as a costume for implementation.
 - **Manual evidence:** `workflow` 0/23, `las-export` 0/2 and `office-deliverables` 0/39 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; no universal registration/run/export field exists at the accepted anchor.
+- **Git evidence:** `UNIMPLEMENTED`; no universal registration/run/export field exists at the Gate 2 live source.
 - **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** every pilot method needs an adjudicated derivation source; no citation is inferred here.
-- **Next action:** add the registration field and fail-closed validation, persist it per run and carry it in every provenance-capable deliverable.
+- **Blocker or decision:** `BLOCKED` — neither the chapter nor the current registry supplies a complete map assigning every registered shipping module one primary citation or one approved `FIRST-PRINCIPLES` marker naming the module's own derivation document. Choosing labels from comments, adjacent chapters or engineering memory would write unsupported audit claims into client deliverables. SB-CORE-003's complete cited pilot-method inventory remains blocked on the same source-adjudication boundary.
+- **Next action:** Jauhar must approve the complete registered-module derivation-source map, or adopt a named architecture/source record that supplies it. Then add the fail-closed registration field, run-record persistence, deliverable propagation and both sides of T07/T10.
 
 ## SB-DBM-006 - Inputs are recorded as resolved identities, with the rule that chose them and the candidates it rejected
 
