@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-026: depth uniqueness follows declared set type
+
+- [x] **Automated:** exact SB-DBM-T25 drives both `CONTINUOUS_REGULAR` and
+      `CONTINUOUS_IRREGULAR` writes through the real computed-curve boundary and requires the
+      named depth plus both source rows before any current/archive mutation. It also corrupts an
+      archive fixture deliberately and proves Restore cannot bypass that refusal. The shipped
+      auxiliary-data writer accepts same-depth POINT observations under an explicit `PRESERVE`
+      declaration, while `PERTURB` refuses without a positive unit-typed offset and logs both rows
+      when the cited 0.01 ft fixture value is supplied. `computed_curves` remains PK-less and no
+      upsert or uniqueness index was added. Full-gate result is recorded in the status ledger.
+- [ ] **Visual:** no new control was introduced. In Gate 4, inspect one preserved duplicate POINT
+      delivery in its existing point-data surface and one continuous duplicate refusal. A database
+      row or green test is not proof that the operator can see which policy was applied.
+- [ ] **Manual:** on a disposable project, import a representative pressure/core-point delivery
+      containing legitimate same-depth observations and confirm both remain addressable; then
+      attempt a continuous duplicate write and Restore and confirm the error names depth and both
+      rows without changing the previous curve. Jauhar owns this click-through evidence.
+- [ ] **Field:** pending Gate 4. A real pilot delivery must confirm that preserved same-depth points
+      are scientifically intentional and that no delivery-specific workflow expected a silent
+      survivor. The synthetic 0.01 ft fixture is cited correctness evidence, not a project default
+      and not field acceptance.
+
 ## 2026-08-13 — G2 SB-DBM-025: cross-module constant registry is source-blocked
 
 - [ ] **Automated implementation:** blocked, so the existing `PHIE_FLOOR = 0.001` is not promoted
@@ -18,8 +40,9 @@
 
 ## 2026-08-13 — G2 SB-DBM-023: schema vocabularies have one source
 
-- [x] **Automated:** one typed registry now owns standard columns, sampling style, set frame,
-      depth datum, audit location/mode and named provenance absence. Exact SB-DBM-T23 adds a
+- [x] **Automated:** one typed registry now owns standard columns, sampling style,
+      duplicate-depth resolution, set frame, depth datum, audit location/mode and named provenance
+      absence. Exact SB-DBM-T23 adds a
       synthetic eighth schema member and requires every derived projection to see it, then scans
       the Rust source tree for a second declaration or copied full standard-column registry. The
       full gate passes 995 / 0 / 36 with 55 owned Rust warnings.

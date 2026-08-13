@@ -40,6 +40,14 @@ pub enum DepthUnit {
     Feet,
 }
 
+/// An explicitly supplied depth offset. It has no default: callers must provide both magnitude
+/// and unit before a point-data duplicate may be perturbed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DepthOffset {
+    pub value: f64,
+    pub unit: DepthUnit,
+}
+
 /// Metres — the unit the whole codebase assumed before units existed, and the unit
 /// `wells.kb`/`td` and the Field Map's UTM coordinates are already documented in. Every
 /// pre-existing test was written against that assumption, so defaulting here keeps their

@@ -61,6 +61,7 @@
 "SB-DBM-016","CORRECTNESS","src-tauri/src/core_determinism_tests.rs","a_project_run_in_fresh_processes_with_different_hash_orders_produces_identical_curve_bytes_and_aggregate_statistics"
 "SB-DBM-022","OPTIONAL-PACKAGE-IGNORED","src-tauri/src/ml.rs","a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order"
 "SB-DBM-023","CORRECTNESS","src-tauri/src/schema_vocab.rs","vocabularies_have_one_source_and_every_projection_derives_from_it"
+"SB-DBM-026","CORRECTNESS","src-tauri/src/equations.rs","continuous_duplicates_name_both_source_rows_while_point_duplicates_require_and_record_their_resolution"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_registered_writer_cannot_omit_the_required_sentinel_argument"
 "SB-DIO-002","CORRECTNESS","src-tauri/src/export.rs","the_default_export_format_honours_the_sentinel_and_an_incapable_format_is_marked"

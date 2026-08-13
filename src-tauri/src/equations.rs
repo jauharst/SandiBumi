@@ -1012,6 +1012,22 @@ pub struct LogSetSpec {
     pub inputs_json: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SetWriteDiscipline {
+    sampling_style: crate::schema_vocab::SamplingStyle,
+}
+
+impl Default for SetWriteDiscipline {
+    fn default() -> Self {
+        // Existing module/equation outputs are continuous. Until SB-DBM-028 verifies regularity,
+        // IRREGULAR is the conservative declaration: it promises no increment the writer has not
+        // checked, while still enforcing depth uniqueness.
+        Self {
+            sampling_style: crate::schema_vocab::SamplingStyle::ContinuousIrregular,
+        }
+    }
+}
+
 /// Stable schema key embedded in `log_sets.params_json` without adding a second write path or
 /// changing the deliberately PK-less `computed_curves` table. Existing top-level parameter keys
 /// remain readable; the complete record travels with the same log-set row every current/archive
@@ -1719,6 +1735,7 @@ pub(crate) fn resolve_ancestry_input(
 pub struct CompleteLogSetSpec {
     storage: LogSetSpec,
     ancestry: CurveAncestry,
+    discipline: SetWriteDiscipline,
 }
 
 impl CompleteLogSetSpec {
@@ -1768,11 +1785,26 @@ impl CompleteLogSetSpec {
             params_json: serde_json::Value::Object(parameters).to_string(),
             inputs_json: inputs.to_string(),
         };
-        Ok(Self { storage, ancestry })
+        Ok(Self {
+            storage,
+            ancestry,
+            discipline: SetWriteDiscipline::default(),
+        })
     }
 
     pub fn ancestry(&self) -> &CurveAncestry {
         &self.ancestry
+    }
+
+    #[cfg(test)]
+    fn with_sampling_style(
+        mut self,
+        sampling_style: crate::schema_vocab::SamplingStyle,
+    ) -> Self {
+        self.discipline = SetWriteDiscipline {
+            sampling_style,
+        };
+        self
     }
 
     /// Attach source-comparison decisions to named parameters and refresh the already-validated
@@ -1950,7 +1982,12 @@ pub struct LogSetEntry {
 
 /// Registers a new run event: version = 1 + the well's highest version of `set_name`
 /// (so a re-run NEVER replaces — it becomes version N+1). Returns (set_id, version).
-fn create_log_set_raw(conn: &Connection, well_id: &str, spec: &LogSetSpec) -> duckdb::Result<(String, i64)> {
+fn create_log_set_raw(
+    conn: &Connection,
+    well_id: &str,
+    spec: &LogSetSpec,
+    discipline: SetWriteDiscipline,
+) -> duckdb::Result<(String, i64)> {
     let version: i64 = conn.query_row(
         "SELECT COALESCE(MAX(version), 0) + 1 FROM log_sets WHERE well_id = ?1 AND set_name = ?2",
         params![well_id, spec.set_name],
@@ -1959,8 +1996,9 @@ fn create_log_set_raw(conn: &Connection, well_id: &str, spec: &LogSetSpec) -> du
     let set_id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT INTO log_sets
-            (set_id, well_id, set_name, version, module, params_json, inputs_json, frame)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
+             sampling_style, duplicate_resolution)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             set_id,
             well_id,
@@ -1969,7 +2007,9 @@ fn create_log_set_raw(conn: &Connection, well_id: &str, spec: &LogSetSpec) -> du
             spec.module,
             spec.params_json,
             spec.inputs_json,
-            crate::schema_vocab::LogSetFrame::Standard.as_str()
+            crate::schema_vocab::LogSetFrame::Standard.as_str(),
+            discipline.sampling_style.as_str(),
+            crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str()
         ],
     )?;
     Ok((set_id, version))
@@ -2014,7 +2054,7 @@ pub(crate) fn create_log_set(
     well_id: &str,
     spec: &LogSetSpec,
 ) -> duckdb::Result<(String, i64)> {
-    create_log_set_raw(conn, well_id, spec)
+    create_log_set_raw(conn, well_id, spec, SetWriteDiscipline::default())
 }
 
 pub(crate) fn create_complete_log_set(
@@ -2023,8 +2063,9 @@ pub(crate) fn create_complete_log_set(
     spec: &CompleteLogSetSpec,
 ) -> Result<(CompleteSetId, i64), String> {
     spec.ancestry.validate()?;
+    validate_set_write_discipline(spec.discipline)?;
     let (value, version) = crate::db::with_txn(conn, |conn| {
-        let created = create_log_set_raw(conn, well_id, &spec.storage)?;
+        let created = create_log_set_raw(conn, well_id, &spec.storage, spec.discipline)?;
         write_run_parameters(conn, &created.0, &spec.ancestry.parameters)?;
         Ok::<_, duckdb::Error>(created)
     })
@@ -2048,16 +2089,130 @@ pub(crate) fn create_complete_log_set(
 /// as `write_computed_curves_batch`, rows tagged with `set_id`) and appends the identical
 /// rows to the append-only archive. Prior versions' archive rows are untouched — that is
 /// the "never overwrite" guarantee; any version can be restored via `restore_log_set`.
+fn load_set_write_discipline(
+    conn: &Connection,
+    set_id: &str,
+) -> Result<SetWriteDiscipline, String> {
+    let stored: (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT sampling_style, duplicate_resolution
+             FROM log_sets WHERE set_id = ?1",
+            params![set_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|error| format!("log-set write discipline is not live: {error}"))?;
+    let sampling_style = stored
+        .0
+        .as_deref()
+        .and_then(crate::schema_vocab::SamplingStyle::parse)
+        .ok_or_else(|| {
+            "log-set write refused: sampling style is legacy-unrecorded or invalid".to_string()
+        })?;
+    let duplicate_resolution = stored
+        .1
+        .as_deref()
+        .and_then(crate::schema_vocab::DuplicateDepthResolution::parse)
+        .ok_or_else(|| {
+            "log-set write refused: duplicate-depth resolution is legacy-unrecorded or invalid"
+                .to_string()
+        })?;
+    if duplicate_resolution != crate::schema_vocab::DuplicateDepthResolution::Refuse {
+        return Err("continuous log sets must declare duplicate-depth resolution REFUSE".into());
+    }
+    let discipline = SetWriteDiscipline { sampling_style };
+    validate_set_write_discipline(discipline)?;
+    Ok(discipline)
+}
+
+fn validate_set_write_discipline(discipline: SetWriteDiscipline) -> Result<(), String> {
+    match discipline.sampling_style {
+        crate::schema_vocab::SamplingStyle::ContinuousRegular
+        | crate::schema_vocab::SamplingStyle::ContinuousIrregular => Ok(()),
+        crate::schema_vocab::SamplingStyle::Point => Err(
+            "POINT data must use the point-delivery store, which declares and logs its resolution"
+                .into(),
+        ),
+    }
+}
+
+fn depth_identity(depth: f32) -> u32 {
+    if depth == 0.0 {
+        0.0_f32.to_bits()
+    } else {
+        depth.to_bits()
+    }
+}
+
+fn validate_continuous_depth_uniqueness(
+    depth: &[f32],
+    curves: &[(&str, &[f32])],
+) -> Result<(), String> {
+    for (curve, values) in curves {
+        let mut first_rows = HashMap::<u32, usize>::new();
+        for (index, value) in depth.iter().take(values.len()).enumerate() {
+            let key = depth_identity(*value);
+            if let Some(first) = first_rows.insert(key, index) {
+                return Err(format!(
+                    "continuous depth uniqueness refused for curve '{curve}' at depth {value}: source rows {} and {} share one depth",
+                    first + 1,
+                    index + 1
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_archived_continuous_depth_uniqueness(
+    conn: &Connection,
+    set_id: &str,
+) -> Result<(), String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT curve_name, depth,
+                    row_number() OVER (
+                        PARTITION BY upper(curve_name) ORDER BY rowid
+                    ) AS source_row
+             FROM computed_curves_archive
+             WHERE set_id = ?1
+             ORDER BY upper(curve_name), source_row",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params![set_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, f32>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut first_rows = HashMap::<(String, u32), i64>::new();
+    for row in rows {
+        let (curve, depth, source_row) = row.map_err(|error| error.to_string())?;
+        let curve_key = curve.to_ascii_uppercase();
+        let key = (curve_key, depth_identity(depth));
+        if let Some(first) = first_rows.insert(key, source_row) {
+            return Err(format!(
+                "continuous depth uniqueness refused for curve '{curve}' at depth {depth}: source rows {first} and {source_row} share one depth"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn write_versioned_rows_raw(
     conn: &Connection,
     well_id: &str,
     depth: &[f32],
     curves: &[(&str, &[f32])],
     set_id: &str,
-) -> duckdb::Result<()> {
+) -> Result<(), String> {
     if curves.is_empty() {
         return Ok(());
     }
+    load_set_write_discipline(conn, set_id)?;
+    validate_continuous_depth_uniqueness(depth, curves)?;
     // Atomic: DELETE current + append current + append archive must land as one unit, so a
     // crash can't strand the DELETE with the current-store append lost.
     crate::db::with_txn(conn, |conn| {
@@ -2088,8 +2243,9 @@ fn write_versioned_rows_raw(
             }
         }
         archive.flush()?;
-        Ok(())
+        Ok::<(), duckdb::Error>(())
     })
+    .map_err(|error| error.to_string())
 }
 
 /// Legacy test-fixture entry point. A production caller would be able to pair arbitrary rows with
@@ -2101,7 +2257,7 @@ pub(crate) fn write_computed_curves_versioned(
     depth: &[f32],
     curves: &[(&str, &[f32])],
     set_id: &str,
-) -> duckdb::Result<()> {
+) -> Result<(), String> {
     write_versioned_rows_raw(conn, well_id, depth, curves, set_id)
 }
 
@@ -2135,7 +2291,6 @@ pub(crate) fn write_computed_curves_with_ancestry(
         .map_err(|error| format!("complete ancestry set is not live: {error}"))?;
     parse_curve_ancestry(stored.as_deref().unwrap_or_default())?;
     write_versioned_rows_raw(conn, well_id, depth, curves, &set_id.value)
-        .map_err(|error| error.to_string())
 }
 
 /// Complete write that also retires a declared family of stale current curves in the same
@@ -2171,6 +2326,8 @@ pub(crate) fn write_computed_curves_with_ancestry_clearing(
         )
         .map_err(|error| format!("complete ancestry set is not live: {error}"))?;
     parse_curve_ancestry(stored.as_deref().unwrap_or_default())?;
+    load_set_write_discipline(conn, &set_id.value)?;
+    validate_continuous_depth_uniqueness(depth, curves)?;
     crate::db::with_txn(conn, |conn| {
         if !clear_names.is_empty() {
             let placeholders = std::iter::repeat("?").take(clear_names.len()).collect::<Vec<_>>().join(", ");
@@ -2224,8 +2381,15 @@ pub(crate) fn write_complete_own_frame(
             ));
         }
     }
+    validate_set_write_discipline(spec.discipline)?;
+    let continuous_curves = curves
+        .iter()
+        .map(|(name, values)| (name.as_str(), values.as_slice()))
+        .collect::<Vec<_>>();
+    validate_continuous_depth_uniqueness(depth, &continuous_curves)?;
     crate::db::with_txn(conn, |conn| {
-        let (set_id, version) = create_log_set_raw(conn, well_id, &spec.storage)?;
+        let (set_id, version) =
+            create_log_set_raw(conn, well_id, &spec.storage, spec.discipline)?;
         conn.execute(
             "UPDATE log_sets SET frame = ?2 WHERE set_id = ?1",
             params![set_id, crate::schema_vocab::LogSetFrame::Own.as_str()],
@@ -2657,8 +2821,9 @@ pub(crate) fn create_log_sets_batch(
         for (well_id, version, set_id) in &planned {
             conn.execute(
                 "INSERT INTO log_sets
-                    (set_id, well_id, set_name, version, module, params_json, inputs_json, frame)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
+                     sampling_style, duplicate_resolution)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     set_id,
                     well_id,
@@ -2667,7 +2832,9 @@ pub(crate) fn create_log_sets_batch(
                     spec.module,
                     spec.params_json,
                     spec.inputs_json,
-                    crate::schema_vocab::LogSetFrame::Standard.as_str()
+                    crate::schema_vocab::LogSetFrame::Standard.as_str(),
+                    SetWriteDiscipline::default().sampling_style.as_str(),
+                    crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str()
                 ],
             )?;
         }
@@ -2751,6 +2918,7 @@ pub(crate) fn create_complete_log_sets_batch(
                 .map_err(|error| format!("cannot bind chain legacy inputs: {error}"))?;
         }
         spec.ancestry.validate()?;
+        validate_set_write_discipline(spec.discipline)?;
         planned.push((
             well.well_id.clone(),
             version,
@@ -2762,8 +2930,9 @@ pub(crate) fn create_complete_log_sets_batch(
         for (well_id, version, set_id, spec) in &planned {
             conn.execute(
                 "INSERT INTO log_sets
-                    (set_id, well_id, set_name, version, module, params_json, inputs_json, frame)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    (set_id, well_id, set_name, version, module, params_json, inputs_json, frame,
+                     sampling_style, duplicate_resolution)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     set_id,
                     well_id,
@@ -2772,7 +2941,9 @@ pub(crate) fn create_complete_log_sets_batch(
                     spec.storage.module,
                     spec.storage.params_json,
                     spec.storage.inputs_json,
-                    crate::schema_vocab::LogSetFrame::Standard.as_str()
+                    crate::schema_vocab::LogSetFrame::Standard.as_str(),
+                    spec.discipline.sampling_style.as_str(),
+                    crate::schema_vocab::DuplicateDepthResolution::Refuse.as_str()
                 ],
             )?;
             write_run_parameters(conn, set_id, &spec.ancestry.parameters)?;
@@ -2819,9 +2990,18 @@ pub(crate) fn create_complete_log_sets_batch(
 ///   Phase 2/3 — append. With every DELETE already done, ONE appender per table may span all
 ///   wells: the DuckDB "appender can't span DML on the same table" constraint only forbids
 ///   interleaving a DELETE while an appender is open, which never happens here.
-fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> duckdb::Result<()> {
+fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> Result<(), String> {
     if wells.iter().all(|w| w.curves.is_empty()) {
         return Ok(());
+    }
+    for well in wells {
+        load_set_write_discipline(conn, &well.set_id)?;
+        let curves = well
+            .curves
+            .iter()
+            .map(|(name, values)| (name.as_str(), values.as_slice()))
+            .collect::<Vec<_>>();
+        validate_continuous_depth_uniqueness(&well.depth, &curves)?;
     }
     crate::db::with_txn(conn, |conn| {
         // Phase 1: group wells by identical curve-set, then one DELETE per group.
@@ -2873,15 +3053,16 @@ fn write_versioned_rows_batch_raw(conn: &Connection, wells: &[WellWrite]) -> duc
             }
             archive.flush()?;
         }
-        Ok(())
+        Ok::<(), duckdb::Error>(())
     })
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
 pub(crate) fn write_computed_curves_versioned_batch(
     conn: &Connection,
     wells: &[WellWrite],
-) -> duckdb::Result<()> {
+) -> Result<(), String> {
     write_versioned_rows_batch_raw(conn, wells)
 }
 
@@ -2921,7 +3102,7 @@ pub(crate) fn write_computed_curves_with_ancestry_batch(
             set_id: well.set_id.value.clone(),
         });
     }
-    write_versioned_rows_batch_raw(conn, &raw).map_err(|error| error.to_string())
+    write_versioned_rows_batch_raw(conn, &raw)
 }
 
 /// Input-set selection: like [`fetch_curve_frame`], but any requested curve that the named
@@ -3108,7 +3289,9 @@ pub(crate) fn list_log_set_names(conn: &Connection) -> duckdb::Result<Vec<String
 
 /// Copies a version's archived rows back into the current store (delete-then-append on
 /// exactly the curve names that version wrote). Returns the number of restored rows.
-pub(crate) fn restore_log_set(conn: &Connection, set_id: &str) -> duckdb::Result<usize> {
+pub(crate) fn restore_log_set(conn: &Connection, set_id: &str) -> Result<usize, String> {
+    load_set_write_discipline(conn, set_id)?;
+    validate_archived_continuous_depth_uniqueness(conn, set_id)?;
     // Atomic: the DELETE of current rows and the re-INSERT from the archive must not be split
     // by a crash (which would drop the current rows and leave them un-restored).
     crate::db::with_txn(conn, |conn| {
@@ -3123,8 +3306,9 @@ pub(crate) fn restore_log_set(conn: &Connection, set_id: &str) -> duckdb::Result
              SELECT well_id, depth, curve_name, value, set_id FROM computed_curves_archive WHERE set_id = ?1",
             params![set_id],
         )?;
-        Ok(restored)
+        Ok::<usize, duckdb::Error>(restored)
     })
+    .map_err(|error| error.to_string())
 }
 
 /// Deletes one version's archive rows + its log_sets row. Current values are kept (their
@@ -3462,6 +3646,256 @@ pub(crate) fn write_equation_output(
 
 #[cfg(test)]
 mod tests {
+    /// CORRECTNESS — SB-DBM-026 / SB-DBM-T25. Dossier invariant 12 and T-DB-20 require
+    /// continuous sets to refuse a duplicate depth with both source rows, while POINT sets keep
+    /// legitimate duplicates. F-26 cites IP's explicit 0.01 ft FPRESS perturbation; it is fixture
+    /// input here, never a SandiBumi default. The PK-less store rationale is `db.rs:292-305`.
+    #[test]
+    fn continuous_duplicates_name_both_source_rows_while_point_duplicates_require_and_record_their_resolution() {
+        use crate::db;
+        use crate::schema_vocab::{DuplicateDepthResolution, SamplingStyle};
+        use crate::units::{set_project_depth_unit, DepthOffset, DepthUnit};
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        set_project_depth_unit(&conn, DepthUnit::Feet).unwrap();
+        let well_id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_id, "DUPLICATE-DEPTH-FIXTURE", None, None, Some(0.0)).unwrap();
+        let well_id = well_id.to_string();
+        let depths = [1000.0_f32, 1000.0];
+        let values = [0.17_f32, 0.19];
+
+        let make_spec = |set_name: &str, curve: &str| {
+            CompleteLogSetSpec::try_new(
+                set_name,
+                CurveAncestry {
+                    schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
+                    module: "SB-DBM-T25 fixture".into(),
+                    module_version: "fixture-build".into(),
+                    inputs: Vec::new(),
+                    parameters: Vec::new(),
+                    parameter_state: Some(ProvenanceAbsentState::NotApplicable),
+                    zone_scope: AncestryZoneScope::WholeWell,
+                    actor: AncestryActor {
+                        kind: AncestryActorKind::Automated,
+                        identity: "SB-DBM-T25".into(),
+                    },
+                    timestamp_utc_ms: 1,
+                    outputs: vec![AncestryOutput {
+                        curve: curve.into(),
+                        derivation: "SB-DBM-T25 fixture".into(),
+                    }],
+                },
+            )
+            .unwrap()
+        };
+
+        for (style, curve) in [
+            (SamplingStyle::ContinuousRegular, "REGULAR_DUP"),
+            (SamplingStyle::ContinuousIrregular, "IRREGULAR_DUP"),
+        ] {
+            let spec = make_spec(style.as_str(), curve).with_sampling_style(style);
+            let (set_id, _) = create_complete_log_set(&conn, &well_id, &spec).unwrap();
+            let error = write_computed_curves_with_ancestry(
+                &conn,
+                &well_id,
+                &depths,
+                &[(curve, &values)],
+                &set_id,
+            )
+            .expect_err("a continuous duplicate must be refused");
+            assert!(error.contains(curve), "{error}");
+            assert!(error.contains("1000"), "{error}");
+            assert!(error.contains("source rows 1 and 2"), "{error}");
+            let written: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM computed_curves WHERE well_id = ?1 AND curve_name = ?2",
+                    duckdb::params![well_id, curve],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(written, 0, "refusal must precede any current-store mutation");
+        }
+
+        let restore_curve = "RESTORE_DUP";
+        let restore_spec = make_spec("RESTORE_DUP_SET", restore_curve)
+            .with_sampling_style(SamplingStyle::ContinuousRegular);
+        let (restore_set, _) =
+            create_complete_log_set(&conn, &well_id, &restore_spec).unwrap();
+        conn.execute(
+            "INSERT INTO computed_curves_archive
+                (set_id, well_id, depth, curve_name, value)
+             VALUES (?1, ?2, 1000.0, ?3, 0.17),
+                    (?1, ?2, 1000.0, ?3, 0.19)",
+            duckdb::params![restore_set.as_str(), well_id, restore_curve],
+        )
+        .unwrap();
+        let restore_error = restore_log_set(&conn, restore_set.as_str())
+            .expect_err("an archive restore is still a continuous write boundary");
+        assert!(restore_error.contains(restore_curve), "{restore_error}");
+        assert!(restore_error.contains("1000"), "{restore_error}");
+        assert!(
+            restore_error.contains("source rows 1 and 2"),
+            "{restore_error}"
+        );
+        let restored: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM computed_curves
+                 WHERE well_id = ?1 AND curve_name = ?2",
+                duckdb::params![well_id, restore_curve],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(restored, 0, "restore refusal must precede current-store mutation");
+
+        let point_rows = [
+            db::AuxRow {
+                dataset: "PRESSURE".into(),
+                depth_top: 1000.0,
+                depth_base: None,
+                item: "FPRESS".into(),
+                value_num: Some(0.17),
+                value_text: None,
+            },
+            db::AuxRow {
+                dataset: "PRESSURE".into(),
+                depth_top: 1000.0,
+                depth_base: None,
+                item: "FPRESS".into(),
+                value_num: Some(0.19),
+                value_text: None,
+            },
+        ];
+        db::insert_aux_data(
+            &conn,
+            &well_id,
+            "PRESSURE",
+            "POINT_PRESERVED",
+            Some("SB-DBM-T25 fixture"),
+            &point_rows,
+        )
+        .expect("the shipped point-data writer must accept legitimate duplicates");
+        let preserved_rows: Vec<(f32, f32)> = {
+            let mut statement = conn
+                .prepare(
+                    "SELECT depth_top, value_num FROM aux_data
+                     WHERE dataset = 'PRESSURE' AND set_name = 'POINT_PRESERVED'
+                     ORDER BY value_num",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<duckdb::Result<_>>()
+                .unwrap()
+        };
+        assert_eq!(preserved_rows, vec![(1000.0, 0.17), (1000.0, 0.19)]);
+        let preserved_declaration: (String, String, i64, i64) = conn
+            .query_row(
+                "SELECT s.sampling_style, s.duplicate_resolution,
+                        count(r.source_row), count(r.perturbation_value)
+                 FROM aux_sets s
+                 LEFT JOIN aux_duplicate_depth_resolutions r
+                   ON r.well_id = s.well_id AND r.dataset = s.dataset AND r.set_name = s.set_name
+                 WHERE s.set_name = 'POINT_PRESERVED'
+                 GROUP BY s.sampling_style, s.duplicate_resolution",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            preserved_declaration,
+            ("POINT".into(), "PRESERVE".into(), 2, 0),
+            "preservation is declared and logged for both duplicate source rows without a made-up offset"
+        );
+
+        let missing_offset = db::insert_aux_data_with_resolution(
+            &conn,
+            &well_id,
+            "PRESSURE",
+            "POINT_NO_DEFAULT",
+            Some("SB-DBM-T25 fixture"),
+            &point_rows,
+            DuplicateDepthResolution::Perturb,
+            None,
+        )
+            .expect_err("perturbation ships with no default");
+        assert!(missing_offset.to_string().contains("unit-typed offset"), "{missing_offset}");
+
+        let explicit_offset = DepthOffset {
+            value: 0.01,
+            unit: DepthUnit::Feet,
+        };
+        db::insert_aux_data_with_resolution(
+            &conn,
+            &well_id,
+            "PRESSURE",
+            "POINT_PERTURBED",
+            Some("SB-DBM-T25 fixture"),
+            &point_rows,
+            DuplicateDepthResolution::Perturb,
+            Some(explicit_offset),
+        )
+        .unwrap();
+        let perturbed_depths: Vec<f32> = {
+            let mut statement = conn
+                .prepare(
+                    "SELECT depth_top FROM aux_data
+                     WHERE dataset = 'PRESSURE' AND set_name = 'POINT_PERTURBED'
+                     ORDER BY value_num",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<duckdb::Result<_>>()
+                .unwrap()
+        };
+        assert_eq!(perturbed_depths, vec![1000.0, 1000.01]);
+        let log: Vec<(i64, f32, f32, f64, String)> = {
+            let mut statement = conn
+                .prepare(
+                    "SELECT r.source_row, r.original_depth, r.stored_depth,
+                            r.perturbation_value, r.perturbation_unit
+                     FROM aux_duplicate_depth_resolutions r
+                     WHERE r.dataset = 'PRESSURE' AND r.set_name = 'POINT_PERTURBED'
+                     ORDER BY source_row",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+                })
+                .unwrap()
+                .collect::<duckdb::Result<_>>()
+                .unwrap()
+        };
+        assert_eq!(
+            log,
+            vec![
+                (1, 1000.0, 1000.0, 0.01, "FT".into()),
+                (2, 1000.0, 1000.01, 0.01, "FT".into()),
+            ]
+        );
+        let point_current: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM computed_curves WHERE curve_name = 'FPRESS'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(point_current, 0, "POINT duplicates must never enter the current aligned store");
+        let primary_keys: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM duckdb_constraints()
+                 WHERE table_name = 'computed_curves' AND constraint_type = 'PRIMARY KEY'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(primary_keys, 0, "the discipline must not be replaced by a computed_curves PK");
+    }
+
     /// **An imported log is offered wherever the product asks the user to pick a curve.**
     ///
     /// `fetch_curve_frame` has resolved the generic store since rule 11, so a module or an equation

@@ -144,7 +144,7 @@ pub(crate) const PROVENANCE_ABSENT_STATES: &[ProvenanceAbsentState] = &[
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SamplingStyle {
+pub enum SamplingStyle {
     ContinuousRegular,
     ContinuousIrregular,
     Point,
@@ -158,12 +158,53 @@ impl SamplingStyle {
             Self::Point => "POINT",
         }
     }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_uppercase().as_str() {
+            "CONTINUOUS_REGULAR" => Some(Self::ContinuousRegular),
+            "CONTINUOUS_IRREGULAR" => Some(Self::ContinuousIrregular),
+            "POINT" => Some(Self::Point),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) const SAMPLING_STYLES: &[SamplingStyle] = &[
     SamplingStyle::ContinuousRegular,
     SamplingStyle::ContinuousIrregular,
     SamplingStyle::Point,
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DuplicateDepthResolution {
+    Refuse,
+    Preserve,
+    Perturb,
+}
+
+impl DuplicateDepthResolution {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Refuse => "REFUSE",
+            Self::Preserve => "PRESERVE",
+            Self::Perturb => "PERTURB",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_uppercase().as_str() {
+            "REFUSE" => Some(Self::Refuse),
+            "PRESERVE" => Some(Self::Preserve),
+            "PERTURB" => Some(Self::Perturb),
+            _ => None,
+        }
+    }
+}
+
+pub(crate) const DUPLICATE_DEPTH_RESOLUTIONS: &[DuplicateDepthResolution] = &[
+    DuplicateDepthResolution::Refuse,
+    DuplicateDepthResolution::Preserve,
+    DuplicateDepthResolution::Perturb,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -330,6 +371,12 @@ pub(crate) fn validate_schema_vocabularies() -> Result<(), String> {
         SAMPLING_STYLES.iter().map(|value| value.as_str()),
     )?;
     unique(
+        "duplicate-depth resolution",
+        DUPLICATE_DEPTH_RESOLUTIONS
+            .iter()
+            .map(|value| value.as_str()),
+    )?;
+    unique(
         "log-set frame",
         LOG_SET_FRAMES.iter().map(|value| value.as_str()),
     )?;
@@ -377,7 +424,7 @@ mod tests {
         declarations
     }
 
-    /// CORRECTNESS — SB-DBM-023 / SB-DBM-T23. The seven vocabulary populations, the
+    /// CORRECTNESS — SB-DBM-023 / SB-DBM-T23. The eight vocabulary populations, the
     /// one-declaration rule, the eighth-column mutation and the second-literal refusal come from
     /// `docs/PRD_v2/22_database-model.md` sections 4.D and 6.5. The synthetic PEF column supplies
     /// no petrophysical value; it proves propagation of a schema name and storage projection only.
@@ -405,6 +452,13 @@ mod tests {
                 .map(|value| value.as_str())
                 .collect::<Vec<_>>(),
             ["CONTINUOUS_REGULAR", "CONTINUOUS_IRREGULAR", "POINT"]
+        );
+        assert_eq!(
+            DUPLICATE_DEPTH_RESOLUTIONS
+                .iter()
+                .map(|value| value.as_str())
+                .collect::<Vec<_>>(),
+            ["REFUSE", "PRESERVE", "PERTURB"]
         );
         assert_eq!(
             LOG_SET_FRAMES
@@ -467,6 +521,7 @@ mod tests {
             "const STANDARD_COLUMNS",
             "enum ProvenanceAbsentState",
             "enum SamplingStyle",
+            "enum DuplicateDepthResolution",
             "enum LogSetFrame",
             "enum DepthDatum",
             "enum AuditLocation",

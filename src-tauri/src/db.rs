@@ -329,7 +329,11 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             -- 'STANDARD' = written on the well's own depth grid (every module).
             -- 'OWN'      = the set carries its own depth column (reframe.rs), and every read
             --              through it runs on that frame instead. Declared, never inferred.
-            frame       VARCHAR NOT NULL DEFAULT '{standard_frame}'
+            frame       VARCHAR NOT NULL DEFAULT '{standard_frame}',
+            -- Declared by the writer, never inferred from coincidentally regular depths. Legacy
+            -- rows remain NULL because their original declaration cannot be recovered.
+            sampling_style VARCHAR,
+            duplicate_resolution VARCHAR
         );
 
         -- Queryable parameter custody for one run. The full ancestry JSON remains the portable
@@ -586,7 +590,28 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             -- it the app could not tell a core-depth delivery from a log-depth one, and moving
             -- the wrong one is silent.
             on_core_depths INTEGER NOT NULL DEFAULT 0,
+            -- Aux deliveries are the shipped POINT store: rows are independent observations,
+            -- not a sampled continuous frame. The writer declares how same-depth observations
+            -- were kept, rather than leaving the PK-less store's behavior implicit.
+            sampling_style VARCHAR NOT NULL,
+            duplicate_resolution VARCHAR NOT NULL,
+            perturbation_value DOUBLE,
+            perturbation_unit VARCHAR,
             PRIMARY KEY (well_id, dataset, set_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS aux_duplicate_depth_resolutions (
+            well_id     UUID NOT NULL,
+            dataset     VARCHAR NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            item        VARCHAR NOT NULL,
+            source_row  INTEGER NOT NULL,
+            original_depth FLOAT NOT NULL,
+            stored_depth FLOAT NOT NULL,
+            resolution  VARCHAR NOT NULL,
+            perturbation_value DOUBLE,
+            perturbation_unit VARCHAR,
+            PRIMARY KEY (well_id, dataset, set_name, item, source_row)
         );
 
         -- Depth-registered PICTURES: petrographic thin sections, core photographs, SEM
@@ -939,6 +964,22 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
     );
     conn.execute_batch(&schema)?;
     conn.execute_batch(&standard.migration_ddl)?;
+    // Additive migration for projects whose log_sets rows predate declared sampling style. NULL is
+    // intentional for those historical rows: neither regularity nor point semantics can be
+    // reconstructed merely by looking at their stored depths.
+    conn.execute_batch(&format!(
+        "ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
+         ALTER TABLE log_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_value DOUBLE;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_unit VARCHAR;
+         UPDATE aux_sets SET sampling_style = '{}' WHERE sampling_style IS NULL;
+         UPDATE aux_sets SET duplicate_resolution = '{}'
+             WHERE duplicate_resolution IS NULL;",
+        crate::schema_vocab::SamplingStyle::Point.as_str(),
+        crate::schema_vocab::DuplicateDepthResolution::Preserve.as_str()
+    ))?;
     // Projects first opened by SB-DBM-003 already own the indexed parameter relation. Preserve
     // those rows and extend it additively; historical records remain unclassified rather than
     // being relabelled as explicit/defaulted without evidence.
@@ -1794,17 +1835,30 @@ pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResul
     // filter on the active set) can still see them. Cheap, gap-filling and idempotent, so
     // it runs before the early return — a project may have been rebuilt already while a
     // later aux import path was still writing unregistered rows.
-    conn.execute_batch(
+    conn.execute_batch(&format!(
+        "ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS sampling_style VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS duplicate_resolution VARCHAR;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_value DOUBLE;
+         ALTER TABLE aux_sets ADD COLUMN IF NOT EXISTS perturbation_unit VARCHAR;
+         UPDATE aux_sets SET sampling_style = '{}' WHERE sampling_style IS NULL;
+         UPDATE aux_sets SET duplicate_resolution = '{}' WHERE duplicate_resolution IS NULL;",
+        crate::schema_vocab::SamplingStyle::Point.as_str(),
+        crate::schema_vocab::DuplicateDepthResolution::Preserve.as_str()
+    ))?;
+    conn.execute_batch(&format!(
         "UPDATE aux_data SET set_name = 'RAW' WHERE set_name IS NULL;
-         INSERT INTO aux_sets (well_id, dataset, set_name, active)
-         SELECT DISTINCT a.well_id, a.dataset, a.set_name, 1 FROM aux_data a
+         INSERT INTO aux_sets
+             (well_id, dataset, set_name, active, sampling_style, duplicate_resolution)
+         SELECT DISTINCT a.well_id, a.dataset, a.set_name, 1, '{}', '{}' FROM aux_data a
          WHERE NOT EXISTS (SELECT 1 FROM aux_sets s
                            WHERE s.well_id = a.well_id AND s.dataset = a.dataset);
          UPDATE scal_pc SET set_name = 'RAW' WHERE set_name IS NULL;
          INSERT INTO scal_sets (well_id, set_name, active)
          SELECT DISTINCT p.well_id, p.set_name, 1 FROM scal_pc p
          WHERE NOT EXISTS (SELECT 1 FROM scal_sets s WHERE s.well_id = p.well_id);",
-    )?;
+        crate::schema_vocab::SamplingStyle::Point.as_str(),
+        crate::schema_vocab::DuplicateDepthResolution::Preserve.as_str()
+    ))?;
 
     if has_set > 0 && has_survey > 0 {
         return Ok(());
@@ -2237,6 +2291,11 @@ pub fn delete_aux_set(conn: &Connection, well_id: &str, dataset: &str, set_name:
             "DELETE FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
             params![well_id, dataset, set_name],
         )?;
+        conn.execute(
+            "DELETE FROM aux_duplicate_depth_resolutions
+             WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
         Ok(n)
     })?;
     let has_active: i64 = conn.query_row(
@@ -2272,13 +2331,176 @@ pub fn insert_aux_data(
     source: Option<&str>,
     rows: &[AuxRow],
 ) -> DbResult<()> {
+    insert_aux_data_with_resolution(
+        conn,
+        well_id,
+        dataset,
+        set_name,
+        source,
+        rows,
+        crate::schema_vocab::DuplicateDepthResolution::Preserve,
+        None,
+    )
+}
+
+#[derive(Debug)]
+struct AuxDuplicateDecision {
+    item: String,
+    source_row: i64,
+    original_depth: f32,
+    stored_depth: f32,
+}
+
+fn depth_identity(depth: f32) -> u32 {
+    if depth == 0.0 {
+        0.0_f32.to_bits()
+    } else {
+        depth.to_bits()
+    }
+}
+
+/// Point-data form of SB-DBM-026. The ordinary import path calls this with explicit PRESERVE;
+/// PERTURB is available only when its caller supplies a positive unit-typed offset. No numeric
+/// fallback exists.
+pub fn insert_aux_data_with_resolution(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    set_name: &str,
+    source: Option<&str>,
+    rows: &[AuxRow],
+    resolution: crate::schema_vocab::DuplicateDepthResolution,
+    perturbation: Option<crate::units::DepthOffset>,
+) -> DbResult<()> {
+    use crate::schema_vocab::DuplicateDepthResolution::{Perturb, Preserve, Refuse};
+
+    match (resolution, perturbation) {
+        (Refuse, _) => {
+            return Err(DbError::Invalid(
+                "POINT duplicate resolution must preserve or perturb, not refuse".into(),
+            ))
+        }
+        (Preserve, Some(_)) => {
+            return Err(DbError::Invalid(
+                "POINT PRESERVE must not carry a perturbation offset".into(),
+            ))
+        }
+        (Perturb, None) => {
+            return Err(DbError::Invalid(
+                "POINT PERTURB requires an explicit positive unit-typed offset; no default ships"
+                    .into(),
+            ))
+        }
+        (Perturb, Some(offset)) if !offset.value.is_finite() || offset.value <= 0.0 => {
+            return Err(DbError::Invalid(
+                "POINT PERTURB offset must be finite and greater than zero".into(),
+            ))
+        }
+        _ => {}
+    }
+    if resolution == Perturb && rows.iter().any(|row| row.depth_base.is_some()) {
+        return Err(DbError::Invalid(
+            "POINT PERTURB refuses interval rows; changing only an interval top would change its meaning"
+                .into(),
+        ));
+    }
+
+    let project_unit = if resolution == Perturb {
+        Some(
+            crate::units::require_project_depth_unit(conn, "POINT duplicate perturbation")
+                .map_err(DbError::Invalid)?,
+        )
+    } else {
+        None
+    };
+    let offset_in_project = match (perturbation, project_unit) {
+        (Some(offset), Some(unit)) => Some(
+            crate::units::convert_depth(offset.value, offset.unit, unit) as f32,
+        ),
+        _ => None,
+    };
+
+    let mut group_counts = std::collections::HashMap::<(String, u32), usize>::new();
+    let mut original_depths = std::collections::HashMap::<String, std::collections::HashSet<u32>>::new();
+    for row in rows {
+        let item = row.item.trim().to_ascii_uppercase();
+        let key = depth_identity(row.depth_top);
+        *group_counts.entry((item.clone(), key)).or_default() += 1;
+        original_depths.entry(item).or_default().insert(key);
+    }
+    let mut occurrences = std::collections::HashMap::<(String, u32), usize>::new();
+    let mut resolved_depths = std::collections::HashMap::<String, std::collections::HashSet<u32>>::new();
+    let mut stored_rows = Vec::with_capacity(rows.len());
+    let mut decisions = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let item_key = row.item.trim().to_ascii_uppercase();
+        let original_key = depth_identity(row.depth_top);
+        let occurrence = occurrences
+            .entry((item_key.clone(), original_key))
+            .or_default();
+        let mut stored = row.clone();
+        if let Some(offset) = offset_in_project.filter(|_| *occurrence > 0) {
+            stored.depth_top = row.depth_top + offset * (*occurrence as f32);
+            if !stored.depth_top.is_finite() {
+                return Err(DbError::Invalid(format!(
+                    "POINT duplicate perturbation refused for item '{}' source row {}: stored depth is not finite",
+                    row.item,
+                    index + 1
+                )));
+            }
+            let stored_key = depth_identity(stored.depth_top);
+            if stored_key == original_key {
+                return Err(DbError::Invalid(format!(
+                    "POINT duplicate perturbation refused for item '{}' source row {}: the unit-typed offset rounds to zero on the stored depth",
+                    row.item,
+                    index + 1
+                )));
+            }
+            if original_depths
+                .get(&item_key)
+                .is_some_and(|depths| depths.contains(&stored_key))
+                || resolved_depths
+                    .get(&item_key)
+                    .is_some_and(|depths| depths.contains(&stored_key))
+            {
+                return Err(DbError::Invalid(format!(
+                    "POINT duplicate perturbation refused for item '{}' source row {}: stored depth {} collides with another source row",
+                    row.item,
+                    index + 1,
+                    stored.depth_top
+                )));
+            }
+        }
+        if resolution == Perturb {
+            resolved_depths
+                .entry(item_key.clone())
+                .or_default()
+                .insert(depth_identity(stored.depth_top));
+        }
+        if group_counts
+            .get(&(item_key, original_key))
+            .copied()
+            .unwrap_or(0)
+            > 1
+        {
+            decisions.push(AuxDuplicateDecision {
+                item: row.item.clone(),
+                source_row: (index + 1) as i64,
+                original_depth: row.depth_top,
+                stored_depth: stored.depth_top,
+            });
+        }
+        stored_rows.push(stored);
+        *occurrence += 1;
+    }
+
     with_txn(conn, |conn| {
         conn.execute(
             "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
             params![well_id, dataset, set_name],
         )?;
         let mut appender: Appender = conn.appender("aux_data")?;
-        for r in rows {
+        for r in &stored_rows {
             appender.append_row(params![
                 well_id,
                 dataset,
@@ -2291,8 +2513,14 @@ pub fn insert_aux_data(
             ])?;
         }
         appender.flush()?;
+        drop(appender);
         conn.execute(
             "DELETE FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM aux_duplicate_depth_resolutions
+             WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
             params![well_id, dataset, set_name],
         )?;
         conn.execute(
@@ -2300,9 +2528,41 @@ pub fn insert_aux_data(
             params![well_id, dataset],
         )?;
         conn.execute(
-            "INSERT INTO aux_sets (well_id, dataset, set_name, active, source) VALUES (?1, ?2, ?3, 1, ?4)",
-            params![well_id, dataset, set_name, source],
+            "INSERT INTO aux_sets
+                (well_id, dataset, set_name, active, source, sampling_style,
+                 duplicate_resolution, perturbation_value, perturbation_unit)
+             VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                well_id,
+                dataset,
+                set_name,
+                source,
+                crate::schema_vocab::SamplingStyle::Point.as_str(),
+                resolution.as_str(),
+                perturbation.map(|offset| offset.value),
+                perturbation.map(|offset| offset.unit.code())
+            ],
         )?;
+        for decision in &decisions {
+            conn.execute(
+                "INSERT INTO aux_duplicate_depth_resolutions
+                    (well_id, dataset, set_name, item, source_row, original_depth, stored_depth,
+                     resolution, perturbation_value, perturbation_unit)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    well_id,
+                    dataset,
+                    set_name,
+                    decision.item,
+                    decision.source_row,
+                    decision.original_depth,
+                    decision.stored_depth,
+                    resolution.as_str(),
+                    perturbation.map(|offset| offset.value),
+                    perturbation.map(|offset| offset.unit.code())
+                ],
+            )?;
+        }
         Ok(())
     })
 }

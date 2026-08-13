@@ -345,14 +345,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DBM-T25`, `SB-DBM-T26`; sections 4.5 and 6.6.
 - **Atomic obligations:** continuous-set duplicate depths refuse with both source rows named; POINT sets can retain duplicates only under a declared/logged resolution; storage distinguishes set types and resolution.
-- **Current source:** DIO ingest paths detect duplicates and require a selected policy, while the generic/standard stores have primary-key constraints. Deliberately PK-less `computed_curves` has no set-type/sampling-style field or store-boundary duplicate refusal, so direct writes can append duplicate `(well, curve, depth)` rows.
-- **Qualifying acceptance tests:** none; T25's continuous-versus-POINT two-sided store fixture and T26 integrity arm are missing. Test class is `MISSING`.
-- **Supporting tests:** ingest duplicate-policy tests and `batch_write_overwrites_without_duplicating` cover cooperative writers, not adversarial store-boundary duplicates or POINT legality.
+- **Current source:** `schema_vocab.rs` owns typed continuous/POINT and REFUSE/PRESERVE/PERTURB vocabularies. `log_sets` records a conservative `CONTINUOUS_IRREGULAR`/`REFUSE` declaration for current producers; every single, clearing, batched, OWN-frame and Restore boundary validates declared continuous uniqueness before mutation. `aux_sets` is the shipped sparse point-delivery registry; its real import writer declares `POINT`/`PRESERVE`, preserves legitimate same-depth rows and logs each duplicate source row. An explicit PERTURB route requires a positive unit-typed offset and records original/stored depth, resolution, magnitude and unit per duplicate row. Historical aux rows are labelled from their actual PK-less preserve-all writer behavior; historical log-set style remains unrecorded rather than guessed.
+- **Qualifying acceptance tests:** exact correctness test `continuous_duplicates_name_both_source_rows_while_point_duplicates_require_and_record_their_resolution` implements SB-DBM-T25 from both sides: regular and irregular duplicate continuous writes and a corrupted-archive Restore refuse with curve, depth and both rows before current mutation; the production aux writer accepts and logs duplicate POINT observations; PERTURB refuses with no offset and logs both rows under the cited 0.01 ft fixture; `computed_curves` remains PK-less. Test class is `CORRECTNESS`. SB-DBM-T26 is not claimed here; it remains the next SB-DBM-027 integrity-checker increment.
+- **Supporting tests:** ingest duplicate-policy tests, `batch_write_overwrites_without_duplicating`, log-set Restore tests, auxiliary import tests and the pre-column point-set migration regression remain green.
 - **Manual evidence:** `data-conventions` 0/45, `generic-curve-store` 0/18 and `delivery-sets` 0/33 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains DIO policy fragments and the PK-less central counter-boundary.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** a set-type/resolution vocabulary is missing. The fix must preserve PK-less `computed_curves` and its delete-then-append performance discipline.
-- **Next action:** validate and record duplicate policy before the existing transaction writes, then implement T25 from continuous-refusal and POINT-acceptance sides without a PK/upsert.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for SB-DBM-026. `DUPLICATE_DEPTH_PERTURBATION` remains ABSENT by design; 0.01 ft appears only as the cited T25 fixture input. The deliberately PK-less `computed_curves` table and delete-then-append discipline remain unchanged, with no uniqueness index or upsert path.
+- **Next action:** implement SB-DBM-027/SB-DBM-T26 as the separate read-only integrity checker, then retain Visual, Manual and Field review as distinct Gate 4 evidence.
 
 ## SB-DBM-027 - A referential-integrity checker exists, reports every dangling class by name and count, and never reports "clean" without checking
 
