@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-007: provenance absence has a name
+
+- [x] **Automated:** SB-DBM-T09 executes a real equation whose run has no configurable
+      parameters and requires schema-v3 ancestry to round-trip `NOT_APPLICABLE`, never an empty
+      string or an empty parameter object masquerading as meaning. Its other half injects a module
+      parameter-serialization error through the real module runner and requires a reported failure,
+      zero module `log_sets` rows and zero computed VSH rows. Older schema-v1/v2 empty parameter
+      collections are read as `LEGACY_UNRECORDED`; required-but-unsupplied named parameters remain
+      `REQUIRED_UNSET`. The full repository gate passes 992 / 0 / 36 with 55 owned Rust warnings.
+      Sample missingness remains `f32::NAN`; no petrophysical value, default, endpoint, limit or SQL
+      schema was introduced.
+- [ ] **Visual:** inspect an equation run and a pre-v3 run in Ancestry. Confirm the current run says
+      parameters are not applicable, the legacy run says they were not recorded, and neither is
+      rendered as a blank field, `{}`, `null`, zero or a raw parsing error. A serialized enum in the
+      backend is automated evidence, not proof that this distinction is understandable on screen.
+- [ ] **Manual:** in a disposable project, run a parameterless equation and query its `params_json`.
+      Confirm the embedded ancestry has an empty parameter list plus `NOT_APPLICABLE`, while the
+      equation definition metadata remains present. Open a pre-v3 fixture with an empty parameter
+      list and confirm the reader reports `LEGACY_UNRECORDED` rather than rewriting history. Keep
+      the injected serialization-failure test as the controlled failure proof; do not manufacture
+      malformed production data merely to click this path.
+- [ ] **Field:** inspect representative pilot equation and module run records after the workflow is
+      frozen. Confirm a reviewer can distinguish no parameters, an unsupplied required parameter,
+      and legacy unrecorded provenance. Automated synthetic evidence does not close this check;
+      Jauhar records field acceptance.
+
 ## 2026-08-13 — G2 SB-DBM-006: each run names the curve decision it actually used
 
 - [x] **Automated:** SB-DBM-T08 creates three GR curves across two imported sets, marks one

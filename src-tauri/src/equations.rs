@@ -1033,7 +1033,7 @@ pub struct LogSetSpec {
 /// remain readable; the complete record travels with the same log-set row every current/archive
 /// curve already cites.
 pub(crate) const CURVE_ANCESTRY_KEY: &str = "_sandibumi_curve_ancestry_v1";
-pub(crate) const CURVE_ANCESTRY_SCHEMA_VERSION: u32 = 2;
+pub(crate) const CURVE_ANCESTRY_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -1115,7 +1115,35 @@ pub struct AncestryInput {
     pub rejected_candidates: Vec<RejectedCurveCandidate>,
 }
 
-pub(crate) const REQUIRED_UNSET_PARAMETER_STATE: &str = "REQUIRED_UNSET";
+/// The one controlled vocabulary for provenance that is absent for a known reason. These are
+/// states, not substitute values: sample absence remains `f32::NAN`, and a serialization failure
+/// remains an error that prevents the run record from being written.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ProvenanceAbsentState {
+    NotApplicable,
+    RequiredUnset,
+    LegacyUnrecorded,
+}
+
+impl ProvenanceAbsentState {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotApplicable => "NOT_APPLICABLE",
+            Self::RequiredUnset => "REQUIRED_UNSET",
+            Self::LegacyUnrecorded => "LEGACY_UNRECORDED",
+        }
+    }
+}
+
+pub(crate) const REQUIRED_UNSET_PARAMETER_STATE: &str =
+    ProvenanceAbsentState::RequiredUnset.as_str();
+
+pub(crate) fn parameter_state_for(
+    parameters: &[AncestryParameter],
+) -> Option<ProvenanceAbsentState> {
+    parameters.is_empty().then_some(ProvenanceAbsentState::NotApplicable)
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -1156,7 +1184,7 @@ struct AncestryParameterWire {
     value: Option<serde_json::Value>,
     source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    state: Option<String>,
+    state: Option<ProvenanceAbsentState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     resolution: Option<ParameterResolution>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1182,7 +1210,7 @@ impl Serialize for AncestryParameter {
             name: self.name.clone(),
             value: (!required_unset).then(|| self.value.clone()),
             source: (!required_unset).then(|| self.source.clone()),
-            state: required_unset.then(|| REQUIRED_UNSET_PARAMETER_STATE.to_string()),
+            state: required_unset.then_some(ProvenanceAbsentState::RequiredUnset),
             resolution: self.resolution,
             manifest_version: self.manifest_version.clone(),
             decision: self.decision.clone(),
@@ -1197,8 +1225,8 @@ impl<'de> Deserialize<'de> for AncestryParameter {
         D: serde::Deserializer<'de>,
     {
         let wire = AncestryParameterWire::deserialize(deserializer)?;
-        match wire.state.as_deref() {
-            Some(REQUIRED_UNSET_PARAMETER_STATE) => {
+        match wire.state {
+            Some(ProvenanceAbsentState::RequiredUnset) => {
                 if wire.value.is_some()
                     || wire.source.is_some()
                     || wire.resolution.is_some()
@@ -1218,7 +1246,7 @@ impl<'de> Deserialize<'de> for AncestryParameter {
                 })
             }
             Some(other) => Err(serde::de::Error::custom(format!(
-                "unknown parameter state '{other}'"
+                "invalid state {other:?} for a named parameter"
             ))),
             None => {
                 let value = wire
@@ -1295,6 +1323,11 @@ pub struct CurveAncestry {
     pub module_version: String,
     pub inputs: Vec<AncestryInput>,
     pub parameters: Vec<AncestryParameter>,
+    /// Present exactly when the current run genuinely has no parameters. Schema-v1/v2 records
+    /// omitted this field; readers classify an empty legacy list as `LEGACY_UNRECORDED` rather
+    /// than guessing that it meant `NOT_APPLICABLE`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter_state: Option<ProvenanceAbsentState>,
     pub zone_scope: AncestryZoneScope,
     pub actor: AncestryActor,
     pub timestamp_utc_ms: u64,
@@ -1456,6 +1489,27 @@ impl CurveAncestry {
                 ));
             }
         }
+        match (self.parameters.is_empty(), self.parameter_state) {
+            (true, Some(ProvenanceAbsentState::NotApplicable)) => {}
+            (true, Some(ProvenanceAbsentState::LegacyUnrecorded)) if self.schema_version < 3 => {}
+            (true, None) if self.schema_version < 3 => {}
+            (true, Some(state)) => {
+                return Err(format!(
+                    "an empty parameter set has invalid provenance state {state:?}"
+                ));
+            }
+            (true, None) => {
+                return Err(
+                    "a current empty parameter set must be named NOT_APPLICABLE".into(),
+                );
+            }
+            (false, None) => {}
+            (false, Some(state)) => {
+                return Err(format!(
+                    "a populated parameter set must not also claim absent state {state:?}"
+                ));
+            }
+        }
         if let AncestryZoneScope::Defined(zones) = &self.zone_scope {
             if zones.is_empty() {
                 return Err("defined zone ancestry contains no zone definitions".into());
@@ -1497,6 +1551,7 @@ impl CurveAncestry {
             && self.module_version == other.module_version
             && self.inputs == other.inputs
             && self.parameters == other.parameters
+            && self.parameter_state == other.parameter_state
             && self.zone_scope == other.zone_scope
             && self.actor == other.actor
             && self.outputs == other.outputs
@@ -1782,6 +1837,27 @@ impl CompleteLogSetSpec {
         self.storage.params_json = stored.to_string();
         Ok(())
     }
+
+    /// Retain non-parameter run metadata in the legacy payload while naming the canonical
+    /// parameter collection as genuinely not applicable. This is used by user equations: their
+    /// definition is provenance, but it is not a configurable petrophysical parameter set.
+    fn record_parameters_not_applicable(&mut self) -> Result<(), String> {
+        self.ancestry.parameters.clear();
+        self.ancestry.parameter_state = Some(ProvenanceAbsentState::NotApplicable);
+        self.ancestry.validate()?;
+        let mut stored: serde_json::Value = serde_json::from_str(&self.storage.params_json)
+            .map_err(|error| format!("cannot name the equation parameter state: {error}"))?;
+        let object = stored
+            .as_object_mut()
+            .ok_or_else(|| "cannot name parameters in a non-object provenance record".to_string())?;
+        object.insert(
+            CURVE_ANCESTRY_KEY.into(),
+            serde_json::to_value(&self.ancestry)
+                .map_err(|error| format!("cannot serialize the equation parameter state: {error}"))?,
+        );
+        self.storage.params_json = stored.to_string();
+        Ok(())
+    }
 }
 
 /// Builds the complete record for a run whose inputs are project curves and whose explicit
@@ -1836,12 +1912,14 @@ pub(crate) fn complete_curve_run_spec(
             decision: None,
         }],
     };
+    let parameter_state = parameter_state_for(&parameters);
     let ancestry = CurveAncestry {
         schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
         module: module.trim().to_string(),
         module_version: env!("CARGO_PKG_VERSION").to_string(),
         inputs: resolved_inputs,
         parameters,
+        parameter_state,
         zone_scope,
         actor: custody.actor.clone(),
         timestamp_utc_ms: ancestry_timestamp_utc_ms()?,
@@ -2192,13 +2270,19 @@ pub(crate) fn parse_curve_ancestry(params_json: &str) -> Result<CurveAncestry, S
     let record = parameters
         .get(CURVE_ANCESTRY_KEY)
         .ok_or_else(|| "computed curve has no complete ancestry record".to_string())?;
-    let ancestry: CurveAncestry = serde_json::from_value(record.clone())
+    let mut ancestry: CurveAncestry = serde_json::from_value(record.clone())
         .map_err(|error| format!("curve ancestry record is invalid: {error}"))?;
+    if ancestry.schema_version < 3
+        && ancestry.parameters.is_empty()
+        && ancestry.parameter_state.is_none()
+    {
+        ancestry.parameter_state = Some(ProvenanceAbsentState::LegacyUnrecorded);
+    }
     ancestry.validate()?;
     Ok(ancestry)
 }
 
-pub(crate) const LEGACY_UNRECORDED: &str = "LEGACY_UNRECORDED";
+pub(crate) const LEGACY_UNRECORDED: &str = ProvenanceAbsentState::LegacyUnrecorded.as_str();
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -3163,6 +3247,7 @@ pub(crate) fn write_computed_curves_batch(
         module_version: env!("CARGO_PKG_VERSION").into(),
         inputs: Vec::new(),
         parameters: Vec::new(),
+        parameter_state: Some(ProvenanceAbsentState::NotApplicable),
         zone_scope: AncestryZoneScope::WholeWell,
         actor: AncestryActor {
             kind: AncestryActorKind::Automated,
@@ -3368,7 +3453,7 @@ pub(crate) fn write_equation_output(
         "output_units": equation.output_units,
     });
     let outputs = vec![equation.output_curve.clone()];
-    let spec = complete_curve_run_spec(
+    let mut spec = complete_curve_run_spec(
         conn,
         well_id,
         "EQUATION",
@@ -3380,6 +3465,7 @@ pub(crate) fn write_equation_output(
         AncestryZoneScope::WholeWell,
         &outputs,
     )?;
+    spec.record_parameters_not_applicable()?;
     let (set_id, _) = create_complete_log_set(conn, well_id, &spec)?;
     write_computed_curves_with_ancestry(conn, well_id, depth, &[(equation.output_curve.as_str(), values)], &set_id)
 }
@@ -4210,6 +4296,7 @@ mod tests {
                     decision: None,
                 },
             ],
+            parameter_state: None,
             zone_scope: AncestryZoneScope::WholeWell,
             actor: AncestryActor {
                 kind: AncestryActorKind::Automated,

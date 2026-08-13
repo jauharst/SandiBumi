@@ -12,8 +12,8 @@
 - Source-navigation boundary: the codebase index was not callable in this task, so targeted `rg`, direct source reads, executable tests and reachable Git history were used as the declared fallback. Consequential negative findings were checked in the expected Rust, TypeScript, schema, test and history paths.
 - Verification boundary: a supporting test is named only for the clause it exercises. A test that does not cover every clause of its owned DBM contract is not promoted to qualifying proof. Manual checkboxes remain separate from automated evidence.
 - Fresh verification: 21 focused supporting Rust tests passed. The repository gate passed 16 takeover-ledger + 13 frontend + 917 Rust tests, with 0 failed and 36 ignored; production build and generated verification matrix were green.
-- Gate 2 update (2026-08-13): SB-DBM-001, SB-DBM-003, SB-DBM-004 and SB-DBM-006 now have owned
-  correctness proofs. The repository gate passes 991 / 0 / 36. Automated, visual, manual and field evidence
+- Gate 2 update (2026-08-13): SB-DBM-001, SB-DBM-003, SB-DBM-004, SB-DBM-006 and SB-DBM-007 now have owned
+  correctness proofs. The repository gate passes 992 / 0 / 36. Automated, visual, manual and field evidence
   remain separate.
 
 ## SB-DBM-001 - One run record per computed curve, resolvable in one hop
@@ -98,14 +98,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned test `SB-DBM-T09`; sections 4.1 and 6.2.
 - **Atomic obligations:** represent genuinely not-applicable and required-but-unset states distinctly; fail serialization rather than writing an empty string; make readers deterministic.
-- **Current source:** `LogSetSpec.params_json` remains a string, and the equation path writes `String::new()`. No `NOT_APPLICABLE`/`REQUIRED_UNSET` schema or reader exists.
-- **Qualifying acceptance tests:** none; T09's no-parameter and serialization-failure controls are missing. Test class is `MISSING`.
-- **Supporting tests:** partial ML parameter JSON does not remove the empty-string equation counter-path.
+- **Current source:** `equations.rs::ProvenanceAbsentState` is the one typed `NOT_APPLICABLE` / `REQUIRED_UNSET` / `LEGACY_UNRECORDED` vocabulary. Schema-v3 ancestry requires every current empty parameter collection to carry `NOT_APPLICABLE`; parameterless equations retain their definition metadata without misclassifying it as parameters, and schema-v1/v2 empty collections are normalised by the reader to `LEGACY_UNRECORDED`. Named required inputs keep the relational `REQUIRED_UNSET` state from SB-DBM-003. `workflow.rs` serializes module parameters through a fallible boundary before batch set allocation, and any error returns a failed run with no run or curve rows.
+- **Qualifying acceptance test:** `absent_is_a_named_state_never_an_empty_string` is `CORRECTNESS`. It executes a real parameterless equation and requires the persisted schema-v3 reader surface to carry `NOT_APPLICABLE` with no parameter entries; the other half injects a module-parameter serialization error through the real runner and requires an error plus zero `log_sets` and zero computed VSH rows. The named states and fail-closed behavior come directly from SB-DBM-T09/F-11, while all numeric values are synthetic reachability inputs.
+- **Supporting tests:** the complete-ancestry round trip, production-writer inventory, queryable REQUIRED_UNSET proof and effective-parameter manifest proof remain green. They protect adjacent states but are not substituted for T09.
 - **Manual evidence:** `processing-history` 0/7 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the divergent empty-string path.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** none; this is a missing state model and fail-closed writer.
-- **Next action:** replace ambiguous empty provenance with an explicit tagged state and implement both T09 controls without changing sample-missing representation.
+- **Git evidence:** the Gate 2 topic branch carries the schema-v3 typed state, legacy-reader normalisation, parameterless equation writer, fail-closed module boundary and owned T09 proof. It does not change the SQL schema, missing-sample representation or computed-curve write discipline.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. No petrophysical value, endpoint, cutoff, range or default was selected. Visual/manual/field evidence remains open.
+- **Next action:** retain T09; visually inspect the ancestry presentation, manually query current and pre-v3 records, and field-verify representative pilot provenance. Do not infer those evidence classes from the automated serializer fault.
 
 ## SB-DBM-008 - The run record names the operator and the zone set in force
 

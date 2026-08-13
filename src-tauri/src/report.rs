@@ -814,6 +814,7 @@ mod tests {
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,
             parameters: vec![],
+            parameter_state: Some(equations::ProvenanceAbsentState::NotApplicable),
             zone_scope: equations::AncestryZoneScope::WholeWell,
             actor: crate::workflow::test_run_custody().actor,
             timestamp_utc_ms: equations::ancestry_timestamp_utc_ms().unwrap(),

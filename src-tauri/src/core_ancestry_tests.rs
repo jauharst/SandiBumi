@@ -34,6 +34,7 @@ fn complete_record() -> equations::CurveAncestry {
             manifest_version: None,
             decision: None,
         }],
+        parameter_state: None,
         zone_scope: equations::AncestryZoneScope::WholeWell,
         actor: equations::AncestryActor {
             kind: equations::AncestryActorKind::Human,

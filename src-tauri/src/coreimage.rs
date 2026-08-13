@@ -1897,7 +1897,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             "lith_min_bed": spec.lith_min_bed,
             "unfold_scan": spec.unfold_scan,
         });
-        let parameters = legacy_parameters
+        let parameters: Vec<_> = legacy_parameters
             .as_object()
             .expect("constructed as an object")
             .iter()
@@ -1916,6 +1916,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             module: module.clone(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,
+            parameter_state: crate::equations::parameter_state_for(&parameters),
             parameters,
             zone_scope: crate::equations::AncestryZoneScope::WholeWell,
             actor: custody.actor.clone(),

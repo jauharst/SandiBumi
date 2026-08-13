@@ -523,6 +523,9 @@ fn complete_module_log_spec(
     opts: &HashMap<String, String>,
     log_args: &[(String, String)],
     output_names: &[String],
+    parameter_serializer: &impl Fn(
+        &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<serde_json::Value, String>,
 ) -> Result<equations::CompleteLogSetSpec, String> {
     req.custody.validate()?;
 
@@ -645,17 +648,21 @@ fn complete_module_log_spec(
             derivation: format!("{}:{curve}", req.module),
         })
         .collect();
+    let parameter_state = equations::parameter_state_for(&parameters);
     let ancestry = equations::CurveAncestry {
         schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
         module: req.module.clone(),
         module_version: env!("CARGO_PKG_VERSION").into(),
         inputs,
         parameters,
+        parameter_state,
         zone_scope,
         actor: req.custody.actor.clone(),
         timestamp_utc_ms: equations::ancestry_timestamp_utc_ms()?,
         outputs,
     };
+    let legacy = parameter_serializer(&legacy)
+        .map_err(|error| format!("cannot serialize module parameters: {error}"))?;
     equations::CompleteLogSetSpec::try_new_with_legacy(
         req.output_set
             .as_deref()
@@ -663,7 +670,7 @@ fn complete_module_log_spec(
             .filter(|value| !value.is_empty())
             .unwrap_or("INTERP"),
         ancestry,
-        serde_json::Value::Object(legacy),
+        legacy,
         &serde_json::to_string(log_args).map_err(|error| error.to_string())?,
     )
 }
@@ -766,6 +773,26 @@ pub fn run_workflow_module_into(
     preset_sets: Option<&HashMap<String, equations::CompleteSetId>>,
     cancel: Option<&std::sync::atomic::AtomicBool>,
     progress: Option<&crate::jobs::JobHandle>,
+) -> Vec<ModuleRunResult> {
+    run_workflow_module_into_with_parameter_serializer(
+        db,
+        req,
+        preset_sets,
+        cancel,
+        progress,
+        &|parameters| serde_json::to_value(parameters).map_err(|error| error.to_string()),
+    )
+}
+
+fn run_workflow_module_into_with_parameter_serializer(
+    db: &Mutex<Connection>,
+    req: &RunModuleRequest,
+    preset_sets: Option<&HashMap<String, equations::CompleteSetId>>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+    progress: Option<&crate::jobs::JobHandle>,
+    parameter_serializer: &impl Fn(
+        &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<serde_json::Value, String>,
 ) -> Vec<ModuleRunResult> {
     if let Err(error) = req.custody.validate() {
         return req
@@ -1126,7 +1153,16 @@ pub fn run_workflow_module_into(
             }
             let mut names: Vec<String> = outputs.keys().cloned().collect();
             names.sort();
-            match complete_module_log_spec(&conn, well_id, req, &spec, &opts, &log_args, &names) {
+            match complete_module_log_spec(
+                &conn,
+                well_id,
+                req,
+                &spec,
+                &opts,
+                &log_args,
+                &names,
+                parameter_serializer,
+            ) {
                 Ok(spec) => complete.push(equations::CompleteWellLogSet {
                     well_id: well_id.clone(),
                     spec,
@@ -2068,6 +2104,134 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::collections::HashMap;
 
+    /// CORRECTNESS - SB-DBM-007 / SB-DBM-T09. The expected `NOT_APPLICABLE` state and
+    /// fail-closed serialization behavior are specified verbatim by
+    /// `docs/PRD_v2/22_database-model.md` section 6, SB-DBM-T09. Numeric values below are
+    /// synthetic fixture inputs; no petrophysical default, limit, or expected result is asserted.
+    #[test]
+    fn absent_is_a_named_state_never_an_empty_string() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_uuid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_uuid, "PARAMETER-STATE-FIXTURE", None, None, None).unwrap();
+        let well_id = well_uuid.to_string();
+        let depth = vec![1000.0_f32, 1001.0, 1002.0];
+        db::insert_standard_curves(
+            &conn,
+            well_uuid,
+            depth.clone(),
+            vec![20.0, 40.0, 60.0],
+            vec![f32::NAN; depth.len()],
+            vec![f32::NAN; depth.len()],
+            vec![f32::NAN; depth.len()],
+            vec![f32::NAN; depth.len()],
+            vec![f32::NAN; depth.len()],
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+
+        let equation = equations::EquationDef {
+            equation_id: uuid::Uuid::new_v4().to_string(),
+            name: "PARAMETERLESS_EQUATION".into(),
+            description: Some("Synthetic SB-DBM-T09 fixture".into()),
+            script: "gr / 2.0".into(),
+            input_curves: vec!["GR".into()],
+            output_curve: "GR_HALF".into(),
+            output_units: Some("gAPI".into()),
+            language: "rhai".into(),
+        };
+        let equation_result = equations::run_equation(
+            &dbm,
+            &equation,
+            std::slice::from_ref(&well_id),
+            &test_run_custody(),
+            None,
+        );
+        assert_eq!(equation_result.len(), 1);
+        assert!(equation_result[0].error.is_none(), "{:?}", equation_result[0].error);
+
+        let equation_params: String = dbm
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT params_json FROM log_sets WHERE well_id = ?1 AND module = ?2",
+                duckdb::params![well_id, "equation:PARAMETERLESS_EQUATION"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!equation_params.is_empty(), "no-parameter provenance must not be an empty string");
+        let equation_ancestry = equations::parse_curve_ancestry(&equation_params).unwrap();
+        assert!(equation_ancestry.parameters.is_empty(), "equation metadata is not a parameter");
+        assert_eq!(
+            equation_ancestry.parameter_state,
+            Some(equations::ProvenanceAbsentState::NotApplicable),
+            "a genuine no-parameter run has the specified named state"
+        );
+        let equation_json: serde_json::Value = serde_json::from_str(&equation_params).unwrap();
+        assert_eq!(
+            equation_json[equations::CURVE_ANCESTRY_KEY]["parameter_state"],
+            "NOT_APPLICABLE",
+            "the persisted reader surface carries the state verbatim"
+        );
+        let mut legacy_equation_json = equation_json.clone();
+        legacy_equation_json[equations::CURVE_ANCESTRY_KEY]["schema_version"] =
+            serde_json::json!(2);
+        legacy_equation_json[equations::CURVE_ANCESTRY_KEY]
+            .as_object_mut()
+            .unwrap()
+            .remove("parameter_state");
+        let legacy_ancestry =
+            equations::parse_curve_ancestry(&legacy_equation_json.to_string()).unwrap();
+        assert_eq!(
+            legacy_ancestry.parameter_state,
+            Some(equations::ProvenanceAbsentState::LegacyUnrecorded),
+            "an old empty collection must not be rewritten as known NOT_APPLICABLE"
+        );
+
+        let module_request = RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids: vec![well_id.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 120.0)]),
+            opts: HashMap::new(),
+            output_set: Some("SERIALIZATION-REFUSAL".into()),
+            input_set: None,
+            custody: test_run_custody(),
+        };
+        let module_result = run_workflow_module_into_with_parameter_serializer(
+            &dbm,
+            &module_request,
+            None,
+            None,
+            None,
+            &|_| Err("injected parameter serialization failure".into()),
+        );
+        assert_eq!(module_result.len(), 1);
+        let error = module_result[0]
+            .error
+            .as_deref()
+            .expect("a parameter serialization failure must fail the module run");
+        assert!(error.contains("injected parameter serialization failure"), "{error}");
+
+        let conn = dbm.lock().unwrap();
+        let module_sets: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM log_sets WHERE well_id = ?1 AND module = 'vsh_gr'",
+                duckdb::params![well_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let module_curves: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name = 'VSH'",
+                duckdb::params![well_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(module_sets, 0, "a serialization failure must not leave a run record");
+        assert_eq!(module_curves, 0, "a serialization failure must not leave computed values");
+    }
+
     /// CORRECTNESS — SB-DBM-004 / SB-DBM-T06, sourced to SB-CORE-011 and F-18 / ledger R-10.
     /// The five values below are synthetic fixture inputs, not petrophysical defaults: the proof
     /// is that the saved run contains the complete effective set, distinguishes the two explicit
@@ -2171,6 +2335,7 @@ mod tests {
                 &build_opts(spec, &request.opts, &request.log_inputs),
                 &[],
                 &["FIXTURE_RESULT".into()],
+                &|parameters| serde_json::to_value(parameters).map_err(|error| error.to_string()),
             )
             .unwrap();
             equations::create_complete_log_set(conn, well_id, &complete)

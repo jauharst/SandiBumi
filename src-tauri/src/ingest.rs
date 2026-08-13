@@ -1057,7 +1057,7 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
         "datum": survey.datum.map(serde_json::Value::from).unwrap_or_else(|| serde_json::json!("ABSENT")),
         "interpolation": "linear_between_stored_minimum_curvature_stations",
     });
-    let parameters = parameters_json
+    let parameters: Vec<_> = parameters_json
         .as_object()
         .expect("constructed as an object")
         .iter()
@@ -1089,6 +1089,7 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
             rule: Some(crate::equations::CurveResolutionRule::ExplicitName),
             rejected_candidates: Vec::new(),
         }],
+        parameter_state: crate::equations::parameter_state_for(&parameters),
         parameters,
         zone_scope: crate::equations::AncestryZoneScope::WholeWell,
         actor,

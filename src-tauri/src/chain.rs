@@ -297,6 +297,7 @@ fn complete_chain_sets(
             module: module_identity.clone(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,
+            parameter_state: crate::equations::parameter_state_for(&parameters),
             parameters,
             zone_scope,
             actor: custody.actor.clone(),
