@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-020: duplicate depths require a declared policy
+
+- [ ] **Automated no-decision proof — not manual evidence:** exact SB-DIO-T33 is
+      green at 1 passed / 0 failed / 0 ignored. A LAS with three repeated depth rows
+      names the count and missing policy, and commits zero wells.
+- [ ] **Automated policy proof — not manual evidence:** exact SB-DIO-T32 is green at
+      1 passed / 0 failed / 0 ignored. `keep-first` reports three affected rows and
+      retains the first GR and generic PEF samples on the same two stored depths;
+      explicit `refuse` also commits nothing. Supporting keep-last and mean checks keep
+      independent standard and generic companion columns aligned.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to exercise the duplicate-depth
+      decision in the LAS import UI, judge the count and policy wording, and inspect a
+      representative run-splice result. Automated synthetic imports are not operator or
+      field evidence.
+
 ## 2026-08-14 — G2 SB-DIO-019: committed depths cannot be re-declared
 
 - [ ] **Automated custody proof — not manual evidence:** exact SB-DIO-T31 is green at

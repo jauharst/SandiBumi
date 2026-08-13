@@ -264,13 +264,13 @@
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T32`, `SB-DIO-T33`.
 - **Atomic obligations:** detect duplicates before writes; require refuse/keep-first/keep-last/mean; apply the chosen policy in lockstep to every column; report affected-row count.
 - **Current source:** `DuplicateDepthPolicy` and the shared row resolver handle standard LAS, generic curves and DLIS frames; ingest refuses without a decision and carries the count/note after resolution.
-- **Qualifying acceptance tests:** `duplicate_depths_wait_for_a_declared_policy_and_report_the_count_for_each_resolution` is `CORRECTNESS`; it pins undecided refusal and each four-policy outcome, including companion-column alignment.
-- **Supporting tests:** the non-increasing-index test uses duplicate-free data so these decisions cannot accidentally discharge each other.
-- **Manual evidence:** `las-import` 0/57, `dlis-import` 0/11 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** reachable `82a0448`, with follow-up `86b4b5c`, contains the policy gate and focused fixture correction.
+- **Qualifying acceptance tests:** exact T32 `keep_first_drops_three_repeated_depth_rows_reports_three_and_keeps_first_samples_in_lockstep` passed 1/0/0 and is `CORRECTNESS`: production LAS import reports the specified three affected rows, stores two depths, and retains the first GR and generic PEF sample in lockstep; explicit Refuse also writes no well. Exact T33 `duplicate_depths_commit_nothing_until_a_policy_is_declared` passed 1/0/0 and is separate `CORRECTNESS`: absent policy names the three rows and decision while committing zero wells.
+- **Supporting tests:** T32 also exercises KeepLast and Mean through the shared resolver with independent standard and generic companion columns; the non-increasing-index test uses duplicate-free data so these decisions cannot accidentally discharge each other.
+- **Manual evidence:** `las-import` 0/72, `dlis-import` 0/14 and `data-conventions` 4/104; this increment claims no operator or representative run-splice exercise.
+- **Git evidence:** reachable `82a0448`, with follow-up `86b4b5c`, contains the policy gate and focused fixture correction; this increment separates T32/T33 and adds real standard-plus-generic lockstep custody, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied structural guard); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** make every new indexed reader use the shared policy resolver before its transaction.
+- **Next action:** retain separate exact T32/T33, require every new indexed reader to use the shared resolver before transaction commit, and preserve the affected-row count at its public result boundary.
 
 ## SB-DIO-021 - Resampling on read MUST be explicit, named, and off by default.
 

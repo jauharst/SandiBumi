@@ -3096,20 +3096,31 @@ mod tests {
         );
     }
 
-    /// SB-DIO-020 / SB-DIO-T32..T33. The four policy names are the complete
-    /// declared set in chapter §4.5; none is a default.
-    #[test]
-    fn duplicate_depths_wait_for_a_declared_policy_and_report_the_count_for_each_resolution() {
-        let conn = Connection::open_in_memory().unwrap();
-        db::create_schema(&conn).unwrap();
-        let path = std::env::temp_dir().join("sandibumi_three_repeated_depths.las");
+    fn make_dio020_duplicate_las() -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-three-repeated-depths-{}-{}.las",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
         std::fs::write(
             &path,
-            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. DUPLICATES :\n\
-             ~CURVE\nDEPT.M :\nGR.API :\n~ASCII\n\
-             1000.0 10.0\n1000.0 20.0\n1000.0 30.0\n1000.0 40.0\n1001.0 50.0\n",
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. REPEATED-DEPTHS :\n\
+             ~CURVE\nDEPT.M :\nGR.GAPI :\nPEF.B/E :\n~ASCII\n\
+             1000.0 10.0 1.0\n1000.0 20.0 2.0\n1000.0 30.0 3.0\n\
+             1000.0 40.0 4.0\n1001.0 50.0 5.0\n",
         )
         .unwrap();
+        path
+    }
+
+    /// CORRECTNESS - SB-DIO-020 / SB-DIO-T33. `21_data-io.md` section 6 T33
+    /// requires the unresolved-policy path to ask and commit nothing. The positive
+    /// policy path is pinned separately by T32, so an always-refusing reader cannot pass.
+    #[test]
+    fn duplicate_depths_commit_nothing_until_a_policy_is_declared() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = make_dio020_duplicate_las();
         let file = path.to_str().unwrap().to_string();
 
         let undecided = import_las_files_with(
@@ -3131,7 +3142,18 @@ mod tests {
             0,
             "no policy means no commit"
         );
+        std::fs::remove_file(&path).ok();
+    }
 
+    /// CORRECTNESS - SB-DIO-020 / SB-DIO-T32. `21_data-io.md` section 6 T32
+    /// supplies the expected three-row count and keep-first outcome. GR and PEF are
+    /// independent companion columns, so neither depth-only nor standard-only handling passes.
+    #[test]
+    fn keep_first_drops_three_repeated_depth_rows_reports_three_and_keeps_first_samples_in_lockstep() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = make_dio020_duplicate_las();
+        let file = path.to_str().unwrap().to_string();
         let refused = import_las_files_with(
             &conn,
             &[file.clone()],
@@ -3143,6 +3165,11 @@ mod tests {
         )
         .remove(0);
         assert!(refused.error.as_deref().is_some_and(|error| error.contains("blocked 3")));
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM wells", [], |row| row.get::<_, i64>(0)).unwrap(),
+            0,
+            "the declared refuse policy also commits nothing"
+        );
 
         let kept = import_las_files_with(
             &conn,
@@ -3172,6 +3199,20 @@ mod tests {
             )
             .unwrap();
         assert_eq!(first_gr, 10.0, "keep-first keeps the first sample, not the PK's accident");
+        let catalog = db::list_generic_curve_catalog(&conn, kept.well_id.as_deref().unwrap()).unwrap();
+        let pef = catalog
+            .iter()
+            .find(|curve| curve.mnemonic == "PEF")
+            .expect("the generic companion curve is committed");
+        let pef_samples = db::get_curve_samples(&conn, &pef.curve_id).unwrap();
+        assert_eq!(
+            pef_samples
+                .iter()
+                .map(|sample| (sample.depth, sample.value))
+                .collect::<Vec<_>>(),
+            vec![(1000.0, 1.0), (1001.0, 5.0)],
+            "the same keep-first rows drive the generic companion curve"
+        );
 
         let make_columns = || CurveColumns {
             well_name: None,
@@ -3187,8 +3228,12 @@ mod tests {
             nphi: vec![f32::NAN; 5],
             rhob: vec![f32::NAN; 5],
             dt: vec![f32::NAN; 5],
-            sp: vec![f32::NAN; 5],
-            raw_curves: Vec::new(),
+            sp: vec![100.0, 200.0, 300.0, 400.0, 500.0],
+            raw_curves: vec![parsers::RawLasCurve {
+                mnemonic: "PEF".into(),
+                unit: Some("B/E".into()),
+                values: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            }],
             alias_decisions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
@@ -3199,9 +3244,24 @@ mod tests {
             3
         );
         assert_eq!(last.gr, vec![40.0, 50.0], "keep-last keeps the last repeated sample");
+        assert_eq!(last.sp, vec![400.0, 500.0], "keep-last keeps standard companions aligned");
+        assert_eq!(
+            last.raw_curves[0].values,
+            vec![4.0, 5.0],
+            "keep-last keeps generic companions aligned"
+        );
         let mut mean = make_columns();
-        parsers::resolve_curve_column_duplicates(&mut mean, parsers::DuplicateDepthPolicy::Mean);
+        assert_eq!(
+            parsers::resolve_curve_column_duplicates(&mut mean, parsers::DuplicateDepthPolicy::Mean),
+            3
+        );
         assert_eq!(mean.gr, vec![25.0, 50.0], "mean averages the four finite repeated samples");
+        assert_eq!(mean.sp, vec![250.0, 500.0], "mean keeps standard companions aligned");
+        assert_eq!(
+            mean.raw_curves[0].values,
+            vec![2.5, 5.0],
+            "mean keeps generic companions aligned"
+        );
     }
 
     fn make_dio015_las(name: &str, unit: &str, well: &str) -> std::path::PathBuf {
