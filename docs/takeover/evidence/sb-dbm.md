@@ -429,8 +429,8 @@
 - **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
 - **Git evidence:** accepted anchor `b332026c` contains the dual-handle/mismatch fragment and divergent single-handle behavior.
 - **Verdict:** `PARTIAL`; `UNDECIDED`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-003` must determine whether parameter-pack import is pilot-reachable; unit/source/tilt still require their cited schemas.
-- **Next action:** reconcile the single-handle policy with the binding chapter, add unit/source/tilt and append-only ordinal rules, then implement all T32 arms.
+- **Blocker or decision:** DEC-003 and the approved pilot manifest make this loader pilot-reachable. DEC-028 now records the binding contradiction: the closed P0 SB-INS-015 and executable SB-INS-T18 require a missing ordinal to refuse before activation, while SB-DBM-032 and T32 require a one-handle file to load with a warning. Both exercise `parameter_pack.rs`; no implementation can make the same input both refuse and load. Unit/source/tilt and append-only ordinal custody remain absent, but implementing those limbs would not make the compound T32 contract pass.
+- **Next action:** Jauhar must choose the accepted legacy single-handle shapes and authorize correction of the conflicting requirement/test. Retain hard mismatch and missing-ordinal refusals meanwhile; do not weaken SB-INS-015, invent a unit/source/tilt, or present a partial tilt implementation as T32 closure.
 
 ## SB-DBM-033 - A categorical curve is a distinct type and is never linearly interpolated
 

@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-032: single-handle parameter policy conflict
+
+- [ ] **Automated implementation:** blocked by DEC-028. No SB-DBM-T32 test was added because its
+      required one-handle warning contradicts the already-passing P0 SB-INS-T18 missing-ordinal
+      refusal on the same `parameter_pack.rs` load surface. The mismatch refusal remains intact;
+      no assertion or production guard was weakened.
+- [ ] **Architecture / source boundary:** choose whether a semantic-only row and an ordinal-only
+      row each refuse or load with a warning, then correct the conflicting requirement/test before
+      unit, source, tilt and append-only ordinal custody are implemented. Engineering recommends
+      refusing both for the first pilot; warning-and-continue recreates the documented class of
+      plausible wrong-parameter activation.
+- [ ] **Visual / Manual:** after adjudication and implementation, load the crossed-handle fixture,
+      both one-handle fixtures and a two-zone logarithmic tilt. Confirm the refusal or warning names
+      the actual handles and the boundary steps to the next zone rather than interpolating across
+      it. Jauhar owns this click-through.
+- [ ] **Field:** blocked. A sanitized pilot parameter pack must prove its semantic IDs, permanent
+      ordinals, units, sources and zone tilts against its producer; a synthetic JSON file or green
+      loader test cannot establish that custody.
+
 ## 2026-08-13 — G2 SB-DBM-031: depth unit/datum and correlation-contact refusal
 
 - **Automated — not manual evidence:** exact SB-DBM-T31 stores an MD zone and a TVDSS contact,
