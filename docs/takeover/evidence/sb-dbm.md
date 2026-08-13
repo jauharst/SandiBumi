@@ -397,14 +397,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T29`, `SB-DBM-T30`; sections 4.5, 5.1 and 6.6.
 - **Atomic obligations:** store-side vendor-null detection uses the strict computed threshold and exact boundary; missing curve samples and absent parameters remain distinct through store, byte IPC, UI and export.
-- **Current source:** DIO readers have source-specific sentinel logic, but no shared store-side `v < MISS_FLOAT / 10` screen exists. Numeric arrays correctly use `f32::NAN` and bytemuck bytes, yet no structured parameter-absence state exists through all four layers.
-- **Qualifying acceptance tests:** none; T29's exact-boundary/computed-bound and T30's four-layer distinction are missing. Test class is `MISSING`.
-- **Supporting tests:** parser null tests do not prove the store-side vendor family, and parameter-pack structural tests do not supply absent-parameter semantics.
+- **Current source:** DIO readers have source-specific sentinel logic, but no shared store-side `v < MISS_FLOAT / 10` screen exists and NaN writers do not uniformly bind SQL `NULL`. The earlier SB-DBM-003/007 increments now carry a named `REQUIRED_UNSET` parameter through `run_parameters`, ancestry JSON/IPC, the Inspector and ancestry-bearing exports. That implementation deliberately stores a queryable row with SQL-NULL value/source, exactly as SB-DBM-003 requires and directly contrary to SB-DBM-030's absence-of-row phrase.
+- **Qualifying acceptance tests:** none; T29's exact-boundary/computed-bound/export-source proof and T30's complete four-layer distinction remain missing. Existing SB-DBM-003 test `a_parameter_without_a_source_is_queryable_required_unset_and_never_a_number` proves the competing row-state contract, not T30's absence-of-row. Test class is `MISSING`.
+- **Supporting tests:** parser null tests do not prove the store-side vendor family. SB-DBM-003/007 serialization and relational-state tests prove a tagged non-numeric parameter absence but cannot be counted as T30 because they neither carry a missing measurement through all four layers nor satisfy the contradictory store shape.
 - **Manual evidence:** `data-conventions` 0/45, `generic-curve-store` 0/18 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; the store threshold and cross-layer parameter-absence contract are absent at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** specification friction is explicit: chapter T30's prose must be implemented without violating the binding `f32::NAN` plus byte-IPC array contract; `Option<f32>`/JSON arrays remain forbidden.
-- **Next action:** add the cited strict store screen and a tagged parameter-state channel beside unchanged sample arrays, then implement both exact-boundary and four-layer tests.
+- **Git evidence:** live re-verification on `codex/g2-program-plan` confirms the parameter-state fragment is integrated while the store threshold and SQL-NULL sample discipline remain absent.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** DEC-027 must reconcile SB-DBM-003's queryable `REQUIRED_UNSET` row with SB-DBM-030's absence-of-row and T30's downstream naming obligation. It must also settle whether T29 may derive from the T1 header verification constant or needs an adopted SB-DIO export magnitude; §5 explicitly marks that magnitude non-adoptable. The binding `f32::NAN` plus bytemuck array contract remains unchanged.
+- **Next action:** settle DEC-027, then write T29 and T30 first, keep bulk samples as `f32::NAN` in bytemuck bytes, bind missing samples as SQL `NULL`, and expose absent parameters as a tagged non-numeric state without inventing an export magnitude.
 
 ## SB-DBM-031 - Every depth quantity declares its datum, and cross-datum comparison is refused
 

@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-030: null-state contract needs adjudication
+
+- [ ] **Automated implementation:** blocked by DEC-027. No strict Geolog-family store screen or
+      partial T29/T30 proof is presented as the whole contract. The unchanged full gate remains
+      999 passed / 0 failed / 36 ignored with the existing 55 owned Rust warnings.
+- [ ] **Architecture / source boundary:** decide two conflicts before code changes. SB-DBM-003
+      requires an unsupplied required parameter to remain a queryable `REQUIRED_UNSET` row with
+      SQL-NULL value/source, while SB-DBM-030 requires absence-of-row. T29 also requires its bound
+      to derive from the value the export path emits, while §5 refuses both conflicting Geolog
+      magnitudes and assigns that future export choice to SB-DIO.
+- [ ] **Visual / Manual:** after adjudication and implementation, confirm a missing curve sample is
+      visibly a gap—not a plotted sentinel—and an unsupplied required parameter is visibly named
+      `REQUIRED_UNSET`, never shown as zero, a magnitude, an empty string or a clean value. Jauhar
+      owns this click-through.
+- [ ] **Field:** blocked. The sanitized pilot delivery must later prove that source-specific vendor
+      nulls are flagged before storage and that exact-threshold data survives. Synthetic values and
+      a green gate cannot establish which Geolog magnitude a real export must declare.
+
 ## 2026-08-13 — G2 SB-DBM-029: protect every existing reference frame
 
 - [x] **Automated:** exact SB-DBM-T28 drives the real module API with its output renamed to
