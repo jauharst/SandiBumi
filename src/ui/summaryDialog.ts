@@ -4,6 +4,7 @@ import { recordProcess } from "../processLog";
 import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 import { buildWellScope } from "./wellScope";
 import { requestRunCustody } from "./runCustody";
 
@@ -35,9 +36,9 @@ export async function buildSummaryContent(
   const sweIn = numInput(String(cuts.swe_max));
   const permIn = numInput(cuts.perm_min != null ? String(cuts.perm_min) : "");
   permIn.placeholder = "(off)";
-  content.appendChild(formRow("VSH ≤", vshIn, "Sand cutoff"));
-  content.appendChild(formRow("PHIE ≥", phieIn, "Reservoir cutoff"));
-  content.appendChild(formRow("SWE ≤", sweIn, "Pay cutoff"));
+  content.appendChild(formRow("VSH ≤", withParamSources(vshIn, PARAM_SOURCE_TOPICS.cutoffVshMax), "Sand cutoff"));
+  content.appendChild(formRow("PHIE ≥", withParamSources(phieIn, PARAM_SOURCE_TOPICS.cutoffPhieMin), "Reservoir cutoff"));
+  content.appendChild(formRow("SWE ≤", withParamSources(sweIn, PARAM_SOURCE_TOPICS.cutoffSweMax), "Pay cutoff"));
   content.appendChild(formRow("PERM ≥ (optional)", permIn, "Extra pay cutoff, needs a computed PERM curve"));
   // --- Input log set (`logSetPicker.ts`): which VERSION of the curves this reads.
   const setPicker = buildLogSetPicker({ write: false });

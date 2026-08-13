@@ -7,6 +7,31 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-013: cited disagreement stays beside the choice and with the run
+
+- [x] **Automated:** the exact DEC-003 pilot registry covers 15 contested topics without turning
+      any disclosed vendor position into a SandiBumi default. The owned correctness test pins every
+      value/absence, source, tier and editor binding; exact and ranged matches against an unmatched
+      interpreter choice; real persisted VSH ancestry from both sides; custody retention; and all
+      three pay-cutoff decisions. Old ancestry remains readable. Full gate: 981 passed / 0 failed /
+      36 ignored; Rust retains the owned 56-warning inventory.
+- [x] **Visual:** a real debug Tauri window ran with an isolated config, WebView profile and
+      temporary project. At 802×632, the maximized VSH editor kept GR_MA and GR_SH source panels
+      collapsed by default; expanding GR_MA alone showed Techlog, Geolog and IP values with their
+      tier/source lines. The first inspection exposed `.param-sources-body { display:flex }`
+      overriding `hidden`; the explicit hidden selector was added and the two states were rechecked.
+      This is visual evidence, not field evidence. The app closed cleanly with no corrupt backup.
+      Environment policy refused deletion of the inert sandbox before executing the command, so
+      `C:\Users\ARUNIKA\AppData\Local\Temp\sandibumi-visual-core013-00c660f7a5bb44208b1d4735eb6aff13`
+      remains for manual cleanup; no stronger delete was attempted.
+- [ ] **Manual:** Jauhar opens the VSH, porosity, saturation, cutoff, report, dashboard, Results QC,
+      Monte Carlo and workflow editors; confirms each prompt is adjacent to the value it qualifies;
+      expands selected panels; runs one cited value and one own value; and inspects the persisted
+      decision in Curve Catalog and one delivered ancestry disclosure.
+- [ ] **Field:** Gate 4 retains one sanitized legally controlled pilot project showing the same
+      selected decision after reopen and in the delivered artifact. Post-pilot corpus expansion is
+      deferred; this increment does not claim all product domains or all recorded disagreements.
+
 ## 2026-08-13 — G2 SB-CORE-011: the recorded project re-run is byte-identical
 
 - [x] **Automated:** the active T16 imports a repository-controlled two-well LAS2 delivery, copies

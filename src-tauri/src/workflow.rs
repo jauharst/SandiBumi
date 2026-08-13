@@ -451,10 +451,12 @@ fn complete_module_log_spec(
             )
         };
         legacy.insert(arg.name.clone(), value.clone());
+        let decision = crate::param_sources::decision_for(&arg.sources_topic, &value);
         parameters.push(equations::AncestryParameter {
             name: arg.name.clone(),
             value,
             source,
+            decision,
         });
 
         for zone_value in zone_params
@@ -474,6 +476,10 @@ fn complete_module_log_spec(
                 name: format!("{}@{}", arg.name, zone_value.zone_name),
                 value: serde_json::json!(value),
                 source: source.to_string(),
+                decision: crate::param_sources::decision_for(
+                    &arg.sources_topic,
+                    &serde_json::json!(value),
+                ),
             });
         }
     }
@@ -488,6 +494,7 @@ fn complete_module_log_spec(
                 name: arg.name.clone(),
                 value: serde_json::json!(value),
                 source: req.custody.source_note.clone(),
+                decision: None,
             });
         }
     }
@@ -506,6 +513,7 @@ fn complete_module_log_spec(
             name: "method_id".into(),
             value: serde_json::json!(method_id),
             source: req.custody.source_note.clone(),
+            decision: None,
         });
     }
 
@@ -1436,7 +1444,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     "FLAG_RESERVOIR".into(),
                     "FLAG_PAY".into(),
                 ];
-                let complete =
+                let mut complete =
                     equations::complete_curve_run_spec(&conn, well_id, &spec.set_name,
                     &spec.module,
                     custody,
@@ -1448,6 +1456,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     zone_scope,
                     &output_names,
                 )?;
+                complete.record_parameter_decisions(crate::param_sources::PAY_PARAMETER_TOPICS)?;
                 // Previewing and then exporting the same report must not create two
                 // indistinguishable PAYFLAG versions. Reuse is allowed only when every
                 // material part of the live record matches; a changed input version,

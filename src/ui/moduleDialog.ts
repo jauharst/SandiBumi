@@ -9,7 +9,7 @@ import {
 import { appState } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow, openModal } from "./modal";
-import { buildParamSources } from "./paramSources";
+import { withParamSources } from "./paramSources";
 import { buildRunCustodyControls } from "./runCustody";
 import { buildWellScope } from "./wellScope";
 
@@ -211,10 +211,7 @@ export async function buildModuleContent(
       // the disagreement can change a decision. Renders nothing when the topic has no entries, so
       // this is safe on every numeric arg.
       if (arg.sources_topic) {
-        const stack = document.createElement("div");
-        stack.className = "param-with-sources";
-        stack.append(control, buildParamSources(arg.sources_topic));
-        control = stack;
+        control = withParamSources(control, arg.sources_topic);
       }
       argsGrid.appendChild(formRow(arg.name, control, argumentHint(arg)));
     }

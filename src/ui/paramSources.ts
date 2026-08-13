@@ -1,5 +1,26 @@
 import { paramSources, type ParamSource } from "../ipc";
 
+/** Topic identities shared by non-module editors. Module editors receive the same keys from the
+ * Rust manifest, so no scientific value is duplicated in TypeScript. */
+export const PARAM_SOURCE_TOPICS = {
+  archieA: "archie_a",
+  archieM: "archie_m",
+  archieN: "archie_n",
+  formationWaterResistivity: "formation_water_resistivity",
+  shaleResistivity: "shale_resistivity",
+  cutoffVshMax: "cutoff_vsh_max",
+  cutoffPhieMin: "cutoff_phie_min",
+  cutoffSweMax: "cutoff_swe_max",
+} as const;
+
+/** Put the evidence disclosure beside the actual editable control. */
+export function withParamSources(control: HTMLElement, topic: string): HTMLElement {
+  const stack = document.createElement("div");
+  stack.className = "param-source-control";
+  stack.append(control, buildParamSources(topic));
+  return stack;
+}
+
 /** The competing shipped values for one parameter, shown at the point of choice (`SB-CORE-013`).
  *
  *  Three packages routinely ship three different values for one constant, and **none of them tells
@@ -47,8 +68,12 @@ export function buildParamSources(topic: string): HTMLElement {
       host.append(head, body);
     })
     .catch(() => {
-      /* A missing panel is the right failure: the field still works, and an error box beside a
-         number the user is trying to set would be worse than the absent context. */
+      // A silent omission would make a contested value look settled. Keep the editor usable, but
+      // make the missing comparison explicit and tell the interpreter not to treat it as authority.
+      host.hidden = false;
+      host.classList.add("param-sources-unavailable");
+      host.textContent =
+        "Source comparison unavailable — the current value is not thereby adjudicated. Retry before finalizing the run.";
     });
   return host;
 }
@@ -72,7 +97,7 @@ function sourceRow(r: ParamSource): HTMLElement {
   if (r.source) {
     const src = document.createElement("span");
     src.className = "param-source-cite";
-    src.textContent = r.source;
+    src.textContent = `${r.tier} · ${r.source}`;
     row.appendChild(src);
   }
   return row;

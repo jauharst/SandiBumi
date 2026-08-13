@@ -23,6 +23,7 @@ import { canvasFont, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { requestRunCustody } from "./runCustody";
+import { buildParamSources, PARAM_SOURCE_TOPICS } from "./paramSources";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const DEFAULT_STEPS = ["vsh_gr", "phi_dn", "sw_indo"];
@@ -52,6 +53,7 @@ interface ParamCandidate {
   default: number;
   unit: string;
   desc: string;
+  sourcesTopic: string;
 }
 
 /** One imported default uncertainty width. `pct` → the width is a percentage of the parameter's
@@ -209,6 +211,7 @@ export async function buildMonteCarloContent(
           default: step.params[arg.name] ?? parseFloat(arg.default),
           unit: arg.unit,
           desc: arg.desc,
+          sourcesTopic: arg.sources_topic ?? "",
         });
       }
     }
@@ -353,6 +356,9 @@ export async function buildMonteCarloContent(
       rm.classList.add("mc-rm");
 
       el.append(paramSel, kindSel, seedTag(row.param), fields, spark.el, zoneInp, rm);
+      const evidence = buildParamSources(candidateFor(row.param)?.sourcesTopic ?? "");
+      evidence.classList.add("mc-param-evidence");
+      el.appendChild(evidence);
       mcList.appendChild(el);
     });
     renderCorrRows(); // param renames/removals must reflect in the correlation editor
@@ -465,6 +471,9 @@ export async function buildMonteCarloContent(
   const vshMax = numField("VSH ≤", cuts.vsh_max, 0, 1);
   const phieMin = numField("PHIE ≥", cuts.phie_min, 0, 1);
   const sweMax = numField("SWE ≤", cuts.swe_max, 0, 1);
+  vshMax.el.appendChild(buildParamSources(PARAM_SOURCE_TOPICS.cutoffVshMax));
+  phieMin.el.appendChild(buildParamSources(PARAM_SOURCE_TOPICS.cutoffPhieMin));
+  sweMax.el.appendChild(buildParamSources(PARAM_SOURCE_TOPICS.cutoffSweMax));
   const permMin = numField("PERM ≥ (blank=off)", cuts.perm_min ?? NaN, 0, 1e6);
   const sampSel = document.createElement("select");
   for (const [v, label] of [

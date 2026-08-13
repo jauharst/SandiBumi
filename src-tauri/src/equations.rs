@@ -950,6 +950,10 @@ pub struct AncestryParameter {
     pub name: String,
     pub value: serde_json::Value,
     pub source: String,
+    /// Present only when the corpus records competing positions for this parameter. Optional so
+    /// schema-v1 ancestry written before SB-CORE-013 remains readable without being relabelled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<crate::param_sources::ParameterDecision>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1313,6 +1317,37 @@ impl CompleteLogSetSpec {
     pub fn ancestry(&self) -> &CurveAncestry {
         &self.ancestry
     }
+
+    /// Attach source-comparison decisions to named parameters and refresh the already-validated
+    /// serialized ancestry in the storage payload. This keeps specialized producers such as the
+    /// pay-summary engine on the same whitelisted complete-record path; it does not create a second
+    /// writer or any duplicate-tolerant database behavior.
+    pub(crate) fn record_parameter_decisions(
+        &mut self,
+        topics: &[(&str, &str)],
+    ) -> Result<(), String> {
+        for parameter in &mut self.ancestry.parameters {
+            if let Some((_, topic)) = topics
+                .iter()
+                .find(|(name, _)| parameter.name.eq_ignore_ascii_case(name))
+            {
+                parameter.decision = crate::param_sources::decision_for(topic, &parameter.value);
+            }
+        }
+        self.ancestry.validate()?;
+        let mut stored: serde_json::Value = serde_json::from_str(&self.storage.params_json)
+            .map_err(|error| format!("cannot refresh curve ancestry parameter JSON: {error}"))?;
+        let object = stored
+            .as_object_mut()
+            .ok_or_else(|| "cannot refresh curve ancestry in a non-object parameter record".to_string())?;
+        object.insert(
+            CURVE_ANCESTRY_KEY.into(),
+            serde_json::to_value(&self.ancestry)
+                .map_err(|error| format!("cannot serialize curve ancestry decision: {error}"))?,
+        );
+        self.storage.params_json = stored.to_string();
+        Ok(())
+    }
 }
 
 /// Builds the complete record for a run whose inputs are project curves and whose explicit
@@ -1352,6 +1387,7 @@ pub(crate) fn complete_curve_run_spec(
                     value.clone()
                 },
                 source: custody.source_note.trim().to_string(),
+                decision: None,
             })
             .collect(),
         serde_json::Value::Null => Vec::new(),
@@ -1359,6 +1395,7 @@ pub(crate) fn complete_curve_run_spec(
             name: "request".into(),
             value: value.clone(),
             source: custody.source_note.trim().to_string(),
+            decision: None,
         }],
     };
     let ancestry = CurveAncestry {
@@ -1767,10 +1804,15 @@ impl CurveAncestryDisclosure {
             .parameters
             .iter()
             .map(|parameter| {
-                format!(
+                let base = format!(
                     "{}={} [source: {}]",
                     parameter.name, parameter.value, parameter.source
-                )
+                );
+                parameter
+                    .decision
+                    .as_ref()
+                    .map(|decision| format!("{base} [decision: {}]", decision.disclosure()))
+                    .unwrap_or(base)
             })
             .collect::<Vec<_>>()
             .join("; ");

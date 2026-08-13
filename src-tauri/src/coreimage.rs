@@ -1899,8 +1899,9 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             .iter()
             .map(|(name, value)| crate::equations::AncestryParameter {
                 name: name.clone(),
-            value: value.clone(),
+                value: value.clone(),
                 source: custody.source_note.clone(),
+                decision: None,
             })
             .collect();
         let module = format!("cphoto:{}", spec.light);

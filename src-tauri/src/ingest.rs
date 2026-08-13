@@ -1029,6 +1029,7 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
             name: name.clone(),
             value: value.clone(),
             source: source.to_string(),
+            decision: None,
         })
         .collect();
     let module = "deviation:materialize_tvd";

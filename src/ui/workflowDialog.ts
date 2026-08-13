@@ -18,6 +18,7 @@ import { bumpDataVersion } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
 import { buildRunCustodyControls } from "./runCustody";
 import { formRow } from "./modal";
+import { buildParamSources, withParamSources } from "./paramSources";
 import { maskCurveNames } from "./moduleDialog";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
@@ -409,7 +410,14 @@ export async function buildWorkflowContent(
         box.appendChild(editorRow(arg.name, optionControl(step, arg, onChanged), arg.desc));
       } else if (arg.kind === "param") {
         const unit = arg.unit ? ` [${arg.unit}]` : "";
-        box.appendChild(editorRow(`${arg.name}${unit}`, paramControl(step, arg, onChanged), arg.desc));
+        const control = paramControl(step, arg, onChanged);
+        box.appendChild(
+          editorRow(
+            `${arg.name}${unit}`,
+            arg.sources_topic ? withParamSources(control, arg.sources_topic) : control,
+            arg.desc,
+          ),
+        );
       }
     }
     box.appendChild(editorRow("Mask (opt)", maskControl(step, onChanged), MASK_DESC));
@@ -745,6 +753,14 @@ export async function buildWorkflowContent(
         u.textContent = col.unit;
         th.appendChild(u);
       }
+      const topics = [
+        ...new Set(
+          [...col.args.values()]
+            .map((arg) => arg.sources_topic ?? "")
+            .filter((topic) => topic.length > 0),
+        ),
+      ];
+      for (const topic of topics) th.appendChild(buildParamSources(topic));
       th.title = col.desc;
       headRow.appendChild(th);
     }

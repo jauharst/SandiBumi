@@ -20,6 +20,7 @@ import { appState, bumpDataVersion } from "../state";
 import { loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 import { buildWellScope } from "./wellScope";
 import { requestRunCustody } from "./runCustody";
 
@@ -132,9 +133,9 @@ export async function buildReportContent(
   const sweIn = mkNum(String(cuts.swe_max), "SWE ≤ (pay)");
   const permIn = mkNum(cuts.perm_min != null ? String(cuts.perm_min) : "", "PERM ≥ mD (optional)");
   permIn.placeholder = "PERM (off)";
-  cutoffWrap.appendChild(vshIn);
-  cutoffWrap.appendChild(phieIn);
-  cutoffWrap.appendChild(sweIn);
+  cutoffWrap.appendChild(withParamSources(vshIn, PARAM_SOURCE_TOPICS.cutoffVshMax));
+  cutoffWrap.appendChild(withParamSources(phieIn, PARAM_SOURCE_TOPICS.cutoffPhieMin));
+  cutoffWrap.appendChild(withParamSources(sweIn, PARAM_SOURCE_TOPICS.cutoffSweMax));
   cutoffWrap.appendChild(permIn);
 
   const tablesOnly = document.createElement("input");

@@ -1,214 +1,725 @@
-//! Competing shipped values for one parameter, with their sources (`SB-CORE-013`, `SB-MLA-031`).
+//! Cited competing parameter positions and the interpreter decision made against them
+//! (`SB-CORE-013`, `SB-MLA-031`).
 //!
-//! Three packages routinely ship three different values for one constant, and **none of them tells
-//! the interpreter that the others exist** — none of them can, because no vendor can credibly
-//! publish a competitor's defaults. SandiBumi has no such constraint, which is the whole reason this
-//! module exists: showing the disagreement at the point of choice is a capability the incumbents are
-//! structurally unable to copy (`docs/PRD_v2/03_EVIDENCE_BASE.md` §14.2).
-//!
-//! **The boundary, from `04_CORE_REQUIREMENTS.md` `SB-CORE-013`: this surfaces VALUES WITH SOURCES,
-//! never vendor algorithms, tables or text.** A shipped default is one documented fact about a
-//! product, cited to the page that documents it. A lookup table is somebody's work product, and
-//! `CONTRACT.md` §2.1 keeps it out of this tree. Nothing here transcribes one, and an entry that
-//! needed a table to be understood would be the wrong entry.
-//!
-//! **An absence is an entry.** Geolog stating no cluster count anywhere in Facimage is as much a
-//! finding as Techlog shipping 5, and it is the entry that tells an interpreter the number is not
-//! settled. Dropping it because it has no value to print would leave two vendors looking like a
-//! consensus.
-//!
-//! **SandiBumi's own default is listed with the others, and never at the top.** A panel that showed
-//! three competitors and hid our own provenance would be making exactly the omission it exists to
-//! correct.
-//!
-//! No tier letters. The ML chapter cites `(T2)` / `(T3)` as CORPUS identifiers — which vendor's
-//! documentation set a claim came from — while `03_EVIDENCE_BASE.md` §2 uses `T1`–`T4` for
-//! something else entirely, the kind of artefact a claim was read from. Printing one letter under
-//! the other's meaning is how a provenance record starts lying, so each entry names its product and
-//! its document instead, and points at the chapter that holds the reasoning.
+//! This module carries values with sources and evidence tiers. It never carries vendor algorithms,
+//! lookup tables, or copied help text. A value listed here is disclosure, not a SandiBumi default:
+//! the module manifests remain the authority on whether a parameter ships present or `ABSENT`.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-/// One product's shipped or advised value for a parameter.
+/// One corpus position on a parameter. `value` is text because a range and an explicit absence are
+/// both evidence, and neither may be coerced into a made-up scalar.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ParamSource {
-    /// The product that ships or advises it — including SandiBumi.
     pub product: &'static str,
-    /// The value as the source states it: a number, a range, or the fact that none is stated.
-    /// A STRING because "15-20" and "none stated" are both real answers and neither is an `f64`.
     pub value: &'static str,
-    /// What the value is FOR, where the source distinguishes stages or modules.
     pub note: &'static str,
-    /// Where the claim was read. Empty for SandiBumi's own, which is this repository.
     pub source: &'static str,
+    /// The exact tier label used by the owning PRD chapter (including refinements such as T1a).
+    pub tier: &'static str,
 }
 
-/// Topic key for the number of clusters / facies / classes.
-pub const CLUSTER_COUNT: &str = "cluster_count";
+/// Owned form persisted with curve ancestry so a future disclosure does not depend on whatever the
+/// source registry happens to contain when the project is reopened.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ParameterEvidence {
+    pub product: String,
+    pub value: String,
+    pub note: String,
+    pub source: String,
+    pub tier: String,
+}
 
-/// The corpus's densest disagreement (`24_ml-advanced.md` SB-MLA-031). Ordered vendor-first with
-/// SandiBumi last, deliberately — see the module note.
-const CLUSTER_COUNT_SOURCES: &[ParamSource] = &[
-    ParamSource {
-        product: "Interactive Petrophysics",
-        value: "15-20",
-        note: "advised as a FIRST-STAGE count, to be consolidated afterwards",
-        source: "cluster_analysis.htm (IP install helpset)",
-    },
-    ParamSource {
-        product: "Interactive Petrophysics",
-        value: "4-5",
-        note: "advised as the CONSOLIDATED count, after merging the first-stage clusters",
-        source: "cluster_analysis.htm (IP install helpset)",
-    },
-    ParamSource {
-        product: "Techlog",
-        value: "5",
-        note: "a hard shipped default, the same in two independent modules",
-        source: "TechCore petrophysical groups + SOM parameter tables (Techlog help)",
-    },
-    ParamSource {
-        product: "Geolog",
-        value: "none stated",
-        note: "no default and no advised count anywhere in the Facimage suite - the reading that \
-               says this number is not settled",
-        source: "Facimage help set (Geolog)",
-    },
-    ParamSource {
-        product: "SandiBumi",
-        value: "5",
-        note: "this application's shipped default. It is not a fitted or field-derived number and \
-               carries no external authority - it is a starting point, and the values above are \
-               why it is offered as one rather than as an answer",
-        source: "",
-    },
+/// The structured decision attached to the selected parameter value in a run's ancestry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ParameterDecision {
+    pub topic: String,
+    pub parameter: String,
+    pub alternatives: Vec<ParameterEvidence>,
+    /// Human-readable `product (value)` identities whose cited scalar/range contains the choice.
+    /// Empty means the value is explicitly the interpreter's own decision, not a vendor match.
+    pub selected_matches: Vec<String>,
+}
+
+impl ParameterDecision {
+    /// A complete export-safe rendering. Evidence tiers and sources remain visible rather than being
+    /// reduced to a bare "matched vendor X" label.
+    pub fn disclosure(&self) -> String {
+        let alternatives = self
+            .alternatives
+            .iter()
+            .map(|e| {
+                format!(
+                    "{} {} [{}; source: {}]",
+                    e.product, e.value, e.tier, e.source
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let selected = if self.selected_matches.is_empty() {
+            "matches none; interpreter decision".to_string()
+        } else {
+            format!("agrees with {}", self.selected_matches.join(", "))
+        };
+        format!(
+            "{}: competing positions [{}]; selected value {}",
+            self.parameter, alternatives, selected
+        )
+    }
+}
+
+pub const CLUSTER_COUNT: &str = "cluster_count";
+pub const GR_CLEAN_ENDPOINT: &str = "gr_clean_endpoint";
+pub const GR_SHALE_ENDPOINT: &str = "gr_shale_endpoint";
+pub const MATRIX_DENSITY: &str = "matrix_density";
+pub const SHALE_DENSITY: &str = "shale_density";
+pub const DRY_SHALE_DENSITY: &str = "dry_shale_density";
+pub const SHALE_NEUTRON_ENDPOINT: &str = "shale_neutron_endpoint";
+pub const ARCHIE_A: &str = "archie_a";
+pub const ARCHIE_M: &str = "archie_m";
+pub const ARCHIE_N: &str = "archie_n";
+pub const FORMATION_WATER_RESISTIVITY: &str = "formation_water_resistivity";
+pub const SHALE_RESISTIVITY: &str = "shale_resistivity";
+pub const CUTOFF_VSH_MAX: &str = "cutoff_vsh_max";
+pub const CUTOFF_PHIE_MIN: &str = "cutoff_phie_min";
+pub const CUTOFF_SWE_MAX: &str = "cutoff_swe_max";
+
+/// The cut-off engine is not a module-manifest run, so its ancestry attaches these explicit topic
+/// identities after the generic complete-run record is constructed.
+pub const PAY_PARAMETER_TOPICS: &[(&str, &str)] = &[
+    ("vsh_max", CUTOFF_VSH_MAX),
+    ("phie_min", CUTOFF_PHIE_MIN),
+    ("swe_max", CUTOFF_SWE_MAX),
 ];
 
-/// The competing values recorded for `topic`, or empty where the corpus records none.
+macro_rules! claim {
+    ($product:literal, $value:literal, $note:literal, $source:literal, $tier:literal) => {
+        ParamSource {
+            product: $product,
+            value: $value,
+            note: $note,
+            source: $source,
+            tier: $tier,
+        }
+    };
+}
+
+const CLUSTER_COUNT_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "15-20",
+        "advised first-stage count, to be consolidated afterwards",
+        "IP cluster_analysis.htm",
+        "T2"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "4-5",
+        "advised consolidated count after merging first-stage clusters",
+        "IP cluster_analysis.htm",
+        "T2"
+    ),
+    claim!(
+        "Techlog",
+        "5",
+        "shipped default corroborated by two modules",
+        "Techlog HRA and petrophysical-groups help pages",
+        "T3"
+    ),
+    claim!(
+        "Geolog",
+        "none stated",
+        "no default or advised count in the Facimage help set",
+        "Geolog Facimage help set",
+        "T3"
+    ),
+    claim!(
+        "SandiBumi",
+        "5",
+        "current starting value; not fitted or field-derived",
+        "src-tauri/src/facies.rs module manifests",
+        "T1"
+    ),
+];
+
+const GR_CLEAN_ENDPOINT_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Techlog",
+        "10",
+        "starting range only, not a universal clean endpoint",
+        "Techlog petrophysics-vsh-from-gamma-ray.html",
+        "T1′"
+    ),
+    claim!(
+        "Geolog",
+        "none stated",
+        "defers to a well constant; no numeric default",
+        "Geolog vsh_gr.info",
+        "T1"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "auto-picked",
+        "picked from the curve rather than shipped as one scalar",
+        "IP clayparameters.htm",
+        "T2"
+    ),
+];
+
+const GR_SHALE_ENDPOINT_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Techlog",
+        "100",
+        "starting range only, not a universal shale endpoint",
+        "Techlog petrophysics-vsh-from-gamma-ray.html",
+        "T1′"
+    ),
+    claim!(
+        "Geolog",
+        "none stated",
+        "defers to a well constant; no numeric default",
+        "Geolog vsh_gr.info",
+        "T1"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "auto-picked",
+        "picked from the curve rather than shipped as one scalar",
+        "IP clayparameters.htm",
+        "T2"
+    ),
+];
+
+const MATRIX_DENSITY_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics / Techlog / SandiMin",
+        "2.65",
+        "sandstone or quartz endpoint; the three endpoint libraries agree",
+        "ip_ingest/E_threeway_endpoint_compare.json",
+        "T3"
+    ),
+    claim!(
+        "Geolog",
+        "2.645",
+        "shipped sandstone matrix-density default",
+        "Geolog phi_den.info RHO_MA DEFAULT 2645 k/m3",
+        "T1"
+    ),
+];
+
+const SHALE_DENSITY_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "none stated",
+        "requires an entered value when density is selected",
+        "IP swparameters.htm",
+        "T2"
+    ),
+    claim!(
+        "Geolog",
+        "none stated",
+        "references the RHO_SH well constant without a number",
+        "Geolog phi_den.info",
+        "T1"
+    ),
+    claim!(
+        "Techlog documentation",
+        "2.4",
+        "documented shale density",
+        "Techlog effective-porosity-from-density.html",
+        "T3"
+    ),
+    claim!(
+        "Techlog script",
+        "2.5",
+        "shipped script parameter; differs from its documentation",
+        "Techlog PorosityAndLithologyComputation.py DEN_shale",
+        "T1"
+    ),
+];
+
+const DRY_SHALE_DENSITY_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "2.78",
+        "Rho Dry Clay",
+        "IP 2018/2025 porosity parameter help",
+        "T2"
+    ),
+    claim!(
+        "Techlog",
+        "2.85",
+        "dry shale; the source names a different quantity from IP",
+        "Techlog PorosityAndLithologyComputation.py DEN_dryshale",
+        "T1"
+    ),
+    claim!(
+        "Geolog",
+        "none stated",
+        "RHO_DSH has validation but no numeric default",
+        "Geolog phi_den.info",
+        "T1"
+    ),
+];
+
+const SHALE_NEUTRON_ENDPOINT_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Techlog documentation",
+        "0.40",
+        "documented shale neutron endpoint",
+        "Techlog effective-porosity-from-neutrondensity.html",
+        "T3"
+    ),
+    claim!(
+        "Techlog script",
+        "0.45",
+        "shipped script parameter; differs from its documentation",
+        "Techlog PorosityAndLithologyComputation.py NEUT_shale",
+        "T1"
+    ),
+    claim!(
+        "Geolog",
+        "none stated",
+        "no numeric default",
+        "Geolog phi_dn.info",
+        "T1"
+    ),
+];
+
+const ARCHIE_A_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "none stated",
+        "no factory value for a",
+        "IP 2018 PhiSw and shaly-sand model help",
+        "T2"
+    ),
+    claim!("Geolog", "1", "shipped default", "Geolog sw_*.info", "T1"),
+    claim!("Techlog", "1", "shipped value", "Techlog Quanti parameter table", "T3"),
+];
+
+const ARCHIE_M_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "none stated",
+        "no factory value for m",
+        "IP 2018 PhiSw and shaly-sand model help",
+        "T2"
+    ),
+    claim!("Geolog", "2", "shipped default", "Geolog sw_*.info", "T1"),
+    claim!("Techlog", "2", "shipped value", "Techlog Quanti parameter table", "T3"),
+];
+
+const ARCHIE_N_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Interactive Petrophysics",
+        "none stated",
+        "no factory value for n",
+        "IP 2018 PhiSw and shaly-sand model help",
+        "T2"
+    ),
+    claim!("Geolog", "2", "shipped default", "Geolog sw_*.info", "T1"),
+    claim!("Techlog", "2", "shipped value", "Techlog Quanti parameter table", "T3"),
+];
+
+const FORMATION_WATER_RESISTIVITY_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Geolog",
+        "none stated",
+        "RW/RWS/SALW are required inputs",
+        "Geolog sw_*.info",
+        "T1"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "0.1",
+        "factory value accompanied by a warning to adjust it",
+        "IP2018 §3.1 water-resistivity parameter help",
+        "T2"
+    ),
+    claim!(
+        "Techlog",
+        "0.03",
+        "factory value without the IP warning",
+        "Techlog Quanti parameter table",
+        "T3"
+    ),
+];
+
+const SHALE_RESISTIVITY_SOURCES: &[ParamSource] = &[
+    claim!(
+        "Geolog",
+        "none stated",
+        "input log with no numeric default",
+        "Geolog shaly-sand saturation manifests",
+        "T1"
+    ),
+    claim!(
+        "Interactive Petrophysics",
+        "interpreter-picked",
+        "picked by the interpreter rather than defaulted",
+        "IP shaly-sand parameter help",
+        "T2"
+    ),
+    claim!(
+        "Techlog",
+        "5",
+        "shipped shale-resistivity value",
+        "Techlog Quanti parameter table",
+        "T3"
+    ),
+];
+
+const CUTOFF_VSH_MAX_SOURCES: &[ParamSource] = &[
+    claim!("Interactive Petrophysics", "0.5", "manual report cutoff", "IP Reports 1-4 help", "T2"),
+    claim!("Techlog", "0.5", "shipped VSH_max", "Techlog SummariesMonteCarlo.py", "T1a"),
+    claim!("Geolog", "0.3", "vshale-only pay-summary configuration", "Geolog vshale-only_*.paysum", "T1b"),
+    claim!("Geolog", "0.5", "deterministic Monte Carlo cutoff", "Geolog determin_mc.info", "T1b"),
+];
+
+const CUTOFF_PHIE_MIN_SOURCES: &[ParamSource] = &[
+    claim!("Interactive Petrophysics", "0.1", "manual report cutoff", "IP Reports 1-4 help", "T2"),
+    claim!("Techlog", "0.15", "shipped POR_min", "Techlog SummariesMonteCarlo.py", "T1a"),
+    claim!("Geolog", "0.08", "pay-summary and deterministic Monte Carlo cutoff", "Geolog default_*.paysum and determin_mc.info", "T1b"),
+    claim!("Geolog", "0", "permissive sensitivity cutoff", "Geolog tp_pay_sensitivity.info", "T1b"),
+];
+
+const CUTOFF_SWE_MAX_SOURCES: &[ParamSource] = &[
+    claim!("Interactive Petrophysics", "0.5", "manual report cutoff", "IP Reports 1-4 help", "T2"),
+    claim!("Techlog", "0.85", "shipped SW_max", "Techlog SummariesMonteCarlo.py", "T1a"),
+    claim!("Geolog", "0.5", "deterministic Monte Carlo cutoff", "Geolog determin_mc.info", "T1b"),
+    claim!("Geolog", "1", "permissive sensitivity cutoff", "Geolog tp_pay_sensitivity.info", "T1b"),
+];
+
 pub fn sources_for(topic: &str) -> &'static [ParamSource] {
     match topic {
         CLUSTER_COUNT => CLUSTER_COUNT_SOURCES,
+        GR_CLEAN_ENDPOINT => GR_CLEAN_ENDPOINT_SOURCES,
+        GR_SHALE_ENDPOINT => GR_SHALE_ENDPOINT_SOURCES,
+        MATRIX_DENSITY => MATRIX_DENSITY_SOURCES,
+        SHALE_DENSITY => SHALE_DENSITY_SOURCES,
+        DRY_SHALE_DENSITY => DRY_SHALE_DENSITY_SOURCES,
+        SHALE_NEUTRON_ENDPOINT => SHALE_NEUTRON_ENDPOINT_SOURCES,
+        ARCHIE_A => ARCHIE_A_SOURCES,
+        ARCHIE_M => ARCHIE_M_SOURCES,
+        ARCHIE_N => ARCHIE_N_SOURCES,
+        FORMATION_WATER_RESISTIVITY => FORMATION_WATER_RESISTIVITY_SOURCES,
+        SHALE_RESISTIVITY => SHALE_RESISTIVITY_SOURCES,
+        CUTOFF_VSH_MAX => CUTOFF_VSH_MAX_SOURCES,
+        CUTOFF_PHIE_MIN => CUTOFF_PHIE_MIN_SOURCES,
+        CUTOFF_SWE_MAX => CUTOFF_SWE_MAX_SOURCES,
         _ => &[],
     }
 }
 
-/// One line recording what the interpreter actually chose, for the run's own provenance.
-///
-/// The value alone is already stored in every run's parameters; what this adds is that it was
-/// chosen against a KNOWN disagreement, and where it sits in it. "K = 5" read back in a year says
-/// nothing about whether anybody considered 15; "K = 5, matching Techlog's shipped default, where
-/// IP advises 15-20 first-stage" is a decision.
-pub fn decision_note(topic: &str, value: f64) -> Option<String> {
-    let sources = sources_for(topic);
-    if sources.is_empty() {
-        return None;
-    }
-    let shown = format!("{}", (value * 1000.0).round() / 1000.0);
-    // Which cited values, if any, the chosen number agrees with. A range counts when the value
-    // falls inside it — an interpreter who typed 17 did take IP's advice, and a record that only
-    // matched exact numbers would say they invented it.
-    let agrees: Vec<String> = sources
-        .iter()
-        .filter(|s| value_agrees(s.value, value))
-        .map(|s| format!("{} ({})", s.product, s.value))
-        .collect();
-    let all: Vec<String> =
-        sources.iter().map(|s| format!("{} {}", s.product, s.value)).collect();
-    Some(format!(
-        "cluster count = {shown}, chosen where the corpus records competing values [{}]. {}",
-        all.join("; "),
-        if agrees.is_empty() {
-            "This value matches none of them - it is the interpreter's own.".to_string()
-        } else {
-            format!("It agrees with: {}.", agrees.join(", "))
-        }
-    ))
+pub fn parameter_label(topic: &str) -> Option<&'static str> {
+    Some(match topic {
+        CLUSTER_COUNT => "cluster count",
+        GR_CLEAN_ENDPOINT => "clean gamma-ray endpoint",
+        GR_SHALE_ENDPOINT => "shale gamma-ray endpoint",
+        MATRIX_DENSITY => "matrix density",
+        SHALE_DENSITY => "shale density",
+        DRY_SHALE_DENSITY => "dry shale or dry clay density",
+        SHALE_NEUTRON_ENDPOINT => "shale neutron endpoint",
+        ARCHIE_A => "Archie a",
+        ARCHIE_M => "Archie m",
+        ARCHIE_N => "Archie n",
+        FORMATION_WATER_RESISTIVITY => "formation-water resistivity",
+        SHALE_RESISTIVITY => "shale resistivity",
+        CUTOFF_VSH_MAX => "maximum VSH cutoff",
+        CUTOFF_PHIE_MIN => "minimum PHIE cutoff",
+        CUTOFF_SWE_MAX => "maximum SWE cutoff",
+        _ => return None,
+    })
 }
 
-/// Whether a cited value — a number or an inclusive `a-b` range — covers `value`.
-///
-/// "none stated" agrees with nothing, and that is the point: a vendor that ships no default cannot
-/// be cited as endorsing whatever the user typed.
+/// Stable inventory used by the acceptance test and by any future source-browser surface.
+#[cfg(test)]
+pub fn topics() -> &'static [&'static str] {
+    &[
+        CLUSTER_COUNT,
+        GR_CLEAN_ENDPOINT,
+        GR_SHALE_ENDPOINT,
+        MATRIX_DENSITY,
+        SHALE_DENSITY,
+        DRY_SHALE_DENSITY,
+        SHALE_NEUTRON_ENDPOINT,
+        ARCHIE_A,
+        ARCHIE_M,
+        ARCHIE_N,
+        FORMATION_WATER_RESISTIVITY,
+        SHALE_RESISTIVITY,
+        CUTOFF_VSH_MAX,
+        CUTOFF_PHIE_MIN,
+        CUTOFF_SWE_MAX,
+    ]
+}
+
+pub fn decision_for(topic: &str, value: &serde_json::Value) -> Option<ParameterDecision> {
+    let selected = value.as_f64()?;
+    let alternatives = sources_for(topic);
+    if alternatives.is_empty() {
+        return None;
+    }
+    let selected_matches = alternatives
+        .iter()
+        .filter(|entry| value_agrees(entry.value, selected))
+        .map(|entry| format!("{} ({})", entry.product, entry.value))
+        .collect();
+    Some(ParameterDecision {
+        topic: topic.to_string(),
+        parameter: parameter_label(topic)?.to_string(),
+        alternatives: alternatives
+            .iter()
+            .map(|entry| ParameterEvidence {
+                product: entry.product.to_string(),
+                value: entry.value.to_string(),
+                note: entry.note.to_string(),
+                source: entry.source.to_string(),
+                tier: entry.tier.to_string(),
+            })
+            .collect(),
+        selected_matches,
+    })
+}
+
+/// Compatibility note for the ML run record. Scientific curve ancestry uses the structured record
+/// above; this string is retained because the ML result metadata predates curve ancestry.
+pub fn decision_note(topic: &str, value: f64) -> Option<String> {
+    let decision = decision_for(topic, &serde_json::json!(value))?;
+    Some(format!("{} = {value}; {}", decision.parameter, decision.disclosure()))
+}
+
 fn value_agrees(cited: &str, value: f64) -> bool {
-    let c = cited.trim();
-    if let Some((lo, hi)) = c.split_once('-') {
-        if let (Ok(lo), Ok(hi)) = (lo.trim().parse::<f64>(), hi.trim().parse::<f64>()) {
-            return value >= lo && value <= hi;
+    let text = cited.trim();
+    if let Some((low, high)) = text.split_once('-') {
+        if let (Ok(low), Ok(high)) = (low.trim().parse::<f64>(), high.trim().parse::<f64>()) {
+            return value >= low && value <= high;
         }
         return false;
     }
-    c.parse::<f64>().map(|v| (v - value).abs() < 1e-9).unwrap_or(false)
+    text.parse::<f64>()
+        .map(|candidate| (candidate - value).abs() < 1e-9)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// **SB-MLA-031 / SB-CORE-013.** The panel exists to show that a number is contested. Three
-    /// things would each quietly defeat that, and none would fail any other test:
-    /// dropping the vendor that states nothing (leaving two values that look like a consensus),
-    /// hiding SandiBumi's own default (making our starting point look like neutral ground), and
-    /// shipping an entry with no source (which is an assertion, not evidence).
+    /// CORRECTNESS — the five recorded cluster-count positions and their evidence hierarchy come from
+    /// `24_ml-advanced.md` §5.23 and the original SB-MLA-031 / SB-CORE-013 source-panel contract.
     #[test]
-    fn every_competing_value_names_its_product_and_the_absence_of_one_is_itself_shown() {
-        let s = sources_for(CLUSTER_COUNT);
-        assert!(s.len() >= 4, "the corpus records at least four positions on cluster count");
-        for e in s {
-            assert!(!e.product.is_empty(), "an unattributed value is an assertion, not evidence");
-            assert!(!e.value.is_empty());
-            assert!(!e.note.is_empty(), "a bare number cannot be judged: {e:?}");
-            // Every VENDOR claim carries the document it was read from. SandiBumi's own is this
-            // repository and says so by carrying none.
-            if e.product != "SandiBumi" {
-                assert!(!e.source.is_empty(), "vendor claim with no source: {e:?}");
-            }
+    fn every_cluster_count_position_names_its_product_source_and_tier_and_keeps_explicit_absence() {
+        let sources = sources_for(CLUSTER_COUNT);
+        assert_eq!(sources.len(), 5, "the registry includes two IP stages, Techlog, Geolog, and SandiBumi");
+        for source in sources {
+            assert!(!source.product.is_empty(), "an unattributed value is not evidence");
+            assert!(!source.value.is_empty(), "an omitted position hides disagreement");
+            assert!(!source.note.is_empty(), "a bare value has no usable context");
+            assert!(!source.source.is_empty(), "every position names its source");
+            assert!(!source.tier.is_empty(), "every source carries its evidence tier");
         }
-        // The vendor that ships nothing is present, and its absence is stated as a value.
         assert!(
-            s.iter().any(|e| e.product == "Geolog" && e.value == "none stated"),
-            "a vendor stating no default is a finding, not a gap to omit"
+            sources
+                .iter()
+                .any(|source| source.product == "Geolog" && source.value == "none stated"),
+            "a product stating no default is a finding, not a gap to omit"
         );
-        // Our own default is listed, and is NOT first — the panel must not read as ours plus
-        // three footnotes.
-        let ours = s.iter().position(|e| e.product == "SandiBumi").expect("our own default is shown");
-        assert!(ours > 0, "SandiBumi's default must not head the list");
-        assert_eq!(s[ours].value, "5", "must track facies.rs's shipped K default");
-        assert!(
-            s[ours].note.contains("not a fitted or field-derived number"),
-            "our own default must disclaim authority it does not have"
-        );
-        // An unknown topic yields nothing rather than a plausible-looking empty panel elsewhere.
+        let ours = sources
+            .iter()
+            .position(|source| source.product == "SandiBumi")
+            .expect("the shipped starting value remains visible");
+        assert!(ours > 0, "the shipped value must not be presented as the authority");
+        assert_eq!(sources[ours].value, "5");
+        assert!(sources[ours]
+            .note
+            .contains("not fitted or field-derived"));
         assert!(sources_for("no_such_topic").is_empty());
     }
 
-    /// **The decision record.** A stored `K = 5` says nothing about whether anybody knew 15 was on
-    /// the table. Pinned from both sides: a value inside a cited range must be recorded as agreeing
-    /// with it — an interpreter who typed 17 DID take IP's advice — and a value matching nothing
-    /// must be recorded as their own rather than silently attributed to the nearest vendor.
+    /// CORRECTNESS — expected inventory and values come from the cited §5 rows in
+    /// `10_clay-volume.md`, `11_porosity.md`, `12_saturation.md`, `14_cutoffs-summation-mc.md`,
+    /// and `24_ml-advanced.md`; persistence is the `SB-CORE-013` requirement itself.
     #[test]
-    fn the_recorded_choice_says_which_cited_values_it_agrees_with_and_when_it_agrees_with_none() {
-        let note = decision_note(CLUSTER_COUNT, 5.0).expect("a contested parameter records its choice");
-        assert!(note.contains("Techlog 5"), "every competing value is listed: {note}");
-        assert!(note.contains("Geolog none stated"), "the absence is listed too: {note}");
-        assert!(note.contains("agrees with"), "{note}");
-        assert!(note.contains("Techlog (5)"), "{note}");
-
-        // Inside IP's first-stage range: agreement with a RANGE counts.
-        let seventeen = decision_note(CLUSTER_COUNT, 17.0).unwrap();
-        assert!(seventeen.contains("Interactive Petrophysics (15-20)"), "{seventeen}");
-        assert!(!seventeen.contains("Techlog (5)"), "17 does not agree with 5: {seventeen}");
-
-        // Matching nothing is recorded as the interpreter's own, not rounded to a vendor.
-        let nine = decision_note(CLUSTER_COUNT, 9.0).unwrap();
-        assert!(nine.contains("matches none of them"), "{nine}");
-        assert!(nine.contains("interpreter's own"), "{nine}");
-
-        // "none stated" endorses nothing, whatever was typed.
-        for k in [3.0, 5.0, 17.0, 100.0] {
-            let n = decision_note(CLUSTER_COUNT, k).unwrap();
-            assert!(!n.contains("Geolog (none stated)"), "a vendor with no default endorses nothing: {n}");
+    fn every_pilot_parameter_with_competing_values_shows_its_sources_and_tiers_and_persists_the_interpreters_choice() {
+        let expected = [
+            CLUSTER_COUNT,
+            GR_CLEAN_ENDPOINT,
+            GR_SHALE_ENDPOINT,
+            MATRIX_DENSITY,
+            SHALE_DENSITY,
+            DRY_SHALE_DENSITY,
+            SHALE_NEUTRON_ENDPOINT,
+            ARCHIE_A,
+            ARCHIE_M,
+            ARCHIE_N,
+            FORMATION_WATER_RESISTIVITY,
+            SHALE_RESISTIVITY,
+            CUTOFF_VSH_MAX,
+            CUTOFF_PHIE_MIN,
+            CUTOFF_SWE_MAX,
+        ];
+        assert_eq!(topics(), expected, "the DEC-003 pilot disagreement inventory is exact");
+        for topic in expected {
+            let rows = sources_for(topic);
+            assert!(rows.len() >= 2, "{topic} must show a real disagreement");
+            for row in rows {
+                assert!(!row.product.is_empty(), "{topic}: product is required");
+                assert!(!row.value.is_empty(), "{topic}: value or explicit absence is required");
+                assert!(!row.note.is_empty(), "{topic}: a bare number has no usable context");
+                assert!(!row.source.is_empty(), "{topic}: source is required for every position");
+                assert!(!row.tier.is_empty(), "{topic}: evidence tier is required");
+            }
         }
-        // A parameter the corpus says nothing about records nothing, or every field grows a panel.
-        assert!(decision_note("no_such_topic", 5.0).is_none());
+
+        // Both sides: a cited exact value and range are matched, while an uncited choice remains
+        // explicitly the interpreter's own rather than being assigned to the nearest vendor.
+        let rw = decision_for(FORMATION_WATER_RESISTIVITY, &serde_json::json!(0.1)).unwrap();
+        assert_eq!(rw.selected_matches, ["Interactive Petrophysics (0.1)"]);
+        assert!(rw.disclosure().contains("T1"));
+        assert!(rw.disclosure().contains("T2"));
+        assert!(rw.disclosure().contains("T3"));
+        let own = decision_for(FORMATION_WATER_RESISTIVITY, &serde_json::json!(0.2)).unwrap();
+        assert!(own.selected_matches.is_empty());
+        assert!(own.disclosure().contains("interpreter decision"));
+        let ranged = decision_for(CLUSTER_COUNT, &serde_json::json!(17)).unwrap();
+        assert!(ranged.selected_matches.iter().any(|m| m.contains("15-20")));
+        assert!(decision_for("not_registered", &serde_json::json!(1)).is_none());
+        assert!(decision_for(GR_CLEAN_ENDPOINT, &serde_json::json!("ABSENT")).is_none());
+
+        // Every selected pilot module field points at the same registry used above. An editor that
+        // forgot the topic would still compute correctly, so this must be pinned separately.
+        let manifests = crate::modules::list_modules();
+        let expected_fields = [
+            ("vsh_gr", "GR_MA", GR_CLEAN_ENDPOINT),
+            ("vsh_gr", "GR_SH", GR_SHALE_ENDPOINT),
+            ("phi_den", "RHO_MA", MATRIX_DENSITY),
+            ("phi_den", "RHO_SH", SHALE_DENSITY),
+            ("phi_den", "RHO_DSH", DRY_SHALE_DENSITY),
+            ("phi_dn", "RHO_MA", MATRIX_DENSITY),
+            ("phi_dn", "RHO_SH", SHALE_DENSITY),
+            ("phi_dn", "RHO_DSH", DRY_SHALE_DENSITY),
+            ("phi_dn", "NPHI_SH", SHALE_NEUTRON_ENDPOINT),
+            ("sw_arch", "A", ARCHIE_A),
+            ("sw_arch", "M", ARCHIE_M),
+            ("sw_arch", "N", ARCHIE_N),
+            ("sw_arch", "RW", FORMATION_WATER_RESISTIVITY),
+            ("sw_indo", "A", ARCHIE_A),
+            ("sw_indo", "M", ARCHIE_M),
+            ("sw_indo", "N", ARCHIE_N),
+            ("sw_indo", "RW", FORMATION_WATER_RESISTIVITY),
+            ("sw_indo", "RT_SH", SHALE_RESISTIVITY),
+        ];
+        for (module, argument, topic) in expected_fields {
+            let manifest = manifests.iter().find(|item| item.name == module).unwrap();
+            let arg = manifest.args.iter().find(|item| item.name == argument).unwrap();
+            assert_eq!(arg.sources_topic, topic, "{module}.{argument} source context");
+        }
+        assert_eq!(
+            PAY_PARAMETER_TOPICS,
+            [
+                ("vsh_max", CUTOFF_VSH_MAX),
+                ("phie_min", CUTOFF_PHIE_MIN),
+                ("swe_max", CUTOFF_SWE_MAX),
+            ]
+        );
+
+        // Persist through the real deterministic writer, then reopen the current curve's ancestry.
+        // The first run matches a cited value; the second deliberately matches none. Either half
+        // alone would allow an implementation that always labels the choice one way.
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well_id = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, well_id, "SYNTHETIC", None, None, None).unwrap();
+        let depth = vec![1000.0_f32, 1000.5, 1001.0];
+        let nan = vec![f32::NAN; depth.len()];
+        crate::db::insert_standard_curves(
+            &conn,
+            well_id,
+            depth,
+            vec![10.0, 55.0, 100.0],
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan,
+        )
+        .unwrap();
+        let db = Mutex::new(conn);
+        let run = |clean: f64| crate::workflow::RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids: vec![well_id.to_string()],
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("GR_MA".into(), clean), ("GR_SH".into(), 100.0)]),
+            opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
+            output_set: Some("INTERPRETATION".into()),
+            input_set: None,
+            custody: crate::workflow::test_run_custody(),
+        };
+        let first = crate::workflow::run_workflow_module(&db, &run(10.0));
+        assert!(first[0].error.is_none(), "{}", first[0].error.as_deref().unwrap_or(""));
+        let first_ancestry = crate::equations::curve_ancestry(
+            &db.lock().unwrap(),
+            &well_id.to_string(),
+            "VSH",
+        )
+        .unwrap();
+        let first_clean = first_ancestry.parameters.iter().find(|p| p.name == "GR_MA").unwrap();
+        assert_eq!(
+            first_clean.decision.as_ref().unwrap().selected_matches,
+            ["Techlog (10)"]
+        );
+        assert_eq!(first_clean.source, crate::workflow::test_run_custody().source_note);
+
+        let second = crate::workflow::run_workflow_module(&db, &run(11.0));
+        assert!(second[0].error.is_none(), "{}", second[0].error.as_deref().unwrap_or(""));
+        let second_ancestry = crate::equations::curve_ancestry(
+            &db.lock().unwrap(),
+            &well_id.to_string(),
+            "VSH",
+        )
+        .unwrap();
+        let second_clean = second_ancestry.parameters.iter().find(|p| p.name == "GR_MA").unwrap();
+        assert!(second_clean.decision.as_ref().unwrap().selected_matches.is_empty());
+
+        // The non-manifest pay engine uses the same structured record for all three cutoffs.
+        let custody = crate::workflow::test_run_custody();
+        let mut pay = crate::equations::complete_curve_run_spec(
+            &db.lock().unwrap(),
+            &well_id.to_string(),
+            "PAYFLAG",
+            "pay_summary",
+            &custody,
+            &[],
+            None,
+            serde_json::json!({"vsh_max": 0.5, "phie_min": 0.1, "swe_max": 0.6}),
+            crate::equations::AncestryZoneScope::WholeWell,
+            &["FLAG_PAY".into()],
+        )
+        .unwrap();
+        pay.record_parameter_decisions(PAY_PARAMETER_TOPICS).unwrap();
+        for name in ["vsh_max", "phie_min", "swe_max"] {
+            assert!(
+                pay.ancestry()
+                    .parameters
+                    .iter()
+                    .find(|p| p.name == name)
+                    .and_then(|p| p.decision.as_ref())
+                    .is_some(),
+                "pay-summary {name} choice is a persisted decision"
+            );
+        }
+    }
+
+    #[test]
+    fn the_recorded_cluster_choice_distinguishes_a_cited_range_from_an_interpreters_own_value() {
+        let seventeen = decision_note(CLUSTER_COUNT, 17.0).unwrap();
+        assert!(seventeen.contains("Interactive Petrophysics (15-20)"));
+        let nine = decision_note(CLUSTER_COUNT, 9.0).unwrap();
+        assert!(nine.contains("interpreter decision"));
+        assert!(!nine.contains("Geolog (none stated)"));
     }
 }

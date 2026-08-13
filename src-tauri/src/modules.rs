@@ -384,6 +384,15 @@ pub(crate) fn param_sourced(
     }
 }
 
+/// Add a competing-value topic without changing whether the underlying parameter has a default.
+/// Disclosure must never turn an `ABSENT` parameter into a plausible number merely because another
+/// product ships one.
+fn with_sources(mut arg: ArgSpec, topic: &str) -> ArgSpec {
+    debug_assert!(!crate::param_sources::sources_for(topic).is_empty());
+    arg.sources_topic = topic.into();
+    arg
+}
+
 /// A deliberately absent, well-scoped parameter. It retains the depth-trend scope rule while
 /// refusing to invent the value that defines that trend. The per-well grid may supply one value,
 /// but a zone cannot create a discontinuity part-way down the well.
@@ -1159,7 +1168,7 @@ fn vsh_gr_spec() -> ModuleSpec {
                     ValidityRule::Enumeration,
                 )],
             ),
-            with_validity(
+            with_sources(with_validity(
                 param_open("GR_MA", "Gamma ray matrix (clean)", "gapi", 0.0, 200.0, true),
                 vec![
                     validity(
@@ -1180,8 +1189,8 @@ fn vsh_gr_spec() -> ModuleSpec {
                         ValidityRule::LessThan { other: "GR_SH".into() },
                     ),
                 ],
-            ),
-            with_validity(
+            ), crate::param_sources::GR_CLEAN_ENDPOINT),
+            with_sources(with_validity(
                 param_open("GR_SH", "Gamma ray shale", "gapi", 0.0, 1000.0, true),
                 vec![validity(
                     "vsh_gr.gr_sh_range",
@@ -1194,7 +1203,7 @@ fn vsh_gr_spec() -> ModuleSpec {
                         when: None,
                     },
                 )],
-            ),
+            ), crate::param_sources::GR_SHALE_ENDPOINT),
             log_in("GR", "Gamma ray log", "gapi", "GR", true),
             log_out("VSH_GR", "VSH from gamma ray (unlimited)", "v/v"),
             log_out("VSH", "Limited volume of shale", "v/v"),
@@ -1371,16 +1380,17 @@ fn phi_den_spec() -> ModuleSpec {
               Above 95% VSH the sample is treated as shale."
             .into(),
         args: vec![
-            param(
+            param_sourced(
                 "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
+                crate::param_sources::MATRIX_DENSITY,
                 "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
             ),
-            param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true),
+            with_sources(param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true), crate::param_sources::SHALE_DENSITY),
             param(
                 "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
                 "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
             ),
-            param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true),
+            with_sources(param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true), crate::param_sources::DRY_SHALE_DENSITY),
             param(
                 "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
                 "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
@@ -1471,17 +1481,18 @@ fn phi_dn_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_XPLOT", "Crossplot combination method", "AVERAGE", &["AVERAGE", "GAS_RMS"]),
-            param(
+            param_sourced(
                 "RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2,
+                crate::param_sources::MATRIX_DENSITY,
                 "Geolog V14 phi_den.info RHO_MA DEFAULT 2645 k/m3; docs/PRD_v2/11_porosity.md §5.1",
             ),
-            param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true),
+            with_sources(param_open("RHO_SH", "Shale density", "g/cc", 1.5, 3.0, true), crate::param_sources::SHALE_DENSITY),
             param(
                 "RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5,
                 "IP basicloganalysis.htm fresh-water 1.0 gm/cc; Geolog phi_den.info RHO_FL 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
             ),
-            param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true),
-            param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true),
+            with_sources(param_open("NPHI_SH", "Shale neutron porosity", "v/v", 0.0, 0.8, true), crate::param_sources::SHALE_NEUTRON_ENDPOINT),
+            with_sources(param_open("RHO_DSH", "Dry shale density", "g/cc", 2.0, 3.2, true), crate::param_sources::DRY_SHALE_DENSITY),
             param(
                 "RHO_W", "Formation water density", "g/cc", 1.0, 0.8, 1.3,
                 "Geolog V14 phi_den.info RHO_W DEFAULT 1000 k/m3; docs/PRD_v2/11_porosity.md §5.1",
@@ -2800,7 +2811,7 @@ fn rw_args() -> Vec<ArgSpec> {
             "CONSTANT",
             &["CONSTANT", "MEASURED", "SALINITY"],
         ),
-        param_open_when(
+        with_sources(param_open_when(
             "RW",
             "Rw at formation temperature (CONSTANT)",
             "ohmm",
@@ -2808,7 +2819,7 @@ fn rw_args() -> Vec<ArgSpec> {
             20.0,
             &[("OPT_RW", "CONSTANT")],
             "docs/PRD_v2/12_saturation.md §5 formation-water parameters",
-        ),
+        ), crate::param_sources::FORMATION_WATER_RESISTIVITY),
         param_open_when(
             "RWS",
             "Measured water sample resistivity",
@@ -2886,9 +2897,9 @@ fn resolve_rw(ctx: &ModuleContext, ftemp: &[f32], i: usize) -> f64 {
 
 fn sw_arch_spec() -> ModuleSpec {
     let mut args = vec![
-        param_open("A", "Tortuosity constant", "", 0.1, 5.0, true),
-        param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
-        param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
+        with_sources(param_open("A", "Tortuosity constant", "", 0.1, 5.0, true), crate::param_sources::ARCHIE_A),
+        with_sources(param_open("M", "Cementation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_M),
+        with_sources(param_open("N", "Saturation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_N),
         param_open(
             "SWT_IRR",
             "Irreducible total water saturation",
@@ -3011,10 +3022,10 @@ fn sw_indo_spec() -> ModuleSpec {
             "FULL",
             &["FULL", "SIMPLE", "TAR_SAND"],
         ),
-        param_open("A", "Tortuosity constant", "", 0.1, 5.0, true),
-        param_open("M", "Cementation exponent", "", 1.0, 4.0, true),
-        param_open("N", "Saturation exponent", "", 1.0, 4.0, true),
-        param_open("RT_SH", "Shale resistivity", "ohmm", 0.1, 500.0, true),
+        with_sources(param_open("A", "Tortuosity constant", "", 0.1, 5.0, true), crate::param_sources::ARCHIE_A),
+        with_sources(param_open("M", "Cementation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_M),
+        with_sources(param_open("N", "Saturation exponent", "", 1.0, 4.0, true), crate::param_sources::ARCHIE_N),
+        with_sources(param_open("RT_SH", "Shale resistivity", "ohmm", 0.1, 500.0, true), crate::param_sources::SHALE_RESISTIVITY),
         param_open(
             "SWE_IRR",
             "Irreducible effective water saturation",

@@ -2,6 +2,7 @@ import { listWells, runPaySummary, type PaySummaryRow } from "../ipc";
 import { appState, filterByActiveGroup } from "../state";
 import { escapeHtml } from "./safeDom";
 import { reportDashboardCompletion } from "./reportingHonesty";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 
 /** Field Dashboard: multi-well × zone pay statistics in one panel.
  *  Reuses the existing pay-summary engine (`run_pay_summary`) across every well, then
@@ -137,9 +138,9 @@ export async function buildDashboardContent(
     },
   );
   controls.append(
-    field("VSH ≤", vshIn),
-    field("PHIE ≥", phieIn),
-    field("SWE ≤", sweIn),
+    field("VSH ≤", withParamSources(vshIn, PARAM_SOURCE_TOPICS.cutoffVshMax)),
+    field("PHIE ≥", withParamSources(phieIn, PARAM_SOURCE_TOPICS.cutoffPhieMin)),
+    field("SWE ≤", withParamSources(sweIn, PARAM_SOURCE_TOPICS.cutoffSweMax)),
     field("PERM ≥", permIn),
     field("Flag", flagSeg),
     field("Metric", metricSeg),

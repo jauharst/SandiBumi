@@ -895,8 +895,10 @@ export interface ParamSource {
   value: string;
   /** What the value is FOR, where the source distinguishes stages or modules. */
   note: string;
-  /** Where the claim was read. Empty for SandiBumi's own, which is this repository. */
+  /** Where the claim was read, including this repository for SandiBumi's own position. */
   source: string;
+  /** Evidence tier exactly as refined by the owning PRD chapter (for example T1a or T3). */
+  tier: string;
 }
 
 /** The competing shipped values recorded for a parameter topic, or empty where there are none.
@@ -957,6 +959,18 @@ export interface AncestryParameter {
   name: string;
   value: unknown;
   source: string;
+  decision?: {
+    topic: string;
+    parameter: string;
+    alternatives: Array<{
+      product: string;
+      value: string;
+      note: string;
+      source: string;
+      tier: string;
+    }>;
+    selected_matches: string[];
+  };
 }
 
 export type AncestryZoneScope =

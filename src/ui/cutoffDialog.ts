@@ -13,6 +13,7 @@ import { appState, bumpDataVersion } from "../state";
 import { DEFAULT_CUTOFFS, loadCutoffDefaults } from "./cutoffs";
 import { buildLogSetPicker } from "./logSetPicker";
 import { formRow } from "./modal";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 import { PlotCanvas, attachResizeRedraw, canvasFont, faciesColor, fitCanvasBackingStore, readTheme, type AxisSpec } from "./plotCanvas";
 import { nearestDepthIndex } from "./plotCommon";
 import { buildWellScope } from "./wellScope";
@@ -117,9 +118,9 @@ export async function buildCutoffContent(
   const sweIn = numInput(String(cuts.swe_max));
   const permIn = numInput(cuts.perm_min != null ? String(cuts.perm_min) : "");
   permIn.placeholder = "(off)";
-  root.appendChild(formRow("VSH ≤", vshIn, "Sand cutoff"));
-  root.appendChild(formRow("PHIE ≥", phieIn, "Reservoir cutoff"));
-  root.appendChild(formRow("SWE ≤", sweIn, "Pay cutoff"));
+  root.appendChild(formRow("VSH ≤", withParamSources(vshIn, PARAM_SOURCE_TOPICS.cutoffVshMax), "Sand cutoff"));
+  root.appendChild(formRow("PHIE ≥", withParamSources(phieIn, PARAM_SOURCE_TOPICS.cutoffPhieMin), "Reservoir cutoff"));
+  root.appendChild(formRow("SWE ≤", withParamSources(sweIn, PARAM_SOURCE_TOPICS.cutoffSweMax), "Pay cutoff"));
   root.appendChild(formRow("PERM ≥ (optional)", permIn, "Extra pay cutoff, needs a PERM curve"));
   const cutFor = (p: "VSH" | "PHIE" | "SWE"): HTMLInputElement =>
     p === "VSH" ? vshIn : p === "PHIE" ? phieIn : sweIn;

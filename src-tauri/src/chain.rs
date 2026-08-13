@@ -169,10 +169,12 @@ fn complete_chain_sets(
                             crate::modules::ABSENT_DEFAULT_SOURCE.to_string(),
                         )
                     };
+                    let decision = crate::param_sources::decision_for(&arg.sources_topic, &value);
                     parameters.push(crate::equations::AncestryParameter {
                         name: format!("step[{}].{}", index + 1, arg.name),
                         value,
                         source,
+                        decision,
                     });
                     for zone in zone_params
                         .iter()
@@ -191,6 +193,10 @@ fn complete_chain_sets(
                             name: format!("step[{}].{}@{}", index + 1, arg.name, zone.zone_name),
                             value: serde_json::json!(value),
                             source: source.to_string(),
+                            decision: crate::param_sources::decision_for(
+                                &arg.sources_topic,
+                                &serde_json::json!(value),
+                            ),
                         });
                     }
                 } else if arg.kind == crate::modules::ArgKind::Option
@@ -201,6 +207,7 @@ fn complete_chain_sets(
                             name: format!("step[{}].{}", index + 1, arg.name),
                             value: serde_json::json!(value),
                             source: custody.source_note.clone(),
+                            decision: None,
                         });
                     }
                 }

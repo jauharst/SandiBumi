@@ -13,6 +13,7 @@ import {
 import { appState } from "../state";
 import { loadCutoffDefaults } from "./cutoffs";
 import { formRow } from "./modal";
+import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
 import {
   attachResizeRedraw,
   canvasFont,
@@ -631,17 +632,17 @@ export async function buildResultsQcContent(
   const phieMinIn = numInput(cuts.phie_min, "0.01");
   const sweMaxIn = numInput(cuts.swe_max, "0.01");
   controls.append(
-    formRow("Rw", rwIn),
+    formRow("Rw", withParamSources(rwIn, PARAM_SOURCE_TOPICS.formationWaterResistivity)),
     formRow("Rw °F", rwTIn),
     formRow("Form °F", ftIn),
-    formRow("m", mIn),
-    formRow("n", nIn),
-    formRow("Rsh", rshIn),
-    formRow("a", aIn),
+    formRow("m", withParamSources(mIn, PARAM_SOURCE_TOPICS.archieM)),
+    formRow("n", withParamSources(nIn, PARAM_SOURCE_TOPICS.archieN)),
+    formRow("Rsh", withParamSources(rshIn, PARAM_SOURCE_TOPICS.shaleResistivity)),
+    formRow("a", withParamSources(aIn, PARAM_SOURCE_TOPICS.archieA)),
     formRow("Diverge", divIn),
-    formRow("VSH≤", vshMaxIn),
-    formRow("PHIE≥", phieMinIn),
-    formRow("SWE≤", sweMaxIn),
+    formRow("VSH≤", withParamSources(vshMaxIn, PARAM_SOURCE_TOPICS.cutoffVshMax)),
+    formRow("PHIE≥", withParamSources(phieMinIn, PARAM_SOURCE_TOPICS.cutoffPhieMin)),
+    formRow("SWE≤", withParamSources(sweMaxIn, PARAM_SOURCE_TOPICS.cutoffSweMax)),
   );
   const runBtn = document.createElement("button");
   runBtn.className = "btn btn-accent rqc-run";
