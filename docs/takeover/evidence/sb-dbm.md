@@ -32,14 +32,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T04`, `SB-DBM-T15`; sections 4.1 and 6.2-6.3.
 - **Atomic obligations:** persist a build-derived module identity that changes when the compiled module changes; include it in the re-run manifest and refuse a mismatch.
-- **Current source:** `LogSetSpec` and `log_sets` store only the module name. No build hash, module artefact version or manifest comparator exists.
+- **Current source:** `CurveAncestry` now carries `module` plus `module_version`, and every current complete-run builder fills the latter with `env!("CARGO_PKG_VERSION")`. That value is hand-maintained and shared by every built-in module, so it can remain unchanged when one module's compiled artefact changes. No build-derived identity or re-run manifest comparator exists.
 - **Qualifying acceptance tests:** none; T04 and the module-version arm of T15 are missing. Test class is `MISSING`.
 - **Supporting tests:** version-number tests cover log-set generations, not module binary identity.
 - **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; the accepted anchor has no module-version field or re-run check.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** `MODULE_VERSION_SOURCE` is deliberately absent; a reproducible build-derived identity must be specified rather than guessed.
-- **Next action:** decide and document the build-derived identity source, persist it per run and implement T04 plus the T15 mismatch refusal.
+- **Git evidence:** Gate 2 live-source re-verification supersedes the accepted-anchor absence: SB-CORE-010 added the populated field, but its package-version source violates SB-DBM-002's explicit no-hand-maintained-version clause.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED` — §5 deliberately leaves `MODULE_VERSION_SOURCE` absent. Choosing a whole-binary digest, per-module source digest, build id, algorithm, encoding or stability rule here would be an unapproved architecture decision. `DEC-021` records the exact decision boundary.
+- **Next action:** decide `DEC-021`, replace every hand-maintained producer with the adopted build-derived identity, then implement T04 and the module-version mismatch arm of T15. No fake acceptance test is added while its expected identity transition is unspecified.
 
 ## SB-DBM-003 - Every petrophysical parameter in a run record carries a source string
 

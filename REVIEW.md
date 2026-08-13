@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-002: build-derived module identity is decision-blocked
+
+- [ ] **Automated implementation:** blocked, not declared green from the populated ancestry field.
+      Every current complete-run builder records `module_version = CARGO_PKG_VERSION`, but that
+      value is hand-maintained and can remain unchanged when one module's compiled artefact changes.
+      SB-DBM-T04 and the module-version arm of T15 therefore remain missing; no snapshot test was
+      added to defend the known divergence. The unchanged repository gate remains 987 / 0 / 36 and
+      the owned Rust warning inventory remains 55.
+- [ ] **Product/architecture decision:** settle DEC-021's exact artefact boundary, derivation,
+      stored representation and stability rule. A whole-binary digest, per-module source digest,
+      build id or hash policy would all be plausible but materially different contracts; none was
+      selected by engineering while `MODULE_VERSION_SOURCE` remains deliberately absent.
+- [ ] **Manual:** manual inspection can confirm existing records contain the package version, but it
+      cannot prove that value changes with the module artefact. Do not mark this requirement done
+      from a visible non-empty version string.
+- [ ] **Field:** field use cannot repair an ambiguous build identity. After DEC-021 is implemented,
+      Gate 4 may exercise records created by two controlled builds; it must not choose the identity
+      scheme retroactively.
+
 ## 2026-08-13 — G2 SB-DBM-001: legacy computed values stay visible and honest
 
 - [x] **Automated:** SB-DBM-T03 sends one ancestry-complete computed curve and one seeded legacy
