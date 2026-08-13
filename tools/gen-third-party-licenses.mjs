@@ -6,14 +6,15 @@
 //              crates (which are not distributed and carry no attribution obligation in a
 //              shipped binary) are excluded. Including them would inflate the notice and
 //              make the real obligations harder to see.
-// Node side  : walks node_modules for the packages Vite actually bundles into the frontend.
-//              Dev tooling is listed separately for the same reason.
+// Node side  : asks npm for the installed production dependency graph and reads only those
+//              package directories. Walking node_modules directly also collects hoisted dev
+//              tools, which made a notice headed "distributed dependencies" materially false.
 //
 // Written by the provenance sweep, 2026-07-31 (finding 22: no NOTICE file existed at all).
 // This file is a factual inventory, not legal advice.
 
 import { execSync } from "child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 
 function crates() {
@@ -37,31 +38,27 @@ function crates() {
 
 function npmPackages() {
   const seen = new Map();
-  (function walk(dir) {
-    if (!existsSync(dir)) return;
-    for (const e of readdirSync(dir)) {
-      if (e.startsWith(".")) continue;
-      const p = path.join(dir, e);
-      if (e.startsWith("@")) {
-        walk(p);
-        continue;
-      }
-      const pj = path.join(p, "package.json");
-      if (existsSync(pj)) {
-        try {
-          const j = JSON.parse(readFileSync(pj, "utf8"));
-          const lic =
-            j.license ||
-            (Array.isArray(j.licenses) && j.licenses.map((l) => l.type).join(" OR ")) ||
-            "UNKNOWN";
-          if (j.name) seen.set(`${j.name} v${j.version}`, lic);
-        } catch {
-          /* a malformed package.json is not a licence signal */
-        }
-      }
-      walk(path.join(p, "node_modules"));
+  const root = path.resolve(".");
+  const installed = execSync("npm ls --omit=dev --all --parseable", {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  for (const line of installed.split(/\r?\n/u)) {
+    const packageDir = line.trim();
+    if (!packageDir || path.resolve(packageDir) === root) continue;
+    const pj = path.join(packageDir, "package.json");
+    if (!existsSync(pj)) continue;
+    try {
+      const j = JSON.parse(readFileSync(pj, "utf8"));
+      const lic =
+        j.license ||
+        (Array.isArray(j.licenses) && j.licenses.map((l) => l.type).join(" OR ")) ||
+        "UNKNOWN";
+      if (j.name) seen.set(`${j.name} v${j.version}`, lic);
+    } catch {
+      /* a malformed package.json is reported as absent rather than invented */
     }
-  })("node_modules");
+  }
   return seen;
 }
 
@@ -102,9 +99,11 @@ declared licences.
 **Generated** by \`tools/gen-third-party-licenses.mjs\` — re-run it after any dependency change;
 do not edit by hand. It is a **factual inventory, not legal advice.**
 
-Scope note: only **normal** (distributed) dependencies are listed. Build-time and dev-only
-packages — the compiler plugins, the bundler, the test harnesses — are not shipped to a user and
-are excluded, so the obligations that DO apply stay visible.
+Scope note: this is a conservative release inventory: Cargo **normal** dependencies plus npm's
+installed **production** dependency graph. Build-time and dev-only packages — compiler plugins,
+the bundler and test harnesses — are excluded. Optimisation may remove some production-graph code
+from the final binary, but over-including a declared production dependency is safer than silently
+omitting a notice that may apply.
 
 Python packages (\`numpy\`, \`dlisio\`, \`scikit-learn\`, \`xlsxwriter\`, \`python-docx\`,
 \`python-pptx\`, \`matplotlib\`, \`Pillow\`) are **not distributed with SandiBumi**. They are
@@ -136,12 +135,18 @@ ${
 
 `;
 
-writeFileSync(
-  "THIRD-PARTY-LICENSES.md",
-  header + section("Rust crates", rust) + section("JavaScript packages", node),
-  "utf8"
-);
-console.log(
-  `THIRD-PARTY-LICENSES.md written: ${rust.size} crates, ${node.size} npm packages, ` +
-    `${copyleft.length} copyleft, ${unknown.length} undeclared`
-);
+const outputPath = "THIRD-PARTY-LICENSES.md";
+const output = header + section("Rust crates", rust) + section("JavaScript packages", node);
+const summary = `${rust.size} crates, ${node.size} npm packages, ${copyleft.length} copyleft, ${unknown.length} undeclared`;
+
+if (process.argv.includes("--check")) {
+  if (!existsSync(outputPath) || readFileSync(outputPath, "utf8") !== output) {
+    console.error(`${outputPath} is stale; run node tools/gen-third-party-licenses.mjs`);
+    process.exitCode = 1;
+  } else {
+    console.log(`${outputPath} is current: ${summary}`);
+  }
+} else {
+  writeFileSync(outputPath, output, "utf8");
+  console.log(`${outputPath} written: ${summary}`);
+}

@@ -7,9 +7,11 @@ declared licences.
 **Generated** by `tools/gen-third-party-licenses.mjs` — re-run it after any dependency change;
 do not edit by hand. It is a **factual inventory, not legal advice.**
 
-Scope note: only **normal** (distributed) dependencies are listed. Build-time and dev-only
-packages — the compiler plugins, the bundler, the test harnesses — are not shipped to a user and
-are excluded, so the obligations that DO apply stay visible.
+Scope note: this is a conservative release inventory: Cargo **normal** dependencies plus npm's
+installed **production** dependency graph. Build-time and dev-only packages — compiler plugins,
+the bundler and test harnesses — are excluded. Optimisation may remove some production-graph code
+from the final binary, but over-including a declared production dependency is safer than silently
+omitting a notice that may apply.
 
 Python packages (`numpy`, `dlisio`, `scikit-learn`, `xlsxwriter`, `python-docx`,
 `python-pptx`, `matplotlib`, `Pillow`) are **not distributed with SandiBumi**. They are
@@ -36,11 +38,11 @@ all arrive transitively.
 
 ## Rust crates
 
-289 packages.
+292 packages.
 
 | Licence | Count |
 |---|---|
-| MIT OR Apache-2.0 | 135 |
+| MIT OR Apache-2.0 | 138 |
 | MIT | 47 |
 | Apache-2.0 OR MIT | 25 |
 | MIT/Apache-2.0 | 18 |
@@ -122,10 +124,13 @@ all arrive transitively.
 - log v0.4.33
 - markup5ever v0.38.0
 - mime v0.3.17
+- num v0.4.3
 - num-bigint v0.4.8
 - num-complex v0.4.6
 - num-conv v0.2.2
 - num-integer v0.1.46
+- num-iter v0.1.46
+- num-rational v0.4.2
 - num-traits v0.2.19
 - once_cell v1.21.4
 - parking_lot v0.12.5
@@ -432,15 +437,14 @@ all arrive transitively.
 
 ## JavaScript packages
 
-154 packages.
+111 packages.
 
 | Licence | Count |
 |---|---|
-| MIT | 76 |
-| BSD-3-Clause | 40 |
-| ISC | 28 |
-| Apache-2.0 OR MIT | 3 |
-| Apache-2.0 | 3 |
+| MIT | 41 |
+| BSD-3-Clause | 38 |
+| ISC | 27 |
+| Apache-2.0 OR MIT | 1 |
 | MIT OR Apache-2.0 | 1 |
 | Unlicense | 1 |
 | 0BSD | 1 |
@@ -456,80 +460,43 @@ all arrive transitively.
 - @codemirror/search v6.7.1
 - @codemirror/state v6.7.1
 - @codemirror/view v6.43.6
-- @esbuild/win32-x64 v0.25.12
-- @jridgewell/gen-mapping v0.3.13
-- @jridgewell/remapping v2.3.5
-- @jridgewell/resolve-uri v3.1.2
-- @jridgewell/sourcemap-codec v1.5.5
-- @jridgewell/trace-mapping v0.3.31
 - @lezer/common v1.5.2
 - @lezer/highlight v1.2.3
 - @lezer/lr v1.4.10
 - @lezer/python v1.1.19
 - @marijn/find-cluster-break v1.0.3
-- @rollup/rollup-win32-x64-gnu v4.62.2
-- @rollup/rollup-win32-x64-msvc v4.62.2
-- @sveltejs/acorn-typescript v1.0.11
-- @sveltejs/vite-plugin-svelte v5.1.1
-- @sveltejs/vite-plugin-svelte-inspector v4.0.1
 - @types/estree v1.0.9
 - @types/geojson v7946.0.4
-- @types/trusted-types v2.0.7
-- acorn v8.17.0
 - ansi-regex v5.0.1
 - ansi-styles v4.3.0
-- clsx v2.1.1
 - codemirror v6.0.2
 - color-convert v2.0.1
 - color-name v1.1.4
 - commander v2.20.3
 - commander v7.2.0
 - crelt v1.0.7
-- debug v4.4.3
-- deepmerge v4.3.1
-- devalue v5.8.1
 - dockview-core v7.0.2
 - emoji-regex v8.0.0
-- esbuild v0.25.12
 - escalade v3.2.0
-- esm-env v1.2.2
-- esrap v2.3.0
 - fast-json-patch v3.1.1
-- fdir v6.5.0
 - iconv-lite v0.6.3
 - is-fullwidth-code-point v3.0.0
-- is-reference v3.0.3
 - json-stringify-pretty-compact v4.0.0
-- kleur v4.1.5
-- locate-character v3.0.0
-- magic-string v0.30.21
-- ms v2.1.3
-- nanoid v3.3.16
 - node-fetch v2.7.0
-- picomatch v4.0.5
-- postcss v8.5.19
 - require-directory v2.1.1
-- rollup v4.62.2
 - safer-buffer v2.1.2
 - string-width v4.2.3
 - strip-ansi v6.0.1
 - style-mod v4.1.3
-- svelte v5.56.6
-- tinyglobby v0.2.17
 - tr46 v0.0.3
-- vite v6.4.3
-- vitefu v1.1.3
 - w3c-keyname v2.2.8
 - whatwg-url v5.0.0
 - wrap-ansi v7.0.0
 - yargs v17.7.3
-- zimmerframe v1.1.4
 
 ### BSD-3-Clause
 
-- @webgpu/types v0.1.71
 - rw v1.3.3
-- source-map-js v1.2.1
 - vega v5.33.1
 - vega-canvas v1.2.7
 - vega-crossfilter v4.1.4
@@ -593,7 +560,6 @@ all arrive transitively.
 - delaunator v5.1.0
 - get-caller-file v2.0.5
 - internmap v2.0.3
-- picocolors v1.1.1
 - semver v7.8.5
 - topojson-client v3.1.0
 - y18n v5.0.8
@@ -602,14 +568,6 @@ all arrive transitively.
 ### Apache-2.0 OR MIT
 
 - @tauri-apps/api v2.11.1
-- @tauri-apps/cli v2.11.4
-- @tauri-apps/cli-win32-x64-msvc v2.11.4
-
-### Apache-2.0
-
-- aria-query v5.3.1
-- axobject-query v4.1.0
-- typescript v5.6.3
 
 ### MIT OR Apache-2.0
 

@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-CORE-044: Tier-C release policy remains source/legal-blocked
+
+- [x] **Automated inventory:** the distributed-dependency notice now reads Cargo's normal edges
+      and npm's installed production graph instead of sweeping hoisted development tools. The
+      generated result records 292 Rust crates, 111 npm packages, six MPL-family attention items
+      and zero undeclared licences. A deliberate stale-file probe was rejected, regeneration
+      restored the file, and the full gate now enforces `--check`. This closes only the dependency
+      inventory slice; it is not legal clearance and is not a whole SB-CORE-044 correctness test.
+- [ ] **Primary-source/legal blocker:** digitized chart payloads, the vendor-merged endpoint
+      library and four branded theme identities still ship under unresolved routes. Obtain a
+      counsel-approved existing route or remove/independently re-source the chart payloads; supply
+      exact per-value primary custody for the endpoint library; and obtain permission or approve a
+      neutral/user-owned theme route. Counsel must also review the generated dependency attention
+      items. Until then SB-CORE-044 is BLOCKED, not “mostly done.”
+- [ ] **Manual:** review `docs/IP_PROVENANCE.md` beside the actual paid-pilot file manifest and
+      record counsel/source evidence per row. Jauhar's product approval cannot substitute for a
+      missing primary source or legal disposition.
+- [ ] **Field:** no field workflow can clear an IP/provenance defect. After the source/legal routes
+      close, Gate 4 may confirm that removed assets are absent or approved replacements are the
+      ones actually installed; it must not be used as retroactive clearance.
+
 ## 2026-08-13 — G2 SB-CORE-036: cancellation controls tell the truth
 
 - [x] **Automated:** the owned correctness test executes an unobserved late click as Completed,

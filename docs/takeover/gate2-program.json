@@ -95,7 +95,7 @@
     }
   ],
   "completed_requirements": ["SB-CORE-001", "SB-CORE-002", "SB-CORE-004", "SB-CORE-006", "SB-CORE-010", "SB-CORE-011", "SB-CORE-013", "SB-CORE-035", "SB-CORE-036"],
-  "blocked_requirements": ["SB-CORE-003", "SB-CORE-005", "SB-CORE-007", "SB-CORE-015"],
+  "blocked_requirements": ["SB-CORE-003", "SB-CORE-005", "SB-CORE-007", "SB-CORE-015", "SB-CORE-044"],
   "later_gate_only": [
     {"requirement_id": "SB-CORE-041", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Fresh-clone and clean-machine build evidence belongs to Windows and offline qualification"},
     {"requirement_id": "SB-CORE-042", "owner_gate": "G3", "state": "NOT-OWNED-BY-G2", "reason": "Machine-enforced publication requires the clean-clone proof owned by Gate 3"},

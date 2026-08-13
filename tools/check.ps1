@@ -4,7 +4,8 @@
 #   powershell -ExecutionPolicy Bypass -File tools\check.ps1
 #
 # Runs, in order, exiting non-zero at the FIRST failure:
-#   1. takeover ledger — PRD source rows, tracker rows and dashboard agree
+#   1. takeover ledger — PRD source rows, tracker rows and dashboard agree;
+#      the generated distributed-dependency licence inventory is current
 #   2. verification matrix — generated output agrees with REVIEW.md + capability map
 #   3. frontend gate — `npm run build` (= tsc && vite build; tsc runs inside it,
 #      so a separate `tsc --noEmit` pass would only duplicate work)
@@ -65,6 +66,10 @@ if ($code -eq 0) {
 }
 if ($code -eq 0) {
     & npm run check:gate2-hygiene
+    $code = $LASTEXITCODE
+}
+if ($code -eq 0) {
+    & node "tools/gen-third-party-licenses.mjs" --check
     $code = $LASTEXITCODE
 }
 Pop-Location

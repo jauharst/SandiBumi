@@ -16,6 +16,13 @@ make each question precise enough that a lawyer can answer it in minutes rather 
 **Maintenance rule:** any new asset derived from an external source gets a row here in the same
 increment that introduces it. A row added later is a row that was forgotten once already.
 
+**Machine-enforced slice:** `THIRD-PARTY-LICENSES.md` is generated from Cargo's normal dependency
+edges and npm's installed production graph. `tools/check.ps1` runs the generator in `--check` mode,
+so a dependency change cannot leave that distributed-package inventory stale. This is only the
+dependency slice. Source code cannot reveal an origin record that was never written, so the
+asset/default rows below remain an explicit human-maintained register; unresolved rows continue to
+block first sale rather than being treated as cleared by a green build.
+
 ---
 
 ## 1. Tier definitions
@@ -106,14 +113,18 @@ acceptable while they stay internal, and would need the same treatment before pu
 
 Ordinary open-source consumption: Tauri, DuckDB, dockview-core, CodeMirror, Vega/Vega-Lite,
 rayon, tokio, bytemuck, and the Python-side `numpy`, `dlisio` and `scikit-learn` (invoked as
-subprocesses, not linked). No licence audit has been performed.
+subprocesses, not linked).
 
-**Action before first sale:** generate a dependency licence manifest (`cargo about` or equivalent
-for Rust, `license-checker` for npm) and confirm nothing carries a copyleft obligation incompatible
-with distributing a closed binary. This is routine, automatable, and currently not done. Note that
-the Python packages are **not distributed** with the product — they are prerequisites the customer
-installs — which is a materially different obligation from bundling them, and is a point in favour
-of keeping Python as a prerequisite (`docs/PRD.md` §10.4).
+**Current inventory:** `THIRD-PARTY-LICENSES.md` is generated from the installed distributed
+dependency graphs and is freshness-checked by the full gate. It reports every package's declared
+licence, calls out the current MPL-family weak-copyleft set, and refuses a stale file. This is a
+factual inventory, not counsel's compatibility decision.
+
+**Action before first sale:** counsel reviews the generated attention items and confirms the notice,
+source-offer and redistribution obligations for the paid binary. Python packages are **not currently
+distributed** with SandiBumi; they are prerequisites invoked as subprocesses. If the Gate 3 offline
+runtime pack bundles them, that pack's exact locked contents and notices must enter this generated
+inventory before release rather than inheriting the present prerequisite-only statement.
 
 ---
 
@@ -148,7 +159,7 @@ identifiers it exists to control would be self-defeating.
 | 2.1 Digitized chart data | **High** — values ship, source is a copyrighted chartbook | First sale |
 | 2.5 Client-brand theme names | **Medium** — third-party marks in a sold product | First sale |
 | 2.2 Vendor-merged endpoint library | **Medium** — values are public facts; the curated selection is the question | First sale |
-| 2.6 Dependency licences | **Low but unverified** — routine, not yet run | First sale |
+| 2.6 Dependency licences | **Low, inventoried but not legally cleared** — generated notice is gate-current | First sale |
 | 2.3 Mnemonic dictionary | Low | Confirm at leisure |
 | 2.4 Method implementations | **Lowest** — published or original, specs banked in-repo | None |
 

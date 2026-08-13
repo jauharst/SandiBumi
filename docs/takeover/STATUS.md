@@ -8,14 +8,14 @@ This is the one-minute program dashboard. Requirement evidence lives in
 
 - Product target: paid offline Windows pilot
 - Current gate: `G2 — SILENT-WRONGNESS CLOSURE — IN PROGRESS`
-- Gate 2 requirement progress: `13 / 222 handled — 9 DONE, 4 BLOCKED, 209 remaining`
+- Gate 2 requirement progress: `14 / 222 handled — 9 DONE, 5 BLOCKED, 208 remaining`
 - Baseline foundation: `COMPLETE`
-- Active increment: `G2-T01 / SB-CORE-036 - DONE; every visible Cancel maps to an observing worker, monolithic work exposes no control, and a late workflow-chain click cannot relabel completed committed work as Cancelled`
+- Active increment: `G2-T01 / SB-CORE-044 - BLOCKED; the distributed-dependency notice is now production-graph accurate and gate-current, but shipped chart payloads, the endpoint library and branded themes still lack the required primary-source/design-around or counsel closure`
 - Accepted baseline: `ca4f8c924373adbc3c0362202b7a914a56bd2b48 — GitHub merge of Gate 1 PR #48; its tree is byte-identical to verified Gate 1 head 5080d416dc38b325700d9981c314055a0c0cf356`
-- Automated gate: `SB-CORE-036 is green at 983 passed / 0 failed / 36 ignored; its focused correctness test passes 1/0/0 and inventories seven run_job families, one manual chain registration, their worker observers and both visible Cancel surfaces; Rust retains the owned 56-warning inventory`
+- Automated gate: `SB-CORE-044 retains 983 passed / 0 failed / 36 ignored; the generator records 292 distributed Rust crates and 111 production npm packages, six MPL-family attention items and zero undeclared licences, and the full gate rejects a stale notice; no whole-contract correctness test or legal clearance is claimed`
 - Pilot field evidence: `OPEN`
-- Open blockers: `209 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
-- Next increment: `After committing SB-CORE-036, start G2-T01 / SB-CORE-044 by inventorying every shipped external-derived asset and default against the Tier-C policy, preserving all unresolved legal/source blocks.`
+- Open blockers: `208 Gate 2 rows remain unhandled; SB-CORE-003 is BLOCKED on the complete cited pilot-method inventory; SB-CORE-005 is BLOCKED on exact per-value endpoint custody plus CLAIM-012 counsel disposition; SB-CORE-007 is BLOCKED on T23 semantics for ABSENT-default producers and intentional working-curve replacement/method flags; SB-CORE-015 is BLOCKED on the absent RP66 writer source and DLIS export path required by T15; SB-CORE-044 is BLOCKED on the chart-payload, endpoint-library, branded-theme and dependency counsel/source routes named in its evidence row; the approved 222-row scope remains immutable; 20 approved rows are explicitly owned by Gate 3 or Gate 4`
+- Next increment: `After committing the truthful SB-CORE-044 blocker, start G2-T02 / SB-INS-014 with the governed unit and parameter registry boundary.`
 
 ## Gate dashboard
 
@@ -157,6 +157,7 @@ Do not replace it with an estimated percentage.
 
 | Increment | State | Evidence | Commit |
 |---|---|---|---|
+| G2-T01 SB-CORE-044 — Tier-C release policy | BLOCKED; REVIEW REQUIRED | distributed dependency notice repaired to exclude hoisted dev tools, regenerated at 292 Rust / 111 npm packages with six MPL-family attention items and zero undeclared licences, and enforced for freshness by the full gate; chart payload, endpoint-library and branded-theme source/legal routes remain open, so no whole-contract proof or clearance is claimed; full gate 983 passed / 0 failed / 36 ignored | current topic-branch worktree |
 | G2-T01 SB-CORE-036 — cancellation controls tell the truth | DONE; REVIEW REQUIRED | one owned correctness test executes Completed versus Cancelled from both sides, proves monolithic work is non-cancellable, inventories all seven run_job families plus the manual workflow chain and both visible controls, and caught the repaired final-step late-click race; full gate 983 passed / 0 failed / 36 ignored; visual/manual/field interruption evidence remains open | current topic-branch worktree |
 | G2-T01 SB-CORE-013 — cited parameter disagreement at choice and in ancestry | DONE FOR DEC-003 PILOT; REVIEW REQUIRED | exact 15-topic pilot registry; all source rows retain values/absence, context, source and tier without becoming defaults; module, workflow, cutoff/report/dashboard/QC/Monte-Carlo editors use the shared registry; ancestry persists a snapshot plus cited-match/interpreter-own classification; one owned correctness test pins both sides and a real run/pay record; isolated real-Tauri visual inspection proved collapsed and expanded states and caught the repaired hidden-body CSS bug; full gate 981 passed / 0 failed / 36 ignored; no manual or field scenario marked complete | current topic-branch worktree |
 | G1-FINAL-AUDIT - seven-criterion exit proof | COMPLETE | exact audit reports 7/7 PASS with no diagnostics; fresh full-gate receipt is tied to b4ebe09 and permits only the later STATUS/receipt/audit evidence; 957 passed / 0 failed / 36 ignored in 254s; no production path differs from the accepted baseline | evidence-only successor commit |
