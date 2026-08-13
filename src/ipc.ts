@@ -245,7 +245,11 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
 
 export interface TopEntry {
   top_name: string;
+  /** MD depth consumed by existing log/correlation/zone surfaces. */
   depth: number;
+  /** Delivered source value and its recorded reference; null marks a pre-custody legacy row. */
+  source_depth: number;
+  source_depth_datum: DepthDatum | null;
   color: string | null;
 }
 

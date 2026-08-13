@@ -2544,6 +2544,7 @@ pub struct TopsRecord {
     pub well: Option<String>,
     pub top_name: String,
     pub depth: f32,
+    pub depth_datum: crate::schema_vocab::DepthDatum,
 }
 
 // WN: a real core-log delivery's well-name column.
@@ -2626,8 +2627,13 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRe
 
     // Depth resolves FIRST and is excluded from the name search — otherwise a header
     // like "TOP_MD" would satisfy the name alias "TOP" (boundary rule allows '_').
-    let idx_depth = resolve_header_index(&headers, &TOPS_MD_ALIASES)
-        .or_else(|| resolve_header_index(&headers, &TOPS_TVD_ALIASES));
+    let resolved_depth = resolve_header_index(&headers, &TOPS_MD_ALIASES)
+        .map(|index| (index, crate::schema_vocab::DepthDatum::Md))
+        .or_else(|| {
+            resolve_header_index(&headers, &TOPS_TVD_ALIASES)
+                .map(|index| (index, crate::schema_vocab::DepthDatum::Tvd))
+        });
+    let idx_depth = resolved_depth.map(|(index, _)| index);
     let idx_name = TOPS_NAME_ALIASES.iter().find_map(|alias| {
         headers
             .iter()
@@ -2635,8 +2641,10 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRe
             .find(|(i, h)| Some(*i) != idx_depth && header_matches(h, alias))
             .map(|(i, _)| i)
     });
-    let (idx_well, idx_name, idx_depth) = match (idx_name, idx_depth) {
-        (Some(n), Some(d)) => (resolve_header_index(&headers, &TOPS_WELL_ALIASES), n, d),
+    let (idx_well, idx_name, idx_depth, depth_datum) = match (idx_name, resolved_depth) {
+        (Some(n), Some((d, datum))) => {
+            (resolve_header_index(&headers, &TOPS_WELL_ALIASES), n, d, datum)
+        }
         _ => {
             // Headerless fallback: NAME DEPTH or WELL NAME DEPTH, first line is data.
             let last_is_num =
@@ -2649,8 +2657,8 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRe
             }
             rows.insert(0, headers.clone());
             match headers.len() {
-                2 => (None, 0usize, 1usize),
-                _ => (Some(0usize), 1usize, 2usize),
+                2 => (None, 0usize, 1usize, crate::schema_vocab::DepthDatum::Md),
+                _ => (Some(0usize), 1usize, 2usize, crate::schema_vocab::DepthDatum::Md),
             }
         }
     };
@@ -2671,7 +2679,7 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRe
             .and_then(|i| row.get(i))
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
-        out.push(TopsRecord { well, top_name: name.to_string(), depth });
+        out.push(TopsRecord { well, top_name: name.to_string(), depth, depth_datum });
     }
     if out.is_empty() {
         return Err(ParseError::Las("tops file has no parsable rows".into()));

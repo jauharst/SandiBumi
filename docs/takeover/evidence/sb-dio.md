@@ -185,14 +185,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T20`, `SB-DIO-T21`.
 - **Atomic obligations:** retain the TVD alias; mark TVD-referenced data as TVD; refuse MD joins/plots/comparisons until a deviation survey exists.
-- **Current source:** `TOPS_TVD_ALIASES` correctly retains TVD separately, but `parse_tops_file` immediately folds the MD and TVD matches into one untyped `TopsRecord.depth`. The importer therefore has no reference flag with which to block an MD join or require a survey.
-- **Qualifying acceptance tests:** none; test class is `MISSING`.
-- **Supporting tests:** SB-DIO-011 proves only namespace membership; it cannot prove stored reference semantics or the no-survey refusal.
-- **Manual evidence:** `correlation-tops` 0/36 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** reachable `8262c6b` closed the alias-list half; the accepted source still contains the untyped tops path.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no new numeric parameter is required; a depth-reference field and survey-aware join guard are missing.
-- **Next action:** carry MD/TVD reference through tops parse, storage and IPC; refuse TVD-to-MD use without a deviation survey; implement T20/T21 without deleting the TVD alias.
+- **Current source:** `TOPS_TVD_ALIASES` remains separate and accepted; `TopsRecord`, `tops.depth_datum`, import and typed IPC retain the source reference. The shared `list_tops` MD-consumer boundary refuses a TVD source without an active survey, maps through the survey only when the TVD has one unique in-range MD solution, and exposes both raw source depth/reference and resolved MD. Log, correlation, composite, zone and autocorrelation consumers all route through that boundary; frontend catches name the refusal instead of presenting a valid-looking empty layer.
+- **Qualifying acceptance tests:** exact SB-DIO-T20 `a_tvd_only_tops_table_commits_the_alias_and_records_the_tvd_reference` passed 1/0/0 and is `CORRECTNESS`: raw `900.0` and `TVD` commit together, the alias is retained, and MD-only overwrite plus delete/recreate paths change nothing. Exact SB-DIO-T21 `a_tvd_top_refuses_md_zones_without_a_deviation_survey_and_uses_the_surveyed_md_with_one` passed 1/0/0 and is `CORRECTNESS`: no-survey conversion names TVD, MD and the missing survey with zero zone writes; the literal `900 TVD -> 1000 MD` survey mapping yields an MD zone at `1000`, not `900`.
+- **Supporting tests:** the SB-DIO-011 namespace control keeps TVD outside every cited MD list; existing MD tops import, parser and contiguous-zone regressions remain green.
+- **Manual evidence:** `correlation-tops` 0/42 and `data-conventions` 4/95; this re-verification claims no visual, manual or field exercise.
+- **Git evidence:** this increment extends reachable `8262c6b`'s alias split through production storage, guarded reads and typed IPC; commit pending at this evidence write.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied depth-reference guard); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for newly imported MD/TVD tops. Legacy pre-custody tops remain NULL and are not silently migrated; the wider legacy depth-datum declaration gap remains owned by blocked SB-DBM-031.
+- **Next action:** retain exact T20/T21 and the single guarded MD-consumer boundary; Jauhar verifies the visible `MD <- TVD` provenance and no-survey refusal with representative tops without promoting automated evidence to field truth.
 
 ## SB-DIO-015 - An index with no declared unit anywhere MUST refuse.
 

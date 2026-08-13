@@ -17,7 +17,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 18 | — | 3 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 92 | 2026-08-13 | 41 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 95 | 2026-08-13 | 42 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 38 | 2026-08-13 | 5 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
@@ -48,7 +48,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `histogram` | Histogram | Partially exercised | 5 / 22 | 2026-07-20 | 5 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 13 | 2026-07-20 | 6 |
 | `pickett` | Pickett plot | Not exercised | 0 / 8 | — | 3 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 39 | — | 11 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 42 | — | 12 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 53 | 2026-07-20 | 15 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 2 | — | 7 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |

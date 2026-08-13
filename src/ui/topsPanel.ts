@@ -62,7 +62,7 @@ export class TopsPanel {
       if (gen !== this.refreshGen) return;
       console.error("Failed to load tops:", err);
       this.view = null;
-      this.renderEmpty("Unable to load tops");
+      this.renderEmpty(`Unable to load tops: ${String(err)}`);
     }
   }
 
@@ -73,11 +73,19 @@ export class TopsPanel {
     view.tops.forEach((t, i) => {
       const node = document.createElement("div");
       node.className = "tree-node top-node" + (t.top_name === this.selectedTop ? " top-selected" : "");
-      node.title = "Click to window plots and log views to this interval";
+      const sourceReference =
+        t.source_depth_datum && t.source_depth_datum !== "MD"
+          ? `; source ${t.source_depth.toFixed(1)} ${t.source_depth_datum}, survey-resolved to ${t.depth.toFixed(1)} MD`
+          : "";
+      node.title = `Click to window plots and log views to this MD interval${sourceReference}`;
       node.innerHTML = `
         <span class="top-color" style="background:${t.color ?? "#8b8f96"}"></span>
         <span class="top-name">${escapeHtml(t.top_name)}</span>
-        <span class="top-depth">${t.depth.toFixed(1)}</span>`;
+        <span class="top-depth">${t.depth.toFixed(1)} MD${
+          t.source_depth_datum && t.source_depth_datum !== "MD"
+            ? ` ← ${t.source_depth.toFixed(1)} ${t.source_depth_datum}`
+            : ""
+        }</span>`;
       // `view` is captured, not re-read: a row emits the interval for the well it was PAINTED for,
       // so even a node that outlives its refresh can only publish a self-consistent interval.
       node.addEventListener("click", () => this.toggle(view, i));
@@ -107,4 +115,3 @@ export class TopsPanel {
     this.container.innerHTML = `<div class="tree-empty">${escapeHtml(text)}</div>`;
   }
 }
-

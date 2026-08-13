@@ -465,9 +465,13 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             well_id     UUID NOT NULL,
             top_name    VARCHAR NOT NULL,
             depth       FLOAT NOT NULL,
+            depth_datum VARCHAR,
             color       VARCHAR,
             PRIMARY KEY (well_id, top_name)
         );
+        -- Existing tops predate source-reference custody. Keep them NULL rather than silently
+        -- inventing MD; every new writer supplies its actual reference.
+        ALTER TABLE tops ADD COLUMN IF NOT EXISTS depth_datum VARCHAR;
 
         -- Depth intervals per well (zoned interval sets). Modules
         -- resolve their interval parameters per zone at run time.
@@ -4039,31 +4043,151 @@ pub fn list_wells_by_ids(conn: &Connection, well_ids: &[String]) -> DbResult<Vec
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TopEntry {
     pub top_name: String,
+    /// Depth on the MD frame consumed by the existing log, correlation and zone surfaces.
     pub depth: f32,
+    /// Delivered value retained without rewriting, with its declared source reference.
+    pub source_depth: f32,
+    pub source_depth_datum: Option<crate::schema_vocab::DepthDatum>,
     pub color: Option<String>,
 }
 
 /// Lists the formation tops for one well, ordered by depth (a formation-tops
-/// equivalent — the Tops panel's data source).
+/// equivalent — the Tops panel's data source). A TVD source is converted to MD only through
+/// the active deviation survey; without that frame the MD consumer is refused by name.
 pub fn list_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<TopEntry>> {
-    let mut stmt = conn.prepare("SELECT top_name, depth, color FROM tops WHERE well_id = ?1 ORDER BY depth")?;
+    let mut stmt = conn.prepare(
+        "SELECT top_name, depth, depth_datum, color FROM tops WHERE well_id = ?1 ORDER BY depth",
+    )?;
     let rows = stmt.query_map(params![well_id], |row| {
-        Ok(TopEntry { top_name: row.get(0)?, depth: row.get(1)?, color: row.get(2)? })
+        let raw_datum: Option<String> = row.get(2)?;
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, f32>(1)?,
+            raw_datum,
+            row.get::<_, Option<String>>(3)?,
+        ))
     })?;
-    let mut tops = Vec::new();
+    let mut raw_tops = Vec::new();
     for r in rows {
-        tops.push(r?);
+        raw_tops.push(r?);
     }
+
+    let needs_tvd_frame = raw_tops
+        .iter()
+        .any(|(_, _, datum, _)| datum.as_deref().and_then(crate::schema_vocab::DepthDatum::parse)
+            == Some(crate::schema_vocab::DepthDatum::Tvd));
+    let survey = if needs_tvd_frame {
+        let path = get_well_path(conn, well_id)?;
+        if path.is_empty() {
+            return Err(DbError::Invalid(
+                "TVD-referenced tops cannot be plotted, joined or compared on an MD log: the well has no active deviation survey"
+                    .into(),
+            ));
+        }
+        Some(path)
+    } else {
+        None
+    };
+
+    let mut tops = Vec::with_capacity(raw_tops.len());
+    for (top_name, source_depth, raw_datum, color) in raw_tops {
+        let source_depth_datum = match raw_datum.as_deref() {
+            Some(value) => Some(crate::schema_vocab::DepthDatum::parse(value).ok_or_else(|| {
+                DbError::Invalid(format!("formation top '{top_name}' has unknown depth datum '{value}'"))
+            })?),
+            None => None,
+        };
+        let depth = match source_depth_datum {
+            Some(crate::schema_vocab::DepthDatum::Md) | None => source_depth,
+            Some(crate::schema_vocab::DepthDatum::Tvd) => md_at_tvd(
+                survey.as_deref().expect("TVD rows require a loaded survey"),
+                source_depth,
+                &top_name,
+            )?,
+            Some(other) => {
+                return Err(DbError::Invalid(format!(
+                    "formation top '{top_name}' is {}-referenced and cannot be used on an MD log without an implemented reference transform",
+                    other.as_str()
+                )))
+            }
+        };
+        tops.push(TopEntry { top_name, depth, source_depth, source_depth_datum, color });
+    }
+    tops.sort_by(|left, right| left.depth.total_cmp(&right.depth));
     Ok(tops)
+}
+
+fn md_at_tvd(stations: &[WellPathStation], tvd: f32, top_name: &str) -> DbResult<f32> {
+    let mut candidates = stations
+        .iter()
+        .filter(|station| station.tvd == tvd)
+        .map(|station| station.md)
+        .collect::<Vec<_>>();
+    for pair in stations.windows(2) {
+        let (left, right) = (&pair[0], &pair[1]);
+        if left.tvd == right.tvd {
+            continue;
+        }
+        let inside = (tvd > left.tvd && tvd < right.tvd) || (tvd < left.tvd && tvd > right.tvd);
+        if inside {
+            let fraction = (tvd - left.tvd) / (right.tvd - left.tvd);
+            candidates.push(left.md + fraction * (right.md - left.md));
+        }
+    }
+    candidates.sort_by(f32::total_cmp);
+    candidates.dedup();
+    match candidates.as_slice() {
+        [md] => Ok(*md),
+        [] => Err(DbError::Invalid(format!(
+            "TVD-referenced top '{top_name}' at {tvd} cannot be placed on the MD log because the active deviation survey does not cover that TVD"
+        ))),
+        _ => Err(DbError::Invalid(format!(
+            "TVD-referenced top '{top_name}' at {tvd} cannot be placed uniquely on the MD log by the active deviation survey"
+        ))),
+    }
 }
 
 /// Upserts a formation top by (well_id, top_name).
 pub fn upsert_top(conn: &Connection, well_id: &str, top_name: &str, depth: f32, color: Option<&str>) -> DbResult<()> {
+    let existing_datum: Option<Option<String>> = conn
+        .query_row(
+            "SELECT depth_datum FROM tops WHERE well_id = ?1 AND top_name = ?2",
+            params![well_id, top_name],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(Some(existing_datum)) = existing_datum {
+        if existing_datum != crate::schema_vocab::DepthDatum::Md.as_str() {
+            return Err(DbError::Invalid(format!(
+                "{existing_datum}-referenced top '{top_name}' cannot be rewritten by the MD tops editor; re-import it with an explicit source reference"
+            )));
+        }
+    }
+    upsert_top_with_datum(
+        conn,
+        well_id,
+        top_name,
+        depth,
+        crate::schema_vocab::DepthDatum::Md,
+        color,
+    )
+}
+
+/// Upserts a formation top while retaining the reference declared by its source.
+pub fn upsert_top_with_datum(
+    conn: &Connection,
+    well_id: &str,
+    top_name: &str,
+    depth: f32,
+    depth_datum: crate::schema_vocab::DepthDatum,
+    color: Option<&str>,
+) -> DbResult<()> {
     conn.execute(
-        "INSERT INTO tops (well_id, top_name, depth, color) VALUES (?1, ?2, ?3, ?4)
+        "INSERT INTO tops (well_id, top_name, depth, depth_datum, color) VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT (well_id, top_name) DO UPDATE SET depth = excluded.depth,
+             depth_datum = excluded.depth_datum,
              color = COALESCE(excluded.color, tops.color)",
-        params![well_id, top_name, depth, color],
+        params![well_id, top_name, depth, depth_datum.as_str(), color],
     )?;
     Ok(())
 }
@@ -4605,7 +4729,7 @@ fn table_specs() -> Vec<TableSpec> {
         },
         TableSpec {
             table: "tops",
-            columns: vec!["top_name", "depth", "color"],
+            columns: vec!["top_name", "depth", "depth_datum", "color"],
             well_scoped: true,
             order: "depth",
         },
@@ -8524,6 +8648,20 @@ pub fn update_computed_sample(conn: &Connection, well_id: &str, depth: f32, curv
 
 /// Deletes one formation top.
 pub fn delete_top(conn: &Connection, well_id: &str, top_name: &str) -> DbResult<()> {
+    let existing_datum: Option<Option<String>> = conn
+        .query_row(
+            "SELECT depth_datum FROM tops WHERE well_id = ?1 AND top_name = ?2",
+            params![well_id, top_name],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(Some(existing_datum)) = existing_datum {
+        if existing_datum != crate::schema_vocab::DepthDatum::Md.as_str() {
+            return Err(DbError::Invalid(format!(
+                "{existing_datum}-referenced top '{top_name}' cannot be deleted by the MD tops editor; remove it through a source-reference-aware workflow"
+            )));
+        }
+    }
     conn.execute("DELETE FROM tops WHERE well_id = ?1 AND top_name = ?2", params![well_id, top_name])?;
     Ok(())
 }

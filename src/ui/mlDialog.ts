@@ -4345,7 +4345,16 @@ function buildIntervalPicker(
     none.value = "-1";
     none.textContent = w ? "(whole well)" : "(no well selected — type depths)";
     sel.appendChild(none);
-    tops = w ? await listTops(w.well_id).catch(() => [] as TopEntry[]) : [];
+    if (w) {
+      try {
+        tops = await listTops(w.well_id);
+      } catch (err) {
+        tops = [] as TopEntry[];
+        setStatus(`ML interval tops unavailable: ${String(err)}`);
+      }
+    } else {
+      tops = [];
+    }
     tops.sort((a, b) => a.depth - b.depth);
     tops.forEach((t, i) => {
       const o = document.createElement("option");

@@ -498,8 +498,9 @@ export async function buildCorrelationContent(
           }
           try {
             tops = await listTops(well.well_id);
-          } catch {
+          } catch (err) {
             tops = [];
+            setStatus(`Correlation tops unavailable: ${String(err)}`);
           }
           return { well, series, tops, tv, shift: 0, hasDatum: false };
         }),

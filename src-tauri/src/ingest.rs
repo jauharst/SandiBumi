@@ -1978,7 +1978,14 @@ pub fn import_tops_file(conn: &Connection, default_well_id: Option<&str>, path: 
                 }
             },
         };
-        match db::upsert_top(conn, &well_id, &rec.top_name, rec.depth, None) {
+        match db::upsert_top_with_datum(
+            conn,
+            &well_id,
+            &rec.top_name,
+            rec.depth,
+            rec.depth_datum,
+            None,
+        ) {
             Ok(()) => {
                 written += 1;
                 wells_hit.insert(well_id);
@@ -4652,6 +4659,133 @@ mod tests {
         assert!(ok.error.is_none());
         assert!(db::list_tops(&conn, &id1).unwrap().iter().any(|t| t.top_name == "TOP_C"));
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_tvd_only_tops_table_commits_the_alias_and_records_the_tvd_reference() {
+        // CORRECTNESS — source: docs/PRD_v2/21_data-io.md §6 SB-DIO-T20.
+        // Removing TVD from the accepted aliases, or storing it without its reference,
+        // must fail this production-import test.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "TVD_ONLY", None, None, None).unwrap();
+        let path = std::env::temp_dir().join(format!("sandibumi_tvd_only_tops_{well}.csv"));
+        std::fs::write(&path, "TOP,TVD\nREFERENCE_MARKER,900.0\n").unwrap();
+
+        let result = import_tops_file(&conn, Some(&well.to_string()), path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+
+        assert!(result.error.is_none(), "TVD remains an accepted tops alias: {:?}", result.error);
+        assert_eq!(result.tops_written, 1);
+        let (depth, datum): (f32, String) = conn
+            .query_row(
+                "SELECT depth, depth_datum FROM tops WHERE well_id = ?1 AND top_name = 'REFERENCE_MARKER'",
+                params![well.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("the committed top carries its source depth reference");
+        assert_eq!(depth, 900.0, "the delivered TVD value is not rewritten at import");
+        assert_eq!(datum, "TVD", "the TVD alias is never relabelled as MD");
+
+        let edit_refusal = db::upsert_top(
+            &conn,
+            &well.to_string(),
+            "REFERENCE_MARKER",
+            901.0,
+            None,
+        )
+        .expect_err("an MD-only editor cannot silently replace TVD custody")
+        .to_string();
+        assert!(
+            edit_refusal.contains("TVD") && edit_refusal.contains("MD"),
+            "the refused source-reference replacement names both frames: {edit_refusal}"
+        );
+        let delete_refusal = db::delete_top(&conn, &well.to_string(), "REFERENCE_MARKER")
+            .expect_err("an MD-only editor cannot delete TVD custody before recreating it as MD")
+            .to_string();
+        assert!(
+            delete_refusal.contains("TVD") && delete_refusal.contains("MD"),
+            "the refused source-reference deletion names both frames: {delete_refusal}"
+        );
+        let unchanged: (f32, String) = conn
+            .query_row(
+                "SELECT depth, depth_datum FROM tops WHERE well_id = ?1 AND top_name = 'REFERENCE_MARKER'",
+                params![well.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(unchanged, (900.0, "TVD".into()), "the refused edit changes nothing");
+    }
+
+    #[test]
+    fn a_tvd_top_refuses_md_zones_without_a_deviation_survey_and_uses_the_surveyed_md_with_one() {
+        // CORRECTNESS — source: docs/PRD_v2/21_data-io.md §6 SB-DIO-T21.
+        // The literal survey stations independently pin TVD 900.0 to MD 1000.0; merely
+        // checking that a survey exists while retaining 900.0 on the MD axis must fail.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = Uuid::new_v4();
+        let well_id = well.to_string();
+        db::insert_well(&conn, well, "REFERENCE_FRAME", None, None, None).unwrap();
+        db::insert_standard_curves(
+            &conn,
+            well,
+            vec![1000.0, 1100.0],
+            vec![50.0, 51.0],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+        )
+        .unwrap();
+        let path = std::env::temp_dir().join(format!("sandibumi_tvd_join_guard_{well}.csv"));
+        std::fs::write(&path, "TOP,TVD\nREFERENCE_MARKER,900.0\n").unwrap();
+        let imported = import_tops_file(&conn, Some(&well_id), path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+        assert!(imported.error.is_none(), "fixture import failed: {:?}", imported.error);
+
+        let refusal = db::zones_from_tops(&conn, &well_id)
+            .expect_err("a TVD top cannot become an MD zone without a reference frame")
+            .to_string();
+        assert!(refusal.contains("TVD") && refusal.contains("MD"), "both references are named: {refusal}");
+        assert!(refusal.contains("deviation survey"), "the missing reference source is named: {refusal}");
+        let before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM zones WHERE well_id = ?1", params![&well_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(before, 0, "the refused TVD-to-MD join writes no derived zones");
+
+        db::insert_well_path(
+            &conn,
+            &well_id,
+            "REFERENCE_SURVEY",
+            Some("SB-DIO-T21 fixture"),
+            Some(0.0),
+            &[
+                crate::deviation::Station { md: 0.0, inc: 0.0, azi: 0.0, tvd: 0.0, tvdss: 0.0 },
+                crate::deviation::Station {
+                    md: 1000.0,
+                    inc: 0.0,
+                    azi: 0.0,
+                    tvd: 900.0,
+                    tvdss: 900.0,
+                },
+                crate::deviation::Station {
+                    md: 1100.0,
+                    inc: 0.0,
+                    azi: 0.0,
+                    tvd: 990.0,
+                    tvdss: 990.0,
+                },
+            ],
+        )
+        .unwrap();
+
+        let zones = db::zones_from_tops(&conn, &well_id).expect("the active survey supplies the TVD-to-MD frame");
+        assert_eq!(zones.len(), 1);
+        assert_eq!(zones[0].top_depth, 1000.0, "TVD 900 maps to the survey station at MD 1000");
+        assert_eq!(zones[0].depth_datum, crate::schema_vocab::DepthDatum::Md);
     }
 
     /// T-IMP-10's remaining half: a BLANK cell in the WELL column.

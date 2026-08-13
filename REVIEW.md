@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-014: TVD tops require survey-backed MD correlation
+
+- [ ] **Automated — not manual evidence:** exact SB-DIO-T20 is green at 1 passed /
+      0 failed / 0 ignored. A production import of a TVD-only tops table writes the
+      delivered `900.0` unchanged with `depth_datum = TVD`; the alias remains accepted,
+      and an MD-only editor cannot silently overwrite or delete/recreate that custody.
+- [ ] **Reference-frame refusal and conversion:** exact SB-DIO-T21 is green at 1 passed /
+      0 failed / 0 ignored. Building MD zones from that top without an active deviation
+      survey names TVD, MD and the missing survey and writes zero zones. With the literal
+      fixture mapping `900 TVD → 1000 MD`, the resulting MD zone starts at `1000`, not the
+      raw `900`.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative TVD-only
+      tops delivery, confirm Tops/Log/Correlation show `MD ← TVD` only after a survey is
+      active, and confirm the no-survey message remains readable at narrow and wide dock
+      widths. No automated assertion is promoted to operator or field evidence.
+
 ## 2026-08-14 — G2 SB-DIO-013: core import requires explicit index designation
 
 - [ ] **Automated — not manual evidence:** exact SB-DIO-T19 is green at 1 passed /

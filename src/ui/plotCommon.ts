@@ -444,7 +444,7 @@ export async function contextZoneWindow(
   if (zoneSel.select.value === TOP_OPTION) {
     const iv = appState.selectedInterval.get();
     if (!iv) return null;
-    const tops = await listTops(wellId).catch(() => []);
+    const tops = await listTops(wellId);
     const sorted = [...tops].sort((a, b) => a.depth - b.depth);
     const i = sorted.findIndex((t) => t.top_name === iv.topName);
     if (i < 0) return null;
