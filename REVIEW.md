@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-029: protect every existing reference frame
+
+- [x] **Automated:** exact SB-DBM-T28 drives the real module API with its output renamed to
+      `DEPTH`, requires the refusal to name the existing `STANDARD` frame, and snapshots every
+      standard column plus a computed peer so any movement fails byte-for-byte. Its positive
+      control runs Reframe with an explicit synthetic fixture step, proves the distinct basis is
+      archived under `frame = 'OWN'`, and proves the original frame is still byte-identical. Full
+      gate is 999 passed / 0 failed / 36 ignored with the existing 55 owned Rust warnings.
+- [ ] **Visual:** in a module's Output curves card, enter `DEPTH` at narrow and wide dock widths.
+      Confirm the refusal visibly names both `DEPTH` and the `STANDARD frame`, explains that
+      Reframe creates an `OWN` frame, and does not clip the recovery instruction.
+- [ ] **Manual:** on a disposable project, attempt the same output rename and confirm no raw or
+      computed curve changes. Then use Data > Sampling with an explicitly chosen step and confirm
+      the new log set is selectable on its own depths while the original set is unchanged. Jauhar
+      owns this click-through.
+- [ ] **Field:** pending Gate 4. On the sanitized representative pilot delivery, compare the source
+      and reframed depth inventories and inspect neighbouring curves before and after. The
+      synthetic byte-snapshot proves the write contract, not the field sampling choice.
+
 ## 2026-08-13 — G2 SB-DBM-028: verify a set's declared sampling style
 
 - [x] **Automated:** exact SB-DBM-T27 supplies its tolerance as a unit-typed fixture input and

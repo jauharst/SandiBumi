@@ -384,14 +384,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-UNVERIFIED`; owned test `SB-DBM-T28`; sections 4.5 and 6.6.
 - **Atomic obligations:** refuse any module output targeting the input frame's reference column at the API boundary; name the frame; leave every other curve unmoved; a new basis creates an `OWN` frame.
-- **Current source:** `workflow.rs::resolve_output_names` refuses names shadowing `STANDARD_COLUMNS`, whose registry includes `DEPTH`; Reframe can create `OWN` output. The error/test does not target `DEPTH`, name a frame or prove all curves remain unchanged, and no full writer inventory establishes universality.
-- **Qualifying acceptance tests:** none; T28's DEPTH-targeted API/no-movement/OWN controls are missing. Test class is `MISSING`.
-- **Supporting tests:** `an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs` proves GR/RHOB shadow and collision refusal, not the exact reference-column contract.
+- **Current source:** `workflow.rs::resolve_output_names` is the one output-name boundary shared by every deterministic module and now gives `DEPTH` a specific refusal naming the existing `STANDARD` frame and the explicit Reframe recovery path. `reframe.rs::run_reframe` delegates its complete write to `equations.rs::write_complete_own_frame`, which marks the new set `OWN` and writes it to the archive only.
+- **Qualifying acceptance tests:** exact SB-DBM-T28 `a_module_cannot_write_an_existing_reference_column_and_a_different_depth_basis_is_a_new_own_frame`; test class `CORRECTNESS`. It drives both real APIs, byte-snapshots every standard column plus a computed peer across refusal and OWN-frame creation, and verifies the distinct archived depth basis.
+- **Supporting tests:** `an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs` separately preserves generic GR/RHOB shadow and same-run collision refusal; the older Reframe round trip separately pins set-qualified readback.
 - **Manual evidence:** `curve-editing` 5/5, `reframe` 0/34 and `data-conventions` 0/45.
-- **Git evidence:** accepted anchor `b332026c` contains the preventive mechanism; the compound contract remains unverified.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no parameter is missing; an exact acceptance test and complete reference-writer inventory are missing.
-- **Next action:** implement T28 with `DEPTH`, a named frame, unchanged peer curves and a separate `OWN`-frame success control.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated closure. No depth step or other petrophysical value was defaulted; the OWN control supplies its synthetic step explicitly.
+- **Next action:** Jauhar visually and manually checks the named refusal and explicit Reframe path in Gate 4, then compares source and reframed depth inventories on the representative delivery. Automated evidence is not field evidence.
 
 ## SB-DBM-030 - Null discipline: a threshold, not an equality; and "no value" is not "no parameter"
 

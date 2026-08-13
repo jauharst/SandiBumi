@@ -343,6 +343,14 @@ pub(crate) fn resolve_output_names(
                 arg.name
             ));
         }
+        if name == "DEPTH" {
+            return Err(format!(
+                "{} = DEPTH is refused: DEPTH is the reference column of the existing STANDARD \
+                 frame. A module must never write back to that frame's reference column; use \
+                 Reframe to emit a different depth basis as a new OWN frame.",
+                arg.name
+            ));
+        }
         if crate::schema_vocab::standard_column(&name).is_some() {
             return Err(format!(
                 "{} = {name} would be shadowed: {name} is read from the raw log first, so a \
@@ -4398,6 +4406,207 @@ mod tests {
 
         // And the control: an ordinary rename is accepted, so none of the above is a blanket ban.
         assert_eq!(with(&[("OUT_CURVE", "gr_ed")]).unwrap()[0].1, "GR_ED");
+    }
+
+    /// CORRECTNESS — SB-DBM-029 / SB-DBM-T28. The refusal, named frame, immobility
+    /// assertion and OWN-frame control come from `docs/PRD_v2/22_database-model.md`
+    /// section 6, SB-DBM-T28, sourced there to F-16 and T2 `O` section 2.5: a module
+    /// must "never write back to the Depth curve". Curve values and the 1.0 depth step
+    /// are synthetic fixture inputs, not petrophysical expected values or product defaults.
+    #[test]
+    fn a_module_cannot_write_an_existing_reference_column_and_a_different_depth_basis_is_a_new_own_frame() {
+        fn frame_snapshot(
+            conn: &Connection,
+            well_id: &str,
+        ) -> (
+            Vec<(
+                u32,
+                Option<u32>,
+                Option<u32>,
+                Option<u32>,
+                Option<u32>,
+                Option<u32>,
+                Option<u32>,
+            )>,
+            Vec<(Option<String>, u32, String, u32)>,
+        ) {
+            let mut standard_stmt = conn
+                .prepare(
+                    "SELECT depth, gr, res_deep, nphi, rhob, dt, sp
+                     FROM standard_curves
+                     WHERE well_id = ?1
+                     ORDER BY depth",
+                )
+                .unwrap();
+            let standard = standard_stmt
+                .query_map(duckdb::params![well_id], |row| {
+                    Ok((
+                        row.get::<_, f32>(0)?.to_bits(),
+                        row.get::<_, Option<f32>>(1)?.map(f32::to_bits),
+                        row.get::<_, Option<f32>>(2)?.map(f32::to_bits),
+                        row.get::<_, Option<f32>>(3)?.map(f32::to_bits),
+                        row.get::<_, Option<f32>>(4)?.map(f32::to_bits),
+                        row.get::<_, Option<f32>>(5)?.map(f32::to_bits),
+                        row.get::<_, Option<f32>>(6)?.map(f32::to_bits),
+                    ))
+                })
+                .unwrap()
+                .collect::<duckdb::Result<Vec<_>>>()
+                .unwrap();
+
+            let mut computed_stmt = conn
+                .prepare(
+                    "SELECT set_id, depth, curve_name, value
+                     FROM computed_curves
+                     WHERE well_id = ?1
+                     ORDER BY set_id, depth, curve_name",
+                )
+                .unwrap();
+            let computed = computed_stmt
+                .query_map(duckdb::params![well_id], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get::<_, f32>(1)?.to_bits(),
+                        row.get(2)?,
+                        row.get::<_, f32>(3)?.to_bits(),
+                    ))
+                })
+                .unwrap()
+                .collect::<duckdb::Result<Vec<_>>>()
+                .unwrap();
+            (standard, computed)
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_uuid = uuid::Uuid::new_v4();
+        db::insert_well(
+            &conn,
+            well_uuid,
+            "REFERENCE-FRAME-CHECK",
+            Some("Synthetic"),
+            None,
+            None,
+        )
+        .unwrap();
+        let well_id = well_uuid.to_string();
+        let depth = vec![1000.0, 1000.5, 1001.0, 1001.5];
+        db::insert_standard_curves(
+            &conn,
+            well_uuid,
+            depth.clone(),
+            vec![11.0, 12.0, 13.0, 14.0],
+            vec![21.0, 22.0, 23.0, 24.0],
+            vec![31.0, 32.0, 33.0, 34.0],
+            vec![41.0, 42.0, 43.0, 44.0],
+            vec![51.0, 52.0, 53.0, 54.0],
+            vec![61.0, 62.0, 63.0, 64.0],
+        )
+        .unwrap();
+        equations::write_computed_curve(
+            &conn,
+            &well_id,
+            &depth,
+            "PEER_SENTINEL",
+            &[71.0, 72.0, 73.0, 74.0],
+        )
+        .unwrap();
+        let before = frame_snapshot(&conn, &well_id);
+
+        let request = RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids: vec![well_id.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(),
+            opts: HashMap::from([(format!("{OUT_NAME_PREFIX}VSH"), "DEPTH".into())]),
+            output_set: Some("REFERENCE-REFUSAL".into()),
+            input_set: None,
+            custody: test_run_custody(),
+        };
+        let database = Mutex::new(conn);
+        let refused = run_workflow_module_into(&database, &request, None, None, None);
+        let error = refused[0]
+            .error
+            .as_deref()
+            .expect("the API boundary must refuse the reference-column write");
+        assert!(error.contains("DEPTH"), "the refusal must name the reference column: {error}");
+        assert!(error.contains("STANDARD frame"), "the refusal must name the protected frame: {error}");
+        {
+            let conn = database.lock().unwrap();
+            assert_eq!(
+                frame_snapshot(&conn, &well_id),
+                before,
+                "the refused module must not move any raw or computed peer curve on the frame"
+            );
+        }
+
+        let conn = database.into_inner().unwrap();
+        crate::reframe::save_curve_selection(
+            &conn,
+            &crate::reframe::CurveSelection {
+                name: "REFERENCE-FRAME-CURVES".into(),
+                mode: crate::reframe::CurveSelectionMode::Selected,
+                members: vec!["GR".into()],
+            },
+        )
+        .unwrap();
+        let reframed = crate::reframe::run_reframe(
+            &conn,
+            &crate::reframe::ReframeRequest {
+                well_ids: vec![well_id.clone()],
+                source: crate::reframe::SourceSpec { kind: "standard".into(), name: None },
+                selection_name: "REFERENCE-FRAME-CURVES".into(),
+                substitutions: vec![],
+                target: crate::reframe::TargetSpec {
+                    kind: "step".into(),
+                    step: Some(1.0),
+                    align: false,
+                    well_id: None,
+                    set_name: None,
+                    top: None,
+                    base: None,
+                },
+                methods: HashMap::new(),
+                default_method: crate::reframe::Method::Mean,
+                output_set: "DIFFERENT-BASIS".into(),
+                preview: false,
+                custody: Some(test_run_custody()),
+            },
+        );
+        assert!(reframed[0].error.is_none(), "the explicit new-frame path must run: {reframed:?}");
+
+        let (set_id, frame): (String, String) = conn
+            .query_row(
+                "SELECT set_id, frame
+                 FROM log_sets
+                 WHERE well_id = ?1 AND set_name = 'DIFFERENT-BASIS'
+                 ORDER BY version DESC
+                 LIMIT 1",
+                duckdb::params![well_id.clone()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(frame, "OWN", "a different depth basis must be declared as an OWN frame");
+        let own_depth = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT DISTINCT depth
+                     FROM computed_curves_archive
+                     WHERE set_id = ?1
+                     ORDER BY depth",
+                )
+                .unwrap();
+            stmt.query_map(duckdb::params![set_id], |row| row.get::<_, f32>(0))
+                .unwrap()
+                .collect::<duckdb::Result<Vec<_>>>()
+                .unwrap()
+        };
+        assert_eq!(own_depth, vec![1000.0, 1001.0], "the declared 1.0 fixture step defines a distinct basis");
+        assert_eq!(
+            frame_snapshot(&conn, &well_id),
+            before,
+            "writing the OWN frame must leave the existing STANDARD frame byte-identical"
+        );
     }
 
     /// **The parameter under test is PGRAD, and the choice is the point.** This test used to drive

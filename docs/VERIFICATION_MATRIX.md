@@ -7,7 +7,7 @@ This matrix is generated mechanically from `REVIEW.md` and
 against real well data. **Ledger date** is the date on the newest dated review section
 containing a checked scenario; it is not a more precise test timestamp.
 
-Capabilities with recorded exercise: **19 / 54**. Fully exercised: **1 / 54**.
+Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
@@ -18,7 +18,7 @@ Capabilities with recorded exercise: **19 / 54**. Fully exercised: **1 / 54**.
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 18 | — | 3 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 61 | 2026-08-13 | 29 |
-| `reframe` | Reframe and sampling alignment | Not exercised | 0 / 34 | — | 4 |
+| `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 38 | 2026-08-13 | 5 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
