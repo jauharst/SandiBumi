@@ -37,9 +37,9 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 
 ## Live result
 
-- As built: 6 ABSENT, 9 PARTIAL, 8 PRESENT-OK, 2 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
+- As built: 5 ABSENT, 9 PARTIAL, 9 PRESENT-OK, 2 PRESENT-DIVERGENT, 1 PRESENT-UNVERIFIED.
 - Release: 22 PILOT-BLOCKER, 4 UNDECIDED, 0 DEFERRED.
-- Test class: 8 CORRECTNESS, 1 CHARACTERIZATION, 17 MISSING qualifying whole-contract proofs.
+- Test class: 9 CORRECTNESS, 1 CHARACTERIZATION, 16 MISSING qualifying whole-contract proofs.
 - Risk: 13 DEPLOYMENT, 7 DATA-INTEGRITY, 2 RECOVERY, 4 SILENT-WRONGNESS.
 - Mechanically after this receipt: 879 adjudicated, 52 unadjudicated, 584 pilot blockers, 198 undecided, 149 deferred.
 
@@ -51,7 +51,7 @@ Those decisions close product-choice ambiguity only. They do not create a signed
 4. “Re-probe” is text, not a user action. The support dialog exposes only Close, and the real capability messages do not all carry the helper's copyable command.
 5. Parameter-pack identity and ambiguity refusal are now product-reachable through a backend-owned module schema; applying pack values to computation deliberately remains closed until the typed-unit, observed-token, generated-registry and attestation/provenance contracts are complete.
 6. Raw encoding/unit evidence now crosses the product boundary before interpretation. Exact registry rows replace hidden global case folding; `mV` and unknown `mv` remain distinct with a drift warning, while absent, empty and placeholder forms converge on one explicit missing-unit state and cannot register mappings. A declared CP1252 parameter pack exports its raw declaration, detected decoder and reversible source bytes. Manual/field review remains open.
-7. The unit-registry validator is now enforced before Tauri construction. This closes disconnected validation, but it does not generate runtime/UI/documentation consumers from one reviewed registry or supply alias source custody; SB-INS-019 remains open.
+7. The versioned curve/unit registry now generates the Rust runtime, the LAS import UI, documentation and the test manifest, and its release check refuses stale output or dimension disagreement before compilation. This closes the parallel-vocabulary engineering gap without adding any alias, factor or default; visual/manual/field vocabulary review remains open.
 8. The third-party generator reports unknown licences but exits successfully, says Python packages are not distributed, and records neither the chosen offline pack nor human legal approval. Its historical PRESENT-OK label is no longer defensible.
 9. Public prerequisite fragments generated from `installation.rs` agree with one another, but other public documents still describe Python distribution/prerequisite decisions as open or user-supplied. One synchronized subset is not one source of truth.
 10. All 16 installer-specific manual scenarios remain unchecked, and installation/deployment is absent from the capability matrix. The software has no field evidence for the deployment claim.
@@ -85,7 +85,7 @@ Each T01-T30 intention is routed once. Shared chapter ownership is shown in one 
 | SB-INS-T21 | SB-INS-017 | CORRECTNESS |
 | SB-INS-T22 | SB-INS-017 | CORRECTNESS |
 | SB-INS-T23 | SB-INS-018 | CORRECTNESS |
-| SB-INS-T24 | SB-INS-019 | MISSING |
+| SB-INS-T24 | SB-INS-019 | CORRECTNESS |
 | SB-INS-T25 | SB-INS-020 | MISSING |
 | SB-INS-T26 | SB-INS-021 | CHARACTERIZATION |
 | SB-INS-T27 | SB-INS-022 | MISSING |
@@ -355,15 +355,15 @@ Section 8 custody remains complete: 57 rows in §8.1, 15 rows in §8.2, 15 rows 
 ### SB-INS-019
 
 - Specified contract: Generate aliases, families, and units from one registry. Chapter test: SB-INS-T24.
-- Current implementation: Unit families/aliases remain code-resident; startup now validates internal registry consistency, but no versioned canonical source generates runtime, UI, documentation, and tests and no generated-population drift gate exists.
-- Verdict: `ABSENT`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
-- Automated evidence: `MISSING` — no generated-population equality or release-failure test exists.
+- Current implementation: `registry/unit-registry.json` is the reviewed versioned source for the accepted 15 families, 42 unit tokens and 10 conversion rules. The generator emits Rust runtime tables, the LAS import UI vocabulary, Markdown reference and verification manifest with one version/digest; the full release gate checks the proof and byte freshness before build/test.
+- Verdict: `PRESENT-OK`; release `PILOT-BLOCKER`; risk `SILENT-WRONGNESS`.
+- Automated evidence: `CORRECTNESS` — `one_versioned_registry_generates_equal_runtime_ui_documentation_and_test_populations_and_release_refuses_drift` compares every family and unit across all four generated consumers, then corrupts one artifact and one declared family dimension to prove both release refusals.
 - Manual evidence: SB-INS 0/16; data conventions 0/45; verification stewardship 0/24.
-- Source/parameter boundary: Registry content and aliases need reviewed source custody; current code tables cannot self-certify completeness.
-- Deployment/UI/provenance surface: Runtime lookup and startup validation exist, but shared version identity, generated UI/docs, and cross-consumer release enforcement do not.
-- History/reachability: Accepted anchor is reachable; no generator or checked artifact family was found.
-- Decision/dependency: Multiple hand-maintained consumers can drift silently even when the Rust registry is internally valid at startup.
-- Next action: Establish one reviewed versioned registry source, generate every consumer artifact, and add T24 as a release gate.
+- Source/parameter boundary: The accepted live vocabulary and exact conversion arithmetic moved without expansion. Future aliases, families, units, factors and defaults remain source-gated; opaque material is not interpreted.
+- Deployment/UI/provenance surface: The collapsed LAS import disclosure consumes the generated full population and names its version; generated documentation carries the same rows and digest. Automated equality does not claim the dialog is visually accepted.
+- History/reachability: Rust lookup and startup validation use the generated data; the release check is wired into `tools/check.ps1`, not left as an example command.
+- Decision/dependency: No engineering or source decision remains for the accepted population. Jauhar retains visual/manual/field acceptance and any later vocabulary change requires reviewed custody.
+- Next action: Retain T24 and its freshness gate; continue with G2-T03 project-store custody under SB-DBM-001.
 
 ### SB-INS-020
 

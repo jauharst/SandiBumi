@@ -1,5 +1,11 @@
 import { formRow, openModal } from "./modal";
 import type { LasImportOptions } from "../ipc";
+import {
+  UNIT_REGISTRY_FAMILIES,
+  UNIT_REGISTRY_POPULATION,
+  UNIT_REGISTRY_UNITS,
+  UNIT_REGISTRY_VERSION,
+} from "../generated/unitRegistry";
 
 /** The Import LAS "which set?" dialog (T-IMP-02 — the Geolog/IP set model).
  *
@@ -158,6 +164,28 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
         "The project unit is not evidence of what a file meant. Leave this safe default to refuse any file that omits its index unit.",
       ),
     );
+
+    const vocabulary = document.createElement("details");
+    vocabulary.className = "import-unit-registry";
+    const vocabularySummary = document.createElement("summary");
+    vocabularySummary.textContent =
+      `Recognized vocabulary ${UNIT_REGISTRY_VERSION} — ` +
+      `${UNIT_REGISTRY_POPULATION.families} families, ` +
+      `${UNIT_REGISTRY_POPULATION.aliases} aliases, ${UNIT_REGISTRY_POPULATION.units} unit tokens`;
+    vocabulary.appendChild(vocabularySummary);
+    const familyList = document.createElement("div");
+    familyList.className = "form-hint";
+    familyList.textContent = UNIT_REGISTRY_FAMILIES.map(
+      (family) =>
+        `${family.family} [${family.quantityKind}, ${family.canonicalUnit}]: ${family.aliases.join(", ")}`,
+    ).join("\n");
+    familyList.style.whiteSpace = "pre-wrap";
+    vocabulary.appendChild(familyList);
+    const unitList = document.createElement("div");
+    unitList.className = "form-hint";
+    unitList.textContent = `Unit tokens: ${UNIT_REGISTRY_UNITS.map((unit) => unit.token).join(", ")}`;
+    vocabulary.appendChild(unitList);
+    wrap.appendChild(vocabulary);
 
     // The mock's footer line, and a true statement of the store's rules: sets
     // auto-suffix (never overwrite) and RAW keeps absolute read priority.

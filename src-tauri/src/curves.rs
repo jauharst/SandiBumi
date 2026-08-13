@@ -3,8 +3,8 @@
 //! decides which family bucket it belongs to (so the catalog can group and the modules can
 //! find it) and rescales its samples into SandiBumi's canonical unit for that family.
 //!
-//! This mirrors what commercial tool/curve dictionaries and IP's CurveAlias.txt do, but kept
-//! small and code-resident (no external reference file to drift out of sync).
+//! Runtime tables are generated from `registry/unit-registry.json`; the release gate refuses
+//! drift between that reviewed source and its Rust, TypeScript, documentation and test consumers.
 
 /// Canonical family + its canonical unit. Families are deliberately coarse — enough to
 /// group the catalog and let modules ask "give me the GR" without caring whether the file
@@ -12,34 +12,10 @@
 pub struct FamilySpec {
     pub family: &'static str,
     pub canonical_unit: &'static str,
+    pub quantity_kind: QuantityKind,
     /// Uppercased mnemonic aliases that map to this family.
     pub aliases: &'static [&'static str],
 }
-
-/// The dictionary. First match wins, checked in order, so put the more specific families
-/// before the generic ones if aliases ever overlap.
-pub const FAMILIES: &[FamilySpec] = &[
-    FamilySpec { family: "GR", canonical_unit: "gAPI", aliases: &["GR", "GRN", "GRD", "CGR", "SGR", "GRGC", "GRKT"] },
-    FamilySpec { family: "SP", canonical_unit: "mV", aliases: &["SP", "SPC", "SPR"] },
-    FamilySpec { family: "CALI", canonical_unit: "in", aliases: &["CALI", "CAL", "CALS", "CALX", "CALY", "HCAL", "LCAL", "DCAL", "HORD"] },
-    FamilySpec { family: "BS", canonical_unit: "in", aliases: &["BS", "BITSIZE", "BIT"] },
-    FamilySpec { family: "RHOB", canonical_unit: "g/cc", aliases: &["RHOB", "RHOZ", "RHOBED", "DEN", "ZDEN", "ROBB", "SBD2"] },
-    FamilySpec { family: "DRHO", canonical_unit: "g/cc", aliases: &["DRHO", "HDRA", "ZCOR", "DCOR"] },
-    FamilySpec { family: "PEF", canonical_unit: "b/e", aliases: &["PEF", "PE", "PEFZ", "PEB", "PDPE"] },
-    FamilySpec { family: "NPHI", canonical_unit: "v/v", aliases: &["NPHI", "TNPH", "NPHIED", "NPHI_LS", "NPOR", "NEUT", "APLC", "FPLC", "SNP", "HNPO", "FSTP"] },
-    FamilySpec { family: "DT", canonical_unit: "us/ft", aliases: &["DT", "DTC", "DTCO", "AC", "DT24", "DTP", "DTCOMP"] },
-    FamilySpec { family: "DTS", canonical_unit: "us/ft", aliases: &["DTS", "DTSM", "DTSH", "DTSHEAR", "DT_S"] },
-    FamilySpec { family: "TEMP", canonical_unit: "DEGC", aliases: &["FTEMP"] },
-    // Resistivity: deep first, then medium/shallow/micro so the primary Rt wins the "RES" bucket.
-    FamilySpec { family: "RES_DEEP", canonical_unit: "ohm.m", aliases: &["RES_DEEP", "RESD", "RT", "RDEEP", "RDEP", "DRES", "ILD", "LLD", "AT90", "AHT90", "RLA5", "ATR", "BDAV", "RING", "PSR"] },
-    FamilySpec { family: "RES_MED", canonical_unit: "ohm.m", aliases: &["RES_MED", "RESM", "RMED", "ILM", "LLM", "AT30", "AHT30", "RLA3"] },
-    FamilySpec { family: "RES_SHAL", canonical_unit: "ohm.m", aliases: &["RES_SHAL", "RESS", "RSHAL", "SFL", "SFLU", "LL8", "SN", "AT10", "AHT10", "RLA1", "R25P", "BSAV"] },
-    FamilySpec { family: "RXO", canonical_unit: "ohm.m", aliases: &["RXO", "RXOZ", "MSFL", "RMLL"] },
-];
-
-/// The exact quantity families for which at least one reviewed numeric transform exists.
-/// This is a capability list, not a claim that every spelling within the family converts.
-pub const CONVERTIBLE_FAMILIES: &[&str] = &["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS", "TEMP"];
 
 /// One independently checkable affine conversion rule. `derivation` is mandatory data,
 /// not a nearby comment: a factor cannot enter the table without carrying the arithmetic
@@ -56,22 +32,6 @@ pub struct UnitRule {
     pub automatic: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum QuantityKind {
-    GammaRay,
-    ElectricPotential,
-    Length,
-    BulkDensity,
-    PhotoelectricFactor,
-    Fraction,
-    Slowness,
-    Temperature,
-    Resistivity,
-    ChargePerVolume,
-    Permeability,
-}
-
 /// One recognised spelling and its typed canonical interpretation. This table carries no
 /// conversion factors; arithmetic remains exclusively in the independently derived UNIT_RULES.
 pub struct UnitTokenSpec {
@@ -80,50 +40,7 @@ pub struct UnitTokenSpec {
     pub canonical_unit: &'static str,
 }
 
-pub const UNIT_TOKENS: &[UnitTokenSpec] = &[
-    UnitTokenSpec { token: "gAPI", quantity_kind: QuantityKind::GammaRay, canonical_unit: "gAPI" },
-    UnitTokenSpec { token: "GAPI", quantity_kind: QuantityKind::GammaRay, canonical_unit: "gAPI" },
-    UnitTokenSpec { token: "mV", quantity_kind: QuantityKind::ElectricPotential, canonical_unit: "mV" },
-    UnitTokenSpec { token: "m", quantity_kind: QuantityKind::Length, canonical_unit: "m" },
-    UnitTokenSpec { token: "M", quantity_kind: QuantityKind::Length, canonical_unit: "m" },
-    UnitTokenSpec { token: "mm", quantity_kind: QuantityKind::Length, canonical_unit: "mm" },
-    UnitTokenSpec { token: "MM", quantity_kind: QuantityKind::Length, canonical_unit: "mm" },
-    UnitTokenSpec { token: "cm", quantity_kind: QuantityKind::Length, canonical_unit: "cm" },
-    UnitTokenSpec { token: "CM", quantity_kind: QuantityKind::Length, canonical_unit: "cm" },
-    UnitTokenSpec { token: "in", quantity_kind: QuantityKind::Length, canonical_unit: "in" },
-    UnitTokenSpec { token: "IN", quantity_kind: QuantityKind::Length, canonical_unit: "in" },
-    UnitTokenSpec { token: "g/cc", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "g/cc" },
-    UnitTokenSpec { token: "G/CC", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "g/cc" },
-    UnitTokenSpec { token: "kg/m3", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "kg/m3" },
-    UnitTokenSpec { token: "KG/M3", quantity_kind: QuantityKind::BulkDensity, canonical_unit: "kg/m3" },
-    UnitTokenSpec { token: "b/e", quantity_kind: QuantityKind::PhotoelectricFactor, canonical_unit: "b/e" },
-    UnitTokenSpec { token: "B/E", quantity_kind: QuantityKind::PhotoelectricFactor, canonical_unit: "b/e" },
-    UnitTokenSpec { token: "v/v", quantity_kind: QuantityKind::Fraction, canonical_unit: "v/v" },
-    UnitTokenSpec { token: "V/V", quantity_kind: QuantityKind::Fraction, canonical_unit: "v/v" },
-    UnitTokenSpec { token: "pu", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
-    UnitTokenSpec { token: "PU", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
-    UnitTokenSpec { token: "%", quantity_kind: QuantityKind::Fraction, canonical_unit: "%" },
-    UnitTokenSpec { token: "p.u.", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
-    UnitTokenSpec { token: "P.U.", quantity_kind: QuantityKind::Fraction, canonical_unit: "pu" },
-    UnitTokenSpec { token: "us/m", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
-    UnitTokenSpec { token: "US/M", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
-    UnitTokenSpec { token: "usec/m", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
-    UnitTokenSpec { token: "USEC/M", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/m" },
-    UnitTokenSpec { token: "us/ft", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/ft" },
-    UnitTokenSpec { token: "US/FT", quantity_kind: QuantityKind::Slowness, canonical_unit: "us/ft" },
-    UnitTokenSpec { token: "degF", quantity_kind: QuantityKind::Temperature, canonical_unit: "degF" },
-    UnitTokenSpec { token: "DEGF", quantity_kind: QuantityKind::Temperature, canonical_unit: "degF" },
-    UnitTokenSpec { token: "degC", quantity_kind: QuantityKind::Temperature, canonical_unit: "degC" },
-    UnitTokenSpec { token: "DEGC", quantity_kind: QuantityKind::Temperature, canonical_unit: "degC" },
-    UnitTokenSpec { token: "ohm.m", quantity_kind: QuantityKind::Resistivity, canonical_unit: "ohm.m" },
-    UnitTokenSpec { token: "OHM.M", quantity_kind: QuantityKind::Resistivity, canonical_unit: "ohm.m" },
-    UnitTokenSpec { token: "meq/L", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/L" },
-    UnitTokenSpec { token: "MEQ/L", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/L" },
-    UnitTokenSpec { token: "meq/mL", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/mL" },
-    UnitTokenSpec { token: "MEQ/ML", quantity_kind: QuantityKind::ChargePerVolume, canonical_unit: "meq/mL" },
-    UnitTokenSpec { token: "md", quantity_kind: QuantityKind::Permeability, canonical_unit: "mD" },
-    UnitTokenSpec { token: "mD", quantity_kind: QuantityKind::Permeability, canonical_unit: "mD" },
-];
+include!("generated/unit_registry.rs");
 
 pub fn resolve_unit_token(token: &str) -> Option<&'static UnitTokenSpec> {
     let observed = token.trim();
@@ -265,6 +182,7 @@ pub struct ValidatedUnitBridge {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnitRegistryError {
     UnknownUnit { token: String },
+    InvalidRegistryIdentity,
     MissingUnitMapping {
         from_unit: Option<String>,
         to_unit: Option<String>,
@@ -281,6 +199,9 @@ impl std::fmt::Display for UnitRegistryError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownUnit { token } => write!(formatter, "unknown unit token {token}"),
+            Self::InvalidRegistryIdentity => {
+                write!(formatter, "unit registry has no valid generated version and SHA-256")
+            }
             Self::MissingUnitMapping { from_unit, to_unit } => write!(
                 formatter,
                 "unit mapping is missing a unit: from={from_unit:?}, to={to_unit:?}"
@@ -324,10 +245,24 @@ pub fn validate_unit_bridge(
 }
 
 pub fn validate_unit_registry() -> Result<(), UnitRegistryError> {
+    if UNIT_REGISTRY_VERSION.is_empty()
+        || UNIT_REGISTRY_SHA256.len() != 64
+        || !UNIT_REGISTRY_SHA256.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(UnitRegistryError::InvalidRegistryIdentity);
+    }
     for family in FAMILIES {
-        resolve_unit_token(family.canonical_unit).ok_or_else(|| UnitRegistryError::UnknownUnit {
+        let canonical = resolve_unit_token(family.canonical_unit).ok_or_else(|| UnitRegistryError::UnknownUnit {
             token: family.canonical_unit.to_string(),
         })?;
+        if canonical.quantity_kind != family.quantity_kind {
+            return Err(UnitRegistryError::QuantityKindMismatch {
+                from_unit: family.family.to_string(),
+                from_kind: family.quantity_kind,
+                to_unit: canonical.canonical_unit.to_string(),
+                to_kind: canonical.quantity_kind,
+            });
+        }
     }
     let mapping_rows = UNIT_RULES
         .iter()
@@ -346,102 +281,6 @@ pub fn validate_unit_registry() -> Result<(), UnitRegistryError> {
     }
     Ok(())
 }
-
-pub const UNIT_RULES: &[UnitRule] = &[
-    UnitRule {
-        families: &["CALI", "BS"],
-        from_unit: "mm",
-        to_unit: "in",
-        factor: 1.0 / 25.4,
-        offset: 0.0,
-        derivation: "1 in = 25.4 mm exactly; mm -> in divides by 25.4",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["CALI", "BS"],
-        from_unit: "cm",
-        to_unit: "in",
-        factor: 1.0 / 2.54,
-        offset: 0.0,
-        derivation: "1 in = 2.54 cm exactly; cm -> in divides by 2.54",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["DT", "DTS"],
-        from_unit: "us/m",
-        to_unit: "us/ft",
-        factor: 0.3048,
-        offset: 0.0,
-        derivation: "1 international ft = 0.3048 m; (us/m) x (m/ft) = us/ft",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["DT", "DTS"],
-        from_unit: "usec/m",
-        to_unit: "us/ft",
-        factor: 0.3048,
-        offset: 0.0,
-        derivation: "1 usec = 1 us and 1 international ft = 0.3048 m; factor = 0.3048",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["RHOB", "DRHO"],
-        from_unit: "kg/m3",
-        to_unit: "g/cc",
-        factor: 0.001,
-        offset: 0.0,
-        derivation: "1 g/cc = 1000 kg/m3; kg/m3 -> g/cc divides by 1000",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["NPHI"],
-        from_unit: "pu",
-        to_unit: "v/v",
-        factor: 0.01,
-        offset: 0.0,
-        derivation: "1 porosity unit = 1 percent = 0.01 v/v",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["NPHI"],
-        from_unit: "%",
-        to_unit: "v/v",
-        factor: 0.01,
-        offset: 0.0,
-        derivation: "1 percent = 1/100 = 0.01 v/v",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["NPHI"],
-        from_unit: "p.u.",
-        to_unit: "v/v",
-        factor: 0.01,
-        offset: 0.0,
-        derivation: "p.u. denotes porosity percent; 1 percent = 0.01 v/v",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["TEMP"],
-        from_unit: "DEGF",
-        to_unit: "DEGC",
-        factor: 1.0 / 1.8,
-        offset: -32.0,
-        derivation: "T42 fixes degC = (degF - 32) / 1.8; factor = 1/1.8 and offset = -32 degF",
-        automatic: true,
-    },
-    UnitRule {
-        families: &["QV"],
-        from_unit: "MEQ/L",
-        to_unit: "meq/mL",
-        factor: 1.0e-3,
-        offset: 0.0,
-        derivation: "1 L = 10^3 mL; meq/L -> meq/mL therefore multiplies by 10^-3",
-        // Chapter §7.1 O-2: files affected by the vendor defect may already hold
-        // meq/mL values under the wrong MEQ/L label, so the correct arithmetic still
-        // requires per-file confirmation before it may touch values.
-        automatic: false,
-    },
-];
 
 pub fn convertible_unit_families() -> Vec<String> {
     CONVERTIBLE_FAMILIES.iter().map(|family| (*family).to_string()).collect()

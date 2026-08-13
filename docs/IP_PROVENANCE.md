@@ -75,10 +75,10 @@ research folders.
 
 | | |
 |---|---|
-| **Asset** | `src-tauri/src/curves.rs` `FAMILIES` (alias → family, unit canonicalization), including a merged "Bunga" mnemonic table |
-| **Source** | Assembled from public mnemonic conventions; `curves.rs:6` records that it "mirrors what commercial tool/curve dictionaries and IP's `CurveAlias.txt` do, but kept small and code-resident". |
+| **Asset** | `registry/unit-registry.json` (alias → family, typed unit canonicalization), including the independently assembled project mnemonic table; generated Rust, import-UI, documentation and test consumers carry one version and digest. |
+| **Source** | Assembled from public mnemonic conventions and the project workflow record; `tools/unit-registry.mjs --check` rejects drift or dimension disagreement without adding an alias or interpreting an opaque vendor file. |
 | **Tier** | A — mnemonics and units are industry-standard identifiers, not authored content. |
-| **Assessment** | Lowest exposure in this register. Worth confirming the table was assembled rather than transcribed wholesale from any single vendor alias file, since a verbatim copy of a complete list is a different fact pattern from an independently assembled one. |
+| **Assessment** | Lowest exposure in this register. The source custody explicitly records an independently assembled vocabulary rather than a wholesale vendor alias-file transcription; any later alias still needs its own reviewed source. |
 | **Urgency** | Confirm at leisure. |
 
 ### 2.4 Method implementations

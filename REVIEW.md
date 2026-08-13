@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-INS-019: one generated curve and unit vocabulary
+
+- [x] **Automated:** SB-INS-T24 compares every one of the accepted 15 families and 42 unit tokens
+      across generated Rust runtime, LAS import UI, Markdown and test-manifest consumers carrying
+      one version and source digest. It deliberately changes one generated output and one family
+      dimension and proves both make release validation fail. Existing unit conversion tests stay
+      green, the warning inventory remains 55, and the full gate passed 986 / 0 / 36.
+- [ ] **Visual:** open Import LAS and expand the recognized-vocabulary disclosure. Confirm the
+      version/count summary is readable, the complete family/unit list remains usable in the
+      560-pixel dialog, and the collapsed state does not distract from set/depth decisions.
+- [ ] **Manual:** compare representative delivery mnemonics and unit spellings against the generated
+      documentation. Record any missing alias as a new source-reviewed registry change; do not add
+      a guessed synonym from memory.
+- [ ] **Field:** exercise the accepted vocabulary across pilot deliveries and confirm unknown tokens
+      stay observable and unconverted. This migration preserved the exact live population and added
+      no alias, family, conversion factor, endpoint or default.
+
 ## 2026-08-13 — G2 SB-INS-018: missing units cannot become mappings
 
 - [x] **Automated:** SB-INS-T23 sends an absent unit, an empty unit, placeholder symbols and an
