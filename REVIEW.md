@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-015: complete re-run manifest is dependency-blocked
+
+- [ ] **Automated implementation:** blocked, so deterministic fragments are not presented as the
+      complete T15 proof. No stored manifest resolver or "re-run this set" command exists, and no
+      test proves the unmutated byte-identical replay plus all four element-naming refusals. The
+      unchanged full gate remains 993 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Architecture / scope:** settle DEC-021's build-derived module identity, DEC-023's versioned
+      zone-set seam and DEC-024's conditional stochastic/model identity seam. Exact T15 reaches
+      pilot-excluded SB-DBM-014 and SB-DBM-019/020 plus SB-DBM-017's physics-driving attributes.
+      Do not omit those manifest arms or import deferred capabilities without explicitly revising
+      and re-approving DEC-018.
+- [ ] **Visual / Manual:** after implementation, expose the stored manifest and make each unresolved
+      element refusal name the exact module, input version, zone set or model. Jauhar should verify
+      the wording against a disposable project; source-level resolution is not UI evidence.
+- [ ] **Field:** blocked. A representative run must later be re-run from its stored record alone and
+      compared byte-for-byte. A same-process deterministic unit test is not cross-process or field
+      replay evidence.
+
 ## 2026-08-13 — G2 SB-DBM-013: provenance cannot be disabled
 
 - [x] **Automated:** SB-DBM-T13 executes the real module runner on three sides. An ordinary run

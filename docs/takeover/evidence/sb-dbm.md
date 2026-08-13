@@ -202,14 +202,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DBM-T15`, `SB-DBM-T16`; sections 4.2 and 6.3.
 - **Atomic obligations:** one manifest enumerates module, effective parameters/sources, resolved inputs/frames, zone set, seeds, models and physics-driving attributes; a rerun command resolves every element or refuses it by name.
-- **Current source:** those elements exist only as incomplete fragments across `log_sets`, model metadata and request JSON. No complete manifest schema, resolver or "re-run this set" command exists.
+- **Current source:** those elements exist only as incomplete fragments across `log_sets`, ancestry JSON and model metadata. No complete manifest schema, resolver or "re-run this set" command exists. The approved pilot manifest excludes SB-DBM-008, SB-DBM-014 and the model-custody rows rather than supplying their identities implicitly.
 - **Qualifying acceptance tests:** none; all mutated-project arms of T15 and manifest-driven T16 are missing. Test class is `MISSING`.
 - **Supporting tests:** log-set restore feeding a later run and model drift warnings do not enumerate or enforce the complete manifest.
 - **Manual evidence:** `workflow` 0/23, `processing-history` 0/7 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; no complete manifest/re-run feature exists at the accepted anchor.
+- **Git evidence:** live re-verification on `codex/g2-program-plan` confirms `UNIMPLEMENTED`; no complete manifest/re-run feature exists, and SB-DBM-014 is not among the immutable pilot IDs.
 - **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on SB-DBM-002 through 006, 008, 014, 017 and 019.
-- **Next action:** close the prerequisite identity fields, then implement one enumerated manifest resolver and all four named T15 refusal controls.
+- **Blocker or decision:** T15 depends on DEC-021/SB-DBM-002 for build-derived module identity; DEC-023/SB-DBM-008 for versioned zone-set identity; DEC-024 for the conditional stochastic/model identity seam owned by SB-DBM-014 and SB-DBM-019/020; and SB-DBM-017 for physics-driving attributes. Those identity owners are outside DEC-018's immutable first-pilot scope, so they cannot be imported silently and none may be omitted from the exact test.
+- **Next action:** settle DEC-021, DEC-023 and DEC-024, explicitly re-approving any required scope change. Only then add one stored resolver-backed manifest, an unmutated byte-identical replay and all four element-naming refusals.
 
 ## SB-DBM-016 - Re-run output does not depend on iteration order
 
