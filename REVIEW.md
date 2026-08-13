@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-010: complete deliverable provenance is source-blocked
+
+- [ ] **Automated implementation:** blocked, so no synthetic T10 is presented as complete
+      provenance proof. LAS already embeds machine-readable ancestry, current parameter sources
+      travel inside it, and legacy computed curves remain labelled and counted. PDF and Office
+      deliverables already carry shared human-readable ancestry rows. None of those paths can
+      supply SB-DBM-005's missing method-derivation citations. The unchanged full gate remains
+      992 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Source decision:** approve a complete source-controlled registered-module citation map for
+      SB-DBM-005. A free-form output derivation such as a module or fixture description is not a
+      literature/specification citation and must not be relabelled as one merely to fill T10.
+- [ ] **Visual / Manual:** after the citation inventory exists, export representative computed and
+      legacy curves through every pilot format. Confirm the UI names any format that drops a
+      machine-readable sidecar before export; inspect the LAS record, PDF/Office ancestry and
+      sidecar resolution back to exact run records, parameter sources and citations.
+- [ ] **Field:** blocked on the same source inventory. Jauhar must inspect representative client
+      deliverables and confirm each numeric computed curve resolves without opening SandiBumi;
+      repository JSON presence alone is not field acceptance.
+
 ## 2026-08-13 — G2 SB-DBM-009: legacy timestamp meaning is decision-blocked
 
 - [ ] **Automated implementation:** blocked, so no test is presented as proof that the whole UTC

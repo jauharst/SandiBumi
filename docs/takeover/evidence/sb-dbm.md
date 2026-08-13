@@ -137,14 +137,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned test `SB-DBM-T10`; sections 4.1 and 6.2.
 - **Atomic obligations:** every exported computed curve resolves to run, effective parameter sources and derivation citation; legacy curves are labelled/countable; formats that cannot carry provenance disclose the omission at export.
-- **Current source:** `export.rs::provenance_lines` writes machine-readable JSON into LAS `~O` for measured, versioned computed and saved-model curves. It lacks parameter-source and derivation-citation fields, refuses rather than labels legacy curves, and no universal office/other-format sidecar contract exists.
+- **Current source:** `export.rs::provenance_lines` writes machine-readable JSON into LAS `~O` for measured, versioned computed and saved-model curves; schema-v3 ancestry now carries parameter source strings, and SB-DBM-001 keeps legacy computed curves exported under `LEGACY_UNRECORDED` with an exact summary count. PDF, workbook, DOCX and deck paths use the shared `curve_ancestry_disclosures` rows, but those are human-readable tables rather than one registered machine-readable sidecar contract. `AncestryOutput.derivation` contains implementation descriptions, not the source-controlled method citations SB-DBM-005 requires.
 - **Qualifying acceptance tests:** none; the complete 20-well, multi-run, equation and legacy fixture from T10 is missing. Test class is `MISSING`.
-- **Supporting tests:** `export.rs::every_las_export_carries_measured_computed_and_model_provenance_in_the_file` proves the narrower LAS JSON and saved-model refusal.
+- **Supporting tests:** `export.rs::every_las_export_carries_measured_computed_and_model_provenance_in_the_file` proves the narrower LAS JSON and saved-model refusal; SB-DBM-001's owned test proves legacy labels/counts through LAS and number-carrying disclosure surfaces. Neither can manufacture the missing method citations or prove one format-wide sidecar contract.
 - **Manual evidence:** `las-export` 0/2, `office-deliverables` 0/39 and `processing-history` 0/7 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the LAS provenance fragment; whole-deliverable closure is not integrated.
+- **Git evidence:** live re-verification on `codex/g2-program-plan` finds the LAS machine-readable record and shared report/Office ancestry rows integrated; complete cited provenance across deliverable formats is not integrated.
 - **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-DBM-003 and SB-DBM-005 must first provide parameter-source and derivation fields.
-- **Next action:** extend the writer registry with a provenance-capability contract and implement the complete T10 fixture across selected pilot deliverables.
+- **Blocker or decision:** SB-DBM-003's parameter sources now exist, but SB-DBM-005 remains blocked on the complete registered-module derivation-source map. Existing free-form derivation descriptions cannot be relabelled as citations.
+- **Next action:** after SB-DBM-005 supplies source-controlled citations, extend the export/report/Office registries with one provenance-capability and machine-readable-sidecar contract, then implement all T10 arms across the selected pilot deliverables.
 
 ## SB-DBM-011 - Structured audit entries, as name-value pairs with a controlled vocabulary
 
