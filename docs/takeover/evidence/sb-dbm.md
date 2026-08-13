@@ -553,14 +553,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-OK`; owned tests `SB-DBM-T01`, `SB-DBM-T02`, `SB-DBM-T43`; sections 4.6 and 6.1.
 - **Atomic obligations:** a newer format refuses before mutation and leaves bytes identical; destructive migration first creates a fail-closed, non-overwriting, user-visible backup; additive migration creates none; filename names the source format restored at each step.
-- **Current source:** `check_and_stamp_format` refuses newer files before schema work and names file/current versions and writer. `backup_before_destructive_migration` uses engine copy, aborts on copy error, suffixes collisions and posts a boot note; additive/no-op migration skips backup. Its filename uses current target `FORMAT_VERSION`, not the source version, so sequential shelves do not satisfy T43.
-- **Qualifying acceptance tests:** none covers the complete compound contract. T01 lacks an actual before/after byte hash, T02 does not inject backup failure, and T43 is absent; test class is `MISSING`.
-- **Supporting tests:** `future_format_is_refused_and_left_unmodified`, `destructive_migration_backs_up_the_project_file_first` and `fresh_project_open_writes_no_backup` characterize the implemented safety clauses and collision behavior.
+- **Current source:** `check_and_stamp_format` returns the observed source version before schema work; `init_db` preserves it in a connection-local temporary row across the later target stamp. `backup_before_destructive_migration` derives the recovery name from that source identity, copies with DuckDB, selects a fresh collision suffix and returns before any destructive statement on copy failure. Additive/no-op migration still skips backup.
+- **Qualifying acceptance tests:** `consecutive_destructive_upgrades_name_each_backup_for_the_source_format_it_restores` is `CORRECTNESS`, independently deriving the `pre-0`/`pre-1` shelf and contents from F-07. The exact T01/T02 characterizations are also executable and jointly pin byte-stable refusal, writer/current/source reporting, backup-before-write, non-overwrite, user-visible path, deterministic copy failure and additive exemption.
+- **Supporting tests:** `fresh_project_open_writes_no_backup` remains a narrower additive-path regression; it is not counted as a second owned proof.
 - **Manual evidence:** `project-lifecycle` 3/24, `security-integrity` 0/63 and `verification-stewardship` 0/24.
-- **Git evidence:** accepted anchor `b332026c` contains the strong gate/backup behavior and the source-versus-target naming divergence.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `RECOVERY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no parameter is missing; the backup must derive the source stamp before migration, and failure/byte-identity tests are missing.
-- **Next action:** name backups from the pre-migration source version, add fail-injection and byte-hash controls, and implement T43 across two destructive version steps.
+- **Git evidence:** current `codex/g2-program-plan` increment carries the source-labelled backup contract and exact tests; accepted baseline remains unchanged until review and merge.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `RECOVERY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none; no petrophysical or uncited parameter is involved.
+- **Next action:** retain exact T01/T02/T43 and run Jauhar's manual legacy-project recovery check separately from automated evidence.
 
 ## SB-DBM-043 - A deterministic parameter sweep records every trial, uncapped and ordered
 
@@ -577,9 +577,8 @@
 
 ## Domain result
 
-- All 43 live SB-DBM rows were adjudicated exactly once against the accepted tree.
-- As-built: 1 `PRESENT-OK`, 3 `PRESENT-UNVERIFIED`, 11 `PRESENT-DIVERGENT`, 13 `PARTIAL`, 15 `ABSENT`.
-- Release disposition: 32 `PILOT-BLOCKER`, 8 `UNDECIDED`, 3 `DEFERRED`, 0 `OUT`.
-- Test evidence: 1 `OPTIONAL-PACKAGE-IGNORED`; 42 `MISSING` qualifying whole-contract proofs. Supporting tests are retained above but are not counted as owned closure.
-- Hard evidence blocks preserved: `MODULE_VERSION_SOURCE`, `ARTIFACT_HASH_ALGORITHM`, `SAMPLING_STYLE_VERIFY_TOLERANCE`, `INTERACTIVE_SET_CEILING`, the legacy UTC migration policy, real-well N-scale evidence and `DEC-003` pilot-method/workflow scope.
-- No production, schema, PRD, generated verification, `REVIEW.md`, database write-discipline or model behavior was changed.
+- All `30 / 30` approved Gate 2 SB-DBM pilot blockers are handled: `18 DONE`, `12 BLOCKED`; the other 13 domain requirements remain explicitly deferred beyond the first pilot.
+- Current as-built: 19 `PRESENT-OK`, 5 `PRESENT-DIVERGENT`, 8 `PARTIAL`, 11 `ABSENT`; no row is unadjudicated or silently omitted.
+- Current test evidence: 18 `CORRECTNESS`, 1 `CHARACTERIZATION`, 1 `OPTIONAL-PACKAGE-IGNORED` and 23 `MISSING`. A missing proof on a deferred or blocked row remains visible rather than being converted into completion.
+- Remaining pilot blocks are exactly SB-DBM-002, 005, 009, 010, 011, 015, 017, 025, 030, 031, 032 and 041, with their source or product decisions named in the corresponding evidence rows and `STATUS.md`.
+- Automated evidence is not manual recovery, inspector, operator or representative-field evidence; those remain for Jauhar and Gates 3-4. No database guard was weakened, and `computed_curves` remains PK-less with no upsert path.

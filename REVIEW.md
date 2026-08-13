@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DBM-042: recovery copies name what they restore
+
+- [x] **Automated:** exact SB-DBM-T01 hashes a newer-format project before and after
+      refusal and checks both versions plus writer identity. Exact SB-DBM-T02 proves the
+      real destructive-open backup precedes the rewrite, is reported, never overwrites,
+      aborts deterministically on copy failure and is absent on an additive open. Exact
+      SB-DBM-T43 proves consecutive source formats produce distinct `pre-0` and `pre-1`
+      recovery copies containing the promised states. Full gate: 1006 passed / 0 failed /
+      36 ignored, including backend 949 passed / 0 failed / 36 ignored and 55 owned Rust
+      warnings.
+- [ ] **Visual:** not claimed. On a disposable legacy project, inspect the Processing
+      history/status notice and confirm it displays the exact source-labelled backup path.
+- [ ] **Manual:** Jauhar opens the recovery copy and confirms the pre-migration project is
+      usable. Automated synthetic DuckDB files prove structure and bytes, not the operator's
+      recovery workflow on representative data.
+- [ ] **Field:** pending Gate 4; no customer or field project was used by this increment.
+
 ## 2026-08-14 — G2 SB-DBM-041: full inspector trace blocked on the audit store
 
 - [x] **Automated count half:** exact SB-DBM-T41 remains green: inspector
@@ -2566,10 +2583,11 @@ faster) **rebuilds the whole `computed_curves` table in place** — `DROP TABLE`
 with no recoverable copy. On a field-scale file, a crash mid-rebuild loses computed results
 with nothing to fall back to.
 
-Now: when that migration is actually going to run (and only then — additive migrations like
-the R-A stamp and the generic-store backfill are exempt, so backups stay meaningful), the
-project is first copied beside itself as `<name>.pre-1-backup.duckdb` and the launch log says
-so. Two honesty properties: a **failed backup aborts the migration** (the un-migrated file
+At this increment, when that migration was actually going to run (and only then — additive
+migrations like the R-A stamp and the generic-store backfill are exempt, so backups stay
+meaningful), the project was first copied beside itself as `<name>.pre-1-backup.duckdb` and
+the launch log said so. Gate 2 SB-DBM-042 later corrected that target-labelled name to
+`<name>.pre-<source-format>-backup.duckdb`. Two honesty properties remain: a **failed backup aborts the migration** (the un-migrated file
 still opens fine — the PK only slows writes — so refusing costs nothing, while proceeding
 would break the exact promise), and an **existing backup is never overwritten** (collision →
 timestamped name, the WAL-recovery convention). One Windows reality the test caught: DuckDB
@@ -2586,7 +2604,8 @@ before).
 - [ ] **Try:** open your real project — since increment 5 already migrated it, the pass
   condition is **absence**: no new `*-backup.duckdb` file beside it, launch not slower.
   To see it fire, open any pre-2026-07-19 project copy that still has the old PK: a
-  `<name>.pre-1-backup.duckdb` appears beside it and the console log announces it before
+  `<name>.pre-0-backup.duckdb` appears beside an unstamped legacy source (otherwise
+  `pre-<its-source-format>`) and the console log announces it before
   the rebuild. (Full list of session-wide manual checks: `docs/manual_check_plan.md`.)
 
 ## Round 92 — R-A: the project file now carries a format stamp, and an older build refuses a newer file by name (2026-07-29)

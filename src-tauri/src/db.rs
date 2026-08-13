@@ -46,7 +46,8 @@ pub const FORMAT_VERSION: i64 = 2;
 pub fn init_db(path: &str) -> DbResult<Connection> {
     let conn = Connection::open(path)?;
     tune_connection(&conn);
-    check_and_stamp_format(&conn)?;
+    let source_format_version = check_and_stamp_format(&conn)?;
+    remember_migration_source_format(&conn, source_format_version)?;
     create_schema(&conn)?;
     migrate_tvdss_positive_down(&conn, if path == ":memory:" { None } else { Some(path) })?;
     stamp_current_format(&conn)?;
@@ -124,7 +125,7 @@ pub fn take_boot_notes() -> Vec<String> {
 ///   format-defining migration succeeds, then advance it through `stamp_current_format`.
 /// - stamped > `FORMAT_VERSION` — refuse, naming both versions and the app that wrote
 ///   the file. Silently misreading a newer project is the one unacceptable behaviour.
-fn check_and_stamp_format(conn: &Connection) -> DbResult<()> {
+fn check_and_stamp_format(conn: &Connection) -> DbResult<i64> {
     let has_meta: i64 = conn.query_row(
         "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'project_meta'",
         [],
@@ -132,7 +133,7 @@ fn check_and_stamp_format(conn: &Connection) -> DbResult<()> {
     )?;
     if has_meta == 0 {
         conn.execute_batch("CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);")?;
-        return Ok(());
+        return Ok(0);
     }
     // A present table with a missing/unparsable version row is treated as legacy (0),
     // never as newer — refusing must require positive evidence of a newer writer.
@@ -152,7 +153,58 @@ fn check_and_stamp_format(conn: &Connection) -> DbResult<()> {
              left unmodified)"
         )));
     }
+    Ok(ver)
+}
+
+/// Retains the format observed before schema work for every destructive migration in this
+/// connection. `stamp_current_format` deliberately runs before some legacy migrations owned by
+/// `project::open_and_migrate`; a connection-local TEMP row prevents that target stamp from erasing
+/// the source identity those later backups must carry. Nothing is persisted into the project.
+fn remember_migration_source_format(conn: &Connection, source_format_version: i64) -> DbResult<()> {
+    conn.execute_batch(
+        "CREATE TEMP TABLE __sandibumi_migration_source_format (source_format_version BIGINT NOT NULL);",
+    )?;
+    conn.execute(
+        "INSERT INTO __sandibumi_migration_source_format VALUES (?1)",
+        params![source_format_version],
+    )?;
     Ok(())
+}
+
+/// Returns the source-format identity captured at open. Focused recovery tools and tests that
+/// operate on an already-open connection fall back to its persistent stamp; a pre-stamp file is
+/// format 0, matching `check_and_stamp_format`.
+fn migration_source_format(conn: &Connection) -> DbResult<i64> {
+    let has_context: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_tables()
+         WHERE temporary AND table_name = '__sandibumi_migration_source_format'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_context > 0 {
+        return conn
+            .query_row(
+                "SELECT source_format_version FROM __sandibumi_migration_source_format LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(DbError::from);
+    }
+
+    let has_meta: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_tables() WHERE table_name = 'project_meta'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_meta == 0 {
+        return Ok(0);
+    }
+    let raw: String = conn.query_row(
+        "SELECT coalesce(max(CASE WHEN key = 'format_version' THEN value END), '0') FROM project_meta",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(raw.parse::<i64>().unwrap_or(0))
 }
 
 /// Stamps the current file format only after every format-defining migration in `init_db`
@@ -1334,7 +1386,7 @@ pub(crate) fn mark_standard_curve_migration_done(
 }
 
 /// RELEASE.md §3.2 (requirement R-B): before a migration that rewrites or drops data, copy
-/// the project file beside itself as `<name>.pre-<FORMAT_VERSION>-backup.duckdb`. Purely
+/// the project file beside itself as `<name>.pre-<SOURCE_FORMAT>-backup.duckdb`. Purely
 /// additive migrations are exempt — a backup on every open would bury the one that matters.
 ///
 /// The copy is made BY THE ENGINE (`ATTACH` + `COPY FROM DATABASE`), not by the filesystem:
@@ -1347,13 +1399,19 @@ pub(crate) fn mark_standard_curve_migration_done(
 /// as the WAL recovery's `.corrupt-backup-<ts>`.
 fn backup_before_destructive_migration(conn: &Connection, path: &str) -> DbResult<String> {
     let stem = path.strip_suffix(".duckdb").unwrap_or(path);
-    let mut backup = format!("{stem}.pre-{FORMAT_VERSION}-backup.duckdb");
+    let source_format = migration_source_format(conn)?;
+    let mut backup = format!("{stem}.pre-{source_format}-backup.duckdb");
     if std::path::Path::new(&backup).exists() {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        backup = format!("{stem}.pre-{FORMAT_VERSION}-backup-{ts}.duckdb");
+        backup = format!("{stem}.pre-{source_format}-backup-{ts}.duckdb");
+        let mut collision = 1_u64;
+        while std::path::Path::new(&backup).exists() {
+            backup = format!("{stem}.pre-{source_format}-backup-{ts}-{collision}.duckdb");
+            collision += 1;
+        }
     }
     engine_copy_to(conn, &backup)?;
     Ok(backup)
@@ -1485,6 +1543,17 @@ pub fn engine_copy_to(conn: &Connection, dest: &str) -> DbResult<()> {
 /// exact guarantee R-B exists to make. `path: None` is for in-memory test databases only —
 /// every real caller must pass the project-file path.
 pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) -> DbResult<()> {
+    migrate_drop_computed_curves_pk_with_backup(conn, path, backup_before_destructive_migration)
+}
+
+fn migrate_drop_computed_curves_pk_with_backup<F>(
+    conn: &Connection,
+    path: Option<&str>,
+    backup: F,
+) -> DbResult<()>
+where
+    F: FnOnce(&Connection, &str) -> DbResult<String>,
+{
     let has_pk: i64 = conn.query_row(
         "SELECT COUNT(*) FROM duckdb_constraints()
          WHERE table_name = 'computed_curves' AND constraint_type = 'PRIMARY KEY'",
@@ -1495,8 +1564,8 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) ->
         return Ok(());
     }
     if let Some(path) = path {
-        let backup = backup_before_destructive_migration(conn, path)?;
-        boot_note(format!("One-time storage upgrade (write-speed index removal): project backed up first to {backup}"));
+        let backup_path = backup(conn, path)?;
+        boot_note(format!("One-time storage upgrade (write-speed index removal): project backed up first to {backup_path}"));
     }
     // Rebuild PK-less, preserving every row, atomically.
     conn.execute_batch(
@@ -5310,6 +5379,7 @@ mod well_param_override_tests {
 #[cfg(test)]
 mod inspector_tests {
     use super::*;
+    use sha2::{Digest, Sha256};
 
     fn mem_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -5325,6 +5395,10 @@ mod inspector_tests {
     fn read_meta(conn: &Connection, key: &str) -> Option<String> {
         conn.query_row("SELECT value FROM project_meta WHERE key = ?", params![key], |r| r.get(0))
             .ok()
+    }
+
+    fn file_sha256(path: &str) -> Vec<u8> {
+        Sha256::digest(std::fs::read(path).unwrap()).to_vec()
     }
 
     /// CORRECTNESS — the three seeded counts and the explicit zero come from
@@ -5454,32 +5528,50 @@ mod inspector_tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// CHARACTERIZATION — `22_database-model.md` SB-DBM-T01, sourced to the shipped
+    /// format gate at `db.rs::check_and_stamp_format`, requires both version identities,
+    /// the writer identity and exact byte preservation on refusal.
     #[test]
-    fn future_format_is_refused_and_left_unmodified() {
+    fn a_newer_format_is_refused_with_both_versions_and_its_writer_while_the_project_bytes_remain_identical() {
         let path = tmp_db("future");
         {
             // A file from a hypothetical future format: it carries a stamp but NOT the
             // current schema (a future format may have renamed any table) — so if
             // create_schema ran despite the refusal, `wells` would appear.
             let conn = Connection::open(&path).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);
-                 INSERT INTO project_meta VALUES ('format_version', '999'), ('written_by', 'SandiBumi 9.9.9');",
+            conn.execute_batch("CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);")
+                .unwrap();
+            conn.execute(
+                "INSERT INTO project_meta VALUES ('format_version', ?1), ('written_by', 'SandiBumi future-writer')",
+                params![(FORMAT_VERSION + 1).to_string()],
             )
             .unwrap();
         }
+        let before = file_sha256(&path);
         let err = init_db(&path).err().expect("a newer file must be refused");
         let msg = err.to_string();
-        assert!(msg.contains("format 999"), "must name the file's format: {msg}");
-        assert!(msg.contains("SandiBumi 9.9.9"), "must name the writer: {msg}");
+        assert!(
+            msg.contains(&format!("format {}", FORMAT_VERSION + 1)),
+            "must name the file's format: {msg}"
+        );
+        assert!(
+            msg.contains(&format!("format {FORMAT_VERSION}")),
+            "must name the running build's format: {msg}"
+        );
+        assert!(msg.contains("SandiBumi future-writer"), "must name the writer: {msg}");
         assert!(msg.contains("upgrade SandiBumi"), "must say what to do: {msg}");
+        assert_eq!(file_sha256(&path), before, "a refused open must leave every project byte unchanged");
         // The refusal must have mutated nothing: no schema, stamp intact.
         let conn = Connection::open(&path).unwrap();
         let wells: i64 = conn
             .query_row("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'wells'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(wells, 0, "create_schema must not have run on a refused file");
-        assert_eq!(read_meta(&conn, "format_version").as_deref(), Some("999"), "stamp must be untouched");
+        assert_eq!(
+            read_meta(&conn, "format_version").as_deref(),
+            Some((FORMAT_VERSION + 1).to_string().as_str()),
+            "stamp must be untouched"
+        );
         drop(conn);
         let _ = std::fs::remove_file(&path);
     }
@@ -7171,21 +7263,23 @@ mod inspector_tests {
         );
     }
 
-    /// R-B (RELEASE §3.2): when the destructive PK-drop migration actually fires against a
-    /// real file, a complete pre-migration copy must exist beside it FIRST — openable, PK
-    /// still present, every row intact. Opens that don't migrate must write no backup, and
-    /// an existing backup must never be overwritten (collision → timestamped name).
+    /// CHARACTERIZATION — `22_database-model.md` SB-DBM-T02 and dossier T-DB-11:
+    /// destructive work is preceded by a reported, non-overwriting copy; additive work
+    /// creates none; and a failed copy leaves the source structurally un-migrated.
     #[test]
-    fn destructive_migration_backs_up_the_project_file_first() {
+    fn a_destructive_upgrade_backs_up_before_writing_never_overwrites_reports_the_path_and_aborts_on_backup_failure_while_an_additive_open_takes_no_backup() {
         let dir = std::env::temp_dir().join(format!("sandibumi-rb-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let db_path = dir.join("field.duckdb");
         let db_path_str = db_path.to_str().unwrap().to_string();
-        let count_backups = || -> usize {
+        let count_backups = |stem: &str| -> usize {
             std::fs::read_dir(&dir)
                 .unwrap()
                 .filter_map(|e| e.ok())
-                .filter(|e| e.file_name().to_string_lossy().contains("-backup"))
+                .filter(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    name.starts_with(stem) && name.contains("-backup")
+                })
                 .count()
         };
         let make_legacy_file = |path: &str| {
@@ -7203,22 +7297,27 @@ mod inspector_tests {
         };
 
         make_legacy_file(&db_path_str);
-        let conn = Connection::open(&db_path_str).unwrap();
-        migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
+        take_boot_notes();
+        let conn = crate::project::open_and_migrate(&db_path_str).unwrap();
         assert_eq!(pk_count(&conn, "computed_curves"), 0, "live file migrated");
 
-        let backup = dir.join(format!("field.pre-{FORMAT_VERSION}-backup.duckdb"));
-        assert!(backup.exists(), "backup must exist beside the project, named per RELEASE 3.2");
+        let backup = dir.join("field.pre-0-backup.duckdb");
+        assert!(backup.exists(), "an unstamped legacy project is source format 0");
+        assert!(
+            take_boot_notes().iter().any(|note| note.contains(backup.to_str().unwrap())),
+            "the user-facing boot record must name the exact recovery copy"
+        );
         {
             let bconn = Connection::open(backup.to_str().unwrap()).unwrap();
             assert_eq!(pk_count(&bconn, "computed_curves"), 1, "backup is the PRE-migration file: PK intact");
             let rows: i64 = bconn.query_row("SELECT COUNT(*) FROM computed_curves", [], |r| r.get(0)).unwrap();
             assert_eq!(rows, 2, "backup holds every pre-migration row (engine copy reads WAL state)");
         }
+        let first_backup_hash = file_sha256(backup.to_str().unwrap());
 
         // Already-migrated open: no second backup.
         migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
-        assert_eq!(count_backups(), 1, "a non-destructive open must not write a backup");
+        assert_eq!(count_backups("field.pre-"), 1, "a non-destructive open must not write a backup");
         drop(conn);
 
         // Collision: a NEW legacy file at the same path must not overwrite the old backup.
@@ -7227,9 +7326,92 @@ mod inspector_tests {
         make_legacy_file(&db_path_str);
         let conn = Connection::open(&db_path_str).unwrap();
         migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
-        assert_eq!(count_backups(), 2, "second destructive run takes a timestamped name, never overwrites");
+        assert_eq!(count_backups("field.pre-"), 2, "second destructive run takes a timestamped name, never overwrites");
+        assert_eq!(
+            file_sha256(backup.to_str().unwrap()),
+            first_backup_hash,
+            "the original recovery copy must remain byte-identical"
+        );
         drop(conn);
 
+        // Deterministic failure injection at the exact copy boundary: the migration must
+        // return before its first DROP/CREATE/INSERT and the original must remain openable.
+        let failed_path = dir.join("failed.duckdb");
+        let failed_path_str = failed_path.to_str().unwrap().to_string();
+        make_legacy_file(&failed_path_str);
+        let conn = Connection::open(&failed_path_str).unwrap();
+        let err = migrate_drop_computed_curves_pk_with_backup(
+            &conn,
+            Some(&failed_path_str),
+            |_conn, _path| {
+                Err(DbError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "injected backup refusal",
+                )))
+            },
+        )
+        .expect_err("a failed backup must abort the migration");
+        assert!(err.to_string().contains("injected backup refusal"));
+        assert_eq!(pk_count(&conn, "computed_curves"), 1, "no destructive statement may run after copy failure");
+        drop(conn);
+        let reopened = Connection::open(&failed_path_str).unwrap();
+        assert_eq!(pk_count(&reopened, "computed_curves"), 1, "the un-migrated project must remain openable");
+        let rows: i64 = reopened.query_row("SELECT COUNT(*) FROM computed_curves", [], |row| row.get(0)).unwrap();
+        assert_eq!(rows, 2, "copy failure must preserve every source row");
+        drop(reopened);
+
+        // A current, additive-only open must leave no recovery copy at all.
+        let additive_path = dir.join("additive.duckdb");
+        let additive = crate::project::open_and_migrate(additive_path.to_str().unwrap()).unwrap();
+        drop(additive);
+        assert_eq!(count_backups("additive.pre-"), 0, "an additive open must not bury meaningful backups");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// CORRECTNESS — `22_database-model.md` SB-DBM-T43 adopts F-07: a backup is
+    /// labelled by the source format it restores, independently of the target version.
+    #[test]
+    fn consecutive_destructive_upgrades_name_each_backup_for_the_source_format_it_restores() {
+        let dir = std::env::temp_dir().join(format!("sandibumi-source-shelf-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("project.duckdb");
+        let db_path_str = db_path.to_str().unwrap();
+        let conn = Connection::open(db_path_str).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);
+             INSERT INTO project_meta VALUES ('format_version', '0'), ('written_by', 'SandiBumi source-0');
+             CREATE TABLE migration_probe (value INTEGER);
+             INSERT INTO migration_probe VALUES (0);",
+        )
+        .unwrap();
+
+        let source_zero = backup_before_destructive_migration(&conn, db_path_str).unwrap();
+        conn.execute_batch(
+            "UPDATE migration_probe SET value = 1;
+             UPDATE project_meta SET value = '1' WHERE key = 'format_version';",
+        )
+        .unwrap();
+        let source_one = backup_before_destructive_migration(&conn, db_path_str).unwrap();
+        conn.execute_batch(
+            "UPDATE migration_probe SET value = 2;
+             UPDATE project_meta SET value = '2' WHERE key = 'format_version';",
+        )
+        .unwrap();
+
+        assert!(source_zero.ends_with("project.pre-0-backup.duckdb"), "first shelf label: {source_zero}");
+        assert!(source_one.ends_with("project.pre-1-backup.duckdb"), "second shelf label: {source_one}");
+        assert_ne!(source_zero, source_one, "source-labelled backups need no timestamp to distinguish upgrade steps");
+        for (path, expected_version, expected_value) in [(&source_zero, "0", 0_i64), (&source_one, "1", 1_i64)] {
+            let restored = Connection::open(path).unwrap();
+            assert_eq!(read_meta(&restored, "format_version").as_deref(), Some(expected_version));
+            assert_eq!(
+                restored.query_row("SELECT value FROM migration_probe", [], |row| row.get::<_, i64>(0)).unwrap(),
+                expected_value,
+                "each shelf item must contain the state its label promises"
+            );
+        }
+        drop(conn);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

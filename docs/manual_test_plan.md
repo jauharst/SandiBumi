@@ -5864,8 +5864,10 @@ project copy that still has the old computed_curves PRIMARY KEY.
 1. Open your current project; check its folder in Explorer.
 2. (Optional) Open the old copy; watch its folder and the console.
    **Expected:** step 1: NO new `*-backup.duckdb` appears, launch is not slower — absence is
-   the pass. Step 2: a `<name>.pre-1-backup.duckdb` appears BEFORE the rebuild and the launch
-   log announces it; the backup opens as a valid project if pointed at directly.
+   the pass. Step 2: an unstamped legacy source produces
+   `<name>.pre-0-backup.duckdb` BEFORE the rebuild (a stamped source uses its own version),
+   and the launch log announces that exact path; the backup opens as a valid project if
+   pointed at directly.
    **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
 
    **Result — T-SHIP-05:**
