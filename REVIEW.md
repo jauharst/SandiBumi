@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-025: cross-module constant registry is source-blocked
+
+- [ ] **Automated implementation:** blocked, so the existing `PHIE_FLOOR = 0.001` is not promoted
+      into a source-bearing registry and no partial T23/T24 test is presented as the whole
+      contract. The unchanged full gate remains 995 / 0 / 36 with 55 owned Rust warnings.
+- [ ] **Architecture / source boundary:** settle DEC-026. The floor crosses the selected density,
+      analytic D-N and pay paths. `CLAUDE.md` mandates 0.001, while SB-POR-045 and its immutable
+      parameter table require ABSENT after one held source attests both 0.001 and 0.0001. A central
+      registry would amplify whichever side we guessed; it would not adjudicate the contradiction.
+- [ ] **Visual / Manual:** after the precedence decision and implementation, confirm the chosen or
+      required-empty floor state appears once, carries both competing citations, and survives the
+      run/pay record. Jauhar owns this review; a source-tree scan is not UI evidence.
+- [ ] **Field:** blocked. A representative tight/zero-porosity interval must later prove that the
+      explicit floor choice, unlimited companion and pay classification remain distinguishable.
+      No synthetic fixture may be labelled field verification.
+
 ## 2026-08-13 — G2 SB-DBM-023: schema vocabularies have one source
 
 - [x] **Automated:** one typed registry now owns standard columns, sampling style, set frame,
