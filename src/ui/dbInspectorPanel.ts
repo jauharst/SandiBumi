@@ -1,5 +1,9 @@
 import {
+  checkReferentialIntegrity,
   getTablePage,
+  pruneReferentialIntegrity,
+  reapplyReferentialIntegrityPrune,
+  restoreReferentialIntegrityPrune,
   setZoneParam,
   updateComputedSample,
   updateCoreSample,
@@ -7,6 +11,7 @@ import {
   updateWellField,
   upsertTop,
   upsertZone,
+  type IntegrityReport,
   type TablePage,
   type WellSummary,
 } from "../ipc";
@@ -59,6 +64,8 @@ export class DbInspectorPanel {
   private pageInfo!: HTMLElement;
   private prevBtn!: HTMLButtonElement;
   private nextBtn!: HTMLButtonElement;
+  private integrityHost!: HTMLElement;
+  private checkIntegrityBtn!: HTMLButtonElement;
 
   private offset = 0;
   /** The currently displayed page bundled with the (def, well, offset) it was fetched for, so a
@@ -83,6 +90,16 @@ export class DbInspectorPanel {
         <span class="dbi-pageinfo"></span>
         <button class="lp-btn dbi-next">▶</button>
       </div>
+      <section class="dbi-integrity" aria-label="Project integrity">
+        <div class="dbi-integrity-head">
+          <div>
+            <strong>Project integrity</strong>
+            <span class="dbi-integrity-note">Read-only check first; repair uses recoverable quarantine.</span>
+          </div>
+          <button class="lp-btn dbi-check-integrity">Check all classes</button>
+        </div>
+        <div class="dbi-integrity-results placeholder-note">Not checked yet â€” no clean claim has been made.</div>
+      </section>
       <div class="dbi-grid"></div>
       <p class="modal-hint">Double-click a cell to edit; Enter commits, Esc cancels. Edits are undoable (Ctrl+Z).</p>`;
     host.appendChild(this.root);
@@ -93,6 +110,8 @@ export class DbInspectorPanel {
     this.pageInfo = this.root.querySelector<HTMLElement>(".dbi-pageinfo")!;
     this.prevBtn = this.root.querySelector<HTMLButtonElement>(".dbi-prev")!;
     this.nextBtn = this.root.querySelector<HTMLButtonElement>(".dbi-next")!;
+    this.integrityHost = this.root.querySelector<HTMLElement>(".dbi-integrity-results")!;
+    this.checkIntegrityBtn = this.root.querySelector<HTMLButtonElement>(".dbi-check-integrity")!;
 
     for (const t of TABLES) {
       const option = document.createElement("option");
@@ -116,6 +135,7 @@ export class DbInspectorPanel {
         void this.reload();
       }
     });
+    this.checkIntegrityBtn.addEventListener("click", () => void this.runIntegrityCheck());
 
     this.unsub.push(
       appState.selectedWell.subscribe(() => {
@@ -133,6 +153,144 @@ export class DbInspectorPanel {
 
   private tableDef(): TableDef {
     return TABLES.find((t) => t.key === this.tableSel.value)!;
+  }
+
+  private async runIntegrityCheck(): Promise<void> {
+    this.checkIntegrityBtn.disabled = true;
+    this.integrityHost.replaceChildren(messageNode("placeholder-note", "Checking every integrity classâ€¦"));
+    try {
+      this.renderIntegrity(await checkReferentialIntegrity());
+    } catch (err) {
+      this.integrityHost.replaceChildren(messageNode("placeholder-note", `Integrity check failed: ${err}`));
+      setStatus(`Integrity check failed: ${err}`);
+    } finally {
+      this.checkIntegrityBtn.disabled = false;
+    }
+  }
+
+  private renderIntegrity(report: IntegrityReport): void {
+    const summary = document.createElement("div");
+    summary.className = report.finding_count === 0 ? "dbi-integrity-summary ok" : "dbi-integrity-summary warned";
+    summary.textContent = report.summary;
+
+    const table = document.createElement("table");
+    table.className = "dbgrid dbi-integrity-table";
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const label of ["Class", "Count", "Repair", "Required action"]) {
+      const th = document.createElement("th");
+      th.textContent = label;
+      headRow.appendChild(th);
+    }
+    head.appendChild(headRow);
+    table.appendChild(head);
+    const body = document.createElement("tbody");
+    for (const finding of report.classes) {
+      const row = document.createElement("tr");
+      const name = document.createElement("td");
+      name.textContent = finding.name;
+      const count = document.createElement("td");
+      count.textContent = finding.count.toLocaleString();
+      const repair = document.createElement("td");
+      repair.textContent = finding.can_prune
+        ? finding.prunable_count === finding.count
+          ? `${finding.prunable_count.toLocaleString()} quarantinable`
+          : `${finding.prunable_count.toLocaleString()} quarantinable; remainder retained`
+        : "Review only";
+      const action = document.createElement("td");
+      action.textContent = finding.action;
+      row.append(name, count, repair, action);
+      body.appendChild(row);
+    }
+    table.appendChild(body);
+
+    const controls = document.createElement("div");
+    controls.className = "dbi-integrity-controls";
+    const selected = new Map<string, HTMLInputElement>();
+    for (const finding of report.classes.filter((item) => item.can_prune && item.prunable_count > 0)) {
+      const label = document.createElement("label");
+      label.className = "chk-field";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = true;
+      selected.set(finding.class_id, box);
+      label.append(box, document.createTextNode(` ${finding.name}: ${finding.prunable_count.toLocaleString()}`));
+      controls.appendChild(label);
+    }
+    const prune = document.createElement("button");
+    prune.type = "button";
+    prune.className = "lp-btn danger";
+    prune.textContent = `Quarantine selected (${report.prune.prunable_findings.toLocaleString()})`;
+    prune.disabled = selected.size === 0;
+    prune.title = report.prune.recovery;
+    prune.addEventListener("click", async () => {
+      const classIds = [...selected].filter(([, box]) => box.checked).map(([classId]) => classId);
+      if (classIds.length === 0) {
+        setStatus("Select at least one quarantinable integrity class");
+        return;
+      }
+      if (!window.confirm(`Move the selected ${classIds.length} integrity class(es) into recoverable project quarantine?`)) return;
+      prune.disabled = true;
+      try {
+        const receipt = await pruneReferentialIntegrity(classIds);
+        pushUndo({
+          label: `quarantine ${receipt.pruned_findings} integrity finding(s)`,
+          undo: async () => {
+            await restoreReferentialIntegrityPrune(receipt.batch_id);
+            bumpDataVersion();
+            await this.runIntegrityCheck();
+          },
+          redo: async () => {
+            await reapplyReferentialIntegrityPrune(receipt.batch_id);
+            bumpDataVersion();
+            await this.runIntegrityCheck();
+          },
+        });
+        setStatus(`${receipt.pruned_findings} integrity finding(s) moved to recoverable quarantine`);
+        bumpDataVersion();
+        await this.runIntegrityCheck();
+      } catch (err) {
+        setStatus(`Integrity quarantine failed: ${err}`);
+        prune.disabled = false;
+      }
+    });
+    controls.appendChild(prune);
+
+    const recovery = document.createElement("div");
+    recovery.className = "dbi-integrity-recovery";
+    for (const batch of report.recoverable_prunes) {
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.className = "lp-btn";
+      restore.textContent = `Restore quarantine ${batch.created_at} (${batch.pruned_findings})`;
+      restore.addEventListener("click", async () => {
+        restore.disabled = true;
+        try {
+          await restoreReferentialIntegrityPrune(batch.batch_id);
+          pushUndo({
+            label: `restore integrity quarantine ${batch.created_at}`,
+            undo: async () => {
+              await reapplyReferentialIntegrityPrune(batch.batch_id);
+              bumpDataVersion();
+              await this.runIntegrityCheck();
+            },
+            redo: async () => {
+              await restoreReferentialIntegrityPrune(batch.batch_id);
+              bumpDataVersion();
+              await this.runIntegrityCheck();
+            },
+          });
+          bumpDataVersion();
+          await this.runIntegrityCheck();
+        } catch (err) {
+          setStatus(`Quarantine restore failed: ${err}`);
+          restore.disabled = false;
+        }
+      });
+      recovery.appendChild(restore);
+    }
+    this.integrityHost.classList.remove("placeholder-note");
+    this.integrityHost.replaceChildren(summary, table, controls, recovery);
   }
 
   private async reload(): Promise<void> {

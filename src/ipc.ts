@@ -4393,6 +4393,69 @@ export function getTablePage(table: string, wellId: string | null, offset: numbe
   return invoke<TablePage>("get_table_page", { table, wellId, offset, limit });
 }
 
+export interface IntegrityClassReport {
+  class_id: string;
+  name: string;
+  count: number;
+  prunable_count: number;
+  can_prune: boolean;
+  action: string;
+}
+
+export interface IntegrityPruneOffer {
+  offered: boolean;
+  prunable_findings: number;
+  class_ids: string[];
+  recovery: string;
+}
+
+export interface RecoverableIntegrityPrune {
+  batch_id: string;
+  created_at: string;
+  class_ids: string[];
+  pruned_findings: number;
+}
+
+export interface IntegrityReport {
+  classes: IntegrityClassReport[];
+  checked_class_count: number;
+  finding_count: number;
+  summary: string;
+  prune: IntegrityPruneOffer;
+  recoverable_prunes: RecoverableIntegrityPrune[];
+}
+
+export interface IntegrityPruneClassReceipt {
+  class_id: string;
+  pruned_findings: number;
+}
+
+export interface IntegrityPruneReceipt {
+  batch_id: string;
+  pruned_findings: number;
+  classes: IntegrityPruneClassReceipt[];
+}
+
+/** Read-only complete class inventory; never collapses a zero-finding result to bare "clean". */
+export function checkReferentialIntegrity(): Promise<IntegrityReport> {
+  return invoke<IntegrityReport>("check_referential_integrity");
+}
+
+/** Quarantines selected backend-whitelisted orphan classes. No SQL or row payload crosses IPC. */
+export function pruneReferentialIntegrity(classIds: string[]): Promise<IntegrityPruneReceipt> {
+  return invoke<IntegrityPruneReceipt>("prune_referential_integrity", { classIds });
+}
+
+/** Restores one persisted typed-quarantine batch exactly. */
+export function restoreReferentialIntegrityPrune(batchId: string): Promise<number> {
+  return invoke<number>("restore_referential_integrity_prune", { batchId });
+}
+
+/** Reapplies the exact restored batch; refuses if intervening edits changed its identities. */
+export function reapplyReferentialIntegrityPrune(batchId: string): Promise<number> {
+  return invoke<number>("reapply_referential_integrity_prune", { batchId });
+}
+
 export function updateWellField(wellId: string, field: string, value: string | null): Promise<void> {
   return invoke("update_well_field", { wellId, field, value });
 }

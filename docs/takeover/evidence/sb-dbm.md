@@ -358,14 +358,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DBM-T26`; sections 4.5 and 6.6.
 - **Atomic obligations:** enumerate every reference class; report named counts including zero; offer bounded prune/repair; never emit a bare clean result without the class inventory.
-- **Current source:** no central integrity-check command/report inventories dangling archive set ids, group members, curve samples or other references. Foreign keys are not a substitute for the required all-class report.
-- **Qualifying acceptance tests:** none; T26's two dangling classes plus zero-count class are missing. Test class is `MISSING`.
-- **Supporting tests:** individual delete/lookup tests cover local behavior only.
+- **Current source:** `db.rs::check_referential_integrity` returns all seven live classes on every run: current and archive log-set references, missing-well group membership, orphan curve samples, unresolved `ml_models.trained_on`, and current/archive duplicate-depth keys. It counts legacy current `set_id IS NULL` rows but deliberately excludes them from pruning. Typed quarantine tables preserve exact numeric rows in-project; `prune_referential_integrity`, restore and reapply are one-transaction backend-whitelisted actions. `lib.rs`, `ipc.ts` and `dbInspectorPanel.ts` expose the read-only check, explicit selected-class quarantine, persisted recovery and Ctrl+Z/Ctrl+Y without client SQL or sample arrays over IPC.
+- **Qualifying acceptance tests:** exact correctness test `the_integrity_checker_names_every_class_including_zero_counts_offers_a_reversible_prune_and_never_says_clean_without_checking` seeds the cited dangling archive row and missing-well group member, requires the empty curve-sample class by name, asserts every remaining class at zero, proves the check does not mutate the three stores, and exercises quarantine, restore and reapply. Test class is `CORRECTNESS`.
+- **Supporting tests:** none credited; the one owned T26 proof carries the whole contract.
 - **Manual evidence:** `security-integrity` 0/63 and `database-tools` 0/2 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; no checker surface exists at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** the reference-class inventory must be generated from the live schema/writer model rather than hand-waved.
-- **Next action:** build a read-only named-count checker first, add separately authorized prune actions, and implement the full three-class T26 fixture.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated closure. ML provenance and duplicate-depth classes remain report-only because automatic deletion or survivor selection would invent identity policy. Legacy `NULL set_id` rows remain labelled findings rather than data to erase.
+- **Next action:** Jauhar visually and manually exercises check, selected quarantine, restart recovery, Ctrl+Z and Ctrl+Y in Gate 4; a green synthetic fixture is not field acceptance.
 
 ## SB-DBM-028 - A declared sampling style is verified against the reference column on ingest, and the verdict is stored
 

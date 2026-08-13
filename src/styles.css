@@ -3399,6 +3399,66 @@ textarea {
   text-align: center;
 }
 
+.dbi-integrity {
+  flex: 0 0 auto;
+  max-height: 44%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+
+.dbi-integrity-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+}
+
+.dbi-integrity-note {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.dbi-integrity-results.placeholder-note {
+  padding: 10px;
+}
+
+.dbi-integrity-summary {
+  padding: 6px 9px;
+  font-weight: 600;
+}
+
+.dbi-integrity-summary.ok {
+  color: var(--success);
+}
+
+.dbi-integrity-summary.warned {
+  color: var(--warning);
+}
+
+.dbi-integrity-table td:last-child {
+  white-space: normal;
+  min-width: 260px;
+}
+
+.dbi-integrity-controls,
+.dbi-integrity-recovery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-top: 1px solid var(--border);
+}
+
 .dbi-grid {
   flex: 1;
   overflow: auto;

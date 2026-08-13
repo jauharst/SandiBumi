@@ -2708,6 +2708,38 @@ fn get_table_page(
     db::get_table_page(&conn, &table, well_id.as_deref(), offset, limit)
 }
 
+/// Complete, read-only project integrity inventory. Every class is returned even at zero.
+#[tauri::command]
+fn check_referential_integrity(db: tauri::State<DbState>) -> Result<db::IntegrityReport, String> {
+    let conn = db.0.lock().unwrap();
+    db::check_referential_integrity(&conn)
+}
+
+/// Explicitly quarantines only the caller-selected, backend-whitelisted orphan classes.
+/// Duplicate keys and unresolved ML provenance are report-only and cannot enter this path.
+#[tauri::command]
+fn prune_referential_integrity(
+    db: tauri::State<DbState>,
+    class_ids: Vec<String>,
+) -> Result<db::IntegrityPruneReceipt, String> {
+    let conn = db.0.lock().unwrap();
+    db::prune_referential_integrity(&conn, &class_ids)
+}
+
+/// Restores one persisted quarantine batch exactly; used by Ctrl+Z and post-restart recovery.
+#[tauri::command]
+fn restore_referential_integrity_prune(db: tauri::State<DbState>, batch_id: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::restore_referential_integrity_prune(&conn, &batch_id)
+}
+
+/// Reapplies the exact restored batch for Ctrl+Y; refuses if any row changed after undo.
+#[tauri::command]
+fn reapply_referential_integrity_prune(db: tauri::State<DbState>, batch_id: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::reapply_referential_integrity_prune(&conn, &batch_id)
+}
+
 /// Edits one wells-table field (well_name/field_name as text, td/kb as numbers).
 #[tauri::command]
 fn update_well_field(db: tauri::State<DbState>, well_id: String, field: String, value: Option<String>) -> Result<(), String> {
@@ -3851,6 +3883,10 @@ pub fn run() {
             set_well_param_overrides,
             set_zone_param_batch,
             get_table_page,
+            check_referential_integrity,
+            prune_referential_integrity,
+            restore_referential_integrity_prune,
+            reapply_referential_integrity_prune,
             update_well_field,
             update_standard_sample,
             update_computed_sample,

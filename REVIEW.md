@@ -1,5 +1,25 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-027: complete integrity report and recoverable quarantine
+
+- [x] **Automated:** exact SB-DBM-T26 seeds one archive row whose `set_id` cannot resolve and one
+      well-group membership whose well is gone, while leaving orphan curve samples at the cited
+      zero. It requires all seven live classes by name and count, proves the read-only check changes
+      no row, rejects a bare `clean`, and drives selected typed quarantine through restore and exact
+      reapply. The frontend sends class IDs only; no SQL or sample array crosses IPC. Full gate is
+      997 passed / 0 failed / 36 ignored with the existing 55 owned Rust warnings.
+- [ ] **Visual:** open Database Inspector and check at narrow and wide dock widths. Confirm all
+      seven rows, counts, repair eligibility and required actions remain readable; zero findings
+      must say `Checked 7 integrity classes; 0 findings.` rather than showing a generic green
+      badge. Confirm report-only ML/duplicate rows never receive a destructive checkbox.
+- [ ] **Manual:** on a disposable project copy, create or recover a known orphan, run the checker,
+      quarantine only the selected class, close/reopen the app, restore the persisted batch, then
+      exercise Ctrl+Z and Ctrl+Y. Confirm legacy current rows with `set_id IS NULL` remain reported
+      and are not selected for deletion. Jauhar owns this click-through evidence.
+- [ ] **Field:** pending Gate 4. Run the read-only checker on the sanitized representative pilot
+      delivery before and after its workflow. Every nonzero count must be investigated by class;
+      the synthetic 1/1/0 fixture and a green gate do not prove a real project is healthy.
+
 ## 2026-08-13 — G2 SB-DBM-026: depth uniqueness follows declared set type
 
 - [x] **Automated:** exact SB-DBM-T25 drives both `CONTINUOUS_REGULAR` and
