@@ -133,14 +133,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T15`, `SB-DIO-T16`.
 - **Atomic obligations:** prefer a structural declaration where present; honour a format-owned positional guarantee before names; otherwise resolve by alias or explicit designation; report the mechanism.
-- **Current source:** `parsers.rs::resolve_index_column` implements the ordered mechanisms and returns `IndexResolution`; import results carry it through IPC.
-- **Qualifying acceptance tests:** `a_structural_index_wins_and_every_resolution_records_the_mechanism_that_fired` is `CORRECTNESS`; it pins structural and LAS positional controls from the chapter contract.
+- **Current source:** `parsers.rs::resolve_index_column` implements the ordered mechanisms and returns `IndexResolution`; LAS and core import results carry it through IPC. No production reader or Tauri command imports Geolog flat ASCII or consumes a `.flat_ascii_format` `CLASSES` declaration.
+- **Qualifying acceptance tests:** none; test class is `MISSING`. The existing `a_structural_index_wins_and_every_resolution_records_the_mechanism_that_fired` test passed 1/0/0, but only its T16 arm drives the production LAS importer. The T15 arm supplies in-memory headers/classes directly to the resolver, so a tree with no structural file reader still passes.
 - **Supporting tests:** SB-DIO-013 exercises the user-designation outcome.
-- **Manual evidence:** `las-import` 0/57, `delimited-intake` 3/27 and `data-conventions` 0/45.
-- **Git evidence:** reachable `4a6bc9f` contains the closing resolver/report change.
-- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied index contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** none.
-- **Next action:** register any new structural reader through the same result mechanism and add its positive and fallback controls.
+- **Manual evidence:** `las-import` 0/63, `delimited-intake` 3/27 and `data-conventions` 0/80; this re-verification claims no visual, manual or field exercise.
+- **Git evidence:** reachable `4a6bc9f` contains the resolver/result change; current Gate 2 re-verification found that its T15 test arm stops at the helper boundary.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED` on DEC-029. Exact T15 requires an actual Geolog flat-ASCII import, while DEC-003 and G2-T04 define a LAS-2/delimited pilot surface. The cited local specs establish `CLASSES = REFERENCE | LOG`, but engineering will not fabricate a test-only reader or silently widen the approved format surface.
+- **Next action:** after DEC-029, either implement a source-faithful Geolog flat-ASCII import that returns `IndexResolution::StructuralDeclaration` for a non-first reference column and pins its non-structural fallback, or reconcile the acceptance boundary explicitly; retain the passing production LAS T16 arm unchanged.
 
 ## SB-DIO-011 - Index aliases MUST be namespace-aware and MUST have one definition per path.
 

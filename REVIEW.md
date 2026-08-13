@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-010: LAS index proof does not prove the structural-reader arm
+
+- [ ] **Automated contract:** BLOCKED. The existing exact test is green at 1 passed / 0
+      failed / 0 ignored and its LAS arm drives the production importer, proving that a
+      second-column `MD` cannot steal LAS's positionally guaranteed first index and that
+      the public result records `positional_guarantee`. Its structural arm supplies
+      headers and `REFERENCE | LOG` classes directly to `resolve_index_column`; no
+      Geolog flat-ASCII file is read, so it is supporting resolver evidence rather than
+      the chapter's file-import T15. Full gate: 1007 passed / 0 failed / 36 ignored,
+      including backend 950 passed / 0 failed / 36 ignored and 55 owned Rust warnings.
+- **Read-only source evidence — not acceptance:** the cited local Geolog
+      `xyz.flat_ascii_format` declares `CLASSES = REFERENCE LOG LOG`, and a second cited
+      spec uses the row-oriented form. The shipping tree has no Geolog flat-ASCII reader
+      or Tauri import command that consumes either declaration. A test-only spec parser
+      would be another helper, not proof of import behavior.
+- [ ] **Decision / scope:** DEC-029 must reconcile exact T15's Geolog import with
+      DEC-003 and G2-T04's LAS-2/delimited pilot surface. Either authorize the sourced
+      Geolog reader as necessary SB-DIO-010 infrastructure or explicitly correct the
+      acceptance boundary; engineering will do neither silently.
+- [ ] **Visual / Manual / Field:** unavailable for the missing structural-reader arm.
+      The current serialized LAS result is automated evidence, not Jauhar's inspection
+      of an operator-visible decision and not representative-delivery proof.
+
 ## 2026-08-14 — G2 SB-DIO-009: the import result reports the chosen and passed-over aliases
 
 - **Automated — not manual evidence:** exact SB-DIO-T14 drives the production LAS import

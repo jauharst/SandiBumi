@@ -11,7 +11,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 60 | — | 22 |
+| `las-import` | LAS import | Not exercised | 0 / 63 | — | 23 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 14 | — | 9 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 27 | 2026-08-05 | 3 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 52 | — | 9 |
