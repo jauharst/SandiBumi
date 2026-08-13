@@ -29,14 +29,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-UNVERIFIED`; owned test `SB-DIO-T03`.
 - **Atomic obligations:** expose exactly one default writer; require that default to honour the project sentinel; label any incapable format instead of presenting it as equivalent.
-- **Current source:** `export.rs::default_writer` rejects an incapable default, the registry has exactly one default, and `export_formats` exposes the limitation field.
-- **Qualifying acceptance tests:** `the_default_export_format_honours_the_sentinel_and_an_incapable_format_is_marked` passed as `CORRECTNESS`; its non-default sentinel is sourced to chapter section 5.2.
+- **Current source:** `export.rs::default_writer` rejects an incapable default, the registry has exactly one shipping default, and `export_formats` exposes both capability and limitation fields through the whitelisted `list_data_export_formats` command and typed IPC response. No second data format ships, so there is no current alternate picker choice.
+- **Qualifying acceptance tests:** `the_default_export_format_honours_the_sentinel_and_an_incapable_format_is_marked` passed as `CORRECTNESS`; it pins one default, the real default export with the non-default sentinel sourced to chapter section 5.2, and both capability sides for a synthetic incapable format.
 - **Supporting tests:** SB-DIO-001's two registry tests protect the required setting argument.
 - **Manual evidence:** `las-export` 0/2 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** reachable `9e55f06` contains the default-selection closure.
+- **Git evidence:** reachable `9e55f06` contains the default-selection closure; the current `codex/g2-program-plan` increment reverified it against source and exact T03 without adding a fictitious format or picker.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** none.
-- **Next action:** keep the default uniqueness and capability declaration in the writer registry when another format is added.
+- **Blocker or decision:** none for the current one-format product. A future second format creates a new Visual/Manual obligation; the current synthetic capability test is not rendered-picker evidence.
+- **Next action:** retain exact T03 and keep default uniqueness plus the capability declaration when another format is added; Jauhar's default export and Gate 4 representative-delivery checks remain separate evidence.
 
 ## SB-DIO-003 - "This channel has no null" MUST be a first-class state.
 

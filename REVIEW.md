@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-002: the only default export path honours the project sentinel
+
+- **Automated — not manual evidence:** exact SB-DIO-T03 proves the registry has exactly
+      one default, requires that writer to honour the sentinel, exports the cited
+      non-default Baker value through the real default path, and proves an incapable
+      synthetic format exposes its limitation instead of looking equivalent. Full gate:
+      1006 passed / 0 failed / 36 ignored, including backend 949 passed / 0 failed / 36
+      ignored and 55 owned Rust warnings.
+- [ ] **Visual:** no alternate data format ships, so there is currently no meaningful
+      format choice to inspect. When a second format is registered, verify the picker
+      shows exactly one default and renders any sentinel limitation before export.
+- [ ] **Manual:** Jauhar exports a disposable well without changing the format and opens
+      the result independently to confirm the declared project sentinel. This operator
+      workflow is not claimed by exact T03.
+- [ ] **Field:** pending Gate 4; no representative field delivery or third-party reader
+      was exercised by this increment.
+
 ## 2026-08-14 — G2 SB-DIO-001: one project sentinel reaches the complete writer registry
 
 - **Automated — not manual evidence:** exact SB-DIO-T01 sets the cited non-default Baker waveform
