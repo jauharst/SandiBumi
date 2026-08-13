@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-016: fresh-process order independence
+
+- [x] **Automated:** exact SB-DBM-T16 runs two byte-identical copies of one imported two-well
+      project in fresh Rust test processes. Their live 64-key HashMap iteration witnesses must
+      differ, while every computed curve's packed bytemuck depth/value bytes and every pay-summary
+      field must agree exactly. A third process changes recorded Rw and must move both artifacts,
+      preventing an empty or constant comparison from passing. The full gate passes 994 / 0 / 36
+      with 55 owned Rust warnings; no production behavior or scientific value changed.
+- [ ] **Visual:** no new UI exists. During Gate 4, compare the curve catalog and summary presentation
+      after two representative runs; a green binary comparison does not prove understandable
+      presentation or that the operator selected the intended saved inputs.
+- [ ] **Manual:** rerun the approved deterministic chain on a disposable sanitized project, reopen
+      it, and compare the complete curve inventory and summary—not only SWE or one headline net-pay
+      value. Record any mismatch rather than rounding it away.
+- [ ] **Field:** pending Gate 4. The repository fixture proves fresh-process order independence for
+      the approved chain, not a real delivery, a different machine, the absent T15 manifest resolver
+      or any of the 689 deferred requirements. Jauhar records representative field acceptance.
+
 ## 2026-08-13 — G2 SB-DBM-015: complete re-run manifest is dependency-blocked
 
 - [ ] **Automated implementation:** blocked, so deterministic fragments are not presented as the

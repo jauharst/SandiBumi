@@ -215,14 +215,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-UNVERIFIED`; owned test `SB-DBM-T16`; sections 4.2 and 6.3.
 - **Atomic obligations:** output curves and aggregates are byte-identical across processes with different hash seeds and unordered database row traversal.
-- **Current source:** many module and stochastic tests are deterministic for a fixed fixture, and several queries use explicit ordering. There is no complete query/collection inventory and no two-process different-hash-seed project comparison.
-- **Qualifying acceptance tests:** none; T16's process-level byte and aggregate comparison is missing. Test class is `MISSING`.
-- **Supporting tests:** `workflow.rs::test_full_deterministic_chain` and fixed-seed module tests are same-process, bounded-path evidence.
+- **Current source:** `core_determinism_tests.rs` launches the real Rust test executable against copies of one imported two-well project. Each child executes the approved VSH-density/neutron-saturation chain and pay summary, emits every computed curve and aggregate field in a binary artifact and exposes a 64-key live HashMap-order witness. Query-side output packing is explicitly ordered.
+- **Qualifying acceptance tests:** `a_project_run_in_fresh_processes_with_different_hash_orders_produces_identical_curve_bytes_and_aggregate_statistics` is a `CORRECTNESS` proof of T16. It requires two fresh-process witnesses to differ while every packed curve and aggregate byte agrees, then changes recorded Rw in a third process and requires both products to differ.
+- **Supporting tests:** `a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blobs_and_an_identical_pay_summary` remains the same-process SB-CORE-011 proof; T16 adds the process boundary and observed order difference.
 - **Manual evidence:** `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains deterministic fragments; universal order independence is unverified.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the complete rerun manifest from SB-DBM-015 is required to drive the specified comparison.
-- **Next action:** inventory unordered reads/collections and implement T16 as two fresh processes with different hash seeds over the same manifest.
+- **Git evidence:** the Gate 2 topic branch contains the fresh-process binary comparison and an opposite-side sensitivity control; no production behavior or scientific value changed.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the exact approved deterministic pilot chain. This does not close SB-DBM-015's absent stored re-run manifest or extend proof to the 689 deferred requirements.
+- **Next action:** retain T16 in the default gate; Jauhar may field-verify a representative sanitized delivery in Gate 4 without relabelling the automated fixture as field evidence.
 
 ## SB-DBM-017 - A metadata attribute that drives physics is an input of the module that consumes it
 

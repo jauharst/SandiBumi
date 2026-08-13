@@ -8,8 +8,15 @@ use crate::{chain, db, equations, ingest, workflow};
 use duckdb::Connection;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Mutex;
 use uuid::Uuid;
+
+const DBM016_CHILD: &str = "SANDIBUMI_DBM016_CHILD";
+const DBM016_PROJECT: &str = "SANDIBUMI_DBM016_PROJECT";
+const DBM016_OUTPUT: &str = "SANDIBUMI_DBM016_OUTPUT";
+const DBM016_RW: &str = "SANDIBUMI_DBM016_RW";
+const DBM016_TEST_NAME: &str = "core_determinism_tests::a_project_run_in_fresh_processes_with_different_hash_orders_produces_identical_curve_bytes_and_aggregate_statistics";
 
 struct TemporaryFiles(Vec<PathBuf>);
 
@@ -34,6 +41,122 @@ struct ReRunSnapshot {
     curve_blobs: BTreeMap<(String, String), Vec<u8>>,
     ancestry: BTreeMap<String, equations::CurveAncestry>,
     pay_summary: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct ProcessSnapshot {
+    hash_order_witness: Vec<u8>,
+    curve_bytes: Vec<u8>,
+    aggregate_bytes: Vec<u8>,
+}
+
+fn append_u64(bytes: &mut Vec<u8>, value: usize) {
+    bytes.extend_from_slice(&(value as u64).to_le_bytes());
+}
+
+fn append_text(bytes: &mut Vec<u8>, value: &str) {
+    append_u64(bytes, value.len());
+    bytes.extend_from_slice(value.as_bytes());
+}
+
+fn packed_pay_summary(rows: &[workflow::PaySummaryRow]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    append_u64(&mut bytes, rows.len());
+    for row in rows {
+        append_text(&mut bytes, &row.well_id);
+        append_text(&mut bytes, &row.well_name);
+        append_text(&mut bytes, &row.zone);
+        append_text(&mut bytes, &row.flag);
+        let values = [
+            row.top,
+            row.bottom,
+            row.gross,
+            row.net,
+            row.ntg,
+            row.avg_vsh,
+            row.avg_phie,
+            row.avg_swe,
+            row.hpv,
+        ];
+        bytes.extend_from_slice(bytemuck::cast_slice(&values));
+        bytes.extend_from_slice(&(row.n_classified as u64).to_le_bytes());
+        bytes.push(u8::from(row.perm_cutoff_no_data));
+    }
+    bytes
+}
+
+fn packed_curves(curves: &BTreeMap<(String, String), Vec<u8>>) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    append_u64(&mut bytes, curves.len());
+    for ((well_id, curve), samples) in curves {
+        append_text(&mut bytes, well_id);
+        append_text(&mut bytes, curve);
+        append_u64(&mut bytes, samples.len());
+        bytes.extend_from_slice(samples);
+    }
+    bytes
+}
+
+fn hash_order_witness() -> Vec<u8> {
+    let mut unordered = HashMap::new();
+    for index in 0..64 {
+        unordered.insert(format!("HASH_ORDER_{index:02}"), index);
+    }
+    let mut witness = Vec::new();
+    for key in unordered.keys() {
+        append_text(&mut witness, key);
+    }
+    witness
+}
+
+fn write_process_snapshot(path: &Path, snapshot: &ProcessSnapshot) {
+    let mut bytes = b"SBD16\0".to_vec();
+    for part in [
+        &snapshot.hash_order_witness,
+        &snapshot.curve_bytes,
+        &snapshot.aggregate_bytes,
+    ] {
+        append_u64(&mut bytes, part.len());
+        bytes.extend_from_slice(part);
+    }
+    std::fs::write(path, bytes).expect("write the child process binary snapshot");
+}
+
+fn take_snapshot_part(bytes: &[u8], cursor: &mut usize) -> Vec<u8> {
+    let end = *cursor + 8;
+    let len = u64::from_le_bytes(
+        bytes[*cursor..end]
+            .try_into()
+            .expect("snapshot part length is eight bytes"),
+    ) as usize;
+    *cursor = end;
+    let end = *cursor + len;
+    let part = bytes
+        .get(*cursor..end)
+        .expect("snapshot part stays within the artifact")
+        .to_vec();
+    *cursor = end;
+    part
+}
+
+fn read_process_snapshot(path: &Path) -> ProcessSnapshot {
+    let bytes = std::fs::read(path).expect("read the child process binary snapshot");
+    assert!(
+        bytes.starts_with(b"SBD16\0"),
+        "the child artifact has the expected binary header"
+    );
+    let mut cursor = b"SBD16\0".len();
+    let snapshot = ProcessSnapshot {
+        hash_order_witness: take_snapshot_part(&bytes, &mut cursor),
+        curve_bytes: take_snapshot_part(&bytes, &mut cursor),
+        aggregate_bytes: take_snapshot_part(&bytes, &mut cursor),
+    };
+    assert_eq!(
+        cursor,
+        bytes.len(),
+        "the child artifact has no unclassified trailing bytes"
+    );
+    snapshot
 }
 
 fn fixture_las(condition: &str, gr_shift: f32, density_shift: f32) -> String {
@@ -92,7 +215,9 @@ fn representative_steps(rw: f64) -> Vec<chain::ChainStep> {
 }
 
 fn well_ids(conn: &Connection) -> Vec<String> {
-    let mut stmt = conn.prepare("SELECT well_id FROM wells ORDER BY well_id").unwrap();
+    let mut stmt = conn
+        .prepare("SELECT well_id FROM wells ORDER BY well_id")
+        .unwrap();
     stmt.query_map([], |row| row.get(0))
         .unwrap()
         .map(Result::unwrap)
@@ -120,7 +245,10 @@ fn packed_curve_blobs(conn: &Connection) -> BTreeMap<(String, String), Vec<u8>> 
     let mut samples: BTreeMap<(String, String), Vec<f32>> = BTreeMap::new();
     for row in rows {
         let (well_id, curve, depth, value) = row.unwrap();
-        samples.entry((well_id, curve)).or_default().extend([depth, value]);
+        samples
+            .entry((well_id, curve))
+            .or_default()
+            .extend([depth, value]);
     }
     samples
         .into_iter()
@@ -131,7 +259,11 @@ fn packed_curve_blobs(conn: &Connection) -> BTreeMap<(String, String), Vec<u8>> 
 fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
     let conn = db::init_db(project.to_str().unwrap()).expect("open isolated project copy");
     let ids = well_ids(&conn);
-    assert_eq!(ids.len(), 2, "the full rerun fixture must exercise more than one well");
+    assert_eq!(
+        ids.len(),
+        2,
+        "the full rerun fixture must exercise more than one well"
+    );
     let db = Mutex::new(conn);
     let registry = chain::new_registry();
     let job_id = Uuid::new_v4();
@@ -151,7 +283,10 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
     );
     match chain::status(&registry, job_id).expect("recorded chain status") {
         chain::ChainStatus::Completed { errors, .. } => {
-            assert!(errors.is_empty(), "the recorded chain must complete cleanly: {errors:?}");
+            assert!(
+                errors.is_empty(),
+                "the recorded chain must complete cleanly: {errors:?}"
+            );
         }
         status => panic!("the recorded chain did not complete: {status:?}"),
     }
@@ -187,8 +322,57 @@ fn execute_recorded_chain(project: &Path, rw: f64) -> ReRunSnapshot {
     ReRunSnapshot {
         curve_blobs,
         ancestry,
-        pay_summary: serde_json::to_vec(&pay).expect("serialize pay summary deterministically"),
+        pay_summary: packed_pay_summary(&pay),
     }
+}
+
+fn run_dbm016_child() {
+    let project = PathBuf::from(std::env::var_os(DBM016_PROJECT).expect("child project path"));
+    let output = PathBuf::from(std::env::var_os(DBM016_OUTPUT).expect("child output path"));
+    let rw = std::env::var(DBM016_RW)
+        .expect("child Rw fixture")
+        .parse::<f64>()
+        .expect("child Rw fixture is numeric");
+    let result = execute_recorded_chain(&project, rw);
+    assert!(
+        !result.curve_blobs.is_empty(),
+        "the process proof cannot compare an empty output"
+    );
+    for required in ["VSH", "PHIE", "SWE"] {
+        assert!(
+            result
+                .curve_blobs
+                .keys()
+                .any(|(_, curve)| curve == required),
+            "the fresh-process chain must write {required}"
+        );
+    }
+    write_process_snapshot(
+        &output,
+        &ProcessSnapshot {
+            hash_order_witness: hash_order_witness(),
+            curve_bytes: packed_curves(&result.curve_blobs),
+            aggregate_bytes: result.pay_summary,
+        },
+    );
+}
+
+fn launch_dbm016_child(project: &Path, output: &Path, rw: f64) -> ProcessSnapshot {
+    let result = Command::new(std::env::current_exe().expect("current Rust test executable"))
+        .args(["--exact", DBM016_TEST_NAME, "--nocapture"])
+        .env(DBM016_CHILD, "1")
+        .env(DBM016_PROJECT, project)
+        .env(DBM016_OUTPUT, output)
+        .env(DBM016_RW, rw.to_string())
+        .output()
+        .expect("launch a fresh Rust test process");
+    assert!(
+        result.status.success(),
+        "fresh-process run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    read_process_snapshot(output)
 }
 
 #[test]
@@ -201,14 +385,20 @@ fn a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blob
     std::fs::write(&low, fixture_las("LOW_SHALE_RESPONSE", 0.0, 0.0)).unwrap();
     std::fs::write(&high, fixture_las("HIGH_SHALE_RESPONSE", 18.0, 0.08)).unwrap();
 
-    let baseline = temporary.track(std::env::temp_dir().join(format!("core011_base_{token}.duckdb")));
+    let baseline =
+        temporary.track(std::env::temp_dir().join(format!("core011_base_{token}.duckdb")));
     {
         let conn = db::init_db(baseline.to_str().unwrap()).expect("create baseline project");
-        let paths = vec![low.to_string_lossy().to_string(), high.to_string_lossy().to_string()];
+        let paths = vec![
+            low.to_string_lossy().to_string(),
+            high.to_string_lossy().to_string(),
+        ];
         let imported = ingest::import_las_files(&conn, &paths, None);
         assert_eq!(imported.len(), 2);
         assert!(
-            imported.iter().all(|result| result.error.is_none() && result.rows == 8),
+            imported
+                .iter()
+                .all(|result| result.error.is_none() && result.rows == 8),
             "both deterministic LAS fixtures must import completely: {imported:?}"
         );
         let mut stmt = conn
@@ -238,16 +428,22 @@ fn a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blob
         conn.execute_batch("CHECKPOINT").unwrap();
     }
 
-    let first_path = temporary.track(std::env::temp_dir().join(format!("core011_first_{token}.duckdb")));
-    let second_path = temporary.track(std::env::temp_dir().join(format!("core011_second_{token}.duckdb")));
-    let changed_path = temporary.track(std::env::temp_dir().join(format!("core011_changed_{token}.duckdb")));
+    let first_path =
+        temporary.track(std::env::temp_dir().join(format!("core011_first_{token}.duckdb")));
+    let second_path =
+        temporary.track(std::env::temp_dir().join(format!("core011_second_{token}.duckdb")));
+    let changed_path =
+        temporary.track(std::env::temp_dir().join(format!("core011_changed_{token}.duckdb")));
     std::fs::copy(&baseline, &first_path).unwrap();
     std::fs::copy(&baseline, &second_path).unwrap();
     std::fs::copy(&baseline, &changed_path).unwrap();
 
     let first = execute_recorded_chain(&first_path, 0.10);
     let second = execute_recorded_chain(&second_path, 0.10);
-    assert!(!first.curve_blobs.is_empty(), "an empty output cannot prove determinism");
+    assert!(
+        !first.curve_blobs.is_empty(),
+        "an empty output cannot prove determinism"
+    );
     for required in ["VSH", "PHIE", "SWE"] {
         assert!(
             first.curve_blobs.keys().any(|(_, curve)| curve == required),
@@ -262,7 +458,10 @@ fn a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blob
         first.pay_summary, second.pay_summary,
         "SB-CORE-T16 requires the serialized pay summary to be identical"
     );
-    assert_eq!(first.ancestry.keys().collect::<Vec<_>>(), second.ancestry.keys().collect::<Vec<_>>());
+    assert_eq!(
+        first.ancestry.keys().collect::<Vec<_>>(),
+        second.ancestry.keys().collect::<Vec<_>>()
+    );
     for (well_id, original) in &first.ancestry {
         let replay = &second.ancestry[well_id];
         assert!(
@@ -276,6 +475,93 @@ fn a_recorded_raw_import_to_pay_summary_rerun_produces_byte_identical_curve_blob
     // Pin the other side: the comparison must be sensitive to a recorded input change rather
     // than passing because it captured no numbers or compared only lengths.
     let changed = execute_recorded_chain(&changed_path, 0.50);
-    assert_ne!(first.curve_blobs, changed.curve_blobs, "a changed recorded Rw must move curve bytes");
-    assert_ne!(first.pay_summary, changed.pay_summary, "a changed recorded Rw must move the pay result");
+    assert_ne!(
+        first.curve_blobs, changed.curve_blobs,
+        "a changed recorded Rw must move curve bytes"
+    );
+    assert_ne!(
+        first.pay_summary, changed.pay_summary,
+        "a changed recorded Rw must move the pay result"
+    );
+}
+
+#[test]
+fn a_project_run_in_fresh_processes_with_different_hash_orders_produces_identical_curve_bytes_and_aggregate_statistics(
+) {
+    // CORRECTNESS — exact equality is required by 22_database-model.md SB-DBM-T16; the
+    // fixture numbers are structural inputs and are not adopted petrophysical defaults.
+    if std::env::var_os(DBM016_CHILD).is_some() {
+        run_dbm016_child();
+        return;
+    }
+
+    let token = Uuid::new_v4();
+    let mut temporary = TemporaryFiles(Vec::new());
+    let low = temporary.track(std::env::temp_dir().join(format!("dbm016_low_{token}.las")));
+    let high = temporary.track(std::env::temp_dir().join(format!("dbm016_high_{token}.las")));
+    std::fs::write(&low, fixture_las("LOW_SHALE_RESPONSE", 0.0, 0.0)).unwrap();
+    std::fs::write(&high, fixture_las("HIGH_SHALE_RESPONSE", 18.0, 0.08)).unwrap();
+
+    let baseline =
+        temporary.track(std::env::temp_dir().join(format!("dbm016_base_{token}.duckdb")));
+    {
+        let conn =
+            db::init_db(baseline.to_str().unwrap()).expect("create DBM-016 baseline project");
+        let paths = vec![
+            low.to_string_lossy().to_string(),
+            high.to_string_lossy().to_string(),
+        ];
+        let imported = ingest::import_las_files(&conn, &paths, None);
+        assert_eq!(imported.len(), 2);
+        assert!(
+            imported
+                .iter()
+                .all(|result| result.error.is_none() && result.rows == 8),
+            "both structural LAS fixtures must import completely: {imported:?}"
+        );
+        conn.execute_batch("CHECKPOINT").unwrap();
+    }
+
+    let first_project =
+        temporary.track(std::env::temp_dir().join(format!("dbm016_first_{token}.duckdb")));
+    let second_project =
+        temporary.track(std::env::temp_dir().join(format!("dbm016_second_{token}.duckdb")));
+    let changed_project =
+        temporary.track(std::env::temp_dir().join(format!("dbm016_changed_{token}.duckdb")));
+    let first_output =
+        temporary.track(std::env::temp_dir().join(format!("dbm016_first_{token}.bin")));
+    let second_output =
+        temporary.track(std::env::temp_dir().join(format!("dbm016_second_{token}.bin")));
+    let changed_output =
+        temporary.track(std::env::temp_dir().join(format!("dbm016_changed_{token}.bin")));
+    for destination in [&first_project, &second_project, &changed_project] {
+        std::fs::copy(&baseline, destination).unwrap();
+    }
+
+    let first = launch_dbm016_child(&first_project, &first_output, 0.10);
+    let second = launch_dbm016_child(&second_project, &second_output, 0.10);
+    assert_ne!(
+        first.hash_order_witness, second.hash_order_witness,
+        "the two fresh processes must demonstrate different randomized HashMap iteration orders"
+    );
+    assert_eq!(
+        first.curve_bytes, second.curve_bytes,
+        "SB-DBM-T16 requires every packed output curve to be byte-identical"
+    );
+    assert_eq!(
+        first.aggregate_bytes, second.aggregate_bytes,
+        "SB-DBM-T16 requires every aggregate-statistic field to be byte-identical"
+    );
+
+    // Pin the other side: the comparison must observe scientific output rather than a constant,
+    // empty or metadata-only artifact.
+    let changed = launch_dbm016_child(&changed_project, &changed_output, 0.50);
+    assert_ne!(
+        first.curve_bytes, changed.curve_bytes,
+        "a changed recorded Rw must move curve bytes"
+    );
+    assert_ne!(
+        first.aggregate_bytes, changed.aggregate_bytes,
+        "a changed recorded Rw must move aggregate statistics"
+    );
 }
