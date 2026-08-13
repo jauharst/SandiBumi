@@ -3585,6 +3585,44 @@ mod las_depth_tests {
         );
     }
 
+    /// CHARACTERIZATION — SB-DIO-008 / SB-DIO-T12/T13. The coverage rule and
+    /// strictly-greater tie-break are characterized as requested by chapter §6; the
+    /// declared deep-resistivity priority comes from chapter §5.3. Fixture values are
+    /// row markers, not petrophysical expected values.
+    #[test]
+    fn characterizes_greater_finite_coverage_as_winner_and_an_equal_coverage_tie_as_declared_alias_priority() {
+        let populated_body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. COVERAGE :\n\
+                              ~CURVE\nDEPT.M :\nNPHIED.V/V :\nNPHI_LS.V/V :\n~ASCII\n\
+                              1000.0 -999.25 0.20\n1000.5 -999.25 0.21\n";
+        let populated_path = temp("sandibumi_alias_greater_coverage.las", populated_body);
+        let populated = parse_las_2(&populated_path).unwrap();
+        std::fs::remove_file(&populated_path).ok();
+        assert_eq!(
+            populated.nphi,
+            vec![0.20, 0.21],
+            "the populated later alias wins over the all-null earlier alias"
+        );
+
+        assert_eq!(
+            &RES_ALIASES[..2],
+            &["RES_DEEP", "RESD"],
+            "the tie expectation is the chapter's declared alias priority"
+        );
+        let tied_body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. TIE :\n\
+                         ~CURVE\nDEPT.M :\nRESD.OHMM :\nRES_DEEP.OHMM :\n~ASCII\n\
+                         1000.0 101.0 11.0\n1000.5 102.0 12.0\n";
+        let tied_path = temp("sandibumi_alias_equal_coverage.las", tied_body);
+        let first = parse_las_2(&tied_path).unwrap();
+        let second = parse_las_2(&tied_path).unwrap();
+        std::fs::remove_file(&tied_path).ok();
+        assert_eq!(
+            first.res,
+            vec![11.0, 12.0],
+            "equal coverage follows alias priority even when source-column order is reversed"
+        );
+        assert_eq!(second.res, first.res, "re-importing the same tie makes the identical choice");
+    }
+
     /// SB-DIO-011 / SB-DIO-T17. The three path-specific lists and Geolog's
     /// separate reference/welltie namespaces are cited in chapter §5.3.
     #[test]

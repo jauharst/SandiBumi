@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-008: alias coverage wins and exact ties follow the declared priority
+
+- **Automated characterization — not correctness or manual evidence:** exact
+      SB-DIO-T12/T13 imports an all-null earlier `NPHIED` beside populated `NPHI_LS`,
+      then imports an equal-coverage `RESD`/`RES_DEEP` pair whose source-column order is
+      deliberately opposite the chapter's declared alias priority. The populated alias
+      wins, both repeated tie imports choose `RES_DEEP`, and the test says
+      `characterizes_...` because chapter §6 classifies these outputs as characterizations.
+      Full gate: 1007 passed / 0 failed / 36 ignored, including backend 950 passed / 0
+      failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Visual:** import both disposable fixtures and inspect the alias-decision surface so
+      the winner, passed-over columns, finite counts and declared tie priority are readable.
+- [ ] **Manual:** Jauhar independently repeats the equal-coverage import and confirms the
+      same binding, while recognizing that automated repeatability is not cross-machine
+      operator evidence.
+- [ ] **Field:** pending Gate 4; no representative delivery with competing aliases has
+      established that the declared priority is appropriate for the pilot data.
+
 ## 2026-08-14 — G2 SB-DIO-007: empty versus explicitly nulled is blocked on its deliverable representation
 
 - [ ] **Automated contract:** BLOCKED. Exact SB-DIO-T11 requires consecutive empty and

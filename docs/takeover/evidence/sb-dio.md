@@ -108,13 +108,13 @@
 - **Chapter evidence:** P1; chapter status `PRESENT-OK`; owned tests `SB-DIO-T12`, `SB-DIO-T13` (characterization).
 - **Atomic obligations:** choose greatest finite coverage; retain alias-priority order on exact ties by replacing only on strict improvement; remain deterministic.
 - **Current source:** the LAS `pick` closure counts finite samples, replaces only when coverage is strictly greater and scans candidates in declared alias order.
-- **Qualifying acceptance tests:** no tests are mapped to T12/T13; test class is `MISSING`.
-- **Supporting tests:** SB-DIO-009's result test uses the all-null-versus-populated fixture and proves the greatest-coverage side, but no equal-coverage control pins the tie rule.
-- **Manual evidence:** `las-import` 0/57, `generic-curve-store` 0/18 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** the algorithm is integrated at the accepted anchor; no owned characterization closure was found.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no source parameter is missing; the equal-coverage contract is unpinned.
-- **Next action:** add one characterization test containing both the populated-later candidate and an exact-coverage tie, asserting the cited alias order.
+- **Qualifying acceptance tests:** `characterizes_greater_finite_coverage_as_winner_and_an_equal_coverage_tie_as_declared_alias_priority` is `CHARACTERIZATION`, matching chapter §6's T12/T13 classification; fixture numbers are row markers, while the expected priority comes from chapter §5.3. It pins the populated-later case plus a reversed-source-order exact tie on two imports.
+- **Supporting tests:** SB-DIO-009's correctness test proves that the selected and passed-over coverages reach the import result; it does not own T12/T13's choice behavior.
+- **Manual evidence:** the generated matrix currently shows `las-import` 0/60, `generic-curve-store` 0/18 and `data-conventions` 4/80, but legacy checked Automated entries contaminate the checked count; this increment claims no Jauhar-confirmed manual or field exercise.
+- **Git evidence:** the algorithm is integrated at the accepted anchor; the current `codex/g2-program-plan` increment adds the missing owned characterization without changing production behavior.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied characterization contract); `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for the owned characterization; it must not be relabelled as correctness or field evidence.
+- **Next action:** retain exact T12/T13 with the source-order reversal and repeat control; Jauhar's rendered choice and representative-delivery assessment remain Visual/Manual/Field evidence.
 
 ## SB-DIO-009 - The alias choice MUST be reported.
 

@@ -79,6 +79,7 @@
 "SB-DIO-004","CORRECTNESS","src-tauri/src/parsers.rs","null_recognition_is_one_relative_tolerance_transform_and_recognition_never_rewrites"
 "SB-DIO-005","CORRECTNESS","src-tauri/src/parsers.rs","two_channels_with_different_plural_nulls_are_screened_against_their_own_values_only"
 "SB-DIO-006","CORRECTNESS","src-tauri/src/parsers.rs","one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset"
+"SB-DIO-008","CHARACTERIZATION","src-tauri/src/parsers.rs","characterizes_greater_finite_coverage_as_winner_and_an_equal_coverage_tie_as_declared_alias_priority"
 "SB-DIO-009","CORRECTNESS","src-tauri/src/ingest.rs","the_alias_result_names_the_chosen_and_passed_over_columns_with_both_coverage_counts"
 "SB-DIO-010","CORRECTNESS","src-tauri/src/ingest.rs","a_structural_index_wins_and_every_resolution_records_the_mechanism_that_fired"
 "SB-DIO-011","CORRECTNESS","src-tauri/src/parsers.rs","every_index_alias_list_cites_one_source_and_tvd_is_not_in_an_md_namespace"
