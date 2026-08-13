@@ -1,5 +1,32 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-006: each run names the curve decision it actually used
+
+- [x] **Automated:** SB-DBM-T08 creates three GR curves across two imported sets, marks one
+      curve Final, runs a module, reflags the other set and runs again. It requires the exact
+      chosen UUID/set/version, both rejected UUID/set/version identities, `FINAL_FLAG`, the
+      changed choice, independently derived output bytes and refusal of an incomplete schema-v2
+      record. A second two-sided regression requires a RAW family match to beat an exact mnemonic
+      outside RAW, then requires that attached exact curve after the RAW curve is removed. Existing
+      native-track and deterministic-replay regressions remain green. The full repository gate
+      passes 991 / 0 / 36 with 55 owned Rust warnings; no petrophysical value,
+      endpoint, cutoff, range or default was introduced, and `computed_curves` remains PK-less
+      with no upsert path.
+- [ ] **Visual:** in Curve Catalog, confirm exactly one curve in a duplicated family carries the
+      Final badge, Mark/Clear Final is understandable, and Ancestry presents the chosen identity,
+      set/version, decision rule and rejected candidates without requiring raw JSON. Confirm an
+      ordinary blank-set log track still shows its established current standard projection.
+- [ ] **Manual:** in a disposable project, load three same-family curves across two sets, mark one
+      Final, run a module, reflag a different curve and rerun. Query both run records and confirm
+      each winner, both rejected candidates and set versions match the actual numeric inputs.
+      Also request a family that RAW carries under an alias while an attached set carries the exact
+      mnemonic: confirm RAW wins, then delete the RAW curve and confirm the attached curve becomes
+      eligible. Undo the reflag and confirm the displaced Final designation is restored.
+- [ ] **Field:** repeat the decision trace on a representative pilot well with a genuinely
+      duplicated delivered curve family. Confirm a reviewer can explain which physical curve fed
+      the result and why. Automated synthetic evidence does not close this check; Jauhar records
+      field acceptance.
+
 ## 2026-08-13 — G2 SB-DBM-005: method derivation is source-blocked
 
 - [ ] **Automated implementation:** blocked, so no synthetic mechanism test is presented as proof

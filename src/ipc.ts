@@ -1030,6 +1030,24 @@ export interface AncestryInput {
   log_set: string;
   set_version: number | null;
   set_id: string;
+  /** Exact stored curve identity (native imported UUID or computed set/name composite);
+   *  absent only on readable schema-v1 history. */
+  chosen_curve_id?: string;
+  /** Controlled resolution stage that selected the stored identity. */
+  rule?:
+    | "EXPLICIT_NAME"
+    | "WORKING_INPUT_SET"
+    | "ALIAS_OFF"
+    | "ALIAS_MANUAL"
+    | "ALIAS_AUTOMATIC"
+    | "FINAL_FLAG"
+    | "CURVE_TYPE_MRU";
+  /** Candidates considered by the same resolver and not selected. */
+  rejected_candidates?: Array<{
+    curve_id: string;
+    log_set: string;
+    set_version: number | null;
+  }>;
 }
 
 export interface AncestryParameter {
@@ -4666,6 +4684,12 @@ export interface GenericCurveInventoryEntry {
   set_name: string;
   source: string | null;
   run_no: number | null;
+  /** Version of this stored curve-set identity; changes when resolving metadata changes. */
+  set_version: number;
+  /** Curve-level Final designation used by the declared resolver. */
+  final_flag: boolean;
+  /** Monotonic metadata revision; null only on pre-SB-DBM-006 history. */
+  modified_seq: number | null;
   /** True when the user promoted this curve to win its (well, set, mnemonic) group. */
   pinned: boolean;
 }
@@ -4700,6 +4724,11 @@ export function deleteGenericCurve(curveId: string): Promise<void> {
  *  (the DLIS/LAS same-mnemonic shadow tiebreak). */
 export function promoteGenericCurve(curveId: string): Promise<void> {
   return invoke<void>("promote_generic_curve", { curveId });
+}
+
+/** Changes the curve-level Final designation and returns the previously Final identity, if any. */
+export function setGenericCurveFinal(curveId: string, isFinal: boolean): Promise<string | null> {
+  return invoke<string | null>("set_generic_curve_final", { curveId, isFinal });
 }
 
 /** A curve's editable identity — returned by `updateCurveMeta` as it was BEFORE the edit,

@@ -1072,7 +1072,7 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
         .collect();
     let module = "deviation:materialize_tvd";
     let ancestry = crate::equations::CurveAncestry {
-        schema_version: 1,
+        schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
         module: module.into(),
         module_version: env!("CARGO_PKG_VERSION").into(),
         inputs: vec![crate::equations::AncestryInput {
@@ -1082,6 +1082,12 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
             log_set: survey.survey_name.clone(),
             set_version: None,
             set_id: format!("survey:{}:{}:{}", well_id, survey.survey_name, imported_at),
+            chosen_curve_id: Some(format!(
+                "survey:{}:{}:{}",
+                well_id, survey.survey_name, imported_at
+            )),
+            rule: Some(crate::equations::CurveResolutionRule::ExplicitName),
+            rejected_candidates: Vec::new(),
         }],
         parameters,
         zone_scope: crate::equations::AncestryZoneScope::WholeWell,

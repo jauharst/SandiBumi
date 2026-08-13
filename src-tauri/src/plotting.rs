@@ -1204,20 +1204,17 @@ fn resolve_one_curve(
         }));
     }
 
-    let generic = conn
+    let generic = crate::equations::resolve_generic_curve_id(conn, well_id, &request)
+        .map_err(|error| error.to_string())?
+        .and_then(|curve_id| conn
         .query_row(
             "SELECT curve_id, mnemonic, unit, family,
                     (SELECT COUNT(*) FROM curve_samples s
                      WHERE s.curve_id = m.curve_id AND s.value IS NOT NULL AND isfinite(s.value)),
                     set_name, COALESCE(pinned, 0), run_no
              FROM curve_meta m
-             WHERE well_id = ?1 AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
-             ORDER BY (set_name = 'RAW') DESC,
-                      (upper(mnemonic) = ?2) DESC,
-                      (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
-                      set_name, run_no NULLS FIRST, curve_id
-             LIMIT 1",
-            params![well_id, request],
+             WHERE curve_id = ?1",
+            params![curve_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -1231,7 +1228,7 @@ fn resolve_one_curve(
                 ))
             },
         )
-        .ok();
+        .ok());
     let Some((curve_id, mnemonic, unit, family, count, set_name, pinned, run_no)) = generic else {
         return Ok(None);
     };

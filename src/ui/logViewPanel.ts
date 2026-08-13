@@ -723,9 +723,12 @@ export class LogViewPanel {
           )
           .sort((a, b) => {
             if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-            if (a.run_no == null && b.run_no != null) return -1;
-            if (a.run_no != null && b.run_no == null) return 1;
-            if (a.run_no !== b.run_no) return (a.run_no ?? 0) - (b.run_no ?? 0);
+            if (a.modified_seq == null && b.modified_seq != null) return 1;
+            if (a.modified_seq != null && b.modified_seq == null) return -1;
+            if (a.modified_seq !== b.modified_seq) return (b.modified_seq ?? 0) - (a.modified_seq ?? 0);
+            if (a.run_no == null && b.run_no != null) return 1;
+            if (a.run_no != null && b.run_no == null) return -1;
+            if (a.run_no !== b.run_no) return (b.run_no ?? 0) - (a.run_no ?? 0);
             return a.curve_id.localeCompare(b.curve_id);
           });
         if (candidates[0]?.unit) units.set(trackCurveKey(request), candidates[0].unit);

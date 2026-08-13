@@ -2,6 +2,7 @@ use duckdb::{params, params_from_iter, Connection, OptionalExt};
 use rayon::prelude::*;
 use rhai::{Engine, Scope, AST};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -228,7 +229,8 @@ fn fetch_generic_curve_native(
     let curve_id: Option<String> = match conn.query_row(
         "SELECT curve_id FROM curve_meta
              WHERE well_id = ?1 AND set_name = ?2 AND upper(mnemonic) = ?3
-             ORDER BY COALESCE(pinned, 0) DESC, run_no NULLS FIRST, curve_id
+             ORDER BY COALESCE(pinned, 0) DESC, modified_seq DESC NULLS LAST,
+                      run_no DESC NULLS LAST, curve_id
              LIMIT 1",
         params![well_id, set_name, curve_name],
         |row| row.get(0),
@@ -556,7 +558,7 @@ pub(crate) fn fetch_curve_frame(conn: &Connection, well_id: &str, curve_names: &
 
     if !resolve.is_empty() {
         // One batched computed_curves read for every deferred name; then per name, fall back
-        // to the generic RAW store (mnemonic/family aliased) exactly as the per-curve path did
+        // to the generic store (mnemonic/family aliased) exactly as the per-curve path did
         // whenever the computed lookup yields nothing usable.
         let computed = fetch_computed_curves_batch(conn, well_id, &resolve, &depth)?;
         for upper in resolve {
@@ -686,8 +688,11 @@ pub fn curve_sampling(
             .query_row(
                 "SELECT curve_id FROM curve_meta
                  WHERE well_id = ?1 AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
-                 ORDER BY (set_name = 'RAW') DESC, (upper(mnemonic) = ?2) DESC,
-                          set_name, run_no NULLS FIRST, curve_id
+                 ORDER BY (set_name = 'RAW') DESC,
+                          (upper(mnemonic) = ?2) DESC,
+                          (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
+                          COALESCE(final_flag, 0) DESC,
+                          modified_seq DESC NULLS LAST, curve_id
                  LIMIT 1",
                 params![well_id, upper],
                 |row| row.get(0),
@@ -744,47 +749,149 @@ pub fn well_frame(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<f32>> 
     stmt.query_map(params![well_id], |r| r.get::<_, f32>(0))?.collect()
 }
 
-/// Looks up a curve in the generic store (`curve_meta`/`curve_samples`) by
-/// mnemonic-or-family and aligns its samples onto the depth grid. Set RAW has ABSOLUTE
-/// priority — any RAW match (mnemonic or family) beats any match from another set, so
-/// every resolution that worked before import-sets landed is byte-identical. Only when
-/// RAW has no candidate at all does the search widen to the well's other sets (attached
-/// deliveries like FPROOH/MULTIMIN — T-IMP-02), ordered by set_name for determinism when
-/// two sets carry the same mnemonic. Within a set: exact mnemonic matches win over family
-/// matches; among exact-mnemonic matches a user-PINNED curve wins, else the base run
-/// (lowest `run_no`, NULL first). `pinned` is scoped per (well, set, mnemonic) by
-/// `db::promote_generic_curve`, so the tiebreak applies it ONLY when the request is that exact
-/// mnemonic (the `CASE WHEN upper(mnemonic)=?2` guard) — a family-name request must rank purely
-/// by run_no, or a pin placed on one member mnemonic would hijack a different member of the same
-/// family. A final `curve_id` key keeps the pick deterministic when every other key ties (e.g.
-/// two same-family base-run curves). Promote a curve in the Curve Catalog to resolve DLIS/LAS
-/// shadowing.
+#[derive(Debug, Clone)]
+struct GenericCurveCandidate {
+    curve_id: String,
+    set_name: String,
+    set_version: i64,
+    mnemonic: String,
+    pinned: bool,
+    final_flag: bool,
+    modified_seq: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+struct GenericCurveDecision {
+    chosen: GenericCurveCandidate,
+    rule: Option<CurveResolutionRule>,
+    rejected: Vec<GenericCurveCandidate>,
+}
+
+/// Resolves a generic-store curve once, returning both the winner and the candidates it beat.
+/// The same decision feeds the numeric reader and the persisted ancestry record; duplicating the
+/// ORDER BY in those two paths would allow a run to record one GR while calculating from another.
+///
+/// `final_flag` is an explicit, reversible curve-level decision. A set named `FINAL` is not enough:
+/// one set can contain several runs of the same family, and treating its label as the decision would
+/// recreate the ambiguity this record is meant to expose. RAW is the ordinary working input set
+/// and therefore precedes every later filter. Exact mnemonic, user promotion and MRU are
+/// deterministic stages within the selected working-set tier.
+fn resolve_generic_curve_decision(
+    conn: &Connection,
+    well_id: &str,
+    curve_name: &str,
+) -> duckdb::Result<Option<GenericCurveDecision>> {
+    let upper = curve_name.trim().to_uppercase();
+    let mut stmt = conn.prepare(
+        "SELECT curve_id, set_name, set_version, mnemonic, COALESCE(pinned, 0),
+                COALESCE(final_flag, 0), modified_seq
+         FROM curve_meta
+         WHERE well_id = ?1
+           AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
+         ORDER BY (set_name = 'RAW') DESC,
+                  (upper(mnemonic) = ?2) DESC,
+                  (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
+                  COALESCE(final_flag, 0) DESC,
+                  modified_seq DESC NULLS LAST,
+                  curve_id",
+    )?;
+    let candidates = stmt
+        .query_map(params![well_id, upper], |row| {
+            Ok(GenericCurveCandidate {
+                curve_id: row.get(0)?,
+                set_name: row.get(1)?,
+                set_version: row.get(2)?,
+                mnemonic: row.get(3)?,
+                pinned: row.get::<_, i32>(4)? != 0,
+                final_flag: row.get::<_, i32>(5)? != 0,
+                modified_seq: row.get(6)?,
+            })
+        })?
+        .collect::<duckdb::Result<Vec<_>>>()?;
+    let Some(chosen) = candidates.first().cloned() else {
+        return Ok(None);
+    };
+    let rejected = candidates[1..].to_vec();
+    let exact = |candidate: &GenericCurveCandidate| candidate.mnemonic.eq_ignore_ascii_case(&upper);
+    let working = |candidate: &GenericCurveCandidate| candidate.set_name.eq_ignore_ascii_case("RAW");
+    let mut survivors: Vec<&GenericCurveCandidate> = candidates.iter().collect();
+
+    let had_working_choice = survivors.iter().any(|candidate| working(candidate))
+        && survivors.iter().any(|candidate| !working(candidate));
+    if had_working_choice {
+        survivors.retain(|candidate| working(candidate));
+    }
+    let rule = if had_working_choice && survivors.len() == 1 {
+        CurveResolutionRule::WorkingInputSet
+    } else {
+        let chosen_exact = exact(&chosen);
+        let had_exact_choice = survivors.iter().any(|candidate| exact(candidate))
+            && survivors.iter().any(|candidate| !exact(candidate));
+        if had_exact_choice {
+            survivors.retain(|candidate| exact(candidate));
+        }
+        if survivors.len() == 1 {
+            if chosen_exact {
+                CurveResolutionRule::ExplicitName
+            } else {
+                CurveResolutionRule::AliasAutomatic
+            }
+        } else {
+            let chosen_manual = chosen_exact && chosen.pinned;
+            survivors.retain(|candidate| (exact(candidate) && candidate.pinned) == chosen_manual);
+            if survivors.len() == 1 && chosen_manual {
+                CurveResolutionRule::AliasManual
+            } else {
+                survivors.retain(|candidate| candidate.final_flag == chosen.final_flag);
+                if survivors.len() == 1 {
+                    CurveResolutionRule::FinalFlag
+                } else {
+                    CurveResolutionRule::CurveTypeMru
+                }
+            }
+        }
+    };
+    let rule = if rule == CurveResolutionRule::CurveTypeMru
+        && chosen.modified_seq.is_none()
+        && survivors.iter().any(|candidate| {
+            candidate.curve_id != chosen.curve_id && candidate.modified_seq.is_none()
+        })
+    {
+        None
+    } else {
+        Some(rule)
+    };
+    Ok(Some(GenericCurveDecision {
+        chosen,
+        rule,
+        rejected,
+    }))
+}
+
+/// The chosen native curve id for non-ancestry consumers. Keeping this tiny projection beside the
+/// full decision prevents plots and diagnostics from copying the precedence SQL and drifting away
+/// from the bytes and provenance used by module runs.
+pub(crate) fn resolve_generic_curve_id(
+    conn: &Connection,
+    well_id: &str,
+    curve_name: &str,
+) -> duckdb::Result<Option<String>> {
+    Ok(resolve_generic_curve_decision(conn, well_id, curve_name)?
+        .map(|decision| decision.chosen.curve_id))
+}
+
+/// Looks up a curve in the generic store (`curve_meta`/`curve_samples`) by the one structured
+/// resolution decision above and aligns its samples onto the depth grid.
 fn fetch_generic_curve_aligned(
     conn: &Connection,
     well_id: &str,
     curve_name: &str,
     depth_grid: &[f32],
 ) -> duckdb::Result<Vec<f32>> {
-    let upper = curve_name.trim().to_uppercase();
-    let curve_id: Option<String> = conn
-        .query_row(
-            "SELECT curve_id FROM curve_meta
-             WHERE well_id = ?1
-               AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
-             ORDER BY (set_name = 'RAW') DESC,
-                      (upper(mnemonic) = ?2) DESC,
-                      (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
-                      set_name,
-                      run_no NULLS FIRST,
-                      curve_id
-             LIMIT 1",
-            params![well_id, upper],
-            |row| row.get(0),
-        )
-        .ok();
-    let Some(curve_id) = curve_id else {
+    let Some(decision) = resolve_generic_curve_decision(conn, well_id, curve_name)? else {
         return Ok(vec![f32::NAN; depth_grid.len()]);
     };
+    let curve_id = decision.chosen.curve_id;
 
     let mut stmt = conn.prepare("SELECT depth, value FROM curve_samples WHERE curve_id = ?1")?;
     let rows = stmt.query_map(params![curve_id], |row| {
@@ -796,6 +903,37 @@ fn fetch_generic_curve_aligned(
         by_depth.insert(d.to_bits(), v);
     }
     Ok(depth_grid.iter().map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN)).collect())
+}
+
+/// Replaces only legacy standard-column projections with their native stored identities for a
+/// calculation input. Ordinary track reads deliberately retain the projection contract; module
+/// and input-set reads need this overlay so the numeric bytes and SB-DBM-006 decision record are
+/// produced by the same resolver. Curves supplied by an explicitly selected computed set are
+/// excluded because that earlier stage already won the documented resolution chain.
+fn overlay_resolved_native_standard_inputs(
+    conn: &Connection,
+    well_id: &str,
+    curve_names: &[String],
+    depth: &[f32],
+    columns: &mut HashMap<String, Vec<f32>>,
+    resolved_from_selected_set: &std::collections::HashSet<String>,
+) -> duckdb::Result<()> {
+    for name in curve_names {
+        let upper = name.trim().to_uppercase();
+        if upper == "DEPTH"
+            || !STANDARD_COLUMNS.contains(&upper.as_str())
+            || resolved_from_selected_set.contains(&upper)
+        {
+            continue;
+        }
+        if resolve_generic_curve_decision(conn, well_id, &upper)?.is_some() {
+            columns.insert(
+                upper.clone(),
+                fetch_generic_curve_aligned(conn, well_id, &upper, depth)?,
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Computed-provenance-only resolution for unit-contract inputs (ArgSpec.computed_only,
@@ -895,6 +1033,7 @@ pub struct LogSetSpec {
 /// remain readable; the complete record travels with the same log-set row every current/archive
 /// curve already cites.
 pub(crate) const CURVE_ANCESTRY_KEY: &str = "_sandibumi_curve_ancestry_v1";
+pub(crate) const CURVE_ANCESTRY_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -936,6 +1075,25 @@ impl RunCustody {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CurveResolutionRule {
+    ExplicitName,
+    WorkingInputSet,
+    AliasOff,
+    AliasManual,
+    AliasAutomatic,
+    FinalFlag,
+    CurveTypeMru,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RejectedCurveCandidate {
+    pub curve_id: String,
+    pub log_set: String,
+    pub set_version: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AncestryInput {
     pub well_id: String,
     pub argument: String,
@@ -943,6 +1101,18 @@ pub struct AncestryInput {
     pub log_set: String,
     pub set_version: Option<i64>,
     pub set_id: String,
+    /// The exact stored curve identity that supplied this input. Imported curves use their native
+    /// curve UUID; computed curves use the resolvable `computed:<set UUID>:<curve name>` composite
+    /// because the current computed store has no standalone curve UUID. Absent only on readable
+    /// schema-v1 history written before SB-DBM-006; every schema-v2 writer is fail-closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chosen_curve_id: Option<String>,
+    /// The declared resolution stage that selected `chosen_curve_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<CurveResolutionRule>,
+    /// Every candidate considered by the same resolver after the winner, in deterministic order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejected_candidates: Vec<RejectedCurveCandidate>,
 }
 
 pub(crate) const REQUIRED_UNSET_PARAMETER_STATE: &str = "REQUIRED_UNSET";
@@ -1143,7 +1313,7 @@ impl CurveAncestry {
                 return Err(format!("complete curve ancestry is missing {field}"));
             }
         }
-        if self.schema_version != 1 {
+        if !(1..=CURVE_ANCESTRY_SCHEMA_VERSION).contains(&self.schema_version) {
             return Err(format!(
                 "unsupported curve ancestry schema version {}",
                 self.schema_version
@@ -1169,6 +1339,56 @@ impl CurveAncestry {
                     "input '{}' has an invalid log-set version",
                     input.curve
                 ));
+            }
+            match (input.chosen_curve_id.as_deref(), input.rule.as_ref()) {
+                (Some(curve_id), Some(_)) if !curve_id.trim().is_empty() => {}
+                (None, None) if self.schema_version == 1 => {}
+                (Some(_), None) | (None, Some(_)) => {
+                    return Err(format!(
+                        "input '{}' has an incomplete curve-resolution decision",
+                        input.curve
+                    ));
+                }
+                _ => {
+                    return Err(format!(
+                        "input '{}' has no chosen curve identity",
+                        input.curve
+                    ));
+                }
+            }
+            let chosen = input.chosen_curve_id.as_deref();
+            if chosen.is_none() && !input.rejected_candidates.is_empty() {
+                return Err(format!(
+                    "input '{}' has rejected candidates without a chosen curve identity",
+                    input.curve
+                ));
+            }
+            let mut rejected_ids = std::collections::HashSet::new();
+            for candidate in &input.rejected_candidates {
+                if candidate.curve_id.trim().is_empty() || candidate.log_set.trim().is_empty() {
+                    return Err(format!(
+                        "input '{}' has an incomplete rejected curve identity",
+                        input.curve
+                    ));
+                }
+                if candidate.set_version.is_some_and(|version| version < 1) {
+                    return Err(format!(
+                        "input '{}' has a rejected candidate with an invalid set version",
+                        input.curve
+                    ));
+                }
+                if chosen == Some(candidate.curve_id.as_str()) {
+                    return Err(format!(
+                        "input '{}' lists its chosen curve as rejected",
+                        input.curve
+                    ));
+                }
+                if !rejected_ids.insert(candidate.curve_id.as_str()) {
+                    return Err(format!(
+                        "input '{}' repeats a rejected curve identity",
+                        input.curve
+                    ));
+                }
             }
         }
         for parameter in &self.parameters {
@@ -1305,7 +1525,12 @@ pub(crate) fn try_resolve_ancestry_input(
     own_set_id: Option<&str>,
 ) -> Result<Option<AncestryInput>, String> {
     let upper = curve.trim().to_uppercase();
-    let from_log_set = |set_id: &str| -> Result<AncestryInput, String> {
+    let computed_curve_id = |set_id: &str| format!("computed:{set_id}:{upper}");
+    let from_log_set = |
+        set_id: &str,
+        rule: CurveResolutionRule,
+        rejected_candidates: Vec<RejectedCurveCandidate>,
+    | -> Result<AncestryInput, String> {
         let (set_name, version): (String, i64) = conn
             .query_row(
                 "SELECT set_name, version FROM log_sets WHERE set_id = ?1",
@@ -1322,6 +1547,9 @@ pub(crate) fn try_resolve_ancestry_input(
             log_set: set_name,
             set_version: Some(version),
             set_id: set_id.to_string(),
+            chosen_curve_id: Some(computed_curve_id(set_id)),
+            rule: Some(rule),
+            rejected_candidates,
         })
     };
 
@@ -1334,23 +1562,47 @@ pub(crate) fn try_resolve_ancestry_input(
             )
             .is_ok();
         if found {
-            return from_log_set(set_id).map(Some);
+            return from_log_set(
+                set_id,
+                CurveResolutionRule::WorkingInputSet,
+                Vec::new(),
+            )
+            .map(Some);
         }
     }
     if let Some(set_name) = input_set.map(str::trim).filter(|value| !value.is_empty()) {
-        let set_id: Option<String> = conn
-            .query_row(
-                "SELECT s.set_id FROM log_sets s
-                 WHERE s.well_id = ?1 AND upper(s.set_name) = upper(?2)
-                   AND EXISTS (SELECT 1 FROM computed_curves_archive a
-                               WHERE a.set_id = s.set_id AND upper(a.curve_name) = ?3)
-                 ORDER BY s.version DESC LIMIT 1",
-                params![well_id, set_name, upper],
-                |row| row.get(0),
+        let selected: Vec<(String, String, i64)> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT s.set_id, s.set_name, s.version FROM log_sets s
+                     WHERE s.well_id = ?1 AND upper(s.set_name) = upper(?2)
+                       AND EXISTS (SELECT 1 FROM computed_curves_archive a
+                                   WHERE a.set_id = s.set_id AND upper(a.curve_name) = ?3)
+                     ORDER BY s.version DESC, s.set_id",
+                )
+                .map_err(|error| error.to_string())?;
+            stmt.query_map(params![well_id, set_name, upper], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .map_err(|error| error.to_string())?
+            .collect::<duckdb::Result<Vec<_>>>()
+            .map_err(|error| error.to_string())?
+        };
+        if let Some((set_id, _, _)) = selected.first() {
+            let rejected_candidates = selected[1..]
+                .iter()
+                .map(|(candidate_id, candidate_set, version)| RejectedCurveCandidate {
+                    curve_id: computed_curve_id(candidate_id),
+                    log_set: candidate_set.clone(),
+                    set_version: Some(*version),
+                })
+                .collect();
+            return from_log_set(
+                set_id,
+                CurveResolutionRule::WorkingInputSet,
+                rejected_candidates,
             )
-            .ok();
-        if let Some(set_id) = set_id {
-            return from_log_set(&set_id).map(Some);
+            .map(Some);
         }
     }
 
@@ -1372,44 +1624,54 @@ pub(crate) fn try_resolve_ancestry_input(
                 "input computed curve '{curve}' has no single live ancestry record"
             ));
         }
-        return from_log_set(set_ids[0].as_deref().expect("checked above")).map(Some);
+        return from_log_set(
+            set_ids[0].as_deref().expect("checked above"),
+            CurveResolutionRule::ExplicitName,
+            Vec::new(),
+        )
+        .map(Some);
     }
 
-    let find_import = || -> Result<Option<(String, String, Option<i64>)>, String> {
-        conn.query_row(
-            "SELECT curve_id, set_name, run_no FROM curve_meta
-             WHERE well_id = ?1 AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
-             ORDER BY (set_name = 'RAW') DESC,
-                      (upper(mnemonic) = ?2) DESC,
-                      (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
-                      set_name, run_no NULLS FIRST, curve_id
-             LIMIT 1",
-            params![well_id, upper],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .map(Some)
-        .or_else(|error| match error {
-            duckdb::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(other),
-        })
-        .map_err(|error| error.to_string())
-    };
-    let mut imported = find_import()?;
+    let mut imported = resolve_generic_curve_decision(conn, well_id, &upper)
+        .map_err(|error| error.to_string())?;
     if imported.is_none() {
         crate::db::migrate_standard_curves_to_generic_store(conn)
             .map_err(|error| error.to_string())?;
-        imported = find_import()?;
+        imported = resolve_generic_curve_decision(conn, well_id, &upper)
+            .map_err(|error| error.to_string())?;
     }
-    let Some((curve_id, set_name, run_no)) = imported else {
+    let Some(GenericCurveDecision {
+        chosen,
+        rule,
+        rejected,
+    }) = imported
+    else {
         return Ok(None);
     };
+    let rule = rule.ok_or_else(|| {
+        format!(
+            "input curve '{curve}' has tied legacy candidates with no recorded modification order"
+        )
+    })?;
+    let rejected_candidates = rejected
+        .into_iter()
+        .map(|candidate| RejectedCurveCandidate {
+            curve_id: candidate.curve_id,
+            log_set: candidate.set_name,
+            set_version: Some(candidate.set_version),
+        })
+        .collect();
+    let chosen_curve_id = chosen.curve_id.clone();
     Ok(Some(AncestryInput {
         well_id: well_id.to_string(),
         argument: argument.to_string(),
         curve: upper,
-        log_set: set_name,
-        set_version: run_no,
-        set_id: curve_id,
+        log_set: chosen.set_name,
+        set_version: Some(chosen.set_version),
+        set_id: chosen_curve_id.clone(),
+        chosen_curve_id: Some(chosen_curve_id),
+        rule: Some(rule),
+        rejected_candidates,
     }))
 }
 
@@ -1575,7 +1837,7 @@ pub(crate) fn complete_curve_run_spec(
         }],
     };
     let ancestry = CurveAncestry {
-        schema_version: 1,
+        schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
         module: module.trim().to_string(),
         module_version: env!("CARGO_PKG_VERSION").to_string(),
         inputs: resolved_inputs,
@@ -2342,16 +2604,34 @@ pub(crate) fn create_log_sets_batch(
     Ok(planned.into_iter().map(|(w, _, s)| (w, s)).collect())
 }
 
+/// A workflow chain can cite an output from an earlier step in the same not-yet-registered set.
+/// Its final stored identity must be exact, but it must also survive a deterministic replay of the
+/// same well, set name and version. A UUIDv8-shaped SHA-256 digest supplies that internal key; an
+/// ordinary module set without a self-reference keeps the existing random UUID allocation.
+fn deterministic_chain_set_id(well_id: &str, set_name: &str, version: i64) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(well_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(set_name.as_bytes());
+    hasher.update([0]);
+    hasher.update(version.to_le_bytes());
+    let digest = hasher.finalize();
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x80;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes).to_string()
+}
+
 /// Per-well complete batch registration. Unlike the legacy batch API, every well carries its own
 /// zone/input resolution snapshot while the inserts still share one transaction.
 pub(crate) fn create_complete_log_sets_batch(
     conn: &Connection,
     wells: &[CompleteWellLogSet],
 ) -> Result<HashMap<String, CompleteSetId>, String> {
-    let mut planned: Vec<(String, i64, String, &CompleteLogSetSpec)> =
+    let mut planned: Vec<(String, i64, String, CompleteLogSetSpec)> =
         Vec::with_capacity(wells.len());
     for well in wells {
-        well.spec.ancestry.validate()?;
         let version: i64 = conn
             .query_row(
                 "SELECT COALESCE(MAX(version), 0) + 1 FROM log_sets WHERE well_id = ?1 AND set_name = ?2",
@@ -2359,11 +2639,51 @@ pub(crate) fn create_complete_log_sets_batch(
                 |row| row.get(0),
             )
             .map_err(|error| error.to_string())?;
+        let mut spec = well.spec.clone();
+        let had_self_inputs = spec
+            .ancestry
+            .inputs
+            .iter()
+            .any(|input| input.set_id == "SELF");
+        let set_id = if had_self_inputs {
+            deterministic_chain_set_id(&well.well_id, &spec.storage.set_name, version)
+        } else {
+            Uuid::new_v4().to_string()
+        };
+        if had_self_inputs {
+            for input in spec
+                .ancestry
+                .inputs
+                .iter_mut()
+                .filter(|input| input.set_id == "SELF")
+            {
+                input.log_set = spec.storage.set_name.clone();
+                input.set_version = Some(version);
+                input.set_id = set_id.clone();
+                input.chosen_curve_id = Some(format!("computed:{set_id}:{}", input.curve));
+            }
+            let mut params: serde_json::Value = serde_json::from_str(&spec.storage.params_json)
+                .map_err(|error| format!("cannot bind chain input identities: {error}"))?;
+            let object = params.as_object_mut().ok_or_else(|| {
+                "cannot bind chain input identities in a non-object parameter record".to_string()
+            })?;
+            object.insert(
+                CURVE_ANCESTRY_KEY.into(),
+                serde_json::to_value(&spec.ancestry)
+                    .map_err(|error| format!("cannot bind chain ancestry: {error}"))?,
+            );
+            spec.storage.params_json = params.to_string();
+            // Workflow-chain legacy input JSON is the same AncestryInput array. Keep it aligned
+            // with the complete record rather than persisting the planning-only SELF marker.
+            spec.storage.inputs_json = serde_json::to_string(&spec.ancestry.inputs)
+                .map_err(|error| format!("cannot bind chain legacy inputs: {error}"))?;
+        }
+        spec.ancestry.validate()?;
         planned.push((
             well.well_id.clone(),
             version,
-            Uuid::new_v4().to_string(),
-            &well.spec,
+            set_id,
+            spec,
         ));
     }
     crate::db::with_txn(conn, |conn| {
@@ -2549,6 +2869,14 @@ pub(crate) fn fetch_curve_frame_from_set(
 ) -> duckdb::Result<CurveFrame> {
     let (mut depth, mut columns) = fetch_curve_frame(conn, well_id, curve_names)?;
     let Some(set_name) = input_set.map(str::trim).filter(|s| !s.is_empty()) else {
+        overlay_resolved_native_standard_inputs(
+            conn,
+            well_id,
+            curve_names,
+            &depth,
+            &mut columns,
+            &Default::default(),
+        )?;
         return Ok((depth, columns));
     };
 
@@ -2589,15 +2917,25 @@ pub(crate) fn fetch_curve_frame_from_set(
         )
         .ok();
     let Some(set_id) = set_id else {
+        overlay_resolved_native_standard_inputs(
+            conn,
+            well_id,
+            curve_names,
+            &depth,
+            &mut columns,
+            &Default::default(),
+        )?;
         return Ok((depth, columns));
     };
 
     let mut stmt = conn.prepare(
         "SELECT depth, value FROM computed_curves_archive WHERE set_id = ?1 AND upper(curve_name) = ?2",
     )?;
+    let mut resolved_from_selected_set = std::collections::HashSet::new();
     for name in curve_names {
         let upper = name.trim().to_uppercase();
         if own_curves.contains(&upper) {
+            resolved_from_selected_set.insert(upper);
             continue; // written by an earlier step of this very run — keep the fresh values
         }
         let rows = stmt.query_map(params![set_id, upper], |row| {
@@ -2611,11 +2949,20 @@ pub(crate) fn fetch_curve_frame_from_set(
         if by_depth.is_empty() {
             continue; // set never wrote this curve — keep the fallback resolution
         }
+        resolved_from_selected_set.insert(upper.clone());
         columns.insert(
             upper,
             depth.iter().map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN)).collect(),
         );
     }
+    overlay_resolved_native_standard_inputs(
+        conn,
+        well_id,
+        curve_names,
+        &depth,
+        &mut columns,
+        &resolved_from_selected_set,
+    )?;
     Ok((depth, columns))
 }
 
@@ -2811,7 +3158,7 @@ pub(crate) fn write_computed_curves_batch(
         return Ok(());
     }
     let ancestry = CurveAncestry {
-        schema_version: 1,
+        schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
         module: "TEST_FIXTURE".into(),
         module_version: env!("CARGO_PKG_VERSION").into(),
         inputs: Vec::new(),
@@ -3345,9 +3692,9 @@ mod tests {
         assert!((cols["PERM"][0] - 12.5).abs() < 1e-4);
     }
 
-    /// DLIS/LAS same-mnemonic shadow resolution: the LAS curve (run NULL) wins by DEFAULT
-    /// (backward-compatible — nothing pinned); a user PROMOTE flips the winner to the DLIS
-    /// curve and is at-most-one-pinned; DELETE of the winner falls back to the surviving
+    /// DLIS/LAS same-mnemonic shadow resolution: the most recently stored curve wins by default;
+    /// a user PROMOTE flips the winner to the older curve and is at-most-one-pinned; DELETE of
+    /// the winner falls back to the surviving
     /// sibling. Exercises the equations resolver + db::promote/delete_generic_curve together.
     #[test]
     fn generic_curve_promote_and_delete_resolve_shadowing() {
@@ -3364,8 +3711,8 @@ mod tests {
         )
         .unwrap();
 
-        // Two RAW 'PEF' curves colliding on the mnemonic: LAS (run NULL, value 1.0) and
-        // DLIS (run 0, value 2.0).
+        // Two RAW 'PEF' curves colliding on the mnemonic: LAS (stored first, value 1.0) and
+        // DLIS (stored second, value 2.0).
         let las = db::upsert_curve_meta(&conn, &wid, "RAW", "PEF", Some("B/E"), Some("PEF"), Some("LAS import"), None).unwrap();
         db::insert_curve_samples(&conn, &las, &depths, &[1.0, 1.0, 1.0]).unwrap();
         let dlis = db::upsert_curve_meta(&conn, &wid, "RAW", "PEF", Some("B/E"), Some("PEF"), Some("DLIS import"), Some(0)).unwrap();
@@ -3373,23 +3720,23 @@ mod tests {
 
         let pef = |c: &Connection| fetch_curve_frame(c, &wid, &["PEF".to_string()]).unwrap().1["PEF"][0];
 
-        assert_eq!(pef(&conn), 1.0, "LAS (NULL run) wins by default");
-        db::promote_generic_curve(&conn, &dlis).unwrap();
-        assert_eq!(pef(&conn), 2.0, "promoted DLIS wins");
+        assert_eq!(pef(&conn), 2.0, "most-recently-stored DLIS wins by default");
         db::promote_generic_curve(&conn, &las).unwrap();
-        assert_eq!(pef(&conn), 1.0, "re-promoted LAS wins again (at-most-one-pinned)");
-        db::delete_generic_curve(&conn, &las).unwrap();
-        assert_eq!(pef(&conn), 2.0, "after deleting the winner, the sibling resolves");
+        assert_eq!(pef(&conn), 1.0, "promoted LAS wins");
+        db::promote_generic_curve(&conn, &dlis).unwrap();
+        assert_eq!(pef(&conn), 2.0, "re-promoted DLIS wins again (at-most-one-pinned)");
+        db::delete_generic_curve(&conn, &dlis).unwrap();
+        assert_eq!(pef(&conn), 1.0, "after deleting the winner, the sibling resolves");
 
         let cat = db::list_generic_curve_catalog(&conn, &wid).unwrap();
-        assert!(cat.iter().all(|c| c.curve_id != las), "deleted curve gone from catalog");
-        assert!(cat.iter().any(|c| c.curve_id == dlis && !c.pinned), "DLIS present and unpinned");
+        assert!(cat.iter().all(|c| c.curve_id != dlis), "deleted curve gone from catalog");
+        assert!(cat.iter().any(|c| c.curve_id == las && !c.pinned), "LAS present and unpinned");
     }
 
     /// A user PIN on one family member must not hijack a FAMILY-name request that resolves a
     /// DIFFERENT member of the same family. `pinned` is scoped per (well, set, mnemonic) by
     /// `db::promote_generic_curve`; the resolver applies it only to exact-mnemonic matches, so a
-    /// family request still ranks by run_no and the base run (NULL) keeps winning after a sibling
+    /// family request still ranks by modification order after a sibling
     /// mnemonic is promoted. Guards the `CASE WHEN upper(mnemonic)=?2 ...` pin gate shared by
     /// `fetch_generic_curve_aligned` and `curve_edit::locate_curve`.
     #[test]
@@ -3409,21 +3756,93 @@ mod tests {
         .unwrap();
 
         // Two RAW caliper curves in family CALI with DIFFERENT mnemonics — neither equals the
-        // family string "CALI": HCAL (base run, NULL) and DCAL (run 0).
-        let hcal = db::upsert_curve_meta(&conn, &wid, "RAW", "HCAL", Some("in"), Some("CALI"), Some("LAS import"), None).unwrap();
-        db::insert_curve_samples(&conn, &hcal, &depths, &[8.0, 8.0, 8.0]).unwrap();
+        // family string "CALI": DCAL is stored first, then HCAL is the MRU winner.
         let dcal = db::upsert_curve_meta(&conn, &wid, "RAW", "DCAL", Some("in"), Some("CALI"), Some("DLIS import"), Some(0)).unwrap();
         db::insert_curve_samples(&conn, &dcal, &depths, &[9.0, 9.0, 9.0]).unwrap();
+        let hcal = db::upsert_curve_meta(&conn, &wid, "RAW", "HCAL", Some("in"), Some("CALI"), Some("LAS import"), None).unwrap();
+        db::insert_curve_samples(&conn, &hcal, &depths, &[8.0, 8.0, 8.0]).unwrap();
 
         let cali = |c: &Connection| fetch_curve_frame(c, &wid, &["CALI".to_string()]).unwrap().1["CALI"][0];
 
-        // Base run (HCAL, NULL) wins the family bucket by default.
-        assert_eq!(cali(&conn), 8.0, "base-run family member wins the family request by default");
+        // The most recently stored HCAL wins the family bucket by default.
+        assert_eq!(cali(&conn), 8.0, "MRU family member wins the family request by default");
         // Promoting DCAL resolves a DCAL-vs-DCAL mnemonic shadow — it must NOT hijack the CALI
         // family request, because DCAL's mnemonic != the requested family name. (Pre-fix this
-        // returned 9.0: pinned sorted ahead of run_no even for the family path.)
+        // returned 9.0: pinned sorted ahead of the ordinary family tie-break.)
         db::promote_generic_curve(&conn, &dcal).unwrap();
         assert_eq!(cali(&conn), 8.0, "a pin on a sibling mnemonic must not hijack the family bucket");
+    }
+
+    /// CORRECTNESS — source: `CLAUDE.md` rule 10a and its import-set build record. RAW has
+    /// absolute priority even when an attached set carries the exact requested mnemonic; the
+    /// attached exact curve becomes eligible only after RAW no longer carries that family.
+    #[test]
+    fn a_raw_family_match_beats_an_exact_mnemonic_outside_the_working_set_until_raw_is_absent() {
+        use crate::db;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well, "RAW-PRIORITY-1", None, None, None).unwrap();
+        let well_id = well.to_string();
+        let depths = vec![100.0_f32, 101.0, 102.0];
+        db::insert_standard_curves(
+            &conn,
+            well,
+            depths.clone(),
+            vec![10.0_f32; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+        )
+        .unwrap();
+
+        let raw_family = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "RAW",
+            "HCAL",
+            Some("in"),
+            Some("CALI"),
+            Some("LAS import"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &raw_family, &depths, &[8.0, 8.0, 8.0]).unwrap();
+        let attached_exact = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "WIRE",
+            "CALI",
+            Some("in"),
+            Some("CALI"),
+            Some("LAS import"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &attached_exact, &depths, &[12.0, 12.0, 12.0]).unwrap();
+
+        let first = resolve_generic_curve_decision(&conn, &well_id, "CALI")
+            .unwrap()
+            .expect("the family is present");
+        assert_eq!(first.chosen.curve_id, raw_family);
+        assert_eq!(first.rule, Some(CurveResolutionRule::WorkingInputSet));
+        assert_eq!(first.rejected.len(), 1);
+        assert_eq!(first.rejected[0].curve_id, attached_exact);
+        let (_, columns) = fetch_curve_frame(&conn, &well_id, &["CALI".into()]).unwrap();
+        assert_eq!(columns["CALI"], [8.0, 8.0, 8.0]);
+
+        db::delete_generic_curve(&conn, &raw_family).unwrap();
+        let fallback = resolve_generic_curve_decision(&conn, &well_id, "CALI")
+            .unwrap()
+            .expect("the attached exact curve remains");
+        assert_eq!(fallback.chosen.curve_id, attached_exact);
+        assert_eq!(fallback.rule, Some(CurveResolutionRule::ExplicitName));
+        assert!(fallback.rejected.is_empty());
+        let (_, columns) = fetch_curve_frame(&conn, &well_id, &["CALI".into()]).unwrap();
+        assert_eq!(columns["CALI"], [12.0, 12.0, 12.0]);
     }
 
     /// The raw-IPC buffer must round-trip: pack two series, decode by hand exactly the way
@@ -3769,7 +4188,7 @@ mod tests {
         db::insert_well(&conn, well_id, "SOURCE-STATE", None, None, Some(0.0)).unwrap();
 
         let ancestry = CurveAncestry {
-            schema_version: 1,
+            schema_version: CURVE_ANCESTRY_SCHEMA_VERSION,
             module: "synthetic_source_state_fixture".into(),
             module_version: "fixture-build".into(),
             inputs: Vec::new(),

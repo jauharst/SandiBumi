@@ -221,10 +221,13 @@ fn complete_chain_sets(
                     inputs.push(crate::equations::AncestryInput {
                         well_id: well_id.to_string(),
                         argument,
-                        curve,
+                        curve: curve.clone(),
                         log_set: set_name.to_string(),
                         set_version: None,
                         set_id: "SELF".into(),
+                        chosen_curve_id: Some(format!("SELF:{curve}")),
+                        rule: Some(crate::equations::CurveResolutionRule::WorkingInputSet),
+                        rejected_candidates: Vec::new(),
                     });
                     present_arguments.insert(arg.name.clone());
                 } else {
@@ -290,7 +293,7 @@ fn complete_chain_sets(
         };
         let inputs_json = serde_json::to_string(&inputs).map_err(|error| error.to_string())?;
         let ancestry = crate::equations::CurveAncestry {
-            schema_version: 1,
+            schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
             module: module_identity.clone(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,

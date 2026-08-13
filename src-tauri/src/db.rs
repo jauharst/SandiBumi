@@ -794,9 +794,11 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (doc_type, name)
         );
 
+        CREATE SEQUENCE IF NOT EXISTS curve_meta_modified_seq START 1;
+
         -- Phase 6: generic curve store. Unlike `standard_curves` (fixed 6 mnemonics),
-        -- this holds ANY curve at ANY name, in one of several named sets (RAW = as
-        -- imported, EDIT = user-edited, FINAL = QC'd for delivery). `curve_meta` is the
+        -- this holds ANY curve at ANY name, in one of several named sets. Set labels describe
+        -- custody; the separate curve-level Final flag records a resolving decision. `curve_meta` is the
         -- catalog row (one per curve per set); `curve_samples` is the long/tall value
         -- store, mirroring the `computed_curves` pattern so new curves never need a
         -- schema migration.
@@ -810,10 +812,26 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             source      VARCHAR,          -- e.g. 'LAS import', 'DLIS import', 'computed'
             run_no      INTEGER,
             pinned      INTEGER DEFAULT 0,  -- 1 = user-promoted winner for its (well,set,mnemonic)
+            set_version INTEGER NOT NULL DEFAULT 1,
+            final_flag  INTEGER NOT NULL DEFAULT 0,
+            modified_seq BIGINT NOT NULL DEFAULT nextval('curve_meta_modified_seq'),
             UNIQUE (well_id, set_name, mnemonic, run_no)
         );
         -- `pinned` added via ALTER so existing project databases converge on the same shape.
         ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS pinned INTEGER DEFAULT 0;
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS set_version INTEGER DEFAULT 1;
+        UPDATE curve_meta SET set_version = 1 WHERE set_version IS NULL;
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS final_flag INTEGER;
+        -- A historical set name is not evidence that one particular curve identity was selected
+        -- from duplicate runs in that set. Existing rows therefore start unflagged rather than
+        -- receiving an invented Final decision during migration.
+        UPDATE curve_meta SET final_flag = 0 WHERE final_flag IS NULL;
+        ALTER TABLE curve_meta ALTER COLUMN final_flag SET DEFAULT 0;
+        -- Existing rows predate a recoverable modification order and stay NULL. New or edited
+        -- rows receive a monotonic revision so SB-DBM-006 can truthfully apply MRU; the resolver
+        -- refuses an otherwise-tied legacy collision instead of inventing which old row was last.
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS modified_seq BIGINT;
+        ALTER TABLE curve_meta ALTER COLUMN modified_seq SET DEFAULT nextval('curve_meta_modified_seq');
 
         -- SB-MLA-055. A row here DECLARES that a curve's values are class identifiers — a facies
         -- code, a litho code, a predicted class — and not a quantity. Averaging or interpolating
@@ -1144,8 +1162,11 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
             let curve_id = Uuid::new_v4().to_string();
             let unit = UNITS.iter().find(|(f, _)| f == family).map(|(_, u)| *u);
             conn.execute(
-                "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no)
-                 VALUES (?1, ?2, 'RAW', ?3, ?4, ?5, 'standard_curves migration', NULL)",
+                "INSERT INTO curve_meta
+                    (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no,
+                     set_version, final_flag, modified_seq)
+                 VALUES (?1, ?2, 'RAW', ?3, ?4, ?5, 'standard_curves migration', NULL,
+                         1, 0, nextval('curve_meta_modified_seq'))",
                 params![curve_id, well_id, mnemonic, unit, family],
             )?;
             conn.execute(
@@ -7098,6 +7119,11 @@ pub struct GenericCurveCatalogEntry {
     pub set_name: String,
     pub source: Option<String>,
     pub run_no: Option<i32>,
+    pub set_version: i32,
+    pub final_flag: bool,
+    /// Monotonic metadata revision used for the declared MRU resolution stage. NULL means a
+    /// pre-SB-DBM-006 row whose historical order cannot be recovered.
+    pub modified_seq: Option<i64>,
     /// Every stored row, including missing/non-finite values.
     pub n_samples: i64,
     /// Finite values eligible for numeric statistics.
@@ -7123,6 +7149,9 @@ pub struct GenericCurveInventoryEntry {
     pub set_name: String,
     pub source: Option<String>,
     pub run_no: Option<i32>,
+    pub set_version: i32,
+    pub final_flag: bool,
+    pub modified_seq: Option<i64>,
     pub pinned: bool,
 }
 
@@ -7131,7 +7160,9 @@ pub fn list_generic_curve_inventory(
     well_id: &str,
 ) -> DbResult<Vec<GenericCurveInventoryEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT curve_id, mnemonic, unit, family, set_name, source, run_no, COALESCE(pinned, 0)
+        "SELECT curve_id, mnemonic, unit, family, set_name, source, run_no, set_version,
+                COALESCE(final_flag, 0), modified_seq,
+                COALESCE(pinned, 0)
          FROM curve_meta
          WHERE well_id = ?1
          ORDER BY set_name, family, mnemonic, run_no NULLS FIRST, curve_id",
@@ -7145,7 +7176,10 @@ pub fn list_generic_curve_inventory(
             set_name: row.get(4)?,
             source: row.get(5)?,
             run_no: row.get(6)?,
-            pinned: row.get::<_, i32>(7)? != 0,
+            set_version: row.get(7)?,
+            final_flag: row.get::<_, i32>(8)? != 0,
+            modified_seq: row.get(9)?,
+            pinned: row.get::<_, i32>(10)? != 0,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -7159,6 +7193,7 @@ pub fn list_generic_curve_inventory(
 pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<Vec<GenericCurveCatalogEntry>> {
     let mut stmt = conn.prepare(
         "SELECT m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no,
+                m.set_version, COALESCE(m.final_flag, 0), m.modified_seq,
                 COUNT(s.depth),
                 COUNT(*) FILTER (WHERE s.depth IS NOT NULL AND isfinite(CAST(s.value AS DOUBLE))),
                 COUNT(s.depth) - COUNT(*) FILTER (WHERE s.depth IS NOT NULL AND isfinite(CAST(s.value AS DOUBLE))),
@@ -7169,7 +7204,8 @@ pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<
          FROM curve_meta m
          LEFT JOIN curve_samples s ON s.curve_id = m.curve_id
          WHERE m.well_id = ?1
-         GROUP BY m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no, m.pinned
+         GROUP BY m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no,
+                  m.set_version, m.final_flag, m.modified_seq, m.pinned
          ORDER BY m.set_name, m.family, m.mnemonic",
     )?;
     let rows = stmt.query_map(params![well_id], |row| {
@@ -7181,13 +7217,16 @@ pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<
             set_name: row.get(4)?,
             source: row.get(5)?,
             run_no: row.get(6)?,
-            n_samples: row.get(7)?,
-            n_valid: row.get(8)?,
-            n_missing: row.get(9)?,
-            min: row.get(10)?,
-            max: row.get(11)?,
-            mean: row.get(12)?,
-            pinned: row.get::<_, i32>(13)? != 0,
+            set_version: row.get(7)?,
+            final_flag: row.get::<_, i32>(8)? != 0,
+            modified_seq: row.get(9)?,
+            n_samples: row.get(10)?,
+            n_valid: row.get(11)?,
+            n_missing: row.get(12)?,
+            min: row.get(13)?,
+            max: row.get(14)?,
+            mean: row.get(15)?,
+            pinned: row.get::<_, i32>(16)? != 0,
         })
     })?;
     let mut out = Vec::new();
@@ -7221,12 +7260,77 @@ pub fn promote_generic_curve(conn: &Connection, curve_id: &str) -> DbResult<()> 
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
         conn.execute(
-            "UPDATE curve_meta SET pinned = 0
-             WHERE well_id = ?1 AND set_name = ?2 AND upper(mnemonic) = upper(?3)",
-            params![well, set, mnem],
+            "UPDATE curve_meta
+             SET pinned = 0, set_version = set_version + 1
+             WHERE well_id = ?1 AND set_name = ?2 AND upper(mnemonic) = upper(?3)
+               AND curve_id <> ?4 AND COALESCE(pinned, 0) <> 0",
+            params![well, set, mnem, curve_id],
         )?;
-        conn.execute("UPDATE curve_meta SET pinned = 1 WHERE curve_id = ?1", params![curve_id])?;
+        conn.execute(
+            "UPDATE curve_meta
+             SET pinned = 1, set_version = set_version + 1
+             WHERE curve_id = ?1 AND COALESCE(pinned, 0) <> 1",
+            params![curve_id],
+        )?;
         Ok(())
+    })
+}
+
+/// Marks one generic curve as the Final member of its resolved quantity family. The previous
+/// Final curve id is returned so the frontend can place the metadata edit on the undo stack.
+/// At most one curve per well/family is Final; clearing a flag affects only the named curve.
+pub fn set_generic_curve_final(
+    conn: &Connection,
+    curve_id: &str,
+    is_final: bool,
+) -> DbResult<Option<String>> {
+    with_txn(conn, |conn| {
+        let (well_id, family, mnemonic, current_final): (String, Option<String>, String, bool) = conn.query_row(
+            "SELECT well_id, family, mnemonic, COALESCE(final_flag, 0) <> 0
+             FROM curve_meta WHERE curve_id = ?1",
+            params![curve_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+        let key = family
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(mnemonic.as_str())
+            .to_uppercase();
+        let previous: Option<String> = if !is_final {
+            current_final.then(|| curve_id.to_string())
+        } else {
+            match conn.query_row(
+                "SELECT curve_id FROM curve_meta
+                 WHERE well_id = ?1
+                   AND COALESCE(NULLIF(upper(trim(family)), ''), upper(mnemonic)) = ?2
+                   AND COALESCE(final_flag, 0) = 1
+                 ORDER BY curve_id LIMIT 1",
+                params![well_id, key],
+                |row| row.get(0),
+            ) {
+                Ok(previous) => Some(previous),
+                Err(duckdb::Error::QueryReturnedNoRows) => None,
+                Err(error) => return Err(error.into()),
+            }
+        };
+        if is_final {
+            conn.execute(
+                "UPDATE curve_meta
+                 SET final_flag = 0, set_version = set_version + 1
+                 WHERE well_id = ?1
+                   AND COALESCE(NULLIF(upper(trim(family)), ''), upper(mnemonic)) = ?2
+                   AND COALESCE(final_flag, 0) = 1 AND curve_id <> ?3",
+                params![well_id, key, curve_id],
+            )?;
+        }
+        conn.execute(
+            "UPDATE curve_meta
+             SET final_flag = ?2, set_version = set_version + 1
+             WHERE curve_id = ?1 AND COALESCE(final_flag, 0) <> ?2",
+            params![curve_id, i32::from(is_final)],
+        )?;
+        Ok(previous)
     })
 }
 
@@ -7270,7 +7374,11 @@ pub fn update_curve_meta_fields(
             |r| Ok(CurveMetaEdit { mnemonic: r.get(0)?, unit: r.get(1)?, family: r.get(2)? }),
         )?;
         conn.execute(
-            "UPDATE curve_meta SET mnemonic = ?2, unit = ?3, family = ?4 WHERE curve_id = ?1",
+            "UPDATE curve_meta
+             SET mnemonic = ?2, unit = ?3, family = ?4,
+                 set_version = set_version + 1,
+                 modified_seq = nextval('curve_meta_modified_seq')
+             WHERE curve_id = ?1",
             params![curve_id, mnemonic, unit, family],
         )?;
         Ok(before)
@@ -7299,15 +7407,23 @@ pub fn upsert_curve_meta(
         .ok();
     if let Some(id) = existing {
         conn.execute(
-            "UPDATE curve_meta SET unit = ?1, family = ?2, source = ?3 WHERE curve_id = ?4",
+            "UPDATE curve_meta
+             SET unit = ?1, family = ?2, source = ?3,
+                 set_version = set_version + 1,
+                 modified_seq = nextval('curve_meta_modified_seq')
+             WHERE curve_id = ?4",
             params![unit, family, source, id],
         )?;
         return Ok(id);
     }
     let curve_id = Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO curve_meta (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO curve_meta
+            (curve_id, well_id, set_name, mnemonic, unit, family, source, run_no,
+             set_version, final_flag, modified_seq)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1,
+                 0,
+                 nextval('curve_meta_modified_seq'))",
         params![curve_id, well_id, set_name, mnemonic, unit, family, source, run_no],
     )?;
     Ok(curve_id)

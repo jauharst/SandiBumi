@@ -1365,6 +1365,18 @@ fn promote_generic_curve(db: tauri::State<DbState>, curve_id: String) -> Result<
     db::promote_generic_curve(&conn, &curve_id).map_err(|e| e.to_string())
 }
 
+/// Marks or clears one imported curve's Final status. Returns the previously Final curve in the
+/// same well/family so the frontend can make this metadata edit undoable.
+#[tauri::command]
+fn set_generic_curve_final(
+    db: tauri::State<DbState>,
+    curve_id: String,
+    is_final: bool,
+) -> Result<Option<String>, String> {
+    let conn = db.0.lock().unwrap();
+    db::set_generic_curve_final(&conn, &curve_id, is_final).map_err(|e| e.to_string())
+}
+
 /// Renames / re-units / re-families one imported curve, returning its PREVIOUS identity so
 /// the caller can push an undo. Metadata only — no sample is touched — but the mnemonic and
 /// family are what module inputs resolve by, so this repoints what modules read.
@@ -3767,6 +3779,7 @@ pub fn run() {
             get_generic_curve_samples,
             delete_generic_curve,
             promote_generic_curve,
+            set_generic_curve_final,
             update_curve_meta,
             import_deviation_csv,
             list_core_sets,

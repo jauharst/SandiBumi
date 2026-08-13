@@ -1863,7 +1863,11 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             curve: spec.dataset.clone(),
             log_set: image_set.clone(),
             set_version: None,
-            set_id: format!("image:{}:{}:{}", spec.well_id, spec.dataset, image_set)}];
+            set_id: format!("image:{}:{}:{}", spec.well_id, spec.dataset, image_set),
+            chosen_curve_id: Some(format!("image:{}:{}:{}", spec.well_id, spec.dataset, image_set)),
+            rule: Some(crate::equations::CurveResolutionRule::ExplicitName),
+            rejected_candidates: Vec::new(),
+        }];
         if let Some(compare) = spec
             .compare_curve
             .as_deref()
@@ -1908,7 +1912,7 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             .collect();
         let module = format!("cphoto:{}", spec.light);
         let ancestry = crate::equations::CurveAncestry {
-            schema_version: 1,
+            schema_version: crate::equations::CURVE_ANCESTRY_SCHEMA_VERSION,
             module: module.clone(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,

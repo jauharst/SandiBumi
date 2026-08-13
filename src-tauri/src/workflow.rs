@@ -646,7 +646,7 @@ fn complete_module_log_spec(
         })
         .collect();
     let ancestry = equations::CurveAncestry {
-        schema_version: 1,
+        schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
         module: req.module.clone(),
         module_version: env!("CARGO_PKG_VERSION").into(),
         inputs,
@@ -2212,6 +2212,197 @@ mod tests {
             recorded(&conn, first_set.as_str()),
             original,
             "a later manifest must not reinterpret the original run"
+        );
+    }
+
+    /// CORRECTNESS — SB-DBM-006 / SB-DBM-T08. Source: `22_database-model.md` F-04,
+    /// SB-DBM-006 and SB-DBM-T08. The three GR arrays are synthetic fixture inputs; the flip
+    /// outputs are independently derived around each array's arithmetic mean. The contract is the
+    /// stored decision: exact chosen identity plus set version, declared FINAL_FLAG rule and both
+    /// rejected identities and set versions. Reflagging selects the opposite identity so a mnemonic-only snapshot, a
+    /// winner-only record or a resolver disconnected from the numeric reader cannot pass.
+    #[test]
+    fn a_module_run_records_the_final_curve_identity_and_both_rejected_candidates_then_records_the_reflagged_choice(
+    ) {
+        fn recorded_input(
+            conn: &duckdb::Connection,
+            well_id: &str,
+            output_set: &str,
+        ) -> equations::AncestryInput {
+            let params_json: String = conn
+                .query_row(
+                    "SELECT params_json FROM log_sets
+                     WHERE well_id = ?1 AND set_name = ?2
+                     ORDER BY version DESC LIMIT 1",
+                    duckdb::params![well_id, output_set],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            equations::parse_curve_ancestry(&params_json)
+                .unwrap()
+                .inputs
+                .into_iter()
+                .find(|input| input.argument == "CURVE")
+                .expect("the flip run records its CURVE input")
+        }
+
+        fn rejected_identities(
+            input: &equations::AncestryInput,
+        ) -> std::collections::BTreeSet<(String, String, Option<i64>)> {
+            input
+                .rejected_candidates
+                .iter()
+                .map(|candidate| {
+                    (
+                        candidate.curve_id.clone(),
+                        candidate.log_set.clone(),
+                        candidate.set_version,
+                    )
+                })
+                .collect()
+        }
+
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_uuid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_uuid, "RESOLUTION-FIXTURE", None, None, None).unwrap();
+        let well_id = well_uuid.to_string();
+        let depth = vec![1000.0_f32, 1001.0, 1002.0];
+        db::insert_standard_curves(
+            &conn,
+            well_uuid,
+            depth.clone(),
+            vec![1.0, 2.0, 3.0],
+            vec![f32::NAN; depth.len()],
+            vec![f32::NAN; depth.len()],
+            vec![f32::NAN; depth.len()],
+            vec![f32::NAN; depth.len()],
+            vec![f32::NAN; depth.len()],
+        )
+        .unwrap();
+
+        let first = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "PASS_A",
+            "GR",
+            Some("gAPI"),
+            Some("GR"),
+            Some("SB-DBM-T08 fixture"),
+            Some(1),
+        )
+        .unwrap();
+        let second = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "PASS_A",
+            "GR",
+            Some("gAPI"),
+            Some("GR"),
+            Some("SB-DBM-T08 fixture"),
+            Some(2),
+        )
+        .unwrap();
+        let initially_final = db::upsert_curve_meta(
+            &conn,
+            &well_id,
+            "PASS_B",
+            "GR",
+            Some("gAPI"),
+            Some("GR"),
+            Some("SB-DBM-T08 fixture"),
+            Some(1),
+        )
+        .unwrap();
+        db::insert_curve_samples(&conn, &first, &depth, &[10.0, 20.0, 30.0]).unwrap();
+        db::insert_curve_samples(&conn, &second, &depth, &[40.0, 50.0, 60.0]).unwrap();
+        db::insert_curve_samples(&conn, &initially_final, &depth, &[70.0, 80.0, 90.0])
+            .unwrap();
+        assert_eq!(
+            db::set_generic_curve_final(&conn, &initially_final, true).unwrap(),
+            None,
+            "the fixture starts without an implicit Final decision"
+        );
+
+        let dbm = Mutex::new(conn);
+        let run = |output_set: &str| {
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "flip".into(),
+                    well_ids: vec![well_id.clone()],
+                    log_inputs: HashMap::from([("CURVE".into(), "GR".into())]),
+                    params: HashMap::new(),
+                    opts: HashMap::from([
+                        ("OPT_PIVOT".into(), "MEAN".into()),
+                        ("OPT_FLAG".into(), "NO".into()),
+                    ]),
+                    output_set: Some(output_set.into()),
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+            )
+        };
+
+        let first_run = run("RESOLUTION_A");
+        assert!(first_run[0].error.is_none(), "first run: {:?}", first_run[0].error);
+        {
+            let conn = dbm.lock().unwrap();
+            let input = recorded_input(&conn, &well_id, "RESOLUTION_A");
+            assert_eq!(input.chosen_curve_id.as_deref(), Some(initially_final.as_str()));
+            assert_ne!(input.chosen_curve_id.as_deref(), Some("GR"), "a mnemonic is not an identity");
+            assert_eq!(input.log_set, "PASS_B");
+            assert_eq!(input.set_version, Some(2));
+            assert_eq!(input.rule, Some(equations::CurveResolutionRule::FinalFlag));
+            assert_eq!(
+                rejected_identities(&input),
+                std::collections::BTreeSet::from([
+                    (first.clone(), "PASS_A".into(), Some(1)),
+                    (second.clone(), "PASS_A".into(), Some(1)),
+                ])
+            );
+            let (_, columns) = equations::fetch_curve_frame(&conn, &well_id, &["GR_C".into()]).unwrap();
+            assert_eq!(columns["GR_C"], vec![90.0, 80.0, 70.0]);
+
+            assert_eq!(
+                db::set_generic_curve_final(&conn, &first, true).unwrap().as_deref(),
+                Some(initially_final.as_str()),
+                "reflagging reports the displaced identity so the edit is undoable"
+            );
+        }
+
+        let second_run = run("RESOLUTION_B");
+        assert!(second_run[0].error.is_none(), "second run: {:?}", second_run[0].error);
+        let conn = dbm.lock().unwrap();
+        let input = recorded_input(&conn, &well_id, "RESOLUTION_B");
+        assert_eq!(input.chosen_curve_id.as_deref(), Some(first.as_str()));
+        assert_eq!(input.log_set, "PASS_A");
+        assert_eq!(input.set_version, Some(2));
+        assert_eq!(input.rule, Some(equations::CurveResolutionRule::FinalFlag));
+        assert_eq!(
+            rejected_identities(&input),
+            std::collections::BTreeSet::from([
+                (second, "PASS_A".into(), Some(1)),
+                (initially_final, "PASS_B".into(), Some(3)),
+            ])
+        );
+        let (_, columns) = equations::fetch_curve_frame(&conn, &well_id, &["GR_C".into()]).unwrap();
+        assert_eq!(columns["GR_C"], vec![30.0, 20.0, 10.0]);
+
+        let params_json: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets
+                 WHERE well_id = ?1 AND set_name = 'RESOLUTION_B'
+                 ORDER BY version DESC LIMIT 1",
+                duckdb::params![well_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut incomplete = equations::parse_curve_ancestry(&params_json).unwrap();
+        incomplete.inputs[0].chosen_curve_id = None;
+        assert!(
+            equations::CompleteLogSetSpec::try_new("INCOMPLETE", incomplete).is_err(),
+            "schema v2 must not accept rejected candidates beside a mnemonic-only input"
         );
     }
 

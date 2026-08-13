@@ -809,7 +809,7 @@ mod tests {
             "the structural fixture must name at least one imported input"
         );
         let ancestry = equations::CurveAncestry {
-            schema_version: 1,
+            schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
             module: "report_test_fixture".into(),
             module_version: env!("CARGO_PKG_VERSION").into(),
             inputs,

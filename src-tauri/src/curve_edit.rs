@@ -160,7 +160,8 @@ fn locate_curve(conn: &Connection, well_id: &str, curve: &str) -> Result<CurveSt
                AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
              ORDER BY (upper(mnemonic) = ?2) DESC,
                       (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
-                      run_no NULLS FIRST,
+                      modified_seq DESC NULLS LAST,
+                      run_no DESC NULLS LAST,
                       curve_id
              LIMIT 1",
             params![well_id, upper],

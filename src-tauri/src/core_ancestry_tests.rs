@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 fn complete_record() -> equations::CurveAncestry {
     equations::CurveAncestry {
-        schema_version: 1,
+        schema_version: equations::CURVE_ANCESTRY_SCHEMA_VERSION,
         module: "acceptance_identity".into(),
         module_version: env!("CARGO_PKG_VERSION").into(),
         inputs: vec![equations::AncestryInput {
@@ -22,6 +22,9 @@ fn complete_record() -> equations::CurveAncestry {
             log_set: "RAW".into(),
             set_version: Some(1),
             set_id: "fixture-import-run".into(),
+            chosen_curve_id: Some("fixture-import-run".into()),
+            rule: Some(equations::CurveResolutionRule::ExplicitName),
+            rejected_candidates: Vec::new(),
         }],
         parameters: vec![equations::AncestryParameter {
             name: "REFERENCE_VALUE".into(),

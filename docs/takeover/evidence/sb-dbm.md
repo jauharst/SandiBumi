@@ -12,8 +12,8 @@
 - Source-navigation boundary: the codebase index was not callable in this task, so targeted `rg`, direct source reads, executable tests and reachable Git history were used as the declared fallback. Consequential negative findings were checked in the expected Rust, TypeScript, schema, test and history paths.
 - Verification boundary: a supporting test is named only for the clause it exercises. A test that does not cover every clause of its owned DBM contract is not promoted to qualifying proof. Manual checkboxes remain separate from automated evidence.
 - Fresh verification: 21 focused supporting Rust tests passed. The repository gate passed 16 takeover-ledger + 13 frontend + 917 Rust tests, with 0 failed and 36 ignored; production build and generated verification matrix were green.
-- Gate 2 update (2026-08-13): SB-DBM-001, SB-DBM-003 and SB-DBM-004 now have owned correctness
-  proofs. The repository gate passes 989 / 0 / 36. Automated, visual, manual and field evidence
+- Gate 2 update (2026-08-13): SB-DBM-001, SB-DBM-003, SB-DBM-004 and SB-DBM-006 now have owned
+  correctness proofs. The repository gate passes 991 / 0 / 36. Automated, visual, manual and field evidence
   remain separate.
 
 ## SB-DBM-001 - One run record per computed curve, resolvable in one hop
@@ -85,14 +85,14 @@
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned test `SB-DBM-T08`; sections 4.1, 5.3 and 6.2.
 - **Atomic obligations:** store the chosen curve id and set version, controlled decision-rule name and every rejected candidate identity; a changed choice creates a changed record.
-- **Current source:** workflow `inputs_json` records requested slots/mnemonics and an input set, but not the chosen `curve_id`, complete set version, rule vocabulary or rejected candidates. DIO import alias decisions are reported elsewhere and are not the run record.
-- **Qualifying acceptance tests:** none; the three-GR choice/rechoice fixture in T08 is missing. Test class is `MISSING`.
-- **Supporting tests:** input-set selection tests prove that requested sets can be selected, not why an exact curve won.
+- **Current source:** `equations.rs` now owns one staged generic-curve resolver and uses its decision for calculation inputs, plotting identity and schema-v2 ancestry. Each input records its exact stored curve identity, set/version, controlled rule and every rejected curve identity/set/version. The resolver records F-04's controlled decision stages while preserving SandiBumi's binding import-set contract: RAW is the absolute working-set tier, then exact mnemonic/alias, manual pin, Final and MRU decide within that tier; another set becomes eligible only when RAW lacks the requested mnemonic or family. It never treats a mnemonic as identity or infers Final from a set label. `db.rs` stores additive set versions, explicit Final state and modification order; Final changes are one-per-family and reversible. Workflow chains replace planning-only SELF references with exact deterministic stored set/curve identities, preserving replay determinism. Ordinary blank-set track reads retain their established standard projection contract.
+- **Qualifying acceptance test:** `a_module_run_records_the_final_curve_identity_and_both_rejected_candidates_then_records_the_reflagged_choice` is `CORRECTNESS`. Three synthetic GR arrays across two sets exercise both sides of a Final reflag. The test independently derives the flip outputs and requires the exact chosen UUID/set/version, `FINAL_FLAG`, both rejected UUID/set/version identities, changed choice with the same rule, undo displacement, mnemonic-not-identity and fail-closed schema-v2 validation.
+- **Supporting tests:** `a_raw_family_match_beats_an_exact_mnemonic_outside_the_working_set_until_raw_is_absent` pins RAW priority and its attached-set fallback from both sides. The native-grid/blank-set track regression, deterministic raw-import chain replay, generic promote/family controls, plotting suite and complete-ancestry inventory all pass. They preserve adjacent contracts but are not substituted for T08.
 - **Manual evidence:** `generic-curve-store` 0/18, `delivery-sets` 0/33 and `workflow` 0/23 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains the requested-input fragment; the resolved-decision record is not integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no numeric source is missing; the central resolution-decision schema and vocabulary are absent.
-- **Next action:** make resolution return a structured chosen/rejected decision and store it atomically with the run; implement T08 from both choice states.
+- **Git evidence:** the Gate 2 topic branch contains the additive schema, central resolver, exact decision record, typed IPC/UI Final action and owned T08 proof. `computed_curves` remains PK-less and no upsert or duplicate-tolerant path was added.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for this contract. No petrophysical value, endpoint, cutoff, range or default was selected. Visual/manual/field evidence remains open.
+- **Next action:** retain T08 and the shared resolver; visually inspect the Final/rejected-candidate presentation, manually run/query both reflag states and field-verify a representative duplicated curve family before any pilot claim.
 
 ## SB-DBM-007 - A missing provenance element is a named state, never an empty string
 
