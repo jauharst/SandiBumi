@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DBM-041: full inspector trace blocked on the audit store
+
+- [x] **Automated count half:** exact SB-DBM-T41 remains green: inspector
+      `total_rows` is the true count and capped SQL results use `returned_rows` with an
+      explicit non-total flag. Full gate remains 1005 passed / 0 failed / 36 ignored,
+      including backend 948 passed / 0 failed / 36 ignored and 55 owned Rust warnings.
+- [ ] **Automated full trace:** BLOCKED. SB-DBM-T42 requires a computed curve to be
+      traced through the inspector to its run, parameters, inputs, model row and the
+      `audit_entry`/`audit_detail` tables owned by SB-DBM-011. Those audit tables do not
+      exist, and SB-DBM-011 is blocked on DEC-022 and DEC-023. No reduced T42 was written.
+- [ ] **Decision / architecture:** settle DEC-022's legacy timestamp classification and
+      DEC-023's zone-set scope, then implement SB-DBM-011's controlled audit relations.
+      Only after that may the inspector inventory be derived and exact T42 added.
+- [ ] **Visual / Manual / Field:** not claimed. Exposing only the currently available
+      provenance tables would improve the screen but still falsely imply a complete audit
+      path. Jauhar's click-through and Gate 4 remain pending after the blocker is removed.
+
 ## 2026-08-14 — G2 SB-DBM-040: cancellation reports what the worker observed
 
 - [x] **Automated:** exact SB-DBM-T40 reuses the already-integrated three-job regression

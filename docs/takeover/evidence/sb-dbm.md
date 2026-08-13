@@ -540,14 +540,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DBM-T41`, `SB-DBM-T42`; sections 4.6 and 6.7.
 - **Atomic obligations:** `total_rows` has one meaning across inspector and SQL console or the capped count uses a different field; inspector whitelist includes all provenance/model/audit tables and can trace a curve without leaving it.
-- **Current source:** paginated `get_table_page` computes the true count. `run_readonly_query` fetches `limit + 1`, sets `truncated`, then still puts the returned-row count in the same `total_rows` field. `TABLE_SPECS` omits `log_sets`, `computed_curves_archive`, `ml_models`, `curve_meta` and the absent audit tables.
-- **Qualifying acceptance tests:** none; T41's 10,000/100 same-field contract and T42's full trace are missing. Test class is `MISSING`.
-- **Supporting tests:** `readonly_query_flags_truncation_at_the_cap` intentionally defends the current alternative, and `every_inspector_table_returns_the_columns_it_declares` checks only the incomplete whitelist.
+- **Current source:** T41 is integrated: paginated `get_table_page` computes the true count, while `run_readonly_query` exposes `returned_rows` plus `count_is_total = false`. `TABLE_SPECS` still omits `log_sets`, `run_parameters`, `run_degradations`, `computed_curves_archive`, `curve_meta`, `ml_models` and the absent `audit_entry`/`audit_detail` tables required by T42.
+- **Qualifying acceptance tests:** exact T42 cannot be written because its required SB-DBM-011 audit tables do not exist, so the requirement remains test class `MISSING`.
+- **Supporting tests:** `the_inspector_reports_the_true_ten_thousand_row_total_while_the_hundred_row_console_page_names_its_count_as_returned_not_total` proves T41's count-meaning half. `every_inspector_table_returns_the_columns_it_declares` checks only the incomplete whitelist and cannot prove the required trace.
 - **Manual evidence:** `database-tools` 0/2, `processing-history` 0/7 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** accepted anchor `b332026c` contains both live divergences.
+- **Git evidence:** `5527c8c` closes T41 on `codex/g2-program-plan`; live schema and whitelist inspection confirms T42 remains unavailable. The accepted baseline remains unchanged until review and merge.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** T42 also depends on the structured audit tables in SB-DBM-011.
-- **Next action:** rename/separate capped count semantics, derive the inspector inventory from the provenance registry and implement T41/T42 without weakening read-only SQL.
+- **Blocker or decision:** SB-DBM-011 is blocked on DEC-022's legacy timestamp classification and DEC-023's zone-set scope. T42 explicitly requires its structured `audit_entry`/`audit_detail` tables; placeholder tables or a reduced whitelist would weaken the exact contract.
+- **Next action:** after DEC-022/023 unblock SB-DBM-011, implement its controlled audit tables first; then derive the inspector inventory from the complete provenance/audit registry and write exact T42 without weakening T41.
 
 ## SB-DBM-042 - The format-version gate and the pre-migration backup are contractual, and the backup names the format it can restore
 
