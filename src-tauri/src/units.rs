@@ -36,7 +36,9 @@ pub const M_PER_FT: f64 = 0.3048;
 /// The depth-index units field data actually arrives in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DepthUnit {
+    #[serde(rename = "M", alias = "Metres", alias = "metres")]
     Metres,
+    #[serde(rename = "FT", alias = "Feet", alias = "feet")]
     Feet,
 }
 
@@ -44,6 +46,15 @@ pub enum DepthUnit {
 /// and unit before a point-data duplicate may be perturbed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DepthOffset {
+    pub value: f64,
+    pub unit: DepthUnit,
+}
+
+/// An explicitly supplied tolerance for checking whether a declared depth increment is regular.
+/// This is deliberately a distinct type from [`DepthOffset`]: SB-DBM-028 forbids borrowing a snap
+/// or duplicate-perturbation distance for sampling-style verification.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DepthTolerance {
     pub value: f64,
     pub unit: DepthUnit,
 }

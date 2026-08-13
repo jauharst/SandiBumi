@@ -143,7 +143,8 @@ pub(crate) const PROVENANCE_ABSENT_STATES: &[ProvenanceAbsentState] = &[
     ProvenanceAbsentState::LegacyUnrecorded,
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SamplingStyle {
     ContinuousRegular,
     ContinuousIrregular,

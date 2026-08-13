@@ -944,6 +944,23 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (group_id, well_id)
         );
 
+        -- One declaration and one verified verdict per imported continuous curve set. Legacy
+        -- curve_meta rows intentionally have no matching row: a frame-indexed reader must refuse
+        -- them rather than infer regularity from coincidentally regular samples.
+        CREATE TABLE IF NOT EXISTS import_sets (
+            well_id                     UUID NOT NULL,
+            set_name                    VARCHAR NOT NULL,
+            declared_sampling_style     VARCHAR NOT NULL,
+            effective_sampling_style    VARCHAR NOT NULL,
+            sampling_verified           BOOLEAN NOT NULL,
+            verification_tolerance      DOUBLE,
+            verification_tolerance_unit VARCHAR,
+            verification_warning        VARCHAR,
+            gap_depth                   FLOAT,
+            gap_row_count               INTEGER,
+            PRIMARY KEY (well_id, set_name)
+        );
+
         -- SB-DBM-027. Integrity cleanup is a QUARANTINE, never an irreversible DELETE.
         -- The checker itself is read-only. An explicit prune moves only the bounded orphan
         -- classes named below into typed tables in one transaction; the batch remains in the

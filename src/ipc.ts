@@ -218,6 +218,10 @@ export interface LasImportOptions {
   duplicateDepthPolicy?: "keep-first" | "keep-last" | "mean" | "refuse" | null;
   /** Explicit MS/FT meanings keyed by the exact source path; no entry means refuse. */
   msPerFtMeanings?: Record<string, "microseconds_per_foot" | "millisiemens_per_foot">;
+  /** Required set-level declaration; it is never inferred from coincidentally regular depths. */
+  samplingStyle?: "CONTINUOUS_REGULAR" | "CONTINUOUS_IRREGULAR" | null;
+  /** Required only for regular sets. No production default ships. */
+  samplingStyleVerifyTolerance?: { value: number; unit: "M" | "FT" } | null;
 }
 
 export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
@@ -231,6 +235,8 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     nonMonotonicIndex: opts?.nonMonotonicIndex ?? null,
     duplicateDepthPolicy: opts?.duplicateDepthPolicy ?? null,
     msPerFtMeanings: opts?.msPerFtMeanings ?? null,
+    samplingStyle: opts?.samplingStyle ?? null,
+    samplingStyleVerifyTolerance: opts?.samplingStyleVerifyTolerance ?? null,
   });
 }
 

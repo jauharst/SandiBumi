@@ -3105,6 +3105,113 @@ pub(crate) fn write_computed_curves_with_ancestry_batch(
     write_versioned_rows_batch_raw(conn, &raw)
 }
 
+fn fetch_verified_import_set_frame(
+    conn: &Connection,
+    well_id: &str,
+    set_name: &str,
+    curve_names: &[String],
+    source_depth: &[f32],
+    source_columns: &HashMap<String, Vec<f32>>,
+) -> duckdb::Result<Option<CurveFrame>> {
+    let has_curves = conn
+        .query_row(
+            "SELECT 1 FROM curve_meta
+             WHERE well_id = ?1 AND upper(set_name) = upper(?2) LIMIT 1",
+            params![well_id, set_name],
+            |_| Ok(()),
+        )
+        .is_ok();
+    if !has_curves {
+        return Ok(None);
+    }
+    let verdict: Option<(bool, String)> = conn
+        .query_row(
+            "SELECT sampling_verified, effective_sampling_style FROM import_sets
+             WHERE well_id = ?1 AND upper(set_name) = upper(?2)",
+            params![well_id, set_name],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok();
+    let Some((verified, effective)) = verdict else {
+        return Err(duckdb::Error::InvalidParameterName(format!(
+            "frame-indexed read refused for import set '{set_name}': sampling style has not been verified"
+        )));
+    };
+    if !verified {
+        return Err(duckdb::Error::InvalidParameterName(format!(
+            "frame-indexed read refused for import set '{set_name}': sampling style has not been verified"
+        )));
+    }
+    let style = crate::schema_vocab::SamplingStyle::parse(&effective).ok_or_else(|| {
+        duckdb::Error::InvalidParameterName(format!(
+            "frame-indexed read refused for import set '{set_name}': stored sampling verdict '{effective}' is invalid"
+        ))
+    })?;
+    if style == crate::schema_vocab::SamplingStyle::Point {
+        return Err(duckdb::Error::InvalidParameterName(format!(
+            "frame-indexed read refused for import set '{set_name}': POINT data has no continuous frame"
+        )));
+    }
+
+    // Always use the verified reference samples themselves, including for a declaration that was
+    // contradicted to IRREGULAR. Synthesising `top + row * STEP` is the exact 6.1 m silent shift
+    // SB-DBM-T27 exists to prevent.
+    let mut depth_statement = conn.prepare(
+        "SELECT DISTINCT s.depth
+         FROM curve_samples s JOIN curve_meta m ON m.curve_id = s.curve_id
+         WHERE m.well_id = ?1 AND upper(m.set_name) = upper(?2)
+         ORDER BY s.depth",
+    )?;
+    let import_depth: Vec<f32> = depth_statement
+        .query_map(params![well_id, set_name], |row| row.get(0))?
+        .collect::<duckdb::Result<_>>()?;
+    let mut columns: HashMap<String, Vec<f32>> = source_columns
+        .iter()
+        .map(|(name, values)| {
+            (
+                name.clone(),
+                crate::reframe::resample_onto(
+                    source_depth,
+                    values,
+                    &import_depth,
+                    crate::reframe::Method::Auto,
+                ),
+            )
+        })
+        .collect();
+    for name in curve_names {
+        let upper = name.trim().to_uppercase();
+        let curve_id: Option<String> = conn
+            .query_row(
+                "SELECT curve_id FROM curve_meta
+                 WHERE well_id = ?1 AND upper(set_name) = upper(?2) AND upper(mnemonic) = ?3
+                 ORDER BY modified_seq DESC LIMIT 1",
+                params![well_id, set_name, upper],
+                |row| row.get(0),
+            )
+            .ok();
+        let Some(curve_id) = curve_id else { continue };
+        let mut sample_statement =
+            conn.prepare("SELECT depth, value FROM curve_samples WHERE curve_id = ?1")?;
+        let rows = sample_statement.query_map(params![curve_id], |row| {
+            Ok((row.get::<_, f32>(0)?, row.get::<_, f32>(1)?))
+        })?;
+        let mut by_depth = HashMap::new();
+        for row in rows {
+            let (depth, value) = row?;
+            by_depth.insert(depth.to_bits(), value);
+        }
+        columns.insert(
+            upper,
+            import_depth
+                .iter()
+                .map(|depth| by_depth.get(&depth.to_bits()).copied().unwrap_or(f32::NAN))
+                .collect(),
+        );
+    }
+    Ok(Some((import_depth, columns)))
+}
+
 /// Input-set selection: like [`fetch_curve_frame`], but any requested curve that the named
 /// log set wrote (latest version per well, name matched case-insensitively) is read from
 /// that set's ARCHIVED values instead of the current store — so a module can consume
@@ -3134,6 +3241,27 @@ pub(crate) fn fetch_curve_frame_from_set(
         )?;
         return Ok((depth, columns));
     };
+
+    let computed_set_exists = conn
+        .query_row(
+            "SELECT 1 FROM log_sets
+             WHERE well_id = ?1 AND upper(set_name) = upper(?2) LIMIT 1",
+            params![well_id, set_name],
+            |_| Ok(()),
+        )
+        .is_ok();
+    if !computed_set_exists {
+        if let Some(import_frame) = fetch_verified_import_set_frame(
+            conn,
+            well_id,
+            set_name,
+            curve_names,
+            &depth,
+            &columns,
+        )? {
+            return Ok(import_frame);
+        }
+    }
 
     // A set that carries its OWN depth frame (`log_sets.frame = 'OWN'`, written by
     // `reframe.rs`) REPLACES the run frame, and every curve resolved from elsewhere is

@@ -391,6 +391,8 @@ async fn import_las_files(
     non_monotonic_index: Option<ingest::NonMonotonicIndexDecision>,
     duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
     ms_per_ft_meanings: Option<std::collections::HashMap<String, curves::MsPerFtMeaning>>,
+    sampling_style: Option<schema_vocab::SamplingStyle>,
+    sampling_style_verify_tolerance: Option<units::DepthTolerance>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
     // Import-sets options (T-IMP-02): one set name per batch; attach-by-name defaults ON
     // when the frontend doesn't say otherwise (the dialog always sends it explicitly).
@@ -403,6 +405,8 @@ async fn import_las_files(
         non_monotonic_index,
         duplicate_depth_policy,
         ms_per_ft_meanings: ms_per_ft_meanings.unwrap_or_default(),
+        sampling_style,
+        sampling_style_verify_tolerance,
     };
     // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
     let items: Vec<(String, String)> = paths

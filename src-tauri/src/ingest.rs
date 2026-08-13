@@ -41,7 +41,7 @@ pub enum NonMonotonicIndexDecision {
 }
 
 /// Options for a LAS import batch (the Import LAS dialog's choices).
-#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct LasImportOptions {
     /// Set name for every curve of this batch in the generic store (one delivery = one
     /// set). None/empty → "RAW". Auto-suffixed PER WELL (`FPROOH` taken → `FPROOH_1`,
@@ -72,6 +72,34 @@ pub struct LasImportOptions {
     /// Explicit answers keyed by the exact source path; absent is deliberately not a default.
     #[serde(default, alias = "msPerFtMeanings")]
     pub ms_per_ft_meanings: std::collections::HashMap<String, crate::curves::MsPerFtMeaning>,
+    /// Required declaration for this imported curve set. It is never inferred from the observed
+    /// depth sequence; POINT belongs in the point-delivery store and is refused here.
+    #[serde(default, alias = "samplingStyle")]
+    pub sampling_style: Option<crate::schema_vocab::SamplingStyle>,
+    /// Required only for CONTINUOUS_REGULAR. It has no default and carries its own unit so the
+    /// verification cannot silently borrow the project's unit or an unrelated snap tolerance.
+    #[serde(default, alias = "samplingStyleVerifyTolerance")]
+    pub sampling_style_verify_tolerance: Option<crate::units::DepthTolerance>,
+}
+
+#[cfg(test)]
+impl Default for LasImportOptions {
+    fn default() -> Self {
+        // Existing tests that are not about SB-DBM-028 declare IRREGULAR explicitly through this
+        // fixture constructor. Production has no Default implementation and must supply a choice.
+        Self {
+            set_name: None,
+            attach: false,
+            file_depth_unit: None,
+            channel_nulls: Default::default(),
+            null_rules: Vec::new(),
+            non_monotonic_index: None,
+            duplicate_depth_policy: None,
+            ms_per_ft_meanings: Default::default(),
+            sampling_style: Some(crate::schema_vocab::SamplingStyle::ContinuousIrregular),
+            sampling_style_verify_tolerance: None,
+        }
+    }
 }
 
 /// Normalizes a user/derived set name to the store's convention: trimmed, upper-cased,
@@ -79,6 +107,135 @@ pub struct LasImportOptions {
 pub fn canonical_set_name(raw: Option<&str>) -> String {
     let s = raw.unwrap_or("").trim().to_uppercase().replace(' ', "_");
     if s.is_empty() { "RAW".to_string() } else { s }
+}
+
+#[derive(Debug, Clone)]
+struct ImportSetSamplingVerdict {
+    declared: crate::schema_vocab::SamplingStyle,
+    effective: crate::schema_vocab::SamplingStyle,
+    tolerance: Option<crate::units::DepthTolerance>,
+    warning: Option<String>,
+    gap_depth: Option<f32>,
+    gap_row_count: Option<i64>,
+}
+
+fn verify_import_set_sampling(
+    depth: &[f32],
+    declared_step: Option<&str>,
+    file_unit: crate::units::DepthUnit,
+    stored_unit: crate::units::DepthUnit,
+    options: &LasImportOptions,
+) -> Result<ImportSetSamplingVerdict, String> {
+    let declared = options.sampling_style.ok_or_else(|| {
+        "sampling style declaration is required before import; it is never inferred from depths"
+            .to_string()
+    })?;
+    match declared {
+        crate::schema_vocab::SamplingStyle::Point => Err(
+            "POINT sampling must use the point-delivery store, not continuous LAS ingest".into(),
+        ),
+        crate::schema_vocab::SamplingStyle::ContinuousIrregular => Ok(ImportSetSamplingVerdict {
+            declared,
+            effective: declared,
+            tolerance: None,
+            warning: None,
+            gap_depth: None,
+            gap_row_count: None,
+        }),
+        crate::schema_vocab::SamplingStyle::ContinuousRegular => {
+            let tolerance = options.sampling_style_verify_tolerance.ok_or_else(|| {
+                "CONTINUOUS_REGULAR requires an explicit unit-typed sampling verification tolerance; no default ships"
+                    .to_string()
+            })?;
+            if !tolerance.value.is_finite() || tolerance.value < 0.0 {
+                return Err("sampling verification tolerance must be finite and non-negative".into());
+            }
+            let raw_step = declared_step
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    "CONTINUOUS_REGULAR requires a declared STEP in the delivery".to_string()
+                })?
+                .parse::<f64>()
+                .map_err(|_| "CONTINUOUS_REGULAR has an unreadable declared STEP".to_string())?;
+            if !raw_step.is_finite() || raw_step == 0.0 {
+                return Err("CONTINUOUS_REGULAR requires a finite non-zero declared STEP".into());
+            }
+            let expected_step = crate::units::convert_depth(raw_step, file_unit, stored_unit);
+            let stored_tolerance = crate::units::convert_depth(
+                tolerance.value,
+                tolerance.unit,
+                stored_unit,
+            )
+            .abs();
+            let contradiction = depth.windows(2).enumerate().find_map(|(previous, pair)| {
+                let actual_step = pair[1] as f64 - pair[0] as f64;
+                ((actual_step - expected_step).abs() > stored_tolerance).then(|| {
+                    let ratio = (actual_step / expected_step).abs();
+                    let missing_rows = if ratio.is_finite() {
+                        (ratio.round() as i64 - 1).max(0)
+                    } else {
+                        0
+                    };
+                    (previous + 2, pair[1], missing_rows, actual_step)
+                })
+            });
+            if let Some((data_row, gap_depth, gap_row_count, actual_step)) = contradiction {
+                let warning = format!(
+                    "sampling declaration contradicted at depth {gap_depth:.4} {} (data row {data_row}): {gap_row_count} missing row(s); declared STEP {expected_step:.6} {}, observed increment {actual_step:.6} {}, explicit tolerance {:.6} {}",
+                    stored_unit.code(),
+                    stored_unit.code(),
+                    stored_unit.code(),
+                    tolerance.value,
+                    tolerance.unit.code()
+                );
+                Ok(ImportSetSamplingVerdict {
+                    declared,
+                    effective: crate::schema_vocab::SamplingStyle::ContinuousIrregular,
+                    tolerance: Some(tolerance),
+                    warning: Some(warning),
+                    gap_depth: Some(gap_depth),
+                    gap_row_count: Some(gap_row_count),
+                })
+            } else {
+                Ok(ImportSetSamplingVerdict {
+                    declared,
+                    effective: declared,
+                    tolerance: Some(tolerance),
+                    warning: None,
+                    gap_depth: None,
+                    gap_row_count: None,
+                })
+            }
+        }
+    }
+}
+
+fn record_import_set_sampling(
+    conn: &Connection,
+    well_id: &str,
+    set_name: &str,
+    verdict: &ImportSetSamplingVerdict,
+) -> db::DbResult<()> {
+    conn.execute(
+        "INSERT INTO import_sets
+            (well_id, set_name, declared_sampling_style, effective_sampling_style,
+             sampling_verified, verification_tolerance, verification_tolerance_unit,
+             verification_warning, gap_depth, gap_row_count)
+         VALUES (?1, ?2, ?3, ?4, true, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            well_id,
+            set_name,
+            verdict.declared.as_str(),
+            verdict.effective.as_str(),
+            verdict.tolerance.map(|value| value.value),
+            verdict.tolerance.map(|value| value.unit.code()),
+            verdict.warning,
+            verdict.gap_depth,
+            verdict.gap_row_count,
+        ],
+    )?;
+    Ok(())
 }
 
 /// Returns `desired` if this well has no curves under it yet, else the first free
@@ -499,6 +656,38 @@ fn insert_parsed_well(
     if non_monotonic {
         notes.push("depth index is non-monotonic — column 0 may not be the true depth curve".to_string());
     }
+    let sampling_verdict = match verify_import_set_sampling(
+        &columns.depth,
+        columns.declared_step.as_deref(),
+        file_unit.expect("resolve_index_unit accepts an import only with a declared file unit"),
+        stored_unit,
+        opts,
+    ) {
+        Ok(verdict) => verdict,
+        Err(error) => {
+            return ImportResult {
+                path,
+                well_id: None,
+                well_name: None,
+                rows: 0,
+                text_encoding: Some(text_encoding),
+                warning: None,
+                error: Some(error),
+                attached_set: None,
+                alias_decisions,
+                index_resolution,
+                unit_conversions: Vec::new(),
+                unconverted_units: Vec::new(),
+                unit_designations,
+                unit_tokens,
+                unit_token_warnings,
+            };
+        }
+    };
+    if let Some(warning) = sampling_verdict.warning.as_ref() {
+        notes.push(warning.clone());
+    }
+
     // Wells of the same (normalized) name already in the project. With `opts.attach` (the
     // dialog default) and exactly ONE match, this file's curves ATTACH to that well as a
     // new named set — the Geolog/IP set model (T-IMP-02): a re-delivery lands beside the
@@ -543,6 +732,7 @@ fn insert_parsed_well(
             &columns.depth,
             &columns.raw_curves,
             ms_per_ft_meaning,
+            &sampling_verdict,
         );
         if out.error.is_none() {
             if let crate::units::IndexUnitAction::Adopted(unit) = unit_action {
@@ -617,6 +807,7 @@ fn insert_parsed_well(
             &well_id.to_string(),
             &canonical_set_name(opts.set_name.as_deref()),
         );
+        record_import_set_sampling(conn, &well_id.to_string(), &set, &sampling_verdict)?;
         write_prepared_generic_curves_in_transaction(
             conn,
             &well_id.to_string(),
@@ -671,9 +862,18 @@ fn attach_curves_to_existing_well(
     depth: &[f32],
     curves: &[parsers::RawLasCurve],
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+    sampling_verdict: &ImportSetSamplingVerdict,
 ) -> ImportResult {
     let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
-    match import_parsed_curves_into_generic_store(conn, well_id, depth, curves, &set, ms_per_ft_meaning) {
+    match import_parsed_curves_into_generic_store(
+        conn,
+        well_id,
+        depth,
+        curves,
+        &set,
+        ms_per_ft_meaning,
+        Some(sampling_verdict),
+    ) {
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
         // and the frontend reports it separately. Only genuine notes (unit reconciliation,
         // dropped rows) reach `warning`.
@@ -744,6 +944,7 @@ pub fn import_all_curves_into_generic_store(
         &frame.curves,
         set_name,
         None,
+        None,
     )
     .map(|report| (report.curves_written, report.rows))
 }
@@ -775,6 +976,7 @@ fn import_parsed_curves_into_generic_store(
     curves: &[parsers::RawLasCurve],
     set_name: &str,
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+    sampling_verdict: Option<&ImportSetSamplingVerdict>,
 ) -> db::DbResult<GenericCurveImportReport> {
     // `depth` and `curves` came from the same primary parse and passed one shared unit,
     // duplicate-depth, and sanitation decision. Keep that exact row alignment here: the
@@ -791,6 +993,9 @@ fn import_parsed_curves_into_generic_store(
 
     let prepared = prepare_generic_curves(depth, curves, ms_per_ft_meaning)?;
     db::with_txn(conn, |conn| {
+        if let Some(verdict) = sampling_verdict {
+            record_import_set_sampling(conn, well_id, set_name, verdict)?;
+        }
         write_prepared_generic_curves_in_transaction(conn, well_id, depth, set_name, &prepared.curves)
     })?;
     Ok(GenericCurveImportReport {
@@ -4933,6 +5138,192 @@ mod tests {
     /// configured fixture folder (`SANDIBUMI_FIELD_FIXTURES/las/`). Ignored by default and
     /// skipped with a printed reason when no folder is configured; run explicitly with
     /// `cargo test --release -- --ignored --nocapture test_import_real_field_files`.
+    /// CORRECTNESS - `22_database-model.md` SB-DBM-T27 supplies the verification tolerance as
+    /// fixture input and cites F-14/T-DB-16 for the 0.1524 m, 40-row, 6.1 m consequence. The
+    /// regular control and the legacy refusal prevent an implementation that merely labels every
+    /// delivery irregular or treats an absent verdict as permission.
+    #[test]
+    fn a_forty_row_gap_contradicts_a_regular_sampling_declaration_while_a_verified_regular_set_stays_regular_and_an_unverified_set_cannot_be_frame_read() {
+        let make_las = |name: &str, source_indices: &[usize]| {
+            let path = std::env::temp_dir().join(format!(
+                "sampling-style-{name}-{}.las",
+                std::process::id()
+            ));
+            let mut body = format!(
+                "~VERSION\nVERS. 2.0 :\nWRAP. NO :\n~WELL\nSTEP.M 0.1524 :\nNULL. -999.25 :\nWELL. {name} :\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n"
+            );
+            for &source_index in source_indices {
+                let depth = 1000.0_f64 + source_index as f64 * 0.1524_f64;
+                body.push_str(&format!("{depth:.4} {}\n", source_index + 10));
+            }
+            std::fs::write(&path, body).unwrap();
+            path
+        };
+
+        let gap_indices: Vec<usize> = (0..=10).chain(51..=60).collect();
+        let regular_indices: Vec<usize> = (0..=60).collect();
+        let gap_path = make_las("FORTY-ROW-GAP", &gap_indices);
+        let regular_path = make_las("REGULAR-CONTROL", &regular_indices);
+        let explicit_tolerance: crate::units::DepthTolerance =
+            serde_json::from_str(r#"{"value":0.0001,"unit":"M"}"#)
+                .expect("the unit-typed frontend input must deserialize without reinterpretation");
+        let regular_declaration = LasImportOptions {
+            sampling_style: Some(crate::schema_vocab::SamplingStyle::ContinuousRegular),
+            sampling_style_verify_tolerance: Some(explicit_tolerance),
+            ..LasImportOptions::default()
+        };
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let undeclared = LasImportOptions {
+            sampling_style: None,
+            ..LasImportOptions::default()
+        };
+        let undeclared_result = import_las_files_with(
+            &conn,
+            &[gap_path.to_string_lossy().into_owned()],
+            None,
+            &undeclared,
+        )
+        .remove(0);
+        assert!(
+            undeclared_result.error.as_deref().unwrap_or_default().contains("never inferred"),
+            "a sampling style cannot appear by default: {:?}",
+            undeclared_result.error
+        );
+        let no_tolerance = LasImportOptions {
+            sampling_style: Some(crate::schema_vocab::SamplingStyle::ContinuousRegular),
+            sampling_style_verify_tolerance: None,
+            ..LasImportOptions::default()
+        };
+        let no_tolerance_result = import_las_files_with(
+            &conn,
+            &[gap_path.to_string_lossy().into_owned()],
+            None,
+            &no_tolerance,
+        )
+        .remove(0);
+        assert!(
+            no_tolerance_result.error.as_deref().unwrap_or_default().contains("no default ships"),
+            "regular verification cannot borrow another tolerance: {:?}",
+            no_tolerance_result.error
+        );
+        let refused_rows: i64 = conn
+            .query_row("SELECT count(*) FROM wells", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(refused_rows, 0, "both missing declarations refuse before commit");
+
+        let gap = import_las_files_with(
+            &conn,
+            &[gap_path.to_string_lossy().into_owned()],
+            None,
+            &regular_declaration,
+        )
+        .remove(0);
+        assert!(gap.error.is_none(), "a contradicted declaration is retained as irregular: {:?}", gap.error);
+        let warning = gap.warning.as_deref().unwrap_or_default();
+        assert!(warning.contains("sampling declaration contradicted"), "{warning}");
+        assert!(warning.contains("40 missing row"), "{warning}");
+        assert!(warning.contains("1007.7724"), "the first post-gap depth must be named: {warning}");
+        let gap_well = gap.well_id.as_deref().unwrap();
+        let gap_verdict: (String, String, bool, f64, String, i64) = conn
+            .query_row(
+                "SELECT declared_sampling_style, effective_sampling_style, sampling_verified,
+                        verification_tolerance, verification_tolerance_unit, gap_row_count
+                 FROM import_sets WHERE well_id = ?1 AND set_name = 'RAW'",
+                [gap_well],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            gap_verdict,
+            (
+                "CONTINUOUS_REGULAR".into(),
+                "CONTINUOUS_IRREGULAR".into(),
+                true,
+                explicit_tolerance.value,
+                "M".into(),
+                40,
+            )
+        );
+        let (gap_depth, gap_columns) = crate::equations::fetch_curve_frame_from_set(
+            &conn,
+            gap_well,
+            &["GR".to_string()],
+            Some("RAW"),
+            None,
+        )
+        .unwrap();
+        let post_gap = gap_depth
+            .iter()
+            .position(|depth| (*depth - 1007.7724).abs() < 0.1524)
+            .expect("the post-gap sample remains at its source depth rather than 6.1 m shallow");
+        assert_eq!(gap_columns["GR"][post_gap], 61.0);
+
+        let regular = import_las_files_with(
+            &conn,
+            &[regular_path.to_string_lossy().into_owned()],
+            None,
+            &regular_declaration,
+        )
+        .remove(0);
+        assert!(regular.error.is_none(), "the regular control imports: {:?}", regular.error);
+        assert!(!regular.warning.as_deref().unwrap_or_default().contains("sampling declaration contradicted"));
+        let effective: String = conn
+            .query_row(
+                "SELECT effective_sampling_style FROM import_sets WHERE well_id = ?1 AND set_name = 'RAW'",
+                [regular.well_id.as_deref().unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(effective, "CONTINUOUS_REGULAR");
+
+        let legacy_well = Uuid::new_v4();
+        db::insert_well(&conn, legacy_well, "UNVERIFIED-LEGACY", None, None, None).unwrap();
+        db::insert_standard_curves(
+            &conn,
+            legacy_well,
+            vec![1000.0, 1000.1524],
+            vec![10.0, 11.0],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+            vec![f32::NAN; 2],
+        )
+        .unwrap();
+        let legacy_curve = db::upsert_curve_meta(
+            &conn,
+            &legacy_well.to_string(),
+            "RAW",
+            "GR",
+            Some("GAPI"),
+            Some("GR"),
+            Some("legacy fixture"),
+            None,
+        )
+        .unwrap();
+        db::insert_curve_samples(
+            &conn,
+            &legacy_curve,
+            &[1000.0, 1000.1524],
+            &[10.0, 11.0],
+        )
+        .unwrap();
+        let refusal = crate::equations::fetch_curve_frame_from_set(
+            &conn,
+            &legacy_well.to_string(),
+            &["GR".to_string()],
+            Some("RAW"),
+            None,
+        )
+        .expect_err("a frame-indexed read needs a stored verification verdict");
+        assert!(refusal.to_string().contains("sampling style has not been verified"), "{refusal}");
+
+        std::fs::remove_file(gap_path).ok();
+        std::fs::remove_file(regular_path).ok();
+    }
+
     #[test]
     #[ignore]
     fn test_import_real_field_files() {

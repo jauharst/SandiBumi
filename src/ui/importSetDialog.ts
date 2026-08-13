@@ -68,6 +68,8 @@ export interface ImportSetChoice extends LasImportOptions {
   setName: string;
   attach: boolean;
   fileDepthUnit: "M" | "FT" | null;
+  samplingStyle: "CONTINUOUS_REGULAR" | "CONTINUOUS_IRREGULAR";
+  samplingStyleVerifyTolerance: { value: number; unit: "M" | "FT" } | null;
 }
 
 /**
@@ -145,6 +147,66 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
       "A name matching several existing wells is always ambiguous — those import as separate records and say so.";
     wrap.appendChild(attachHint);
 
+    const samplingStyle = document.createElement("select");
+    samplingStyle.className = "form-control";
+    for (const [value, label] of [
+      ["", "Choose the delivery's declared style"],
+      ["CONTINUOUS_REGULAR", "Continuous regular (verify STEP)"],
+      ["CONTINUOUS_IRREGULAR", "Continuous irregular"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      samplingStyle.appendChild(option);
+    }
+    wrap.appendChild(
+      formRow(
+        "Sampling style",
+        samplingStyle,
+        "Required per set. SandiBumi stores both the declaration and its verified effective style; it never infers regularity from the samples.",
+      ),
+    );
+
+    const toleranceRow = document.createElement("div");
+    toleranceRow.className = "import-sampling-tolerance";
+    const toleranceValue = document.createElement("input");
+    toleranceValue.type = "number";
+    toleranceValue.step = "any";
+    toleranceValue.min = "0";
+    toleranceValue.className = "form-control";
+    toleranceValue.placeholder = "Required for regular";
+    const toleranceUnit = document.createElement("select");
+    toleranceUnit.className = "form-control";
+    for (const [value, label] of [
+      ["", "Choose unit"],
+      ["M", "metres"],
+      ["FT", "feet"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      toleranceUnit.appendChild(option);
+    }
+    toleranceRow.append(toleranceValue, toleranceUnit);
+    wrap.appendChild(
+      formRow(
+        "Regular-step tolerance",
+        toleranceRow,
+        "Required only for a regular declaration. No default ships, and this is not the irregular-set snap tolerance.",
+      ),
+    );
+    const syncSamplingControls = () => {
+      const regular = samplingStyle.value === "CONTINUOUS_REGULAR";
+      toleranceValue.disabled = !regular;
+      toleranceUnit.disabled = !regular;
+      if (!regular) {
+        toleranceValue.value = "";
+        toleranceUnit.value = "";
+      }
+    };
+    samplingStyle.addEventListener("change", syncSamplingControls);
+    syncSamplingControls();
+
     const undeclaredUnit = document.createElement("select");
     undeclaredUnit.className = "form-control";
     for (const [value, label] of [
@@ -219,15 +281,40 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
 
     const close = openModal("Import LAS — curve set", wrap, 560);
     cancelBtn.addEventListener("click", () => finish(null));
-    okBtn.addEventListener("click", () =>
+    okBtn.addEventListener("click", () => {
+      if (samplingStyle.value !== "CONTINUOUS_REGULAR" && samplingStyle.value !== "CONTINUOUS_IRREGULAR") {
+        samplingStyle.setCustomValidity("Declare whether this curve set is continuous regular or continuous irregular.");
+        samplingStyle.reportValidity();
+        samplingStyle.setCustomValidity("");
+        return;
+      }
+      let tolerance: { value: number; unit: "M" | "FT" } | null = null;
+      if (samplingStyle.value === "CONTINUOUS_REGULAR") {
+        const value = Number(toleranceValue.value);
+        if (toleranceValue.value.trim() === "" || !Number.isFinite(value) || value < 0) {
+          toleranceValue.setCustomValidity("Enter an explicit finite non-negative verification tolerance.");
+          toleranceValue.reportValidity();
+          toleranceValue.setCustomValidity("");
+          return;
+        }
+        if (toleranceUnit.value !== "M" && toleranceUnit.value !== "FT") {
+          toleranceUnit.setCustomValidity("Choose the tolerance unit.");
+          toleranceUnit.reportValidity();
+          toleranceUnit.setCustomValidity("");
+          return;
+        }
+        tolerance = { value, unit: toleranceUnit.value };
+      }
       finish({
         setName: setInput.value.trim(),
         attach: attachBox.checked,
         fileDepthUnit: undeclaredUnit.value === "M" || undeclaredUnit.value === "FT"
           ? undeclaredUnit.value
           : null,
-      }),
-    );
+        samplingStyle: samplingStyle.value,
+        samplingStyleVerifyTolerance: tolerance,
+      });
+    });
     setInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") okBtn.click();
     });

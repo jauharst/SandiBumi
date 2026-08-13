@@ -618,6 +618,11 @@ body {
   color: var(--text-dim);
   padding-top: 2px;
 }
+.import-sampling-tolerance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.45fr);
+  gap: 8px;
+}
 .import-prov-note {
   background: var(--accent2-soft);
   color: color-mix(in srgb, var(--accent2) 60%, var(--text));

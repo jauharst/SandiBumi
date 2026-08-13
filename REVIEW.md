@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-13 — G2 SB-DBM-028: verify a set's declared sampling style
+
+- [x] **Automated:** exact SB-DBM-T27 supplies its tolerance as a unit-typed fixture input and
+      first proves that neither the sampling style nor the regular-verification tolerance has a
+      production default. The cited 0.1524 m fixture then omits 40 mid-interval rows, requires the
+      stored declaration to become effective `CONTINUOUS_IRREGULAR`, names depth and missing-row
+      count, and keeps the known post-gap sample at its native depth rather than 6.1 m shallow. A
+      genuinely regular control remains regular, while an unverified legacy set is refused by the
+      explicit frame reader. Full gate is 998 passed / 0 failed / 36 ignored with 55 owned Rust
+      warnings.
+- [ ] **Visual:** open Import LAS at narrow and wide modal widths. Confirm Sampling style starts
+      unselected, Regular-step tolerance starts empty and disabled, selecting regular enables both
+      value and unit without filling either, and selecting irregular clears/disables them. Confirm
+      validation and the named post-import warning remain legible without clipping.
+- [ ] **Manual:** on a disposable project, import one regular LAS with an explicit tolerance, one
+      declared-regular LAS containing a known gap, and one declared-irregular LAS. Inspect the
+      stored `import_sets` rows and confirm style, effective verdict, original tolerance/unit,
+      warning, gap depth and row count agree with the delivery. Jauhar owns this click-through.
+- [ ] **Field:** pending Gate 4. Use the sanitized representative pilot delivery to confirm the
+      tolerance is project/source justified, then inspect one sample after every contradicted gap
+      against the source LAS. The synthetic 40-row fixture does not qualify a field tolerance.
+
 ## 2026-08-13 — G2 SB-DBM-027: complete integrity report and recoverable quarantine
 
 - [x] **Automated:** exact SB-DBM-T26 seeds one archive row whose `set_id` cannot resolve and one

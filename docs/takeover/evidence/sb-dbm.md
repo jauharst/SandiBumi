@@ -371,14 +371,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned test `SB-DBM-T27`; sections 4.5, 5.2 and 6.6.
 - **Atomic obligations:** persist declared style; verify it against the actual reference samples; store effective verdict and warning; prevent frame-indexed misplacement after a contradicted regular declaration.
-- **Current source:** log/curve set schemas do not store declared/effective sampling style or a verification verdict, and ingest has no shared contradiction check before frame-indexed use.
-- **Qualifying acceptance tests:** none; T27 is deliberately unwritten because its verification tolerance is an input and no production default is cited. Test class is `MISSING`.
-- **Supporting tests:** non-increasing/duplicate and reframe tests cover different structural conditions.
+- **Current source:** `ingest.rs` requires a declared continuous style for every new LAS set. A regular declaration additionally requires a unit-typed tolerance with no default, verifies the delivery's declared STEP against the sanitized native reference samples and atomically writes declared/effective style, verdict, input tolerance, warning, gap depth and missing-row count to `import_sets`. `equations.rs` refuses an explicit imported-set frame read without that verdict and uses verified native reference samples rather than a synthesized row index.
+- **Qualifying acceptance tests:** exact SB-DBM-T27 `a_forty_row_gap_contradicts_a_regular_sampling_declaration_while_a_verified_regular_set_stays_regular_and_an_unverified_set_cannot_be_frame_read`; test class `CORRECTNESS`. It pins the cited 0.1524 m / 40-row / 6.1 m fixture, stored contradiction, native post-gap depth, genuinely regular control and unverified-read refusal. The 0.0001 m fixture tolerance is supplied only by the test and is not a product default.
+- **Supporting tests:** all 45 default ingest tests pass; existing non-increasing/duplicate and reframe tests remain separate structural controls.
 - **Manual evidence:** `data-conventions` 0/45, `delivery-sets` 0/33 and `reframe` 0/34 - unexercised.
-- **Git evidence:** `UNIMPLEMENTED`; no sampling-style schema/guard exists at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** `SAMPLING_STYLE_VERIFY_TOLERANCE` is deliberately absent; a cited tolerance or explicit input contract is required.
-- **Next action:** obtain/adjudicate the source or require the tolerance explicitly, then store declared/effective style and implement T27's 40-row-gap control.
+- **Git evidence:** live Gate 2 implementation on `codex/g2-program-plan`; commit receipt follows the mandatory full gate.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` handled by Gate 2; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated closure. `SAMPLING_STYLE_VERIFY_TOLERANCE` remains deliberately absent as a product default; every regular import must supply its own explicit unit-typed value.
+- **Next action:** Jauhar visually and manually checks declaration/tolerance refusal and the named contradiction in Gate 4, then confirms a representative post-gap sample retains its delivered depth. Automated evidence is not field evidence.
 
 ## SB-DBM-029 - A module never writes to the reference column of a frame it reads
 
