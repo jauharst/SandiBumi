@@ -472,7 +472,7 @@ export async function buildModuleContent(
     resultBox.textContent = `Running ${spec.name} on ${wellIds.length} well(s)… see the Processing panel for progress.`;
     window.dispatchEvent(new Event("sandibumi:open-processing"));
     try {
-      const results = await runWorkflowModule(req);
+      const results = await runWorkflowModule(req, scope.backend());
       const ok = results.filter((r) => !r.error).length;
       const failed = results.length - ok;
       resultBox.textContent = failed

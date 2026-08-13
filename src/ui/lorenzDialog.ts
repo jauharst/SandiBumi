@@ -1,5 +1,5 @@
-import { listCurveCatalog, listWells, runLorenz, type LorenzResult } from "../ipc";
-import { appState, filterByActiveGroup } from "../state";
+import { listCurveCatalog, listWells, resolveWellScope, runLorenz, type LorenzResult } from "../ipc";
+import { appState } from "../state";
 import { formRow } from "./modal";
 import { attachResizeRedraw, canvasFont, faciesColor, readTheme } from "./plotCanvas";
 import { preferredCurveSelect } from "./plotCommon";
@@ -14,12 +14,14 @@ import { recordProcess } from "../processLog";
 export async function buildLorenzContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
-  const [catalog, wells] = await Promise.all([
+  const [catalog, wells, scopedIds] = await Promise.all([
     listCurveCatalog().catch(() => []),
     listWells().catch(() => []),
+    resolveWellScope({ kind: "active_group" }).catch(() => [] as string[]),
   ]);
   const names = catalog.map((c) => c.name);
-  const scoped = filterByActiveGroup(wells);
+  const allowed = new Set(scopedIds);
+  const scoped = wells.filter((well) => allowed.has(well.well_id));
 
   const content = document.createElement("div");
   content.className = "mc-dialog";
@@ -116,7 +118,15 @@ export async function buildLorenzContent(
     statusLine.textContent = "Computing…";
     const t0 = performance.now();
     try {
-      const res = await runLorenz(wellId, phiSel.value, permSel.value, k, from, to);
+      const res = await runLorenz(
+        wellId,
+        phiSel.value,
+        permSel.value,
+        k,
+        from,
+        to,
+        { kind: "active_group" },
+      );
       const ms = Math.round(performance.now() - t0);
       detachRender?.();
       detachRender = null;

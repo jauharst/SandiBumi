@@ -164,6 +164,7 @@ export async function openWorkbookDialog(): Promise<void> {
           include_field: fieldSheet.checked,
           include_zone_params: zoneSheet.checked,
         },
+        scope.backend(),
         dest,
       );
       // The blind-well count is stated, never swallowed: a workbook whose Summary says

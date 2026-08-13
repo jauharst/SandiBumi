@@ -1,4 +1,4 @@
-import { getCurveData, plotBindingSnapshot, type ResolvedPlotCurve, type WellSummary } from "../ipc";
+import { getCurveData, plotBindingSnapshot, resolveWellScope, type ResolvedPlotCurve, type WellSummary } from "../ipc";
 import { histogram as canonicalBinCounts } from "../distribution";
 import { appState, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
@@ -730,7 +730,15 @@ export async function buildHistogramContent(
    *  active well → clears the overlay: byte-identical single-well behaviour. */
   const reloadContext = async () => {
     const gen = ++ctxGen;
-    const ids = scope.getWellIds().filter((id) => id !== well.well_id);
+    let resolvedIds: string[];
+    try {
+      resolvedIds = await resolveWellScope(scope.backend());
+    } catch (error) {
+      if (gen === ctxGen) setStatus(`Histogram scope refused: ${error}`);
+      return;
+    }
+    if (gen !== ctxGen) return;
+    const ids = resolvedIds.filter((id) => id !== well.well_id);
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
@@ -743,7 +751,7 @@ export async function buildHistogramContent(
     ctxReductionManifest = contextReductionExport(
       "histogram",
       null,
-      scope.getWellIds().length,
+      resolvedIds.length,
       WELL_SCOPE_NAME_PREVIEW_ROWS,
     );
     setStatus(`Histogram: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
@@ -759,7 +767,7 @@ export async function buildHistogramContent(
     ctxReductionManifest = contextReductionExport(
       "histogram",
       outcome,
-      scope.getWellIds().length,
+      resolvedIds.length,
       WELL_SCOPE_NAME_PREVIEW_ROWS,
     );
     ctxLayers = outcome.layers.map((l) => ({

@@ -918,7 +918,7 @@ export async function buildWorkflowContent(
     void runWorkflowChain(
       jobId,
       steps,
-      wellIds,
+      scope.backend(),
       custody,
       setPicker.outputSet(),
       setPicker.inputSet(),

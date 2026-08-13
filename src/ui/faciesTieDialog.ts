@@ -88,13 +88,16 @@ export async function buildFaciesTieContent(
       // did not choose" reaches the backend as absence rather than as a zero that accepts anything.
       const pct = threshInput.value.trim();
       const thresh = pct === "" ? undefined : Number(pct) / 100;
-      const res = await runFaciesConfusion({
-        well_ids: wellIds,
-        pred_curve: predSel.value,
-        ref_curve: refSel.value,
-        input_set: setPicker.inputSet(),
-        accept_threshold: thresh,
-      });
+      const res = await runFaciesConfusion(
+        {
+          well_ids: wellIds,
+          pred_curve: predSel.value,
+          ref_curve: refSel.value,
+          input_set: setPicker.inputSet(),
+          accept_threshold: thresh,
+        },
+        scope.backend(),
+      );
       if (res.error) {
         statusLine.textContent = `Failed: ${res.error}`;
         results.innerHTML = "";

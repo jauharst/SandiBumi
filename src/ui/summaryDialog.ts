@@ -66,15 +66,18 @@ export async function buildSummaryContent(
     runBtn.disabled = true;
     resultBox.textContent = "Computing…";
     try {
-      const rows = await runPaySummary({
-        well_ids: wellIds,
-        vsh_max: parseFloat(vshIn.value),
-        phie_min: parseFloat(phieIn.value),
-        swe_max: parseFloat(sweIn.value),
-        perm_min: Number.isNaN(permRaw) ? null : permRaw,
-        input_set: setPicker.inputSet(),
-        custody,
-      });
+      const rows = await runPaySummary(
+        {
+          well_ids: wellIds,
+          vsh_max: parseFloat(vshIn.value),
+          phie_min: parseFloat(phieIn.value),
+          swe_max: parseFloat(sweIn.value),
+          perm_min: Number.isNaN(permRaw) ? null : permRaw,
+          input_set: setPicker.inputSet(),
+          custody,
+        },
+        scope.backend(),
+      );
       renderPaySummaryTable(resultBox, rows);
       setStatus(`Pay summary: ${rows.length} rows; FLAG curves written`);
       // The explicit Compute Summary versions FLAG_SAND/RESERVOIR/PAY into a PAYFLAG log set —

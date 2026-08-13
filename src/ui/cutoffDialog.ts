@@ -4,6 +4,7 @@ import {
   listAuxDatasets,
   listWells,
   listZones,
+  resolveWellScope,
   runCutoffSweep,
   saveDocument,
   type CutoffSweepResult,
@@ -29,8 +30,6 @@ import { buildWellScope } from "./wellScope";
 export async function buildCutoffContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
-  const wells = await listWells();
-
   const root = document.createElement("div");
   root.className = "cutoff-pane";
 
@@ -525,21 +524,24 @@ export async function buildCutoffContent(
     runBtn.disabled = true;
     readout.textContent = "Computing sweep…";
     try {
-      const res = await runCutoffSweep({
-        input_set: setPicker.inputSet(),
-        well_ids: wellIds,
-        property,
-        vsh_max: numOf(vshIn, DEFAULT_CUTOFFS.vsh_max),
-        phie_min: numOf(phieIn, DEFAULT_CUTOFFS.phie_min),
-        swe_max: numOf(sweIn, DEFAULT_CUTOFFS.swe_max),
-        perm_min: Number.isFinite(permRaw) ? permRaw : null,
-        sweep_min: sweepMin,
-        sweep_max: sweepMax,
-        steps: Math.round(numOf(stepsIn, 60)),
-        metric,
-        zone: zoneSelect.value || null,
-        dst_dataset: dstSelect.value || null,
-      });
+      const res = await runCutoffSweep(
+        {
+          input_set: setPicker.inputSet(),
+          well_ids: wellIds,
+          property,
+          vsh_max: numOf(vshIn, DEFAULT_CUTOFFS.vsh_max),
+          phie_min: numOf(phieIn, DEFAULT_CUTOFFS.phie_min),
+          swe_max: numOf(sweIn, DEFAULT_CUTOFFS.swe_max),
+          perm_min: Number.isFinite(permRaw) ? permRaw : null,
+          sweep_min: sweepMin,
+          sweep_max: sweepMax,
+          steps: Math.round(numOf(stepsIn, 60)),
+          metric,
+          zone: zoneSelect.value || null,
+          dst_dataset: dstSelect.value || null,
+        },
+        scope.backend(),
+      );
       sweep = res;
       sweepReq = { property, sweepMin, sweepMax, metric };
       // Seed the pick at the property's current fixed cutoff (clamped into range).
@@ -563,8 +565,8 @@ export async function buildCutoffContent(
   }
 
   async function computeCrossplot(): Promise<void> {
-    const ids = new Set(scope.getWellIds());
-    const checked = wells.filter((w) => ids.has(w.well_id));
+    const ids = new Set(await resolveWellScope(scope.backend()));
+    const checked = (await listWells()).filter((w) => ids.has(w.well_id));
     if (checked.length === 0) {
       setStatus("No wells in scope — pick a group, pin/select wells, or choose All.");
       return;

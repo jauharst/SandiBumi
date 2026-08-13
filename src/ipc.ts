@@ -68,10 +68,10 @@ export function listEquations(): Promise<EquationDef[]> {
 
 export function runEquation(
   equationId: string,
-  wellIds: string[],
+  scope: BackendWellScope,
   custody: RunCustody,
 ): Promise<EquationRunResult[]> {
-  return invoke<EquationRunResult[]>("run_equation", { equationId, wellIds, custody });
+  return invoke<EquationRunResult[]>("run_equation", { equationId, scope, custody });
 }
 
 export function listCurveCatalog(): Promise<CurveCatalogEntry[]> {
@@ -252,8 +252,8 @@ export interface AutoCorrResult {
   error: string | null;
 }
 
-export function autocorrelateTop(req: AutoCorrRequest): Promise<AutoCorrResult> {
-  return invoke<AutoCorrResult>("autocorrelate_top", { req });
+export function autocorrelateTop(req: AutoCorrRequest, scope: BackendWellScope): Promise<AutoCorrResult> {
+  return invoke<AutoCorrResult>("autocorrelate_top", { req, scope });
 }
 
 export interface MultiAutoCorrRequest {
@@ -289,8 +289,8 @@ export interface MultiAutoCorrResult {
 }
 
 /** Propagate several markers together with one consistent (monotone) depth warp. */
-export function autocorrelateMulti(req: MultiAutoCorrRequest): Promise<MultiAutoCorrResult> {
-  return invoke<MultiAutoCorrResult>("autocorrelate_multi", { req });
+export function autocorrelateMulti(req: MultiAutoCorrRequest, scope: BackendWellScope): Promise<MultiAutoCorrResult> {
+  return invoke<MultiAutoCorrResult>("autocorrelate_multi", { req, scope });
 }
 
 export type ScaleType = "linear" | "log";
@@ -521,8 +521,8 @@ export function exportReportPdf(spec: ReportSpec, destPath: string): Promise<str
 }
 
 /** Batch export: one report PDF per well into destDir; returns the written paths. */
-export function exportReportBatch(spec: ReportSpec, wellIds: string[], destDir: string): Promise<string[]> {
-  return invoke<string[]>("export_report_batch", { spec, wellIds, destDir });
+export function exportReportBatch(spec: ReportSpec, scope: BackendWellScope, destDir: string): Promise<string[]> {
+  return invoke<string[]>("export_report_batch", { spec, scope, destDir });
 }
 
 // --- Office deliverables (office.rs, Python subprocess) ---------------------
@@ -568,8 +568,8 @@ export interface DeckResult {
 
 /** Asset-team deck built from the pay-summary DATA (matplotlib figures), not from composite
  *  pages — a log plot at 1:200 stops being at 1:200 once it is a picture on a slide. */
-export function exportDeck(spec: DeckSpec, destPath: string): Promise<DeckResult> {
-  return invoke<DeckResult>("export_deck", { spec, destPath });
+export function exportDeck(spec: DeckSpec, scope: BackendWellScope, destPath: string): Promise<DeckResult> {
+  return invoke<DeckResult>("export_deck", { spec, scope, destPath });
 }
 
 export interface WorkbookSpec {
@@ -607,14 +607,14 @@ export function exportReportDocx(spec: ReportSpec, destPath: string): Promise<st
   return invoke<string>("export_report_docx", { spec, destPath });
 }
 
-export function exportReportDocxBatch(spec: ReportSpec, wellIds: string[], destDir: string): Promise<string[]> {
-  return invoke<string[]>("export_report_docx_batch", { spec, wellIds, destDir });
+export function exportReportDocxBatch(spec: ReportSpec, scope: BackendWellScope, destDir: string): Promise<string[]> {
+  return invoke<string[]>("export_report_docx_batch", { spec, scope, destDir });
 }
 
 /** Writes the study as a formatted multi-sheet .xlsx. Never persists FLAG curves — an export
  *  must not churn the project (see office.rs). */
-export function exportWorkbook(spec: WorkbookSpec, destPath: string): Promise<WorkbookResult> {
-  return invoke<WorkbookResult>("export_workbook", { spec, destPath });
+export function exportWorkbook(spec: WorkbookSpec, scope: BackendWellScope, destPath: string): Promise<WorkbookResult> {
+  return invoke<WorkbookResult>("export_workbook", { spec, scope, destPath });
 }
 
 /** Exact project scope whose current computed curves contribute numbers to an exported plot.
@@ -840,6 +840,21 @@ export interface ValidityBranch {
   equals: string;
 }
 
+/** Backend-owned multi-well scope identity. Group and All carry no frontend snapshot: Rust resolves
+ * their current membership at operation start. Explicit is the intentional Active/Pinned/
+ * Selection/Custom alternative and Rust verifies that every identity still exists. */
+export type BackendWellScope =
+  | { kind: "active_group" }
+  | { kind: "group"; group_id: string }
+  | { kind: "all" }
+  | { kind: "explicit"; well_ids: string[] };
+
+/** Resolves a scope in Rust. Multi-well reads use this to avoid drawing a stale group snapshot;
+ * mutating/export commands take the same selector and resolve it inside their own command. */
+export function resolveWellScope(scope: BackendWellScope): Promise<string[]> {
+  return invoke<string[]>("resolve_well_scope", { scope });
+}
+
 export type ValidityCondition = {
   /** Stable id repeated in runner refusals and persisted manifests. */
   id: string;
@@ -1027,8 +1042,11 @@ export async function moduleOutputNames(
   return invoke("module_output_names", { module, logInputs, opts });
 }
 
-export async function runWorkflowModule(req: RunModuleRequest): Promise<ModuleRunResult[]> {
-  return invoke<ModuleRunResult[]>("run_workflow_module", { req });
+export async function runWorkflowModule(
+  req: RunModuleRequest,
+  scope: BackendWellScope,
+): Promise<ModuleRunResult[]> {
+  return invoke<ModuleRunResult[]>("run_workflow_module", { req, scope });
 }
 
 // --- Workflow chains (Phase 9) --------------------------------------------
@@ -1055,7 +1073,7 @@ export type ChainStatus =
 export async function runWorkflowChain(
   jobId: string,
   steps: ChainStep[],
-  wellIds: string[],
+  scope: BackendWellScope,
   custody: RunCustody,
   outputSet?: string,
   inputSet?: string,
@@ -1063,7 +1081,7 @@ export async function runWorkflowChain(
   return invoke<void>("run_workflow_chain", {
     jobId,
     steps,
-    wellIds,
+    scope,
     custody,
     outputSet: outputSet ?? null,
     inputSet: inputSet ?? null,
@@ -1372,8 +1390,8 @@ export interface McResult {
 
 /** Runs a Monte Carlo study; resolves with the per-zone P10/P50/P90 + HPV histograms. Runs
  *  in memory on the backend (no computed_curves writes), so 1000+ realizations are fast. */
-export async function runMonteCarlo(req: McRequest): Promise<McResult> {
-  return invoke<McResult>("run_monte_carlo", { req });
+export async function runMonteCarlo(req: McRequest, scope: BackendWellScope): Promise<McResult> {
+  return invoke<McResult>("run_monte_carlo", { req, scope });
 }
 
 // --- Machine learning (Phase 10-4) ---
@@ -1583,8 +1601,8 @@ export interface MlResult {
 /** Runs a scikit-learn model (subprocess): supervised tasks fit on the train wells'
  *  labelled samples and predict on the apply wells; unsupervised tasks fit on the pooled
  *  apply samples (field-wide, globally consistent cluster ids). */
-export function runMl(req: MlRequest): Promise<MlResult> {
-  return invoke<MlResult>("run_ml", { req });
+export function runMl(req: MlRequest, scope: BackendWellScope): Promise<MlResult> {
+  return invoke<MlResult>("run_ml", { req, scope });
 }
 
 /** A saved, re-runnable model. `feature_curves` is ORDERED — the order is part of the apply
@@ -1694,17 +1712,17 @@ export interface CurveSampling {
 
 /** Per well, how each named curve is sampled against that well's frame. */
 export function curveSampling(
-  wellIds: string[],
+  scope: BackendWellScope,
   curves: string[],
 ): Promise<[string, CurveSampling[]][]> {
-  return invoke<[string, CurveSampling[]][]>("curve_sampling", { wellIds, curves });
+  return invoke<[string, CurveSampling[]][]>("curve_sampling", { scope, curves });
 }
 
 /** Applies a saved model to wells it has never seen. Nothing is refitted — a refit on different
  *  data is a different model. The model's own curve list drives the inputs, so the caller cannot
  *  reorder them. */
-export function applyMlModel(req: MlApplyRequest): Promise<MlResult> {
-  return invoke<MlResult>("apply_ml_model", { req });
+export function applyMlModel(req: MlApplyRequest, scope: BackendWellScope): Promise<MlResult> {
+  return invoke<MlResult>("apply_ml_model", { req, scope });
 }
 
 export function renameMlModel(modelId: string, newName: string): Promise<string> {
@@ -1858,8 +1876,8 @@ export interface CurveValue {
 
 /** Ranks algorithm × feature-subset combos by blind-well (GroupKFold) CV, with permutation
  *  importance + confusion matrix. Evaluation only — writes no curves. */
-export function runMlEval(req: MlEvalRequest): Promise<MlEvalResult> {
-  return invoke<MlEvalResult>("run_ml_eval", { req });
+export function runMlEval(req: MlEvalRequest, scope: BackendWellScope): Promise<MlEvalResult> {
+  return invoke<MlEvalResult>("run_ml_eval", { req, scope });
 }
 
 /** Cuddy FOIL / BVW saturation-height fit (Wave B item 8, SHF side). */
@@ -1918,8 +1936,8 @@ export interface CuddyFoilResult {
 
 /** Fits BVW = a·H^b (Cuddy FOIL) from computed PHIE/SW/TVDSS across wells; optionally scans the
  *  common FWL (Cuddy Eq 19). Evaluation only — writes no curves. */
-export function runCuddyFoil(req: CuddyFoilRequest): Promise<CuddyFoilResult> {
-  return invoke<CuddyFoilResult>("run_cuddy_foil", { req });
+export function runCuddyFoil(req: CuddyFoilRequest, scope: BackendWellScope): Promise<CuddyFoilResult> {
+  return invoke<CuddyFoilResult>("run_cuddy_foil", { req, scope });
 }
 
 /** Height-domain SHF fit (Brooks-Corey / Skelt-Harrison) to the log-derived Sw-vs-height cloud. */
@@ -1980,8 +1998,8 @@ export interface ShfFitResult {
   error: string | null;
 }
 
-export function runShfFit(req: ShfFitRequest): Promise<ShfFitResult> {
-  return invoke<ShfFitResult>("run_shf_fit", { req });
+export function runShfFit(req: ShfFitRequest, scope: BackendWellScope): Promise<ShfFitResult> {
+  return invoke<ShfFitResult>("run_shf_fit", { req, scope });
 }
 
 /** Electrofacies tie-in QC: confusion matrix of a predicted log RT curve vs a reference/core RT. */
@@ -2054,8 +2072,8 @@ export interface FaciesConfusionResult {
   error: string | null;
 }
 
-export function runFaciesConfusion(req: FaciesConfusionRequest): Promise<FaciesConfusionResult> {
-  return invoke<FaciesConfusionResult>("run_facies_confusion", { req });
+export function runFaciesConfusion(req: FaciesConfusionRequest, scope: BackendWellScope): Promise<FaciesConfusionResult> {
+  return invoke<FaciesConfusionResult>("run_facies_confusion", { req, scope });
 }
 
 // --- Generalized Multimin (multi-mineral inversion) -----------------------
@@ -2236,8 +2254,8 @@ export function multiminSwModels(): Promise<SwModelChoice[]> {
 }
 
 /** Runs the generalized multi-mineral inversion; writes VOL_<component> + derived curves. */
-export function runMultimin(req: MultiminRequest): Promise<MultiminResult> {
-  return invoke<MultiminResult>("run_multimin", { req });
+export function runMultimin(req: MultiminRequest, scope: BackendWellScope): Promise<MultiminResult> {
+  return invoke<MultiminResult>("run_multimin", { req, scope });
 }
 
 /** Derived fluid quantities (Cw, Cmf, Cbw, α, w, auto CT/CXO σ) for the dialog preview. */
@@ -2580,8 +2598,9 @@ export async function listWellParamOverrides(): Promise<WellParamOverride[]> {
  *  fill-column sweep and its reversal are the same single transaction shape. */
 export async function setWellParamOverrides(
   entries: [string, string, number | null][],
+  scope: BackendWellScope,
 ): Promise<number> {
-  return invoke<number>("set_well_param_overrides", { entries });
+  return invoke<number>("set_well_param_overrides", { entries, scope });
 }
 
 /** Applies a batch of parameter overrides at ONE zone scope in ONE transaction — `"*"` for the
@@ -2650,8 +2669,11 @@ export interface PaySummaryRow {
   perm_cutoff_no_data: boolean;
 }
 
-export async function runPaySummary(req: PaySummaryRequest): Promise<PaySummaryRow[]> {
-  return invoke<PaySummaryRow[]>("run_pay_summary", { req });
+export async function runPaySummary(
+  req: PaySummaryRequest,
+  scope: BackendWellScope,
+): Promise<PaySummaryRow[]> {
+  return invoke<PaySummaryRow[]>("run_pay_summary", { req, scope });
 }
 
 /** Cutoff-sensitivity sweep (Method 1 of the cutoff study): sweep one cutoff over a range,
@@ -2689,8 +2711,11 @@ export interface CutoffSweepResult {
   metric: string;
 }
 
-export async function runCutoffSweep(req: CutoffSweepRequest): Promise<CutoffSweepResult> {
-  return invoke<CutoffSweepResult>("run_cutoff_sweep", { req });
+export async function runCutoffSweep(
+  req: CutoffSweepRequest,
+  scope: BackendWellScope,
+): Promise<CutoffSweepResult> {
+  return invoke<CutoffSweepResult>("run_cutoff_sweep", { req, scope });
 }
 
 /** Full-resolution curve data for parameter-selection plots, optionally windowed to a
@@ -2707,7 +2732,7 @@ export async function getCurveData(
       semantic_request,
       required: true,
     })),
-    [wellId],
+    { kind: "explicit", well_ids: [wellId] },
   );
   for (const binding of bindings) {
     plotBindingRegistry.set(`${wellId}\u0000${binding.intent.semantic_request.toUpperCase()}`, binding);
@@ -2765,9 +2790,9 @@ export function plotBindingSnapshot(wellIds: string[], curveNames: string[]): Pl
 /** Resolves and validates the semantic plot request before numeric curve bytes are read. */
 export function resolvePlotBindings(
   intents: PlotChannelIntent[],
-  wellIds: string[],
+  scope: BackendWellScope,
 ): Promise<PlotChannelBinding[]> {
-  return invoke<PlotChannelBinding[]>("resolve_plot_bindings", { intents, wellIds });
+  return invoke<PlotChannelBinding[]>("resolve_plot_bindings", { intents, scope });
 }
 
 export interface PlotWriteAxisBinding {
@@ -3150,8 +3175,8 @@ export interface ThomeerResult {
 
 /** Thomeer Pc hyperbola fit per plug over the selected wells' scal_pc points:
  *  Bv = Bv∞·exp(−G/log10(Pc/Pd)) — the (Pd, G) plane for Thomeer-class rock typing. */
-export function runThomeerFit(wellIds: string[]): Promise<ThomeerResult> {
-  return invoke<ThomeerResult>("run_thomeer_fit", { req: { well_ids: wellIds } });
+export function runThomeerFit(scope: BackendWellScope): Promise<ThomeerResult> {
+  return invoke<ThomeerResult>("run_thomeer_fit", { req: { well_ids: [] }, scope });
 }
 
 export interface HfuCluster {
@@ -3194,9 +3219,10 @@ export interface HfuResult {
 export type HfuMethod = "ward" | "histogram";
 
 /** Cluster the scoped wells' core φ-k cloud into hydraulic flow units on log10(FZI). */
-export function runHfuCluster(wellIds: string[], nClusters: number, method: HfuMethod): Promise<HfuResult> {
+export function runHfuCluster(scope: BackendWellScope, nClusters: number, method: HfuMethod): Promise<HfuResult> {
   return invoke<HfuResult>("run_hfu_cluster", {
-    req: { well_ids: wellIds, n_clusters: nClusters, method },
+    req: { well_ids: [], n_clusters: nClusters, method },
+    scope,
   });
 }
 
@@ -3254,6 +3280,7 @@ export function runLorenz(
   nUnits: number,
   depthFrom?: number,
   depthTo?: number,
+  scope: BackendWellScope = { kind: "explicit", well_ids: [wellId] },
 ): Promise<LorenzResult> {
   return invoke<LorenzResult>("run_lorenz", {
     req: {
@@ -3264,6 +3291,7 @@ export function runLorenz(
       depth_from: depthFrom ?? null,
       depth_to: depthTo ?? null,
     },
+    scope,
   });
 }
 
@@ -4294,8 +4322,14 @@ export function updateComputedSample(
   return invoke("update_computed_sample", { wellId, depth, curveName, value, custody });
 }
 
-export function upsertTop(wellId: string, topName: string, depth: number, color: string | null): Promise<void> {
-  return invoke("upsert_top", { wellId, topName, depth, color });
+export function upsertTop(
+  wellId: string,
+  topName: string,
+  depth: number,
+  color: string | null,
+  scope?: BackendWellScope,
+): Promise<void> {
+  return invoke("upsert_top", { wellId, topName, depth, color, scope });
 }
 
 export function deleteTop(wellId: string, topName: string): Promise<void> {
@@ -4402,8 +4436,8 @@ export interface RtcFitResult {
 }
 
 /** Fits the RtC excess-conductivity coefficients to the selected water-bearing interval. */
-export function runRtcFit(req: RtcFitRequest): Promise<RtcFitResult> {
-  return invoke<RtcFitResult>("run_rtc_fit", { req });
+export function runRtcFit(req: RtcFitRequest, scope: BackendWellScope): Promise<RtcFitResult> {
+  return invoke<RtcFitResult>("run_rtc_fit", { req, scope });
 }
 
 /** One laboratory CEC plug paired with the clay content of the curves the run will use. */
@@ -4459,8 +4493,8 @@ export interface SFactorFitResult {
 }
 
 /** Fits the IMTS CEC scaling factor S to the selected wells' laboratory CEC measurements. */
-export function runSFactorFit(req: SFactorFitRequest): Promise<SFactorFitResult> {
-  return invoke<SFactorFitResult>("run_s_factor_fit", { req });
+export function runSFactorFit(req: SFactorFitRequest, scope: BackendWellScope): Promise<SFactorFitResult> {
+  return invoke<SFactorFitResult>("run_s_factor_fit", { req, scope });
 }
 
 /** One measurement name inside a point dataset, with what is actually stored under it. */
@@ -5165,13 +5199,13 @@ export interface PlugQcResult {
 }
 
 /** What the two axis pickers can offer over the wells in scope. */
-export function listPlugChoices(wellIds: string[]): Promise<PlugChoice[]> {
-  return invoke<PlugChoice[]>("list_plug_choices", { wellIds });
+export function listPlugChoices(scope: BackendWellScope): Promise<PlugChoice[]> {
+  return invoke<PlugChoice[]>("list_plug_choices", { scope });
 }
 
 /** Pairs two plug-scale measurements by depth across the scoped wells. */
-export function runPlugQc(req: PlugQcRequest): Promise<PlugQcResult> {
-  return invoke<PlugQcResult>("run_plug_qc", { req });
+export function runPlugQc(req: PlugQcRequest, scope: BackendWellScope): Promise<PlugQcResult> {
+  return invoke<PlugQcResult>("run_plug_qc", { req, scope });
 }
 
 // ---------------------------------------------------------------------------
@@ -5210,8 +5244,9 @@ export interface CurveStatsRow {
 /** Returns the rows and the percentile list actually used, so a table labels its own columns. */
 export async function statsCurveSummary(
   req: CurveStatsRequest,
+  scope: BackendWellScope,
 ): Promise<[CurveStatsRow[], number[]]> {
-  return invoke<[CurveStatsRow[], number[]]>("stats_curve_summary", { req });
+  return invoke<[CurveStatsRow[], number[]]>("stats_curve_summary", { req, scope });
 }
 
 export interface PairStatsRequest {
@@ -5235,8 +5270,8 @@ export interface PairStatsRow {
   intercept: number | null;
 }
 
-export async function statsPairSummary(req: PairStatsRequest): Promise<PairStatsRow[]> {
-  return invoke<PairStatsRow[]>("stats_pair_summary", { req });
+export async function statsPairSummary(req: PairStatsRequest, scope: BackendWellScope): Promise<PairStatsRow[]> {
+  return invoke<PairStatsRow[]>("stats_pair_summary", { req, scope });
 }
 
 export interface VersusRequest {
@@ -5259,8 +5294,8 @@ export interface VersusRow {
   max_abs_diff: number | null;
 }
 
-export async function statsVersusSets(req: VersusRequest): Promise<VersusRow[]> {
-  return invoke<VersusRow[]>("stats_versus_sets", { req });
+export async function statsVersusSets(req: VersusRequest, scope: BackendWellScope): Promise<VersusRow[]> {
+  return invoke<VersusRow[]>("stats_versus_sets", { req, scope });
 }
 
 export interface ThicknessCondition {
@@ -5291,8 +5326,8 @@ export interface ThicknessRow {
   ntg: number | null;
 }
 
-export async function statsThickness(req: ThicknessRequest): Promise<ThicknessRow[]> {
-  return invoke<ThicknessRow[]>("stats_thickness", { req });
+export async function statsThickness(req: ThicknessRequest, scope: BackendWellScope): Promise<ThicknessRow[]> {
+  return invoke<ThicknessRow[]>("stats_thickness", { req, scope });
 }
 
 export interface FitRequest {
@@ -5318,8 +5353,8 @@ export interface FitResult {
   notes: string[];
 }
 
-export async function statsFit(req: FitRequest): Promise<FitResult> {
-  return invoke<FitResult>("stats_fit", { req });
+export async function statsFit(req: FitRequest, scope: BackendWellScope): Promise<FitResult> {
+  return invoke<FitResult>("stats_fit", { req, scope });
 }
 
 // ---------------------------------------------------------------------------
@@ -5485,8 +5520,8 @@ export function reframeSourceCurves(wellId: string, source: ReframeSourceSpec): 
 }
 
 /** Resamples a set onto a different sampling as a NEW set. `preview: true` reports without writing. */
-export function runReframe(req: ReframeRequest): Promise<ReframeResult[]> {
-  return invoke<ReframeResult[]>("run_reframe", { req });
+export function runReframe(req: ReframeRequest, scope: BackendWellScope): Promise<ReframeResult[]> {
+  return invoke<ReframeResult[]>("run_reframe", { req, scope });
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 // the main chunk — into every launch, for a panel most sessions never open, and it also defeated
 // vegaPanel's own dynamic import (once CM is in the eager chunk, deferring it there buys nothing).
 import type { EditorView } from "codemirror";
-import { bumpDataVersion, filterByActiveGroup, setStatus as globalStatus } from "../state";
+import { bumpDataVersion, setStatus as globalStatus } from "../state";
 import { recordProcess } from "../processLog";
 import {
   saveEquation,
@@ -15,11 +15,12 @@ import {
   deleteGenericCurve,
   promoteGenericCurve,
   listLogSets,
-  listWells,
   deleteLogSet,
   pythonStatus,
   restoreLogSet,
+  resolveWellScope,
   type ComputedCatalogEntry,
+  type BackendWellScope,
   type CurveAncestry,
   type EquationDef,
   type EquationRunResult,
@@ -389,9 +390,11 @@ export class InspectorPanel {
 
     const applyAll = this.equationTab.querySelector<HTMLInputElement>("#eq-all-wells")!.checked;
     let wellIds: string[];
+    let backendScope: BackendWellScope;
     if (applyAll) {
       try {
-        wellIds = filterByActiveGroup(await listWells()).map((w) => w.well_id);
+        backendScope = { kind: "active_group" };
+        wellIds = await resolveWellScope(backendScope);
       } catch (err) {
         this.setStatus(`Failed to list wells: ${err}`);
         return;
@@ -403,6 +406,7 @@ export class InspectorPanel {
         return;
       }
       wellIds = [selected];
+      backendScope = { kind: "explicit", well_ids: wellIds };
     }
 
     if (wellIds.length === 0) {
@@ -417,7 +421,7 @@ export class InspectorPanel {
         this.setStatus("Equation run cancelled before any curve was written.");
         return;
       }
-      const results = await runEquation(this.current.equation_id, wellIds, custody);
+      const results = await runEquation(this.current.equation_id, backendScope, custody);
       this.setStatus(summarizeRun(results));
       recordProcess("Equation", `Ran "${this.current.name}" on ${wellIds.length} well(s)`);
       await this.refreshCatalog();

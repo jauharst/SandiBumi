@@ -1,4 +1,4 @@
-import { getCurveData, plotBindingSnapshot, type ResolvedPlotCurve, type WellSummary } from "../ipc";
+import { getCurveData, plotBindingSnapshot, resolveWellScope, type ResolvedPlotCurve, type WellSummary } from "../ipc";
 import { appState } from "../state";
 import { formRow, openModal } from "./modal";
 import {
@@ -460,7 +460,15 @@ export async function buildPickettContent(
    *  active well → clears the overlay: byte-identical single-well behaviour. */
   const reloadContext = async () => {
     const gen = ++ctxGen;
-    const ids = scope.getWellIds().filter((id) => id !== well.well_id);
+    let resolvedIds: string[];
+    try {
+      resolvedIds = await resolveWellScope(scope.backend());
+    } catch (error) {
+      if (gen === ctxGen) setStatus(`Pickett scope refused: ${error}`);
+      return;
+    }
+    if (gen !== ctxGen) return;
+    const ids = resolvedIds.filter((id) => id !== well.well_id);
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
@@ -473,7 +481,7 @@ export async function buildPickettContent(
     ctxReductionManifest = contextReductionExport(
       "pickett",
       null,
-      scope.getWellIds().length,
+      resolvedIds.length,
       WELL_SCOPE_NAME_PREVIEW_ROWS,
     );
     setStatus(`Pickett: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
@@ -489,7 +497,7 @@ export async function buildPickettContent(
     ctxReductionManifest = contextReductionExport(
       "pickett",
       outcome,
-      scope.getWellIds().length,
+      resolvedIds.length,
       WELL_SCOPE_NAME_PREVIEW_ROWS,
     );
     ctxLayers = outcome.layers.map((l) => ({

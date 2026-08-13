@@ -513,7 +513,7 @@ export async function buildReframeContent(
     runBtn.disabled = true;
     status.textContent = preview ? "Checking…" : "Re-framing…";
     try {
-      const results = await runReframe(req);
+      const results = await runReframe(req, scope.backend());
       if (disposed) return;
       renderReport(results, preview);
       const ok = results.filter((r) => !r.error).length;

@@ -497,8 +497,8 @@ export async function buildReportContent(
     status.textContent = `Exporting ${wellIds.length} ${asWord ? "Word document" : "report"}(s)…`;
     try {
       const paths = asWord
-        ? await exportReportDocxBatch(spec, wellIds, dir)
-        : await exportReportBatch(spec, wellIds, dir);
+        ? await exportReportDocxBatch(spec, scope.backend(), dir)
+        : await exportReportBatch(spec, scope.backend(), dir);
       status.textContent = `Wrote ${paths.length} report ${asWord ? "Word document" : "PDF"}(s) to ${dir}`;
       setStatus(`Batch report export: ${paths.length} well(s).`);
       // Only the PDF path writes FLAG curves per well; the Word path exports without touching

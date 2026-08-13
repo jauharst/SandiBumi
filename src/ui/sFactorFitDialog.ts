@@ -334,7 +334,7 @@ export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispo
     };
     runBtn.disabled = true;
     runBtn.textContent = "Fitting…";
-    void runSFactorFit(req)
+    void runSFactorFit(req, scope.backend())
       .then((r) => {
         render(r);
         if (!r.error) {

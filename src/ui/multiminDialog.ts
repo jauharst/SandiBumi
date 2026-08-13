@@ -1157,7 +1157,7 @@ export async function buildMultiminContent(
     setStatus("SandiMin: running…");
     let res: MultiminResult;
     try {
-      res = await runMultimin(req);
+      res = await runMultimin(req, scope.backend());
     } catch (e) {
       setStatus(`SandiMin failed: ${e}`);
       runBtn.disabled = false;

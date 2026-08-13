@@ -282,7 +282,7 @@ export async function buildRtcFitContent(): Promise<{ el: HTMLElement; dispose: 
     };
     runBtn.disabled = true;
     runBtn.textContent = "Fitting…";
-    void runRtcFit(req)
+    void runRtcFit(req, scope.backend())
       .then((r) => {
         render(r);
         if (!r.error) {

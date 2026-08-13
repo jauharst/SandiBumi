@@ -261,7 +261,9 @@ export async function buildPoreAreaContent(): Promise<{ el: HTMLElement; dispose
   // is the rock.
   const checkSel = document.createElement("select");
   checkSel.className = "form-control";
-  const choices = await listPlugChoices([well.well_id]).catch(() => [] as PlugChoice[]);
+  const choices = await listPlugChoices({ kind: "explicit", well_ids: [well.well_id] }).catch(
+    () => [] as PlugChoice[],
+  );
   const noCheck = document.createElement("option");
   noCheck.value = "";
   noCheck.textContent = choices.length

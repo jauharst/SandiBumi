@@ -1,4 +1,10 @@
-import { listWellGroups, listWells, type WellGroupEntry, type WellSummary } from "../ipc";
+import {
+  listWellGroups,
+  listWells,
+  type BackendWellScope,
+  type WellGroupEntry,
+  type WellSummary,
+} from "../ipc";
 import { appState } from "../state";
 
 /** Shared "which wells does this run cover" selector — the one control every batch dialog uses
@@ -24,6 +30,8 @@ export interface WellScope {
   el: HTMLElement;
   /** The wells the run should cover right now, resolved from live state. */
   getWellIds(): string[];
+  /** Identity sent to Rust. Group/All deliberately omit the frontend membership snapshot. */
+  backend(): BackendWellScope;
   /** Resolve well ids (e.g. the exact set a run used) to their display names. */
   namesFor(ids: string[]): string[];
   /** How many wells are currently in scope. */
@@ -304,6 +312,11 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
   return {
     el,
     getWellIds: resolveIds,
+    backend: () => {
+      if (mode === "group" && groupId) return { kind: "group", group_id: groupId };
+      if (mode === "all") return { kind: "all" };
+      return { kind: "explicit", well_ids: resolveIds() };
+    },
     namesFor: (ids) => ids.map((id) => wellById.get(id)?.well_name ?? id),
     count: () => resolveIds().length,
     describe: () => {

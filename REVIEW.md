@@ -7,6 +7,29 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-13 — G2 SB-CORE-035: backend-owned well scope
+
+- [x] **Automated:** ActiveGroup, named Group and All are resolved from current DuckDB membership
+      inside each operation; Explicit active/pinned/selection/custom ids are existence-checked.
+      The owned correctness test changes membership after selector construction, pins both allowed
+      alternatives and refusal cases, and inventories all 36 live scoped Rust command boundaries.
+      `tsc --noEmit` pins every typed TypeScript caller. Per-well parameter and accepted
+      autocorrelation writes authorize the current scope; their undo/redo targets the exact
+      historical wells. No solver math, parameter default or computed-curve write discipline moved.
+      Full gate: 982 passed / 0 failed / 36 ignored in 159s; Rust retains the owned 56-warning
+      inventory.
+- [ ] **Visual:** open Workflow, Reframe, Statistics, Crossplot, Histogram, Pickett, Dashboard,
+      Reports, ML, rock-typing and marker-autocorrelation surfaces; confirm their existing Run on
+      controls/counts still paint correctly, and that a backend refusal remains readable in its
+      status area. This is a UI wiring increment, so no screenshot is claimed as behavioral proof.
+- [ ] **Manual:** with two saved groups, leave a scope-bearing pane open, change membership, then
+      run it. Confirm Group/ActiveGroup uses the new membership, All remains all wells, and an
+      Explicit pinned/selection/custom scope stays explicit. Repeat one parameter edit and one
+      accepted autocorrelation; verify undo/redo returns the exact historical wells.
+- [ ] **Field:** repeat the representative import → QC → VSH → POR → SAT → pay → review → export
+      chain on a sanitized legally controlled pilot project and retain the scope/operation receipt.
+      Automated scope isolation does not count as field acceptance.
+
 ## 2026-08-13 — G2 SB-CORE-015: DLIS round-trip closure is source-blocked
 
 - [ ] **Automated implementation:** blocked, not declared green from the working LAS subset. The

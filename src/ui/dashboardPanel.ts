@@ -1,5 +1,5 @@
-import { listWells, runPaySummary, type PaySummaryRow } from "../ipc";
-import { appState, filterByActiveGroup } from "../state";
+import { resolveWellScope, runPaySummary, type BackendWellScope, type PaySummaryRow } from "../ipc";
+import { appState } from "../state";
 import { escapeHtml } from "./safeDom";
 import { reportDashboardCompletion } from "./reportingHonesty";
 import { PARAM_SOURCE_TOPICS, withParamSources } from "./paramSources";
@@ -363,8 +363,10 @@ export async function buildDashboardContent(
 
   runBtn.addEventListener("click", async () => {
     let wellIds: string[];
+    const displayGroup = appState.activeWellGroup.get();
+    const backendScope: BackendWellScope = { kind: "active_group" };
     try {
-      wellIds = filterByActiveGroup(await listWells()).map((w) => w.well_id);
+      wellIds = await resolveWellScope(backendScope);
     } catch (err) {
       statusEl.textContent = `Failed to list wells: ${err}`;
       return;
@@ -377,23 +379,26 @@ export async function buildDashboardContent(
     runBtn.disabled = true;
     statusEl.textContent = `Computing ${wellIds.length} well(s)…`;
     try {
-      allRows = await runPaySummary({
-        well_ids: wellIds,
-        vsh_max: parseFloat(vshIn.value),
-        phie_min: parseFloat(phieIn.value),
-        swe_max: parseFloat(sweIn.value),
-        perm_min: Number.isNaN(permRaw) ? null : permRaw,
-        // Dashboard is read-only: compute the stats, persist nothing. Skips ~1,600 FLAG-curve
-        // write transactions per Compute. Persisting flags stays with Cutoffs & Summary.
-        stats_only: true,
-      });
+      allRows = await runPaySummary(
+        {
+          well_ids: wellIds,
+          vsh_max: parseFloat(vshIn.value),
+          phie_min: parseFloat(phieIn.value),
+          swe_max: parseFloat(sweIn.value),
+          perm_min: Number.isNaN(permRaw) ? null : permRaw,
+          // Dashboard is read-only: compute the stats, persist nothing. Skips ~1,600 FLAG-curve
+          // write transactions per Compute. Persisting flags stays with Cutoffs & Summary.
+          stats_only: true,
+        },
+        backendScope,
+      );
       const flags = new Set(allRows.map((r) => r.flag));
-      reportDashboardCompletion(statusEl, wellIds.length, allRows.length, flags.size);
-      setStatus(`Field dashboard: ${allRows.length} rows over ${wellIds.length} wells`);
+      const resolvedWellCount = new Set(allRows.map((row) => row.well_id)).size;
+      reportDashboardCompletion(statusEl, resolvedWellCount, allRows.length, flags.size);
+      setStatus(`Field dashboard: ${allRows.length} rows over ${resolvedWellCount} wells`);
       // Scope tag (design 1b): which group these numbers describe, and how many
       // wells actually went in — set only once a Compute has made that true.
-      const group = appState.activeWellGroup.get();
-      scopeTag.textContent = `${group ? `Group: ${group.name}` : "All wells"} · ${wellIds.length} well${wellIds.length === 1 ? "" : "s"}`;
+      scopeTag.textContent = `${displayGroup ? `Group: ${displayGroup.name}` : "All wells"} · ${resolvedWellCount} well${resolvedWellCount === 1 ? "" : "s"}`;
       scopeTag.hidden = false;
       render();
     } catch (err) {

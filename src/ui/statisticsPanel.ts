@@ -339,7 +339,10 @@ export async function buildStatisticsContent(
           .split(",")
           .map((s) => parseFloat(s.trim()))
           .filter((v) => Number.isFinite(v) && v >= 0 && v <= 100);
-        const [rows, used] = await statsCurveSummary({ well_ids: wellIds, curves, percentiles: pcts, ...common });
+        const [rows, used] = await statsCurveSummary(
+          { well_ids: wellIds, curves, percentiles: pcts, ...common },
+          scope.backend(),
+        );
         renderTable(
           // Three means side by side, not a setting: which one is right depends on the curve, and
           // showing one is how a mean permeability gets quoted arithmetically.
@@ -353,9 +356,10 @@ export async function buildStatisticsContent(
         setStatus(`Curve summary: ${rows.length} row(s)`);
         recordProcess("Statistics", `Curve summary over ${curves.length} curve(s), ${wellIds.length} well(s)`);
       } else if (active === "pair") {
-        const rows = await statsPairSummary({
-          well_ids: wellIds, x_curve: pairX.value, y_curve: pairY.value, ...common,
-        });
+        const rows = await statsPairSummary(
+          { well_ids: wellIds, x_curve: pairX.value, y_curve: pairY.value, ...common },
+          scope.backend(),
+        );
         renderTable(
           ["Well", "Zone", "n pairs", "Pearson", "Spearman", "Bias", "RMS diff", "Slope", "Intercept"],
           rows.map((r: PairStatsRow) => [
@@ -370,11 +374,17 @@ export async function buildStatisticsContent(
           note.textContent = "Pick at least one predictor.";
           return;
         }
-        const res: FitResult = await statsFit({
-          well_ids: wellIds, predictors: preds, target: fitTarget.value,
-          log_target: logTarget.checked, log_predictors: logPreds.checked,
-          input_set: setPicker.inputSet(),
-        });
+        const res: FitResult = await statsFit(
+          {
+            well_ids: wellIds,
+            predictors: preds,
+            target: fitTarget.value,
+            log_target: logTarget.checked,
+            log_predictors: logPreds.checked,
+            input_set: setPicker.inputSet(),
+          },
+          scope.backend(),
+        );
         const terms = res.predictors.map((p, i) => `${num(res.coefficients[i + 1], 5)} x ${logPreds.checked ? `log10(${p})` : p}`);
         renderTable(
           ["", "Value"],
@@ -397,9 +407,10 @@ export async function buildStatisticsContent(
           note.textContent = "Name a reference log set and pick at least one curve.";
           return;
         }
-        const rows = await statsVersusSets({
-          well_ids: wellIds, curves, set_a: versusA.value.trim(), set_b: setPicker.inputSet(),
-        });
+        const rows = await statsVersusSets(
+          { well_ids: wellIds, curves, set_a: versusA.value.trim(), set_b: setPicker.inputSet() },
+          scope.backend(),
+        );
         renderTable(
           ["Well", "Curve", "Both", "Only reference", "Only this", "Changed", "Mean diff", "Max |diff|"],
           rows.map((r: VersusRow) => [
@@ -414,11 +425,16 @@ export async function buildStatisticsContent(
           mode === "CUTOFF"
             ? [{ curve: condCurve.value, op: condOp.value as ">=", value: parseFloat(condVal.value) }]
             : [];
-        const rows = await statsThickness({
-          well_ids: wellIds, mode,
-          curve: mode === "FLAG" || mode === "CLASS" ? thickCurve.value : null,
-          conditions, ...common,
-        });
+        const rows = await statsThickness(
+          {
+            well_ids: wellIds,
+            mode,
+            curve: mode === "FLAG" || mode === "CLASS" ? thickCurve.value : null,
+            conditions,
+            ...common,
+          },
+          scope.backend(),
+        );
         renderTable(
           ["Well", "Zone", "Item", "n", "Gross MD", "Net MD", "Gross TVD", "Net TVD", "N/G"],
           rows.map((r: ThicknessRow) => [

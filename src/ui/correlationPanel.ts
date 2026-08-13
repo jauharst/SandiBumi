@@ -5,6 +5,7 @@ import {
   listFluidContacts,
   listTops,
   listWells,
+  resolveWellScope,
   suggestContacts,
   upsertFluidContact,
   type ContactCandidate,
@@ -15,7 +16,7 @@ import {
   type TrackCurveSeries,
   type WellSummary,
 } from "../ipc";
-import { appState, filterByActiveGroup } from "../state";
+import { appState } from "../state";
 import { openModal } from "./modal";
 import { canvasFont, percentile, readTheme } from "./plotCanvas";
 import { curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
@@ -47,6 +48,12 @@ export interface CorrelationOptions {
   depthMode: "md" | "tvdss";
   /** Draw fluid contacts (OWC/GWC/…) as horizontal lines across the strips. */
   showContacts: boolean;
+}
+
+async function listActiveScopedWells(): Promise<WellSummary[]> {
+  const [all, ids] = await Promise.all([listWells(), resolveWellScope({ kind: "active_group" })]);
+  const allowed = new Set(ids);
+  return all.filter((well) => allowed.has(well.well_id));
 }
 
 export const DEFAULT_CORRELATION_OPTIONS: CorrelationOptions = {
@@ -120,7 +127,7 @@ export async function buildCorrelationContent(
 
   let wells: WellSummary[] = [];
   try {
-    wells = filterByActiveGroup(await listWells());
+    wells = await listActiveScopedWells();
   } catch {
     wells = [];
   }
@@ -490,7 +497,7 @@ export async function buildCorrelationContent(
   async function refreshWells(): Promise<void> {
     let latest: WellSummary[];
     try {
-      latest = filterByActiveGroup(await listWells());
+      latest = await listActiveScopedWells();
     } catch {
       return; // keep the current list if the fetch fails
     }

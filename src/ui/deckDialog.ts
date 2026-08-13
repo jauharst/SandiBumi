@@ -168,6 +168,7 @@ export async function openDeckDialog(): Promise<void> {
           author: authorIn.value.trim(),
           flag: flagSel.value,
         },
+        scope.backend(),
         dest,
       );
       const blind = res.wells - res.wells_with_results;

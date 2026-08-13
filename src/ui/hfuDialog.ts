@@ -86,7 +86,7 @@ export async function buildHfuContent(
     statusLine.textContent = "Clustering…";
     const t0 = performance.now();
     try {
-      const res = await runHfuCluster(wellIds, k, method);
+      const res = await runHfuCluster(scope.backend(), k, method);
       const ms = Math.round(performance.now() - t0);
       // Tear down the previous render's resize observers before replacing the results DOM.
       detachRender?.();

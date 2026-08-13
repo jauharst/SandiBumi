@@ -3,8 +3,10 @@ import {
   autocorrelateMulti,
   listTops,
   listWells,
+  resolveWellScope,
   upsertTop,
   type AutoCorrProposal,
+  type BackendWellScope,
   type MultiWellProposal,
   type WellSummary,
 } from "../ipc";
@@ -43,7 +45,7 @@ export async function buildAutoCorrContent(
   if (tops.length === 0) {
     return messagePane(`No tops picked in ${well.well_name} yet — pick one in the log view first (🏷)`);
   }
-  const targets = filterByActiveGroup(wells).filter((w) => w.well_id !== well.well_id);
+  let targets = filterByActiveGroup(wells).filter((w) => w.well_id !== well.well_id);
   if (targets.length === 0) {
     return messagePane("No other wells (in the active group) to correlate to");
   }
@@ -158,48 +160,61 @@ export async function buildAutoCorrContent(
       const method = methodSel.value as "shift" | "warp";
       const maxStretch = parseFloat(maxStretchInput.value) || 1.5;
       const searchRange = parseFloat(searchInput.value) || 25;
-      const targetIds = targets.map((w) => w.well_id);
+      const backendScope: BackendWellScope = { kind: "active_group" };
       const restore = () => syncControls();
       runBtn.disabled = true;
       runBtn.textContent = "Correlating…";
       try {
+        const [latestWells, targetIds] = await Promise.all([listWells(), resolveWellScope(backendScope)]);
+        const allowed = new Set(targetIds.filter((wellId) => wellId !== well.well_id));
+        targets = latestWells.filter((candidate) => allowed.has(candidate.well_id));
+        if (targets.length === 0) {
+          setStatus("No other wells in the current active group to correlate to");
+          return;
+        }
         if (picks.length === 1) {
           const halfWindow = parseFloat(windowInput.value) || 10;
-          const result = await autocorrelateTop({
-            source_well_id: well.well_id,
-            top_name: picks[0],
-            curve,
-            half_window: halfWindow,
-            search_range: searchRange,
-            target_well_ids: targetIds,
-            method,
-            max_stretch: maxStretch,
-          });
+          const result = await autocorrelateTop(
+            {
+              source_well_id: well.well_id,
+              top_name: picks[0],
+              curve,
+              half_window: halfWindow,
+              search_range: searchRange,
+              target_well_ids: [...allowed],
+              method,
+              max_stretch: maxStretch,
+            },
+            backendScope,
+          );
           if (result.error) {
             setStatus(`Autocorrelate: ${result.error}`);
             resultHost.textContent = result.error;
             return;
           }
           renderProposals(resultHost, result.proposals, picks[0], targets, (rows) => {
-            void applyProposals(rows, setStatus, () => (resultHost.innerHTML = ""));
+            void applyProposals(rows, backendScope, setStatus, () => (resultHost.innerHTML = ""));
           });
         } else {
-          const result = await autocorrelateMulti({
-            source_well_id: well.well_id,
-            top_names: picks,
-            curve,
-            search_range: searchRange,
-            max_stretch: maxStretch,
-            method,
-            target_well_ids: targetIds,
-          });
+          const result = await autocorrelateMulti(
+            {
+              source_well_id: well.well_id,
+              top_names: picks,
+              curve,
+              search_range: searchRange,
+              max_stretch: maxStretch,
+              method,
+              target_well_ids: [...allowed],
+            },
+            backendScope,
+          );
           if (result.error) {
             setStatus(`Autocorrelate: ${result.error}`);
             resultHost.textContent = result.error;
             return;
           }
           renderMultiProposals(resultHost, result.proposals, targets, (rows) => {
-            void applyMultiProposals(rows, setStatus, () => (resultHost.innerHTML = ""));
+            void applyMultiProposals(rows, backendScope, setStatus, () => (resultHost.innerHTML = ""));
           });
         }
       } catch (err) {
@@ -364,44 +379,59 @@ function makeApplyButton(count: () => number, boxes: HTMLInputElement[], onClick
 }
 
 /** Writes the accepted picks as one undoable batch (undo restores/deletes per well). */
-async function applyProposals(rows: ApplyRow[], setStatus: (text: string) => void, onApplied: () => void): Promise<void> {
+async function applyProposals(
+  rows: ApplyRow[],
+  scope: BackendWellScope,
+  setStatus: (text: string) => void,
+  onApplied: () => void,
+): Promise<void> {
   const topName = rows[0]?.topName ?? "top";
-  await applyRows(rows, `autocorrelate ${topName} (${rows.length} wells)`, `Autocorrelated ${topName} into ${rows.length} well(s)`, setStatus, onApplied);
+  await applyRows(rows, scope, `autocorrelate ${topName} (${rows.length} wells)`, `Autocorrelated ${topName} into ${rows.length} well(s)`, setStatus, onApplied);
 }
 
 /** Multi-top apply: every accepted (well, marker) pick in one undoable batch. */
-async function applyMultiProposals(rows: ApplyRow[], setStatus: (text: string) => void, onApplied: () => void): Promise<void> {
+async function applyMultiProposals(
+  rows: ApplyRow[],
+  scope: BackendWellScope,
+  setStatus: (text: string) => void,
+  onApplied: () => void,
+): Promise<void> {
   const wells = new Set(rows.map((r) => r.wellId)).size;
   const label = `autocorrelate ${rows.length} picks (${wells} wells)`;
-  await applyRows(rows, label, `Autocorrelated ${rows.length} marker(s) across ${wells} well(s)`, setStatus, onApplied);
+  await applyRows(rows, scope, label, `Autocorrelated ${rows.length} marker(s) across ${wells} well(s)`, setStatus, onApplied);
 }
 
 async function applyRows(
   rows: ApplyRow[],
+  scope: BackendWellScope,
   undoLabel: string,
   processMsg: string,
   setStatus: (text: string) => void,
   onApplied: () => void,
 ): Promise<void> {
   const { deleteTop } = await import("../ipc");
-  const applyNew = async () => {
-    for (const r of rows) await upsertTop(r.wellId, r.topName, r.depth, null);
+  const exactScope: BackendWellScope = {
+    kind: "explicit",
+    well_ids: [...new Set(rows.map((row) => row.wellId))],
+  };
+  const applyNew = async (backendScope: BackendWellScope) => {
+    for (const r of rows) await upsertTop(r.wellId, r.topName, r.depth, null, backendScope);
     bumpDataVersion();
   };
   const applyOld = async () => {
     for (const r of rows) {
       if (r.oldDepth === null) await deleteTop(r.wellId, r.topName);
-      else await upsertTop(r.wellId, r.topName, r.oldDepth, null);
+      else await upsertTop(r.wellId, r.topName, r.oldDepth, null, exactScope);
     }
     bumpDataVersion();
   };
   try {
-    await applyNew();
+    await applyNew(scope);
   } catch (err) {
     setStatus(`Apply picks failed: ${err}`);
     return;
   }
-  pushUndo({ label: undoLabel, undo: applyOld, redo: applyNew });
+  pushUndo({ label: undoLabel, undo: applyOld, redo: () => applyNew(exactScope) });
   recordProcess("Tops", processMsg);
   setStatus(processMsg);
   onApplied();

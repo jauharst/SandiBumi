@@ -595,7 +595,7 @@ export async function buildMonteCarloContent(
     statusLine.textContent = `Running ${req.iterations.toLocaleString()} realizations × ${wellIds.length} well(s)…`;
     const t0 = performance.now();
     try {
-      const res = await runMonteCarlo(req);
+      const res = await runMonteCarlo(req, scope.backend());
       const ms = Math.round(performance.now() - t0);
       const used = res.zones[0]?.iterations ?? req.iterations;
       const extras = [

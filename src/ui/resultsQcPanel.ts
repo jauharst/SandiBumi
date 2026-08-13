@@ -387,20 +387,23 @@ async function computeCutoff(
   const sweepHi = phieMin + half;
   let res;
   try {
-    res = await runCutoffSweep({
-      well_ids: [wellId],
-      property: "PHIE",
-      vsh_max: vshMax,
-      phie_min: phieMin,
-      swe_max: sweMax,
-      perm_min: null,
-      sweep_min: sweepLo,
-      sweep_max: sweepHi,
-      steps: 9,
-      metric: "NET",
-      zone: zoneName,
-      dst_dataset: null,
-    });
+    res = await runCutoffSweep(
+      {
+        well_ids: [wellId],
+        property: "PHIE",
+        vsh_max: vshMax,
+        phie_min: phieMin,
+        swe_max: sweMax,
+        perm_min: null,
+        sweep_min: sweepLo,
+        sweep_max: sweepHi,
+        steps: 9,
+        metric: "NET",
+        zone: zoneName,
+        dst_dataset: null,
+      },
+      { kind: "explicit", well_ids: [wellId] },
+    );
   } catch (err) {
     return empty("na", "sweep failed", String(err));
   }

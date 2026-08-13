@@ -251,14 +251,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; no chapter-owned acceptance-test ID.
 - **Atomic obligations:** every operation claiming active-group scope must have the backend resolve/authorize that scope; frontend selection alone cannot define authority; membership changes cannot leave a stale execution set.
-- **Current source:** `wellScope.ts` resolves active/group/pinned/selection/custom scopes in the frontend and sends explicit `well_ids`. Backend commands accept those ids directly. The database stores active group membership, but no backend execution path re-resolves the active group or refuses ids outside it. Thus the shared UI control is useful but not enforcement.
-- **Qualifying acceptance tests:** none; test class is `MISSING`.
-- **Supporting tests:** UI scope serialization and group CRUD tests do not prove backend isolation or stale-membership refusal.
+- **Current source:** `wellScope.ts` sends typed Group, All or Explicit identity; active-group-only surfaces send ActiveGroup. `well_scope.rs` resolves ActiveGroup/Group/All from current database state and validates explicit identities. All 36 Rust command boundaries reached by live shared-scope or active-group callers resolve or authorize inside their own boundary; request-carried ids are overwritten. Parameter-grid and accepted autocorrelation edits validate every row against the current scope, while undo/redo deliberately carries the exact historical wells it reverses.
+- **Qualifying acceptance tests:** `every_backend_scoped_operation_uses_current_group_membership_and_refuses_stale_or_unknown_scope` passed; test class is `CORRECTNESS`. It changes membership after selector construction, proves stale members disappear, proves ActiveGroup, All and Explicit remain distinct alternatives, refuses missing groups/wells and duplicate explicit identities, pins the cross-language serde shape, and inventories the 36 command boundaries. TypeScript compilation pins corresponding callers to the typed scope argument.
+- **Supporting tests:** existing group CRUD and UI serialization checks remain complementary; they are not substituted for the owned backend boundary test.
 - **Manual evidence:** `well-scope` 3/9 and `report` 6/53 are partial; `workflow` 0/23 is unexercised.
-- **Git evidence:** frontend scoping/group storage are integrated, while backend enforcement remains divergent.
-- **Verdict:** `PRESENT-DIVERGENT`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-003` must identify which scoped operations are required in the pilot before the first backend contract is bounded.
-- **Next action:** pass an explicit backend scope identity, resolve current membership transactionally, refuse unauthorized/stale ids, and add positive/negative isolation tests for one pilot-critical operation before inventorying the rest.
+- **Git evidence:** implementation is on `codex/g2-program-plan` pending the per-requirement commit and PR; accepted-baseline group storage remains unchanged.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied engineering contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED` after the requirement commit.
+- **Blocker or decision:** none. DEC-003 supplied the representative pilot chain; the implementation also closes every other live caller of the same shared scope control so one UI promise cannot mean two backend contracts.
+- **Next action:** retain the command inventory and manually exercise Group, All and Explicit modes plus a membership change. Manual and field evidence remain separate and open.
 
 ## SB-CORE-036 — Cancellation is honest
 

@@ -68,6 +68,7 @@ mod thomeer;
 mod tops;
 mod unconventional;
 mod units;
+mod well_scope;
 mod workflow;
 
 use duckdb::Connection;
@@ -864,9 +865,16 @@ async fn export_report_batch(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     spec: report::ReportSpec,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
     dest_dir: String,
 ) -> Result<Vec<String>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "PDF report batch")?
+    };
+    if well_ids.is_empty() {
+        return Err("PDF report batch: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("{} report(s)", well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Report batch", label, move || {
@@ -892,9 +900,17 @@ async fn office_support() -> Result<office::OfficeSupport, String> {
 async fn export_deck(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    spec: office::DeckSpec,
+    mut spec: office::DeckSpec,
+    scope: well_scope::WellScopeSelection,
     dest_path: String,
 ) -> Result<office::DeckResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        spec.well_ids = well_scope::resolve_well_scope(&conn, &scope, "PowerPoint deck")?;
+    }
+    if spec.well_ids.is_empty() {
+        return Err("PowerPoint deck: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("{} well(s)", spec.well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Deck", label, move || {
@@ -926,9 +942,16 @@ async fn export_report_docx_batch(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     spec: report::ReportSpec,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
     dest_dir: String,
 ) -> Result<Vec<String>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "Word report batch")?
+    };
+    if well_ids.is_empty() {
+        return Err("Word report batch: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("{} Word report(s)", well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Report batch", label, move || {
@@ -947,9 +970,17 @@ async fn export_report_docx_batch(
 async fn export_workbook(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    spec: office::WorkbookSpec,
+    mut spec: office::WorkbookSpec,
+    scope: well_scope::WellScopeSelection,
     dest_path: String,
 ) -> Result<office::WorkbookResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        spec.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Excel workbook")?;
+    }
+    if spec.well_ids.is_empty() {
+        return Err("Excel workbook: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("{} well(s)", spec.well_ids.len());
     jobs::run_simple_job(jobs_reg.inner().clone(), "Workbook", label, move || {
@@ -1198,19 +1229,22 @@ async fn run_equation(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     equation_id: String,
-    well_ids: Vec<String>
-,
+    scope: well_scope::WellScopeSelection,
     custody: equations::RunCustody,
 ) -> Result<Vec<equations::EquationRunResult>, String> {
-    let (equation, items) = {
+    let (equation, items, well_ids) = {
         let conn = db.0.lock().unwrap();
+        let well_ids = well_scope::resolve_well_scope(&conn, &scope, "equation run")?;
+        if well_ids.is_empty() {
+            return Err("equation run: the backend-resolved well scope is empty".into());
+        }
         let equation = equations::list_equations(&conn)
             .map_err(|e| e.to_string())?
             .into_iter()
             .find(|e| e.equation_id == equation_id)
             .ok_or_else(|| format!("equation {equation_id} not found"))?;
         let items = well_items(&conn, &well_ids);
-        (equation, items)
+        (equation, items, well_ids)
     };
     let total = well_ids.len();
     let conn = db.0.clone();
@@ -1640,10 +1674,23 @@ fn get_curve_data(
 fn resolve_plot_bindings(
     db: tauri::State<DbState>,
     intents: Vec<plotting::PlotChannelIntent>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<plotting::PlotChannelBinding>, String> {
     let conn = db.0.lock().unwrap();
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "multi-well plot binding")?;
     plotting::resolve_plot_bindings(&conn, intents, &well_ids)
+}
+
+/// Resolves a multi-well selector against the live project. Read-only views use this for their
+/// current display set; mutating and export commands resolve the same selector inside their own
+/// command so this preview can never become their authority.
+#[tauri::command]
+fn resolve_well_scope(
+    db: tauri::State<DbState>,
+    scope: well_scope::WellScopeSelection,
+) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().unwrap();
+    well_scope::resolve_well_scope(&conn, &scope, "well-scope preview")
 }
 
 /// Validates and canonicalizes a plot-derived parameter source note. User and time
@@ -1713,12 +1760,17 @@ fn module_output_names(
 async fn run_workflow_module(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: workflow::RunModuleRequest,
+    mut req: workflow::RunModuleRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<workflow::ModuleRunResult>, String> {
     let items = {
         let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "module run")?;
         well_items(&conn, &req.well_ids)
     };
+    if req.well_ids.is_empty() {
+        return Err("module run: the backend-resolved well scope is empty".into());
+    }
     let total = req.well_ids.len();
     let conn = db.0.clone();
     let reg = jobs_reg.inner().clone();
@@ -1865,8 +1917,13 @@ async fn intake_commit_curves(
 #[tauri::command]
 async fn stats_curve_summary(
     db: tauri::State<'_, DbState>,
-    req: statistics::CurveStatsRequest,
+    mut req: statistics::CurveStatsRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<(Vec<statistics::CurveStatsRow>, Vec<f32>), String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "curve statistics")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::curve_summary(&conn, &req))
         .await
@@ -1877,8 +1934,13 @@ async fn stats_curve_summary(
 #[tauri::command]
 async fn stats_pair_summary(
     db: tauri::State<'_, DbState>,
-    req: statistics::PairStatsRequest,
+    mut req: statistics::PairStatsRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<statistics::PairStatsRow>, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "pair statistics")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::pair_summary(&conn, &req))
         .await
@@ -1890,8 +1952,13 @@ async fn stats_pair_summary(
 #[tauri::command]
 async fn stats_versus_sets(
     db: tauri::State<'_, DbState>,
-    req: statistics::VersusRequest,
+    mut req: statistics::VersusRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<statistics::VersusRow>, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "log-set comparison")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::versus_sets(&conn, &req))
         .await
@@ -1902,8 +1969,13 @@ async fn stats_versus_sets(
 #[tauri::command]
 async fn stats_thickness(
     db: tauri::State<'_, DbState>,
-    req: statistics::ThicknessRequest,
+    mut req: statistics::ThicknessRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<statistics::ThicknessRow>, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "thickness statistics")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::thickness(&conn, &req))
         .await
@@ -1914,8 +1986,13 @@ async fn stats_thickness(
 #[tauri::command]
 async fn stats_fit(
     db: tauri::State<'_, DbState>,
-    req: statistics::FitRequest,
+    mut req: statistics::FitRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<statistics::FitResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "statistical fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || statistics::fit_curves(&conn, &req))
         .await
@@ -1927,8 +2004,16 @@ async fn stats_fit(
 async fn run_pay_summary(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: workflow::PaySummaryRequest,
+    mut req: workflow::PaySummaryRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<workflow::PaySummaryRow>, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "pay summary")?;
+    }
+    if req.well_ids.is_empty() {
+        return Err("pay summary: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     // A stats-only pay summary persists nothing (workflow.rs gates every FLAG_* write behind
     // !stats_only), so it is a pure read — run it silently off-thread rather than posting a
@@ -1953,8 +2038,16 @@ async fn run_pay_summary(
 async fn run_cutoff_sweep(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: workflow::CutoffSweepRequest,
+    mut req: workflow::CutoffSweepRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<workflow::CutoffSweepResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "cutoff sweep")?;
+    }
+    if req.well_ids.is_empty() {
+        return Err("cutoff sweep: the backend-resolved well scope is empty".into());
+    }
     let conn = db.0.clone();
     let label = format!("cutoff sweep: {}", req.property);
     jobs::run_simple_job(jobs_reg.inner().clone(), "Cutoff sweep", label, move || {
@@ -1971,10 +2064,12 @@ async fn run_cutoff_sweep(
 async fn run_monte_carlo(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: montecarlo::McRequest,
+    mut req: montecarlo::McRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<montecarlo::McResult, String> {
     let items = {
         let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Monte Carlo run")?;
         well_items(&conn, &req.well_ids)
     };
     let total = req.well_ids.len();
@@ -1993,10 +2088,16 @@ async fn run_monte_carlo(
 async fn run_ml(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: ml::MlRequest,
+    mut req: ml::MlRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<ml::MlResult, String> {
     let items = {
         let conn = db.0.lock().unwrap();
+        let resolved = well_scope::resolve_well_scope(&conn, &scope, "machine-learning run")?;
+        req.apply_well_ids = resolved.clone();
+        if !req.train_well_ids.is_empty() {
+            req.train_well_ids = resolved;
+        }
         well_items(&conn, &req.apply_well_ids)
     };
     let total = req.apply_well_ids.len();
@@ -2014,10 +2115,13 @@ async fn run_ml(
 async fn apply_ml_model(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: ml::MlApplyRequest,
+    mut req: ml::MlApplyRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<ml::MlResult, String> {
     let items = {
         let conn = db.0.lock().unwrap();
+        req.apply_well_ids =
+            well_scope::resolve_well_scope(&conn, &scope, "saved-model application")?;
         well_items(&conn, &req.apply_well_ids)
     };
     let total = req.apply_well_ids.len();
@@ -2072,9 +2176,13 @@ fn param_sources(topic: String) -> Vec<param_sources::ParamSource> {
 #[tauri::command]
 async fn curve_sampling(
     db: tauri::State<'_, DbState>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
     curves: Vec<String>,
 ) -> Result<Vec<(String, Vec<equations::CurveSampling>)>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "curve-sampling QC")?
+    };
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let c = conn.lock().unwrap();
@@ -2174,8 +2282,14 @@ fn delete_ml_model(
 #[tauri::command]
 async fn run_ml_eval(
     db: tauri::State<'_, DbState>,
-    req: ml::MlEvalRequest,
+    mut req: ml::MlEvalRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<ml::MlEvalResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.train_well_ids =
+            well_scope::resolve_well_scope(&conn, &scope, "machine-learning evaluation")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || ml::run_ml_eval(&conn, &req))
         .await
@@ -2188,8 +2302,13 @@ async fn run_ml_eval(
 #[tauri::command]
 async fn run_cuddy_foil(
     db: tauri::State<'_, DbState>,
-    req: shf_fit::CuddyFoilRequest,
+    mut req: shf_fit::CuddyFoilRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<shf_fit::CuddyFoilResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Cuddy FOIL fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || shf_fit::run_cuddy_foil(&conn, &req))
         .await
@@ -2203,8 +2322,13 @@ async fn run_cuddy_foil(
 #[tauri::command]
 async fn run_rtc_fit(
     db: tauri::State<'_, DbState>,
-    req: lrlc::RtcFitRequest,
+    mut req: lrlc::RtcFitRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<lrlc::RtcFitResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "RtC fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || lrlc::run_rtc_fit(&conn, &req))
         .await
@@ -2217,8 +2341,13 @@ async fn run_rtc_fit(
 #[tauri::command]
 async fn run_s_factor_fit(
     db: tauri::State<'_, DbState>,
-    req: lrlc::SFactorFitRequest,
+    mut req: lrlc::SFactorFitRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<lrlc::SFactorFitResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "S-factor fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || lrlc::run_s_factor_fit(&conn, &req))
         .await
@@ -2230,8 +2359,13 @@ async fn run_s_factor_fit(
 #[tauri::command]
 async fn run_shf_fit(
     db: tauri::State<'_, DbState>,
-    req: shf_fit::ShfFitRequest,
+    mut req: shf_fit::ShfFitRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<shf_fit::ShfFitResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "saturation-height fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || shf_fit::run_shf_fit(&conn, &req))
         .await
@@ -2244,8 +2378,13 @@ async fn run_shf_fit(
 #[tauri::command]
 async fn run_thomeer_fit(
     db: tauri::State<'_, DbState>,
-    req: thomeer::ThomeerRequest,
+    mut req: thomeer::ThomeerRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<thomeer::ThomeerResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Thomeer fit")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || thomeer::run_thomeer_fit(&conn, &req))
         .await
@@ -2258,8 +2397,13 @@ async fn run_thomeer_fit(
 #[tauri::command]
 async fn run_hfu_cluster(
     db: tauri::State<'_, DbState>,
-    req: hfu::HfuRequest,
+    mut req: hfu::HfuRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<hfu::HfuResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "HFU clustering")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || hfu::run_hfu_cluster(&conn, &req))
         .await
@@ -2273,7 +2417,18 @@ async fn run_hfu_cluster(
 async fn run_lorenz(
     db: tauri::State<'_, DbState>,
     req: lorenz::LorenzRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<lorenz::LorenzResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        let allowed = well_scope::resolve_well_scope(&conn, &scope, "Lorenz plot")?;
+        if !allowed.contains(&req.well_id) {
+            return Err(format!(
+                "Lorenz plot: well '{}' is outside the backend-resolved scope; refresh the well picker",
+                req.well_id
+            ));
+        }
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || lorenz::run_lorenz(&conn, &req))
         .await
@@ -2285,8 +2440,13 @@ async fn run_lorenz(
 #[tauri::command]
 async fn run_facies_confusion(
     db: tauri::State<'_, DbState>,
-    req: facies_tie::FaciesConfusionRequest,
+    mut req: facies_tie::FaciesConfusionRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<facies_tie::FaciesConfusionResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "facies tie")?;
+    }
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || facies_tie::run_facies_confusion(&conn, &req))
         .await
@@ -2301,10 +2461,12 @@ async fn run_facies_confusion(
 async fn run_multimin(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: multimin2::MultiminRequest,
+    mut req: multimin2::MultiminRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<multimin2::MultiminResult, String> {
     let items = {
         let conn = db.0.lock().unwrap();
+        req.apply_well_ids = well_scope::resolve_well_scope(&conn, &scope, "SandiMin run")?;
         well_items(&conn, &req.apply_well_ids)
     };
     let total = req.apply_well_ids.len();
@@ -2494,8 +2656,16 @@ fn list_well_param_overrides(db: tauri::State<DbState>) -> Result<Vec<db::WellPa
 fn set_well_param_overrides(
     db: tauri::State<DbState>,
     entries: Vec<(String, String, Option<f32>)>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<usize, String> {
     let mut conn = db.0.lock().unwrap();
+    let allowed = well_scope::resolve_well_scope(&conn, &scope, "per-well parameter edit")?;
+    let allowed = allowed.into_iter().collect::<std::collections::HashSet<_>>();
+    if let Some((well_id, _, _)) = entries.iter().find(|(well_id, _, _)| !allowed.contains(well_id)) {
+        return Err(format!(
+            "per-well parameter edit: well '{well_id}' is outside the backend-resolved scope; refresh the grid"
+        ));
+    }
     db::set_well_param_overrides(&mut conn, &entries).map_err(|e| e.to_string())
 }
 
@@ -2742,9 +2912,10 @@ fn stain_schemes() -> Vec<(String, Vec<petrography::StainClass>)> {
 #[tauri::command]
 fn list_plug_choices(
     db: tauri::State<DbState>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<plugqc::PlugChoice>, String> {
     let conn = db.0.lock().unwrap();
+    let well_ids = well_scope::resolve_well_scope(&conn, &scope, "plug-QC choices")?;
     plugqc::list_plug_choices(&conn, &well_ids)
 }
 
@@ -2753,9 +2924,11 @@ fn list_plug_choices(
 #[tauri::command]
 async fn run_plug_qc(
     db: tauri::State<'_, DbState>,
-    req: plugqc::PlugQcRequest,
+    mut req: plugqc::PlugQcRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<plugqc::PlugQcResult, String> {
     let conn = db.0.lock().unwrap();
+    req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "plug QC")?;
     plugqc::run_plug_qc(&conn, &req)
 }
 
@@ -2767,9 +2940,11 @@ async fn run_plug_qc(
 #[tauri::command]
 async fn run_reframe(
     db: tauri::State<'_, DbState>,
-    req: reframe::ReframeRequest,
+    mut req: reframe::ReframeRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<Vec<reframe::ReframeResult>, String> {
     let conn = db.0.lock().unwrap();
+    req.well_ids = well_scope::resolve_well_scope(&conn, &scope, "Reframe")?;
     Ok(reframe::run_reframe(&conn, &req))
 }
 
@@ -2994,8 +3169,23 @@ fn restore_curve_values(
 
 /// Creates or updates a formation top.
 #[tauri::command]
-fn upsert_top(db: tauri::State<DbState>, well_id: String, top_name: String, depth: f32, color: Option<String>) -> Result<(), String> {
+fn upsert_top(
+    db: tauri::State<DbState>,
+    well_id: String,
+    top_name: String,
+    depth: f32,
+    color: Option<String>,
+    scope: Option<well_scope::WellScopeSelection>,
+) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
+    if let Some(scope) = scope {
+        let allowed = well_scope::resolve_well_scope(&conn, &scope, "formation-top edit")?;
+        if !allowed.contains(&well_id) {
+            return Err(format!(
+                "formation-top edit: well '{well_id}' is outside the backend-resolved scope; refresh the correlation"
+            ));
+        }
+    }
     db::upsert_top(&conn, &well_id, &top_name, depth, color.as_deref()).map_err(|e| e.to_string())
 }
 
@@ -3020,8 +3210,14 @@ fn check_top_order(db: tauri::State<DbState>, well_id: String) -> Result<Vec<Str
 async fn autocorrelate_top(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: tops::AutoCorrRequest,
+    mut req: tops::AutoCorrRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<tops::AutoCorrResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.target_well_ids = well_scope::resolve_well_scope(&conn, &scope, "top autocorrelation")?;
+        req.target_well_ids.retain(|well_id| well_id != &req.source_well_id);
+    }
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Autocorrelate", "top correlation", move || {
         let c = conn.lock().unwrap();
@@ -3036,8 +3232,15 @@ async fn autocorrelate_top(
 async fn autocorrelate_multi(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
-    req: tops::MultiAutoCorrRequest,
+    mut req: tops::MultiAutoCorrRequest,
+    scope: well_scope::WellScopeSelection,
 ) -> Result<tops::MultiAutoCorrResult, String> {
+    {
+        let conn = db.0.lock().unwrap();
+        req.target_well_ids =
+            well_scope::resolve_well_scope(&conn, &scope, "multi-marker autocorrelation")?;
+        req.target_well_ids.retain(|well_id| well_id != &req.source_well_id);
+    }
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Autocorrelate", "multi-marker correlation", move || {
         let c = conn.lock().unwrap();
@@ -3169,7 +3372,7 @@ fn run_workflow_chain(
     jobs_reg: tauri::State<jobs::JobRegistry>,
     job_id: String,
     steps: Vec<chain::ChainStep>,
-    well_ids: Vec<String>,
+    scope: well_scope::WellScopeSelection,
     output_set: Option<String>,
     input_set: Option<String>
 ,
@@ -3179,6 +3382,10 @@ fn run_workflow_chain(
     if steps.is_empty() {
         return Err("workflow has no steps".into());
     }
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "workflow chain")?
+    };
     if well_ids.is_empty() {
         return Err("no wells selected".into());
     }
@@ -3571,6 +3778,7 @@ pub fn run() {
             list_documents,
             delete_document,
             list_well_groups,
+            resolve_well_scope,
             create_well_group,
             rename_well_group,
             delete_well_group,
