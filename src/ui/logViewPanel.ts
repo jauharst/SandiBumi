@@ -36,9 +36,24 @@ import { CORE_OVERLAY_MAP, loadCurveUnits } from "./plotCommon";
 import { HighlightsOverlay } from "./highlightsOverlay";
 import { TopsEditor } from "./topsEditor";
 import { renderDepthAxis, renderReadout, renderReportHeader, renderTrackHeaders } from "./viewerChrome";
+import {
+  applyPlotChannelPolicy,
+  type PlotChannelPolicyReport,
+  type PlotDisplayRange,
+} from "./plotTypes";
 
 type HeaderMode = "full" | "compact" | "collapsed";
 type BorderStyle = { style: "solid" | "dashed" | "none"; width: number; color: string };
+
+/** SB-PLT-013's screen/composite waveform contract: derive the clamped display values,
+ * preserve the source samples, and retain separate exclusion/clamp counts. */
+export function applyArrayWaveformPolicy(
+  source: Float32Array,
+  display: PlotDisplayRange,
+  logAxis: boolean,
+): PlotChannelPolicyReport {
+  return applyPlotChannelPolicy(source, "array_waveform", display, logAxis);
+}
 
 /** How many decoded plates one viewer keeps. Small on purpose: this is a VIEW cache, and a
  *  core photo run of 300 frames must not end up mirrored in memory. */
@@ -1127,6 +1142,7 @@ export class LogViewPanel {
     const [top, bottom] = this.renderer.getVisibleDepthRange();
     if (bottom <= top) return;
     const yOf = (d: number): number => ((d - top) / (bottom - top)) * h;
+    const theme = readTheme(this.root);
 
     for (const range of this.renderer.getTrackRanges()) {
       const track = arrayTracks.find((t) => t.title === range.title);
@@ -1135,18 +1151,19 @@ export class LogViewPanel {
       const span = (range.rightFrac - range.leftFrac) * w;
       const log = track.scale_type === "log";
 
-      for (const style of track.arrays) {
+      for (const [styleIndex, style] of track.arrays.entries()) {
         const series = this.arrayLogs.get(style.curve_name.trim().toUpperCase());
         if (!series) continue;
-        const lo = log ? Math.log10(Math.max(style.min, 1e-6)) : style.min;
-        const hi = log ? Math.log10(Math.max(style.max, 1e-6)) : style.max;
+        if (!Number.isFinite(style.min) || !Number.isFinite(style.max) || (log && (style.min <= 0 || style.max <= 0))) continue;
+        const lo = log ? Math.log10(style.min) : style.min;
+        const hi = log ? Math.log10(style.max) : style.max;
         if (hi === lo) continue;
         // CLAMPED at the track edge, unlike a point sample. The rule follows what the data is:
         // a discrete plug drawn at a value it never had is a lie, while a continuous reading
         // running past the scale is the ordinary log-display convention.
         const xOf = (v: number): number | null => {
-          if (!Number.isFinite(v)) return null;
-          const tv = log ? Math.log10(Math.max(v, 1e-6)) : v;
+          if (!Number.isFinite(v) || (log && v <= 0)) return null;
+          const tv = log ? Math.log10(v) : v;
           return left + Math.min(1, Math.max(0, (tv - lo) / (hi - lo))) * span;
         };
         // Only the depths on screen — a 2000-sample matrix zoomed to 10 m must cost 10 m of work.
@@ -1163,8 +1180,28 @@ export class LogViewPanel {
         ctx.fillStyle = style.color;
         ctx.strokeStyle = style.color;
         const display = style.display ?? "band";
-        if (display === "spaghetti") this.drawSpaghetti(ctx, style, series, rows, yOf, xOf);
-        else if (display === "heatmap") this.drawArrayHeatmap(ctx, style, series, rows, yOf, left, span);
+        if (display === "spaghetti") {
+          const policy = this.drawSpaghetti(
+            ctx,
+            style,
+            series,
+            rows,
+            yOf,
+            xOf,
+            { min: style.min, max: style.max },
+            log,
+          );
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = theme.text;
+          ctx.font = canvasFont(theme, 9);
+          ctx.textAlign = "left";
+          ctx.fillText(
+            `waveform clamped=${policy.clamped} · non-finite excluded=${policy.nonFiniteExcluded} · log-domain excluded=${policy.logDomainExcluded}`,
+            left + 3,
+            12 + styleIndex * 12,
+            Math.max(0, span - 6),
+          );
+        } else if (display === "heatmap") this.drawArrayHeatmap(ctx, style, series, rows, yOf, left, span);
         else this.drawArrayBand(ctx, style, series, rows, yOf, xOf);
         ctx.restore();
       }
@@ -1179,14 +1216,28 @@ export class LogViewPanel {
     rows: number[],
     yOf: (d: number) => number,
     xOf: (v: number) => number | null,
-  ): void {
+    display: PlotDisplayRange,
+    logAxis: boolean,
+  ): PlotChannelPolicyReport {
     ctx.lineWidth = 0.5;
     ctx.globalAlpha = Math.min(1, Math.max(0.08, 8 / Math.max(1, style.traces ?? 40)));
-    for (const r of evenIndices(s.width, style.traces ?? 40)) {
+    const traces = evenIndices(s.width, style.traces ?? 40);
+    const source = new Float32Array(traces.length * rows.length);
+    let sourceIndex = 0;
+    for (const trace of traces) {
+      for (const row of rows) {
+        source[sourceIndex++] = s.values[row * s.width + trace] ?? Number.NaN;
+      }
+    }
+    const policy = applyArrayWaveformPolicy(source, display, logAxis);
+    let displayIndex = 0;
+    for (let traceIndex = 0; traceIndex < traces.length; traceIndex++) {
       ctx.beginPath();
       let drawing = false;
       for (const i of rows) {
-        const x = xOf(s.values[i * s.width + r]);
+        const included = policy.included[displayIndex] === 1;
+        const x = included ? xOf(policy.values[displayIndex]) : null;
+        displayIndex++;
         // A realization that produced nothing here BREAKS its own trace rather than being
         // bridged — joining across the gap would draw a path this realization never took.
         if (x === null) {
@@ -1203,6 +1254,7 @@ export class LogViewPanel {
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    return policy;
   }
 
   /** P-low to P-high shaded, with the median line through it. */

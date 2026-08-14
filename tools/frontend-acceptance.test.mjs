@@ -277,6 +277,106 @@ test("display_clipping_counts_hidden_points_without_changing_analysis_while_expl
   }
 });
 
+test("non_finite_log_xy_z_and_waveform_values_follow_one_non_mutating_reported_channel_policy", async () => {
+  // CORRECTNESS — SB-PLT-013. docs/PRD_v2/23_plotting-interactivity.md §4.3
+  // cites dossier §§2.7 and 5.3: non-finite values are excluded; non-positive values
+  // are excluded on log channels; X/Y overflow is clipped and counted; Z overflow is
+  // clamped, edge-marked and counted; array-waveform overflow is clamped and counted;
+  // source samples never change. The 0..10 range is arithmetic test input, not a
+  // petrophysical limit or product default.
+  const { applyPlotChannelPolicy } = await load("/src/ui/plotTypes.ts");
+  const { applyPlotRangePolicy } = await load("/src/ui/plotRangePolicy.ts");
+  const { buildPickettColourPolicy } = await load("/src/ui/pickettPanel.ts");
+  const { applyVegaColourPolicy } = await load("/src/ui/vegaPanel.ts");
+  const { applyArrayWaveformPolicy } = await load("/src/ui/logViewPanel.ts");
+  const source = Float32Array.of(-1, 5, 20, Number.NaN);
+  const sourceBits = Array.from(source, (value) => new Uint32Array(new Float32Array([value]).buffer)[0]);
+  const display = { min: 0, max: 10 };
+
+  const xy = applyPlotChannelPolicy(source, "cartesian", display, true);
+  assert.equal(xy.nonFiniteExcluded, 1);
+  assert.equal(xy.logDomainExcluded, 1);
+  assert.equal(xy.displayClipped, 1);
+  assert.equal(xy.clamped, 0);
+  assert.equal(xy.values[2], 20, "Cartesian clipping must not rewrite the source value");
+
+  const aligned = applyPlotRangePolicy([
+    { values: source, display, validity: null, log: true },
+  ], false);
+  assert.deepEqual(aligned.indices, [1, 2]);
+  assert.equal(aligned.nonFiniteExcluded, 1);
+  assert.equal(aligned.logDomainExcluded, 1);
+  assert.equal(aligned.displayHidden, 1);
+
+  const colour = applyPlotChannelPolicy(source, "colour", display, false);
+  assert.equal(colour.nonFiniteExcluded, 1);
+  assert.equal(colour.logDomainExcluded, 0);
+  assert.equal(colour.displayClipped, 0);
+  assert.equal(colour.clamped, 2);
+  assert.deepEqual(colour.edgeMarks, ["low", "none", "high", "none"]);
+  assert.deepEqual(Array.from(colour.values.slice(0, 3)), [0, 5, 10]);
+
+  const pickett = buildPickettColourPolicy(source, display, false, "viridis");
+  assert.equal(pickett.excluded, 1);
+  assert.equal(pickett.clamped, 2);
+  assert.deepEqual(pickett.edgeMarks, ["low", "none", "high", "none"]);
+  assert.equal(pickett.colors[3], "rgba(0,0,0,0)");
+  const pickettLog = buildPickettColourPolicy(source, { min: 1, max: 10 }, true, "viridis");
+  assert.equal(pickettLog.nonFiniteExcluded, 1);
+  assert.equal(pickettLog.logDomainExcluded, 1);
+  assert.equal(pickettLog.clamped, 1);
+  assert.deepEqual(pickettLog.edgeMarks, ["none", "none", "high", "none"]);
+
+  const vega = applyVegaColourPolicy(
+    Array.from(source, (z, depth) => ({ x: depth + 1, y: depth + 2, z, depth })),
+    display,
+  );
+  assert.equal(vega.excluded, 1);
+  assert.equal(vega.clamped, 2);
+  assert.deepEqual(vega.rows.map((row) => row.zDisplay), [0, 5, 10, undefined]);
+  assert.deepEqual(vega.rows.map((row) => row.zEdge), ["low", "none", "high", "none"]);
+
+  const waveform = applyArrayWaveformPolicy(source, display, false);
+  assert.equal(waveform.nonFiniteExcluded, 1);
+  assert.equal(waveform.clamped, 2);
+  assert.deepEqual(Array.from(waveform.values.slice(0, 3)), [0, 5, 10]);
+  const waveformLog = applyArrayWaveformPolicy(source, { min: 1, max: 10 }, true);
+  assert.equal(waveformLog.nonFiniteExcluded, 1);
+  assert.equal(waveformLog.logDomainExcluded, 1);
+  assert.equal(waveformLog.clamped, 1);
+  assert.deepEqual(waveformLog.edgeMarks, ["none", "none", "high", "none"]);
+  assert.deepEqual(
+    Array.from(source, (value) => new Uint32Array(new Float32Array([value]).buffer)[0]),
+    sourceBits,
+    "no display policy may mutate the source curve",
+  );
+
+  // The pure arithmetic alone would let dead helpers pass. Pin both sides of the live inventory:
+  // every ordinary population adapter delegates to the same channel policy; every Z consumer
+  // uses the colour policy and edge marks; the screen and composite waveform paths use the same
+  // clamp/count policy and disclose it.
+  const sources = Object.fromEntries(await Promise.all([
+    "plotRangePolicy.ts",
+    "crossplotPanel.ts",
+    "pickettPanel.ts",
+    "vegaPanel.ts",
+    "logViewPanel.ts",
+  ].map(async (file) => [file, await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8")])));
+  assert.match(sources["plotRangePolicy.ts"], /applyPlotChannelPolicy\(/);
+  assert.match(sources["crossplotPanel.ts"], /applyPlotChannelPolicy\([\s\S]*?"colour"/);
+  assert.match(sources["crossplotPanel.ts"], /drawDiamonds\(/);
+  assert.match(sources["pickettPanel.ts"], /buildPickettColourPolicy\(/);
+  assert.match(sources["pickettPanel.ts"], /drawDiamonds\(/);
+  assert.match(sources["vegaPanel.ts"], /applyVegaColourPolicy\(/);
+  assert.match(sources["vegaPanel.ts"], /zDisplay/);
+  assert.match(sources["vegaPanel.ts"], /zEdge/);
+  assert.match(sources["logViewPanel.ts"], /applyArrayWaveformPolicy\(/);
+  assert.match(sources["logViewPanel.ts"], /waveform clamped=/);
+  const composite = await readFile(new URL("../src-tauri/src/composite.rs", import.meta.url), "utf8");
+  assert.match(composite, /apply_plot_channel_policy\(/);
+  assert.match(composite, /waveform clamped=/);
+});
+
 test("every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_while_the_documented_6_56x_pair_and_unknown_units_stay_disabled_with_reasons", async () => {
   // CORRECTNESS — SB-PLT-005 / SB-PLT-T05. docs/PRD_v2/23_plotting-interactivity.md
   // §§2.2, 4.1, 6 and 7.1 O-2 cite dossier §3.3a: 1 international foot is 0.3048 m,

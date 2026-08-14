@@ -7,7 +7,7 @@ import {
   attachScatterTooltip,
   attachZoomPan,
   buildPlotStatisticsRecord,
-  colorRampEx,
+  colormapColor,
   fitCanvasBackingStore,
   formatPlotStatisticsRecord,
   fmtValue,
@@ -47,7 +47,12 @@ import { buildImageExportButtons } from "./plotExport";
 import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
-import { reconcileDepthChannels, type PlotReductionExport } from "./plotTypes";
+import {
+  applyPlotChannelPolicy,
+  reconcileDepthChannels,
+  type PlotRangeEdge,
+  type PlotReductionExport,
+} from "./plotTypes";
 import {
   axisRangeExportRecord,
   formatAxisRangeSummary,
@@ -125,12 +130,58 @@ interface PickettRenderStyle {
   phiMin?: number | null;
   phiMax?: number | null;
   pointSize?: number;
-  colors?: string[];
+  zValues?: Float32Array;
+  zRange?: PlotAxisRangeExport | null;
+  zLog?: boolean;
+  colormap?: ColormapName;
   validityFilter?: boolean;
   rtValidMin?: number | null;
   rtValidMax?: number | null;
   phiValidMin?: number | null;
   phiValidMax?: number | null;
+}
+
+export interface PickettColourPolicy {
+  colors: string[];
+  included: Uint8Array;
+  edgeMarks: PlotRangeEdge[];
+  nonFiniteExcluded: number;
+  logDomainExcluded: number;
+  excluded: number;
+  clamped: number;
+}
+
+/** SB-PLT-013's Pickett Z adapter. It colours a derived, display-clamped copy and
+ * leaves every source sample bit-for-bit unchanged. */
+export function buildPickettColourPolicy(
+  source: Float32Array,
+  display: AxisDisplayRange,
+  logAxis: boolean,
+  colormap: ColormapName,
+): PickettColourPolicy {
+  const policy = applyPlotChannelPolicy(source, "colour", display, logAxis);
+  const low = Math.min(display.min, display.max);
+  const high = Math.max(display.min, display.max);
+  const transformedLow = logAxis ? Math.log10(low) : low;
+  const transformedHigh = logAxis ? Math.log10(high) : high;
+  const colors = new Array<string>(policy.values.length).fill("rgba(0,0,0,0)");
+  for (let index = 0; index < colors.length; index++) {
+    if (policy.included[index] === 0) continue;
+    const transformed = logAxis ? Math.log10(policy.values[index]) : policy.values[index];
+    colors[index] = colormapColor(
+      colormap,
+      (transformed - transformedLow) / (transformedHigh - transformedLow),
+    );
+  }
+  return {
+    colors,
+    included: policy.included,
+    edgeMarks: policy.edgeMarks,
+    nonFiniteExcluded: policy.nonFiniteExcluded,
+    logDomainExcluded: policy.logDomainExcluded,
+    excluded: policy.nonFiniteExcluded + policy.logDomainExcluded,
+    clamped: policy.clamped,
+  };
 }
 
 function pickettRange(low: number | null | undefined, high: number | null | undefined): AxisDisplayRange | null {
@@ -250,9 +301,18 @@ export function drawPickett(
   const preliminary = screenPickettPopulation(rt, phi, style, null, null);
   const plotRt = Float32Array.from(preliminary.indices.map((index) => rt[index]));
   const plotPhi = Float32Array.from(preliminary.indices.map((index) => phi[index]));
-  const plotColors = style?.colors
-    ? preliminary.indices.map((index) => style.colors![index])
-    : undefined;
+  const plotZ = style?.zValues
+    ? Float32Array.from(preliminary.indices.map((index) => style.zValues![index]))
+    : null;
+  const colourPolicy = plotZ && style?.zRange
+    ? buildPickettColourPolicy(
+        plotZ,
+        { min: style.zRange.min, max: style.zRange.max },
+        !!style.zLog,
+        style.colormap ?? "rainbow",
+      )
+    : null;
+  const plotColors = colourPolicy?.colors;
   const contextLayers = context?.layers.map((layer) => {
     const screened = screenPickettPopulation(layer.rt, layer.phi, style, null, null);
     return {
@@ -313,6 +373,7 @@ export function drawPickett(
   const resolvedRanges = [
     axisRangeExportRecord("x", rtRange),
     axisRangeExportRecord("y", phiRange),
+    ...(style?.zRange ? [style.zRange] : []),
   ];
   onAxisRanges?.(resolvedRanges);
   const plot = new PlotCanvas(
@@ -340,10 +401,10 @@ export function drawPickett(
   plot.ctx.fillText(formatAxisRangeSummary(resolvedRanges), plot.plotRect.x0 + 4, plot.margin.top - 7);
   plot.ctx.textAlign = "right";
   plot.ctx.fillText(
-    formatPlotRangePolicySummary(population, {
+    `${formatPlotRangePolicySummary(population, {
       statistics: true,
       fitInputs: line && pickPopulation ? pickPopulation.analysisCount : null,
-    }),
+    })}${plotZ && !style?.zRange ? " · Z colour refused: no governed range" : ""}${colourPolicy?.excluded ? ` · Z excluded=${colourPolicy.excluded}` : ""}${colourPolicy?.clamped ? ` · Z clamped/edge-marked=${colourPolicy.clamped}` : ""}`,
     plot.plotRect.x0 + plot.plotRect.w,
     plot.plotRect.y0 + plot.plotRect.h + 31,
   );
@@ -361,6 +422,22 @@ export function drawPickett(
     ctx.restore();
   }
   plot.drawScatter(plotRt, plotPhi, plotColors, style?.pointSize ?? 1.8);
+  if (colourPolicy?.clamped) {
+    const edgePoints = (edge: PlotRangeEdge): [Float32Array, Float32Array] => {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (let index = 0; index < colourPolicy.edgeMarks.length; index++) {
+        if (colourPolicy.edgeMarks[index] !== edge) continue;
+        xs.push(plotRt[index]);
+        ys.push(plotPhi[index]);
+      }
+      return [Float32Array.from(xs), Float32Array.from(ys)];
+    };
+    const [lowXs, lowYs] = edgePoints("low");
+    const [highXs, highYs] = edgePoints("high");
+    plot.drawDiamonds(lowXs, lowYs, plot.theme.accent2, Math.max(2.5, (style?.pointSize ?? 1.8) + 1));
+    plot.drawDiamonds(highXs, highYs, plot.theme.warn, Math.max(2.5, (style?.pointSize ?? 1.8) + 1));
+  }
 
   if (line) {
     // The fitted Sw=1 trend needs only m and the identifiable product a·Rw. Saturation
@@ -417,7 +494,7 @@ export function drawPickett(
       boxY += rowH;
     };
     // The active swatch only means something when the cloud is one color (no Z coloring).
-    row(style?.colors ? null : plot.theme.accent, `${trunc(context!.activeName)} (active${style?.colors ? ", by Z" : ""})`);
+    row(plotColors ? null : plot.theme.accent, `${trunc(context!.activeName)} (active${plotColors ? ", by Z" : ""})`);
     const layers = context!.layers;
     for (const layer of layers.slice(0, CONTEXT_LEGEND_ROWS)) row(layer.color, trunc(layer.name));
     if (layers.length > CONTEXT_LEGEND_ROWS) {
@@ -543,11 +620,12 @@ export async function buildPickettContent(
   ];
   const representedWellIds = () => [well.well_id, ...ctxWellIds];
   let axisRanges: PlotAxisRangeExport[] = [];
-  const currentAxisBindings = (): { resistivity: PlotChannelBinding | null; porosity: PlotChannelBinding | null } => {
+  const currentAxisBindings = (): { resistivity: PlotChannelBinding | null; porosity: PlotChannelBinding | null; colour: PlotChannelBinding | null } => {
     const bindings = plotBindingSnapshotForChannels(representedWellIds(), plotIntents());
     return {
       resistivity: bindings.find((binding) => binding.intent.channel === "resistivity") ?? null,
       porosity: bindings.find((binding) => binding.intent.channel === "porosity") ?? null,
+      colour: bindings.find((binding) => binding.intent.channel === "colour") ?? null,
     };
   };
   const selectionState = (): Record<string, string> => ({
@@ -640,8 +718,9 @@ export async function buildPickettContent(
   let rt = new Float32Array(0);
   let phi = new Float32Array(0);
   let depths = new Float32Array(0);
+  let zValues = new Float32Array(0);
+  let zRange: PlotAxisRangeExport | null = null;
   let picks: [number, number][] = [];
-  let colors: string[] | undefined;
   let plot: PlotCanvas | null = null;
   let lastFit: { m: number; aRw: number } | null = null;
   let hoverIdx = -1;
@@ -757,17 +836,24 @@ export async function buildPickettContent(
     }, null, null).indices,
   );
 
-  const computeColors = (z: Float32Array | undefined): string[] | undefined => {
-    if (!z || z.length === 0) return undefined;
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (const v of z) {
-      if (!Number.isFinite(v) || (props.zLog && v <= 0)) continue;
-      if (v < lo) lo = v;
-      if (v > hi) hi = v;
+  const resolveColourRange = (z: Float32Array): PlotAxisRangeExport | null => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const value of z) {
+      if (!Number.isFinite(value) || (props.zLog && value <= 0)) continue;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
     }
-    if (!Number.isFinite(lo) || lo === hi) return undefined;
-    return colorRampEx(z, lo, hi, props.colormap, props.zLog);
+    const finiteData = Number.isFinite(min) && Number.isFinite(max) && min !== max
+      ? { min, max }
+      : null;
+    const resolved = resolveBoundAxisRange({
+      binding: currentAxisBindings().colour,
+      user: null,
+      finiteData,
+      log: props.zLog,
+    });
+    return resolved ? axisRangeExportRecord("colour", resolved) : null;
   };
 
   // --- Context-well data (multi-well overlay) — same budget rule as crossplot/histogram.
@@ -849,7 +935,10 @@ export async function buildPickettContent(
       phiMin: props.phiMin,
       phiMax: props.phiMax,
       pointSize: props.pointSize,
-      colors,
+      zValues: props.zCurve ? zValues : undefined,
+      zRange,
+      zLog: props.zLog,
+      colormap: props.colormap,
       validityFilter: props.validityFilter,
       rtValidMin: props.rtValidMin,
       rtValidMax: props.rtValidMax,
@@ -908,7 +997,10 @@ export async function buildPickettContent(
       phiMin: props.phiMin,
       phiMax: props.phiMax,
       pointSize: props.pointSize,
-      colors,
+      zValues: props.zCurve ? zValues : undefined,
+      zRange,
+      zLog: props.zLog,
+      colormap: props.colormap,
       validityFilter: props.validityFilter,
       rtValidMin: props.rtValidMin,
       rtValidMax: props.rtValidMax,
@@ -944,7 +1036,19 @@ export async function buildPickettContent(
       rt = reconciled.channels[0];
       phi = reconciled.channels[1];
       depths = reconciled.depth;
-      colors = props.zCurve ? computeColors(reconciled.channels[2]) : undefined;
+      zValues = props.zCurve ? reconciled.channels[2] : new Float32Array(0);
+      const zPopulation = props.zCurve
+        ? screenPickettPopulation(rt, phi, {
+            validityFilter: props.validityFilter,
+            rtValidMin: props.rtValidMin,
+            rtValidMax: props.rtValidMax,
+            phiValidMin: props.phiValidMin,
+            phiValidMax: props.phiValidMax,
+          }, null, null).indices
+        : [];
+      zRange = props.zCurve
+        ? resolveColourRange(Float32Array.from(zPopulation.map((index) => zValues[index])))
+        : null;
       if (reconciled.mode === "decimated_to_coarsest") {
         setStatus(`Pickett depth inputs decimated to the coarsest exact step; factors ${reconciled.decimationFactors.join("/")} · interval ${reconciled.intervalClosure}`);
       }
@@ -952,7 +1056,8 @@ export async function buildPickettContent(
       if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
       setStatus(`Pickett data load failed: ${err}`);
       rt = phi = depths = new Float32Array(0);
-      colors = undefined;
+      zValues = new Float32Array(0);
+      zRange = null;
     }
     statisticsDataVersion++;
     hoverIdx = -1; // the old hover index may point at a different sample now

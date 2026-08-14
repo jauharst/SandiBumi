@@ -24,6 +24,7 @@ export function parseRangePositionPct(value: number): RangePositionPct {
 
 export type PlotChannelPolicy = "cartesian" | "colour" | "array_waveform";
 export type PlotRangeEdge = "none" | "low" | "high";
+export type PlotChannelExclusion = "none" | "non_finite" | "log_domain";
 
 export interface PlotDisplayRange {
   min: number;
@@ -35,6 +36,9 @@ export interface PlotChannelPolicyReport {
   values: Float32Array;
   /** Zero means the sample is excluded for this channel. */
   included: Uint8Array;
+  exclusionReasons: PlotChannelExclusion[];
+  /** One means the finite, domain-valid source value lies outside the display range. */
+  displayOverflow: Uint8Array;
   edgeMarks: PlotRangeEdge[];
   nonFiniteExcluded: number;
   logDomainExcluded: number;
@@ -48,30 +52,35 @@ export interface PlotChannelPolicyReport {
 export function applyPlotChannelPolicy(
   source: Float32Array,
   policy: PlotChannelPolicy,
-  display: PlotDisplayRange,
+  display: PlotDisplayRange | null,
   logAxis = false,
 ): PlotChannelPolicyReport {
   const values = source.slice();
   const included = new Uint8Array(source.length);
+  const exclusionReasons: PlotChannelExclusion[] = new Array(source.length).fill("none");
+  const displayOverflow = new Uint8Array(source.length);
   const edgeMarks: PlotRangeEdge[] = new Array(source.length).fill("none");
   let nonFiniteExcluded = 0;
   let logDomainExcluded = 0;
   let displayClipped = 0;
   let clamped = 0;
-  const low = Math.min(display.min, display.max);
-  const high = Math.max(display.min, display.max);
+  const low = display ? Math.min(display.min, display.max) : Number.NEGATIVE_INFINITY;
+  const high = display ? Math.max(display.min, display.max) : Number.POSITIVE_INFINITY;
   for (let index = 0; index < source.length; index++) {
     const value = source[index];
     if (!Number.isFinite(value)) {
       nonFiniteExcluded++;
+      exclusionReasons[index] = "non_finite";
       continue;
     }
     if (logAxis && value <= 0) {
       logDomainExcluded++;
+      exclusionReasons[index] = "log_domain";
       continue;
     }
     included[index] = 1;
     if (value < low) {
+      displayOverflow[index] = 1;
       if (policy === "cartesian") displayClipped++;
       else {
         values[index] = low;
@@ -79,6 +88,7 @@ export function applyPlotChannelPolicy(
         clamped++;
       }
     } else if (value > high) {
+      displayOverflow[index] = 1;
       if (policy === "cartesian") displayClipped++;
       else {
         values[index] = high;
@@ -90,6 +100,8 @@ export function applyPlotChannelPolicy(
   return {
     values,
     included,
+    exclusionReasons,
+    displayOverflow,
     edgeMarks,
     nonFiniteExcluded,
     logDomainExcluded,

@@ -1,4 +1,5 @@
 import type { AxisDisplayRange } from "./axisRange";
+import { applyPlotChannelPolicy } from "./plotTypes";
 
 /** One quantitative channel participating in a plot's sample population. Display limits
  * affect only glyph visibility; opt-in validity limits affect the analysis population. */
@@ -54,13 +55,19 @@ export function applyPlotRangePolicy(
     validityExcluded: 0,
     displayHidden: 0,
   };
+  const channelReports = channels.map((channel) => applyPlotChannelPolicy(
+    Float32Array.from(channel.values),
+    "cartesian",
+    channel.display,
+    !!channel.log,
+  ));
 
   for (let index = 0; index < inputCount; index++) {
-    if (channels.some((channel) => !Number.isFinite(channel.values[index]))) {
+    if (channelReports.some((channel) => channel.exclusionReasons[index] === "non_finite")) {
       report.nonFiniteExcluded++;
       continue;
     }
-    if (channels.some((channel) => !!channel.log && channel.values[index] <= 0)) {
+    if (channelReports.some((channel) => channel.exclusionReasons[index] === "log_domain")) {
       report.logDomainExcluded++;
       continue;
     }
@@ -70,7 +77,7 @@ export function applyPlotRangePolicy(
     }
 
     report.indices.push(index);
-    if (channels.some((channel) => outside(channel.values[index], channel.display))) {
+    if (channelReports.some((channel) => channel.displayOverflow[index] === 1)) {
       report.displayHidden++;
     }
   }

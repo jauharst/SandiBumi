@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-013: channel-specific missing and overflow policy
+
+- [ ] **Automated correctness:** the exact SB-PLT-013 contract test exercises shared X/Y policy,
+      Crossplot/Pickett/Vega Z adapters, screen and composite spaghetti-waveform adapters, both
+      linear and logarithmic channels, low/high endpoint marks, separate exclusion/clamp counts and
+      bit-exact source preservation. The two Rust supporting tests execute the production composite
+      consumer and policy. A deliberate high-edge-to-low-edge mutation made the acceptance test RED
+      before restoration. The exact full gate is green at 1029 passed / 0 failed / 37 ignored with
+      38 owned Rust warnings.
+- [ ] **Visual:** open Crossplot, Pickett, generated Vega and a log/composite spaghetti array with
+      deliberately low, high, non-finite and non-positive-log samples. Confirm low/high Z overflow
+      uses distinguishable endpoint diamonds, every count is readable at the smallest normal dock
+      size, waveform disclosure does not cover traces, and composite disclosure remains legible on
+      paper/PDF. Automation proves content and call paths, not placement or legibility.
+- [ ] **Manual:** compare the same samples across linear and log axes; narrow only display limits;
+      confirm X/Y overflow hides without changing the analysis population, Z and waveform overflow
+      clamps only the display copy, log-invalid values leave plot and plot statistics, and all offered
+      SVG/PDF/PNG or composite routes report the same dispositions. Re-read the source curve before
+      and after every interaction and confirm no display operation created an edit or history entry.
+- [ ] **Field and harsh critique:** repeat with representative native-grid curves and real array logs,
+      including long outlier tails and sparse gaps. A polished plot with silent clipping is a
+      plausible lie; a tiny or overlapping disclosure is almost as bad because the operator will not
+      use information they cannot read. Green helper and source-inventory tests do not prove that
+      users notice or understand the marks, and this increment does not claim deferred multi-well
+      allocation, shared reduction or performance contracts.
+
 ## 2026-08-15 — G2 SB-PLT-009: statistics carry population, estimator and exclusions
 
 - [ ] **Automated correctness:** the exact SB-PLT-009 T12/T13 test executes Histogram, Crossplot,

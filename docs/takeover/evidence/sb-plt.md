@@ -175,14 +175,14 @@
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; no direct whole-contract test; T07, T12, T16 and T20 provide cross-cutting support; sections 4.3, 6 and 8.1.
 - **Atomic obligations:** exclude and count non-finite values; exclude non-positive log values from plot and statistics; clip/count X/Y overflow; clamp and edge-mark Z overflow; clamp/count waveform overflow; never mutate source samples; disclose every policy.
-- **Current source:** crossplot screens X/Y and applies the TypeScript colour policy for Z with exclusion/clamp/edge counts. Histogram handles non-finite values but not the full channel matrix. Pickett and Vega use separate policies, and array-waveform plotting does not call the shared policy. `plotting.rs::apply_plot_channel_policy` covers all named shapes but is unused outside tests.
-- **Qualifying acceptance tests:** none; the chapter has no direct test and no observable inventory test proves all channels, disclosures and source immutability. Test class is `MISSING`.
-- **Supporting tests:** `plotting.rs::missing_log_xy_z_and_waveform_values_follow_their_own_reported_policies` proves the unused helper from both sides and checks source bits remain unchanged.
+- **Current source:** `plotTypes.ts::applyPlotChannelPolicy` is the shared TypeScript channel policy. `plotRangePolicy.ts` delegates X/Y finite, log-domain and display-overflow decisions to it; Crossplot, Pickett and generated Vega apply its derived Z values plus low/high edge marks; log-view spaghetti waveforms apply its derived clamp/exclusion record. The composite SVG/PDF spaghetti renderer consumes the parallel Rust `plotting.rs::apply_plot_channel_policy` contract. Histogram's existing finite-only bin contract remains the correct channel-specific path. None of these paths writes the source curve.
+- **Qualifying acceptance tests:** `tools/frontend-acceptance.test.mjs::non_finite_log_xy_z_and_waveform_values_follow_one_non_mutating_reported_channel_policy` is CORRECTNESS. The arithmetic fixture proves non-finite and log-domain exclusions, X/Y clip count without replacement, Z and waveform endpoint clamps, low/high edge identity, live Pickett/Vega/log-view/composite adapters and bit-exact source preservation. A deliberate high-to-low edge mutation made the test RED before restoration.
+- **Supporting tests:** `plotting.rs::missing_log_xy_z_and_waveform_values_follow_their_own_reported_policies` exercises the Rust policy from both exclusion and clamp sides and checks source bits; `composite.rs::spaghetti_draws_the_asked_for_number_of_traces_and_breaks_them_at_failures` exercises the production composite consumer.
 - **Manual evidence:** `crossplot` 6/13, `histogram` 5/22, `pickett` 0/8, `log-view` 5/37 and `chart-overlays` 16/53.
-- **Git evidence:** reachable commit `cfc468b` added the policy helper and crossplot subset; accepted source retains independent consumers.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no universal product call path or whole-contract acceptance test exists.
-- **Next action:** route every X/Y/Z/waveform consumer through one non-mutating policy and add a live inventory test covering both exclusion and clamp/edge disclosure.
+- **Git evidence:** reachable commit `cfc468b` added the original policy helper and crossplot subset; the Gate 2 completion commit is pending at this evidence write. Four previously owned dead-code warnings disappear because the composite renderer is now a production consumer.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for Gate 2 automation. Visual placement, manual interaction and representative-field evidence remain deliberately open.
+- **Next action:** retain the shared non-mutating policy and disclosures, execute the separate review/Gate 4 scenarios, and proceed serially to SB-PLT-015 without importing deferred multi-well allocation scope.
 
 ## SB-PLT-014 - Multi-well allocation follows finite-pair screening
 

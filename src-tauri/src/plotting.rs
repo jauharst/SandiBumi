@@ -801,7 +801,7 @@ impl RangePositionPct {
 pub enum PlotChannelPolicy {
     Cartesian { log_axis: bool, display: DisplayRange },
     Colour { log_axis: bool, display: DisplayRange },
-    ArrayWaveform { display: DisplayRange },
+    ArrayWaveform { log_axis: bool, display: DisplayRange },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -815,6 +815,7 @@ pub enum RangeEdge {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlotChannelPolicyReport {
     pub values: Vec<f32>,
+    pub included: Vec<bool>,
     pub edge_marks: Vec<RangeEdge>,
     pub non_finite_excluded: usize,
     pub log_domain_excluded: usize,
@@ -831,6 +832,7 @@ pub fn apply_plot_channel_policy(
 ) -> PlotChannelPolicyReport {
     let mut report = PlotChannelPolicyReport {
         values: source.to_vec(),
+        included: vec![false; source.len()],
         edge_marks: vec![RangeEdge::None; source.len()],
         non_finite_excluded: 0,
         log_domain_excluded: 0,
@@ -840,7 +842,7 @@ pub fn apply_plot_channel_policy(
     let (display, log_axis, clamp) = match policy {
         PlotChannelPolicy::Cartesian { log_axis, display } => (display, log_axis, false),
         PlotChannelPolicy::Colour { log_axis, display } => (display, log_axis, true),
-        PlotChannelPolicy::ArrayWaveform { display } => (display, false, true),
+        PlotChannelPolicy::ArrayWaveform { log_axis, display } => (display, log_axis, true),
     };
     let low = display.low.min(display.high);
     let high = display.low.max(display.high);
@@ -853,6 +855,7 @@ pub fn apply_plot_channel_policy(
             report.log_domain_excluded += 1;
             continue;
         }
+        report.included[index] = true;
         if value < low {
             if clamp {
                 report.values[index] = low;
@@ -2226,12 +2229,30 @@ mod tests {
 
         let waveform = apply_plot_channel_policy(
             &source,
-            PlotChannelPolicy::ArrayWaveform { display: DisplayRange { low: 0.0, high: 10.0 } },
+            PlotChannelPolicy::ArrayWaveform {
+                log_axis: false,
+                display: DisplayRange { low: 0.0, high: 10.0 },
+            },
         );
         assert_eq!(waveform.non_finite_excluded, 1);
         assert_eq!(waveform.clamped, 2);
         assert_eq!(waveform.values[0].to_bits(), 0.0f32.to_bits());
         assert_eq!(waveform.values[2].to_bits(), 10.0f32.to_bits());
+
+        let log_waveform = apply_plot_channel_policy(
+            &source,
+            PlotChannelPolicy::ArrayWaveform {
+                log_axis: true,
+                display: DisplayRange { low: 1.0, high: 10.0 },
+            },
+        );
+        assert_eq!(log_waveform.non_finite_excluded, 1);
+        assert_eq!(log_waveform.log_domain_excluded, 1);
+        assert_eq!(log_waveform.clamped, 1);
+        assert_eq!(
+            log_waveform.edge_marks,
+            vec![RangeEdge::None, RangeEdge::None, RangeEdge::High, RangeEdge::None]
+        );
 
         assert_eq!(source.iter().map(|value| value.to_bits()).collect::<Vec<_>>(), source_bits);
     }

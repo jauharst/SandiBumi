@@ -52,6 +52,7 @@ import {
   type PlotAxisRangeExport,
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
+import { applyPlotChannelPolicy, type PlotRangeEdge } from "./plotTypes";
 import {
   basicStats,
   buildPlotStatisticsRecord,
@@ -66,6 +67,10 @@ export interface Row {
   x: number;
   y?: number;
   z?: number;
+  /** Display-only Z after SB-PLT-013 endpoint clamping. Raw `z` remains in the tooltip. */
+  zDisplay?: number;
+  /** Endpoint marker for a clamped Z value. */
+  zEdge?: PlotRangeEdge;
   depth: number;
   /** Raincloud only: the categorical lane this sample belongs to (a zone or a class value). */
   group?: string;
@@ -102,7 +107,7 @@ interface SpecOpts {
   /** Raincloud: what the grouping represents ("zone" or a curve mnemonic) — for tooltips. */
   groupLabel?: string;
   /** Governed source-curve domains. Aggregate/synthetic axes are read back from Vega after render. */
-  axisDomains?: Partial<Record<"x" | "y", [number, number]>>;
+  axisDomains?: Partial<Record<"x" | "y" | "colour", [number, number]>>;
 }
 
 /** Types with per-sample point marks that take part in linked brushing (emit + consume). Histogram,
@@ -178,6 +183,42 @@ export function screenVegaPopulation(
       validity: policy.y,
     }] : []),
   ], policy.apply);
+}
+
+export interface VegaColourPolicy {
+  rows: Row[];
+  included: Uint8Array;
+  nonFiniteExcluded: number;
+  logDomainExcluded: number;
+  excluded: number;
+  clamped: number;
+}
+
+/** SB-PLT-013's generated-Vega Z adapter. It carries both the raw tooltip value and a
+ * derived display value, so endpoint colour/edge treatment can never rewrite source data. */
+export function applyVegaColourPolicy(
+  rows: readonly Row[],
+  display: AxisDisplayRange,
+  logAxis = false,
+): VegaColourPolicy {
+  const policy = applyPlotChannelPolicy(
+    Float32Array.from(rows, (row) => row.z ?? Number.NaN),
+    "colour",
+    display,
+    logAxis,
+  );
+  return {
+    rows: rows.map((row, index) => ({
+      ...row,
+      zDisplay: policy.included[index] ? policy.values[index] : undefined,
+      zEdge: policy.included[index] ? policy.edgeMarks[index] : "none",
+    })),
+    included: policy.included,
+    nonFiniteExcluded: policy.nonFiniteExcluded,
+    logDomainExcluded: policy.logDomainExcluded,
+    excluded: policy.nonFiniteExcluded + policy.logDomainExcluded,
+    clamped: policy.clamped,
+  };
 }
 
 /** Live Vega adapter: the generated grammar and every export use the same complete records. */
@@ -449,6 +490,8 @@ function buildSpec(
   const dim = cssVar("--text-dim", "#888888");
   const border = cssVar("--border", "#cccccc");
   const accent = cssVar("--accent", "#b5651d");
+  const accent2 = cssVar("--accent-2", "#247a78");
+  const warn = cssVar("--warn", "#c0392b");
   const axis = { labelColor: dim, titleColor: text, gridColor: border, domainColor: border, tickColor: border };
   const scale = (channel: "x" | "y", extra: Record<string, unknown> = {}): Record<string, unknown> => ({
     ...extra,
@@ -613,11 +656,29 @@ function buildSpec(
   };
   if (zName) {
     encoding.color = {
-      field: "z",
+      field: "zDisplay",
       type: "quantitative",
       title: zName,
-      scale: { scheme: "viridis" },
+      scale: {
+        scheme: "viridis",
+        ...(opts?.axisDomains?.colour ? { domain: opts.axisDomains.colour } : {}),
+      },
       legend: { labelColor: dim, titleColor: text },
+    };
+    encoding.shape = {
+      condition: [{ test: "datum.zEdge !== 'none'", value: "diamond" }],
+      value: "circle",
+    };
+    encoding.stroke = {
+      condition: [
+        { test: "datum.zEdge === 'low'", value: accent2 },
+        { test: "datum.zEdge === 'high'", value: warn },
+      ],
+      value: null,
+    };
+    encoding.strokeWidth = {
+      condition: [{ test: "datum.zEdge !== 'none'", value: 2 }],
+      value: 0,
     };
   }
   if (type === "line") encoding.order = { field: "depth", type: "quantitative" };
@@ -931,7 +992,7 @@ export async function buildVegaContent(
   let axisRanges: PlotAxisRangeExport[] = [];
   const currentAxisBindings = (): PlotChannelBinding[] =>
     plotBindingSnapshotForChannels([well.well_id], plotIntents());
-  const finiteRange = (rows: Row[], field: "x" | "y"): { min: number; max: number } | null => {
+  const finiteRange = (rows: Row[], field: "x" | "y" | "z"): { min: number; max: number } | null => {
     let min = Infinity;
     let max = -Infinity;
     for (const row of rows) {
@@ -1038,6 +1099,7 @@ export async function buildVegaContent(
   let lastGroupOrder: string[] = [];
   let lastGroupLabel = "";
   let lastUnpairedOrUnclassifiedExcluded = 0;
+  let lastColourPolicy: Pick<VegaColourPolicy, "excluded" | "clamped"> | null = null;
   let statisticsRecords: PlotStatisticsRecord[] = [];
   // V4: an optional hand-edited spec. When set it replaces the generated grammar (the current rows
   // are injected as its data); a chart-type change clears it since the grammar is type-specific.
@@ -1107,12 +1169,15 @@ export async function buildVegaContent(
     const histogramSummary = histogram
       ? ` · histogram bins=${histogram.counts.length} · displayed total=${histogram.displayedTotal}`
       : "";
+    const colourSummary = lastZ && lastColourPolicy
+      ? `${lastColourPolicy.excluded ? ` · Z excluded=${lastColourPolicy.excluded}` : ""}${lastColourPolicy.clamped ? ` · Z clamped/edge-marked=${lastColourPolicy.clamped}` : ""}`
+      : "";
     rangeInfo.textContent = `${formatAxisRangeSummary(axisRanges)} · ${formatPlotRangePolicySummary(population, {
       statistics: true,
       fitInputs: lastType === "scatter" && lastTrend ? population.analysisCount : null,
-    })}${histogramSummary}`;
+    })}${histogramSummary}${colourSummary}`;
   };
-  const prepareAxisRanges = (type: ChartType, rows: Row[]): boolean => {
+  const prepareAxisRanges = (type: ChartType, rows: Row[], zName: string | null): boolean => {
     if (specOverride) {
       baseAxisRanges = [];
       axisRanges = [];
@@ -1122,6 +1187,7 @@ export async function buildVegaContent(
     const bindings = currentAxisBindings();
     const xBinding = bindings.find((binding) => binding.intent.channel === "x") ?? null;
     const yBinding = bindings.find((binding) => binding.intent.channel === "y") ?? null;
+    const colourBinding = bindings.find((binding) => binding.intent.channel === "colour") ?? null;
     const xRange = resolveBoundAxisRange({
       binding: xBinding,
       user: null,
@@ -1137,7 +1203,14 @@ export async function buildVegaContent(
           validity: currentValidityPolicy().y,
         })
       : null;
-    if (!xRange || (needsY && !yRange)) {
+    const colourRange = type === "scatter" && zName
+      ? resolveBoundAxisRange({
+          binding: colourBinding,
+          user: null,
+          finiteData: finiteRange(rows, "z"),
+        })
+      : null;
+    if (!xRange || (needsY && !yRange) || (type === "scatter" && zName && !colourRange)) {
       baseAxisRanges = [];
       axisRanges = [];
       statisticsRecords = [];
@@ -1148,6 +1221,7 @@ export async function buildVegaContent(
     baseAxisRanges = [
       axisRangeExportRecord("x", xRange),
       ...(yRange ? [axisRangeExportRecord("y", yRange)] : []),
+      ...(colourRange ? [axisRangeExportRecord("colour", colourRange)] : []),
     ];
     axisRanges = [...baseAxisRanges];
     updateRangeInfo();
@@ -1180,6 +1254,8 @@ export async function buildVegaContent(
       }
     }
     if (resolved.length > 0) {
+      const colour = baseAxisRanges.find((range) => range.axis === "colour");
+      if (colour) resolved.push(colour);
       axisRanges = resolved;
       updateRangeInfo();
     }
@@ -1306,13 +1382,28 @@ export async function buildVegaContent(
       setStatus("Vega — no data");
       return;
     }
-    if (!prepareAxisRanges(type, rows)) {
+    lastColourPolicy = null;
+    if (!prepareAxisRanges(type, rows, zName)) {
       chartHost.replaceChildren(messageNode("logview-message", "Vega refused: no governed display range is available for every source-curve axis."));
       setStatus("Vega — axis range refused");
       return;
     }
+    let renderRows = rows;
+    if (type === "scatter" && zName) {
+      const colourRange = baseAxisRanges.find((range) => range.axis === "colour");
+      if (!colourRange) {
+        chartHost.replaceChildren(messageNode("logview-message", "Vega refused: no governed colour range is available for the selected Z curve."));
+        setStatus("Vega — colour range refused");
+        return;
+      }
+      const colourPolicy = applyVegaColourPolicy(rows, { min: colourRange.min, max: colourRange.max });
+      lastColourPolicy = { excluded: colourPolicy.excluded, clamped: colourPolicy.clamped };
+      renderRows = colourPolicy.rows.filter((_row, index) => colourPolicy.included[index] === 1);
+    }
+    lastRows = renderRows;
+    updateRangeInfo();
     try {
-      const result = await vegaEmbed(chartHost, specFor(type, rows, xName, yName, zName, opts), {
+      const result = await vegaEmbed(chartHost, specFor(type, renderRows, xName, yName, zName, opts), {
         actions: false,
         renderer: "canvas",
         tooltip: true,
@@ -1329,7 +1420,7 @@ export async function buildVegaContent(
       }
       const zc = zoneSel.current();
       const scope = zc.zoneName !== "*" ? ` · ${zc.zoneName}` : "";
-      setStatus(`Vega — ${type}, ${rows.length.toLocaleString()} points${scope}`);
+      setStatus(`Vega — ${type}, ${renderRows.length.toLocaleString()} points${scope}`);
     } catch (err) {
       if (disposed || myGen !== gen) return;
       chartHost.replaceChildren(messageNode("logview-message", `Vega render failed: ${err}`));
@@ -1466,9 +1557,11 @@ export async function buildVegaContent(
   /** Re-embed the cached rows with the new theme's colours (a theme switch resets zoom/pan — a rare,
    *  deliberate trade for repainting without a re-fetch). No-op until the first render has cached. */
   async function repaint(): Promise<void> {
-    if (!lastRows) return;
+    if (!lastSourceRows) return;
     const myGen = ++gen;
-    await embedRows(lastType, lastRows, lastX, lastY, lastZ, { trend: lastTrend, method: lastMethod, groupOrder: lastGroupOrder, groupLabel: lastGroupLabel }, myGen);
+    const screened = screenVegaPopulation(lastSourceRows, lastType, currentValidityPolicy(), null, null);
+    const rows = screened.indices.map((index) => lastSourceRows![index]);
+    await embedRows(lastType, rows, lastX, lastY, lastZ, { trend: lastTrend, method: lastMethod, groupOrder: lastGroupOrder, groupLabel: lastGroupLabel }, myGen);
   }
 
   // --- V4: last-used persistence, export, spec editor ------------------------

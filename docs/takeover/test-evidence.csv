@@ -211,6 +211,7 @@
 "SB-PLT-005","CORRECTNESS","tools/frontend-acceptance.test.mjs","every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_while_the_documented_6_56x_pair_and_unknown_units_stay_disabled_with_reasons"
 "SB-PLT-006","CORRECTNESS","tools/frontend-acceptance.test.mjs","every_pilot_histogram_uses_half_open_bins_with_a_closed_final_endpoint_counts_non_finite_samples_separately_and_displays_the_sum_of_bin_counts"
 "SB-PLT-009","CORRECTNESS","tools/frontend-acceptance.test.mjs","every_plot_statistic_records_its_population_interval_selection_finite_pairs_exclusions_percentile_interpolation_and_standard_deviation_choice"
+"SB-PLT-013","CORRECTNESS","tools/frontend-acceptance.test.mjs","non_finite_log_xy_z_and_waveform_values_follow_one_non_mutating_reported_channel_policy"
 "SB-PLT-010","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_regression_as_coefficients_without_a_versioned_scientific_record"
 "SB-PLT-018","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_linked_brushing_as_one_ephemeral_scope_with_exact_depth_membership"
 "SB-PLT-026","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_vector_exports_as_labelled_while_the_png_print_path_is_not_labelled_raster"

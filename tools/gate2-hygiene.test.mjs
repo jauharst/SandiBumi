@@ -193,8 +193,8 @@ test('a_field_fixture_test_cannot_be_relabelled_as_optional_package_execution', 
   );
 });
 
-test('the_live_inventory_owns_42_warnings_and_37_ignored_tests_without_counting_them_as_passed', () => {
-  // CHARACTERIZATION — the live compiler/test inventory is 42 warnings and 37 ignored tests
+test('the_live_inventory_owns_38_warnings_and_37_ignored_tests_without_counting_them_as_passed', () => {
+  // CHARACTERIZATION — the live compiler/test inventory is 38 warnings and 37 ignored tests
   // after SB-PLT-006 removed the disconnected plotting-local histogram wrapper.
   // Owning remaining debt does not prove it passes.
   const warningInventory = JSON.parse(fs.readFileSync(
@@ -206,8 +206,8 @@ test('the_live_inventory_owns_42_warnings_and_37_ignored_tests_without_counting_
     'utf8',
   ));
 
-  assert.equal(warningInventory.expected_warning_count, 42);
-  assert.equal(warningInventory.expected_warning_counts_by_file['src/plotting.rs'], 32);
+  assert.equal(warningInventory.expected_warning_count, 38);
+  assert.equal(warningInventory.expected_warning_counts_by_file['src/plotting.rs'], 28);
   assert.equal(ignoredInventory.expected_ignored_test_count, 37);
   assert.deepEqual(ignoredInventory.expected_category_counts, {
     'OPTIONAL-PACKAGE': 27,

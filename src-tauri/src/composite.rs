@@ -11,6 +11,7 @@
 
 use crate::equations;
 use crate::layout::{Layout, ScaleType};
+use crate::plotting::{apply_plot_channel_policy, DisplayRange, PlotChannelPolicy};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use duckdb::{params, Connection};
@@ -1640,10 +1641,33 @@ fn draw_array_series(
     match as_.display_kind() {
         "spaghetti" => {
             let width = visible.iter().map(|r| r.samples.len()).max().unwrap_or(0);
-            for r_idx in even_indices(width, as_.traces.unwrap_or(40) as usize) {
+            let traces = even_indices(width, as_.traces.unwrap_or(40) as usize);
+            let mut source = Vec::with_capacity(traces.len() * visible.len());
+            for r_idx in &traces {
+                for row in &visible {
+                    source.push(row.samples.get(*r_idx).copied().unwrap_or(f32::NAN));
+                }
+            }
+            let policy = apply_plot_channel_policy(
+                &source,
+                PlotChannelPolicy::ArrayWaveform {
+                    log_axis: scale == ScaleType::Log,
+                    display: DisplayRange { low: as_.min, high: as_.max },
+                },
+            );
+            let mut display_index = 0usize;
+            for _r_idx in traces {
                 let mut run: Vec<(f64, f64)> = Vec::new();
                 for row in &visible {
-                    match row.samples.get(r_idx).copied().and_then(x_at) {
+                    let x = policy
+                        .included
+                        .get(display_index)
+                        .copied()
+                        .unwrap_or(false)
+                        .then(|| policy.values[display_index])
+                        .and_then(x_at);
+                    display_index += 1;
+                    match x {
                         Some(x) => run.push((x, y_of(row.depth))),
                         // A realization that produced nothing here BREAKS its own trace. Bridging
                         // the gap would draw a path down the well that this realization never took.
@@ -1664,6 +1688,18 @@ fn draw_array_series(
                     ops.push(DrawOp::Poly { pts: run, stroke: color.clone(), sw: 0.08 });
                 }
             }
+            ops.push(DrawOp::Text {
+                x: tx0 + 0.8,
+                y: y_of(page_top) + 2.5,
+                size: 2.1,
+                anchor: Anchor::Start,
+                color: "#555555".into(),
+                bold: false,
+                s: format!(
+                    "waveform clamped={} · non-finite excluded={} · log-domain excluded={}",
+                    policy.clamped, policy.non_finite_excluded, policy.log_domain_excluded
+                ),
+            });
         }
         "heatmap" => {
             let bins = as_.hist_bins.unwrap_or(32).max(1) as usize;
