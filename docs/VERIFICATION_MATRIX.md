@@ -17,7 +17,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 122 | 2026-08-13 | 51 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 126 | 2026-08-13 | 52 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 44 | 2026-08-13 | 7 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |

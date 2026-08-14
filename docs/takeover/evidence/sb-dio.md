@@ -809,14 +809,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DIO-T95`.
 - **Atomic obligations:** detect UTF-8, UTF-16LE/BE with and without BOM, and Windows single-byte text; decode without rejecting a whole delivery for one stray byte; report the selected encoding.
-- **Current source:** `src-tauri/src/parsers.rs::read_text_file_with_encoding` performs the shared byte-level detection and fallback, and all text-import paths route through `read_text_file` rather than direct UTF-8 file reads.
-- **Qualifying acceptance tests:** `utf8_utf16_in_both_byte_orders_with_and_without_boms_and_windows_1252_are_imported_and_reported` is `CORRECTNESS`; it covers both BOM sides, no-BOM controls and Windows-1252 while checking the reported choice.
-- **Supporting tests:** lower-level parser encoding tests exercise decoder details but do not replace the full import/result assertion.
+- **Current source:** `src-tauri/src/parsers.rs::read_text_file_with_encoding` performs the shared byte-level detection, all production text-import paths route through it, and the LAS result reports the selected label. BOMs select UTF-8 or UTF-16; BOM-less UTF-16 is distinguished by CR/LF byte order. Every remaining invalid UTF-8 stream is unconditionally decoded and labelled `Windows-1252`, so the implementation does not distinguish the requirement's plural Windows single-byte code pages.
+- **Qualifying acceptance tests:** `utf8_utf16_in_both_byte_orders_with_and_without_boms_and_windows_1252_are_imported_and_reported` is `CORRECTNESS` for exact T95 and is green at 1 passed / 0 failed / 0 ignored. It proves the named UTF-16LE BOM/no-BOM pair through real import and adds UTF-8, UTF-16BE and one Windows-1252 control; it does not define or prove multiple Windows code pages.
+- **Supporting tests:** lower-level parser encoding tests exercise the tolerant decoder and byte custody but do not supply the missing code-page inventory or selection rule.
 - **Manual evidence:** `las-import` 0/57, `delimited-intake` 3/27 and `data-conventions` 0/45.
 - **Git evidence:** reachable `e8b88a3` contains the shared detector, path migration and owned test.
-- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** none for the required encoding inventory.
-- **Next action:** preserve the universal reader inventory and record detected encoding for representative Windows-origin pilot files.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS` for exact T95; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-SOURCE`. Publish the supported Windows single-byte code-page inventory and the deterministic metadata, structural evidence or explicit user decision that selects among ambiguous pages. Treating every invalid UTF-8 stream as CP1252 is not detection.
+- **Next action:** retain the mandatory shared reader and T95, then add sourced controls for every approved page plus an adverse ambiguous-byte case that refuses or requests a decision instead of silently mislabelling it.
 
 ## SB-DIO-063 - Non-ASCII paths and payloads MUST survive every sidecar boundary.
 

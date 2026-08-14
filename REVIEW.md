@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-062: the named encodings pass but Windows code-page selection is undefined
+
+- [ ] **Automated correctness:** exact SB-DIO-T95 is green at 1 passed / 0 failed / 0 ignored.
+      It imports and reports UTF-8, UTF-16LE/BE with and without BOM, and one Windows-1252
+      adverse-byte control through the real LAS import result.
+- [ ] **Source decision:** publish the supported Windows single-byte code-page inventory and the
+      deterministic evidence or user-decision rule used to select among them. The current decoder
+      labels every non-UTF-8, non-UTF-16 byte stream `Windows-1252`; the chapter's plural
+      “code pages” contract does not authorize that assumption or name the other pages.
+- [ ] **Visual / Manual:** import the same representative text delivery in each approved encoding.
+      Confirm the visible result names the selected encoding and preserves a distinguishing
+      non-ASCII character; a successful row count alone cannot expose mojibake in descriptive text.
+- [ ] **Field and harsh critique:** Jauhar must confirm the supported pilot-origin tool/export
+      inventory before this closes. Calling all legacy Windows bytes CP1252 is convenient and often
+      plausible, which is exactly why it can ship silent character corruption without a red gate.
+
 ## 2026-08-14 — G2 SB-DIO-061: malformed-corpus proof remains diagnostic, inventory and memory-bound blocked
 
 - [ ] **Automated implementation:** BLOCKED-SOURCE. A focused RED probe made the existing
