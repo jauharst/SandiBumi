@@ -1,5 +1,5 @@
 import { formRow, openModal } from "./modal";
-import type { LasImportOptions } from "../ipc";
+import type { LasImportOptions, LasWellIdentityProbe } from "../ipc";
 import {
   UNIT_REGISTRY_FAMILIES,
   UNIT_REGISTRY_POPULATION,
@@ -70,15 +70,20 @@ export interface ImportSetChoice extends LasImportOptions {
   fileDepthUnit: "M" | "FT" | null;
   samplingStyle: "CONTINUOUS_REGULAR" | "CONTINUOUS_IRREGULAR";
   samplingStyleVerifyTolerance: { value: number; unit: "M" | "FT" } | null;
+  confirmedWellNames: Record<string, string>;
 }
 
 /**
  * Asks for the set name + attach behaviour. Resolves with the choice, or null if the user
  * cancels (Esc / ✕ / Cancel) — the caller must treat null as "import nothing".
  */
-export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | null> {
+export function openImportSetDialog(
+  paths: string[],
+  identityProbes: LasWellIdentityProbe[],
+): Promise<ImportSetChoice | null> {
   return new Promise((resolve) => {
     const wrap = document.createElement("div");
+    const probesByPath = new Map(identityProbes.map((probe) => [probe.path, probe]));
 
     // Organic design 1e: the picked delivery as a file rail rather than one
     // truncated line — the user is naming what these files ARE, so they should
@@ -94,7 +99,11 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
     for (const p of shown) {
       const row = document.createElement("div");
       row.className = "import-file-row";
-      row.textContent = p.replace(/\\/g, "/").split("/").pop() ?? p;
+      const filename = p.replace(/\\/g, "/").split("/").pop() ?? p;
+      const containerIdentity = probesByPath.get(p)?.container_well_name;
+      row.textContent = containerIdentity
+        ? `${filename} — container identity: ${containerIdentity}; filename not used`
+        : `${filename} — source identity absent`;
       row.title = p;
       rail.appendChild(row);
     }
@@ -105,6 +114,27 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
       rail.appendChild(more);
     }
     wrap.appendChild(rail);
+
+    const identityInputs = new Map<string, HTMLInputElement>();
+    for (const path of paths) {
+      const probe = probesByPath.get(path);
+      if (probe?.container_well_name) continue;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "form-control";
+      input.value = probe?.filename_proposal ?? "";
+      input.spellcheck = false;
+      input.setAttribute("data-no-i18n", "");
+      identityInputs.set(path, input);
+      const filename = path.replace(/\\/g, "/").split("/").pop() ?? path;
+      wrap.appendChild(
+        formRow(
+          `Confirm identity for ${filename}`,
+          input,
+          "The container has no WELL value. The filename is only a proposal; Import explicitly confirms the entered identity.",
+        ),
+      );
+    }
 
     const setInput = document.createElement("input");
     setInput.type = "text";
@@ -282,6 +312,17 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
     const close = openModal("Import LAS — curve set", wrap, 560);
     cancelBtn.addEventListener("click", () => finish(null));
     okBtn.addEventListener("click", () => {
+      const confirmedWellNames: Record<string, string> = {};
+      for (const [path, input] of identityInputs) {
+        const confirmed = input.value.trim();
+        if (!confirmed) {
+          input.setCustomValidity("Enter and confirm an identity; the filename cannot be selected silently.");
+          input.reportValidity();
+          input.setCustomValidity("");
+          return;
+        }
+        confirmedWellNames[path] = confirmed;
+      }
       if (samplingStyle.value !== "CONTINUOUS_REGULAR" && samplingStyle.value !== "CONTINUOUS_IRREGULAR") {
         samplingStyle.setCustomValidity("Declare whether this curve set is continuous regular or continuous irregular.");
         samplingStyle.reportValidity();
@@ -313,6 +354,7 @@ export function openImportSetDialog(paths: string[]): Promise<ImportSetChoice | 
           : null,
         samplingStyle: samplingStyle.value,
         samplingStyleVerifyTolerance: tolerance,
+        confirmedWellNames,
       });
     });
     setInput.addEventListener("keydown", (e) => {

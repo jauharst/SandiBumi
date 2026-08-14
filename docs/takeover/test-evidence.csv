@@ -119,6 +119,7 @@
 "SB-DIO-044","CORRECTNESS","src-tauri/src/ingest.rs","a_single_section_policy_reports_unknown_malformed_and_out_of_order_headers_in_las_2_and_3_and_refuses_data_before_version_or_well"
 "SB-DIO-045","CORRECTNESS","src-tauri/src/dlis.rs","a_three_well_dlis_shows_its_logical_file_mapping_before_commit_and_creates_three_wells_without_merging"
 "SB-DIO-047","CORRECTNESS","src-tauri/src/ingest.rs","a_float64_core_import_and_a_four_decimal_las_export_state_their_precision_reductions"
+"SB-DIO-048","CORRECTNESS","src-tauri/src/ingest.rs","a_las_header_well_identity_overrides_the_filename_and_an_absent_header_only_offers_the_filename_until_confirmed"
 "SB-DIO-049","CORRECTNESS","src-tauri/src/export.rs","a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success"
 "SB-DIO-049","CORRECTNESS","src-tauri/src/export.rs","every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error"
 "SB-DIO-050","CORRECTNESS","src-tauri/src/ingest.rs","a_declared_step_that_disagrees_with_actual_spacing_is_flagged_as_possibly_regridded_and_a_matching_step_is_not"

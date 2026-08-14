@@ -807,10 +807,13 @@ fn parse_well_name_line(line: &str) -> Option<String> {
     if !well_line {
         return None;
     }
-    let colon_idx = trimmed.rfind(':')?;
-    // "WELL .        SANDI SOUTH-01   : WELL" — the value is everything between
-    // the mnemonic(+unit) and the colon, so multi-word well names survive intact.
-    let after = trimmed[4..colon_idx].trim_start();
+    let value_end = trimmed.rfind(':').unwrap_or(trimmed.len());
+    if value_end <= 4 {
+        return None;
+    }
+    // "WELL .        MULTI WORD IDENTITY   : WELL" — the value is everything after
+    // the mnemonic(+unit) and before an optional description, so multi-word identities survive.
+    let after = trimmed[4..value_end].trim_start();
     let after = after.strip_prefix('.').unwrap_or(after);
     let value = match after.find(char::is_whitespace) {
         Some(i) => after[i..].trim(),
@@ -1663,14 +1666,45 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
     Ok(frame)
 }
 
-/// Reads just the ~W (Well Information) block to find the WELL mnemonic's value, falling
-/// back to the file's stem if the block is missing or the value is blank.
-#[cfg(test)]
-pub fn extract_well_name<P: AsRef<Path>>(path: P) -> ParseResult<String> {
+/// Read-only preflight result for the LAS identity boundary. The filename is deliberately
+/// represented as a proposal rather than being collapsed into the container-owned identity.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct LasWellIdentityProbe {
+    pub path: String,
+    pub container_well_name: Option<String>,
+    pub filename_proposal: Option<String>,
+}
+
+pub(crate) fn las_well_identity_from_container(
+    path: &Path,
+    container_well_name: Option<String>,
+) -> LasWellIdentityProbe {
+    let container_well_name = container_well_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let filename_proposal = if container_well_name.is_none() {
+        path.file_stem()
+            .map(|stem| stem.to_string_lossy().trim().to_string())
+            .filter(|stem| !stem.is_empty())
+    } else {
+        None
+    };
+    LasWellIdentityProbe {
+        path: path.display().to_string(),
+        container_well_name,
+        filename_proposal,
+    }
+}
+
+/// Reads only the LAS well-information block through the mandatory byte-tolerant text reader.
+/// A missing `WELL` mnemonic yields a filename proposal for explicit confirmation, never an
+/// inferred identity.
+pub fn probe_las_well_identity<P: AsRef<Path>>(path: P) -> ParseResult<LasWellIdentityProbe> {
     let path = path.as_ref();
     let text = read_text_file(path)?;
-
     let mut in_well_block = false;
+    let mut container_well_name = None;
+
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -1682,29 +1716,15 @@ pub fn extract_well_name<P: AsRef<Path>>(path: P) -> ParseResult<String> {
                 == Some(LasSection::WellBlock);
             continue;
         }
-        let upper = trimmed.to_uppercase();
-        let well_line = in_well_block
-            && upper.starts_with("WELL")
-            && matches!(upper.as_bytes().get(4), None | Some(b'.') | Some(b' ') | Some(b'\t'));
-        if well_line {
-            if let Some(colon_idx) = trimmed.rfind(':') {
-                // "WELL .        SANDI SOUTH-01   : WELL" — the value is everything
-                // between the mnemonic(+unit) and the colon, NOT just the last token
-                // (multi-word well names must survive intact).
-                let after = trimmed[4..colon_idx].trim_start();
-                let after = after.strip_prefix('.').unwrap_or(after);
-                let value = match after.find(char::is_whitespace) {
-                    Some(i) => after[i..].trim(),
-                    None => after.trim(),
-                };
-                if !value.is_empty() {
-                    return Ok(value.to_string());
-                }
+        if in_well_block {
+            if let Some(value) = parse_well_name_line(trimmed) {
+                container_well_name = Some(value);
+                break;
             }
         }
     }
 
-    Ok(path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "UNKNOWN".to_string()))
+    Ok(las_well_identity_from_container(path, container_well_name))
 }
 
 /// Columnar core plug data ready for the DuckDB Appender. Missing/unparseable cells map

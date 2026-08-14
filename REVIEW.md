@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-048: LAS container identity outranks the filename
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T67 is green at
+      1 passed / 0 failed / 0 ignored. The full ingest module is green at 54 passed /
+      0 failed / 1 ignored, and the registered malformed-reader corpus is green at
+      1 passed / 0 failed / 0 ignored.
+- [ ] **Two-sided identity boundary:** a colonless container `WELL` value wins even when an
+      exact-path confirmation disagrees, and the filename proposal is suppressed. When the
+      container has no `WELL` value, preflight exposes the stem only as a proposal, import
+      refuses and writes no well until an explicit non-empty confirmation is supplied.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to open the LAS import dialog with one
+      container-identified file and one identity-absent file, confirm the former says the
+      filename is unused, edit and approve the latter's proposed identity, then inspect the
+      created records after reload. Compiled TypeScript and synthetic fixtures are not operator
+      or field acceptance.
+
 ## 2026-08-14 — G2 SB-DIO-047: Precision reduction is stated at import and LAS export
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T66 is green at

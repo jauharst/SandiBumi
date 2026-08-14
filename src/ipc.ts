@@ -215,6 +215,17 @@ export interface ImportResult {
   unit_token_warnings: string[];
 }
 
+/** Container-owned identity plus a filename proposal that is never silently selected. */
+export interface LasWellIdentityProbe {
+  path: string;
+  container_well_name: string | null;
+  filename_proposal: string | null;
+}
+
+export function probeLasWellIdentities(paths: string[]): Promise<LasWellIdentityProbe[]> {
+  return invoke<LasWellIdentityProbe[]>("probe_las_well_identities", { paths });
+}
+
 /** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */
 export interface LasImportOptions {
   /** Set name for every curve of this batch; auto-suffixed per well (`FPROOH` → `FPROOH_1`)
@@ -235,6 +246,8 @@ export interface LasImportOptions {
   duplicateDepthPolicy?: "keep-first" | "keep-last" | "mean" | "refuse" | null;
   /** Explicit MS/FT meanings keyed by the exact source path; no entry means refuse. */
   msPerFtMeanings?: Record<string, "microseconds_per_foot" | "millisiemens_per_foot">;
+  /** Explicit confirmations keyed by source path, consulted only when the container has no identity. */
+  confirmedWellNames?: Record<string, string>;
   /** Required set-level declaration; it is never inferred from coincidentally regular depths. */
   samplingStyle?: "CONTINUOUS_REGULAR" | "CONTINUOUS_IRREGULAR" | null;
   /** Required only for regular sets. No production default ships. */
@@ -252,6 +265,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     nonMonotonicIndex: opts?.nonMonotonicIndex ?? null,
     duplicateDepthPolicy: opts?.duplicateDepthPolicy ?? null,
     msPerFtMeanings: opts?.msPerFtMeanings ?? null,
+    confirmedWellNames: opts?.confirmedWellNames ?? null,
     samplingStyle: opts?.samplingStyle ?? null,
     samplingStyleVerifyTolerance: opts?.samplingStyleVerifyTolerance ?? null,
   });

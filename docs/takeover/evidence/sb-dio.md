@@ -627,14 +627,14 @@
 
 - **Chapter evidence:** P2; chapter status `PARTIAL`; owned test `SB-DIO-T67`.
 - **Atomic obligations:** use the container's well-identifying field; offer a filename only as a user-confirmable default; never select it silently.
-- **Current source:** `src-tauri/src/parsers.rs::read_las_well_name` returns the LAS `~W WELL` value when present but silently falls back to the file stem, and `src-tauri/src/ingest.rs` consumes that returned identity during LAS import.
-- **Qualifying acceptance tests:** none pins the confirmation boundary; test class is `MISSING`.
-- **Supporting tests:** LAS-header parsing proves that `~W WELL` wins when present, but does not prove that a missing header refuses or asks before using the filename.
-- **Manual evidence:** `las-import` 0/57, `data-conventions` 0/45 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** container-first parsing is integrated, but the silent filename fallback remains reachable.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no parameter is missing; the current fallback violates the explicit confirmation contract.
-- **Next action:** separate `source identity absent` from a proposed filename default, require confirmation before commit, and add T67 with both disagreeing and missing-header controls.
+- **Current source:** `src-tauri/src/parsers.rs::probe_las_well_identity` uses the mandatory byte-tolerant reader and returns container identity separately from a filename proposal. `src-tauri/src/ingest.rs` always prefers the parsed container value, ignores a contradictory confirmation when one exists, and refuses before writing when the source value is absent and no exact-path confirmation was supplied. `src-tauri/src/lib.rs`, `src/ipc.ts`, `src/ui/ribbon.ts` and `src/ui/importSetDialog.ts` expose the typed preflight and show a required confirmation input only for identity-absent files.
+- **Qualifying acceptance tests:** `a_las_header_well_identity_overrides_the_filename_and_an_absent_header_only_offers_the_filename_until_confirmed` is `CORRECTNESS`, green at 1 passed / 0 failed / 0 ignored. It pins a colonless container value against a contradictory confirmation, suppresses the proposal when source identity exists, exposes only a proposal when absent, proves the refusal writes no well, and proves an explicit non-empty confirmation can commit.
+- **Supporting tests:** the complete ingest module is green at 54 passed / 0 failed / 1 optional-data ignored, including colonless `WELL` controls across null and encoding fixtures. The registered malformed-reader corpus is green at 1 passed / 0 failed / 0 ignored with the new probe registered; neither supporting result replaces exact T67.
+- **Manual evidence:** `las-import` 0/102, `data-conventions` 4/122 and `security-integrity` 3/107 after regeneration; the new visual/manual/field scenario remains unchecked.
+- **Git evidence:** current topic-branch worktree carries the source-first resolver, typed preflight, confirmation UI and exact T67 pending this increment's commit.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none. No parameter or deferred capability is required.
+- **Next action:** retain exact T67; Jauhar visually inspects the identified and identity-absent dialog states and field-exercises representative deliveries in Gate 4 without promoting synthetic proof to field evidence.
 
 ## SB-DIO-049 - Writing a file our own reader would reject MUST be an error, not a warning.
 
@@ -692,14 +692,14 @@
 
 - **Chapter evidence:** P2; chapter status `PARTIAL`; owned tests `SB-DIO-T75`, `SB-DIO-T76`.
 - **Atomic obligations:** use a documented header mapping; preserve unmapped headers verbatim; never synthesise any identity field.
-- **Current source:** `src-tauri/src/parsers.rs` maps a selected subset of LAS well fields into typed metadata but does not carry all unmapped `~W` records verbatim. When `WELL` is missing, `read_las_well_name` synthesises the file stem as the well identity.
+- **Current source:** `src-tauri/src/parsers.rs` maps a selected subset of LAS well fields into typed metadata but does not carry all unmapped `~W` records verbatim. SB-DIO-048 now separates an absent `WELL` value from a filename proposal and requires explicit confirmation; the broader raw-header and all-identity-field contract remains incomplete.
 - **Qualifying acceptance tests:** none maps T75 or T76; test class is `MISSING`.
 - **Supporting tests:** known-header parsing and alias tests prove selected mappings only and cannot prove preservation of unknown fields or absence of invented identity.
-- **Manual evidence:** `las-import` 0/57, `data-conventions` 0/45 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** the partial typed mapping is integrated; verbatim preservation and no-synthesis closure are absent.
+- **Manual evidence:** `las-import` 0/102, `data-conventions` 4/122 and `security-integrity` 3/107 after regeneration; no SB-DIO-053 scenario is checked.
+- **Git evidence:** the partial typed mapping and SB-DIO-048 `WELL` boundary are integrated; verbatim preservation and complete no-synthesis closure are absent.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no source parameter is missing; the file-stem identity fallback is the same explicit contract violation recorded under SB-DIO-048.
-- **Next action:** preserve the complete raw `~W` map alongside typed fields, remove silent identity synthesis, and add T75/T76 with unknown-header and no-UWI controls.
+- **Blocker or decision:** no source parameter is missing. Unmapped headers remain dropped, and T76 still lacks a whole-contract proof for every identity field; the narrower `WELL` filename violation is closed under SB-DIO-048.
+- **Next action:** preserve the complete raw `~W` map alongside typed fields and add T75/T76 with unknown-header and no-UWI controls without reintroducing any identity fallback.
 
 ## SB-DIO-054 - Every skipped frame, channel, curve and row MUST be counted and named.
 

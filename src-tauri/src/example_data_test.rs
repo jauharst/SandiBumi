@@ -321,7 +321,7 @@ const REGISTERED_FILE_READERS: &[&str] = &[
     "intake::probe",
     "intake::probe_arrays",
     "intake::read_wide",
-    "parsers::extract_well_name",
+    "parsers::probe_las_well_identity",
     "parsers::parse_core_csv",
     "parsers::parse_core_csv_with_depth_column",
     "parsers::parse_core_table_mapped",
@@ -369,7 +369,7 @@ const REGISTERED_SAMPLED_READERS: &[&str] = &[
 
 const REGISTERED_NON_SAMPLED_READERS: &[&str] = &[
     "intake::probe",
-    "parsers::extract_well_name",
+    "parsers::probe_las_well_identity",
     "parsers::parse_locations_file",
     "parsers::parse_scal_centrifuge_csv",
     "parsers::parse_scal_csv",
@@ -704,7 +704,9 @@ fn exercise_registered_reader(reader: &str, path: &std::path::Path) -> Result<()
             .map(|_| ())
             .map_err(|e| e.to_string())
         }
-        "parsers::extract_well_name" => parsers::extract_well_name(path).map(|_| ()).map_err(|e| e.to_string()),
+        "parsers::probe_las_well_identity" => {
+            parsers::probe_las_well_identity(path).map(|_| ()).map_err(|e| e.to_string())
+        }
         "parsers::parse_core_csv" => parsers::parse_core_csv(path).map(|_| ()).map_err(|e| e.to_string()),
         "parsers::parse_core_csv_with_depth_column" => {
             parsers::parse_core_csv_with_depth_column(path, None)

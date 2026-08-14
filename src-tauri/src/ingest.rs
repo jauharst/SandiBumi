@@ -77,6 +77,10 @@ pub struct LasImportOptions {
     /// Explicit answers keyed by the exact source path; absent is deliberately not a default.
     #[serde(default, alias = "msPerFtMeanings")]
     pub ms_per_ft_meanings: std::collections::HashMap<String, crate::curves::MsPerFtMeaning>,
+    /// Explicit well-name confirmations keyed by exact source path. The map is consulted only
+    /// when the LAS container has no `WELL` identity; a container value always wins.
+    #[serde(default, alias = "confirmedWellNames")]
+    pub confirmed_well_names: std::collections::HashMap<String, String>,
     /// Required declaration for this imported curve set. It is never inferred from the observed
     /// depth sequence; POINT belongs in the point-delivery store and is refused here.
     #[serde(default, alias = "samplingStyle")]
@@ -101,6 +105,7 @@ impl Default for LasImportOptions {
             non_monotonic_index: None,
             duplicate_depth_policy: None,
             ms_per_ft_meanings: Default::default(),
+            confirmed_well_names: Default::default(),
             sampling_style: Some(crate::schema_vocab::SamplingStyle::ContinuousIrregular),
             sampling_style_verify_tolerance: None,
         }
@@ -337,12 +342,29 @@ pub fn import_las_files_with(
                         &opts.null_rules,
                         opts.ms_per_ft_meanings.get(path).copied(),
                     )?;
-                    let well_name = columns.well_name.clone().unwrap_or_else(|| {
-                        std::path::Path::new(path)
-                            .file_stem()
-                            .map(|stem| stem.to_string_lossy().to_string())
-                            .unwrap_or_else(|| "UNKNOWN".to_string())
-                    });
+                    let identity = parsers::las_well_identity_from_container(
+                        std::path::Path::new(path),
+                        columns.well_name.clone(),
+                    );
+                    let well_name = if let Some(container_well_name) = identity.container_well_name {
+                        container_well_name
+                    } else if let Some(confirmed) = opts
+                        .confirmed_well_names
+                        .get(path)
+                        .map(|value| value.trim())
+                        .filter(|value| !value.is_empty())
+                    {
+                        confirmed.to_string()
+                    } else {
+                        let proposal = identity
+                            .filename_proposal
+                            .as_deref()
+                            .map(|value| format!("; filename proposal '{value}'"))
+                            .unwrap_or_else(|| "; no filename proposal is available".to_string());
+                        return Err(ParseError::Las(format!(
+                            "source well identity is absent in {path}{proposal}; explicit confirmation is required before import"
+                        )));
+                    };
                     Ok::<_, ParseError>((well_name, columns))
                 })();
                 (path.clone(), result)
@@ -4505,6 +4527,112 @@ mod tests {
 
         std::fs::remove_file(&core_path).ok();
         std::fs::remove_file(&las_path).ok();
+    }
+
+    /// SB-DIO-048 / SB-DIO-T67. CORRECTNESS - `docs/PRD_v2/21_data-io.md`
+    /// D-27 and sections 4.9/6.9 make the LAS `~W WELL` value authoritative. A file
+    /// stem is only a proposal that needs an explicit user confirmation when that source
+    /// value is absent; it is never an identity merely because the import has a filename.
+    #[test]
+    fn a_las_header_well_identity_overrides_the_filename_and_an_absent_header_only_offers_the_filename_until_confirmed() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+
+        let write_fixture = |label: &str, well_line: &str| {
+            let path = std::env::temp_dir().join(format!(
+                "{label}-{}.las",
+                Uuid::new_v4()
+            ));
+            std::fs::write(
+                &path,
+                format!(
+                    "~VERSION\nVERS. 2.0 :\n~WELL\n{well_line}NULL. -999.25 :\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n1000 50\n"
+                ),
+            )
+            .unwrap();
+            path
+        };
+
+        let header_path = write_fixture(
+            "FILENAME-IDENTITY-MUST-NOT-WIN",
+            "WELL. CONTAINER-IDENTITY\n",
+        );
+        let header_probe = parsers::probe_las_well_identity(&header_path).unwrap();
+        assert_eq!(
+            header_probe.container_well_name.as_deref(),
+            Some("CONTAINER-IDENTITY")
+        );
+        assert_eq!(
+            header_probe.filename_proposal, None,
+            "a present container identity must suppress rather than compete with a filename proposal"
+        );
+        let mut header_options = LasImportOptions::default();
+        header_options.confirmed_well_names.insert(
+            header_path.to_string_lossy().into_owned(),
+            "FILENAME-IDENTITY-MUST-NOT-WIN".to_string(),
+        );
+        let header_result = import_las_files_with(
+            &conn,
+            &[header_path.to_string_lossy().into_owned()],
+            None,
+            &header_options,
+        )
+        .remove(0);
+        assert!(header_result.error.is_none(), "{:?}", header_result.error);
+        assert_eq!(header_result.well_name.as_deref(), Some("CONTAINER-IDENTITY"));
+
+        let missing_path = write_fixture("FILENAME-PROPOSAL-NEEDS-CONFIRMATION", "");
+        let missing_probe = parsers::probe_las_well_identity(&missing_path).unwrap();
+        assert_eq!(missing_probe.container_well_name, None);
+        assert_eq!(
+            missing_probe.filename_proposal,
+            missing_path
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned()),
+            "the filename is exposed only in the proposal field"
+        );
+        let missing_result = import_las_files_with(
+            &conn,
+            &[missing_path.to_string_lossy().into_owned()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        assert!(
+            missing_result.error.as_deref().is_some_and(|error| {
+                error.contains("source well identity is absent")
+                    && error.contains("explicit confirmation")
+            }),
+            "a filename must be offered, not silently committed: {:?}",
+            missing_result.error
+        );
+        let wells: i64 = conn
+            .query_row("SELECT COUNT(*) FROM wells", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(wells, 1, "the unconfirmed filename proposal must write no well");
+
+        let mut confirmed_options = LasImportOptions::default();
+        confirmed_options.confirmed_well_names.insert(
+            missing_path.to_string_lossy().into_owned(),
+            "CONFIRMED-IDENTITY".to_string(),
+        );
+        let confirmed_result = import_las_files_with(
+            &conn,
+            &[missing_path.to_string_lossy().into_owned()],
+            None,
+            &confirmed_options,
+        )
+        .remove(0);
+        assert!(confirmed_result.error.is_none(), "{:?}", confirmed_result.error);
+        assert_eq!(confirmed_result.well_name.as_deref(), Some("CONFIRMED-IDENTITY"));
+        let wells: i64 = conn
+            .query_row("SELECT COUNT(*) FROM wells", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(wells, 2, "only the explicitly confirmed proposal may create the second well");
+
+        std::fs::remove_file(header_path).ok();
+        std::fs::remove_file(missing_path).ok();
     }
 
     /// Aux import v2 (T-IMP-11): a WELL-columned petrography file routes rows by name;

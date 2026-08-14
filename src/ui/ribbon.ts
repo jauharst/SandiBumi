@@ -8,6 +8,7 @@ import {
   importWellLocations,
   importDlisFile,
   importLasFiles,
+  probeLasWellIdentities,
   currentProject,
   bootReport,
   compactProject,
@@ -1186,9 +1187,17 @@ export class Ribbon {
 
     if (!paths || paths.length === 0) return;
 
+    let identityProbes;
+    try {
+      identityProbes = await probeLasWellIdentities(paths);
+    } catch (err) {
+      setStatus(`LAS identity preflight failed: ${err}`);
+      return;
+    }
+
     // Which curve set does this delivery land under, and should same-named files attach to
     // the wells already in the project? (T-IMP-02 — the Geolog/IP set model.)
-    const choice = await openImportSetDialog(paths);
+    const choice = await openImportSetDialog(paths, identityProbes);
     if (!choice) {
       setStatus("Import cancelled");
       return;

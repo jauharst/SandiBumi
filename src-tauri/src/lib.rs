@@ -383,6 +383,21 @@ fn list_wells(
 /// one well + its standard curves per file. Per-file failures are reported individually
 /// rather than aborting the whole batch.
 #[tauri::command]
+fn probe_las_well_identities(
+    paths: Vec<String>,
+) -> Result<Vec<parsers::LasWellIdentityProbe>, String> {
+    paths
+        .into_iter()
+        .map(|path| {
+            let mut probe = parsers::probe_las_well_identity(&path)
+                .map_err(|error| error.to_string())?;
+            probe.path = path;
+            Ok(probe)
+        })
+        .collect()
+}
+
+#[tauri::command]
 async fn import_las_files(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
@@ -395,6 +410,7 @@ async fn import_las_files(
     non_monotonic_index: Option<ingest::NonMonotonicIndexDecision>,
     duplicate_depth_policy: Option<parsers::DuplicateDepthPolicy>,
     ms_per_ft_meanings: Option<std::collections::HashMap<String, curves::MsPerFtMeaning>>,
+    confirmed_well_names: Option<std::collections::HashMap<String, String>>,
     sampling_style: Option<schema_vocab::SamplingStyle>,
     sampling_style_verify_tolerance: Option<units::DepthTolerance>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
@@ -409,6 +425,7 @@ async fn import_las_files(
         non_monotonic_index,
         duplicate_depth_policy,
         ms_per_ft_meanings: ms_per_ft_meanings.unwrap_or_default(),
+        confirmed_well_names: confirmed_well_names.unwrap_or_default(),
         sampling_style,
         sampling_style_verify_tolerance,
     };
@@ -3867,6 +3884,7 @@ pub fn run() {
             open_project,
             new_project,
             list_wells,
+            probe_las_well_identities,
             import_las_files,
             save_equation,
             list_equations,
