@@ -150,6 +150,10 @@ export interface ReductionExportItem {
   original_count: number;
   displayed_count: number;
   algorithm: string;
+  /** Exact stride for a stride reduction; null when the named algorithm is not stride-based. */
+  stride: number | null;
+  /** Whether the final eligible source index was appended; null for non-index reductions. */
+  endpoints_forced: boolean | null;
 }
 
 export interface PlotReductionExport {

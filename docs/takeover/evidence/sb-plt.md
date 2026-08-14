@@ -201,14 +201,14 @@
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; chapter intentions T21-T22; sections 4.3, 6 and 8.1.
 - **Atomic obligations:** use one shared source-index vector for all mark channels; retain eligible endpoints; record original/displayed counts, algorithm, stride and forced-endpoint state; never call a reduced view complete.
-- **Current source:** `plotTypes.ts::allocateFinitePairBudget` returns one source-index vector and a complete in-memory `ReductionManifest`; `fetchContextLayers` applies it to depth and every series. `describeContextOutcome` visibly reports reduction, stride and forced endpoints. The export manifest retains counts and algorithm but drops stride and forced-endpoint state, and there is no universal consumer inventory.
-- **Qualifying acceptance tests:** none; T21/T22 exercise the Rust helper, not the active panel, visible disclosure and exported provenance together. Test class is `MISSING`.
-- **Supporting tests:** `plotting.rs::decimation_uses_one_shared_index_vector_and_reports_the_forced_final_endpoint` independently pins the cited indices, all channels and complete helper manifest.
+- **Current source:** `plotTypes.ts::allocateFinitePairBudget` returns one source-index vector and a complete in-memory `ReductionManifest`; `fetchContextLayers` applies it to depth and every series. `describeContextOutcome` visibly says reduced and reports original/displayed counts, stride and forced endpoint state. `contextReductionExport` carries those same fields through Crossplot, Histogram and Pickett to `plotExport.ts`, and the whitelisted Rust command validates and canonicalizes the JSON. Non-stride well/legend reductions carry explicit null stride/endpoint fields rather than invented values.
+- **Qualifying acceptance tests:** `tools/frontend-acceptance.test.mjs::context_plot_decimation_uses_one_shared_index_retains_both_endpoints_and_exports_counts_algorithm_stride_and_forced_endpoint_without_calling_the_view_complete` is CORRECTNESS. It independently derives indices 0/4/8/10, proves depth/X/Y/Z pairing, checks first/final retention, requires the reduced-not-complete disclosure, verifies every portable field and inventories the three live panel consumers plus the whitelisted exporter. A deliberate forced-endpoint true-to-false mutation made the test RED before restoration.
+- **Supporting tests:** `plotting.rs::decimation_uses_one_shared_index_vector_and_reports_the_forced_final_endpoint` independently pins the cited indices, all channels and complete helper manifest; `an_export_after_budget_reduction_includes_original_and_displayed_counts_and_the_algorithm_while_a_hard_maximum_refuses` verifies Rust canonicalization and the hard-limit refusal. The duplicate Rust decimator/result is explicitly test-only; its remaining manifest/stride warnings belong to the still-open SB-PLT-031 allocator path.
 - **Manual evidence:** `crossplot` 6/13, `histogram` 5/22, `pickett` 0/8 and `report` 6/53.
-- **Git evidence:** reachable commit `f6c9065` integrated shared indices and manifests; accepted export still omits two required provenance fields.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** complete portable provenance and a whole-route acceptance test are missing.
-- **Next action:** preserve stride and forced-endpoint state in exported/saved plot records and implement T21/T22 through one panel plus export.
+- **Git evidence:** reachable commit `f6c9065` integrated shared indices and partial manifests; the Gate 2 completion commit is pending at this evidence write. Two disconnected Rust-helper warnings disappear and two shared allocator warnings remain explicitly owned by SB-PLT-031.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for Gate 2 automation. Visual placement, manual interaction and representative-field evidence remain deliberately open.
+- **Next action:** retain the shared-index and portable-manifest contracts, execute the separate review/Gate 4 scenarios, and proceed serially to SB-PLT-016 without importing deferred allocation or implicit DIO resampling scope.
 
 ## SB-PLT-016 - Depth-step reconciliation is explicit and conservative
 

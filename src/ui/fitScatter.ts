@@ -336,6 +336,8 @@ function fitScatterReductionExport(spec: FitScatterSpec): PlotReductionExport | 
       original_count: groupCount,
       displayed_count: FIT_SCATTER_LEGEND_ROWS,
       algorithm: "first_group_rows_with_remainder_count",
+      stride: null,
+      endpoints_forced: null,
     }],
     absent: [],
     refusal: null,

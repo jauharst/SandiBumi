@@ -924,6 +924,8 @@ pub struct ReductionExportItem {
     pub original_count: usize,
     pub displayed_count: usize,
     pub algorithm: String,
+    pub stride: Option<usize>,
+    pub endpoints_forced: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -967,6 +969,23 @@ pub fn serialize_reduction_export(export: &PlotReductionExport) -> Result<String
                 item.subject_id
             ));
         }
+        if item.algorithm == "stride_from_first_with_forced_final_endpoint" {
+            match item.stride {
+                Some(0) | None => {
+                    return Err(format!(
+                        "stride reduction item {} is missing a positive stride",
+                        item.subject_id
+                    ));
+                }
+                Some(_) => {}
+            }
+            if item.endpoints_forced.is_none() {
+                return Err(format!(
+                    "stride reduction item {} is missing forced-endpoint state",
+                    item.subject_id
+                ));
+            }
+        }
         reduced |= item.displayed_count < item.original_count;
     }
     for absent in &export.absent {
@@ -988,6 +1007,7 @@ pub fn serialize_reduction_export(export: &PlotReductionExport) -> Result<String
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg(test)]
 pub struct SharedChannelReduction {
     pub channels: Vec<Vec<f32>>,
     pub manifest: ReductionManifest,
@@ -1011,6 +1031,7 @@ fn stride_source_indices(eligible: &[usize], stride: usize) -> Result<(Vec<usize
     Ok((source_indices, endpoints_forced))
 }
 
+#[cfg(test)]
 pub fn decimate_shared_channels(
     channels: &[Vec<f32>],
     eligible: &[usize],
@@ -2482,6 +2503,8 @@ mod tests {
                 original_count: reduced.manifest.original_count,
                 displayed_count: reduced.manifest.displayed_count,
                 algorithm: reduced.manifest.algorithm,
+                stride: Some(reduced.manifest.stride),
+                endpoints_forced: Some(reduced.manifest.endpoints_forced),
             }],
             absent: Vec::new(),
             refusal: None,
@@ -2490,6 +2513,8 @@ mod tests {
         assert!(json.contains("\"original_count\": 11"));
         assert!(json.contains("\"displayed_count\": 4"));
         assert!(json.contains("\"algorithm\": \"stride_from_first_with_forced_final_endpoint\""));
+        assert!(json.contains("\"stride\": 4"));
+        assert!(json.contains("\"endpoints_forced\": true"));
 
         let mut missing_algorithm = export.clone();
         missing_algorithm.items[0].algorithm.clear();
@@ -2514,7 +2539,7 @@ mod tests {
 
         let export_ui = include_str!("../../src/ui/plotExport.ts");
         assert!(export_ui.contains("savePlotReductionManifest(dest, JSON.stringify(manifest))"));
-        assert!(export_ui.contains("Export original/displayed counts and reduction algorithms"));
+        assert!(export_ui.contains("Export reduction counts, algorithm, stride and endpoint handling"));
         let command_adapter = include_str!("lib.rs");
         assert!(command_adapter.contains("fn save_plot_reduction_manifest"));
         assert!(command_adapter.contains("save_plot_reduction_manifest,"));
@@ -2522,6 +2547,8 @@ mod tests {
         assert!(common_ui.contains("original_count: layer.reduction.originalCount"));
         assert!(common_ui.contains("displayed_count: layer.reduction.displayedCount"));
         assert!(common_ui.contains("algorithm: layer.reduction.algorithm"));
+        assert!(common_ui.contains("stride: layer.reduction.stride"));
+        assert!(common_ui.contains("endpoints_forced: layer.reduction.endpointsForced"));
         let histogram_ui = include_str!("../../src/ui/histogramPanel.ts");
         assert!(!histogram_ui.contains(".sort((a, b) => a - b).slice(0, 8)"));
         let vega_ui = include_str!("../../src/ui/vegaPanel.ts");

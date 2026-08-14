@@ -377,6 +377,100 @@ test("non_finite_log_xy_z_and_waveform_values_follow_one_non_mutating_reported_c
   assert.match(composite, /waveform clamped=/);
 });
 
+test("context_plot_decimation_uses_one_shared_index_retains_both_endpoints_and_exports_counts_algorithm_stride_and_forced_endpoint_without_calling_the_view_complete", async () => {
+  // CORRECTNESS — SB-PLT-015 / SB-PLT-T21/T22. docs/PRD_v2/23_plotting-interactivity.md
+  // §§4.3 and 6 cite dossier §§2.9, 4.2 and 5.3–5.5: eligible indices 0..10 at
+  // stride 4 must yield 0,4,8,10 with the final endpoint forced, and depth/X/Y/Z
+  // must use that same source index. These sequences are independent arithmetic
+  // fixtures, not petrophysical values or product defaults.
+  const { decimateSharedChannels } = await load("/src/ui/plotTypes.ts");
+  const { contextReductionExport, describeContextOutcome } = await load("/src/ui/plotCommon.ts");
+  const sourceIndices = Array.from({ length: 11 }, (_value, index) => index);
+  const depth = Float32Array.from(sourceIndices);
+  const x = Float32Array.from(sourceIndices, (index) => 100 + index);
+  const y = Float32Array.from(sourceIndices, (index) => 200 + index);
+  const z = Float32Array.from(sourceIndices, (index) => 300 + index);
+  const reduced = decimateSharedChannels([depth, x, y, z], sourceIndices, 4);
+
+  assert.deepEqual(reduced.manifest.sourceIndices, [0, 4, 8, 10]);
+  assert.equal(reduced.manifest.originalCount, 11);
+  assert.equal(reduced.manifest.displayedCount, 4);
+  assert.equal(reduced.manifest.algorithm, "stride_from_first_with_forced_final_endpoint");
+  assert.equal(reduced.manifest.stride, 4);
+  assert.equal(reduced.manifest.endpointsForced, true);
+  assert.deepEqual(reduced.channels.map((channel) => Array.from(channel)), [
+    [0, 4, 8, 10],
+    [100, 104, 108, 110],
+    [200, 204, 208, 210],
+    [300, 304, 308, 310],
+  ]);
+  for (let mark = 0; mark < reduced.manifest.displayedCount; mark++) {
+    const index = reduced.manifest.sourceIndices[mark];
+    assert.equal(reduced.channels[0][mark], depth[index]);
+    assert.equal(reduced.channels[1][mark], x[index]);
+    assert.equal(reduced.channels[2][mark], y[index]);
+    assert.equal(reduced.channels[3][mark], z[index]);
+  }
+
+  const outcome = {
+    layers: [{
+      wellId: "represented-well",
+      name: "represented well",
+      color: "#000000",
+      depth: reduced.channels[0],
+      series: new Map([
+        ["X", reduced.channels[1]],
+        ["Y", reduced.channels[2]],
+        ["Z", reduced.channels[3]],
+      ]),
+      reduction: reduced.manifest,
+      depthStep: {
+        coarsestStep: 1,
+        decimationFactors: [1, 1, 1],
+        mode: "unchanged",
+        intervalClosure: "[lo,hi)",
+      },
+    }],
+    shown: 4,
+    decimated: true,
+    skipped: 0,
+    absent: [],
+    refusal: null,
+  };
+  const disclosure = describeContextOutcome(outcome);
+  assert.match(disclosure, /reduced 11→4; stride 4; final endpoint forced in 1 well/u);
+  assert.doesNotMatch(disclosure, /complete/iu);
+
+  const exported = contextReductionExport("crossplot", outcome, 1, 1);
+  assert.ok(exported);
+  assert.deepEqual(exported.items[0], {
+    subject_kind: "points",
+    subject_id: "represented-well",
+    original_count: 11,
+    displayed_count: 4,
+    algorithm: "stride_from_first_with_forced_final_endpoint",
+    stride: 4,
+    endpoints_forced: true,
+  });
+  const serialized = JSON.stringify(exported);
+  assert.match(serialized, /"stride":4/u);
+  assert.match(serialized, /"endpoints_forced":true/u);
+
+  // The pure helper would let a dead implementation pass. Pin one live panel plus the
+  // whitelisted export route, then inventory the other two shared context consumers.
+  const sources = Object.fromEntries(await Promise.all([
+    "crossplotPanel.ts",
+    "histogramPanel.ts",
+    "pickettPanel.ts",
+  ].map(async (file) => [file, await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8")])));
+  for (const source of Object.values(sources)) {
+    assert.match(source, /contextReductionExport\(/u);
+    assert.match(source, /\(\) => ctxReductionManifest/u);
+  }
+  const exportSource = await readFile(new URL("../src/ui/plotExport.ts", import.meta.url), "utf8");
+  assert.match(exportSource, /savePlotReductionManifest\(dest, JSON\.stringify\(manifest\)\)/u);
+});
+
 test("every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_while_the_documented_6_56x_pair_and_unknown_units_stay_disabled_with_reasons", async () => {
   // CORRECTNESS — SB-PLT-005 / SB-PLT-T05. docs/PRD_v2/23_plotting-interactivity.md
   // §§2.2, 4.1, 6 and 7.1 O-2 cite dossier §3.3a: 1 international foot is 0.3048 m,

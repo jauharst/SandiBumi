@@ -763,6 +763,8 @@ export function contextReductionExport(
     original_count: layer.reduction.originalCount,
     displayed_count: layer.reduction.displayedCount,
     algorithm: layer.reduction.algorithm,
+    stride: layer.reduction.stride,
+    endpoints_forced: layer.reduction.endpointsForced,
   }));
   if (scopePreviewReduced) {
     items.push({
@@ -771,6 +773,8 @@ export function contextReductionExport(
       original_count: scopedWellCount,
       displayed_count: visibleScopeWellRows,
       algorithm: "first_well_names_with_remainder_count",
+      stride: null,
+      endpoints_forced: null,
     });
   }
   if (legendReduced) {
@@ -780,6 +784,8 @@ export function contextReductionExport(
       original_count: outcome!.layers.length,
       displayed_count: CONTEXT_LEGEND_ROWS,
       algorithm: "first_context_well_rows_with_reported_remainder",
+      stride: null,
+      endpoints_forced: null,
     });
   }
   return {

@@ -368,7 +368,7 @@ export function buildImageExportButtons(
   if (getSvg) mk("⭳ SVG", "Export this plot as a true-vector SVG", () => svgAction(getSvg, name, setStatus, scope));
   if (getPdf) mk("⭳ PDF", "Export this plot as a true-vector PDF", () => pdfAction(getPdf, name, setStatus, scope));
   if (getReductionManifest) {
-    mk("⭳ Manifest", "Export original/displayed counts and reduction algorithms", () =>
+    mk("⭳ Manifest", "Export reduction counts, algorithm, stride and endpoint handling", () =>
       reductionManifestAction(getReductionManifest, name, setStatus));
   }
   mk("⎙ Print", "Print this plot", () => imageAction("print", getCanvas(), name, setStatus, scope));

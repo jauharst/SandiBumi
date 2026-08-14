@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-015: shared-index decimation and portable tail provenance
+
+- [ ] **Automated correctness:** the exact SB-PLT-015 T21/T22 test derives source indices
+      `0,4,8,10` from eligible `0..10` at stride 4, proves depth/X/Y/Z marks all use those same
+      indices, preserves the first and forced final sample, labels the view reduced rather than
+      complete, and carries counts, algorithm, stride and forced-endpoint state through the live
+      context-panel manifest and whitelisted Rust serializer. A deliberate true-to-false endpoint
+      mutation made the test RED before restoration. The exact full gate is green at 1030 passed /
+      0 failed / 37 ignored with 36 owned Rust warnings.
+- [ ] **Visual:** open Crossplot, Histogram and Pickett with enough context points to trigger
+      reduction. Confirm each scope row says reduced, shows original→displayed counts, stride and
+      whether a tail was forced, remains readable at the smallest normal dock size, and never says
+      the displayed view is complete. Export the JSON manifest and check the same fields are visible
+      to a human without reading source code.
+- [ ] **Manual:** compare the first and final eligible depth plus several interior X/Y/Z marks against
+      the unreduced source on all three panels. Export, close and reopen the panels, repeat with one
+      well not needing reduction and one requiring a forced tail, and confirm non-stride well/legend
+      reductions record null stride/endpoint fields rather than borrowed numbers.
+- [ ] **Field and harsh critique:** repeat with representative multi-set wells on native, unequal and
+      sparse grids. Decimation that keeps the right count but pairs one channel with another source
+      index fabricates rock; a manifest hidden behind a button or unreadable in normal work is weak
+      protection. Green arithmetic and serialization tests do not prove that rendered glyphs or a
+      delivered PDF look correct, and this increment does not claim the deferred SB-PLT-014
+      multi-well allocation or SB-PLT-016 depth-reconciliation contracts.
+
 ## 2026-08-15 — G2 SB-PLT-013: channel-specific missing and overflow policy
 
 - [ ] **Automated correctness:** the exact SB-PLT-013 contract test exercises shared X/Y policy,

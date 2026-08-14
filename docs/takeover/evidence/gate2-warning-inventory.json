@@ -4,14 +4,14 @@
   "capture_command": "cd src-tauri && cargo check --message-format=json",
   "evidence_class": "CHARACTERIZATION",
   "evidence_note": "This inventory was anchored at the accepted Gate 2 planning baseline and is maintained as owner requirements close warnings. Ownership is not proof that a disconnected product path works.",
-  "expected_warning_count": 38,
+  "expected_warning_count": 36,
   "expected_warning_counts_by_file": {
     "src/coreimage.rs": 1,
     "src/distribution.rs": 3,
     "src/ingest.rs": 1,
     "src/ml.rs": 2,
     "src/parsers.rs": 3,
-    "src/plotting.rs": 28
+    "src/plotting.rs": 26
   },
   "warning_groups": [
     {
@@ -114,22 +114,12 @@
       "rationale": "The pilot no-truncation contract uses finite-pair allocation and endpoint refusal in T40; Gate 2 must connect the hard limit or remove the claim while the broader multi-well allocation contract remains later-owned.",
       "warning_keys": [
         "src/plotting.rs|dead_code|function `allocate_finite_pair_budget` is never used",
+        "src/plotting.rs|dead_code|function `stride_source_indices` is never used",
         "src/plotting.rs|dead_code|struct `AbsentWellAllocation` is never constructed",
         "src/plotting.rs|dead_code|struct `MultiWellPointAllocation` is never constructed",
+        "src/plotting.rs|dead_code|struct `ReductionManifest` is never constructed",
         "src/plotting.rs|dead_code|struct `WellPointAllocation` is never constructed",
         "src/plotting.rs|dead_code|struct `WellRequiredChannels` is never constructed"
-      ]
-    },
-    {
-      "owner_requirement": "SB-PLT-015",
-      "owner_gate": "G2",
-      "disposition": "CONNECT-OR-REMOVE-DURING-OWNER-REQUIREMENT",
-      "rationale": "Pilot decimation must preserve a shared index vector, endpoints and a complete reduction manifest through screen and export.",
-      "warning_keys": [
-        "src/plotting.rs|dead_code|function `decimate_shared_channels` is never used",
-        "src/plotting.rs|dead_code|function `stride_source_indices` is never used",
-        "src/plotting.rs|dead_code|struct `ReductionManifest` is never constructed",
-        "src/plotting.rs|dead_code|struct `SharedChannelReduction` is never constructed"
       ]
     },
     {
