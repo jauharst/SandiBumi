@@ -718,11 +718,11 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T80`, `SB-DIO-T81`.
 - **Atomic obligations:** write every held curve or name every omitted curve and reason in both the user result and file; report written and held counts.
-- **Current source:** `src-tauri/src/export.rs` inventories all held curves, writes every eligible curve, and serialises any held item with the same reason into the operation result and LAS `~O` section.
-- **Qualifying acceptance tests:** `every_held_curve_is_written_or_named_with_the_same_reason_in_the_file_and_result` is `CORRECTNESS`; it uses more curves than the old fixed selection and cross-checks names, reasons and counts across both reporting surfaces.
+- **Current source:** `src-tauri/src/export.rs` inventories all held standard, computed and generic curves, writes every eligible exact curve identity, and serialises any held item with the same set/run-qualified identity and reason into the operation result and LAS `~O` section. `src/ui/ribbon.ts` renders written/held counts plus every omission identity and reason.
+- **Qualifying acceptance tests:** `every_held_curve_is_written_or_named_with_the_same_reason_in_the_file_and_result` is `CORRECTNESS`; it reopens the recipient-facing LAS, proves all forty imported columns carry their own supplied samples, independently derives 46 written of 48 held, cross-checks exact omission values across the result and `~O`, and guards the ribbon's count/reason rendering.
 - **Supporting tests:** the writer round trip proves readability, not completeness or disclosed omission.
-- **Manual evidence:** `las-export` 0/2, `generic-curve-store` 0/18 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** reachable `3276f27` contains the all-held-curve inventory and disclosure test.
+- **Manual evidence:** the generated matrix shows `las-export` 0/23, `generic-curve-store` 0/39 and `security-integrity` 3/115. This increment checks no scenario; the three security checks belong to prior work and do not close SB-DIO-055 field evidence.
+- **Git evidence:** reachable `3276f27` contains the all-held-curve inventory and disclosure test; the current Gate 2 increment strengthens the same owned test across the parsed file and visible UI surface, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none for automated completeness reporting.
 - **Next action:** verify the written/held inventory in a many-curve pilot export.

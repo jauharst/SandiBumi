@@ -1,5 +1,25 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-055: LAS export accounts for every held curve
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T80/T81 is green at
+      1 passed / 0 failed / 0 ignored. The test reopens the recipient-facing LAS, verifies all
+      forty imported curve columns and their own supplied samples, independently derives 46
+      written of 48 held, matches both omission records across the result and `~O`, and guards
+      the ribbon rendering of counts, identities and reasons.
+- [ ] **Many-curve completeness:** export a representative pilot well carrying substantially more
+      than the six standard curves. Compare Curve Catalog with the reopened LAS and confirm every
+      held identity is either a real column with the expected samples or appears in the omission
+      inventory. A mnemonic appearing only in provenance text is not a written curve.
+- [ ] **Same omission on both surfaces:** deliberately include one exact-mnemonic collision and
+      one curve on a different native depth frame. Confirm the status message and the LAS `~O`
+      records name the same set/run-qualified identities and the same reasons, and that the summary
+      reports the exact `written of held` counts.
+- [ ] **Visual / Manual / Field and harsh critique:** Jauhar still needs to inspect a real export
+      in SandiBumi and a second LAS reader. Forty synthetic curves prove enumeration and sample
+      custody; they do not prove that a pilot delivery's curve naming, omission explanation or
+      recipient workflow is intelligible and accepted.
+
 ## 2026-08-14 — G2 SB-DIO-054: skipped import items are named, counted and refused when all are lost
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T77/T78/T79 is green at

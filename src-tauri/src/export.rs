@@ -1899,9 +1899,23 @@ mod tests {
         let dest = tmp_path("forty-curves");
         let result = export_las(&conn, &well_id, dest.to_str().unwrap()).unwrap();
         let text = crate::parsers::read_text_file(&dest).unwrap();
-        let _ = std::fs::remove_file(&dest);
+        let parsed = crate::parsers::parse_las_2_all(&dest).unwrap();
+        // CORRECTNESS: T80 supplies forty imported curves. The six standard columns and two
+        // deliberately unwriteable controls are fixtures stated above, so 46 written of 48 held
+        // is independently derived from the input rather than copied from the implementation.
+        assert_eq!(parsed.curves.len(), 46, "the recipient-facing LAS must contain every reported written curve");
         for i in 0..40 {
-            assert!(text.contains(&format!(" X{i:02}")), "aligned generic curve X{i:02} was omitted");
+            let mnemonic = format!("X{i:02}");
+            let curve = parsed
+                .curves
+                .iter()
+                .find(|curve| curve.mnemonic == mnemonic)
+                .unwrap_or_else(|| panic!("aligned generic curve {mnemonic} was not written as a LAS column"));
+            assert_eq!(
+                curve.values,
+                vec![i as f32; depth.len()],
+                "{mnemonic} must carry its own supplied samples, not merely appear in metadata"
+            );
         }
         assert_eq!(result.curves_written, 46, "six standard plus all forty aligned curves");
         assert_eq!(result.curves_held, 48, "written plus the two deliberately unwriteable curves");
@@ -1916,5 +1930,16 @@ mod tests {
                 row["curve"] == omission.curve && row["reason"] == omission.reason
             }));
         }
+
+        let ribbon = include_str!("../../src/ui/ribbon.ts");
+        assert!(
+            ribbon.contains("${result.curves_written} of ${result.curves_held} held curves written."),
+            "T81 counts must remain user-visible rather than stopping at the IPC result"
+        );
+        assert!(
+            ribbon.contains(r#"result.omitted.map((item) => `${item.curve}: ${item.reason}`)"#),
+            "the exact omitted identity and reason must remain user-visible"
+        );
+        let _ = std::fs::remove_file(&dest);
     }
 }
