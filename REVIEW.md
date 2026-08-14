@@ -1,5 +1,25 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-050: LAS import flags a declared STEP mismatch
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T70 is green at
+      1 passed / 0 failed / 0 ignored. This is a RETAIN increment: current production behavior
+      was reverified rather than rewritten.
+- [ ] **Mismatch and matching sides:** import a LAS declaring `STEP.M 0.5` with 1 m source-depth
+      intervals and confirm the warning says `possibly re-gridded`, names both intervals, and
+      locates the first row pair. Repeat with `STEP.M 1.0`; no re-grid warning may appear.
+- [ ] **False-positive guards:** a deep LAS whose original decimal tokens agree at 0.15240 m must
+      not be flagged merely because f32 storage rounds them differently, and a missing index row
+      must break adjacency rather than create a comparison between non-neighbours.
+- [ ] **Scope boundary / harsh critique:** no source supplies a universal suspicious-round-interval
+      threshold or the acquisition's expected step. Keep that detector absent; do not turn a neat
+      number into evidence of resampling, and do not upgrade `possibly re-gridded` into a factual
+      provenance claim.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative known re-gridded
+      delivery and its matching control, read the warning in the application, and independently
+      compare the file's `STEP` with adjacent source depths. Synthetic LAS fixtures are not field
+      acceptance.
+
 ## 2026-08-14 — G2 SB-DIO-049: pilot LAS export must pass its own reader
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T68 and SB-DIO-T69 are

@@ -652,15 +652,15 @@
 ## SB-DIO-050 - A re-gridded input MUST be detectable at import.
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T70`.
-- **Atomic obligations:** compare declared step with actual finite adjacent spacing; flag disagreement; do not flag a matching declaration.
-- **Current source:** `src-tauri/src/ingest.rs` calculates actual LAS spacing from the imported index and adds a possible-regridding warning when it disagrees with declared `STEP`.
-- **Qualifying acceptance tests:** `a_declared_step_that_disagrees_with_actual_spacing_is_flagged_as_possibly_regridded_and_a_matching_step_is_not` is `CORRECTNESS`; the mismatch and matching control prevent an unconditional warning from passing.
-- **Supporting tests:** deep-index and null-depth cases exercise the same comparison but do not replace the two-sided contract test.
-- **Manual evidence:** `las-import` 0/57, `data-conventions` 0/45 and `reframe` 0/34 - unexercised.
+- **Atomic obligations:** for exact T70, compare declared `STEP` with every genuinely adjacent finite source-depth token; flag the first disagreement as possibly re-gridded; do not flag a matching declaration; do not create a mismatch by reducing the tokens to f32 or by bridging a missing index row.
+- **Current source:** `src-tauri/src/parsers.rs` parses the declared step and source depth tokens into normalized exact decimals before f32 storage, compares each adjacent pair until the first disagreement, and returns a typed `declared_step_mismatch_note`. A missing or unparseable depth resets adjacency. `src-tauri/src/ingest.rs` carries that note into the successful import result without rewriting or rejecting the samples.
+- **Qualifying acceptance tests:** `a_declared_step_that_disagrees_with_actual_spacing_is_flagged_as_possibly_regridded_and_a_matching_step_is_not` is `CORRECTNESS`, green at 1 passed / 0 failed / 0 ignored. It names the mismatching declaration, observed interval and first row pair; proves an otherwise identical match is unflagged; proves exact 0.15240 source decimals at deep measured depth are not falsely flagged by f32 reduction; and proves a missing index row breaks adjacency.
+- **Supporting tests:** none is promoted into T70. The exact test itself drives the real LAS importer and both positive and negative controls; a parser-helper-only comparison would be weaker evidence.
+- **Manual evidence:** `las-import` 0/111, `data-conventions` 4/122 and `reframe` 1/44 after regeneration; the known-regridded versus matching delivery exercise remains unchecked.
 - **Git evidence:** reachable `29d7504` contains the import warning and owned test.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** the automated declared-versus-actual case is closed; the chapter's separate acquisition-consistency phrase has no universal acquisition step source and is not inferred.
-- **Next action:** retain the two-sided test and capture the warning against a representative re-gridded delivery if one enters the pilot corpus.
+- **Blocker or decision:** none for exact T70's declared-versus-actual contract. The chapter supplies neither a universal suspicious-round-interval threshold nor an acquisition-step source, so that separate detector stays absent and is not inferred from a tidy number.
+- **Next action:** retain T70; Jauhar imports one known re-gridded delivery plus its matching control in Gate 4 and confirms `possibly` remains uncertainty rather than fabricated acquisition provenance.
 
 ## SB-DIO-051 - Provenance MUST be carried into the deliverable.
 
