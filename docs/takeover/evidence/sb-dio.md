@@ -524,13 +524,13 @@
 - **Chapter evidence:** P2; chapter status `PRESENT-OK`; owned test `SB-DIO-T58` (characterization).
 - **Atomic obligations:** honour `WRAP.YES` by assembling complete logical rows regardless of physical line breaks; keep columns aligned; emit `WRAP.NO` and one row per depth on write.
 - **Current source:** both LAS parse paths buffer tokens when wrapped and reject incomplete logical rows; `export.rs` always declares `WRAP.NO` and writes one complete line per depth.
-- **Qualifying acceptance tests:** no test is mapped to T58's 30-curve fixture; test class is `MISSING`.
-- **Supporting tests:** SB-DIO-054's malformed-row test includes a three-column `WRAP.YES` positive control, and LAS export source makes the unwrapped declaration explicit. Neither pins the 30-curve alignment or writer half as one owned contract.
-- **Manual evidence:** `las-import` 0/57 and `las-export` 0/2 - unexercised.
-- **Git evidence:** wrapped reader and unwrapped writer are integrated at the accepted anchor; no owned T58 closure was found.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no source parameter is missing; the full-width characterization test is absent.
-- **Next action:** implement T58 with 30 uniquely valued curves, assert every column after import, then export and assert `WRAP.NO` plus complete logical rows.
+- **Qualifying acceptance tests:** `characterizes_thirty_wrapped_las_curves_as_aligned_and_every_las_export_as_unwrapped` is `CHARACTERIZATION`, matching T58's chapter classification; it drives 30 uniquely valued curves through the real import/store path and then the registered writer.
+- **Supporting tests:** SB-DIO-054's malformed-row test retains its three-column positive/refusal controls; T58 adds the missing full-width positional and writer evidence without reclassifying either as field proof.
+- **Manual evidence:** `las-import` 0/93 and `las-export` 0/8 after regeneration; this exact wide-file scenario remains unchecked.
+- **Git evidence:** wrapped reader and unwrapped writer were already integrated; the current `codex/g2-program-plan` increment adds the owned end-to-end T58 lock without production changes.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated Gate 2 closure; D-24 fixes the 30-curve characterization and unwrapped writer direction.
+- **Next action:** retain exact T58; Jauhar manually inspects representative early/middle/late curves and independently opens the unwrapped export in Gate 4.
 
 ## SB-DIO-041 - A LAS 3.0 file MUST be recognised, and what is not read MUST be named.
 

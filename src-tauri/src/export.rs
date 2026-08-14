@@ -716,6 +716,89 @@ mod tests {
         std::env::temp_dir().join(format!("sandibumi-export-{}-{}.las", tag, std::process::id()))
     }
 
+    /// CHARACTERIZATION — **Characterizes thirty wrapped LAS curves as aligned and every LAS
+    /// export as unwrapped.** `SB-DIO-040` / `SB-DIO-T58`. Source: 21_data-io.md D-24 and T58
+    /// specify the 30-curve `WRAP.YES` fixture; the chapter explicitly classifies T58 as `char`.
+    #[test]
+    fn characterizes_thirty_wrapped_las_curves_as_aligned_and_every_las_export_as_unwrapped() {
+        let source_path = tmp_path("wrapped-thirty-source");
+        let export_path = tmp_path("wrapped-thirty-export");
+        let mut las = String::from(
+            "~Version Information\nVERS. 2.0\nWRAP. YES\n~Well Information\nWELL. WRAPPED_THIRTY_CURVES\nNULL. -999.25\n~Curve Information\nDEPT.M : Depth\n",
+        );
+        for curve in 1..=30 {
+            las.push_str(&format!("C{curve:02}.UNIT : Wrapped curve {curve:02}\n"));
+        }
+        las.push_str("~ASCII\n");
+        for row in 1..=2 {
+            let mut tokens = vec![format!("{}", 1000 + row)];
+            tokens.extend((1..=30).map(|curve| format!("{}", curve * 100 + row)));
+            for chunk in tokens.chunks(7) {
+                las.push_str(&chunk.join(" "));
+                las.push('\n');
+            }
+        }
+        std::fs::write(&source_path, las).unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let result = crate::ingest::import_las_files(
+            &conn,
+            &[source_path.to_string_lossy().to_string()],
+            None,
+        )
+        .remove(0);
+        assert!(result.error.is_none(), "{:?}", result.error);
+        let well_id = result.well_id.expect("the wrapped delivery creates one imported object");
+        for curve in 1..=30 {
+            let mnemonic = format!("C{curve:02}");
+            let samples: Vec<(f32, f32)> = {
+                let mut statement = conn
+                    .prepare(
+                        "SELECT s.depth, s.value FROM curve_samples s
+                         JOIN curve_meta m ON m.curve_id = s.curve_id
+                         WHERE m.well_id = ?1 AND m.mnemonic = ?2 ORDER BY s.depth",
+                    )
+                    .unwrap();
+                statement
+                    .query_map(params![&well_id, &mnemonic], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap()
+            };
+            assert_eq!(
+                samples,
+                vec![(1001.0, (curve * 100 + 1) as f32), (1002.0, (curve * 100 + 2) as f32)],
+                "{mnemonic} must keep both uniquely identifiable source-column values",
+            );
+        }
+
+        let exported = export_las(&conn, &well_id, export_path.to_str().unwrap()).unwrap();
+        let text = crate::parsers::read_text_file(&export_path).unwrap();
+        let wrap = text
+            .lines()
+            .find(|line| line.trim_start().starts_with("WRAP."))
+            .expect("the LAS version block declares its wrapping mode");
+        assert!(wrap.split(':').next().unwrap_or("").split_whitespace().any(|token| token == "NO"));
+        let data_rows: Vec<&str> = text
+            .split("~ASCII")
+            .nth(1)
+            .expect("the writer emits an ASCII data section")
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        assert_eq!(data_rows.len(), 2, "one physical line must carry each complete logical depth row");
+        assert!(
+            data_rows
+                .iter()
+                .all(|line| line.split_whitespace().count() == exported.curves_written + 1),
+            "each physical row must contain depth plus every exported curve",
+        );
+
+        std::fs::remove_file(source_path).unwrap();
+        std::fs::remove_file(export_path).unwrap();
+    }
+
     /// A well with one missing sample per curve, plus a MIXED-CASE computed curve.
     fn seed(conn: &Connection) -> (Uuid, Vec<f32>, Vec<f32>) {
         db::create_schema(conn).unwrap();

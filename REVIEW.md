@@ -1,5 +1,17 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-040: Wrapped LAS Import stays aligned and LAS Export stays unwrapped
+
+- [ ] **Automated characterization — not manual evidence:** exact SB-DIO-T58 is green at
+      1 passed / 0 failed / 0 ignored. The 30-curve `WRAP.YES` delivery enters the real importer;
+      all 60 uniquely identifiable samples are queried from their stored curve identities.
+- [ ] **Writer control:** export the imported object through the registered default writer, confirm
+      `WRAP.NO`, exactly two physical data lines, and depth plus every emitted curve on each line.
+      A three-column parser helper or source-text search alone does not close this contract.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative wide wrapped LAS,
+      inspect several early/middle/late curves, export it, and open the result independently. The
+      synthetic 30-curve fixture is CHARACTERIZATION, not field evidence.
+
 ## 2026-08-14 — G2 SB-DIO-003: LAS Import distinguishes NoNull from unset data conventions
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T04 and SB-DIO-T05 are
