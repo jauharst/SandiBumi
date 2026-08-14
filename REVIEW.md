@@ -1,5 +1,19 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-030: LAS alias rename keeps source identity in the Curve Catalog
+
+- [ ] **Automated rename correctness — not manual evidence:** exact SB-DIO-T46 is green at
+      1 passed / 0 failed / 0 ignored. Importing `SGR` produces a public decision and visible
+      note containing original `SGR`, applied target `GR`, and exact firing row
+      `GR_ALIASES: SGR -> GR`; a silent or source-less rename cannot pass.
+- [ ] **Two-store identity proof:** standard GR receives the delivered `71.0` sample while the
+      generic catalog still names the curve `SGR` beside applied family `GR`. Merely logging a
+      rename without applying it, or applying it by destroying the source mnemonic, fails on
+      opposite sides of the same test.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative aliased LAS,
+      inspect the import note and Curve Catalog identity, and verify the standard track uses the
+      intended target. Synthetic source/target custody is not operator or interoperability evidence.
+
 ## 2026-08-14 — G2 SB-DIO-029: LAS MS/FT unit decisions remain file-scoped in the Curve Catalog
 
 - [ ] **Automated no-default correctness — not manual evidence:** exact SB-DIO-T45 is green

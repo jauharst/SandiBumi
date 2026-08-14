@@ -394,13 +394,13 @@
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T46`.
 - **Atomic obligations:** preserve source and applied mnemonics and identify the exact alias-table entry that fired.
 - **Current source:** `AliasDecision` records target, chosen source and `table_entry`; ingest results and warning text carry the rename without changing generic-store source identity.
-- **Qualifying acceptance tests:** `an_alias_rename_keeps_both_names_and_records_the_table_entry_that_fired` is `CORRECTNESS`; the expected mapping is the code-resident alias entry cited by the chapter.
+- **Qualifying acceptance tests:** `an_alias_rename_keeps_both_names_and_records_the_table_entry_that_fired` is `CORRECTNESS`; the chapter's SGR-to-GR case is checked through the public decision and visible note, standard GR sample application, generic SGR identity retention and exact firing-table row.
 - **Supporting tests:** SB-DIO-009 covers competed aliases and coverage counts.
-- **Manual evidence:** `las-import` 0/57 and `generic-curve-store` 0/18 - unexercised.
-- **Git evidence:** reachable `0f545cf` contains the rename audit record.
+- **Manual evidence:** `las-import` 0/87 and `generic-curve-store` 0/33; this RETAIN increment adds no checked operator or representative-delivery evidence.
+- **Git evidence:** reachable `0f545cf` contains the rename audit record; exact T46 remains green on the current Gate 2 head, with the RETAIN commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied audit contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** require any future rename mechanism to emit this same three-part record.
+- **Next action:** require every future rename mechanism to preserve source identity while emitting the same source-target-table-entry record on its public result.
 
 ## SB-DIO-031 - A different curve's data MUST NOT be supplied under a requested name.
 
