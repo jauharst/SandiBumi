@@ -11,13 +11,13 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 75 | — | 27 |
+| `las-import` | LAS import | Not exercised | 0 / 78 | — | 28 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 14 | — | 9 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 27 | 2026-08-05 | 3 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
-| `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 21 | — | 4 |
-| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 107 | 2026-08-13 | 46 |
+| `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 24 | — | 5 |
+| `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 110 | 2026-08-13 | 47 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 38 | 2026-08-13 | 5 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
@@ -29,7 +29,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `petrography` | Petrography measurement and QC | Not exercised | 0 / 103 | — | 17 |
 | `shale-volume` | Shale-volume interpretation | Not exercised | 0 / 17 | — | 3 |
 | `porosity` | Porosity interpretation | Not exercised | 0 / 33 | — | 10 |
-| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 100 | 2026-08-13 | 26 |
+| `saturation` | Water-saturation interpretation | Partially exercised | 3 / 103 | 2026-08-13 | 27 |
 | `permeability` | Permeability interpretation | Not exercised | 0 / 16 | — | 2 |
 | `thin-beds` | Thin-bed and sand-silt-clay interpretation | Not exercised | 0 / 1 | — | 1 |
 | `rock-typing` | Rock typing and flow units | Not exercised | 0 / 26 | — | 6 |
@@ -63,5 +63,5 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 50 | — | 9 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 95 | 2026-08-13 | 37 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 98 | 2026-08-13 | 38 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 77 | 2026-08-13 | 27 |

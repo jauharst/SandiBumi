@@ -341,11 +341,11 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T42`.
 - **Atomic obligations:** represent conversion as factor plus offset and apply the offset before/with the factor as specified; never treat an affine unit as multiplicative.
-- **Current source:** `UnitTransform` carries factor, offset and derivation; temperature conversion applies `(value + offset) * factor`, and audit records include both fields.
-- **Qualifying acceptance tests:** `a_fahrenheit_temperature_applies_its_affine_offset_before_its_factor` is `CORRECTNESS`; 32 degrees Fahrenheit to 0 degrees Celsius is the independently checkable fixed point cited in chapter section 5.1.
+- **Current source:** generated `UnitRule` rows carry factor, source-space offset and derivation; `convert_to_canonical` applies `(value + offset) * factor`, and the public `UnitConversion` audit carries both numeric fields.
+- **Qualifying acceptance tests:** `a_fahrenheit_temperature_applies_its_affine_offset_before_its_factor` is `CORRECTNESS`; chapter §5.1 supplies the 32-degree offset and T42 supplies `200 °F -> 93.33 °C`, while the fixed point `32 °F -> 0 °C` and explicit rejection of `111.11 °C` independently distinguish affine behavior from multiplication alone.
 - **Supporting tests:** the conversion derivation registry tests every transform's arithmetic.
-- **Manual evidence:** `data-conventions` 0/45 and `generic-curve-store` 0/18 - unexercised.
-- **Git evidence:** reachable `a3c8257` contains the affine representation and path.
+- **Manual evidence:** `data-conventions` 4/110, `generic-curve-store` 0/24, `las-import` 0/78 and `security-integrity` 3/98; this RETAIN increment adds no checked operator or representative-delivery evidence.
+- **Git evidence:** reachable `a3c8257` contains the affine representation and path; exact T42 remains green on the current Gate 2 head, with the RETAIN commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied conversion contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
 - **Next action:** prohibit factor-only additions for any unit whose cited transform has a non-zero offset.

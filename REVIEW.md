@@ -1,5 +1,19 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-026: LAS affine unit conversion prevents a silent Curve Catalog shortcut
+
+- [ ] **Automated affine correctness — not manual evidence:** exact SB-DIO-T42 is green at
+      1 passed / 0 failed / 0 ignored. A `FTEMP.DEGF` import records factor `1/1.8` and
+      source-space offset `-32`, stores family TEMP with canonical unit `DEGC`, and maps the
+      chapter's `200 °F` input to `93.333… °C`.
+- [ ] **Two-sided offset proof:** the same test maps the independently checkable fixed point
+      `32 °F` to `0 °C` and rejects the factor-only `111.111… °C` answer for `200 °F`.
+      A multiplicative field disguised as an affine transform cannot satisfy both controls.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative Fahrenheit
+      temperature curve, inspect the visible factor/offset audit and Curve Catalog unit, and
+      compare the stored curve in the log view. The synthetic LAS proof is not operator,
+      interoperability or representative-delivery evidence.
+
 ## 2026-08-14 — G2 SB-DIO-025: LAS unit coverage and Curve Catalog pass-throughs are not silent
 
 - [ ] **Automated query correctness — not manual evidence:** exact SB-DIO-T41 is green at
