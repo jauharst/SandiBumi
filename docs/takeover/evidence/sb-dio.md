@@ -614,14 +614,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned test `SB-DIO-T66`.
 - **Atomic obligations:** declare internal sample precision; surface every import or export precision reduction in the operation result.
-- **Current source:** `src-tauri/src/ingest.rs` records float64-to-f32 import reduction and `src-tauri/src/export.rs` reports the LAS text writer's four-decimal representation rather than presenting either as lossless.
-- **Qualifying acceptance tests:** `a_float64_core_import_and_a_four_decimal_las_export_state_their_precision_reductions` is `CORRECTNESS`; it independently pins both sides of the precision boundary.
-- **Supporting tests:** ordinary core import and LAS export tests exercise the paths but do not prove the disclosure text.
-- **Manual evidence:** `core-point-import` 0/52, `las-export` 0/2 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** reachable `173c7d2` contains the precision disclosures and the owned test.
+- **Current source:** `ingest.rs` parses core numeric text as f64 before the deliberate f32 store and returns the source/destination labels plus the count that actually changed. `export.rs` independently counts f32 samples altered by fixed-decimal-4 LAS representation, returns the report and writes `SANDIBUMI_PRECISION_V1` into the file. `coreImportDialog.ts` and `ribbon.ts` render the corresponding import/export result instead of hiding it in IPC.
+- **Qualifying acceptance tests:** `a_float64_core_import_and_a_four_decimal_las_export_state_their_precision_reductions` is current `CORRECTNESS`, green at 1 passed / 0 failed / 0 ignored. It proves both lossy boundaries, controls exactly represented values from false positives, queries the stored f32 cast, inspects the returned reports and reads the declaration back from the LAS.
+- **Supporting tests:** ordinary core import and registered LAS export/self-read tests exercise the same production paths; they remain supporting evidence rather than substitutes for exact T66.
+- **Manual evidence:** `core-point-import` 0/55, `las-export` 0/11 and `data-conventions` 4/122 after regeneration; the exact precision scenario remains unchecked and the four data-convention checks are unrelated.
+- **Git evidence:** reachable `173c7d2` contains the behavior and owned proof; the current Gate 2 increment reverifies and retains them without production change.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none for the automated contract; manual deliverable review remains open.
-- **Next action:** retain the declarations and confirm both messages in pilot import/export evidence.
+- **Next action:** retain exact T66 and both rendered declarations; Jauhar compares representative source, stored and exported values in Gate 4 without promoting synthetic evidence to field proof.
 
 ## SB-DIO-048 - Well identity in a container MUST come from the container, never from the filename.
 

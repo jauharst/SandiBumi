@@ -1,5 +1,19 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-047: Precision reduction is stated at import and LAS export
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T66 is green at
+      1 passed / 0 failed / 0 ignored. This is a RETAIN increment: current production behavior
+      was reverified rather than rewritten.
+- [ ] **Both precision boundaries:** core-point import names `f64 numeric parse → f32 storage`,
+      counts the one value that genuinely changes, and does not falsely count exact values. LAS
+      export separately names `f32 storage → fixed-decimal-4 LAS text`, counts only the rounded
+      sample, returns the report, and embeds the declaration in the deliverable.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to run a representative high-precision core
+      import and LAS export, read both UI messages, compare source/stored/exported values, and
+      confirm the recipient-facing file declaration is understandable. Synthetic proof is not
+      operator or field acceptance.
+
 ## 2026-08-14 — G2 SB-DIO-044: LAS section strictness is one reported policy
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T62 is green at
