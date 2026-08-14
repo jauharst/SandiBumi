@@ -448,11 +448,11 @@
 - **Current source:** `equations.rs::fetch_generic_curve_aligned` silently widens an exact-looking request to `family = request` and returns only values, not the chosen curve identity. `plotting.rs` performs a similar typed-family resolution but records its reason and mnemonic. The unreported workflow/read path violates the universal contract.
 - **Qualifying acceptance tests:** none; test class is `MISSING`.
 - **Supporting tests:** current workflow tests characterize family fallback as useful behavior but do not expose the chosen identity, so they defend neither the specified reporting contract nor an exact-name refusal.
-- **Manual evidence:** `generic-curve-store` 0/18, `workflow` 0/23 and `verification-stewardship` 0/24 - unexercised.
+- **Manual evidence:** `generic-curve-store` 0/39, `workflow` 0/29, `log-view` 5/43 and `security-integrity` 3/107; this T50 scenario is unavailable and unchecked.
 - **Git evidence:** family-based read resolution is integrated at the accepted anchor; no T50 closure exists.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the same request-type adjudication as SB-DIO-031 is required; silently returning a family member is not acceptable.
-- **Next action:** make family resolution an explicit semantic request returning concrete identity/reason, keep exact requests exact, and add T50 across all read resolvers.
+- **Blocker or decision:** `BLOCKED` on DEC-030, shared with SB-DIO-031. Jauhar must approve non-overlapping exact-mnemonic and semantic-family requests before callers can be classified without silently breaking or preserving family fallback.
+- **Next action:** after DEC-030, make family resolution an explicit semantic request returning concrete identity/reason, keep exact requests exact, and add T50 across every read resolver.
 
 ## SB-DIO-035 - An import MUST NOT extend an existing object's declared interval.
 

@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-034: Curve Catalog Workflow and log view silently choose family members
+
+- [ ] **Automated contract:** BLOCKED. Exact SB-DIO-T50 does not exist, and the current universal
+      read contract fails: equation and Workflow readers accept a family match and return only its
+      values under the request key. A well with two same-family curves therefore has a concrete
+      choice that is neither stated nor asked.
+- **Read-only implementation evidence — not acceptance:** plotting's semantic resolver records the
+      concrete mnemonic and resolution reason, but `fetch_generic_curve_aligned` and related frame
+      readers do not. Existing family-fallback tests prove useful behavior such as `HDRA -> DRHO`;
+      they do not prove the required choice disclosure across every read path.
+- [ ] **Decision / architecture:** DEC-030 already owns the shared dependency. Engineering
+      recommends typed `EXACT_MNEMONIC` and `SEMANTIC_FAMILY` requests; only the latter may choose a
+      member, and it must return concrete mnemonic, set/curve identity and resolution rule. Every
+      caller must be classified rather than guessed.
+- [ ] **Visual / Manual / Field:** unavailable until the typed contract and all-resolver T50 exist.
+      Later review must present two same-family curves and show that each consuming surface asks for
+      or states the concrete choice. A green family-ranking unit test is not operator evidence.
+
 ## 2026-08-14 — G2 SB-DIO-033: Reframe curve selection is named saved and inspectable
 
 - [ ] **Automated selection correctness — not manual evidence:** exact SB-DIO-T49 is green at

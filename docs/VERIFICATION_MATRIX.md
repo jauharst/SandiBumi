@@ -16,7 +16,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 27 | 2026-08-05 | 3 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
 | `delivery-sets` | Delivery and log sets | Not exercised | 0 / 33 | — | 5 |
-| `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 36 | — | 9 |
+| `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 119 | 2026-08-13 | 50 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 44 | 2026-08-13 | 7 |
 | `conditioning` | Log conditioning and masking | Partially exercised | 1 / 30 | 2026-08-13 | 5 |
@@ -39,12 +39,12 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 189 | 2026-07-19 | 32 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 14 | 2026-08-13 | 5 |
-| `workflow` | Multi-well workflow chains | Not exercised | 0 / 26 | — | 4 |
+| `workflow` | Multi-well workflow chains | Not exercised | 0 / 29 | — | 5 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 14 | 2026-07-18 | 7 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 10 | — | 4 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
-| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 40 | 2026-07-19 | 8 |
+| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 43 | 2026-07-19 | 9 |
 | `histogram` | Histogram | Partially exercised | 5 / 22 | 2026-07-20 | 5 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 13 | 2026-07-20 | 6 |
 | `pickett` | Pickett plot | Not exercised | 0 / 8 | — | 3 |
@@ -63,5 +63,5 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 50 | — | 9 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 104 | 2026-08-13 | 40 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 107 | 2026-08-13 | 41 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 83 | 2026-08-13 | 29 |
