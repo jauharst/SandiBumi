@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-051: LAS deliverables carry complete curve provenance
+
+- [ ] **Automated correctness — not manual evidence:** the one named SB-DIO-T71/T72/T73
+      contract is green at 1 passed / 0 failed / 0 ignored. It inspects the completed LAS text,
+      not an internal return value, and pins measured-only, computed, model-derived and refusal
+      paths from both sides.
+- [ ] **Measured and computed records:** export a measured-only well and confirm every written
+      curve is named `measured` inside `~O`. Export a computed curve and compare its method plus
+      the complete parameter/value object in `~O` with the stored run record; a selected subset
+      is not sufficient.
+- [ ] **Saved-model record and refusal:** export a model-derived curve and compare the complete
+      saved-model record plus artifact SHA-256 in `~O` with the stored model. Remove or otherwise
+      make that cited model unavailable in a controlled diagnostic; export must refuse, naming
+      both the curve and model, rather than emitting incomplete provenance.
+- [ ] **Identity-conflict refusal / harsh critique:** a stored computed curve that shadows a
+      measured standard mnemonic such as `GR` must refuse LAS export. Two same-name columns with
+      two origins are not provenance merely because both are parseable JSON; accepting them would
+      turn a contradictory audit trail into a successfully self-checked deliverable.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export a representative measured,
+      deterministic-computed and saved-model-derived pilot deliverable, inspect `~O` in the real
+      file, and confirm a recipient can trace every delivered curve. Synthetic fixtures and a
+      green parser round trip are not operator or field acceptance.
+
 ## 2026-08-14 — G2 SB-DIO-050: LAS import flags a declared STEP mismatch
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T70 is green at

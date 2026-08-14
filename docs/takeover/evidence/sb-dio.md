@@ -665,15 +665,15 @@
 ## SB-DIO-051 - Provenance MUST be carried into the deliverable.
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned tests `SB-DIO-T71`, `SB-DIO-T72`, `SB-DIO-T73`.
-- **Atomic obligations:** classify every exported curve as measured, computed or model-derived; record method plus parameter values for computed curves; carry the saved-model record; encode the record inside LAS `~O`.
-- **Current source:** `src-tauri/src/export.rs` builds a provenance record for every selected curve, requires a saved model for model-derived output, and writes the complete record into `~O` before its own-reader validation.
-- **Qualifying acceptance tests:** `every_las_export_carries_measured_computed_and_model_provenance_in_the_file` is `CORRECTNESS`; its measured, computed and saved-model cases collectively map T71-T73 and inspect the file rather than only the return value.
-- **Supporting tests:** the final/working-curve test proves status marking, not method/model provenance.
-- **Manual evidence:** `las-export` 0/2, `processing-history` 0/7 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** reachable `b940fcb` contains the in-file provenance record and owned test.
+- **Atomic obligations:** classify every exported curve as measured, computed or model-derived; record the method plus every parameter/value for computed curves; carry the complete saved-model record; encode the record inside LAS `~O`; refuse when a saved-model record is unavailable or one LAS mnemonic would ambiguously name both measured and computed identities.
+- **Current source:** `src-tauri/src/export.rs` builds a provenance record for every selected curve, requires a resolvable saved model for model-derived output, refuses a computed identity that shadows a measured standard mnemonic, and writes the complete record into `~O` before its own-reader validation.
+- **Qualifying acceptance tests:** `every_las_export_carries_measured_computed_and_model_provenance_in_the_file` is `CORRECTNESS`, green at 1 passed / 0 failed / 0 ignored. Its measured-only, computed and saved-model cases collectively map T71-T73 and inspect the file rather than only the return value. It compares the entire exported parameter object with the stored run record, compares the entire exported model record plus an independently derived artifact SHA-256 with the saved model, proves an unavailable cited model refuses, and proves a measured/computed standard-mnemonic collision refuses rather than producing two falsely measured rows.
+- **Supporting tests:** `an_output_name_that_would_be_shadowed_is_refused_before_a_single_well_runs` protects ordinary deterministic module output names. It is supporting evidence only: the new export-boundary control is still required for legacy or non-module stored state. The final/working-curve test proves status marking, not method/model provenance.
+- **Manual evidence:** `las-export` 0/15, `verification-stewardship` 6/88 and `security-integrity` 3/107 after regeneration; the representative in-file provenance comparison remains unchecked.
+- **Git evidence:** reachable `b940fcb` contains the original in-file provenance record; the current Gate 2 increment adds the standard-mnemonic conflict refusal and strengthens the exact whole-record proof on the live branch.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** a model curve without a saved model is deliberately refused; weakening that refusal would violate the record contract.
-- **Next action:** preserve the refusal and verify the `~O` record in a representative client-facing pilot deliverable.
+- **Blocker or decision:** none for the automated LAS contract. A model curve without a resolvable saved model and a computed curve shadowing a measured standard identity are deliberately refused; weakening either refusal would create a deliverable whose provenance cannot be true.
+- **Next action:** preserve T71-T73 and both refusals; Jauhar compares `~O` with the stored run and model records in a representative pilot deliverable during Gate 4.
 
 ## SB-DIO-052 - Final and working curves MUST be distinguishable in an export.
 

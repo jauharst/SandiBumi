@@ -578,6 +578,11 @@ fn write_las(
             .map_err(|e| e.to_string())?;
         for r in rows {
             let (name, unit) = r.map_err(|e| e.to_string())?;
+            if crate::schema_vocab::standard_column(&name).is_some() {
+                return Err(format!(
+                    "computed curve '{name}' shadows a measured standard curve; LAS export refused because the deliverable cannot distinguish their provenance"
+                ));
+            }
             // A unit DECLARED by whatever wrote the curve beats one inferred from an equation of
             // the same name (SB-MLA-035). The case this exists for is a prediction fitted in log
             // space: exported with a blank unit — or worse, with the units of the quantity it is a
@@ -1567,7 +1572,7 @@ mod tests {
         )
         .unwrap();
         let run_params = serde_json::json!({
-            "model_id": model_id,
+            "model_id": model_id.clone(),
             "model_name": model_name,
             "target": "VSH",
             "blind": { "performed": true, "metric": "R2", "value": 0.61,
@@ -1617,6 +1622,19 @@ mod tests {
         assert_eq!(vsh["method"], "vsh_gr");
         assert_eq!(vsh["parameters"]["gr_clean"], 25.0);
         assert_eq!(vsh["parameters"]["gr_shale"], 125.0);
+        let stored_run_parameters: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets WHERE module = 'vsh_gr'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let stored_run_parameters: serde_json::Value =
+            serde_json::from_str(&stored_run_parameters).unwrap();
+        assert_eq!(
+            vsh["parameters"], stored_run_parameters,
+            "every stored run parameter and value must cross into the deliverable"
+        );
 
         let models = prefixed_json(&text, MODEL_PROVENANCE_PREFIX);
         let model = models.iter().find(|row| row["curve"] == "VSH_PRED").unwrap();
@@ -1626,6 +1644,17 @@ mod tests {
         assert_eq!(model["record"]["runtime_json"], r#"{"python":"3.12","sklearn":"1.7"}"#);
         let artifact_hash = model["record"]["artifact_sha256"].as_str().unwrap();
         assert_eq!(artifact_hash.len(), 64, "the fitted artifact has its own SHA-256 identity");
+        let (stored_model, stored_artifact) = crate::db::get_ml_model(&conn, &model_id).unwrap();
+        assert_eq!(stored_artifact, model_bytes, "the fixture's saved artifact is the cited one");
+        let mut expected_model_record = serde_json::to_value(stored_model).unwrap();
+        expected_model_record.as_object_mut().unwrap().insert(
+            "artifact_sha256".into(),
+            serde_json::Value::String(format!("{:x}", Sha256::digest(model_bytes))),
+        );
+        assert_eq!(
+            model["record"], expected_model_record,
+            "the complete saved-model record, not a selected subset, must cross into the file"
+        );
 
         // SB-DBM-001 deliberately strengthens the legacy side: an unversioned computed curve must
         // not be relabelled as measured or receive invented ancestry, but it remains exportable
@@ -1659,6 +1688,52 @@ mod tests {
         assert_eq!(legacy["row_count"], depth.len());
         assert!(legacy.get("method").is_none(), "legacy ancestry must never be invented");
         assert_eq!(result.legacy_unrecorded_curves, 1);
+
+        crate::db::delete_ml_model(&conn, &model_id).unwrap();
+        let missing_model_dest = tmp_path("unavailable-model-provenance");
+        let error = export_las(&conn, &well_id, missing_model_dest.to_str().unwrap())
+            .expect_err("a model-derived curve whose saved record is unavailable must be refused");
+        let _ = std::fs::remove_file(&missing_model_dest);
+        assert!(error.contains("VSH_PRED"), "the refusal must name the model-derived curve: {error}");
+        assert!(error.contains(&model_id), "the refusal must name the unavailable model: {error}");
+        assert!(error.contains("refused"), "the result must be an explicit refusal: {error}");
+
+        // The opposite side: a computed identity that shadows a measured standard mnemonic cannot
+        // be described truthfully as one LAS curve. SB-DIO-051 requires the file to distinguish
+        // measured from computed; exporting two GR columns as "measured" would satisfy the happy
+        // fixture above while lying about the second column. Refusal is the only truthful result.
+        let shadow_spec = crate::equations::complete_curve_run_spec(
+            &conn,
+            &well_id,
+            "RECONSTRUCTED",
+            "synthetic:reconstruction",
+            &custody,
+            &[(well_id.clone(), "SOURCE".into(), "GR".into())],
+            None,
+            serde_json::json!({ "operation": "identity" }),
+            crate::equations::AncestryZoneScope::WholeWell,
+            &["GR".into()],
+        )
+        .unwrap();
+        let (shadow_set_id, _) =
+            crate::equations::create_complete_log_set(&conn, &well_id, &shadow_spec).unwrap();
+        crate::equations::write_computed_curves_with_ancestry(
+            &conn,
+            &well_id,
+            &depth,
+            &[("GR", predicted.as_slice())],
+            &shadow_set_id,
+        )
+        .unwrap();
+        let shadow_dest = tmp_path("shadowed-standard-provenance");
+        let error = export_las(&conn, &well_id, shadow_dest.to_str().unwrap())
+            .expect_err("a measured/computed mnemonic collision must be refused");
+        let _ = std::fs::remove_file(&shadow_dest);
+        assert!(error.contains("GR"), "the refusal must name the ambiguous curve: {error}");
+        assert!(
+            error.contains("measured") && error.contains("computed"),
+            "the refusal must explain the provenance conflict: {error}"
+        );
     }
 
     /// SB-DIO-052 / T74. `curve_meta` declares FINAL as QC'd for delivery and RAW as
