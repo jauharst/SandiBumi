@@ -4,14 +4,14 @@
   "capture_command": "cd src-tauri && cargo check --message-format=json",
   "evidence_class": "CHARACTERIZATION",
   "evidence_note": "This inventory was anchored at the accepted Gate 2 planning baseline and is maintained as owner requirements close warnings. Ownership is not proof that a disconnected product path works.",
-  "expected_warning_count": 47,
+  "expected_warning_count": 44,
   "expected_warning_counts_by_file": {
     "src/coreimage.rs": 1,
     "src/distribution.rs": 3,
     "src/ingest.rs": 1,
     "src/ml.rs": 2,
     "src/parsers.rs": 3,
-    "src/plotting.rs": 37
+    "src/plotting.rs": 34
   },
   "warning_groups": [
     {
@@ -91,17 +91,6 @@
         "src/plotting.rs|dead_code|struct `OverlayAxisBinding` is never constructed",
         "src/plotting.rs|dead_code|struct `OverlayAxisContract` is never constructed",
         "src/plotting.rs|dead_code|struct `PlotAxisSource` is never constructed"
-      ]
-    },
-    {
-      "owner_requirement": "SB-PLT-005",
-      "owner_gate": "G2",
-      "disposition": "CONNECT-OR-REMOVE-DURING-OWNER-REQUIREMENT",
-      "rationale": "Unit-limit content must pass the audited quantity/unit activation gate before any pilot plot uses it.",
-      "warning_keys": [
-        "src/plotting.rs|dead_code|function `audit_unit_limit_pair` is never used",
-        "src/plotting.rs|dead_code|struct `UnitLimitAudit` is never constructed",
-        "src/plotting.rs|dead_code|struct `UnitLimitPair` is never constructed"
       ]
     },
     {

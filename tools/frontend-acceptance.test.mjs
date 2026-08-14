@@ -277,6 +277,92 @@ test("display_clipping_counts_hidden_points_without_changing_analysis_while_expl
   }
 });
 
+test("every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_while_the_documented_6_56x_pair_and_unknown_units_stay_disabled_with_reasons", async () => {
+  // CORRECTNESS — SB-PLT-005 / SB-PLT-T05. docs/PRD_v2/23_plotting-interactivity.md
+  // §§2.2, 4.1, 6 and 7.1 O-2 cite dossier §3.3a: 1 international foot is 0.3048 m,
+  // the accepted screen is 15%, RHOB 1.95..2.95 g/cc ↔ 1950..2950 kg/m3 is exact,
+  // DTC 240..40 us/ft ↔ 780..120 us/m is deliberately rounded but inside that screen,
+  // and attenuation 0..100 dB/ft ↔ 0..50 dB/m is 6.56× divergent. These are cited
+  // incumbent display rows under audit, not physical-family bounds or new defaults.
+  const {
+    UNIT_LIMIT_ROWS,
+    auditUnitLimitRow,
+    auditedFamilyDisplayDecision,
+    axisRangeExportRecord,
+    formatAxisRangeLabel,
+    resolveBoundAxisRange,
+  } = await load("/src/ui/axisRange.ts");
+
+  assert.deepEqual(
+    UNIT_LIMIT_ROWS.map((row) => row.id),
+    [
+      "GR:gAPI",
+      "RHOB:g/cc",
+      "RHOB:kg/m3",
+      "NPHI:v/v",
+      "PEF:b/e",
+      "PHIE:v/v",
+      "SW:v/v",
+      "DT:us/ft",
+      "DT:us/m",
+      "ACOUSTIC_ATTENUATION_RATE:dB/m",
+    ],
+    "the activation gate must enumerate the complete screened seed set plus the cited refusal",
+  );
+  for (const row of UNIT_LIMIT_ROWS) {
+    assert.ok(row.source.length > 0, `${row.id} must carry its numeric source`);
+    const audit = auditUnitLimitRow(row);
+    if (row.familyDefault) {
+      assert.equal(audit.enabled, true, `${row.id} must pass before the family-default tier can use it`);
+    }
+  }
+
+  const density = auditedFamilyDisplayDecision({ mnemonic: "RHOB", display_unit: "kg/m3" });
+  assert.equal(density.enabled, true);
+  assert.deepEqual(density.range, { min: 1950, max: 2950 });
+  assert.match(density.reason, /exact registered conversion/u);
+
+  const slowness = auditedFamilyDisplayDecision({ mnemonic: "DTC", display_unit: "us/m" });
+  assert.equal(slowness.enabled, true);
+  assert.deepEqual(slowness.range, { min: 780, max: 120 });
+  assert.match(slowness.reason, /within the cited 15% screen/u);
+
+  const attenuationRow = UNIT_LIMIT_ROWS.find((row) => row.id === "ACOUSTIC_ATTENUATION_RATE:dB/m");
+  const attenuation = auditUnitLimitRow(attenuationRow);
+  assert.equal(attenuation.enabled, false);
+  assert.equal(Math.round(attenuation.divergenceFactor * 100) / 100, 6.56);
+  assert.match(attenuation.reason, /disabled.*exceeds the cited 15% screen/u);
+
+  const unknown = auditedFamilyDisplayDecision({ mnemonic: "RHOB", display_unit: "g/c3" });
+  assert.equal(unknown.enabled, false);
+  assert.equal(unknown.range, null);
+  assert.match(unknown.reason, /disabled.*no audited unit-limit row/u);
+
+  const fallback = resolveBoundAxisRange({
+    binding: { resolved: [{ mnemonic: "RHOB", display_unit: "g/c3" }] },
+    user: null,
+    finiteData: { min: 2.1, max: 2.8 },
+    validity: null,
+  });
+  assert.equal(fallback.tier, "finite_data");
+  assert.equal(fallback.familyLimitAudit.enabled, false);
+  assert.match(formatAxisRangeLabel("X", fallback), /family limit disabled/u);
+  assert.deepEqual(axisRangeExportRecord("x", fallback).familyLimitAudit, fallback.familyLimitAudit);
+
+  for (const panel of [
+    "crossplotPanel.ts",
+    "histogramPanel.ts",
+    "pickettPanel.ts",
+    "correlationPanel.ts",
+    "vegaPanel.ts",
+  ]) {
+    const source = await readFile(new URL(`../src/ui/${panel}`, import.meta.url), "utf8");
+    assert.match(source, /resolveBoundAxisRange/, `${panel} must execute the audited activation gate`);
+    assert.match(source, /formatAxisRangeSummary/, `${panel} must disclose a disabled row's reason`);
+    assert.match(source, /axisRanges: state\.axis_ranges/, `${panel} must export the audit custody`);
+  }
+});
+
 test("track curve keys distinguish equal mnemonics from different imported sets", async () => {
   const { availableTrackSets, hasTrackCurve, trackCurveKey } = await load("/src/trackCurveRequest.ts");
   assert.equal(trackCurveKey({ curve_name: "gr" }), "GR");

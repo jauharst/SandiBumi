@@ -70,6 +70,12 @@ test('one_versioned_registry_generates_equal_runtime_ui_documentation_and_test_p
       aliases,
     })),
   );
+  assert.match(typescript, /export const UNIT_REGISTRY_RULES = \[/u);
+  for (const rule of registry.rules) {
+    assert.match(typescript, new RegExp(`fromUnit: ${JSON.stringify(rule.from_unit)}`));
+    assert.match(typescript, new RegExp(`toUnit: ${JSON.stringify(rule.to_unit)}`));
+    assert.match(typescript, new RegExp(`derivation: ${JSON.stringify(rule.derivation).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  }
   assert.deepEqual(
     tsUnits,
     registry.unit_tokens.map(({ token, quantity_kind, canonical_unit }) => ({

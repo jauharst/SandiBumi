@@ -71,14 +71,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; chapter intention T05; sections 4.1, 6, 7.1 O-2 and 8.1.
 - **Atomic obligations:** reject schema-valid content as authority; dimensionally re-derive every converted pair before activation; leave every suspect row disabled with its reason.
-- **Current source:** `plotting.rs::audit_unit_limit_pair` implements an exact registered-conversion audit but is unused. `crossplotPanel.ts::axisDefaults` and Pickett defaults remain active hard-coded ranges without a row-level audit registry or preserved disable reason. The chapter explicitly records that the complete row audit is still open.
-- **Qualifying acceptance tests:** none; T05 covers one documented divergent pair, not the universal active-limit inventory. Test class is `MISSING`.
-- **Supporting tests:** `plotting.rs::a_dimensionally_divergent_unit_limit_row_stays_disabled_with_its_reason` proves only one unused audit-helper refusal using the chapter's cited divergence.
+- **Current source:** `axisRange.ts::UNIT_LIMIT_ROWS` is the complete source-owned activation registry for the nine shipped family rows plus the chapter's audit-only attenuation refusal. `auditUnitLimitRow` uses generated `UNIT_REGISTRY_RULES` to prove registered quantity kinds, conversion direction and the cited 15% screen before activation. Unknown units and suspect rows preserve a disabled reason, fall back to finite data and carry the audit through labels and exports. Crossplot, Histogram, Pickett, Correlation and governed Vega all execute `resolveBoundAxisRange`; the disconnected Rust-only audit helper was removed rather than presented as a product path.
+- **Qualifying acceptance test:** `frontend-acceptance.test.mjs::every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_while_the_documented_6_56x_pair_and_unknown_units_stay_disabled_with_reasons` is one `CORRECTNESS` proof sourced to chapter sections 2.2, 4.1, 6 and 7.1 O-2 plus dossier §3.3a. It inventories every active row, proves exact RHOB and screened rounded DT conversions, proves the 6.56× attenuation refusal, proves an unknown unit cannot inherit a family range, and inventories all five live consumers. A deliberate RHOB `2950 -> 3000` mutation returned the expected RED before restoration.
+- **Supporting test:** `plotting.rs::the_documented_attenuation_pair_is_6_56x_divergent_and_exceeds_the_cited_screen_in_the_wrong_direction` independently derives T05 from the exact international-foot definition.
 - **Manual evidence:** `crossplot` 6/13, `pickett` 0/8 and `verification-stewardship` 0/24.
-- **Git evidence:** reachable commit `aefeb6b` added the unused audit helper; accepted product paths still activate unaudited families.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** O-2's row-level dimensional screen and one governed activation registry are missing; no limit may be inferred meanwhile.
-- **Next action:** inventory every active unit-limit row, re-derive each from primary unit definitions, disable unproved rows with reasons and implement an exhaustive activation-gate test.
+- **Git evidence:** reachable commit `aefeb6b` added the unused helper; the current topic-branch increment replaces that disconnected claim with the shared frontend activation gate and generated conversion custody.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for Gate 2 automation. Visual readability, manual interaction and representative-field confirmation remain open; no bulk incumbent table is adopted.
+- **Next action:** retain the small source-owned registry and refusal boundary, execute the `REVIEW.md` click-through separately, and proceed to pilot blocker SB-PLT-006.
 
 ## SB-PLT-006 - One canonical histogram-bin contract
 

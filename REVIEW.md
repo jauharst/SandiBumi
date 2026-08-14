@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-005: unit-limit content is audited before activation
+
+- [ ] **Automated correctness:** exact SB-PLT-005 is green at 1 passed / 0 failed / 0 ignored;
+      the full gate is green at 1026 passed / 0 failed / 37 ignored with 44 owned Rust warnings.
+      One exhaustive test inventories the nine source-owned family rows plus the audit-only
+      attenuation refusal, proves exact RHOB and screened rounded DT conversions, refuses the
+      documented 6.56× attenuation pair and an unknown density unit with reasons, and inventories
+      all five live panel consumers. A deliberate RHOB `2950 -> 3000` mutation returned the expected
+      RED before restoration; the Rust fixture independently derives the 6.56× result.
+- [ ] **Visual:** open Crossplot, Histogram, Pickett, Correlation and Vega with RHOB `kg/m3`, DT
+      `us/m` and an intentionally unknown RHOB unit. Confirm the registered rows use the audited
+      family display range, the unknown unit uses finite data, and its visible range label names the
+      disabled family limit instead of silently borrowing `g/cc`. Check that the reason remains
+      readable at each real dock size; automation proves text content, not layout.
+- [ ] **Manual:** set user and curve-header ranges above the same curves, then clear them in order.
+      Confirm precedence remains user → header → audited family → finite data, and inspect every
+      offered save/export record for the same tier, row ID, unit, source and enable/disable reason.
+      Verify `g/c3`, `gm/cc` and `us/f` no longer activate a familiar-looking family limit merely
+      because older code treated them as aliases.
+- [ ] **Field and harsh critique:** repeat on representative pilot deliveries containing observed
+      unit spellings. The shipped registry is the cited nine-row seed set, not authority for all 83
+      incumbent rows and not a physical-family range table. A schema-valid wider table remains
+      disabled until every row has its own source and dimensional audit; attractive axis defaults
+      are especially dangerous because a wrong range can hide valid rock while the chart still
+      looks polished.
+
 ## 2026-08-15 — G2 SB-PLT-004: display clipping and analyst validity are separate populations
 
 - [ ] **Automated correctness:** exact SB-PLT-004 is green at 1 passed / 0 failed / 0 ignored;
