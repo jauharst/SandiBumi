@@ -678,15 +678,15 @@
 ## SB-DIO-052 - Final and working curves MUST be distinguishable in an export.
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T74`.
-- **Atomic obligations:** allow both working and final curves to be exported while marking each status inside the file.
-- **Current source:** `src-tauri/src/export.rs` carries the curve-status metadata into the LAS provenance section for every exported curve.
-- **Qualifying acceptance tests:** `a_working_and_final_phie_are_both_exported_and_each_is_marked_in_the_file` is `CORRECTNESS`; it proves both curves are present and differently labelled, so omission or one default label cannot pass.
-- **Supporting tests:** general provenance coverage exercises the same writer but does not substitute for the paired status assertion.
-- **Manual evidence:** `las-export` 0/2 and `processing-history` 0/7 - unexercised.
-- **Git evidence:** reachable `ba53311` contains the working/final status closure.
+- **Atomic obligations:** export both working and final versions, preserve each version's own samples under a distinct deliverable identity, and mark each status inside the file.
+- **Current source:** `src-tauri/src/export.rs` resolves generic curves by exact `curve_id`, retains a working/final mnemonic collision by adding the second state suffix, and writes `export_curve`, `source_curve`, `set_name` and `state` records into LAS `~O`.
+- **Qualifying acceptance tests:** `a_working_and_final_phie_are_both_exported_and_each_is_marked_in_the_file` is `CORRECTNESS`, green at 1 passed / 0 failed / 0 ignored. It proves both parsed LAS curves exist, neither is omitted, working and final sample arrays remain different and attached to the correct exported identities, and both complete state records appear in the file. Omission, one default label, or two names carrying one duplicated array cannot pass.
+- **Supporting tests:** general provenance coverage exercises the same writer but does not substitute for the paired identity, sample and status assertions.
+- **Manual evidence:** `las-export` 0/19, `las-import` 0/120 and `verification-stewardship` 6/88 after regeneration; the representative paired-curve deliverable remains unchecked.
+- **Git evidence:** reachable `ba53311` contains the working/final status closure; the current Gate 2 increment strengthens exact T74 to prove the two recipient-facing sample arrays without changing production behavior.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none for the automated file contract.
-- **Next action:** include a paired working/final export in pilot deliverable review.
+- **Next action:** preserve exact T74; Jauhar exports and independently reopens one representative paired working/final pilot LAS during Gate 4.
 
 ## SB-DIO-053 - Well-header fields MUST be mapped explicitly and identity MUST NOT be invented.
 

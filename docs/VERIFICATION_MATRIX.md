@@ -11,7 +11,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 116 | — | 39 |
+| `las-import` | LAS import | Not exercised | 0 / 120 | — | 40 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 14 | — | 9 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 27 | 2026-08-05 | 3 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
@@ -56,7 +56,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |
 | `report` | Report deliverables | Partially exercised | 8 / 67 | 2026-08-14 | 17 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
-| `las-export` | LAS export | Not exercised | 0 / 15 | — | 6 |
+| `las-export` | LAS export | Not exercised | 0 / 19 | — | 7 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |
 | `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 24 | 2026-07-19 | 7 |
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 2 | — | 2 |

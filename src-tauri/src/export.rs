@@ -1771,7 +1771,8 @@ mod tests {
             None,
         )
         .unwrap();
-        db::insert_curve_samples(&conn, &working, &depth, &[0.10, 0.11, 0.12]).unwrap();
+        let working_values = vec![0.10_f32, 0.11, 0.12];
+        db::insert_curve_samples(&conn, &working, &depth, &working_values).unwrap();
         let final_curve = db::upsert_curve_meta(
             &conn,
             &well_id,
@@ -1783,7 +1784,8 @@ mod tests {
             None,
         )
         .unwrap();
-        db::insert_curve_samples(&conn, &final_curve, &depth, &[0.20, 0.21, 0.22]).unwrap();
+        let final_values = vec![0.20_f32, 0.21, 0.22];
+        db::insert_curve_samples(&conn, &final_curve, &depth, &final_values).unwrap();
 
         let dest = tmp_path("phie-final-working");
         let result = export_las(&conn, &well_id, dest.to_str().unwrap()).unwrap();
@@ -1794,6 +1796,16 @@ mod tests {
         let exported: Vec<&str> = frame.curves.iter().map(|curve| curve.mnemonic.as_str()).collect();
         assert!(exported.contains(&"PHIE"), "the working PHIE must remain in the file: {exported:?}");
         assert!(exported.contains(&"PHIE_FINAL"), "the final collision must be retained with its state: {exported:?}");
+        let exported_working = frame.curves.iter().find(|curve| curve.mnemonic == "PHIE").unwrap();
+        let exported_final = frame.curves.iter().find(|curve| curve.mnemonic == "PHIE_FINAL").unwrap();
+        assert_eq!(
+            exported_working.values, working_values,
+            "the working identity must carry the working samples, not a copy of the final curve"
+        );
+        assert_eq!(
+            exported_final.values, final_values,
+            "the final identity must carry the final samples, not a renamed working curve"
+        );
         assert!(
             !result.omitted.iter().any(|omission| omission.curve.starts_with("PHIE ")),
             "neither state may be hidden as a duplicate: {:?}",

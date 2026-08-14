@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-052: LAS export marks working and final curve identities
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T74 is green at
+      1 passed / 0 failed / 0 ignored. This is a RETAIN increment: the production path is
+      unchanged, while the existing proof now verifies the two parsed sample arrays as well as
+      the two in-file state records.
+- [ ] **Both identities and both datasets:** export a well holding working `PHIE` values and
+      different final `PHIE` values. Confirm both columns remain in the LAS, neither is listed as
+      omitted, and each parsed column contains its own source samples rather than a duplicated or
+      renamed copy of the other.
+- [ ] **In-file status / harsh critique:** inspect `SANDIBUMI_CURVE_STATE_V1` records in `~O` and
+      confirm the exported mnemonic, source mnemonic, set name and `working`/`final` state agree.
+      A `_FINAL` suffix alone is not proof if the data came from the working curve, and an internal
+      result object is not evidence for the recipient-facing file.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export a representative pilot well with
+      deliberately different working and final curves, inspect both tracks after reopening the
+      LAS, and confirm a recipient can identify the intended final curve without SandiBumi open.
+      Synthetic paired values are not operator or field acceptance.
+
 ## 2026-08-14 — G2 SB-DIO-051: LAS deliverables carry complete curve provenance
 
 - [ ] **Automated correctness — not manual evidence:** the one named SB-DIO-T71/T72/T73
