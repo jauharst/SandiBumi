@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-049: pilot LAS export must pass its own reader
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T68 and SB-DIO-T69 are
+      independently green at 1 passed / 0 failed / 0 ignored each. This is a RETAIN increment:
+      current production behavior was reverified rather than rewritten.
+- [ ] **Success and refusal:** export one representative LAS and confirm success says the registered
+      SandiBumi reader self-check passed. In a focused diagnostic, corrupt an ASCII row and then
+      misdeclare a feet index as metres; both must return an actionable `LAS self-check failed`
+      error before success, never a warning.
+- [ ] **Scope boundary / harsh critique:** this closes the only registered DIO data writer in the
+      approved LAS/delimited pilot surface. It does not prove Office, report, plot, browser-CSV,
+      model, backup, or other artifact writers; the chapter's product-wide E-3 remains open. Do not
+      market the registry proof as universal file-output qualification.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export a representative feet-based pilot
+      LAS, inspect the visible self-check result, re-open the artifact independently, and compare
+      declared unit, row count, curve count, and values. Synthetic refusal controls are not operator
+      or field acceptance.
+
 ## 2026-08-14 — G2 SB-DIO-048: LAS container identity outranks the filename
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T67 is green at

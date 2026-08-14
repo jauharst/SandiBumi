@@ -639,15 +639,15 @@
 ## SB-DIO-049 - Writing a file our own reader would reject MUST be an error, not a warning.
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned tests `SB-DIO-T68`, `SB-DIO-T69`.
-- **Atomic obligations:** route every registered writer's artifact through its own registered reader before success; make rejection fatal; catch a misdeclared depth unit before success.
-- **Current source:** `src-tauri/src/export.rs` performs a reader round trip for every registered writer, validates declared depth units against the source unit, and returns an error on either failure.
-- **Qualifying acceptance tests:** `every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error` and `a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success` are `CORRECTNESS`; the writer inventory and wrong-unit control pin both obligations.
-- **Supporting tests:** ordinary LAS export success is not counted as proof because it cannot show that rejection is fatal.
-- **Manual evidence:** `las-export` 0/2, `las-import` 0/57 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** reachable `2f4d4a2` contains the round-trip and unit self-check closure.
+- **Atomic obligations:** within the approved LAS/delimited pilot surface, route every registered DIO data writer's artifact through its own registered reader before success; make rejection fatal; catch a misdeclared depth unit before success. The chapter's section 7.2 E-3 separately records that a product-wide artifact contract has not been minted.
+- **Current source:** `src-tauri/src/export.rs` makes `self_read` a required field of every `RegisteredWriter`, and `export_with_writer` calls it before setting `self_checked` or returning success. `src-tauri/src/lib.rs` exposes one DIO data-export command in the approved surface, `export_las`, and it reaches success only through that wrapper. `validate_las_output` uses the same full-curve LAS reader as import, compares the declared depth unit with the project unit, and validates reported row and curve counts.
+- **Qualifying acceptance tests:** `every_registered_writer_reads_its_output_and_a_rejected_round_trip_is_an_error` and `a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success` are `CORRECTNESS`, independently green at 1 passed / 0 failed / 0 ignored each. T68 enumerates the registry, requires positive `self_checked` evidence, then proves a syntactically corrupt artifact turns apparent writer success into an actionable error. T69 proves a readable feet-as-metres unit lie also refuses before success.
+- **Supporting tests:** the public DIO command and registry inventory were reverified by direct source inspection. Ordinary LAS export success is not counted as proof because it cannot show that rejection is fatal. Office, report, plot, browser-CSV, model and backup writers are not counted as supporting evidence for this pilot-bounded row.
+- **Manual evidence:** `las-export` 0/15, `las-import` 0/106 and `data-conventions` 4/122 after regeneration; the exact representative artifact/read-back exercise remains unchecked.
+- **Git evidence:** reachable `2f4d4a2` contains the round-trip and unit self-check closure; the current Gate 2 increment reverifies the exact tree and records the pilot-versus-product boundary without changing production behavior.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** none for the only registered writer; adding a writer must extend the same inventory test.
-- **Next action:** preserve the registry-wide test and capture one successful pilot artifact/read-back pair.
+- **Blocker or decision:** none for the approved pilot DIO writer. A new pilot DIO writer must register its own reader and extend the inventory proof. Product-wide closure remains open under chapter section 7.2 E-3 and cannot be inferred from the LAS registry.
+- **Next action:** preserve T68/T69; Jauhar exports and independently reopens a representative feet-based pilot LAS in Gate 4. A future coordinator-owned product contract must inventory and qualify every other artifact writer rather than laundering them through this LAS result.
 
 ## SB-DIO-050 - A re-gridded input MUST be detectable at import.
 
