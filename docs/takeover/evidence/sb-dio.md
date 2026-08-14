@@ -276,14 +276,14 @@
 
 - **Chapter evidence:** P2; chapter status `PRESENT-OK`; owned test `SB-DIO-T34` (characterization).
 - **Atomic obligations:** preserve incoming sample intervals by default; allow a change only through an explicit operation named decimate/interpolate/average/nearest.
-- **Current source:** LAS generic curves are committed on their delivered depths under `(set_name, mnemonic)`; explicit Reframe is the separate operation that changes sampling and records a named method. No reader-side Reframe call was found. The legacy six-column standard projection shares the source LAS index rather than creating a new interval.
-- **Qualifying acceptance tests:** no test is mapped to T34 and no registry test proves the word "every" across all readers; test class is `MISSING`.
-- **Supporting tests:** explicit-set viewer/composite tests prove native generic samples are later read on their owning grids, and SB-DIO-022 proves writer defaults, but neither inventories all importers.
-- **Manual evidence:** `las-import` 0/57, `dlis-import` 0/11, `data-conventions` 0/45 and `reframe` 0/34 - unexercised.
-- **Git evidence:** reachable `2983373` preserves imported LAS sets on native grids; no owned universal characterization exists.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no numeric source is missing; the reader inventory and exact native-spacing acceptance test are absent.
-- **Next action:** register every index-bearing reader and run one irregular-spacing fixture through each, asserting stored depths unchanged and no implicit operation record.
+- **Current source:** the source-discovered file-reader registry is exhaustively classified into sampled and non-sampled readers. Every sampled parser retains the supplied depth sequence; shipping LAS, core-table and WIDE-array paths store it unchanged. Explicit Reframe remains the separate operation that creates an `OWN` frame and records a named method.
+- **Qualifying acceptance tests:** exact T34 `characterizes_every_registered_sampled_reader_and_shipping_store_as_preserving_native_depths_until_reframe_is_explicit` passed 1/0/0 and is `CHARACTERIZATION`, as the chapter requires. Its 0.1 m acquisition fixture omits the 1000.2 m station, so both an unclassified new reader and a silent regularizer fail; the three shipping stores retain `1000.0, 1000.1, 1000.3` and create no implicit `OWN` set.
+- **Supporting tests:** explicit-set viewer/composite tests prove native generic samples are later read on their owning grids, and SB-DIO-022 independently proves writer defaults.
+- **Manual evidence:** `las-import` 0/72, `dlis-import` 0/14, `data-conventions` 4/104 and `reframe` 0/34; this increment claims no operator or representative-delivery exercise.
+- **Git evidence:** reachable `2983373` preserves imported LAS sets on native grids; this increment adds the universal reader classification and stored-depth characterization, with commit pending at this evidence write.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied native-grid lock); `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
+- **Blocker or decision:** none; the chapter deliberately classifies T34 as characterization rather than correctness.
+- **Next action:** retain exact T34, require every new file reader to enter the sampled/non-sampled registry, and keep any sample-changing operation explicit under Reframe; Jauhar verifies representative files and operation wording.
 
 ## SB-DIO-022 - Re-grid on write MUST be named correctly and default OFF.
 

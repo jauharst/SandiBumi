@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-021: reads preserve native sampling by default
+
+- [ ] **Automated characterization — not correctness or manual evidence:** exact
+      SB-DIO-T34 is green at 1 passed / 0 failed / 0 ignored. Every source-registered
+      file reader is classified; every sampled reader preserves the delivered
+      `1000.0, 1000.1, 1000.3 m` index, so a hidden regularizer that invents the
+      missing `1000.2 m` station cannot pass.
+- [ ] **Automated storage boundary:** the shipping LAS, delimited core and WIDE-array
+      import paths store those same three depths and create no `OWN` Reframe set at
+      defaults. This characterizes the current product; it is not representative-file
+      or operator evidence.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import representative native-grid
+      LAS, core and array deliveries, inspect their sample counts/depths, then run an
+      explicitly chosen Reframe and judge its operation naming. Only Jauhar records that
+      operator and field evidence.
+
 ## 2026-08-14 — G2 SB-DIO-020: duplicate depths require a declared policy
 
 - [ ] **Automated no-decision proof — not manual evidence:** exact SB-DIO-T33 is

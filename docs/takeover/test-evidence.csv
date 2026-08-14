@@ -96,6 +96,7 @@
 "SB-DIO-019","CORRECTNESS","src-tauri/src/units.rs","changing_the_project_depth_unit_is_refused_while_committed_curves_exist_and_nothing_is_rescaled"
 "SB-DIO-020","CORRECTNESS","src-tauri/src/ingest.rs","keep_first_drops_three_repeated_depth_rows_reports_three_and_keeps_first_samples_in_lockstep"
 "SB-DIO-020","CORRECTNESS","src-tauri/src/ingest.rs","duplicate_depths_commit_nothing_until_a_policy_is_declared"
+"SB-DIO-021","CHARACTERIZATION","src-tauri/src/example_data_test.rs","characterizes_every_registered_sampled_reader_and_shipping_store_as_preserving_native_depths_until_reframe_is_explicit"
 "SB-DIO-022","CORRECTNESS","src-tauri/src/export.rs","an_export_at_defaults_writes_the_irregular_stored_samples_without_regridding"
 "SB-DIO-024","CORRECTNESS","src-tauri/src/ingest.rs","a_converted_sonic_reports_its_from_unit_to_unit_and_factor"
 "SB-DIO-025","CORRECTNESS","src-tauri/src/curves.rs","the_unit_system_reports_the_exact_families_it_can_convert"
