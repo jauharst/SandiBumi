@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-031: Curve Catalog Workflow and log view need exact-name refusal
+
+- [ ] **Automated contract:** BLOCKED. Exact SB-DIO-T47 does not exist, and no current
+      universal proof can pass while the generic resolver accepts `mnemonic = request OR
+      family = request`. A requested exact-looking key can therefore receive another curve's
+      bytes. The unchanged full gate remains 1015 passed / 0 failed / 36 ignored with 55 owned
+      Rust warnings; that green result does not prove this missing MUST NOT.
+- **Read-only implementation evidence — not acceptance:** equations readers and sampling
+      diagnostics share the family fallback; workflows intentionally depend on cases such as
+      `HDRA -> DRHO` and `HCAL -> CALI`. Plotting at least returns the concrete mnemonic and
+      resolution reason, while Reframe's explicit accepted-substitute path keeps the substitute's
+      own name. The application therefore has two legitimate intents hidden behind one string.
+- [ ] **Decision / architecture:** DEC-030 needs Jauhar to approve an explicit request-type split.
+      Engineering recommends `EXACT_MNEMONIC`, which never falls back, and `SEMANTIC_FAMILY`,
+      which may resolve a member only while returning its concrete identity and resolution rule.
+      Existing callers must be classified by intent; guessing would either preserve silent
+      substitution or break deliberate family workflows.
+- [ ] **Visual / Manual / Field:** unavailable until the split and exact T47 inventory exist.
+      Later review must show an exact miss as unavailable and a semantic match under its real
+      mnemonic in every consuming surface. A family-fallback unit test is not operator evidence.
+
 ## 2026-08-14 — G2 SB-DIO-030: LAS alias rename keeps source identity in the Curve Catalog
 
 - [ ] **Automated rename correctness — not manual evidence:** exact SB-DIO-T46 is green at

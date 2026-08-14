@@ -406,14 +406,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; owned test `SB-DIO-T47`.
 - **Atomic obligations:** return unavailable for an absent exact request; never return another curve's samples keyed as the request under any configuration.
-- **Current source:** the explicit Reframe substitution path is safe, but the general `equations.rs::fetch_generic_curve_aligned` query matches `upper(mnemonic) = request OR upper(family) = request`; callers then store the returned values under the requested key. Workflow tests deliberately rely on `HDRA -> DRHO` and `HCAL -> CALI` family fallback. `plotting.rs` also resolves a typed-family match, although it at least records the concrete mnemonic. The universal MUST NOT therefore remains violated.
+- **Current source:** the explicit Reframe substitution path is safe, but `equations.rs::resolve_generic_curve_decision` and `curve_sampling` match `upper(mnemonic) = request OR upper(family) = request`; numeric callers then store the returned values under the requested key. Workflow tests deliberately rely on `HDRA -> DRHO` and `HCAL -> CALI` family fallback. `plotting.rs` also resolves a typed-family match, although it calls the input semantic and returns the concrete mnemonic plus resolution reason. The universal MUST NOT therefore remains violated because exact and semantic intent share one string API.
 - **Qualifying acceptance tests:** none; test class is `MISSING`.
 - **Supporting tests:** `an_accepted_named_substitute_is_recorded_on_the_resulting_curve_as_provenance` proves one explicit path and explicitly keeps the substitute's own name; it cannot prove the general resolver.
-- **Manual evidence:** `generic-curve-store` 0/18, `workflow` 0/23, `log-view` 5/37 and `security-integrity` 0/63.
-- **Git evidence:** the family-fallback behavior is integrated at the accepted anchor; no universal closing commit or T47 mapping exists.
+- **Manual evidence:** `generic-curve-store` 0/36, `workflow` 0/26, `log-view` 5/40 and `security-integrity` 3/104; the blocker review adds no checked operator or representative-delivery evidence.
+- **Git evidence:** the family-fallback behavior is integrated at the accepted anchor; current source was reverified on the Gate 2 head, and no universal closing commit or T47 mapping exists.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** Jauhar must adjudicate semantic family requests versus exact mnemonic requests; the current API conflates them. No silent fallback can remain under an exact-request key.
-- **Next action:** split request types, make exact-mnemonic absence explicit, return concrete identity for semantic family resolution, and implement T47 across every resolver.
+- **Blocker or decision:** `BLOCKED` on DEC-030. Jauhar must approve a non-overlapping exact-mnemonic versus semantic-family request contract; no silent fallback can remain under an exact-request key, and engineering will not break intentional family workflows by guessing every caller's intent.
+- **Next action:** after DEC-030, implement the typed request split, make exact-mnemonic absence explicit, return concrete identity for semantic-family resolution, and implement T47 across every resolver.
 
 ## SB-DIO-032 - A substitution offered to the user MUST be explicit and recorded.
 
