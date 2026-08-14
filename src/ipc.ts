@@ -144,6 +144,12 @@ export interface ImportResult {
     candidates: Array<{ mnemonic: string; finite_samples: number; chosen: boolean }>;
     table_entry: string | null;
   }>;
+  /** Effective per-source-channel null handling; unset still uses ordinary LAS screening. */
+  null_resolutions: Array<{
+    channel: string;
+    mode: "unset" | "no_null" | "values";
+    values: number[];
+  }>;
   index_resolution: {
     column: number;
     mnemonic: string;

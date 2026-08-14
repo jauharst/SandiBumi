@@ -42,14 +42,14 @@
 
 - **Chapter evidence:** P2; chapter status `ABSENT`; owned tests `SB-DIO-T04`, `SB-DIO-T05`.
 - **Atomic obligations:** represent explicit no-null separately from an ordinary null list and from no declaration; preserve a genuine sentinel-shaped amplitude only in the explicit no-null case; expose the distinction in the import result.
-- **Current source:** `parsers.rs::ChannelNullMode` has distinct `Values` and `NoNull` variants, and `is_null_value_for_channel` preserves values under `NoNull` while an absent key uses normal LAS screening. The result model does not expose a dedicated per-channel no-null/unset record.
-- **Qualifying acceptance tests:** no tests are mapped to T04/T05; test class is `MISSING`.
-- **Supporting tests:** `one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset` proves the two screening outcomes, but it is owned by SB-DIO-006/T10 and does not assert a visible import-result distinction for SB-DIO-003.
-- **Manual evidence:** the generated matrix currently shows `data-conventions` 4/71 and `las-import` 0/57, but legacy checked Automated entries contaminate its checked count; this increment claims no Jauhar-confirmed manual or field exercise.
-- **Git evidence:** the first-class enum is integrated through reachable `23d6b28`; no separate result-surface closure exists.
-- **Verdict:** `PARTIAL`; `DEFERRED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no numerical source is missing; the result-surface contract and its two owned tests are missing.
-- **Next action:** add a per-channel resolved-null-mode record to the import result and implement T04/T05 with explicit no-null and unset controls.
+- **Current source:** `parsers.rs::ChannelNullMode` owns screening while `ChannelNullResolution` records each actual source channel as `unset`, `no_null` or `values`; `ingest.rs::ImportResult` carries the ordered records through success, attach and post-parse refusal paths, and `ipc.ts` exposes the same typed result.
+- **Qualifying acceptance tests:** `a_channel_declared_no_null_preserves_a_sentinel_shaped_amplitude_and_reports_no_null` and `an_unset_channel_screens_the_same_sentinel_shaped_amplitude_and_reports_unset` are `CORRECTNESS`; each enters the real LAS importer, asserts the returned source-channel mode and independently queries the stored sample.
+- **Supporting tests:** SB-DIO-005/T09 and SB-DIO-006/T10 retain plural-values and many-to-many rule behavior, but neither substitutes for this result-surface proof.
+- **Manual evidence:** `data-conventions` 4/122 and `las-import` 0/90 after regeneration; this exact paired scenario remains unchecked and this increment claims no Jauhar-confirmed manual or field exercise.
+- **Git evidence:** reachable `23d6b28` introduced the first-class screening enum; the current `codex/g2-program-plan` increment closes the formerly absent result-surface contract.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none; D-3 and T04/T05 cite the sentinel-shaped control and require the two distinct states without adding a numerical default.
+- **Next action:** retain exact T04/T05 and the three-state result type; Jauhar visually and manually verifies both deliveries and Gate 4 repeats them on a representative sanitized file without promoting synthetic automation to field evidence.
 
 ## SB-DIO-004 - Null recognition MUST be one relative-tolerance transform, and recognition MUST NOT rewrite.
 

@@ -21,6 +21,8 @@ pub struct ImportResult {
     pub attached_set: Option<String>,
     /// Typed audit trail for every standard target that matched more than one LAS column.
     pub alias_decisions: Vec<parsers::AliasDecision>,
+    /// Effective per-source-channel null handling, including explicit `NoNull` versus `Unset`.
+    pub null_resolutions: Vec<parsers::ChannelNullResolution>,
     pub index_resolution: Option<parsers::IndexResolution>,
     /// Every automatic value conversion, including the source unit and applied factor.
     pub unit_conversions: Vec<crate::curves::UnitConversion>,
@@ -287,6 +289,7 @@ fn cancelled_las_import(path: &str) -> ImportResult {
         error: None,
         attached_set: None,
         alias_decisions: Vec::new(),
+        null_resolutions: Vec::new(),
         index_resolution: None,
         unit_conversions: Vec::new(),
         unconverted_units: Vec::new(),
@@ -362,7 +365,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), null_resolutions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -403,6 +406,7 @@ fn insert_parsed_well(
 ) -> ImportResult {
     let well_id = Uuid::new_v4();
     let alias_decisions = columns.alias_decisions.clone();
+    let null_resolutions = columns.null_resolutions.clone();
     let index_resolution = columns.index_resolution.clone();
     let unit_designations = columns.unit_designations.clone();
     let las_version = columns.las_version.clone();
@@ -437,6 +441,7 @@ fn insert_parsed_well(
                     error: Some(format!("unrecognized confirmed file depth unit '{raw}'")),
                     attached_set: None,
                     alias_decisions: alias_decisions.clone(),
+                    null_resolutions: null_resolutions.clone(),
                     index_resolution: index_resolution.clone(),
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
@@ -462,6 +467,7 @@ fn insert_parsed_well(
                 error: Some(error),
                 attached_set: None,
                 alias_decisions: alias_decisions.clone(),
+                null_resolutions: null_resolutions.clone(),
                 index_resolution: index_resolution.clone(),
                 unit_conversions: Vec::new(),
                 unconverted_units: Vec::new(),
@@ -503,6 +509,7 @@ fn insert_parsed_well(
                     )),
                     attached_set: None,
                     alias_decisions,
+                    null_resolutions: null_resolutions.clone(),
                     index_resolution,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
@@ -532,6 +539,7 @@ fn insert_parsed_well(
                     )),
                     attached_set: None,
                     alias_decisions,
+                    null_resolutions: null_resolutions.clone(),
                     index_resolution,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
@@ -553,6 +561,7 @@ fn insert_parsed_well(
                     )),
                     attached_set: None,
                     alias_decisions,
+                    null_resolutions: null_resolutions.clone(),
                     index_resolution,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
@@ -595,6 +604,7 @@ fn insert_parsed_well(
             )),
             attached_set: None,
             alias_decisions: alias_decisions.clone(),
+            null_resolutions: null_resolutions.clone(),
             index_resolution: index_resolution.clone(),
             unit_conversions: Vec::new(),
             unconverted_units: Vec::new(),
@@ -675,6 +685,7 @@ fn insert_parsed_well(
                 error: Some(error),
                 attached_set: None,
                 alias_decisions,
+                null_resolutions,
                 index_resolution,
                 unit_conversions: Vec::new(),
                 unconverted_units: Vec::new(),
@@ -701,7 +712,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
             }
         };
         match stmt
@@ -710,7 +721,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
             }
         }
     };
@@ -724,6 +735,7 @@ fn insert_parsed_well(
             opts,
             notes,
             alias_decisions.clone(),
+            null_resolutions.clone(),
             index_resolution.clone(),
             unit_designations.clone(),
             unit_tokens.clone(),
@@ -774,6 +786,7 @@ fn insert_parsed_well(
                 error: Some(error.to_string()),
                 attached_set: None,
                 alias_decisions,
+                null_resolutions,
                 index_resolution,
                 unit_conversions: Vec::new(),
                 unconverted_units: Vec::new(),
@@ -835,9 +848,9 @@ fn insert_parsed_well(
             notes.extend(unit_conversions.iter().map(crate::curves::UnitConversion::note));
             notes.extend(unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, index_resolution, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, null_resolutions, index_resolution, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
     }
 }
 
@@ -854,6 +867,7 @@ fn attach_curves_to_existing_well(
     opts: &LasImportOptions,
     notes: Vec<String>,
     alias_decisions: Vec<parsers::AliasDecision>,
+    null_resolutions: Vec<parsers::ChannelNullResolution>,
     index_resolution: Option<parsers::IndexResolution>,
     unit_designations: Vec<crate::curves::UnitDesignation>,
     unit_tokens: Vec<crate::curves::UnitTokenObservation>,
@@ -891,6 +905,7 @@ fn attach_curves_to_existing_well(
                 error: None,
                 attached_set: Some(set),
                 alias_decisions,
+                null_resolutions,
                 index_resolution,
                 unit_conversions: report.unit_conversions,
                 unconverted_units: report.unconverted_units,
@@ -901,7 +916,7 @@ fn attach_curves_to_existing_well(
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
     }
 }
 
@@ -2403,6 +2418,97 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    fn import_null_mode_fixture(
+        conn: &Connection,
+        label: &str,
+        channel_nulls: parsers::ChannelNullValues,
+    ) -> ImportResult {
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi-null-mode-{label}-{}.las",
+            Uuid::new_v4()
+        ));
+        let las = format!(
+            "~Version\nVERS. 2.0\n~Well\nWELL. NULL_MODE_{label}\nNULL. -999.25\n~Curve\nDEPT.M : Depth\nPWF1. : Waveform amplitude\n~Ascii\n1000.0 -999.25\n1001.0 12.5\n"
+        );
+        std::fs::write(&path, las).unwrap();
+        let options = LasImportOptions {
+            channel_nulls,
+            ..LasImportOptions::default()
+        };
+        let result = import_las_files_with(
+            conn,
+            &[path.to_string_lossy().to_string()],
+            None,
+            &options,
+        )
+        .remove(0);
+        std::fs::remove_file(path).unwrap();
+        result
+    }
+
+    /// **A channel declared no null preserves a sentinel-shaped amplitude and reports no null.**
+    /// `SB-DIO-003` / `SB-DIO-T04` CORRECTNESS. Source: 21_data-io.md D-3, section 5.2 and
+    /// T04 identify `-999.25` as a genuine array/waveform amplitude when `NoNull` is declared.
+    #[test]
+    fn a_channel_declared_no_null_preserves_a_sentinel_shaped_amplitude_and_reports_no_null() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let mut channel_nulls = parsers::ChannelNullValues::new();
+        channel_nulls.insert(
+            "PWF1".into(),
+            parsers::ChannelNullMode::NoNull(parsers::NoNullMarker::NoNull),
+        );
+
+        let result = import_null_mode_fixture(&conn, "DECLARED", channel_nulls);
+
+        assert!(result.error.is_none(), "{:?}", result.error);
+        let resolution = result
+            .null_resolutions
+            .iter()
+            .find(|entry| entry.channel == "PWF1")
+            .expect("the import result names the resolved source channel");
+        assert_eq!(resolution.mode, parsers::ChannelNullResolutionMode::NoNull);
+        assert!(resolution.values.is_empty(), "NoNull cannot carry an invented sentinel list");
+        let stored: f32 = conn
+            .query_row(
+                "SELECT s.value FROM curve_samples s JOIN curve_meta m ON m.curve_id = s.curve_id
+                 WHERE m.mnemonic = 'PWF1' ORDER BY s.depth LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, -999.25, "the cited genuine amplitude must survive as data");
+    }
+
+    /// **An unset channel screens the same sentinel-shaped amplitude and reports unset.**
+    /// `SB-DIO-003` / `SB-DIO-T05` CORRECTNESS. Source: 21_data-io.md T05 requires the same
+    /// channel without a declaration to use ordinary screening and expose the difference.
+    #[test]
+    fn an_unset_channel_screens_the_same_sentinel_shaped_amplitude_and_reports_unset() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        let result = import_null_mode_fixture(&conn, "UNSET", parsers::ChannelNullValues::new());
+
+        assert!(result.error.is_none(), "{:?}", result.error);
+        let resolution = result
+            .null_resolutions
+            .iter()
+            .find(|entry| entry.channel == "PWF1")
+            .expect("the import result names even an unset source channel");
+        assert_eq!(resolution.mode, parsers::ChannelNullResolutionMode::Unset);
+        assert!(resolution.values.is_empty(), "unset cannot invent a per-channel sentinel list");
+        let stored: f32 = conn
+            .query_row(
+                "SELECT s.value FROM curve_samples s JOIN curve_meta m ON m.curve_id = s.curve_id
+                 WHERE m.mnemonic = 'PWF1' ORDER BY s.depth LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(stored.is_nan(), "ordinary screening must write the internal f32::NAN marker");
+    }
+
     /// A normal LAS delivery is one commit boundary. Duplicate source mnemonics force the
     /// generic Arrow insert to fail on (curve_id, depth) only after the well row, standard
     /// projection, metadata, and staged samples have all been touched. None may survive.
@@ -2438,6 +2544,7 @@ mod tests {
                 },
             ],
             alias_decisions: Vec::new(),
+            null_resolutions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
         };
@@ -2578,6 +2685,7 @@ mod tests {
             sp: vec![f32::NAN; 3],
             raw_curves: Vec::new(),
             alias_decisions: Vec::new(),
+            null_resolutions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
         };
@@ -3235,6 +3343,7 @@ mod tests {
                 values: vec![1.0, 2.0, 3.0, 4.0, 5.0],
             }],
             alias_decisions: Vec::new(),
+            null_resolutions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
         };

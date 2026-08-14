@@ -76,6 +76,8 @@
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_declared_sentinel_reaches_every_registered_writer_and_no_writer_emits_its_own"
 "SB-DIO-001","CORRECTNESS","src-tauri/src/export.rs","a_registered_writer_cannot_omit_the_required_sentinel_argument"
 "SB-DIO-002","CORRECTNESS","src-tauri/src/export.rs","the_default_export_format_honours_the_sentinel_and_an_incapable_format_is_marked"
+"SB-DIO-003","CORRECTNESS","src-tauri/src/ingest.rs","a_channel_declared_no_null_preserves_a_sentinel_shaped_amplitude_and_reports_no_null"
+"SB-DIO-003","CORRECTNESS","src-tauri/src/ingest.rs","an_unset_channel_screens_the_same_sentinel_shaped_amplitude_and_reports_unset"
 "SB-DIO-004","CORRECTNESS","src-tauri/src/parsers.rs","null_recognition_is_one_relative_tolerance_transform_and_recognition_never_rewrites"
 "SB-DIO-005","CORRECTNESS","src-tauri/src/parsers.rs","two_channels_with_different_plural_nulls_are_screened_against_their_own_values_only"
 "SB-DIO-006","CORRECTNESS","src-tauri/src/parsers.rs","one_null_exception_entry_keeps_all_six_name_patterns_active_and_no_null_is_not_unset"

@@ -1,5 +1,18 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-003: LAS Import distinguishes NoNull from unset data conventions
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T04 and SB-DIO-T05 are
+      independently green at 1 passed / 0 failed / 0 ignored each. Both enter the real LAS import,
+      inspect the typed per-channel result and query the stored sample; parser helpers alone do not
+      close this contract.
+- [ ] **Two-sided control:** declare `PWF1` as `NoNull` and confirm the cited genuine `-999.25`
+      amplitude remains finite with result mode `no_null`; repeat without a channel declaration and
+      confirm ordinary screening writes internal `f32::NAN` with result mode `unset`.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import both representative deliveries,
+      inspect the resolved channel-null records returned by the application, and independently
+      verify the preserved versus missing sample after reload. Synthetic fixtures are not field evidence.
+
 ## 2026-08-14 — G2 SB-DIO-034: Curve Catalog Workflow and log view silently choose family members
 
 - [ ] **Automated contract:** BLOCKED. Exact SB-DIO-T50 does not exist, and the current universal

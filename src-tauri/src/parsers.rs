@@ -197,6 +197,9 @@ pub struct CurveColumns {
     pub raw_curves: Vec<RawLasCurve>,
     /// Present where aliases compete or where one incoming mnemonic is renamed.
     pub alias_decisions: Vec<AliasDecision>,
+    /// The effective per-channel null decision exposed to the import result. `Unset` means
+    /// ordinary file/global LAS screening applies; it is deliberately distinct from `NoNull`.
+    pub null_resolutions: Vec<ChannelNullResolution>,
     pub index_resolution: Option<IndexResolution>,
     /// Per-file answers to unit symbols that have more than one legitimate quantity.
     pub unit_designations: Vec<crate::curves::UnitDesignation>,
@@ -256,6 +259,23 @@ pub enum ChannelNullMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NoNullMarker {
     NoNull,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelNullResolutionMode {
+    Unset,
+    NoNull,
+    Values,
+}
+
+/// The resolved null contract for one actual source channel. `values` is populated only for
+/// `Values`; the explicit mode prevents an empty list from collapsing `NoNull` into `Unset`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChannelNullResolution {
+    pub channel: String,
+    pub mode: ChannelNullResolutionMode,
+    pub values: Vec<f64>,
 }
 
 /// The vendor-rule shape specified by SB-DIO-006. One entry owns every regex in `names`;
@@ -344,6 +364,40 @@ fn is_null_value_for_channel(
         None => is_null_value(v, declared),
         Some(ChannelNullMode::Values(_)) => is_null_value(v, declared),
     }
+}
+
+fn resolved_null_modes(
+    channel_names: &[String],
+    channel_nulls: &ChannelNullValues,
+) -> Vec<ChannelNullResolution> {
+    channel_names
+        .iter()
+        .map(|channel| {
+            let configured = channel_nulls.get(channel).or_else(|| {
+                channel_nulls
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case(channel))
+                    .map(|(_, mode)| mode)
+            });
+            match configured {
+                Some(ChannelNullMode::Values(values)) => ChannelNullResolution {
+                    channel: channel.clone(),
+                    mode: ChannelNullResolutionMode::Values,
+                    values: values.clone(),
+                },
+                Some(ChannelNullMode::NoNull(_)) => ChannelNullResolution {
+                    channel: channel.clone(),
+                    mode: ChannelNullResolutionMode::NoNull,
+                    values: Vec::new(),
+                },
+                None => ChannelNullResolution {
+                    channel: channel.clone(),
+                    mode: ChannelNullResolutionMode::Unset,
+                    values: Vec::new(),
+                },
+            }
+        })
+        .collect()
 }
 
 /// Parse the NULL value from a `~W` block line ("NULL .  -999.25 : NULL VALUE").
@@ -996,6 +1050,7 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     cols.rhob = picked.remove(0);
     cols.dt = picked.remove(0);
     cols.sp = picked.remove(0);
+    cols.null_resolutions = resolved_null_modes(&curve_names, &resolved_channel_nulls);
     cols.declared_step = declared_step;
     cols.declared_step_mismatch_note = declared_step_mismatch_note;
     for index in 0..curve_names.len() {
@@ -3458,6 +3513,7 @@ mod las_depth_tests {
             sp: seq,
             raw_curves: Vec::new(),
             alias_decisions: Vec::new(),
+            null_resolutions: Vec::new(),
             index_resolution: None,
             unit_designations: Vec::new(),
         }
