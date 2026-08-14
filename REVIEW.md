@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-004: display clipping and analyst validity are separate populations
+
+- [ ] **Automated correctness:** exact SB-PLT-004 is green at 1 passed / 0 failed / 0 ignored;
+      the full gate is green at 1025 passed / 0 failed / 37 ignored with 47 owned Rust warnings.
+      Five unequal samples prove display clipping counts two hidden without changing `n=5`, while
+      explicit validity excludes two, changes `n` to 3, changes the independently derived mean
+      from 2 to 3 and reports the fit-input count. All five pilot panel adapters execute the same
+      policy; a deliberate Histogram mutation returned the expected `5 !== 3` RED before restore.
+- [ ] **Visual:** open Crossplot, Histogram, Pickett, Correlation and Vega. First zoom or narrow only
+      the display and confirm `display hidden` changes while analytical `n`, statistics and active
+      fit inputs do not. Then enter complete validity limits, explicitly enable them, and confirm
+      `validity excluded`, `n`, statistics and fit inputs change together. A fresh Tauri release was
+      built, but the sandbox capture failed before producing a frame, so no screenshot is claimed.
+- [ ] **Manual:** save and reopen each panel with validity disabled, enabled and later cleared. Confirm
+      incomplete/equal/non-finite pairs refuse or stay disabled, Pickett refuses an excluded anchor
+      and clears an invalidated two-anchor fit, Correlation breaks clipped traces instead of clamping
+      them to an edge, and a generated Vega regression uses the disclosed filtered population.
+- [ ] **Field and harsh critique:** repeat with representative multi-set wells, log axes, context wells
+      and reversed display axes. A green helper plus adapter inventory does not prove text remains
+      readable at real dock sizes; the current E2E harness is stale on scoped `list_wells`, workflow
+      custody and capture-only teardown, and must not be mistaken for product visual acceptance.
+
 ## 2026-08-15 — G2 SB-PLT-002: Crossplot, Histogram, Pickett, Correlation and Vega governed axis custody
 
 - [ ] **Automated correctness:** the one owned T01/T02 contract test and full gate are green at

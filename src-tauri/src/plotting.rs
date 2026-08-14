@@ -460,6 +460,7 @@ pub fn bind_overlay_axis(
     })
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RangePolicyReport {
     pub input_count: usize,
@@ -470,6 +471,7 @@ pub struct RangePolicyReport {
     pub kept_values: Vec<f32>,
 }
 
+#[cfg(test)]
 pub fn apply_range_policy(
     values: &[f32],
     display: DisplayRange,

@@ -48,8 +48,10 @@ import {
   axisRangeExportRecord,
   formatAxisRangeSummary,
   resolveBoundAxisRange,
+  type AxisDisplayRange,
   type PlotAxisRangeExport,
 } from "./axisRange";
+import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
 
 /** Persisted Pickett v2 display settings (plotprops doc "pickett"). Complete axis pairs are
  *  user overrides; absent pairs continue to header/family/finite data. */
@@ -64,6 +66,11 @@ interface PickettProps {
   zCurve: string;
   colormap: ColormapName;
   zLog: boolean;
+  validityFilter: boolean;
+  rtValidMin: number | null;
+  rtValidMax: number | null;
+  phiValidMin: number | null;
+  phiValidMax: number | null;
 }
 
 const PICKETT_DEFAULTS: PickettProps = {
@@ -77,6 +84,11 @@ const PICKETT_DEFAULTS: PickettProps = {
   zCurve: "",
   colormap: "rainbow",
   zLog: false,
+  validityFilter: false,
+  rtValidMin: null,
+  rtValidMax: null,
+  phiValidMin: null,
+  phiValidMax: null,
 };
 
 /** Fills defaults and sanitizes saved/template-supplied props (a template can carry
@@ -92,11 +104,58 @@ export function sanitizePickettProps(raw: Partial<PickettProps>): PickettProps {
   };
   [p.rtMin, p.rtMax] = pair(p.rtMin, p.rtMax);
   [p.phiMin, p.phiMax] = pair(p.phiMin, p.phiMax);
+  [p.rtValidMin, p.rtValidMax] = pair(p.rtValidMin, p.rtValidMax);
+  [p.phiValidMin, p.phiValidMax] = pair(p.phiValidMin, p.phiValidMax);
+  p.validityFilter = !!p.validityFilter
+    && (p.rtValidMin !== null || p.phiValidMin !== null);
   p.pointSize = Math.max(0.5, Math.min(8, pos(p.pointSize, PICKETT_DEFAULTS.pointSize)));
   p.zCurve = typeof p.zCurve === "string" ? p.zCurve : "";
   if (p.colormap !== "viridis") p.colormap = "rainbow";
   p.zLog = !!p.zLog;
   return p;
+}
+
+interface PickettRenderStyle {
+  rtMin?: number | null;
+  rtMax?: number | null;
+  phiMin?: number | null;
+  phiMax?: number | null;
+  pointSize?: number;
+  colors?: string[];
+  validityFilter?: boolean;
+  rtValidMin?: number | null;
+  rtValidMax?: number | null;
+  phiValidMin?: number | null;
+  phiValidMax?: number | null;
+}
+
+function pickettRange(low: number | null | undefined, high: number | null | undefined): AxisDisplayRange | null {
+  return low !== null && low !== undefined && high !== null && high !== undefined
+    ? { min: low, max: high }
+    : null;
+}
+
+export function screenPickettPopulation(
+  rt: Float32Array,
+  phi: Float32Array,
+  style: PickettRenderStyle | undefined,
+  rtDisplay: AxisDisplayRange | null,
+  phiDisplay: AxisDisplayRange | null,
+): PlotRangePolicyReport {
+  return applyPlotRangePolicy([
+    {
+      values: rt,
+      display: rtDisplay,
+      validity: pickettRange(style?.rtValidMin, style?.rtValidMax),
+      log: true,
+    },
+    {
+      values: phi,
+      display: phiDisplay,
+      validity: pickettRange(style?.phiValidMin, style?.phiValidMax),
+      log: true,
+    },
+  ], !!style?.validityFilter);
 }
 
 /** One extra well's cloud drawn faded behind the active well — display-only: the fitted
@@ -140,12 +199,26 @@ export function drawPickett(
   picks: [number, number][],
   hoverIdx = -1,
   view: Viewport | null = null,
-  style?: { rtMin?: number | null; rtMax?: number | null; phiMin?: number | null; phiMax?: number | null; pointSize?: number; colors?: string[] },
+  style?: PickettRenderStyle,
   context: PickettContext | null = null,
   axisBindings: { resistivity: PlotChannelBinding | null; porosity: PlotChannelBinding | null } | null = null,
   onAxisRanges?: (ranges: PlotAxisRangeExport[]) => void,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
+  const preliminary = screenPickettPopulation(rt, phi, style, null, null);
+  const plotRt = Float32Array.from(preliminary.indices.map((index) => rt[index]));
+  const plotPhi = Float32Array.from(preliminary.indices.map((index) => phi[index]));
+  const plotColors = style?.colors
+    ? preliminary.indices.map((index) => style.colors![index])
+    : undefined;
+  const contextLayers = context?.layers.map((layer) => {
+    const screened = screenPickettPopulation(layer.rt, layer.phi, style, null, null);
+    return {
+      ...layer,
+      rt: Float32Array.from(screened.indices.map((index) => layer.rt[index])),
+      phi: Float32Array.from(screened.indices.map((index) => layer.phi[index])),
+    };
+  }) ?? [];
   const finitePositiveRange = (active: Float32Array, layers: Float32Array[]): { min: number; max: number } | null => {
     const values: number[] = [];
     for (const source of [active, ...layers]) {
@@ -163,7 +236,8 @@ export function drawPickett(
       : style?.rtMin !== null && style?.rtMin !== undefined && style?.rtMax !== null && style?.rtMax !== undefined
         ? { min: style.rtMin, max: style.rtMax }
         : null,
-    finiteData: finitePositiveRange(rt, context?.layers.map((layer) => layer.rt) ?? []),
+    finiteData: finitePositiveRange(plotRt, contextLayers.map((layer) => layer.rt)),
+    validity: pickettRange(style?.rtValidMin, style?.rtValidMax),
     log: true,
   });
   const phiRange = resolveBoundAxisRange({
@@ -173,10 +247,27 @@ export function drawPickett(
       : style?.phiMin !== null && style?.phiMin !== undefined && style?.phiMax !== null && style?.phiMax !== undefined
         ? { min: style.phiMin, max: style.phiMax }
         : null,
-    finiteData: finitePositiveRange(phi, context?.layers.map((layer) => layer.phi) ?? []),
+    finiteData: finitePositiveRange(plotPhi, contextLayers.map((layer) => layer.phi)),
+    validity: pickettRange(style?.phiValidMin, style?.phiValidMax),
     log: true,
   });
   if (!rtRange || !phiRange) return null;
+  const population = screenPickettPopulation(
+    rt,
+    phi,
+    style,
+    { min: rtRange.min, max: rtRange.max },
+    { min: phiRange.min, max: phiRange.max },
+  );
+  const pickPopulation = picks.length > 0
+    ? screenPickettPopulation(
+        Float32Array.from(picks.map((pick) => pick[0])),
+        Float32Array.from(picks.map((pick) => pick[1])),
+        style,
+        null,
+        null,
+      )
+    : null;
   const resolvedRanges = [
     axisRangeExportRecord("x", rtRange),
     axisRangeExportRecord("y", phiRange),
@@ -205,20 +296,29 @@ export function drawPickett(
   plot.ctx.fillStyle = plot.theme.axis;
   plot.ctx.textAlign = "left";
   plot.ctx.fillText(formatAxisRangeSummary(resolvedRanges), plot.plotRect.x0 + 4, plot.margin.top - 7);
+  plot.ctx.textAlign = "right";
+  plot.ctx.fillText(
+    formatPlotRangePolicySummary(population, {
+      statistics: true,
+      fitInputs: line && pickPopulation ? pickPopulation.analysisCount : null,
+    }),
+    plot.plotRect.x0 + plot.plotRect.w,
+    plot.plotRect.y0 + plot.plotRect.h + 31,
+  );
   plot.ctx.restore();
 
   // Context wells first, faded, so the active well's cloud reads on top of them.
-  const hasCtx = !!context && context.layers.length > 0;
+  const hasCtx = !!context && contextLayers.length > 0;
   if (hasCtx) {
     const { ctx } = plot;
     ctx.save();
     ctx.globalAlpha = 0.4;
-    for (const layer of context!.layers) {
+    for (const layer of contextLayers) {
       plot.drawScatter(layer.rt, layer.phi, layer.color, style?.pointSize ?? 1.8);
     }
     ctx.restore();
   }
-  plot.drawScatter(rt, phi, style?.colors, style?.pointSize ?? 1.8);
+  plot.drawScatter(plotRt, plotPhi, plotColors, style?.pointSize ?? 1.8);
 
   if (line) {
     // The fitted Sw=1 trend needs only m and the identifiable product a·Rw. Saturation
@@ -302,9 +402,10 @@ export function drawPickett(
   }
 
   // Synchronized hover: ring the sample at the depth under another view's cursor.
-  if (hoverIdx >= 0 && hoverIdx < rt.length) {
-    const hr = rt[hoverIdx];
-    const hp = phi[hoverIdx];
+  const eligibleHoverIndex = preliminary.indices.indexOf(hoverIdx);
+  if (eligibleHoverIndex >= 0) {
+    const hr = plotRt[eligibleHoverIndex];
+    const hp = plotPhi[eligibleHoverIndex];
     if (!Number.isNaN(hr) && !Number.isNaN(hp) && hr > 0 && hp > 0) {
       const [px, py] = plot.toPx(hr, hp);
       const { ctx } = plot;
@@ -541,6 +642,16 @@ export async function buildPickettContent(
     return null;
   };
 
+  const eligibleSampleIndices = (): Set<number> => new Set(
+    screenPickettPopulation(rt, phi, {
+      validityFilter: props.validityFilter,
+      rtValidMin: props.rtValidMin,
+      rtValidMax: props.rtValidMax,
+      phiValidMin: props.phiValidMin,
+      phiValidMax: props.phiValidMax,
+    }, null, null).indices,
+  );
+
   const computeColors = (z: Float32Array | undefined): string[] | undefined => {
     if (!z || z.length === 0) return undefined;
     let lo = Infinity;
@@ -634,6 +745,11 @@ export async function buildPickettContent(
       phiMax: props.phiMax,
       pointSize: props.pointSize,
       colors,
+      validityFilter: props.validityFilter,
+      rtValidMin: props.rtValidMin,
+      rtValidMax: props.rtValidMax,
+      phiValidMin: props.phiValidMin,
+      phiValidMax: props.phiValidMax,
     }, pickettContext(), currentAxisBindings(), (ranges) => {
       axisRanges = ranges;
     });
@@ -651,6 +767,7 @@ export async function buildPickettContent(
     // exact Set membership test aligns them; clipped to the plot and skipping log-invalid points.
     if (plot && brushSet && brushSet.size && depths.length === rt.length) {
       const { ctx } = plot;
+      const eligible = eligibleSampleIndices();
       const rp = plot.plotRect;
       ctx.save();
       ctx.beginPath();
@@ -660,6 +777,7 @@ export async function buildPickettContent(
       ctx.lineWidth = 1.5;
       const rad = Math.max(3, props.pointSize + 1.6);
       for (let i = 0; i < depths.length; i++) {
+        if (!eligible.has(i)) continue;
         if (!brushSet.has(depths[i])) continue;
         const rv = rt[i];
         const pv = phi[i];
@@ -684,6 +802,11 @@ export async function buildPickettContent(
       phiMax: props.phiMax,
       pointSize: props.pointSize,
       colors,
+      validityFilter: props.validityFilter,
+      rtValidMin: props.rtValidMin,
+      rtValidMax: props.rtValidMax,
+      phiValidMin: props.phiValidMin,
+      phiValidMax: props.phiValidMax,
     }, pickettContext(), currentAxisBindings(), (ranges) => {
       axisRanges = ranges;
     });
@@ -775,6 +898,23 @@ export async function buildPickettContent(
     const py = e.clientY - rect.top;
     if (!plot.inPlot(px, py)) return;
     const [rtV, phiV] = plot.toData(px, py);
+    const pickedPopulation = screenPickettPopulation(
+      Float32Array.of(rtV),
+      Float32Array.of(phiV),
+      {
+        validityFilter: props.validityFilter,
+        rtValidMin: props.rtValidMin,
+        rtValidMax: props.rtValidMax,
+        phiValidMin: props.phiValidMin,
+        phiValidMax: props.phiValidMax,
+      },
+      null,
+      null,
+    );
+    if (pickedPopulation.analysisCount === 0) {
+      setStatus("Pickett fit input refused: the picked point is outside the active validity range");
+      return;
+    }
 
     if (picks.length >= 2) picks = [];
     picks.push([rtV, phiV]);
@@ -868,6 +1008,16 @@ export async function buildPickettContent(
     const phiMinI = num(props.phiMin);
     const phiMaxI = num(props.phiMax);
     const psI = num(props.pointSize, 56);
+    const rtValidMinI = num(props.rtValidMin);
+    const rtValidMaxI = num(props.rtValidMax);
+    const phiValidMinI = num(props.phiValidMin);
+    const phiValidMaxI = num(props.phiValidMax);
+    const validityWrap = document.createElement("label");
+    validityWrap.className = "chk-field";
+    const validityChk = document.createElement("input");
+    validityChk.type = "checkbox";
+    validityChk.checked = props.validityFilter;
+    validityWrap.append(validityChk, document.createTextNode("Apply validity ranges to n and fit inputs"));
 
     const zSel = document.createElement("select");
     zSel.className = "form-control";
@@ -898,6 +1048,9 @@ export async function buildPickettContent(
 
     body.appendChild(formRow("RT axis", inline(rtMinI, "→", rtMaxI), "Blank = header display, then audited unit-family display, then finite positive data"));
     body.appendChild(formRow("PHIE axis", inline(phiMinI, "→", phiMaxI), "Both limits are required for a user override"));
+    body.appendChild(validityWrap);
+    body.appendChild(formRow("RT valid", inline(rtValidMinI, "to", rtValidMaxI), "Optional; both limits required when supplied"));
+    body.appendChild(formRow("PHIE valid", inline(phiValidMinI, "to", phiValidMaxI), "Validity changes n and fit inputs; display clipping does not"));
     body.appendChild(formRow("Point size", psI));
     body.appendChild(formRow("Color by", zSel));
     body.appendChild(formRow("Colormap", inline(cmSel, zLogWrap)));
@@ -919,20 +1072,51 @@ export async function buildPickettContent(
         const parsedLow = Number(lowText);
         const parsedHigh = Number(highText);
         if (!lowText || !highText || !Number.isFinite(parsedLow) || !Number.isFinite(parsedHigh) || parsedLow <= 0 || parsedHigh <= 0 || parsedLow === parsedHigh) {
-          setStatus(`${label} override requires two distinct positive limits, or two blanks for automatic precedence`);
+          setStatus(`${label} requires two distinct positive limits, or two blanks`);
           return null;
         }
         return [parsedLow, parsedHigh];
       };
       const rtPair = rangePair(rtMinI, rtMaxI, "RT axis");
       const phiPair = rangePair(phiMinI, phiMaxI, "PHIE axis");
-      if (!rtPair || !phiPair) return;
+      const rtValidPair = rangePair(rtValidMinI, rtValidMaxI, "RT validity");
+      const phiValidPair = rangePair(phiValidMinI, phiValidMaxI, "PHIE validity");
+      if (!rtPair || !phiPair || !rtValidPair || !phiValidPair) return;
+      if (validityChk.checked && rtValidPair[0] === null && phiValidPair[0] === null) {
+        setStatus("Pickett validity requires at least one complete RT or PHIE range before it can be enabled");
+        return;
+      }
       [props.rtMin, props.rtMax] = rtPair;
       [props.phiMin, props.phiMax] = phiPair;
+      [props.rtValidMin, props.rtValidMax] = rtValidPair;
+      [props.phiValidMin, props.phiValidMax] = phiValidPair;
+      props.validityFilter = validityChk.checked;
       props.pointSize = Math.max(0.5, parseFloat(psI.value) || PICKETT_DEFAULTS.pointSize);
       props.zCurve = zSel.value;
       props.colormap = cmSel.value as ColormapName;
       props.zLog = zLogChk.checked;
+      if (lastFit && picks.length === 2) {
+        const retainedPicks = screenPickettPopulation(
+          Float32Array.from(picks.map((pick) => pick[0])),
+          Float32Array.from(picks.map((pick) => pick[1])),
+          {
+            validityFilter: props.validityFilter,
+            rtValidMin: props.rtValidMin,
+            rtValidMax: props.rtValidMax,
+            phiValidMin: props.phiValidMin,
+            phiValidMax: props.phiValidMax,
+          },
+          null,
+          null,
+        );
+        if (retainedPicks.analysisCount !== 2) {
+          picks = [];
+          lastFit = null;
+          mIn.value = "";
+          aRwIn.value = "";
+          setStatus("Pickett fit cleared because an anchor is outside the active validity range");
+        }
+      }
       viewRef.current = null; // show the new axis ranges (a live zoom would otherwise mask them)
       void reload(true).then(persist); // refetch first so the saved tier/range matches the rendered plot
       close();
@@ -943,9 +1127,11 @@ export async function buildPickettContent(
   // while a button is down (pan or the tail of a water-line pick).
   const detachTip = attachScatterTooltip(canvas, (px, py) => {
     if (downXY || !plot || !plot.inPlot(px, py)) return null;
+    const eligible = eligibleSampleIndices();
     let best = -1;
     let bestD = 12 * 12; // within a 12 px radius
     for (let i = 0; i < rt.length; i++) {
+      if (!eligible.has(i)) continue;
       const vx = rt[i];
       const vy = phi[i];
       if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;

@@ -69,6 +69,11 @@ import {
   type AxisRangeResolution,
   type PlotAxisRangeExport,
 } from "./axisRange";
+import {
+  applyPlotRangePolicy,
+  formatPlotRangePolicySummary,
+  type PlotRangePolicyReport,
+} from "./plotRangePolicy";
 
 export type RegModel = "linear" | "power" | "logx" | "exp";
 export type RegMethod = "yx" | "xy" | "rma";
@@ -960,31 +965,41 @@ export function screenPlotPairs(
   xLog = false,
   yLog = false,
 ): PairValidityReport {
-  const indices: number[] = [];
-  let nonFiniteExcluded = 0;
-  let logDomainExcluded = 0;
-  let validityExcluded = 0;
-  const outside = (value: number, range: AxisDisplayRange | null): boolean =>
-    !!range && (value < Math.min(range.min, range.max) || value > Math.max(range.min, range.max));
-  const n = Math.min(xs.length, ys.length);
-  for (let i = 0; i < n; i++) {
-    const x = xs[i];
-    const y = ys[i];
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      nonFiniteExcluded++;
-      continue;
-    }
-    if ((xLog && x <= 0) || (yLog && y <= 0)) {
-      logDomainExcluded++;
-      continue;
-    }
-    if (enabled && (outside(x, xValidity) || outside(y, yValidity))) {
-      validityExcluded++;
-      continue;
-    }
-    indices.push(i);
-  }
-  return { indices, nonFiniteExcluded, logDomainExcluded, validityExcluded, statisticsCount: indices.length };
+  const report = screenCrossplotPopulation(
+    xs,
+    ys,
+    enabled,
+    xValidity,
+    yValidity,
+    null,
+    null,
+    xLog,
+    yLog,
+  );
+  return {
+    indices: report.indices,
+    nonFiniteExcluded: report.nonFiniteExcluded,
+    logDomainExcluded: report.logDomainExcluded,
+    validityExcluded: report.validityExcluded,
+    statisticsCount: report.analysisCount,
+  };
+}
+
+export function screenCrossplotPopulation(
+  xs: Float32Array,
+  ys: Float32Array,
+  enabled: boolean,
+  xValidity: AxisDisplayRange | null,
+  yValidity: AxisDisplayRange | null,
+  xDisplay: AxisDisplayRange | null,
+  yDisplay: AxisDisplayRange | null,
+  xLog = false,
+  yLog = false,
+): PlotRangePolicyReport {
+  return applyPlotRangePolicy([
+    { values: xs, display: xDisplay, validity: xValidity, log: xLog },
+    { values: ys, display: yDisplay, validity: yValidity, log: yLog },
+  ], enabled);
 }
 
 export function drawCrossplot(
@@ -1150,19 +1165,26 @@ export function drawCrossplot(
 
   if (opts.marginals) drawMarginals(plot, plotXs, plotYs, opts.bins, pointColor);
 
-  let displayHidden = 0;
-  for (let i = 0; i < plotXs.length; i++) {
-    if (plotXs[i] < Math.min(xr.min, xr.max) || plotXs[i] > Math.max(xr.min, xr.max)
-      || plotYs[i] < Math.min(yr.min, yr.max) || plotYs[i] > Math.max(yr.min, yr.max)) {
-      displayHidden++;
-    }
-  }
+  const population = screenCrossplotPopulation(
+    xs,
+    ys,
+    opts.validityFilter,
+    xValidity,
+    yValidity,
+    { min: xr.min, max: xr.max },
+    { min: yr.min, max: yr.max },
+    opts.xLog,
+    opts.yLog,
+  );
   plot.ctx.save();
   plot.ctx.font = canvasFont(plot.theme, 9);
   plot.ctx.fillStyle = plot.theme.axis;
   plot.ctx.textAlign = "right";
   plot.ctx.fillText(
-    `n=${validity.statisticsCount} · non-finite excluded=${validity.nonFiniteExcluded} · log-domain excluded=${validity.logDomainExcluded} · display hidden=${displayHidden} · validity excluded=${validity.validityExcluded}${zExcluded ? ` · Z excluded=${zExcluded}` : ""}${zClamped ? ` · Z clamped/edge-marked=${zClamped}` : ""}`,
+    `${formatPlotRangePolicySummary(population, {
+      statistics: true,
+      fitInputs: opts.regression ? population.analysisCount : null,
+    })}${zExcluded ? ` · Z excluded=${zExcluded}` : ""}${zClamped ? ` · Z clamped/edge-marked=${zClamped}` : ""}`,
     plot.plotRect.x0 + plot.plotRect.w,
     plot.plotRect.y0 + plot.plotRect.h + 31,
   );

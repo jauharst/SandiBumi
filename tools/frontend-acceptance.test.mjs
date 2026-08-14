@@ -174,6 +174,109 @@ test("a_user_axis_range_wins_and_without_it_the_header_range_wins_in_the_rendere
   }
 });
 
+test("display_clipping_counts_hidden_points_without_changing_analysis_while_explicit_validity_changes_and_discloses_n_statistics_and_fit_inputs_on_every_pilot_plot", async () => {
+  // CORRECTNESS — SB-PLT-004. docs/PRD_v2/23_plotting-interactivity.md
+  // §§2.2 and 4.1 require display clipping to leave the analysis population alone,
+  // while explicit validity exclusion changes and reports n, statistics and fits.
+  // The unequal 0..4, 1..3 and 2..4 bounds are discriminator fixtures only; they
+  // are not petrophysical limits or product defaults.
+  const { applyPlotRangePolicy, formatPlotRangePolicySummary } = await load("/src/ui/plotRangePolicy.ts");
+  const { basicStats } = await load("/src/ui/plotCanvas.ts");
+  const x = Float32Array.of(0, 1, 2, 3, 4);
+  const y = Float32Array.of(10, 11, 12, 13, 14);
+
+  const clipped = applyPlotRangePolicy([
+    { values: x, display: { min: 1, max: 3 }, validity: { min: 2, max: 4 } },
+    { values: y, display: null, validity: null },
+  ], false);
+  assert.deepEqual(clipped.indices, [0, 1, 2, 3, 4]);
+  assert.equal(clipped.analysisCount, 5);
+  assert.equal(clipped.displayHidden, 2);
+  assert.equal(clipped.validityExcluded, 0);
+  assert.equal(basicStats(Float32Array.from(clipped.indices.map((index) => x[index]))).mean, 2);
+  assert.equal(
+    formatPlotRangePolicySummary(clipped, { statistics: true, fitInputs: clipped.analysisCount }),
+    "n=5 · non-finite excluded=0 · log-domain excluded=0 · display hidden=2 · validity excluded=0 · statistics n=5 · fit inputs=5",
+  );
+
+  const filtered = applyPlotRangePolicy([
+    { values: x, display: { min: 0, max: 4 }, validity: { min: 2, max: 4 } },
+    { values: y, display: null, validity: null },
+  ], true);
+  assert.deepEqual(filtered.indices, [2, 3, 4]);
+  assert.equal(filtered.analysisCount, 3);
+  assert.equal(filtered.displayHidden, 0);
+  assert.equal(filtered.validityExcluded, 2);
+  assert.equal(basicStats(Float32Array.from(filtered.indices.map((index) => x[index]))).mean, 3);
+  assert.equal(
+    formatPlotRangePolicySummary(filtered, { statistics: true, fitInputs: filtered.analysisCount }),
+    "n=3 · non-finite excluded=0 · log-domain excluded=0 · display hidden=0 · validity excluded=2 · statistics n=3 · fit inputs=3",
+  );
+
+  // Exercise each panel's real population adapter from both sides. A dead import or an
+  // unused shared helper cannot satisfy this inventory.
+  const { screenCrossplotPopulation } = await load("/src/ui/crossplotPanel.ts");
+  const { DEFAULT_HISTOGRAM_OPTIONS, screenHistogramPopulation } = await load("/src/ui/histogramPanel.ts");
+  const { screenPickettPopulation } = await load("/src/ui/pickettPanel.ts");
+  const { DEFAULT_CORRELATION_OPTIONS, screenCorrelationPopulation } = await load("/src/ui/correlationPanel.ts");
+  const { screenVegaPopulation } = await load("/src/ui/vegaPanel.ts");
+  assert.equal(typeof screenCrossplotPopulation, "function", "Crossplot must expose its live population adapter");
+
+  const makePanelReports = (validity) => [
+    ["Crossplot", screenCrossplotPopulation(
+      x, y, validity, { min: 2, max: 4 }, null, { min: validity ? 0 : 1, max: validity ? 4 : 3 }, null,
+    )],
+    ["Histogram", screenHistogramPopulation(
+      x,
+      { ...DEFAULT_HISTOGRAM_OPTIONS, validityFilter: validity, validMin: 2, validMax: 4 },
+      { min: validity ? 0 : 1, max: validity ? 4 : 3 },
+    )],
+    ["Pickett", screenPickettPopulation(
+      Float32Array.of(1, 2, 3, 4, 5),
+      y,
+      { validityFilter: validity, rtValidMin: 3, rtValidMax: 5 },
+      { min: validity ? 1 : 2, max: validity ? 5 : 4 },
+      null,
+    )],
+    ["Correlation", screenCorrelationPopulation(
+      x,
+      { ...DEFAULT_CORRELATION_OPTIONS, validityFilter: validity, validMin: 2, validMax: 4 },
+      { min: validity ? 0 : 1, max: validity ? 4 : 3 },
+    )],
+    ["Vega", screenVegaPopulation(
+      Array.from(x, (value, index) => ({ depth: index, x: value, y: y[index] })),
+      "scatter",
+      { apply: validity, x: { min: 2, max: 4 }, y: null },
+      { min: validity ? 0 : 1, max: validity ? 4 : 3 },
+      null,
+    )],
+  ];
+  for (const [panel, report] of makePanelReports(false)) {
+    assert.equal(report.analysisCount, 5, `${panel}: display clipping must preserve n`);
+    assert.equal(report.displayHidden, 2, `${panel}: display clipping must count hidden samples`);
+    assert.equal(report.validityExcluded, 0, `${panel}: disabled validity must exclude nothing`);
+  }
+  for (const [panel, report] of makePanelReports(true)) {
+    assert.equal(report.analysisCount, 3, `${panel}: explicit validity must change n`);
+    assert.equal(report.displayHidden, 0, `${panel}: full display must hide nothing`);
+    assert.equal(report.validityExcluded, 2, `${panel}: explicit validity must count exclusions`);
+  }
+
+  // Build-time adapter registry only: correctness comes from the executed reports above.
+  // This inventory ensures a live pilot panel cannot quietly drop the shared disclosure path.
+  for (const [panel, adapter] of [
+    ["crossplotPanel.ts", "screenCrossplotPopulation"],
+    ["histogramPanel.ts", "screenHistogramPopulation"],
+    ["pickettPanel.ts", "screenPickettPopulation"],
+    ["correlationPanel.ts", "screenCorrelationPopulation"],
+    ["vegaPanel.ts", "screenVegaPopulation"],
+  ]) {
+    const source = await readFile(new URL(`../src/ui/${panel}`, import.meta.url), "utf8");
+    assert.match(source, new RegExp(`${adapter}\\(`), `${panel} must call its executed policy adapter`);
+    assert.match(source, /formatPlotRangePolicySummary\(/, `${panel} must disclose the shared policy summary`);
+  }
+});
+
 test("track curve keys distinguish equal mnemonics from different imported sets", async () => {
   const { availableTrackSets, hasTrackCurve, trackCurveKey } = await load("/src/trackCurveRequest.ts");
   assert.equal(trackCurveKey({ curve_name: "gr" }), "GR");

@@ -49,8 +49,10 @@ import {
   axisRangeExportRecord,
   formatAxisRangeSummary,
   resolveBoundAxisRange,
+  type AxisDisplayRange,
   type PlotAxisRangeExport,
 } from "./axisRange";
+import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
 
 export type HistogramMode = "bars" | "line";
 
@@ -78,6 +80,10 @@ export interface HistogramOptions {
   /** Show the pick → zone-parameter rows. Off by default — the histogram is a
    *  general-purpose tool; parameter picking is opted into via Properties. */
   showPicks: boolean;
+  /** Scientific validity exclusion is opt-in and never supplies the display axis. */
+  validityFilter: boolean;
+  validMin: number | null;
+  validMax: number | null;
 }
 
 export const DEFAULT_HISTOGRAM_OPTIONS: HistogramOptions = {
@@ -91,6 +97,9 @@ export const DEFAULT_HISTOGRAM_OPTIONS: HistogramOptions = {
   percentiles: [],
   statsPlacement: "outside",
   showPicks: false,
+  validityFilter: false,
+  validMin: null,
+  validMax: null,
 };
 
 const STAT_DEFS: { key: StatKey; label: string; fmt: (s: BasicStats) => string; marker: boolean }[] = [
@@ -140,7 +149,39 @@ export function normalizeHistogramOptions(raw: Partial<HistogramOptions>): Histo
   if (!["outside", "inside", "both"].includes(opts.statsPlacement)) {
     opts.statsPlacement = DEFAULT_HISTOGRAM_OPTIONS.statsPlacement;
   }
+  const validPair = typeof opts.validMin === "number" && Number.isFinite(opts.validMin)
+    && typeof opts.validMax === "number" && Number.isFinite(opts.validMax)
+    && opts.validMin !== opts.validMax;
+  if (!validPair) {
+    opts.validMin = null;
+    opts.validMax = null;
+    opts.validityFilter = false;
+  } else {
+    opts.validityFilter = !!opts.validityFilter;
+  }
   return opts;
+}
+
+function histogramValidityRange(opts: HistogramOptions): AxisDisplayRange | null {
+  return opts.validMin !== null && opts.validMax !== null
+    ? { min: opts.validMin, max: opts.validMax }
+    : null;
+}
+
+export function screenHistogramPopulation(
+  values: ArrayLike<number>,
+  opts: HistogramOptions,
+  display: AxisDisplayRange | null,
+): PlotRangePolicyReport {
+  return applyPlotRangePolicy([{
+    values,
+    display,
+    validity: histogramValidityRange(opts),
+  }], opts.validityFilter);
+}
+
+function valuesAtIndices(values: ArrayLike<number>, indices: readonly number[]): Float32Array {
+  return Float32Array.from(indices.map((index) => values[index]));
 }
 
 /** Computes histogram bin counts over [min, max]; NaN values are skipped. */
@@ -197,12 +238,17 @@ export function drawHistogram(
   onAxisRanges?: (ranges: PlotAxisRangeExport[]) => void,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
+  const preliminary = screenHistogramPopulation(values, opts, null);
+  const analysisValues = valuesAtIndices(values, preliminary.indices);
+  if (analysisValues.length === 0) return null;
   // With context wells the auto range covers the pooled field spread, so a shifted
   // neighbour (the GR-normalization case) isn't clipped by the active well's window.
   const hasCtx = !!context && context.layers.length > 0;
+  const contextValues = context?.layers.map((layer) =>
+    valuesAtIndices(layer.values, screenHistogramPopulation(layer.values, opts, null).indices)) ?? [];
   const rangeValues = hasCtx
-    ? concatValues(Float32Array.from(values as ArrayLike<number>), context!.layers.map((l) => l.values))
-    : values;
+    ? concatValues(analysisValues, contextValues)
+    : analysisValues;
   const p2 = percentile(rangeValues, 2);
   const p98 = percentile(rangeValues, 98);
   if (Number.isNaN(p2) || Number.isNaN(p98)) return null;
@@ -215,11 +261,23 @@ export function drawHistogram(
   const min = p2 - pad;
   const max = p98 + pad;
 
+  const xResolution = resolveBoundAxisRange({
+    binding: axisBinding,
+    user: view ? { min: view.xMin, max: view.xMax } : null,
+    finiteData: { min, max },
+    validity: histogramValidityRange(opts),
+  });
+  if (!xResolution) return null;
+  const population = screenHistogramPopulation(values, opts, {
+    min: xResolution.min,
+    max: xResolution.max,
+  });
+
   const bins = clampBins(opts.bins);
-  const { counts, edges, n, nonFiniteExcluded } = computeHistogram(values, min, max, bins);
+  const { counts, edges, n } = computeHistogram(analysisValues, min, max, bins);
   if (n === 0) return null;
 
-  const stats = basicStats(values);
+  const stats = basicStats(analysisValues);
   const yScale = opts.normalize ? 100 / n : 1;
 
   // Context wells: each is binned over the SAME edges and normalized to its OWN sample
@@ -229,8 +287,9 @@ export function drawHistogram(
   // well's true per-well percentage. Computed before the axis so yMax covers them.
   const ctxCurves: { color: string; pts: [number, number][]; peak: number }[] = [];
   if (hasCtx) {
-    for (const layer of context!.layers) {
-      const { counts: cc, n: cn } = computeHistogram(layer.values, min, max, bins);
+    for (let layerIndex = 0; layerIndex < context!.layers.length; layerIndex++) {
+      const layer = context!.layers[layerIndex];
+      const { counts: cc, n: cn } = computeHistogram(contextValues[layerIndex], min, max, bins);
       if (cn === 0) continue;
       const scale = (n * yScale) / cn;
       let layerPeak = 0;
@@ -249,21 +308,13 @@ export function drawHistogram(
   // The P2–P98 axis window can clip tail samples, so the in-window n is below the total valid
   // count that the stats chips show. Surface both ("n = X of Y") so the two never silently
   // disagree — a real QC trap for anyone standardizing GR on P3/P97 tails.
-  const nLabel = stats.count > n ? `${n} of ${stats.count}` : `${n}`;
-  const excludedLabel = nonFiniteExcluded ? `; non-finite excluded=${nonFiniteExcluded}` : "";
-  const yLabel = opts.normalize ? `% of samples (n=${nLabel}${excludedLabel})` : `Count (n=${nLabel}${excludedLabel})`;
-
-  const xResolution = resolveBoundAxisRange({
-    binding: axisBinding,
-    user: view ? { min: view.xMin, max: view.xMax } : null,
-    finiteData: { min, max },
-  });
+  const yLabel = opts.normalize ? `% of analysis samples (n=${stats.count})` : `Count (analysis n=${stats.count})`;
   const yResolution = resolveBoundAxisRange({
     binding: null,
     user: null,
     finiteData: { min: 0, max: yMax },
   });
-  if (!xResolution || !yResolution) return null;
+  if (!yResolution) return null;
   const xInvert = xResolution.min > xResolution.max;
   const resolvedRanges = [
     axisRangeExportRecord("x", xResolution),
@@ -282,6 +333,12 @@ export function drawHistogram(
   plot.ctx.fillStyle = plot.theme.axis;
   plot.ctx.textAlign = "left";
   plot.ctx.fillText(formatAxisRangeSummary(resolvedRanges), plot.plotRect.x0 + 4, plot.margin.top - 7);
+  plot.ctx.textAlign = "right";
+  plot.ctx.fillText(
+    formatPlotRangePolicySummary(population, { statistics: true }),
+    plot.plotRect.x0 + plot.plotRect.w,
+    plot.plotRect.y0 + plot.plotRect.h + 31,
+  );
   plot.ctx.restore();
   const barColor = opts.color || plot.theme.accent;
 
@@ -314,7 +371,11 @@ export function drawHistogram(
   // Brushed sub-distribution (linked selection): the selected samples' counts in the SAME bins,
   // over-painted in accent2 so you see where a brushed crossplot cloud falls in this property.
   if (brushValues && brushValues.length) {
-    const bc = computeHistogram(brushValues, min, max, bins).counts;
+    const eligibleBrush = valuesAtIndices(
+      brushValues,
+      screenHistogramPopulation(brushValues, opts, null).indices,
+    );
+    const bc = computeHistogram(eligibleBrush, min, max, bins).counts;
     const { ctx } = plot;
     ctx.save();
     ctx.fillStyle = plot.theme.accent2;
@@ -357,8 +418,8 @@ export function drawHistogram(
 
   // Box-and-whisker strip across the top of the plot area.
   if (opts.boxPlot) {
-    const q1 = percentile(values, 25);
-    const q3 = percentile(values, 75);
+    const q1 = percentile(analysisValues, 25);
+    const q3 = percentile(analysisValues, 75);
     if (![q1, q3, stats.p5, stats.p50, stats.p95].some(Number.isNaN)) {
       const { ctx } = plot;
       const r = plot.plotRect;
@@ -409,7 +470,7 @@ export function drawHistogram(
     if (!Number.isNaN(v)) plot.drawVMarker(v, plot.theme.text, `${def.label} ${v.toPrecision(4)}`);
   }
   for (const p of opts.percentiles) {
-    const v = percentile(values, p);
+    const v = percentile(analysisValues, p);
     if (!Number.isNaN(v)) plot.drawVMarker(v, plot.theme.text, `${pLabel(p)} ${v.toPrecision(4)}`);
   }
   for (const pick of picks) {
@@ -426,7 +487,7 @@ export function drawHistogram(
       if (opts.stats.includes(def.key)) lines.push(`${def.label}  ${def.fmt(stats)}`);
     }
     for (const p of opts.percentiles) {
-      const v = percentile(values, p);
+      const v = percentile(analysisValues, p);
       if (!Number.isNaN(v)) lines.push(`${pLabel(p)}  ${v.toPrecision(4)}`);
     }
     if (lines.length > 0) {
@@ -660,7 +721,7 @@ export async function buildHistogramContent(
     for (const p of opts.percentiles) {
       const chip = document.createElement("button");
       chip.className = "stat-chip active";
-      const v = percentile(values, p);
+      const v = percentile(currentAnalysisValues(), p);
       chip.textContent = Number.isNaN(v) ? pLabel(p) : `${pLabel(p)} ${v.toPrecision(4)}`;
       chip.title = "User percentile — click to remove (add more via Properties)";
       chip.addEventListener("click", () => {
@@ -722,6 +783,15 @@ export async function buildHistogramContent(
   let hoverValue: number | null = null;
   let brushValues: number[] = []; // this curve's values at the shared-brush depths (this well)
   const viewRef: ViewportRef = { current: null };
+
+  function currentAnalysisValues(): Float32Array {
+    return valuesAtIndices(values, screenHistogramPopulation(values, opts, null).indices);
+  }
+
+  function refreshStatistics(): void {
+    stats = basicStats(currentAnalysisValues());
+    renderChips();
+  }
 
   const resolvedBinding = (curveName: string): ResolvedPlotCurve | null =>
     plotBindingSnapshot([well.well_id], [curveName])
@@ -927,14 +997,13 @@ export async function buildHistogramContent(
       values = new Float32Array(0);
       depths = new Float32Array(0);
     }
-    stats = basicStats(values);
     hoverValue = null; // the old hover marker points at a stale value after new data
     recomputeBrushValues(appState.brushedDepths.get()); // depths grid changed — re-map the brush
     if (resetPending) {
       viewRef.current = null; // new data → reset any zoom/pan
       resetPending = false;
     }
-    renderChips();
+    refreshStatistics();
     redraw();
   };
 
@@ -1017,6 +1086,22 @@ export async function buildHistogramContent(
 
     const picksChk = chk("Show parameter pickers (Pick A/B → zone parameter)", opts.showPicks);
     picksChk.el.style.margin = "2px 0 8px";
+    const validityChk = chk("Apply validity range to n and statistics", opts.validityFilter);
+    const validityNumber = (value: number | null, placeholder: string): HTMLInputElement => {
+      const input = document.createElement("input");
+      input.className = "form-control";
+      input.type = "number";
+      input.step = "any";
+      input.placeholder = placeholder;
+      input.value = value === null ? "" : String(value);
+      return input;
+    };
+    const validMinIn = validityNumber(opts.validMin, "min");
+    const validMaxIn = validityNumber(opts.validMax, "max");
+    const validityRange = document.createElement("div");
+    validityRange.style.display = "flex";
+    validityRange.style.gap = "8px";
+    validityRange.append(validMinIn, validMaxIn);
 
     body.appendChild(formRow("Display", modeSel));
     body.appendChild(formRow("Bins", binsIn));
@@ -1024,6 +1109,8 @@ export async function buildHistogramContent(
     body.appendChild(formRow("Color", colorWrap));
     body.appendChild(formRow("Percentiles", pctIn, "Extra user percentiles, comma-separated (0–100)"));
     body.appendChild(formRow("Statistics", placeSel));
+    body.appendChild(validityChk.el);
+    body.appendChild(formRow("Valid range", validityRange, "Explicit opt-in: changes n/statistics; display clipping does not"));
     body.appendChild(picksChk.el);
 
     const applyBtn = document.createElement("button");
@@ -1034,6 +1121,16 @@ export async function buildHistogramContent(
 
     const close = openModal("Histogram Properties", body, 420);
     applyBtn.addEventListener("click", () => {
+      const validMinText = validMinIn.value.trim();
+      const validMaxText = validMaxIn.value.trim();
+      const validMin = validMinText === "" ? null : Number(validMinText);
+      const validMax = validMaxText === "" ? null : Number(validMaxText);
+      const validPair = validMin !== null && validMax !== null
+        && Number.isFinite(validMin) && Number.isFinite(validMax) && validMin !== validMax;
+      if ((validMinText !== "" || validMaxText !== "" || validityChk.input.checked) && !validPair) {
+        setStatus("Histogram validity requires two distinct finite limits, or two blanks while disabled");
+        return;
+      }
       opts.mode = modeSel.value as HistogramMode;
       opts.bins = clampBins(parseInt(binsIn.value, 10));
       opts.normalize = normChk.input.checked;
@@ -1043,8 +1140,11 @@ export async function buildHistogramContent(
       opts.percentiles = parsePercentiles(pctIn.value);
       opts.statsPlacement = placeSel.value as StatsPlacement;
       opts.showPicks = picksChk.input.checked;
+      opts.validityFilter = validityChk.input.checked;
+      opts.validMin = validPair ? validMin : null;
+      opts.validMax = validPair ? validMax : null;
       persist();
-      renderChips();
+      refreshStatistics();
       applyPicksVisibility();
       redraw();
       setStatus("Histogram properties applied");

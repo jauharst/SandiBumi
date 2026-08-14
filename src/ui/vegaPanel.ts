@@ -43,8 +43,10 @@ import {
   axisRangeExportRecord,
   formatAxisRangeSummary,
   resolveBoundAxisRange,
+  type AxisDisplayRange,
   type PlotAxisRangeExport,
 } from "./axisRange";
+import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
 
 type ChartType = "scatter" | "line" | "histogram" | "density" | "raincloud";
 
@@ -116,6 +118,30 @@ function xValues(series: TrackCurveSeries[], xName: string): Row[] {
   const out: Row[] = [];
   for (let i = 0; i < xs.depth.length; i++) if (Number.isFinite(xs.value[i])) out.push({ x: xs.value[i], depth: xs.depth[i] });
   return out;
+}
+
+interface VegaValidityPolicy {
+  apply: boolean;
+  x: AxisDisplayRange | null;
+  y: AxisDisplayRange | null;
+}
+
+export function screenVegaPopulation(
+  rows: readonly Row[],
+  type: ChartType,
+  policy: VegaValidityPolicy,
+  xDisplay: AxisDisplayRange | null,
+  yDisplay: AxisDisplayRange | null,
+): PlotRangePolicyReport {
+  const usesY = type === "scatter" || type === "line" || type === "density";
+  return applyPlotRangePolicy([
+    { values: rows.map((row) => row.x), display: xDisplay, validity: policy.x },
+    ...(usesY ? [{
+      values: rows.map((row) => row.y ?? Number.NaN),
+      display: yDisplay,
+      validity: policy.y,
+    }] : []),
+  ], policy.apply);
 }
 
 // ---- Raincloud (PtitPrince-style) geometry -------------------------------------------------
@@ -560,8 +586,8 @@ function buildSpec(
   return { ...base, params, mark, encoding } as VisualizationSpec;
 }
 
-/** A labelled select for the control bar. */
-function field(label: string, sel: HTMLSelectElement): HTMLElement {
+/** A labelled control for the control bar. */
+function field(label: string, sel: HTMLElement): HTMLElement {
   const l = document.createElement("label");
   l.className = "vega-field";
   const t = document.createElement("span");
@@ -687,6 +713,52 @@ export async function buildVegaContent(
   trendLabelText.textContent = "Trend";
   trendField.append(trendLabelText, trendChk, trendMethodSel);
 
+  const validityNumber = (value: string | undefined, placeholder: string): HTMLInputElement => {
+    const input = document.createElement("input");
+    input.className = "form-control";
+    input.type = "number";
+    input.step = "any";
+    input.placeholder = placeholder;
+    const parsed = value === undefined || value.trim() === "" ? null : Number(value);
+    input.value = parsed !== null && Number.isFinite(parsed) ? String(parsed) : "";
+    input.style.width = "68px";
+    return input;
+  };
+  const xValidMin = validityNumber(seed.xValidMin, "min");
+  const xValidMax = validityNumber(seed.xValidMax, "max");
+  const yValidMin = validityNumber(seed.yValidMin, "min");
+  const yValidMax = validityNumber(seed.yValidMax, "max");
+  const rangeControl = (low: HTMLInputElement, high: HTMLInputElement): HTMLElement => {
+    const wrap = document.createElement("span");
+    wrap.style.display = "flex";
+    wrap.style.gap = "4px";
+    wrap.append(low, high);
+    return wrap;
+  };
+  const xValidityField = field("X valid", rangeControl(xValidMin, xValidMax));
+  const yValidityField = field("Y valid", rangeControl(yValidMin, yValidMax));
+  const validityChk = document.createElement("input");
+  validityChk.type = "checkbox";
+  validityChk.checked = seed.validity === "1";
+  const validityField = document.createElement("label");
+  validityField.className = "vega-field";
+  const validityLabel = document.createElement("span");
+  validityLabel.textContent = "Validity";
+  validityField.append(validityLabel, validityChk);
+  const parsedRange = (low: HTMLInputElement, high: HTMLInputElement): AxisDisplayRange | null => {
+    const minimum = low.value.trim() === "" ? null : Number(low.value);
+    const maximum = high.value.trim() === "" ? null : Number(high.value);
+    return minimum !== null && maximum !== null
+      && Number.isFinite(minimum) && Number.isFinite(maximum) && minimum !== maximum
+      ? { min: minimum, max: maximum }
+      : null;
+  };
+  const currentValidityPolicy = (): VegaValidityPolicy => ({
+    apply: validityChk.checked,
+    x: parsedRange(xValidMin, xValidMax),
+    y: parsedRange(yValidMin, yValidMax),
+  });
+
   const toolbar = document.createElement("div");
   toolbar.className = "vega-toolbar";
   const yField = field("Y", ySel);
@@ -722,6 +794,11 @@ export async function buildVegaContent(
     trend: trendChk.checked ? "1" : "",
     trendMethod: trendMethodSel.value,
     group: groupSel.value,
+    validity: validityChk.checked ? "1" : "",
+    xValidMin: xValidMin.value,
+    xValidMax: xValidMax.value,
+    yValidMin: yValidMin.value,
+    yValidMax: yValidMax.value,
   });
   let baseAxisRanges: PlotAxisRangeExport[] = [];
   let axisRanges: PlotAxisRangeExport[] = [];
@@ -740,7 +817,18 @@ export async function buildVegaContent(
   };
   const persistedState = (options: Record<string, unknown>) =>
     (syncRuntimeAxisRanges(), buildPersistedPlotState("vega", options, [well.well_id], plotIntents(), axisRanges));
-  toolbar.append(field("Type", typeSel), field("X", xSel), yField, zField, trendField, groupField, field("Zone", zoneSel.select));
+  toolbar.append(
+    field("Type", typeSel),
+    field("X", xSel),
+    yField,
+    zField,
+    trendField,
+    groupField,
+    field("Zone", zoneSel.select),
+    validityField,
+    xValidityField,
+    yValidityField,
+  );
 
   const chartHost = document.createElement("div");
   chartHost.className = "vega-chart-host";
@@ -753,6 +841,7 @@ export async function buildVegaContent(
   const syncControls = (): void => {
     const t = typeSel.value as ChartType;
     const isRC = t === "raincloud";
+    const usesY = t !== "histogram" && !isRC;
     // Raincloud uses X as the distribution variable and the Group picker; Y / Colour / Trend don't
     // apply. Histogram also has no Y. Group applies only to raincloud.
     ySel.disabled = t === "histogram" || isRC;
@@ -761,12 +850,21 @@ export async function buildVegaContent(
     trendChk.disabled = !trendable;
     trendMethodSel.disabled = !trendable || !trendChk.checked;
     groupSel.disabled = !isRC;
+    yValidMin.disabled = !usesY;
+    yValidMax.disabled = !usesY;
     yField.classList.toggle("vega-field-off", ySel.disabled);
     zField.classList.toggle("vega-field-off", zSel.disabled);
     trendField.classList.toggle("vega-field-off", !trendable);
     groupField.classList.toggle("vega-field-off", !isRC);
+    yValidityField.classList.toggle("vega-field-off", !usesY);
   };
   syncControls();
+  {
+    const policy = currentValidityPolicy();
+    const type = typeSel.value as ChartType;
+    const usesY = type === "scatter" || type === "line" || type === "density";
+    if (policy.apply && !policy.x && !(usesY && policy.y)) validityChk.checked = false;
+  }
 
   let current: VegaResult | null = null;
   let disposed = false;
@@ -795,6 +893,7 @@ export async function buildVegaContent(
   let embedded = false;
   // Cache of the last-rendered view so a theme switch can re-embed without re-fetching.
   let lastRows: Row[] | null = null;
+  let lastSourceRows: Row[] | null = null;
   let lastType: ChartType = "scatter";
   let lastX = "";
   let lastY = "";
@@ -806,6 +905,26 @@ export async function buildVegaContent(
   // V4: an optional hand-edited spec. When set it replaces the generated grammar (the current rows
   // are injected as its data); a chart-type change clears it since the grammar is type-specific.
   let specOverride: VisualizationSpec | null = null;
+  const updateRangeInfo = (): void => {
+    if (specOverride) {
+      rangeInfo.textContent = "Custom spec active: governed display clipping is unavailable, so persistence and export are refused.";
+      return;
+    }
+    if (axisRanges.length === 0 || !lastSourceRows) return;
+    const x = axisRanges.find((range) => range.axis === "x") ?? null;
+    const y = axisRanges.find((range) => range.axis === "y") ?? null;
+    const population = screenVegaPopulation(
+      lastSourceRows,
+      lastType,
+      currentValidityPolicy(),
+      x ? { min: x.min, max: x.max } : null,
+      y ? { min: y.min, max: y.max } : null,
+    );
+    rangeInfo.textContent = `${formatAxisRangeSummary(axisRanges)} · ${formatPlotRangePolicySummary(population, {
+      statistics: true,
+      fitInputs: lastType === "scatter" && lastTrend ? population.analysisCount : null,
+    })}`;
+  };
   const prepareAxisRanges = (type: ChartType, rows: Row[]): boolean => {
     if (specOverride) {
       baseAxisRanges = [];
@@ -820,6 +939,7 @@ export async function buildVegaContent(
       binding: xBinding,
       user: null,
       finiteData: finiteRange(rows, "x"),
+      validity: currentValidityPolicy().x,
     });
     const needsY = type === "scatter" || type === "line" || type === "density";
     const yRange = needsY
@@ -827,6 +947,7 @@ export async function buildVegaContent(
           binding: yBinding,
           user: null,
           finiteData: finiteRange(rows, "y"),
+          validity: currentValidityPolicy().y,
         })
       : null;
     if (!xRange || (needsY && !yRange)) {
@@ -840,7 +961,7 @@ export async function buildVegaContent(
       ...(yRange ? [axisRangeExportRecord("y", yRange)] : []),
     ];
     axisRanges = [...baseAxisRanges];
-    rangeInfo.textContent = formatAxisRangeSummary(axisRanges);
+    updateRangeInfo();
     return true;
   };
   function syncRuntimeAxisRanges(): void {
@@ -871,7 +992,7 @@ export async function buildVegaContent(
     }
     if (resolved.length > 0) {
       axisRanges = resolved;
-      rangeInfo.textContent = formatAxisRangeSummary(axisRanges);
+      updateRangeInfo();
     }
   }
   const syncAxesAfterInteraction = (): void => {
@@ -978,14 +1099,18 @@ export async function buildVegaContent(
     if (rows.length === 0) {
       baseAxisRanges = [];
       axisRanges = [];
-      rangeInfo.textContent = "";
+      const population = screenVegaPopulation(lastSourceRows ?? [], type, currentValidityPolicy(), null, null);
+      rangeInfo.textContent = formatPlotRangePolicySummary(population, {
+        statistics: true,
+        fitInputs: type === "scatter" && !!opts.trend ? population.analysisCount : null,
+      });
       const what = type === "histogram" || type === "raincloud" ? xName : `${xName} / ${yName}`;
       const zc = zoneSel.current();
       // `well.well_name` and the curve mnemonics in `what` are LAS-supplied and stored verbatim;
       // building this line as textContent (not innerHTML) keeps a hostile `~W WELL` value inert.
       const scope = zc.zoneName !== "*" ? ` · ${zc.zoneName}` : "";
       chartHost.replaceChildren(
-        messageNode("logview-message", `No finite ${what} samples in ${well.well_name}${scope}.`),
+        messageNode("logview-message", `No eligible ${what} samples in ${well.well_name}${scope}; review validity and finite-data exclusions.`),
       );
       setStatus("Vega — no data");
       return;
@@ -1083,6 +1208,12 @@ export async function buildVegaContent(
         ({ rows, order, note } = res);
         groupLabel = groupBy;
       }
+      const sourceRows = rows;
+      const screened = screenVegaPopulation(sourceRows, type, currentValidityPolicy(), null, null);
+      rows = screened.indices.map((index) => sourceRows[index]);
+      const presentGroups = new Set(rows.map((row) => row.group));
+      order = order.filter((group) => presentGroups.has(group));
+      lastSourceRows = sourceRows;
       lastRows = rows;
       lastType = type;
       lastX = xName;
@@ -1119,7 +1250,10 @@ export async function buildVegaContent(
       return;
     }
     if (disposed || myGen !== gen) return; // a newer render (or close) already won
-    const rows = type === "histogram" ? xValues(series, xName) : joinXYZ(series, xName, yName, useZ);
+    const sourceRows = type === "histogram" ? xValues(series, xName) : joinXYZ(series, xName, yName, useZ);
+    const screened = screenVegaPopulation(sourceRows, type, currentValidityPolicy(), null, null);
+    const rows = screened.indices.map((index) => sourceRows[index]);
+    lastSourceRows = sourceRows;
     lastRows = rows;
     lastType = type;
     lastX = xName;
@@ -1288,8 +1422,19 @@ export async function buildVegaContent(
 
   // Control-bar changes. A chart-type change is structural, so it drops any spec override; the other
   // controls only change which curves/zone fill the plot and keep an override in place.
+  const ensureValidityApplicable = (): boolean => {
+    if (!validityChk.checked) return true;
+    const policy = currentValidityPolicy();
+    const type = typeSel.value as ChartType;
+    const usesY = type === "scatter" || type === "line" || type === "density";
+    if (policy.x || (usesY && policy.y)) return true;
+    validityChk.checked = false;
+    setStatus("Vega validity disabled: supply at least one complete applicable X or Y range before enabling it");
+    return false;
+  };
   typeSel.addEventListener("change", () => {
     syncControls();
+    ensureValidityApplicable();
     if (specOverride) {
       specOverride = null;
       setStatus("Vega — spec override reset (chart type changed)");
@@ -1314,6 +1459,15 @@ export async function buildVegaContent(
   };
   trendChk.addEventListener("change", onTrendChange);
   trendMethodSel.addEventListener("change", onTrendChange);
+  const onValidityChange = (): void => {
+    ensureValidityApplicable();
+    persist();
+    void render();
+  };
+  validityChk.addEventListener("change", onValidityChange);
+  for (const input of [xValidMin, xValidMax, yValidMin, yValidMax]) {
+    input.addEventListener("change", onValidityChange);
+  }
 
   // A plain (non-Shift) drag on the chart is a brush; remember it so pointer-up can flush the final
   // extent. Shift-drag is a pan (grid param) and must not publish a selection.

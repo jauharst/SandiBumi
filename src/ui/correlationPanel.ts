@@ -28,9 +28,11 @@ import {
   axisRangeExportRecord,
   formatAxisRangeSummary,
   resolveBoundAxisRange,
+  type AxisDisplayRange,
   type AxisRangeResolution,
   type PlotAxisRangeExport,
 } from "./axisRange";
+import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
 
 /** Default marker colors per contact type (a stored color overrides these). */
 const CONTACT_COLORS: Record<string, string> = {
@@ -58,6 +60,10 @@ export interface CorrelationOptions {
   depthMode: "md" | "tvdss";
   /** Draw fluid contacts (OWC/GWC/…) as horizontal lines across the strips. */
   showContacts: boolean;
+  /** Scientific validity is opt-in and applies to curve values, never the depth display. */
+  validityFilter: boolean;
+  validMin: number | null;
+  validMax: number | null;
 }
 
 async function listActiveScopedWells(): Promise<WellSummary[]> {
@@ -73,7 +79,29 @@ export const DEFAULT_CORRELATION_OPTIONS: CorrelationOptions = {
   datum: "",
   depthMode: "md",
   showContacts: true,
+  validityFilter: false,
+  validMin: null,
+  validMax: null,
 };
+
+function correlationValidityRange(opts: CorrelationOptions): AxisDisplayRange | null {
+  return opts.validMin !== null && opts.validMax !== null && opts.validMin !== opts.validMax
+    ? { min: opts.validMin, max: opts.validMax }
+    : null;
+}
+
+export function screenCorrelationPopulation(
+  values: ArrayLike<number>,
+  opts: CorrelationOptions,
+  valueDisplay: AxisDisplayRange | null,
+  displayDepths: ArrayLike<number> | null = null,
+  depthDisplay: AxisDisplayRange | null = null,
+): PlotRangePolicyReport {
+  return applyPlotRangePolicy([
+    { values, display: valueDisplay, validity: correlationValidityRange(opts) },
+    ...(displayDepths ? [{ values: displayDepths, display: depthDisplay, validity: null }] : []),
+  ], opts.validityFilter);
+}
 
 /** Finite (MD, TVDSS) pairs for one well, ascending in MD (hence in TVDSS). */
 interface TvdssMap {
@@ -134,6 +162,13 @@ export async function buildCorrelationContent(
   initial?: Record<string, string>,
 ): Promise<PlotContent> {
   const opts: CorrelationOptions = { ...DEFAULT_CORRELATION_OPTIONS, ...(await loadPlotProps<CorrelationOptions>("correlation")) };
+  if (!correlationValidityRange(opts)) {
+    opts.validityFilter = false;
+    opts.validMin = null;
+    opts.validMax = null;
+  } else {
+    opts.validityFilter = !!opts.validityFilter;
+  }
   if (initial) {
     if (initial.curve) opts.curve = initial.curve;
     if (initial.datum !== undefined) opts.datum = initial.datum;
@@ -297,11 +332,9 @@ export async function buildCorrelationContent(
   const stripScale = (): AxisRangeResolution | null => {
     const pool: number[] = [];
     for (const s of strips) {
-      if (!s.series) continue;
-      for (let i = 0; i < s.series.value.length; i++) {
-        const v = s.series.value[i];
-        if (Number.isFinite(v)) pool.push(v);
-      }
+      if (!included.has(s.well.well_id) || !s.series) continue;
+      const screened = screenCorrelationPopulation(s.series.value, opts, null);
+      for (const index of screened.indices) pool.push(s.series.value[index]);
     }
     const finiteData = pool.length >= 2
       ? { min: percentile(pool, 2), max: percentile(pool, 98) }
@@ -310,6 +343,7 @@ export async function buildCorrelationContent(
       binding: currentValueBinding(),
       user: opts.min !== null && opts.max !== null ? { min: opts.min, max: opts.max } : null,
       finiteData,
+      validity: correlationValidityRange(opts),
     });
   };
 
@@ -369,7 +403,24 @@ export async function buildCorrelationContent(
       axisRangeExportRecord("value", valueRange),
       axisRangeExportRecord("depth", depthRange),
     ];
-    rangeInfo.textContent = formatAxisRangeSummary(axisRanges);
+    const populationValues: number[] = [];
+    const populationDepths: number[] = [];
+    for (const strip of active) {
+      if (!strip.series || (opts.depthMode === "tvdss" && !strip.tv)) continue;
+      for (let sample = 0; sample < strip.series.value.length; sample++) {
+        populationValues.push(strip.series.value[sample]);
+        const displayed = displayOf(strip, strip.series.depth[sample]);
+        populationDepths.push(displayed === null ? Number.NaN : displayed - strip.shift);
+      }
+    }
+    const population = screenCorrelationPopulation(
+      populationValues,
+      opts,
+      { min: valueRange.min, max: valueRange.max },
+      populationDepths,
+      { min: depthRange.min, max: depthRange.max },
+    );
+    rangeInfo.textContent = `${formatAxisRangeSummary(axisRanges)} · ${formatPlotRangePolicySummary(population, { statistics: true })}`;
     const slot = (w - AXIS_W) / active.length;
     const gap = Math.min(46, slot * 0.28);
     const stripW = slot - gap;
@@ -430,6 +481,18 @@ export async function buildCorrelationContent(
       ctx.fillText(opts.curve, left + stripW / 2, 24, stripW - 4);
 
       if (!s.series || s.series.depth.length === 0 || (opts.depthMode === "tvdss" && !s.tv)) return;
+      const sampleDepths = Float32Array.from(s.series.depth, (depth) => {
+        const displayed = displayOf(s, depth);
+        return displayed === null ? Number.NaN : displayed - s.shift;
+      });
+      const screened = screenCorrelationPopulation(
+        s.series.value,
+        opts,
+        { min: valueRange.min, max: valueRange.max },
+        sampleDepths,
+        { min: depthRange.min, max: depthRange.max },
+      );
+      const eligible = new Set(screened.indices);
       ctx.save();
       ctx.beginPath();
       ctx.rect(left, HEADER_H, stripW, plotH);
@@ -440,18 +503,17 @@ export async function buildCorrelationContent(
       let pen = false;
       for (let k = 0; k < s.series.depth.length; k++) {
         const v = s.series.value[k];
-        if (!Number.isFinite(v)) {
+        const displayDepth = sampleDepths[k];
+        const displayHidden = v < Math.min(vMin, vMax) || v > Math.max(vMin, vMax)
+          || displayDepth < Math.min(depthRange.min, depthRange.max)
+          || displayDepth > Math.max(depthRange.min, depthRange.max);
+        if (!eligible.has(k) || displayHidden) {
           pen = false;
           continue;
         }
-        const frac = Math.min(1, Math.max(0, (v - vMin) / (vMax - vMin)));
+        const frac = (v - vMin) / (vMax - vMin);
         const x = left + frac * stripW;
-        const display = displayOf(s, s.series.depth[k]);
-        if (display === null) {
-          pen = false;
-          continue;
-        }
-        const y = yOf(display - s.shift);
+        const y = yOf(displayDepth);
         if (pen) ctx.lineTo(x, y);
         else ctx.moveTo(x, y);
         pen = true;
@@ -734,6 +796,41 @@ export async function buildCorrelationContent(
     });
     return input;
   };
+
+  const validityWrap = document.createElement("label");
+  validityWrap.className = "chk-field";
+  const validityChk = document.createElement("input");
+  validityChk.type = "checkbox";
+  validityChk.checked = opts.validityFilter;
+  validityWrap.append(validityChk, document.createTextNode(" Validity"));
+  const validityChanged = (): void => {
+    if (validityChk.checked && !correlationValidityRange(opts)) {
+      validityChk.checked = false;
+      opts.validityFilter = false;
+      setStatus("Correlation validity requires two distinct finite limits before it can be enabled");
+      return;
+    }
+    opts.validityFilter = validityChk.checked;
+    draw();
+    persist();
+  };
+  validityChk.addEventListener("change", validityChanged);
+  const validMinField = numField("valid min", opts.validMin, (value) => {
+    opts.validMin = value;
+    if (opts.validityFilter && !correlationValidityRange(opts)) {
+      opts.validityFilter = false;
+      validityChk.checked = false;
+      setStatus("Correlation validity disabled until both distinct finite limits are supplied");
+    }
+  });
+  const validMaxField = numField("valid max", opts.validMax, (value) => {
+    opts.validMax = value;
+    if (opts.validityFilter && !correlationValidityRange(opts)) {
+      opts.validityFilter = false;
+      validityChk.checked = false;
+      setStatus("Correlation validity disabled until both distinct finite limits are supplied");
+    }
+  });
 
   const datumSel = document.createElement("select");
   datumSel.className = "form-control";
@@ -1158,6 +1255,9 @@ export async function buildCorrelationContent(
   props.appendChild(curveSel);
   props.appendChild(numField("min", opts.min, (v) => (opts.min = v)));
   props.appendChild(numField("max", opts.max, (v) => (opts.max = v)));
+  props.appendChild(validityWrap);
+  props.appendChild(validMinField);
+  props.appendChild(validMaxField);
   props.appendChild(datumSel);
   props.appendChild(depthModeSel);
   props.appendChild(mkBtn("Contacts…", "Add / edit fluid contacts (OWC, GWC, …)", openContactsEditor));
