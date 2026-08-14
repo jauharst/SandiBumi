@@ -575,14 +575,14 @@
 
 - **Chapter evidence:** P2; chapter status `PARTIAL`; owned test `SB-DIO-T62`.
 - **Atomic obligations:** declare one policy for malformed headers, unknown sections and out-of-order sections across LAS versions; report every tolerance/refusal outcome.
-- **Current source:** section classification is shared by both LAS parse paths, but unknown sections are reported only when `VERS` is recognised as 3.0; non-3.0 unknown sections fall back to a generic header state. Out-of-order sections alter the active parser state without a dedicated diagnostic. No user-facing strictness policy or T62 fixture was found.
-- **Qualifying acceptance tests:** none; test class is `MISSING`.
-- **Supporting tests:** malformed short-row and LAS 3 unread-section tests cover isolated cases, not uniform section policy.
-- **Manual evidence:** `las-import` 0/57 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** shared section helpers are integrated; the reporting/policy closure is absent.
-- **Verdict:** `PARTIAL`; `UNDECIDED`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the policy can be specified without a petrophysical parameter, but `DEC-003` has not made malformed legacy/version coverage a pilot condition.
-- **Next action:** write one explicit version-independent strictness table, return structured outcomes from both parsers, and implement T62 with accepted/refused controls.
+- **Current source:** `parsers.rs` now routes both complete-curve and all-curve LAS readers through one versioned `las_sections_v1` state machine. It reports unknown, malformed and recognized out-of-order headers in source order, requires a finite numeric `~V` declaration and a `~W` section before `~A`, and does not invent a supported-version range. `ingest.rs` returns the policy plus typed handling records and adds a user-visible warning; `ipc.ts` preserves that structure on the frontend boundary.
+- **Qualifying acceptance tests:** `a_single_section_policy_reports_unknown_malformed_and_out_of_order_headers_in_las_2_and_3_and_refuses_data_before_version_or_well` is `CORRECTNESS`. It pins accepted and refused sides across both parser entry points, then drives the accepted LAS 2.0 and 3.0 fixtures through the real importer and inspects serialized structured outcomes.
+- **Supporting tests:** the 15 LAS depth tests and 54 ingest tests remain green, including the existing LAS 3 unread-section behavior. Two existing LAS-writer self-check fixtures now declare the mandatory `~W` section so their unchanged malformed-row and wrong-unit assertions still reach their own subjects; SB-DIO-044's refusal was not weakened.
+- **Manual evidence:** `las-import` 0/96 and `security-integrity` 3/107 after regeneration; the exact strictness scenario remains unchecked and the prior security checks are unrelated.
+- **Git evidence:** the current `codex/g2-program-plan` increment adds the shared policy, typed reporting surface and owned T62 proof; full-gate evidence is recorded in the status receipt before commit.
+- **Verdict:** as-built `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated Gate 2 closure. Deferred SB-DIO-042 associated-section parsing and SB-DIO-043 version-support contracts were not imported into this increment.
+- **Next action:** retain exact T62; Jauhar visually inspects the policy/handling surface and field-exercises representative tolerated and refused deliveries in Gate 4.
 
 ## SB-DIO-045 - A multi-well container MUST produce multiple wells, never one merged well.
 

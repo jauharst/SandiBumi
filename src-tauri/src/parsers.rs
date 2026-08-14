@@ -171,6 +171,9 @@ pub struct CurveColumns {
     pub las_version: Option<String>,
     /// Section headers present in a LAS 3.0 delivery that this release did not consume.
     pub unread_sections: Vec<String>,
+    /// Versioned policy identity and every non-fatal section tolerance that fired.
+    pub section_policy: String,
+    pub section_handling: Vec<LasSectionHandling>,
     /// Encoding chosen by the mandatory text reader, always reported by LAS import.
     pub text_encoding: String,
     /// The index column's declared unit, verbatim from the ~C block (e.g. "M", "FT").
@@ -430,6 +433,44 @@ enum LasSection {
     AsciiData,
 }
 
+/// Machine-visible identity of the LAS section policy specified by SB-DIO-044 / D-25.
+/// Version 1 requires a valid ~V declaration and a ~W section before ~A; ignores and
+/// reports unknown or malformed section headers; and accepts but reports recognized
+/// pre-data sections that arrive out of V/W/C order. Both LAS parser entry points use
+/// the same state machine below so the policy cannot drift by code path or LAS version.
+pub const LAS_SECTION_POLICY_ID: &str = "las_sections_v1";
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LasSectionHandlingAction {
+    UnknownSectionIgnored,
+    MalformedHeaderIgnored,
+    OutOfOrderSectionAccepted,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct LasSectionHandling {
+    pub line: usize,
+    pub header: String,
+    pub action: LasSectionHandlingAction,
+}
+
+impl LasSectionHandling {
+    pub fn note(&self) -> String {
+        match self.action {
+            LasSectionHandlingAction::UnknownSectionIgnored => {
+                format!("line {} ignored unknown section {}", self.line, self.header)
+            }
+            LasSectionHandlingAction::MalformedHeaderIgnored => {
+                format!("line {} ignored malformed section header {}", self.line, self.header)
+            }
+            LasSectionHandlingAction::OutOfOrderSectionAccepted => {
+                format!("line {} accepted out-of-order section {}", self.line, self.header)
+            }
+        }
+    }
+}
+
 fn parse_well_value_text(trimmed: &str, wanted: &str) -> Option<String> {
     let declaration = trimmed.split(':').next().unwrap_or(trimmed);
     let (mnemonic, rest) = declaration.split_once('.')?;
@@ -552,6 +593,12 @@ fn las_version_is_3(version: Option<&str>) -> bool {
     version.and_then(|value| value.trim().parse::<f32>().ok()) == Some(3.0)
 }
 
+fn numeric_las_version_is_declared(version: Option<&str>) -> bool {
+    version
+        .and_then(|value| value.trim().parse::<f32>().ok())
+        .is_some_and(f32::is_finite)
+}
+
 fn record_unread_section(unread: &mut Vec<String>, name: &str) {
     if name.is_empty() {
         return;
@@ -559,6 +606,79 @@ fn record_unread_section(unread: &mut Vec<String>, name: &str) {
     let display = format!("~{name}");
     if !unread.iter().any(|held| held.eq_ignore_ascii_case(&display)) {
         unread.push(display);
+    }
+}
+
+#[derive(Debug, Default)]
+struct LasSectionScan {
+    saw_well_section: bool,
+    highest_pre_data_rank: Option<u8>,
+    handling: Vec<LasSectionHandling>,
+}
+
+impl LasSectionScan {
+    fn enter(
+        &mut self,
+        raw_header: &str,
+        line: usize,
+        source: &str,
+        valid_version_declared: bool,
+        unread: &mut Vec<String>,
+    ) -> ParseResult<LasSection> {
+        let Some(name) = las_section_header(raw_header) else {
+            self.handling.push(LasSectionHandling {
+                line,
+                header: raw_header.to_string(),
+                action: LasSectionHandlingAction::MalformedHeaderIgnored,
+            });
+            return Ok(LasSection::Header);
+        };
+        let Some(section) = classify_las_section(name) else {
+            record_unread_section(unread, name);
+            self.handling.push(LasSectionHandling {
+                line,
+                header: format!("~{name}"),
+                action: LasSectionHandlingAction::UnknownSectionIgnored,
+            });
+            return Ok(LasSection::Header);
+        };
+
+        if section == LasSection::AsciiData {
+            if !valid_version_declared {
+                return Err(ParseError::Las(format!(
+                    "{source}: line {line}: {LAS_SECTION_POLICY_ID} requires a valid ~V declaration before ~A"
+                )));
+            }
+            if !self.saw_well_section {
+                return Err(ParseError::Las(format!(
+                    "{source}: line {line}: {LAS_SECTION_POLICY_ID} requires ~W before ~A"
+                )));
+            }
+            self.highest_pre_data_rank = Some(3);
+            return Ok(section);
+        }
+
+        let rank = match section {
+            LasSection::VersionBlock => 0,
+            LasSection::WellBlock => {
+                self.saw_well_section = true;
+                1
+            }
+            LasSection::CurveBlock => 2,
+            LasSection::Header | LasSection::AsciiData => unreachable!(),
+        };
+        if self.highest_pre_data_rank.is_some_and(|highest| rank < highest) {
+            self.handling.push(LasSectionHandling {
+                line,
+                header: format!("~{name}"),
+                action: LasSectionHandlingAction::OutOfOrderSectionAccepted,
+            });
+        }
+        self.highest_pre_data_rank = Some(
+            self.highest_pre_data_rank
+                .map_or(rank, |held| held.max(rank)),
+        );
+        Ok(section)
     }
 }
 
@@ -714,6 +834,7 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     let mut curve_units: Vec<Option<String>> = Vec::new();
     let mut cols = CurveColumns::default();
     cols.text_encoding = decoded.encoding;
+    cols.section_policy = LAS_SECTION_POLICY_ID.to_string();
 
     // Index lookup into curve_names for the columns we care about, resolved once the
     // ~C block is fully parsed and the first ~A line arrives. For the six standard curves
@@ -740,6 +861,7 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     let mut resolved_channel_nulls = channel_nulls.clone();
     let mut las_version: Option<String> = None;
     let mut encountered_unread_sections = Vec::new();
+    let mut section_scan = LasSectionScan::default();
     let mut previous_source_depth: Option<ExactDecimal> = None;
     let mut source_depth_rows = 0usize;
     let mut declared_step_mismatch_note = None;
@@ -752,11 +874,13 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
         }
 
         if trimmed.starts_with('~') {
-            let name = las_section_header(trimmed).unwrap_or("");
-            section = classify_las_section(name).unwrap_or_else(|| {
-                record_unread_section(&mut encountered_unread_sections, name);
-                LasSection::Header
-            });
+            section = section_scan.enter(
+                trimmed,
+                line_number,
+                &source,
+                numeric_las_version_is_declared(las_version.as_deref()),
+                &mut encountered_unread_sections,
+            )?;
             continue;
         }
 
@@ -1068,6 +1192,7 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
     } else {
         Vec::new()
     };
+    cols.section_handling = section_scan.handling;
     cols.las_version = las_version;
 
     Ok(cols)
@@ -1298,6 +1423,8 @@ pub struct LasFrame {
     pub las_version: Option<String>,
     /// Section headers present in a LAS 3.0 delivery that this release did not consume.
     pub unread_sections: Vec<String>,
+    pub section_policy: String,
+    pub section_handling: Vec<LasSectionHandling>,
     // depth_mnemonic/depth_unit feed the Phase 6c TVD-scale + well-header UI (is the file's
     // index depth in metres or feet?); captured now with the rest of the frame.
     #[allow(dead_code)]
@@ -1370,6 +1497,7 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
     let mut resolved_channel_nulls = channel_nulls.clone();
     let mut las_version: Option<String> = None;
     let mut encountered_unread_sections = Vec::new();
+    let mut section_scan = LasSectionScan::default();
 
     for (line_index, line) in text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -1378,11 +1506,13 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
             continue;
         }
         if trimmed.starts_with('~') {
-            let name = las_section_header(trimmed).unwrap_or("");
-            section = classify_las_section(name).unwrap_or_else(|| {
-                record_unread_section(&mut encountered_unread_sections, name);
-                LasSection::Header
-            });
+            section = section_scan.enter(
+                trimmed,
+                line_number,
+                &source,
+                numeric_las_version_is_declared(las_version.as_deref()),
+                &mut encountered_unread_sections,
+            )?;
             continue;
         }
 
@@ -1512,6 +1642,8 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
         } else {
             Vec::new()
         },
+        section_policy: LAS_SECTION_POLICY_ID.to_string(),
+        section_handling: section_scan.handling,
         depth_mnemonic: curve_names[depth_idx].clone(),
         depth_unit: curve_units[depth_idx].clone(),
         depth: columns.get(depth_idx).cloned().unwrap_or_default(),
@@ -3500,6 +3632,8 @@ mod las_depth_tests {
             well_name: None,
             las_version: None,
             unread_sections: Vec::new(),
+            section_policy: LAS_SECTION_POLICY_ID.to_string(),
+            section_handling: Vec::new(),
             text_encoding: "test fixture".into(),
             depth_unit: None,
             declared_step: None,
@@ -3803,7 +3937,7 @@ mod las_depth_tests {
     #[test]
     fn parse_las_2_unrecognized_index_falls_back_to_column0() {
         // No DEPT/DEPTH mnemonic — the first column is still the LAS index.
-        let body = "~CURVE\nXREF.M :\nGR.API :\n~ASCII\n1000.0 10.0\n1000.5 12.0\n";
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. POSITIONAL-INDEX-CONTROL :\n~CURVE\nXREF.M :\nGR.API :\n~ASCII\n1000.0 10.0\n1000.5 12.0\n";
         let p = temp("arshilla_xref_test.las", body);
         let cols = parse_las_2(&p).unwrap();
         std::fs::remove_file(&p).ok();
@@ -3815,7 +3949,7 @@ mod las_depth_tests {
         // Column 0 is the true index under an unrecognized mnemonic (TVDSS); a real MD curve
         // sits at column 2. Depth must come from column 0, NOT the MD auxiliary curve — MD is
         // deliberately absent from DEPTH_ALIASES so it can't override the column-0 index.
-        let body = "~CURVE\nTVDSS.M :\nGR.API :\nMD.M :\n~ASCII\n\
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. AUXILIARY-INDEX-CONTROL :\n~CURVE\nTVDSS.M :\nGR.API :\nMD.M :\n~ASCII\n\
                     1000.0 55.0 3000.0\n1000.5 60.0 3000.5\n1001.0 62.0 3001.0\n";
         let p = temp("arshilla_aux_md_test.las", body);
         let cols = parse_las_2(&p).unwrap();

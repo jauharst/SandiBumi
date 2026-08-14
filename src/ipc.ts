@@ -155,6 +155,14 @@ export interface ImportResult {
     mnemonic: string;
     mechanism: "structural_declaration" | "positional_guarantee" | "name_alias" | "user_designation";
   } | null;
+  /** Versioned policy governing LAS section order and tolerated malformed/unknown headers. */
+  section_policy: string;
+  /** Every non-fatal section tolerance that fired, in source order. */
+  section_handling: Array<{
+    line: number;
+    header: string;
+    action: "unknown_section_ignored" | "malformed_header_ignored" | "out_of_order_section_accepted";
+  }>;
   /** Every automatic value conversion performed by the importer. */
   unit_conversions: Array<{
     curve: string;

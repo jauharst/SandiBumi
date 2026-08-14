@@ -1276,7 +1276,7 @@ mod tests {
         ) -> Result<LasExportResult, String> {
             std::fs::write(
                 dest_path,
-                "~Version\nVERS. 2.0\nWRAP. NO\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000\n",
+                "~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. ROW-WIDTH-CONTROL :\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000\n",
             )
             .map_err(|error| error.to_string())?;
             Ok(LasExportResult {
@@ -1330,7 +1330,7 @@ mod tests {
         ) -> Result<LasExportResult, String> {
             std::fs::write(
                 dest_path,
-                "~Version\nVERS. 2.0\nWRAP. NO\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000 50\n",
+                "~Version\nVERS. 2.0\nWRAP. NO\n~Well\nWELL. UNIT-LABEL-CONTROL :\n~Curve\nDEPT.M\nGR.GAPI\n~ASCII\n1000 50\n",
             )
             .map_err(|error| error.to_string())?;
             Ok(LasExportResult {

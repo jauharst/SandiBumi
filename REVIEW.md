@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-044: LAS section strictness is one reported policy
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T62 is green at
+      1 passed / 0 failed / 0 ignored. The same state machine handles both parser entry
+      points and the LAS 2.0 / 3.0 controls; a version-specific warning path cannot satisfy it.
+- [ ] **Accepted and refused sides:** unknown `~X`, malformed `~`, and an out-of-order
+      recognized `~WELL` are accepted only with ordered structured handling records and an
+      import warning. Missing or nonnumeric `~V`, and missing `~W` before `~A`, refuse in
+      both parser paths. Existing exporter self-check fixtures now declare `~W` while retaining
+      their original row-width and unit-lie assertions. No supported-version range or adjacent
+      LAS capability was invented.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import representative tolerated and
+      refused deliveries, inspect the policy identity plus handling in the application, and
+      confirm an operator can act on the warning/error. Synthetic fixtures are not field proof.
+
 ## 2026-08-14 — G2 SB-DIO-040: Wrapped LAS Import stays aligned and LAS Export stays unwrapped
 
 - [ ] **Automated characterization — not manual evidence:** exact SB-DIO-T58 is green at

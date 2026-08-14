@@ -116,6 +116,7 @@
 "SB-DIO-039","CORRECTNESS","src-tauri/src/dlis.rs","a_named_dlis_sentinel_exception_preserves_minus_999_25_while_the_default_screens_and_counts_it"
 "SB-DIO-040","CHARACTERIZATION","src-tauri/src/export.rs","characterizes_thirty_wrapped_las_curves_as_aligned_and_every_las_export_as_unwrapped"
 "SB-DIO-041","CORRECTNESS","src-tauri/src/ingest.rs","a_las_3_file_is_recognised_as_3_0_and_every_unread_section_is_named_in_the_result"
+"SB-DIO-044","CORRECTNESS","src-tauri/src/ingest.rs","a_single_section_policy_reports_unknown_malformed_and_out_of_order_headers_in_las_2_and_3_and_refuses_data_before_version_or_well"
 "SB-DIO-045","CORRECTNESS","src-tauri/src/dlis.rs","a_three_well_dlis_shows_its_logical_file_mapping_before_commit_and_creates_three_wells_without_merging"
 "SB-DIO-047","CORRECTNESS","src-tauri/src/ingest.rs","a_float64_core_import_and_a_four_decimal_las_export_state_their_precision_reductions"
 "SB-DIO-049","CORRECTNESS","src-tauri/src/export.rs","a_feet_las_misdeclared_as_metres_fails_its_self_check_before_success"

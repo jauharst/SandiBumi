@@ -24,6 +24,9 @@ pub struct ImportResult {
     /// Effective per-source-channel null handling, including explicit `NoNull` versus `Unset`.
     pub null_resolutions: Vec<parsers::ChannelNullResolution>,
     pub index_resolution: Option<parsers::IndexResolution>,
+    /// Versioned LAS section policy plus every non-fatal tolerance that fired.
+    pub section_policy: String,
+    pub section_handling: Vec<parsers::LasSectionHandling>,
     /// Every automatic value conversion, including the source unit and applied factor.
     pub unit_conversions: Vec<crate::curves::UnitConversion>,
     /// Declared units that were preserved because no reviewed conversion applied.
@@ -291,6 +294,8 @@ fn cancelled_las_import(path: &str) -> ImportResult {
         alias_decisions: Vec::new(),
         null_resolutions: Vec::new(),
         index_resolution: None,
+        section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(),
+        section_handling: Vec::new(),
         unit_conversions: Vec::new(),
         unconverted_units: Vec::new(),
         unit_designations: Vec::new(),
@@ -365,7 +370,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), null_resolutions: Vec::new(), index_resolution: None, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), null_resolutions: Vec::new(), index_resolution: None, section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(), section_handling: Vec::new(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -408,6 +413,8 @@ fn insert_parsed_well(
     let alias_decisions = columns.alias_decisions.clone();
     let null_resolutions = columns.null_resolutions.clone();
     let index_resolution = columns.index_resolution.clone();
+    let section_policy = columns.section_policy.clone();
+    let section_handling = columns.section_handling.clone();
     let unit_designations = columns.unit_designations.clone();
     let las_version = columns.las_version.clone();
     let unread_sections = columns.unread_sections.clone();
@@ -443,6 +450,8 @@ fn insert_parsed_well(
                     alias_decisions: alias_decisions.clone(),
                     null_resolutions: null_resolutions.clone(),
                     index_resolution: index_resolution.clone(),
+                    section_policy: section_policy.clone(),
+                    section_handling: section_handling.clone(),
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
@@ -469,6 +478,8 @@ fn insert_parsed_well(
                 alias_decisions: alias_decisions.clone(),
                 null_resolutions: null_resolutions.clone(),
                 index_resolution: index_resolution.clone(),
+                section_policy: section_policy.clone(),
+                section_handling: section_handling.clone(),
                 unit_conversions: Vec::new(),
                 unconverted_units: Vec::new(),
                 unit_designations: unit_designations.clone(),
@@ -511,6 +522,8 @@ fn insert_parsed_well(
                     alias_decisions,
                     null_resolutions: null_resolutions.clone(),
                     index_resolution,
+                    section_policy,
+                    section_handling,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
@@ -541,6 +554,8 @@ fn insert_parsed_well(
                     alias_decisions,
                     null_resolutions: null_resolutions.clone(),
                     index_resolution,
+                    section_policy,
+                    section_handling,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
@@ -563,6 +578,8 @@ fn insert_parsed_well(
                     alias_decisions,
                     null_resolutions: null_resolutions.clone(),
                     index_resolution,
+                    section_policy,
+                    section_handling,
                     unit_conversions: Vec::new(),
                     unconverted_units: Vec::new(),
                     unit_designations: unit_designations.clone(),
@@ -606,6 +623,8 @@ fn insert_parsed_well(
             alias_decisions: alias_decisions.clone(),
             null_resolutions: null_resolutions.clone(),
             index_resolution: index_resolution.clone(),
+            section_policy: section_policy.clone(),
+            section_handling: section_handling.clone(),
             unit_conversions: Vec::new(),
             unconverted_units: Vec::new(),
             unit_designations: unit_designations.clone(),
@@ -622,6 +641,17 @@ fn insert_parsed_well(
     let mut notes: Vec<String> = Vec::new();
     if let Some(note) = declared_step_note {
         notes.push(note);
+    }
+    if !section_handling.is_empty() {
+        notes.push(format!(
+            "{}: {}",
+            section_policy,
+            section_handling
+                .iter()
+                .map(parsers::LasSectionHandling::note)
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
     }
     if las_version.as_deref().and_then(|value| value.parse::<f32>().ok()) == Some(3.0) {
         if unread_sections.is_empty() {
@@ -687,6 +717,8 @@ fn insert_parsed_well(
                 alias_decisions,
                 null_resolutions,
                 index_resolution,
+                section_policy,
+                section_handling,
                 unit_conversions: Vec::new(),
                 unconverted_units: Vec::new(),
                 unit_designations,
@@ -712,7 +744,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
             }
         };
         match stmt
@@ -721,7 +753,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
             }
         }
     };
@@ -737,6 +769,8 @@ fn insert_parsed_well(
             alias_decisions.clone(),
             null_resolutions.clone(),
             index_resolution.clone(),
+            section_policy.clone(),
+            section_handling.clone(),
             unit_designations.clone(),
             unit_tokens.clone(),
             unit_token_warnings.clone(),
@@ -788,6 +822,8 @@ fn insert_parsed_well(
                 alias_decisions,
                 null_resolutions,
                 index_resolution,
+                section_policy,
+                section_handling,
                 unit_conversions: Vec::new(),
                 unconverted_units: Vec::new(),
                 unit_designations,
@@ -848,9 +884,9 @@ fn insert_parsed_well(
             notes.extend(unit_conversions.iter().map(crate::curves::UnitConversion::note));
             notes.extend(unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, null_resolutions, index_resolution, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
     }
 }
 
@@ -869,6 +905,8 @@ fn attach_curves_to_existing_well(
     alias_decisions: Vec<parsers::AliasDecision>,
     null_resolutions: Vec<parsers::ChannelNullResolution>,
     index_resolution: Option<parsers::IndexResolution>,
+    section_policy: String,
+    section_handling: Vec<parsers::LasSectionHandling>,
     unit_designations: Vec<crate::curves::UnitDesignation>,
     unit_tokens: Vec<crate::curves::UnitTokenObservation>,
     unit_token_warnings: Vec<String>,
@@ -907,6 +945,8 @@ fn attach_curves_to_existing_well(
                 alias_decisions,
                 null_resolutions,
                 index_resolution,
+                section_policy,
+                section_handling,
                 unit_conversions: report.unit_conversions,
                 unconverted_units: report.unconverted_units,
                 unit_designations,
@@ -916,7 +956,7 @@ fn attach_curves_to_existing_well(
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
     }
 }
 
@@ -2520,6 +2560,8 @@ mod tests {
             well_name: Some("ROLLBACK-1".into()),
             las_version: Some("2.0".into()),
             unread_sections: Vec::new(),
+            section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(),
+            section_handling: Vec::new(),
             text_encoding: "test fixture".into(),
             depth_unit: Some("M".into()),
             declared_step: Some("0.5".into()),
@@ -2672,6 +2714,8 @@ mod tests {
             well_name: None,
             las_version: None,
             unread_sections: Vec::new(),
+            section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(),
+            section_handling: Vec::new(),
             text_encoding: "test fixture".into(),
             depth_unit: Some("M".into()),
             declared_step: None,
@@ -3326,6 +3370,8 @@ mod tests {
             well_name: None,
             las_version: None,
             unread_sections: Vec::new(),
+            section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(),
+            section_handling: Vec::new(),
             text_encoding: "test fixture".into(),
             depth_unit: Some("M".into()),
             declared_step: None,
@@ -3902,6 +3948,8 @@ mod tests {
         // A minimal LAS 2.0 with DEPT, GR, PEF, HCAL (caliper), and DTCO given in us/m.
         let las = "~Version\n\
                    VERS. 2.0 :\n\
+                   ~Well\n\
+                   WELL. GENERIC-CURVE-CONTROL :\n\
                    ~Curve\n\
                    DEPT .M    : depth\n\
                    GR   .GAPI : gamma\n\
@@ -4133,6 +4181,7 @@ mod tests {
 
         // Two rows at 1000.0 (a re-spliced section) plus PEF beyond the standard 6.
         let las = "~Version\nVERS. 2.0 :\n\
+                   ~Well\nWELL. DUPLICATE-DEPTH-CONTROL :\n\
                    ~Curve\nDEPT .M : depth\nGR .GAPI : gamma\nPEF .B/E : pe\n\
                    ~ASCII\n1000.0 55.0 5.1\n1000.0 56.0 5.2\n1000.5 60.0 5.0\n";
         let path = std::env::temp_dir().join("arshilla_dupdepth_test.las");
@@ -5488,6 +5537,118 @@ mod tests {
         assert_eq!(frame2.las_version.as_deref(), Some("2.0"));
         assert!(frame2.unread_sections.is_empty());
         std::fs::remove_file(&path).ok();
+    }
+
+    /// SB-DIO-044 / SB-DIO-T62. CORRECTNESS - `docs/PRD_v2/21_data-io.md`
+    /// D-25 and sections 4.8/6.8 require one version-independent policy: unknown and
+    /// malformed headers are ignored and reported, a recognized pre-data order reversal
+    /// is accepted and reported, and both ~V and ~W are mandatory before ~A.
+    #[test]
+    fn a_single_section_policy_reports_unknown_malformed_and_out_of_order_headers_in_las_2_and_3_and_refuses_data_before_version_or_well() {
+        let write_fixture = |label: &str, body: &str| {
+            let path = std::env::temp_dir().join(format!(
+                "sandibumi-dio-044-{label}-{}.las",
+                Uuid::new_v4()
+            ));
+            std::fs::write(&path, body).unwrap();
+            path
+        };
+
+        let missing_version = write_fixture(
+            "missing-version",
+            "~WELL\nWELL. VERSION-BEFORE-DATA-CONTROL :\nNULL. -999.25 :\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n1000 50\n",
+        );
+        for error in [
+            parsers::parse_las_2(&missing_version).unwrap_err().to_string(),
+            parsers::parse_las_2_all(&missing_version).unwrap_err().to_string(),
+        ] {
+            assert!(error.contains("~V") && error.contains("before ~A"), "{error}");
+        }
+
+        let invalid_version = write_fixture(
+            "invalid-version",
+            "~VERSION\nVERS. NOT-A-VERSION :\n~WELL\nWELL. VALID-VERSION-CONTROL :\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n1000 50\n",
+        );
+        for error in [
+            parsers::parse_las_2(&invalid_version).unwrap_err().to_string(),
+            parsers::parse_las_2_all(&invalid_version).unwrap_err().to_string(),
+        ] {
+            assert!(error.contains("valid ~V") && error.contains("before ~A"), "{error}");
+        }
+
+        let missing_well = write_fixture(
+            "missing-well",
+            "~VERSION\nVERS. 2.0 :\nWRAP. NO :\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n1000 50\n~WELL\nWELL. WELL-BEFORE-DATA-CONTROL :\n",
+        );
+        for error in [
+            parsers::parse_las_2(&missing_well).unwrap_err().to_string(),
+            parsers::parse_las_2_all(&missing_well).unwrap_err().to_string(),
+        ] {
+            assert!(error.contains("~W") && error.contains("before ~A"), "{error}");
+        }
+
+        let mut handling_by_version = Vec::new();
+        for version in ["2.0", "3.0"] {
+            let body = format!(
+                "~VERSION\nVERS. {version} :\nWRAP. NO :\n\
+                 ~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n\
+                 ~X\nTHIS UNKNOWN BODY IS IGNORED\n\
+                 ~\nTHIS MALFORMED BODY IS IGNORED\n\
+                 ~WELL\nWELL. RECOGNIZED-ORDER-CONTROL :\nNULL. -999.25 :\n\
+                 ~ASCII\n1000 50\n1001 51\n"
+            );
+            let path = write_fixture(&format!("reported-{}", version.replace('.', "-")), &body);
+
+            let standard = parsers::parse_las_2(&path).unwrap();
+            let all = parsers::parse_las_2_all(&path).unwrap();
+            assert_eq!(standard.depth, vec![1000.0, 1001.0]);
+            assert_eq!(all.depth, standard.depth, "both parser entry points must accept the same policy");
+            assert_eq!(standard.section_policy, parsers::LAS_SECTION_POLICY_ID);
+            assert_eq!(all.section_policy, standard.section_policy);
+            assert_eq!(all.section_handling, standard.section_handling);
+
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            let result = import_las_files_with(
+                &conn,
+                &[path.to_string_lossy().into_owned()],
+                None,
+                &LasImportOptions::default(),
+            )
+            .remove(0);
+            assert!(result.error.is_none(), "{version}: {:?}", result.error);
+            let public = serde_json::to_value(&result).unwrap();
+            assert_eq!(public["section_policy"], "las_sections_v1");
+            let handling = public["section_handling"]
+                .as_array()
+                .expect("section handling must be structured IPC data, not only prose");
+            let actions: Vec<&str> = handling
+                .iter()
+                .map(|item| item["action"].as_str().unwrap())
+                .collect();
+            assert_eq!(
+                actions,
+                vec![
+                    "unknown_section_ignored",
+                    "malformed_header_ignored",
+                    "out_of_order_section_accepted",
+                ]
+            );
+            assert_eq!(handling[0]["header"], "~X");
+            assert_eq!(handling[1]["header"], "~");
+            assert_eq!(handling[2]["header"], "~WELL");
+            let warning = result.warning.unwrap_or_default();
+            assert!(warning.contains("las_sections_v1"), "{warning}");
+            assert!(warning.contains("~X") && warning.contains("~WELL"), "{warning}");
+            handling_by_version.push(actions.into_iter().map(str::to_string).collect::<Vec<_>>());
+
+            std::fs::remove_file(path).ok();
+        }
+        assert_eq!(handling_by_version[0], handling_by_version[1]);
+
+        std::fs::remove_file(missing_version).ok();
+        std::fs::remove_file(invalid_version).ok();
+        std::fs::remove_file(missing_well).ok();
     }
 
     /// Ad-hoc verification against a real field delivery — whatever LAS files sit in the
