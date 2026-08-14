@@ -193,9 +193,10 @@ test('a_field_fixture_test_cannot_be_relabelled_as_optional_package_execution', 
   );
 });
 
-test('the_live_inventory_owns_55_warnings_and_37_ignored_tests_without_counting_them_as_passed', () => {
-  // CHARACTERIZATION — the live compiler/test inventory is 55 warnings and 37 ignored tests
-  // after SB-DIO-063 added its package-bound T96. Owning remaining debt does not prove it passes.
+test('the_live_inventory_owns_49_warnings_and_37_ignored_tests_without_counting_them_as_passed', () => {
+  // CHARACTERIZATION — the live compiler/test inventory is 49 warnings and 37 ignored tests
+  // after SB-PLT-002 connected two live types and made its four supporting policy objects test-only.
+  // Owning remaining debt does not prove it passes.
   const warningInventory = JSON.parse(fs.readFileSync(
     path.join(repo, 'docs', 'takeover', 'evidence', 'gate2-warning-inventory.json'),
     'utf8',
@@ -205,8 +206,8 @@ test('the_live_inventory_owns_55_warnings_and_37_ignored_tests_without_counting_
     'utf8',
   ));
 
-  assert.equal(warningInventory.expected_warning_count, 55);
-  assert.equal(warningInventory.expected_warning_counts_by_file['src/plotting.rs'], 45);
+  assert.equal(warningInventory.expected_warning_count, 49);
+  assert.equal(warningInventory.expected_warning_counts_by_file['src/plotting.rs'], 39);
   assert.equal(ignoredInventory.expected_ignored_test_count, 37);
   assert.deepEqual(ignoredInventory.expected_category_counts, {
     'OPTIONAL-PACKAGE': 27,

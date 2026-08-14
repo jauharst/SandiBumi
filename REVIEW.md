@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-002: Crossplot, Histogram, Pickett, Correlation and Vega governed axis custody
+
+- [ ] **Automated correctness:** the one owned T01/T02 contract test and full gate are green at
+      1024 passed / 0 failed / 37 ignored, with 49 owned Rust warnings. Unequal discriminator ranges prove user over header,
+      header after user removal, matching rendered/exported tier records and no validity promotion;
+      the same test inventories all five live quantitative panel adapters so an unused helper alone
+      cannot pass.
+- [ ] **Visual:** for each panel, first leave the range blank and confirm the visible label names
+      header display, audited family display or finite data as appropriate; then pan/zoom or enter a
+      complete user pair and confirm the label changes to `user`. Confirm a missing governed range
+      produces the explicit refusal instead of an invented frame, and a custom Vega spec says why
+      custody-dependent save/export is unavailable.
+- [ ] **Manual:** set and undo a curve-header display range in Curve metadata. Reopen the plot,
+      save project properties or a named session, and export every offered SVG/PNG/PDF path. Compare
+      the displayed limits and tier to the embedded binding record; also apply a very different
+      validity range and confirm it filters only when requested and never reframes the axes.
+- [ ] **Field and harsh critique:** repeat with representative multi-set wells, converted units and
+      reversed porosity axes. Automated precedence does not prove labels fit at real dock sizes,
+      Vega runtime scale names remain stable after interactive transforms, or the screened family
+      seed set covers every pilot delivery; record those observations rather than calling them done.
+
 ## 2026-08-14 — G2 SB-PLT-001: Crossplot, histogram, Pickett, correlation, Vega and session binding custody
 
 - [ ] **Automated correctness:** the one owned contract test is green and the full gate is

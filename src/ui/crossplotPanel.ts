@@ -1,4 +1,4 @@
-import { getCoreData, getCurveData, plotBindingSnapshot, resolveWellScope, runNetFlag, type NetFlagSpec, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { getCoreData, getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, runNetFlag, type NetFlagSpec, type PlotChannelBinding, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
 import { appState, bumpDataVersion, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import { requestRunCustody } from "./runCustody";
@@ -61,6 +61,14 @@ import { buildImageExportButtons } from "./plotExport";
 import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
+import {
+  axisRangeExportRecord,
+  formatAxisRangeSummary,
+  resolveBoundAxisRange,
+  type AxisDisplayRange,
+  type AxisRangeResolution,
+  type PlotAxisRangeExport,
+} from "./axisRange";
 
 export type RegModel = "linear" | "power" | "logx" | "exp";
 export type RegMethod = "yx" | "xy" | "rma";
@@ -103,7 +111,7 @@ export interface CrossplotOptions {
   regModel: RegModel;
   /** Fit method: ordinary Y-on-X, inverse X-on-Y, or reduced major axis. */
   regMethod: RegMethod;
-  /** Manual axis ranges; null = auto (mnemonic defaults, else P2–P98). */
+  /** Manual axis ranges; null = header display, audited family display, then finite data. */
   xMin: number | null;
   xMax: number | null;
   yMin: number | null;
@@ -468,69 +476,6 @@ export function drawRockOverlay(plot: PlotCanvas, kind: string, flipped: boolean
   ctx.textAlign = "left";
   ctx.fillText(`${coef.label} port classes (nano < 0.1 < micro < 0.5 < meso < 2.5 < macro < 10 < mega µm)`, plot.margin.left + 6, plot.margin.top + 12);
   ctx.restore();
-}
-
-/** Audited family display ranges already carried by this panel. They remain display
- * limits only; no validity filtering is inferred from them. */
-function axisDefaults(curve: string): { min: number; max: number; invert: boolean } | null {
-  switch (curve.toUpperCase()) {
-    case "NPHI":
-      return { min: -0.05, max: 0.6, invert: false };
-    case "RHOB":
-      return { min: 1.9, max: 3.0, invert: true }; // density increases downward (D-N convention)
-    case "GR":
-      return { min: 0, max: 200, invert: false };
-    case "DT":
-      return { min: 40, max: 190, invert: false };
-    case "VSH":
-    case "PHIE":
-    case "PHIT":
-    case "SWE":
-    case "SWT":
-      return { min: 0, max: 1, invert: false };
-    // MID-plot axes (Lith-6): the window spans the chart's own mineral points, quartz
-    // (4.8, 2.65) to anhydrite (14.9, 2.98), and RHOMAA increases downward like RHOB so
-    // the triangle sits the way the printed chart draws it.
-    case "UMAA":
-      return { min: 0, max: 16, invert: false };
-    case "RHOMAA":
-      return { min: 2.2, max: 3.1, invert: true };
-    default:
-      return null;
-  }
-}
-
-export type AxisRangeTier = "user" | "header_display" | "audited_family_display" | "finite_data";
-
-export interface AxisDisplayRange {
-  min: number;
-  max: number;
-}
-
-export interface AxisRangeCandidates {
-  user: AxisDisplayRange | null;
-  headerDisplay: AxisDisplayRange | null;
-  auditedFamilyDisplay: AxisDisplayRange | null;
-  finiteData: AxisDisplayRange | null;
-  /** Validity belongs to filtering and is intentionally excluded from precedence. */
-  validity: AxisDisplayRange | null;
-}
-
-export function resolveAxisRange(
-  candidates: AxisRangeCandidates,
-): (AxisDisplayRange & { tier: AxisRangeTier }) | null {
-  const ordered: Array<[AxisDisplayRange | null, AxisRangeTier]> = [
-    [candidates.user, "user"],
-    [candidates.headerDisplay, "header_display"],
-    [candidates.auditedFamilyDisplay, "audited_family_display"],
-    [candidates.finiteData, "finite_data"],
-  ];
-  for (const [range, tier] of ordered) {
-    if (range && Number.isFinite(range.min) && Number.isFinite(range.max) && range.min !== range.max) {
-      return { ...range, tier };
-    }
-  }
-  return null;
 }
 
 /** Quartz / calcite / dolomite matrix reference points in (NPHI, RHOB) space — drawn
@@ -1056,6 +1001,8 @@ export function drawCrossplot(
   precolors: CrossplotColors | null = null,
   context: CrossplotContext | null = null,
   typedAxes: { x: ResolvedPlotCurve | null; y: ResolvedPlotCurve | null } | null = null,
+  axisBindings: { x: PlotChannelBinding | null; y: PlotChannelBinding | null } | null = null,
+  onAxisRanges?: (ranges: PlotAxisRangeExport[]) => void,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
   const xValidity = opts.xValidMin !== null && opts.xValidMax !== null
@@ -1068,46 +1015,49 @@ export function drawCrossplot(
   const plotXs = Float32Array.from(validity.indices.map((index) => xs[index]));
   const plotYs = Float32Array.from(validity.indices.map((index) => ys[index]));
   const plotZs = zs.length > 0 ? Float32Array.from(validity.indices.map((index) => zs[index])) : zs;
-  const auto = (values: Float32Array): { min: number; max: number } | null => {
-    const lo = percentile(values, 2);
-    const hi = percentile(values, 98);
-    if (Number.isNaN(lo) || Number.isNaN(hi) || lo === hi) return null;
-    const pad = (hi - lo) * 0.08;
-    return { min: lo - pad, max: hi + pad };
+  const auto = (values: Float32Array, log: boolean): { min: number; max: number } | null => {
+    const eligible = log
+      ? Float32Array.from(values.filter((value) => Number.isFinite(value) && value > 0))
+      : values;
+    const lo = percentile(eligible, 2);
+    const hi = percentile(eligible, 98);
+    if (Number.isNaN(lo) || Number.isNaN(hi)) return null;
+    const pad = (hi - lo) * 0.08 || Math.max(Math.abs(lo) * 0.01, 1e-6);
+    const min = log ? Math.max(lo - pad, lo * 0.8) : lo - pad;
+    return { min, max: hi + pad };
   };
   /** User > header display > audited family display > finite-data range. */
   const resolve = (
-    name: string,
+    binding: PlotChannelBinding | null,
     values: Float32Array,
     log: boolean,
     manMin: number | null,
     manMax: number | null,
-  ): { min: number; max: number; invert: boolean; tier: AxisRangeTier } | null => {
-    const family = axisDefaults(name);
-    const finite = auto(values);
-    const resolved = resolveAxisRange({
+    viewport: AxisDisplayRange | null,
+    validityRange: AxisDisplayRange | null,
+  ): { min: number; max: number; invert: boolean; resolution: AxisRangeResolution } | null => {
+    const base = resolveBoundAxisRange({
+      binding,
       user: manMin !== null && manMax !== null ? { min: manMin, max: manMax } : null,
-      headerDisplay: null,
-      auditedFamilyDisplay: family ? { min: family.min, max: family.max } : null,
-      finiteData: finite,
-      validity: null,
+      finiteData: auto(values, log),
+      validity: validityRange,
+      log,
     });
-    if (!resolved) return null;
-    let { min, max } = resolved;
-    const invert = family?.invert ?? false;
-    if (log) {
-      if (max <= 0) return null;
-      if (min <= 0) {
-        let smallest = Infinity;
-        for (let i = 0; i < values.length; i++) {
-          const v = values[i];
-          if (!Number.isNaN(v) && v > 0 && v < smallest) smallest = v;
+    if (!base) return null;
+    const invert = base.min > base.max;
+    const resolution = viewport
+      ? {
+          min: invert ? viewport.max : viewport.min,
+          max: invert ? viewport.min : viewport.max,
+          tier: "user" as const,
         }
-        min = Number.isFinite(smallest) ? smallest * 0.8 : max / 1000;
-      }
-    }
-    if (min === max) return null;
-    return { min, max, invert, tier: resolved.tier };
+      : base;
+    return {
+      min: Math.min(resolution.min, resolution.max),
+      max: Math.max(resolution.min, resolution.max),
+      invert,
+      resolution,
+    };
   };
 
   // With context wells the auto range (and the log-axis positive floor) must cover the
@@ -1115,16 +1065,30 @@ export function drawCrossplot(
   const hasCtx = !!context && context.layers.length > 0;
   const rangeXs = hasCtx ? concatValues(plotXs, context!.layers.map((l) => l.xs)) : plotXs;
   const rangeYs = hasCtx ? concatValues(plotYs, context!.layers.map((l) => l.ys)) : plotYs;
-  const xr = resolve(xName, rangeXs, opts.xLog, opts.xMin, opts.xMax);
-  const yr = resolve(yName, rangeYs, opts.yLog, opts.yMin, opts.yMax);
+  const xr = resolve(
+    axisBindings?.x ?? null,
+    rangeXs,
+    opts.xLog,
+    opts.xMin,
+    opts.xMax,
+    view ? { min: view.xMin, max: view.xMax } : null,
+    xValidity,
+  );
+  const yr = resolve(
+    axisBindings?.y ?? null,
+    rangeYs,
+    opts.yLog,
+    opts.yMin,
+    opts.yMax,
+    view ? { min: view.yMin, max: view.yMax } : null,
+    yValidity,
+  );
   if (!xr || !yr) return null;
-  // A zoom/pan viewport (if any) overrides the computed window, keeping axis inversion.
-  if (view) {
-    xr.min = view.xMin;
-    xr.max = view.xMax;
-    yr.min = view.yMin;
-    yr.max = view.yMax;
-  }
+  const resolvedRanges = [
+    axisRangeExportRecord("x", xr.resolution),
+    axisRangeExportRecord("y", yr.resolution),
+  ];
+  onAxisRanges?.(resolvedRanges);
 
   const plot = new PlotCanvas(
     canvas,
@@ -1137,7 +1101,7 @@ export function drawCrossplot(
   plot.ctx.font = canvasFont(plot.theme, 9);
   plot.ctx.fillStyle = plot.theme.axis;
   plot.ctx.textAlign = "left";
-  plot.ctx.fillText(`axis ranges: X ${xr.tier} · Y ${yr.tier}`, plot.plotRect.x0 + 4, plot.margin.top - 7);
+  plot.ctx.fillText(formatAxisRangeSummary(resolvedRanges), plot.plotRect.x0 + 4, plot.margin.top - 7);
   plot.ctx.restore();
   const pointColor = opts.color || plot.theme.accent;
 
@@ -1489,6 +1453,14 @@ export async function buildCrossplotContent(
     ...(zSel.value ? [{ channel: "colour", semantic_request: zSel.value, required: false }] : []),
   ];
   const representedWellIds = () => [well.well_id, ...ctxWellIds];
+  let axisRanges: PlotAxisRangeExport[] = [];
+  const currentAxisBindings = (): { x: PlotChannelBinding | null; y: PlotChannelBinding | null } => {
+    const bindings = plotBindingSnapshotForChannels(representedWellIds(), plotIntents());
+    return {
+      x: bindings.find((binding) => binding.intent.channel === "x") ?? null,
+      y: bindings.find((binding) => binding.intent.channel === "y") ?? null,
+    };
+  };
   const selectionState = (): Record<string, string> => {
     const chartProvenance = currentChartDecision().record;
     return {
@@ -1502,7 +1474,7 @@ export async function buildCrossplotContent(
     };
   };
   const persistedState = (options: Record<string, unknown>) =>
-    buildPersistedPlotState("crossplot", options, representedWellIds(), plotIntents());
+    buildPersistedPlotState("crossplot", options, representedWellIds(), plotIntents(), axisRanges);
   const persist = () => {
     try {
       opts.chartProvenance = currentChartDecision().record;
@@ -1534,12 +1506,12 @@ export async function buildCrossplotContent(
       () => persistedState({ ...opts }),
       (t) => {
         Object.assign(opts, normalizeCrossplotOptions({ ...opts, ...t }));
-        persist();
         applySize();
         applyPicksVisibility();
         senseSel.value = opts.netSense; // a template can carry netSense — keep the dropdown in sync
         void reloadCore();
         redraw();
+        persist();
       },
       setStatus,
     ),
@@ -1557,6 +1529,7 @@ export async function buildCrossplotContent(
         wellIds: state.well_ids,
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
       };
     },
   ));
@@ -1606,8 +1579,8 @@ export async function buildCrossplotContent(
     "Shade the net-reservoir quadrant relative to the parameter handle and count the points inside it";
   senseSel.addEventListener("change", () => {
     opts.netSense = senseSel.value as NetSense;
-    persist();
     redraw();
+    persist();
   });
   const senseWrap = document.createElement("div");
   senseWrap.style.margin = "2px 0 6px";
@@ -1678,11 +1651,11 @@ export async function buildCrossplotContent(
       : { authorization: null, record: null, refusal: null };
   }
 
-  function persistChartProvenanceIfChanged(): void {
+  function persistChartProvenanceIfChanged(): boolean {
     const next = currentChartDecision().record;
-    if (JSON.stringify(opts.chartProvenance) === JSON.stringify(next)) return;
+    if (JSON.stringify(opts.chartProvenance) === JSON.stringify(next)) return false;
     opts.chartProvenance = next;
-    persist();
+    return true;
   }
 
   const crossplotWriteSource = async (method: string): Promise<PlotWriteSource> => {
@@ -1756,6 +1729,10 @@ export async function buildCrossplotContent(
       zColors(),
       ctxLayers.length ? { activeName: well.well_name, layers: ctxLayers } : null,
       typedAxes,
+      currentAxisBindings(),
+      (ranges) => {
+        axisRanges = ranges;
+      },
     );
     if (!p) return null;
     if (opts.showCore) {
@@ -1782,6 +1759,7 @@ export async function buildCrossplotContent(
 
   const redraw = () => {
     canvas.setAttribute("aria-label", ariaLabel()); // keep the a11y description in sync with the axes
+    axisRanges = [];
     plot = drawStatic(canvas, hoverIdx);
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
@@ -2171,7 +2149,7 @@ export async function buildCrossplotContent(
       xs = ys = zs = depths = new Float32Array(0);
       typedAxes = { x: null, y: null };
     }
-    persistChartProvenanceIfChanged();
+    const chartProvenanceChanged = persistChartProvenanceIfChanged();
     hoverIdx = -1; // the old hover index may point at a different sample now
     if (resetPending) {
       resetPending = false;
@@ -2192,6 +2170,7 @@ export async function buildCrossplotContent(
     recomputeBrush(appState.brushedDepths.get()); // depths grid changed — re-map the brush
     dataGen++; // new arrays are in place — invalidate the memoized Z coloring
     redraw();
+    if (chartProvenanceChanged) persist();
   };
 
   /** Loads the well's core data once (all four series; cheap — core datasets are
@@ -2503,7 +2482,7 @@ export async function buildCrossplotContent(
     body.appendChild(formRow("Percentiles", pctIn, "Dashed X/Y reference lines, comma-separated (0–100)"));
     body.appendChild(section("Axes"));
     body.appendChild(inline(xLogChk.el, yLogChk.el));
-    body.appendChild(formRow("X range", inline(xMinIn, xMaxIn), "Blank = auto (mnemonic default, else P2–P98)"));
+    body.appendChild(formRow("X range", inline(xMinIn, xMaxIn), "Blank = header display, then audited unit-family display, then finite data"));
     body.appendChild(formRow("Y range", inline(yMinIn, yMaxIn)));
     body.appendChild(validityChk.el);
     body.appendChild(formRow("X valid", inline(xValidMinIn, xValidMaxIn), "Blank = no X validity exclusion"));
@@ -2564,13 +2543,15 @@ export async function buildCrossplotContent(
       opts.rockOverlay = rockSel.value;
       opts.showPicks = picksChk.input.checked;
       Object.assign(opts, normalizeCrossplotOptions({ ...opts }));
-      persist();
       applySize();
       applyPicksVisibility();
       let reloading = false;
       if (opts.tsOverlay && !tsWas) reloading = tsAutoAxes();
       if (opts.showCore !== coreWas) void reloadCore();
-      if (!reloading) redraw();
+      if (!reloading) {
+        redraw();
+        persist();
+      }
       const chartDecision = currentChartDecision();
       setStatus(chartDecision.refusal ?? "Crossplot properties applied");
       close();

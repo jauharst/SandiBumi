@@ -4,6 +4,12 @@ use std::collections::BTreeSet;
 
 use duckdb::{params, Connection};
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DisplayRange {
+    pub low: f32,
+    pub high: f32,
+}
+
 /// What the plot asked for. This is kept beside, never replaced by, the concrete
 /// curve selected independently in each well.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,7 +22,7 @@ pub struct PlotChannelIntent {
 /// One well's concrete answer to a semantic channel request. Strings are used for
 /// quantity and conversion because this record is persisted and must remain readable
 /// when the unit registry gains a new typed quantity or transform.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolvedPlotCurve {
     pub well_id: String,
     pub curve_id: String,
@@ -28,9 +34,13 @@ pub struct ResolvedPlotCurve {
     pub sample_count: usize,
     pub resolution_reason: String,
     pub source_revision: String,
+    /// Optional, concrete curve-header display range. It is user/project metadata, not a
+    /// validity range and not a mnemonic-derived family default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_display: Option<DisplayRange>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlotChannelBinding {
     pub intent: PlotChannelIntent,
     pub resolved: Vec<ResolvedPlotCurve>,
@@ -41,27 +51,40 @@ pub const PLOT_STATE_SCHEMA_VERSION: u32 = 1;
 /// Durable plot state keeps the reusable/display options separate from the exact
 /// concrete curve answers that produced the visible marks. `well_ids` is the
 /// represented set, not merely the user's broader requested scope.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersistedPlotState {
     pub schema_version: u32,
     pub plot_type: String,
     pub well_ids: Vec<String>,
     pub options: serde_json::Value,
     pub bindings: Vec<PlotChannelBinding>,
+    /// Empty only while reading a pre-SB-PLT-002 legacy document. Every new typed write
+    /// and export requires the exact displayed ranges and the tier that supplied them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub axis_ranges: Vec<PlotAxisRange>,
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersistedPlotDocument {
     pub name: String,
     pub state: PersistedPlotState,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlotBindingExport {
     pub schema_version: u32,
     pub well_ids: Vec<String>,
     pub bindings: Vec<PlotChannelBinding>,
+    pub axis_ranges: Vec<PlotAxisRange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotAxisRange {
+    pub axis: String,
+    pub min: f32,
+    pub max: f32,
+    pub tier: AxisRangeTier,
 }
 
 fn validate_plot_state_doc_type(doc_type: &str) -> Result<(), String> {
@@ -146,7 +169,35 @@ pub fn validate_persisted_plot_state(state: &PersistedPlotState) -> Result<(), S
     if !state.options.is_object() {
         return Err("persisted plot options must be a JSON object".into());
     }
-    validate_plot_bindings(&state.well_ids, &state.bindings)
+    validate_plot_bindings(&state.well_ids, &state.bindings)?;
+    validate_plot_axis_ranges(&state.axis_ranges, true)
+}
+
+pub fn validate_plot_axis_ranges(
+    axis_ranges: &[PlotAxisRange],
+    allow_legacy_empty: bool,
+) -> Result<(), String> {
+    if axis_ranges.is_empty() {
+        return if allow_legacy_empty {
+            Ok(())
+        } else {
+            Err("plot state has no resolved axis ranges".into())
+        };
+    }
+    let mut axes = BTreeSet::new();
+    for range in axis_ranges {
+        non_blank(&range.axis, "axis name")?;
+        if !axes.insert(range.axis.trim().to_ascii_lowercase()) {
+            return Err(format!("plot state repeats axis '{}'", range.axis));
+        }
+        if !range.min.is_finite() || !range.max.is_finite() || range.min == range.max {
+            return Err(format!(
+                "plot axis '{}' requires two distinct finite display limits",
+                range.axis
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn save_persisted_plot_state(
@@ -160,6 +211,7 @@ pub fn save_persisted_plot_state(
         return Err("persisted plot state requires a document name".into());
     }
     validate_persisted_plot_state(state)?;
+    validate_plot_axis_ranges(&state.axis_ranges, false)?;
     let json = serde_json::to_string(state).map_err(|error| error.to_string())?;
     crate::db::save_document(conn, doc_type, name, &json).map_err(|error| error.to_string())
 }
@@ -188,22 +240,98 @@ pub fn list_persisted_plot_states(
 pub fn serialize_plot_binding_export(
     well_ids: &[String],
     bindings: &[PlotChannelBinding],
+    axis_ranges: &[PlotAxisRange],
 ) -> Result<String, String> {
     validate_plot_bindings(well_ids, bindings)?;
+    validate_plot_axis_ranges(axis_ranges, false)?;
     serde_json::to_string(&PlotBindingExport {
         schema_version: PLOT_STATE_SCHEMA_VERSION,
         well_ids: well_ids.to_vec(),
         bindings: bindings.to_vec(),
+        axis_ranges: axis_ranges.to_vec(),
     })
     .map_err(|error| error.to_string())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct DisplayRange {
-    pub low: f32,
-    pub high: f32,
+const CURVE_HEADER_DISPLAY_DOC_TYPE: &str = "curve_header_display";
+const CURVE_HEADER_DISPLAY_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct CurveHeaderDisplayDocument {
+    schema_version: u32,
+    curve_id: String,
+    range: DisplayRange,
 }
 
+fn validate_curve_header_display(
+    curve_id: &str,
+    range: DisplayRange,
+) -> Result<(), String> {
+    non_blank(curve_id, "curve id")?;
+    if !range.low.is_finite() || !range.high.is_finite() || range.low == range.high {
+        return Err("curve-header display range requires two distinct finite limits".into());
+    }
+    Ok(())
+}
+
+pub fn curve_header_display_range(
+    conn: &Connection,
+    curve_id: &str,
+) -> Result<Option<DisplayRange>, String> {
+    non_blank(curve_id, "curve id")?;
+    let Some(document) = crate::db::list_documents(conn, CURVE_HEADER_DISPLAY_DOC_TYPE)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|document| document.name == curve_id)
+    else {
+        return Ok(None);
+    };
+    let value: CurveHeaderDisplayDocument = serde_json::from_str(&document.json)
+        .map_err(|error| format!("curve-header display range for {curve_id} is unreadable: {error}"))?;
+    if value.schema_version != CURVE_HEADER_DISPLAY_SCHEMA_VERSION {
+        return Err(format!(
+            "curve-header display range for {curve_id} has unsupported schema version {}",
+            value.schema_version
+        ));
+    }
+    if value.curve_id != curve_id {
+        return Err(format!(
+            "curve-header display document key {curve_id} contains curve id {}",
+            value.curve_id
+        ));
+    }
+    validate_curve_header_display(curve_id, value.range)?;
+    Ok(Some(value.range))
+}
+
+/// Typed, whitelisted curve-header metadata edit. Returning the previous object lets the
+/// frontend register one exact undo/redo action; `None` deletes the declaration rather than
+/// replacing it with sentinel numbers.
+pub fn set_curve_header_display_range(
+    conn: &Connection,
+    curve_id: &str,
+    range: Option<DisplayRange>,
+) -> Result<Option<DisplayRange>, String> {
+    let previous = curve_header_display_range(conn, curve_id)?;
+    match range {
+        Some(range) => {
+            validate_curve_header_display(curve_id, range)?;
+            let value = CurveHeaderDisplayDocument {
+                schema_version: CURVE_HEADER_DISPLAY_SCHEMA_VERSION,
+                curve_id: curve_id.into(),
+                range,
+            };
+            let json = serde_json::to_string(&value).map_err(|error| error.to_string())?;
+            crate::db::save_document(conn, CURVE_HEADER_DISPLAY_DOC_TYPE, curve_id, &json)
+                .map_err(|error| error.to_string())?;
+        }
+        None => crate::db::delete_document(conn, CURVE_HEADER_DISPLAY_DOC_TYPE, curve_id)
+            .map_err(|error| error.to_string())?,
+    }
+    Ok(previous)
+}
+
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AxisRangeCandidates {
     pub user: Option<DisplayRange>,
@@ -224,16 +352,19 @@ pub enum AxisRangeTier {
     FiniteData,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct AxisRangeResolution {
     pub range: DisplayRange,
     pub tier: AxisRangeTier,
 }
 
+#[cfg(test)]
 fn usable_range(range: DisplayRange) -> bool {
     range.low.is_finite() && range.high.is_finite() && range.low != range.high
 }
 
+#[cfg(test)]
 pub fn resolve_axis_range(candidates: &AxisRangeCandidates) -> Result<AxisRangeResolution, String> {
     let ordered = [
         (candidates.user, AxisRangeTier::User),
@@ -1321,9 +1452,11 @@ fn resolve_one_curve(
         if count > 0 {
             let quantity = quantity_name(unit, &request)
                 .ok_or_else(|| format!("{request} has no typed quantity for unit {unit}"))?;
+            let curve_id = format!("standard:{well_id}:{request}");
+            let header_display = curve_header_display_range(conn, &curve_id)?;
             return Ok(Some(ResolvedPlotCurve {
                 well_id: well_id.into(),
-                curve_id: format!("standard:{well_id}:{request}"),
+                curve_id,
                 mnemonic: request,
                 quantity,
                 source_unit: unit.into(),
@@ -1332,6 +1465,7 @@ fn resolve_one_curve(
                 sample_count: count as usize,
                 resolution_reason: "finite standard curve wins the plot resolution order".into(),
                 source_revision,
+                header_display,
             }));
         }
     }
@@ -1350,9 +1484,11 @@ fn resolve_one_curve(
             .ok_or_else(|| format!("resolved computed curve {request} has no declared source unit"))?;
         let quantity = quantity_name(&unit, &request)
             .ok_or_else(|| format!("resolved computed curve {request} has no typed quantity for unit {unit}"))?;
+        let curve_id = format!("computed:{well_id}:{request}");
+        let header_display = curve_header_display_range(conn, &curve_id)?;
         return Ok(Some(ResolvedPlotCurve {
             well_id: well_id.into(),
-            curve_id: format!("computed:{well_id}:{request}"),
+            curve_id,
             mnemonic: request,
             quantity,
             source_unit: unit.clone(),
@@ -1361,6 +1497,7 @@ fn resolve_one_curve(
             sample_count: computed_count as usize,
             resolution_reason: "exact computed mnemonic after no finite standard curve".into(),
             source_revision,
+            header_display,
         }));
     }
 
@@ -1404,6 +1541,7 @@ fn resolve_one_curve(
     let match_kind = if mnemonic.eq_ignore_ascii_case(&request) { "exact mnemonic" } else { "typed family" };
     let pin_note = if pinned { ", user-pinned" } else { "" };
     let run_note = run_no.map(|value| format!(", run {value}")).unwrap_or_default();
+    let header_display = curve_header_display_range(conn, &curve_id)?;
     Ok(Some(ResolvedPlotCurve {
         well_id: well_id.into(),
         curve_id,
@@ -1415,6 +1553,7 @@ fn resolve_one_curve(
         sample_count: count as usize,
         resolution_reason: format!("{match_kind} in set {set_name}{pin_note}{run_note}"),
         source_revision,
+        header_display,
     }))
 }
 
@@ -1467,6 +1606,7 @@ mod tests {
             sample_count: 3,
             resolution_reason: "exact mnemonic in active delivery".into(),
             source_revision: "a".repeat(64),
+            header_display: None,
         };
 
         let binding = persist_plot_binding(intent.clone(), vec![concrete.clone()]).unwrap();
@@ -1506,6 +1646,7 @@ mod tests {
                     sample_count: 3,
                     resolution_reason: "typed family in imported set WIRE".into(),
                     source_revision: "a".repeat(64),
+                    header_display: None,
                 },
                 ResolvedPlotCurve {
                     well_id: well_b.clone(),
@@ -1518,6 +1659,7 @@ mod tests {
                     sample_count: 4,
                     resolution_reason: "typed family in imported set RAW".into(),
                     source_revision: "b".repeat(64),
+                    header_display: None,
                 },
             ],
         };
@@ -1527,6 +1669,12 @@ mod tests {
             well_ids: vec![well_a.clone(), well_b.clone()],
             options: serde_json::json!({"x": "bulk density", "y": "neutron porosity"}),
             bindings: vec![binding.clone()],
+            axis_ranges: vec![PlotAxisRange {
+                axis: "x".into(),
+                min: 1.95,
+                max: 2.95,
+                tier: AxisRangeTier::AuditedFamilyDisplay,
+            }],
         };
 
         save_persisted_plot_state(&conn, "plotprops", "crossplot", &state).unwrap();
@@ -1543,10 +1691,16 @@ mod tests {
             "the same request must retain each well's different concrete answer",
         );
 
-        let export_json = serialize_plot_binding_export(&state.well_ids, &state.bindings).unwrap();
+        let export_json = serialize_plot_binding_export(
+            &state.well_ids,
+            &state.bindings,
+            &state.axis_ranges,
+        )
+        .unwrap();
         let exported: PlotBindingExport = serde_json::from_str(&export_json).unwrap();
         assert_eq!(exported.well_ids, vec![well_a.clone(), well_b.clone()]);
         assert_eq!(exported.bindings, vec![binding]);
+        assert_eq!(exported.axis_ranges, state.axis_ranges);
         let svg = crate::composite::embed_plot_bindings_json_in_svg(
             "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
             &export_json,
@@ -1569,6 +1723,12 @@ mod tests {
                 },
                 resolved: Vec::new(),
             }],
+            axis_ranges: vec![PlotAxisRange {
+                axis: "x".into(),
+                min: 1.95,
+                max: 2.95,
+                tier: AxisRangeTier::AuditedFamilyDisplay,
+            }],
         };
         let save_error =
             save_persisted_plot_state(&conn, "plotprops", "unresolved", &unresolved)
@@ -1579,7 +1739,11 @@ mod tests {
             .iter()
             .all(|document| document.name != "unresolved"));
         let export_error =
-            serialize_plot_binding_export(&unresolved.well_ids, &unresolved.bindings)
+            serialize_plot_binding_export(
+                &unresolved.well_ids,
+                &unresolved.bindings,
+                &unresolved.axis_ranges,
+            )
                 .unwrap_err();
         assert!(export_error.contains("required channel"));
     }

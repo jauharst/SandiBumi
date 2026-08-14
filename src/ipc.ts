@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { DepthUnit } from "./units";
 import type { TrackCurveRequest } from "./trackCurveRequest";
+import type { PlotAxisRangeExport } from "./ui/axisRange";
 
 /** The project's stored depth unit, plus whether it was explicitly declared (false = a
  *  fresh project that will adopt the unit of its first import). */
@@ -707,6 +708,8 @@ export interface PlotAncestryScope {
   allProject?: boolean;
   /** Exact binding record captured by the reads that produced the visible marks. */
   plotBindings?: PlotChannelBinding[];
+  /** Exact displayed limits and the precedence tier that supplied each quantitative axis. */
+  axisRanges?: PlotAxisRangeExport[];
 }
 
 function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
@@ -715,6 +718,7 @@ function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
     ancestryCurveNames: scope?.curves ?? null,
     ancestryAllProject: scope?.allProject ?? false,
     plotBindings: scope?.plotBindings ?? null,
+    axisRanges: scope?.axisRanges ?? null,
   };
 }
 
@@ -2970,6 +2974,12 @@ export interface ResolvedPlotCurve {
   sample_count: number;
   resolution_reason: string;
   source_revision: string;
+  header_display?: StoredDisplayRange;
+}
+
+export interface StoredDisplayRange {
+  low: number;
+  high: number;
 }
 
 export interface PlotChannelBinding {
@@ -2983,12 +2993,15 @@ export interface PersistedPlotState {
   well_ids: string[];
   options: Record<string, unknown>;
   bindings: PlotChannelBinding[];
+  /** Absent only in a pre-SB-PLT-002 legacy document; every new write carries this. */
+  axis_ranges: PlotAxisRangeExport[];
 }
 
 export interface PlotBindingExport {
   schema_version: 1;
   well_ids: string[];
   bindings: PlotChannelBinding[];
+  axis_ranges: PlotAxisRangeExport[];
 }
 
 const plotBindingRegistry = new Map<string, PlotChannelBinding>();
@@ -3049,8 +3062,20 @@ export async function resolvePlotBindings(
 export function serializePlotBindingExport(
   wellIds: string[],
   bindings: PlotChannelBinding[],
+  axisRanges: PlotAxisRangeExport[],
 ): Promise<string> {
-  return invoke<string>("serialize_plot_binding_export", { wellIds, bindings });
+  return invoke<string>("serialize_plot_binding_export", { wellIds, bindings, axisRanges });
+}
+
+export function getCurveHeaderDisplayRange(curveId: string): Promise<StoredDisplayRange | null> {
+  return invoke<StoredDisplayRange | null>("get_curve_header_display_range", { curveId });
+}
+
+export function setCurveHeaderDisplayRange(
+  curveId: string,
+  range: StoredDisplayRange | null,
+): Promise<StoredDisplayRange | null> {
+  return invoke<StoredDisplayRange | null>("set_curve_header_display_range", { curveId, range });
 }
 
 export interface PlotWriteAxisBinding {

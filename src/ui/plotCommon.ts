@@ -32,6 +32,7 @@ import {
   type PlotReductionExport,
   type ReductionManifest,
 } from "./plotTypes";
+import type { PlotAxisRangeExport } from "./axisRange";
 
 /** Shared pieces for the parameter-selection dialogs: curve/zone selectors and the
  *  "apply picked value to a zone parameter" row. */
@@ -71,11 +72,18 @@ function canonicalBindings(state: PersistedPlotState): string {
   );
 }
 
+function canonicalAxisRanges(state: PersistedPlotState): string {
+  return JSON.stringify(
+    [...(state.axis_ranges ?? [])].sort((left, right) => left.axis.localeCompare(right.axis)),
+  );
+}
+
 export function buildPersistedPlotState(
   plotType: string,
   options: Record<string, unknown>,
   wellIds: string[],
   intents: PlotChannelIntent[],
+  axisRanges: PlotAxisRangeExport[],
 ): PersistedPlotState {
   const represented = [...new Set(wellIds.map((wellId) => wellId.trim()).filter(Boolean))];
   if (represented.length === 0) throw new Error("plot state has no represented wells");
@@ -90,12 +98,24 @@ export function buildPersistedPlotState(
       );
     }
   }
+  if (axisRanges.length === 0) throw new Error("plot state has no resolved axis ranges");
+  const axes = new Set<string>();
+  for (const range of axisRanges) {
+    const axis = range.axis.trim().toLowerCase();
+    if (!axis) throw new Error("plot state has an unnamed axis range");
+    if (axes.has(axis)) throw new Error(`plot state repeats axis '${range.axis}'`);
+    axes.add(axis);
+    if (!Number.isFinite(range.min) || !Number.isFinite(range.max) || range.min === range.max) {
+      throw new Error(`plot axis '${range.axis}' requires two distinct finite display limits`);
+    }
+  }
   return {
     schema_version: 1,
     plot_type: plotType,
     well_ids: represented,
     options,
     bindings,
+    axis_ranges: axisRanges,
   };
 }
 
@@ -105,9 +125,13 @@ export function assertPlotStateRestored(
   expected: PersistedPlotState,
   actual: PersistedPlotState,
 ): void {
-  if (expected.plot_type !== actual.plot_type || canonicalBindings(expected) !== canonicalBindings(actual)) {
+  if (
+    expected.plot_type !== actual.plot_type ||
+    canonicalBindings(expected) !== canonicalBindings(actual) ||
+    ((expected.axis_ranges?.length ?? 0) > 0 && canonicalAxisRanges(expected) !== canonicalAxisRanges(actual))
+  ) {
     throw new Error(
-      `saved ${expected.plot_type} refused: one or more concrete curve bindings or source revisions changed`,
+      `saved ${expected.plot_type} refused: a concrete curve binding, source revision, or resolved axis range changed`,
     );
   }
 }

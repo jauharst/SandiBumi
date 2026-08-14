@@ -1,4 +1,4 @@
-import { getCurveData, plotBindingSnapshot, resolveWellScope, type ResolvedPlotCurve, type WellSummary } from "../ipc";
+import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
 import { histogram as canonicalBinCounts } from "../distribution";
 import { appState, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
@@ -45,6 +45,12 @@ import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
 import { parsePercentileP, type PlotReductionExport } from "./plotTypes";
+import {
+  axisRangeExportRecord,
+  formatAxisRangeSummary,
+  resolveBoundAxisRange,
+  type PlotAxisRangeExport,
+} from "./axisRange";
 
 export type HistogramMode = "bars" | "line";
 
@@ -187,6 +193,8 @@ export function drawHistogram(
   view: Viewport | null = null,
   brushValues: ArrayLike<number> | null = null,
   context: HistogramContext | null = null,
+  axisBinding: PlotChannelBinding | null = null,
+  onAxisRanges?: (ranges: PlotAxisRangeExport[]) => void,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
   // With context wells the auto range covers the pooled field spread, so a shifted
@@ -206,8 +214,6 @@ export function drawHistogram(
   // visible X window (the axis), so bars keep their identity as you zoom in.
   const min = p2 - pad;
   const max = p98 + pad;
-  const xMin = view ? view.xMin : min;
-  const xMax = view ? view.xMax : max;
 
   const bins = clampBins(opts.bins);
   const { counts, edges, n, nonFiniteExcluded } = computeHistogram(values, min, max, bins);
@@ -247,12 +253,36 @@ export function drawHistogram(
   const excludedLabel = nonFiniteExcluded ? `; non-finite excluded=${nonFiniteExcluded}` : "";
   const yLabel = opts.normalize ? `% of samples (n=${nLabel}${excludedLabel})` : `Count (n=${nLabel}${excludedLabel})`;
 
+  const xResolution = resolveBoundAxisRange({
+    binding: axisBinding,
+    user: view ? { min: view.xMin, max: view.xMax } : null,
+    finiteData: { min, max },
+  });
+  const yResolution = resolveBoundAxisRange({
+    binding: null,
+    user: null,
+    finiteData: { min: 0, max: yMax },
+  });
+  if (!xResolution || !yResolution) return null;
+  const xInvert = xResolution.min > xResolution.max;
+  const resolvedRanges = [
+    axisRangeExportRecord("x", xResolution),
+    axisRangeExportRecord("y", yResolution),
+  ];
+  onAxisRanges?.(resolvedRanges);
+
   const plot = new PlotCanvas(
     canvas,
-    { label: curveName, min: xMin, max: xMax, log: false, invert: false },
-    { label: yLabel, min: 0, max: yMax, log: false, invert: false },
+    { label: curveName, min: Math.min(xResolution.min, xResolution.max), max: Math.max(xResolution.min, xResolution.max), log: false, invert: xInvert },
+    { label: yLabel, min: Math.min(yResolution.min, yResolution.max), max: Math.max(yResolution.min, yResolution.max), log: false, invert: yResolution.min > yResolution.max },
   );
   plot.drawFrame();
+  plot.ctx.save();
+  plot.ctx.font = canvasFont(plot.theme, 9);
+  plot.ctx.fillStyle = plot.theme.axis;
+  plot.ctx.textAlign = "left";
+  plot.ctx.fillText(formatAxisRangeSummary(resolvedRanges), plot.plotRect.x0 + 4, plot.margin.top - 7);
+  plot.ctx.restore();
   const barColor = opts.color || plot.theme.accent;
 
   // Context wells first (stepped outlines), so the active well's bars read on top.
@@ -539,6 +569,9 @@ export async function buildHistogramContent(
   };
   const plotIntents = () => [{ channel: "value", semantic_request: curveSel.value, required: true }];
   const representedWellIds = () => [well.well_id, ...ctxWellIds];
+  let axisRanges: PlotAxisRangeExport[] = [];
+  const currentAxisBinding = (): PlotChannelBinding | null =>
+    plotBindingSnapshotForChannels(representedWellIds(), plotIntents())[0] ?? null;
   const selectionState = (): Record<string, string> => ({
     plotId,
     curve: curveSel.value,
@@ -546,7 +579,7 @@ export async function buildHistogramContent(
     wells: scope.serialize(),
   });
   const persistedState = (options: Record<string, unknown>) =>
-    buildPersistedPlotState("histogram", options, representedWellIds(), plotIntents());
+    buildPersistedPlotState("histogram", options, representedWellIds(), plotIntents(), axisRanges);
   const persist = () => {
     try {
       void savePlotProps("histogram", persistedState({ ...opts }))
@@ -592,6 +625,7 @@ export async function buildHistogramContent(
         wellIds: state.well_ids,
         curves: [curveSel.value],
         plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
       };
     },
   ));
@@ -811,6 +845,7 @@ export async function buildHistogramContent(
 
   const redraw = () => {
     canvas.setAttribute("aria-label", `Histogram of ${curveSel.value}`); // a11y label follows the curve
+    axisRanges = [];
     plot = drawHistogram(
       canvas,
       values,
@@ -826,6 +861,10 @@ export async function buildHistogramContent(
       viewRef.current,
       brushValues,
       histContext(),
+      currentAxisBinding(),
+      (ranges) => {
+        axisRanges = ranges;
+      },
     );
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
@@ -857,6 +896,10 @@ export async function buildHistogramContent(
       viewRef.current,
       null,
       histContext(),
+      currentAxisBinding(),
+      (ranges) => {
+        axisRanges = ranges;
+      },
     );
   const getSvg = (): string | null => (plot ? renderPlotToSvg(plot.width, plot.height, drawStatic) : null);
   const getPdf = (): PlotPdf | null => (plot ? renderPlotToPdf(plot.width, plot.height, drawStatic) : null);

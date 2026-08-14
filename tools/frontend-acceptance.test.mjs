@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { createServer } from "vite";
 
@@ -104,6 +105,74 @@ after(async () => {
 async function load(path) {
   return server.ssrLoadModule(path);
 }
+
+test("a_user_axis_range_wins_and_without_it_the_header_range_wins_in_the_rendered_label_and_export_while_validity_never_becomes_display", async () => {
+  // CORRECTNESS — SB-PLT-002 / SB-PLT-T01/T02. The precedence and provenance tiers
+  // come from docs/PRD_v2/23_plotting-interactivity.md §4.1 and §6, citing the
+  // plotting dossier §§2.2 and 5.3. These four unequal ranges are discriminator
+  // fixtures only; they are not petrophysical limits or product defaults.
+  const {
+    axisRangeExportRecord,
+    formatAxisRangeLabel,
+    resolveAxisRange,
+  } = await load("/src/ui/axisRange.ts");
+  const candidates = {
+    user: { min: 10, max: 20 },
+    headerDisplay: { min: 1, max: 2 },
+    auditedFamilyDisplay: { min: 3, max: 4 },
+    finiteData: { min: 5, max: 6 },
+    validity: { min: 100, max: 200 },
+  };
+
+  const user = resolveAxisRange(candidates);
+  assert.deepEqual(user, { min: 10, max: 20, tier: "user" });
+  assert.equal(formatAxisRangeLabel("X", user), "X range: user · 10 → 20");
+  assert.deepEqual(axisRangeExportRecord("x", user), {
+    axis: "x",
+    min: 10,
+    max: 20,
+    tier: "user",
+  });
+
+  const header = resolveAxisRange({ ...candidates, user: null });
+  assert.deepEqual(header, { min: 1, max: 2, tier: "header_display" });
+  assert.equal(formatAxisRangeLabel("X", header), "X range: header display · 1 → 2");
+  assert.deepEqual(axisRangeExportRecord("x", header), {
+    axis: "x",
+    min: 1,
+    max: 2,
+    tier: "header_display",
+  });
+
+  assert.equal(
+    resolveAxisRange({
+      user: null,
+      headerDisplay: null,
+      auditedFamilyDisplay: null,
+      finiteData: null,
+      validity: { min: 100, max: 200 },
+    }),
+    null,
+    "a scientific validity range is never promoted to a display range",
+  );
+
+  // The functional resolver alone would let a lazy implementation pass while every live
+  // quantitative surface kept its private defaults. Pin the five governed adapters as the
+  // other side of the contract: each resolves through the shared chain, renders its winning
+  // tier, and sends the same range record to export.
+  for (const panel of [
+    "crossplotPanel.ts",
+    "histogramPanel.ts",
+    "pickettPanel.ts",
+    "correlationPanel.ts",
+    "vegaPanel.ts",
+  ]) {
+    const source = await readFile(new URL(`../src/ui/${panel}`, import.meta.url), "utf8");
+    assert.match(source, /resolveBoundAxisRange/, `${panel} must use the governed precedence chain`);
+    assert.match(source, /formatAxisRangeSummary/, `${panel} must show the winning range tier`);
+    assert.match(source, /axisRanges: state\.axis_ranges/, `${panel} must export the rendered range custody`);
+  }
+});
 
 test("track curve keys distinguish equal mnemonics from different imported sets", async () => {
   const { availableTrackSets, hasTrackCurve, trackCurveKey } = await load("/src/trackCurveRequest.ts");

@@ -81,7 +81,7 @@ async function canvasAncestry(
     new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), "image/png")),
     getCurveAncestryDisclosures(scope),
     scope.plotBindings
-      ? serializePlotBindingExport(scope.wellIds, scope.plotBindings)
+      ? serializePlotBindingExport(scope.wellIds, scope.plotBindings, scope.axisRanges ?? [])
       : Promise.resolve(""),
   ]);
   if (!blob) throw new Error("could not render the plot to an image");

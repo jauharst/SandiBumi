@@ -1,4 +1,4 @@
-import { getCurveData, plotBindingSnapshot, resolveWellScope, type ResolvedPlotCurve, type WellSummary } from "../ipc";
+import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
 import { appState } from "../state";
 import { formRow, openModal } from "./modal";
 import {
@@ -13,6 +13,7 @@ import {
   PlotCanvas,
   canvasFont,
   readTheme,
+  percentile,
   type ColormapName,
   type Viewport,
   type ViewportRef,
@@ -43,14 +44,21 @@ import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
 import { reconcileDepthChannels, type PlotReductionExport } from "./plotTypes";
+import {
+  axisRangeExportRecord,
+  formatAxisRangeSummary,
+  resolveBoundAxisRange,
+  type PlotAxisRangeExport,
+} from "./axisRange";
 
-/** Persisted Pickett v2 display settings (plotprops doc "pickett"). Axis ranges replace the
- *  old hard-coded 0.1–1000 / 0.01–1 defaults; Z-color paints each sample by a chosen log. */
+/** Persisted Pickett v2 display settings (plotprops doc "pickett"). Complete axis pairs are
+ *  user overrides; absent pairs continue to header/family/finite data. */
 interface PickettProps {
-  rtMin: number;
-  rtMax: number;
-  phiMin: number;
-  phiMax: number;
+  /** A complete positive pair is a user override; null/null continues down SB-PLT-002's chain. */
+  rtMin: number | null;
+  rtMax: number | null;
+  phiMin: number | null;
+  phiMax: number | null;
   pointSize: number;
   /** Curve to color points by; "" = single theme color. */
   zCurve: string;
@@ -59,12 +67,12 @@ interface PickettProps {
 }
 
 const PICKETT_DEFAULTS: PickettProps = {
-  // RT 0.2–2000 per the senior audit (AUDIT-2026-07-20, "Pickett plot defaults"): 0.1–1000
-  // clipped high-resistivity pay in the field data it was checked against. Saved props win.
-  rtMin: 0.2,
-  rtMax: 2000,
-  phiMin: 0.01,
-  phiMax: 1,
+  // Axis defaults are deliberately absent. Concrete header/family metadata or finite data
+  // supplies the range until a user records an explicit override.
+  rtMin: null,
+  rtMax: null,
+  phiMin: null,
+  phiMax: null,
   pointSize: 1.8,
   zCurve: "",
   colormap: "rainbow",
@@ -77,10 +85,13 @@ export function sanitizePickettProps(raw: Partial<PickettProps>): PickettProps {
   const p: PickettProps = { ...PICKETT_DEFAULTS, ...raw };
   const pos = (v: unknown, fb: number): number =>
     typeof v === "number" && Number.isFinite(v) && v > 0 ? v : fb;
-  p.rtMin = pos(p.rtMin, PICKETT_DEFAULTS.rtMin);
-  p.rtMax = pos(p.rtMax, PICKETT_DEFAULTS.rtMax);
-  p.phiMin = pos(p.phiMin, PICKETT_DEFAULTS.phiMin);
-  p.phiMax = pos(p.phiMax, PICKETT_DEFAULTS.phiMax);
+  const pair = (low: unknown, high: unknown): [number | null, number | null] => {
+    const valid = (value: unknown): value is number =>
+      typeof value === "number" && Number.isFinite(value) && value > 0;
+    return valid(low) && valid(high) && low !== high ? [low, high] : [null, null];
+  };
+  [p.rtMin, p.rtMax] = pair(p.rtMin, p.rtMax);
+  [p.phiMin, p.phiMax] = pair(p.phiMin, p.phiMax);
   p.pointSize = Math.max(0.5, Math.min(8, pos(p.pointSize, PICKETT_DEFAULTS.pointSize)));
   p.zCurve = typeof p.zCurve === "string" ? p.zCurve : "";
   if (p.colormap !== "viridis") p.colormap = "rainbow";
@@ -129,16 +140,72 @@ export function drawPickett(
   picks: [number, number][],
   hoverIdx = -1,
   view: Viewport | null = null,
-  style?: { rtMin?: number; rtMax?: number; phiMin?: number; phiMax?: number; pointSize?: number; colors?: string[] },
+  style?: { rtMin?: number | null; rtMax?: number | null; phiMin?: number | null; phiMax?: number | null; pointSize?: number; colors?: string[] },
   context: PickettContext | null = null,
-): PlotCanvas {
+  axisBindings: { resistivity: PlotChannelBinding | null; porosity: PlotChannelBinding | null } | null = null,
+  onAxisRanges?: (ranges: PlotAxisRangeExport[]) => void,
+): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
+  const finitePositiveRange = (active: Float32Array, layers: Float32Array[]): { min: number; max: number } | null => {
+    const values: number[] = [];
+    for (const source of [active, ...layers]) {
+      for (const value of source) if (Number.isFinite(value) && value > 0) values.push(value);
+    }
+    if (values.length < 2) return null;
+    const min = percentile(values, 2);
+    const max = percentile(values, 98);
+    return Number.isFinite(min) && Number.isFinite(max) && min !== max ? { min, max } : null;
+  };
+  const rtRange = resolveBoundAxisRange({
+    binding: axisBindings?.resistivity ?? null,
+    user: view
+      ? { min: view.xMin, max: view.xMax }
+      : style?.rtMin !== null && style?.rtMin !== undefined && style?.rtMax !== null && style?.rtMax !== undefined
+        ? { min: style.rtMin, max: style.rtMax }
+        : null,
+    finiteData: finitePositiveRange(rt, context?.layers.map((layer) => layer.rt) ?? []),
+    log: true,
+  });
+  const phiRange = resolveBoundAxisRange({
+    binding: axisBindings?.porosity ?? null,
+    user: view
+      ? { min: view.yMin, max: view.yMax }
+      : style?.phiMin !== null && style?.phiMin !== undefined && style?.phiMax !== null && style?.phiMax !== undefined
+        ? { min: style.phiMin, max: style.phiMax }
+        : null,
+    finiteData: finitePositiveRange(phi, context?.layers.map((layer) => layer.phi) ?? []),
+    log: true,
+  });
+  if (!rtRange || !phiRange) return null;
+  const resolvedRanges = [
+    axisRangeExportRecord("x", rtRange),
+    axisRangeExportRecord("y", phiRange),
+  ];
+  onAxisRanges?.(resolvedRanges);
   const plot = new PlotCanvas(
     canvas,
-    { label: "RT (ohmm)", min: view ? view.xMin : style?.rtMin ?? PICKETT_DEFAULTS.rtMin, max: view ? view.xMax : style?.rtMax ?? PICKETT_DEFAULTS.rtMax, log: true, invert: false },
-    { label: "PHIE (v/v)", min: view ? view.yMin : style?.phiMin ?? PICKETT_DEFAULTS.phiMin, max: view ? view.yMax : style?.phiMax ?? PICKETT_DEFAULTS.phiMax, log: true, invert: false },
+    {
+      label: "RT (ohmm)",
+      min: Math.min(rtRange.min, rtRange.max),
+      max: Math.max(rtRange.min, rtRange.max),
+      log: true,
+      invert: rtRange.min > rtRange.max,
+    },
+    {
+      label: "PHIE (v/v)",
+      min: Math.min(phiRange.min, phiRange.max),
+      max: Math.max(phiRange.min, phiRange.max),
+      log: true,
+      invert: phiRange.min > phiRange.max,
+    },
   );
   plot.drawFrame();
+  plot.ctx.save();
+  plot.ctx.font = canvasFont(plot.theme, 9);
+  plot.ctx.fillStyle = plot.theme.axis;
+  plot.ctx.textAlign = "left";
+  plot.ctx.fillText(formatAxisRangeSummary(resolvedRanges), plot.plotRect.x0 + 4, plot.margin.top - 7);
+  plot.ctx.restore();
 
   // Context wells first, faded, so the active well's cloud reads on top of them.
   const hasCtx = !!context && context.layers.length > 0;
@@ -332,6 +399,14 @@ export async function buildPickettContent(
     ...(props.zCurve ? [{ channel: "colour", semantic_request: props.zCurve, required: false }] : []),
   ];
   const representedWellIds = () => [well.well_id, ...ctxWellIds];
+  let axisRanges: PlotAxisRangeExport[] = [];
+  const currentAxisBindings = (): { resistivity: PlotChannelBinding | null; porosity: PlotChannelBinding | null } => {
+    const bindings = plotBindingSnapshotForChannels(representedWellIds(), plotIntents());
+    return {
+      resistivity: bindings.find((binding) => binding.intent.channel === "resistivity") ?? null,
+      porosity: bindings.find((binding) => binding.intent.channel === "porosity") ?? null,
+    };
+  };
   const selectionState = (): Record<string, string> => ({
     plotId,
     rt: rtSel.value,
@@ -342,7 +417,7 @@ export async function buildPickettContent(
     wells: scope.serialize(),
   });
   const persistedState = (options: Record<string, unknown>) =>
-    buildPersistedPlotState("pickett", options, representedWellIds(), plotIntents());
+    buildPersistedPlotState("pickett", options, representedWellIds(), plotIntents(), axisRanges);
   const persist = () => {
     try {
       void savePlotProps("pickett", persistedState({ ...props }))
@@ -368,9 +443,8 @@ export async function buildPickettContent(
       () => persistedState({ ...props }),
       (t) => {
         Object.assign(props, sanitizePickettProps({ ...props, ...t }));
-        persist();
         viewRef.current = null; // show the template's axis ranges (a live zoom would mask them)
-        void reload(true); // refetch (the Z curve may have changed); keeps picks + fitted product line
+        void reload(true).then(persist); // refetch first so the saved tier/range matches the rendered plot
       },
       setStatus,
     ),
@@ -388,6 +462,7 @@ export async function buildPickettContent(
         wellIds: state.well_ids,
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
       };
     },
   ));
@@ -551,6 +626,7 @@ export async function buildPickettContent(
 
   const redraw = () => {
     canvas.setAttribute("aria-label", `Pickett plot: ${rtSel.value} versus ${phiSel.value}`); // a11y label
+    axisRanges = [];
     plot = drawPickett(canvas, rt, phi, currentLine(), picks, hoverIdx, viewRef.current, {
       rtMin: props.rtMin,
       rtMax: props.rtMax,
@@ -558,7 +634,19 @@ export async function buildPickettContent(
       phiMax: props.phiMax,
       pointSize: props.pointSize,
       colors,
-    }, pickettContext());
+    }, pickettContext(), currentAxisBindings(), (ranges) => {
+      axisRanges = ranges;
+    });
+    if (!plot) {
+      const ctx = canvas.getContext("2d")!;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const theme = readTheme(canvas);
+      ctx.font = canvasFont(theme, 12);
+      ctx.fillStyle = theme.text;
+      ctx.textAlign = "center";
+      ctx.fillText("No finite positive data or governed display range for both Pickett axes.", canvas.width / 2, canvas.height / 2);
+      return;
+    }
     // Ring the samples brushed in the crossplot. Depths come off the same backend grid, so an
     // exact Set membership test aligns them; clipped to the plot and skipping log-invalid points.
     if (plot && brushSet && brushSet.size && depths.length === rt.length) {
@@ -596,7 +684,9 @@ export async function buildPickettContent(
       phiMax: props.phiMax,
       pointSize: props.pointSize,
       colors,
-    }, pickettContext());
+    }, pickettContext(), currentAxisBindings(), (ranges) => {
+      axisRanges = ranges;
+    });
   const getSvg = (): string | null => (plot ? renderPlotToSvg(plot.width, plot.height, drawStatic) : null);
   const getPdf = (): PlotPdf | null => (plot ? renderPlotToPdf(plot.width, plot.height, drawStatic) : null);
 
@@ -754,13 +844,13 @@ export async function buildPickettContent(
    *  kind (plotprops "pickett") like Histogram/Crossplot v2. */
   const openProps = () => {
     const body = document.createElement("div");
-    const num = (value: number, w = 72): HTMLInputElement => {
+    const num = (value: number | null, w = 72): HTMLInputElement => {
       const i = document.createElement("input");
       i.className = "form-control";
       i.type = "number";
       i.step = "any";
       i.style.width = `${w}px`;
-      i.value = String(value);
+      i.value = value === null ? "" : String(value);
       return i;
     };
     const inline = (...els: (HTMLElement | string)[]): HTMLElement => {
@@ -806,8 +896,8 @@ export async function buildPickettContent(
     zLogChk.checked = props.zLog;
     zLogWrap.append(zLogChk, document.createTextNode("log Z"));
 
-    body.appendChild(formRow("RT axis", inline(rtMinI, "→", rtMaxI)));
-    body.appendChild(formRow("PHIE axis", inline(phiMinI, "→", phiMaxI)));
+    body.appendChild(formRow("RT axis", inline(rtMinI, "→", rtMaxI), "Blank = header display, then audited unit-family display, then finite positive data"));
+    body.appendChild(formRow("PHIE axis", inline(phiMinI, "→", phiMaxI), "Both limits are required for a user override"));
     body.appendChild(formRow("Point size", psI));
     body.appendChild(formRow("Color by", zSel));
     body.appendChild(formRow("Colormap", inline(cmSel, zLogWrap)));
@@ -822,21 +912,29 @@ export async function buildPickettContent(
 
     const close = openModal("Pickett properties", body, 340);
     applyBtn.addEventListener("click", () => {
-      const posOr = (v: string, fallback: number) => {
-        const p = parseFloat(v);
-        return Number.isFinite(p) && p > 0 ? p : fallback;
+      const rangePair = (low: HTMLInputElement, high: HTMLInputElement, label: string): [number | null, number | null] | null => {
+        const lowText = low.value.trim();
+        const highText = high.value.trim();
+        if (!lowText && !highText) return [null, null];
+        const parsedLow = Number(lowText);
+        const parsedHigh = Number(highText);
+        if (!lowText || !highText || !Number.isFinite(parsedLow) || !Number.isFinite(parsedHigh) || parsedLow <= 0 || parsedHigh <= 0 || parsedLow === parsedHigh) {
+          setStatus(`${label} override requires two distinct positive limits, or two blanks for automatic precedence`);
+          return null;
+        }
+        return [parsedLow, parsedHigh];
       };
-      props.rtMin = posOr(rtMinI.value, PICKETT_DEFAULTS.rtMin);
-      props.rtMax = posOr(rtMaxI.value, PICKETT_DEFAULTS.rtMax);
-      props.phiMin = posOr(phiMinI.value, PICKETT_DEFAULTS.phiMin);
-      props.phiMax = posOr(phiMaxI.value, PICKETT_DEFAULTS.phiMax);
+      const rtPair = rangePair(rtMinI, rtMaxI, "RT axis");
+      const phiPair = rangePair(phiMinI, phiMaxI, "PHIE axis");
+      if (!rtPair || !phiPair) return;
+      [props.rtMin, props.rtMax] = rtPair;
+      [props.phiMin, props.phiMax] = phiPair;
       props.pointSize = Math.max(0.5, parseFloat(psI.value) || PICKETT_DEFAULTS.pointSize);
       props.zCurve = zSel.value;
       props.colormap = cmSel.value as ColormapName;
       props.zLog = zLogChk.checked;
-      persist();
       viewRef.current = null; // show the new axis ranges (a live zoom would otherwise mask them)
-      void reload(true); // refetch (the Z curve may have changed); keeps picks + fitted product line
+      void reload(true).then(persist); // refetch first so the saved tier/range matches the rendered plot
       close();
     });
   };

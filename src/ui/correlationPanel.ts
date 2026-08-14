@@ -5,6 +5,7 @@ import {
   listFluidContacts,
   listTops,
   listWells,
+  plotBindingSnapshotForChannels,
   resolvePlotBindings,
   resolveWellScope,
   suggestContacts,
@@ -13,6 +14,7 @@ import {
   type ContactConsistency,
   type ContactSuggestResult,
   type FluidContact,
+  type PlotChannelBinding,
   type TopEntry,
   type TrackCurveSeries,
   type WellSummary,
@@ -22,6 +24,13 @@ import { openModal } from "./modal";
 import { canvasFont, percentile, readTheme } from "./plotCanvas";
 import { buildPersistedPlotState, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import {
+  axisRangeExportRecord,
+  formatAxisRangeSummary,
+  resolveBoundAxisRange,
+  type AxisRangeResolution,
+  type PlotAxisRangeExport,
+} from "./axisRange";
 
 /** Default marker colors per contact type (a stored color overrides these). */
 const CONTACT_COLORS: Record<string, string> = {
@@ -59,8 +68,8 @@ async function listActiveScopedWells(): Promise<WellSummary[]> {
 
 export const DEFAULT_CORRELATION_OPTIONS: CorrelationOptions = {
   curve: "GR",
-  min: 0,
-  max: 150,
+  min: null,
+  max: null,
   datum: "",
   depthMode: "md",
   showContacts: true,
@@ -155,13 +164,22 @@ export async function buildCorrelationContent(
     datum: opts.datum,
     depthMode: opts.depthMode,
     showContacts: opts.showContacts ? "1" : "",
+    depthMin: depthViewIsUser ? String(viewTop) : "",
+    depthMax: depthViewIsUser ? String(viewTop + Math.max(50, canvas.clientHeight - HEADER_H) / pxPerUnit) : "",
   });
+  let axisRanges: PlotAxisRangeExport[] = [];
+  const currentValueBinding = (): PlotChannelBinding | null =>
+    plotBindingSnapshotForChannels(
+      strips.filter((strip) => strip.series !== null).map((strip) => strip.well.well_id),
+      plotIntents(),
+    ).find((binding) => binding.intent.channel === "value") ?? null;
   const persistedState = (options: Record<string, unknown>) =>
     buildPersistedPlotState(
       "correlation",
       options,
       strips.filter((strip) => strip.series !== null).map((strip) => strip.well.well_id),
       plotIntents(),
+      axisRanges,
     );
   const persist = () => {
     try {
@@ -170,6 +188,17 @@ export async function buildCorrelationContent(
     } catch (error) {
       setStatus(`Correlation state not saved: ${error}`);
     }
+  };
+  // A physical wheel gesture emits a burst of events. Coalesce that burst into one durable
+  // plot-state write; the rendered viewport and exported custody still update on every frame.
+  // This delay is UI event coalescing only, not a scientific or petrophysical parameter.
+  let wheelPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleWheelPersist = (): void => {
+    if (wheelPersistTimer !== null) clearTimeout(wheelPersistTimer);
+    wheelPersistTimer = setTimeout(() => {
+      wheelPersistTimer = null;
+      persist();
+    }, 180);
   };
   let curveNames: string[] = [];
   try {
@@ -183,17 +212,27 @@ export async function buildCorrelationContent(
   el.className = "correlation-panel";
   const props = document.createElement("div");
   props.className = "plot-props";
+  const rangeInfo = document.createElement("p");
+  rangeInfo.className = "modal-hint";
   const canvasHost = document.createElement("div");
   canvasHost.className = "correlation-canvas-host";
   const canvas = document.createElement("canvas");
   canvas.className = "plot-canvas";
   canvasHost.appendChild(canvas);
   el.appendChild(props);
+  el.appendChild(rangeInfo);
   el.appendChild(canvasHost);
 
   // --- View state (display-depth space) ---
   let viewTop = 0;
   let pxPerUnit = 1;
+  let depthViewIsUser = false;
+  const restoredDepthView = (() => {
+    if (!initial?.depthMin || !initial?.depthMax) return null;
+    const min = Number(initial.depthMin);
+    const max = Number(initial.depthMax);
+    return Number.isFinite(min) && Number.isFinite(max) && min !== max ? { min, max } : null;
+  })();
   let hoverY: number | null = null;
   /** All fluid contacts in the project; each strip renders the ones that apply to it. */
   let contacts: FluidContact[] = [];
@@ -226,7 +265,7 @@ export async function buildCorrelationContent(
   };
   const contactColor = (c: FluidContact): string => c.color || CONTACT_COLORS[c.contact_type] || "#888";
 
-  const displayExtent = (): [number, number] => {
+  const displayExtent = (): [number, number] | null => {
     let lo = Infinity;
     let hi = -Infinity;
     for (const s of strips) {
@@ -239,20 +278,23 @@ export async function buildCorrelationContent(
       lo = Math.min(lo, a, b);
       hi = Math.max(hi, a, b);
     }
-    return lo < hi ? [lo, hi] : [0, 100];
+    return lo < hi ? [lo, hi] : null;
   };
 
   const fit = () => {
-    const [lo, hi] = displayExtent();
+    const extent = displayExtent();
+    if (!extent) return;
+    const [lo, hi] = extent;
     const h = Math.max(50, canvas.clientHeight - HEADER_H);
     pxPerUnit = h / (hi - lo);
     viewTop = lo;
+    depthViewIsUser = false;
     draw();
+    persist();
   };
 
-  /** Global strip scale: manual values, else P2–P98 pooled over every included well. */
-  const stripScale = (): [number, number] => {
-    if (opts.min !== null && opts.max !== null && opts.max !== opts.min) return [opts.min, opts.max];
+  /** One global strip scale through the SB-PLT-002 precedence chain. */
+  const stripScale = (): AxisRangeResolution | null => {
     const pool: number[] = [];
     for (const s of strips) {
       if (!s.series) continue;
@@ -261,10 +303,14 @@ export async function buildCorrelationContent(
         if (Number.isFinite(v)) pool.push(v);
       }
     }
-    if (pool.length < 2) return [0, 1];
-    const lo = percentile(pool, 2);
-    const hi = percentile(pool, 98);
-    return hi > lo ? [lo, hi] : [lo, lo + 1];
+    const finiteData = pool.length >= 2
+      ? { min: percentile(pool, 2), max: percentile(pool, 98) }
+      : null;
+    return resolveBoundAxisRange({
+      binding: currentValueBinding(),
+      user: opts.min !== null && opts.max !== null ? { min: opts.min, max: opts.max } : null,
+      finiteData,
+    });
   };
 
   /** Nice tick step so depth labels sit ≥ 45px apart. */
@@ -295,6 +341,8 @@ export async function buildCorrelationContent(
 
     const active = strips.filter((s) => included.has(s.well.well_id));
     if (active.length === 0) {
+      axisRanges = [];
+      rangeInfo.textContent = "";
       ctx.fillStyle = theme.text;
       ctx.font = canvasFont(theme, 13);
       ctx.fillText("No wells included — pick some under Wells…", AXIS_W + 10, 40);
@@ -303,7 +351,25 @@ export async function buildCorrelationContent(
 
     const plotH = h - HEADER_H;
     const yOf = (disp: number) => HEADER_H + (disp - viewTop) * pxPerUnit;
-    const [vMin, vMax] = stripScale();
+    const valueRange = stripScale();
+    const finiteDepth = displayExtent();
+    const depthRange = resolveBoundAxisRange({
+      binding: null,
+      user: depthViewIsUser ? { min: viewTop, max: viewTop + plotH / pxPerUnit } : null,
+      finiteData: finiteDepth ? { min: finiteDepth[0], max: finiteDepth[1] } : null,
+    });
+    if (!valueRange || !depthRange) {
+      axisRanges = [];
+      rangeInfo.textContent = "Axis range unavailable: this view has no complete user, header, audited-family, or finite-data range.";
+      return;
+    }
+    const vMin = valueRange.min;
+    const vMax = valueRange.max;
+    axisRanges = [
+      axisRangeExportRecord("value", valueRange),
+      axisRangeExportRecord("depth", depthRange),
+    ];
+    rangeInfo.textContent = formatAxisRangeSummary(axisRanges);
     const slot = (w - AXIS_W) / active.length;
     const gap = Math.min(46, slot * 0.28);
     const stripW = slot - gap;
@@ -558,11 +624,13 @@ export async function buildCorrelationContent(
     contacts = loadedContacts;
     applyDatum();
     refreshDatumChoices();
-    persist();
   }
   const reloadAndDraw = (): void => {
     void reload()
-      .then(draw)
+      .then(() => {
+        draw();
+        persist();
+      })
       .catch((error) => {
         strips = [];
         setStatus(`Correlation refused: ${error}`);
@@ -642,8 +710,14 @@ export async function buildCorrelationContent(
   const curveSel = curveSelect(curveNames, opts.curve);
   curveSel.addEventListener("change", () => {
     opts.curve = curveSel.value;
-    persist();
-    reloadAndDraw();
+    void reload().then(() => {
+      draw();
+      persist();
+    }).catch((error) => {
+      strips = [];
+      setStatus(`Correlation refused: ${error}`);
+      draw();
+    });
   });
 
   const numField = (placeholder: string, value: number | null, onChange: (v: number | null) => void): HTMLInputElement => {
@@ -655,8 +729,8 @@ export async function buildCorrelationContent(
     input.addEventListener("change", () => {
       const v = input.value.trim() === "" ? null : Number(input.value);
       onChange(v !== null && Number.isFinite(v) ? v : null);
-      persist();
       draw();
+      persist();
     });
     return input;
   };
@@ -680,7 +754,6 @@ export async function buildCorrelationContent(
   }
   datumSel.addEventListener("change", () => {
     opts.datum = datumSel.value;
-    persist();
     applyDatum();
     fit();
   });
@@ -709,7 +782,6 @@ export async function buildCorrelationContent(
   depthModeSel.value = opts.depthMode;
   depthModeSel.addEventListener("change", () => {
     opts.depthMode = depthModeSel.value === "tvdss" ? "tvdss" : "md";
-    persist();
     applyDatum(); // shift is in display space → re-derive for the new mode
     fit();
     if (opts.depthMode === "tvdss") {
@@ -1109,6 +1181,7 @@ export async function buildCorrelationContent(
         wellIds: state.well_ids,
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
       };
     },
   ));
@@ -1118,7 +1191,9 @@ export async function buildCorrelationContent(
     const mid = viewTop + plotH / 2 / pxPerUnit;
     pxPerUnit *= factor;
     viewTop = mid - plotH / 2 / pxPerUnit;
+    depthViewIsUser = true;
     draw();
+    persist();
   }
 
   // --- Interactions: wheel/drag pan, hover broadcast ---
@@ -1139,7 +1214,9 @@ export async function buildCorrelationContent(
       } else {
         viewTop += e.deltaY / pxPerUnit;
       }
+      depthViewIsUser = true;
       draw();
+      scheduleWheelPersist();
     },
     { passive: false },
   );
@@ -1156,7 +1233,9 @@ export async function buildCorrelationContent(
   // canvas) for the app's life — the exact trap LogCanvasRenderer.ts:540-561 documents and the
   // only window-level listener in a panel builder that was missing its removal.
   const onWindowPointerUp = () => {
+    const wasDragging = dragging;
     dragging = false;
+    if (wasDragging) persist();
   };
   window.addEventListener("pointerup", onWindowPointerUp);
   canvas.addEventListener("pointermove", (e) => {
@@ -1165,6 +1244,7 @@ export async function buildCorrelationContent(
     if (dragging) {
       viewTop -= (e.clientY - lastY) / pxPerUnit;
       lastY = e.clientY;
+      depthViewIsUser = true;
     }
     hoverY = y;
     // Broadcast the hovered STRIP's measured depth so the well's other views sync.
@@ -1221,7 +1301,17 @@ export async function buildCorrelationContent(
   }
   // Initial fit once the panel has a size (dock lays out after mount). Captured so a panel closed
   // inside 50 ms doesn't run fit()→draw() against a canvas that has already been detached.
-  const fitTimer = setTimeout(fit, 50);
+  const fitTimer = setTimeout(() => {
+    if (restoredDepthView) {
+      const h = Math.max(50, canvas.clientHeight - HEADER_H);
+      pxPerUnit = h / (restoredDepthView.max - restoredDepthView.min);
+      viewTop = restoredDepthView.min;
+      depthViewIsUser = true;
+      draw();
+    } else {
+      fit();
+    }
+  }, 50);
 
   return {
     el,
@@ -1231,6 +1321,11 @@ export async function buildCorrelationContent(
       unsubTheme();
       window.removeEventListener("pointerup", onWindowPointerUp);
       clearTimeout(fitTimer);
+      if (wheelPersistTimer !== null) {
+        clearTimeout(wheelPersistTimer);
+        wheelPersistTimer = null;
+        persist();
+      }
     },
     getState: selectionState,
     getPersistedState: () => persistedState(selectionState()),

@@ -4,14 +4,14 @@
   "capture_command": "cd src-tauri && cargo check --message-format=json",
   "evidence_class": "CHARACTERIZATION",
   "evidence_note": "This inventory was anchored at the accepted Gate 2 planning baseline and is maintained as owner requirements close warnings. Ownership is not proof that a disconnected product path works.",
-  "expected_warning_count": 55,
+  "expected_warning_count": 49,
   "expected_warning_counts_by_file": {
     "src/coreimage.rs": 1,
     "src/distribution.rs": 3,
     "src/ingest.rs": 1,
     "src/ml.rs": 2,
     "src/parsers.rs": 3,
-    "src/plotting.rs": 45
+    "src/plotting.rs": 39
   },
   "warning_groups": [
     {
@@ -79,20 +79,6 @@
       "rationale": "Every indexed reader must use the declared duplicate-depth policy; an unused LAS-frame wrapper may not be assumed to protect the live path.",
       "warning_keys": [
         "src/parsers.rs|dead_code|function `resolve_las_frame_duplicates` is never used"
-      ]
-    },
-    {
-      "owner_requirement": "SB-PLT-002",
-      "owner_gate": "G2",
-      "disposition": "CONNECT-OR-REMOVE-DURING-OWNER-REQUIREMENT",
-      "rationale": "The explicit axis-precedence chain must govern rendered and exported pilot plots rather than exist only in tests.",
-      "warning_keys": [
-        "src/plotting.rs|dead_code|enum `AxisRangeTier` is never used",
-        "src/plotting.rs|dead_code|function `resolve_axis_range` is never used",
-        "src/plotting.rs|dead_code|function `usable_range` is never used",
-        "src/plotting.rs|dead_code|struct `AxisRangeCandidates` is never constructed",
-        "src/plotting.rs|dead_code|struct `AxisRangeResolution` is never constructed",
-        "src/plotting.rs|dead_code|struct `DisplayRange` is never constructed"
       ]
     },
     {

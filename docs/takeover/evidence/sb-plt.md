@@ -31,14 +31,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; chapter intentions T01-T02; sections 4.1, 6 and 8.1.
 - **Atomic obligations:** apply user, header display, audited family display and finite-data tiers in that order for every axis; exclude validity ranges from display precedence; show the winning tier in UI and export.
-- **Current source:** `crossplotPanel.ts::resolveAxisRange` uses the declared order and draws the winning tier, but the live caller always supplies `headerDisplay: null` and exports no tier record. Histogram, Pickett, correlation and Vega construct ranges independently. The equivalent Rust resolver is unused outside tests.
-- **Qualifying acceptance tests:** none; T01/T02 are not exercised through a panel with a real header range and export. Test class is `MISSING`.
-- **Supporting tests:** `plotting.rs::a_user_axis_range_wins_and_without_it_the_header_display_range_wins` proves the unused Rust helper's precedence and validity exclusion.
-- **Manual evidence:** `crossplot` 6/13, `histogram` 5/22, `pickett` 0/8 and `vega` 0/2.
-- **Git evidence:** reachable commit `3844ae5` added the partial crossplot chain; current independent panel paths remain at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no shared live range resolver, header-range input or export-tier record exists.
-- **Next action:** route every plot axis through one governed resolver with real header metadata and add T01/T02 at the rendered/exported surface.
+- **Current source:** `src/ui/axisRange.ts` is the one live frontend resolver. Crossplot, histogram, Pickett, correlation and generated Vega plots all supply user, typed curve-header, screened unit-family and finite-data candidates through it; log axes refuse non-positive candidates. Each surface renders the winning tier and passes the same axis records into typed plot state and SVG/PNG/PDF export. `plotting.rs` persists the concrete header-display sidecar and validates that every new saved/exported plot carries distinct finite axes and custody tiers; `curveMetaDialog.ts` exposes the header range separately from validity and records exact undo/redo. Custom Vega specifications explicitly refuse persistence/export because their arbitrary scale grammar cannot yet prove custody.
+- **Qualifying acceptance test:** `frontend-acceptance.test.mjs::a_user_axis_range_wins_and_without_it_the_header_range_wins_in_the_rendered_label_and_export_while_validity_never_becomes_display` is one `CORRECTNESS` proof sourced to chapter section 4.1 and T01/T02. Unequal discriminator fixtures prove user over header over family/data, header after user removal, rendered and exported tier identity, and validity exclusion. The same test inventories all five live quantitative panels so an unused helper cannot pass while a panel retains private defaults.
+- **Supporting tests:** `plotting.rs::a_user_axis_range_wins_and_without_it_the_header_display_range_wins` preserves the backend-side precedence/validity guard, while the durable SB-PLT-001 round-trip proves that the concrete axis range and tier survive save and export.
+- **Manual evidence:** `crossplot` 6/21, `histogram` 5/30, `pickett` 0/16, `correlation-tops` 0/50 and `vega` 0/10 - partial or unexercised; the new four-scenario section is unchecked.
+- **Git evidence:** reachable commit `3844ae5` added the partial crossplot chain; the current topic-branch increment replaces the five independent live policies with one governed resolver without expanding the screened dossier seed set.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for Gate 2. Visual readability, runtime Vega scale-name behavior and representative-file interaction remain manual/Gate 4 evidence, not automated claims.
+- **Next action:** retain the shared resolver and explicit custom-spec refusal, execute the `REVIEW.md` click-through separately, skip deferred SB-PLT-003, and proceed to pilot blocker SB-PLT-004.
 
 ## SB-PLT-003 - Overlay compatibility is quantity-and-unit typed
 

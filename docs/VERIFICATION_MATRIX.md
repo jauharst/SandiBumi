@@ -45,12 +45,12 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 43 | 2026-07-19 | 9 |
-| `histogram` | Histogram | Partially exercised | 5 / 26 | 2026-07-20 | 6 |
-| `crossplot` | Crossplot | Partially exercised | 6 / 17 | 2026-07-20 | 7 |
-| `pickett` | Pickett plot | Not exercised | 0 / 12 | — | 4 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 46 | — | 13 |
+| `histogram` | Histogram | Partially exercised | 5 / 30 | 2026-07-20 | 7 |
+| `crossplot` | Crossplot | Partially exercised | 6 / 21 | 2026-07-20 | 8 |
+| `pickett` | Pickett plot | Not exercised | 0 / 16 | — | 5 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 50 | — | 14 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 53 | 2026-07-20 | 15 |
-| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 6 | — | 8 |
+| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 10 | — | 9 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |

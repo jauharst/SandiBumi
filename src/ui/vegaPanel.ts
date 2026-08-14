@@ -32,13 +32,19 @@
 //     Layered spec — the selection params sit on the points layer, the variable signals top-level.
 import vegaEmbed, { type VisualizationSpec, type Result as VegaResult } from "vega-embed";
 import type { EditorView } from "codemirror";
-import { getCurveData, listZones, type TrackCurveSeries, type WellSummary, type ZoneEntry } from "../ipc";
+import { getCurveData, listZones, plotBindingSnapshotForChannels, type PlotChannelBinding, type TrackCurveSeries, type WellSummary, type ZoneEntry } from "../ipc";
 import { recordProcess } from "../processLog";
 import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { buildPersistedPlotState, buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { messageNode } from "./safeDom";
 import { saveSvg } from "./svgExport";
+import {
+  axisRangeExportRecord,
+  formatAxisRangeSummary,
+  resolveBoundAxisRange,
+  type PlotAxisRangeExport,
+} from "./axisRange";
 
 type ChartType = "scatter" | "line" | "histogram" | "density" | "raincloud";
 
@@ -59,6 +65,8 @@ interface SpecOpts {
   groupOrder?: string[];
   /** Raincloud: what the grouping represents ("zone" or a curve mnemonic) — for tooltips. */
   groupLabel?: string;
+  /** Governed source-curve domains. Aggregate/synthetic axes are read back from Vega after render. */
+  axisDomains?: Partial<Record<"x" | "y", [number, number]>>;
 }
 
 /** Types with per-sample point marks that take part in linked brushing (emit + consume). Histogram,
@@ -302,6 +310,12 @@ function buildSpec(
   const border = cssVar("--border", "#cccccc");
   const accent = cssVar("--accent", "#b5651d");
   const axis = { labelColor: dim, titleColor: text, gridColor: border, domainColor: border, tickColor: border };
+  const scale = (channel: "x" | "y", extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    ...extra,
+    ...(opts?.axisDomains?.[channel]
+      ? { domain: opts.axisDomains[channel], nice: false }
+      : {}),
+  });
   const base = {
     $schema: "https://vega.github.io/schema/vega-lite/v5.json",
     background: "transparent",
@@ -317,7 +331,7 @@ function buildSpec(
       ...base,
       mark: { type: "bar", color: accent, opacity: 0.85 },
       encoding: {
-        x: { field: "x", bin: true, type: "quantitative", title: xName, axis },
+        x: { field: "x", bin: true, type: "quantitative", title: xName, scale: scale("x"), axis },
         y: { aggregate: "count", type: "quantitative", title: "count", axis },
         tooltip: [
           { field: "x", bin: true, type: "quantitative", title: xName },
@@ -335,8 +349,8 @@ function buildSpec(
       ...base,
       mark: { type: "rect" },
       encoding: {
-        x: { field: "x", bin, type: "quantitative", title: xName, axis },
-        y: { field: "y", bin, type: "quantitative", title: yName, axis },
+        x: { field: "x", bin, type: "quantitative", title: xName, scale: scale("x"), axis },
+        y: { field: "y", bin, type: "quantitative", title: yName, scale: scale("y"), axis },
         color: {
           aggregate: "count",
           type: "quantitative",
@@ -365,7 +379,7 @@ function buildSpec(
       ...base,
       data: { values: [] }, // each layer carries its own precomputed data; no shared top-level rows
       encoding: {
-        x: { type: "quantitative", scale: { domain: [geo.xMin, geo.xMax], nice: false }, axis: { title: xName, ...axis } },
+        x: { type: "quantitative", scale: scale("x", { domain: [geo.xMin, geo.xMax], nice: false }), axis: { title: xName, ...axis } },
       },
       layer: [
         // cloud — half-violin KDE band, filled from the lane baseline up to the density
@@ -436,8 +450,8 @@ function buildSpec(
   }
 
   const encoding: Record<string, unknown> = {
-    x: { field: "x", type: "quantitative", title: xName, scale: { zero: false }, axis },
-    y: { field: "y", type: "quantitative", title: yName, scale: { zero: false }, axis },
+    x: { field: "x", type: "quantitative", title: xName, scale: scale("x", { zero: false }), axis },
+    y: { field: "y", type: "quantitative", title: yName, scale: scale("y", { zero: false }), axis },
     tooltip: [
       { field: "x", type: "quantitative", title: xName, format: ".3f" },
       { field: "y", type: "quantitative", title: yName, format: ".3f" },
@@ -709,13 +723,30 @@ export async function buildVegaContent(
     trendMethod: trendMethodSel.value,
     group: groupSel.value,
   });
+  let baseAxisRanges: PlotAxisRangeExport[] = [];
+  let axisRanges: PlotAxisRangeExport[] = [];
+  const currentAxisBindings = (): PlotChannelBinding[] =>
+    plotBindingSnapshotForChannels([well.well_id], plotIntents());
+  const finiteRange = (rows: Row[], field: "x" | "y"): { min: number; max: number } | null => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const row of rows) {
+      const value = row[field];
+      if (value === undefined || !Number.isFinite(value)) continue;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+    return Number.isFinite(min) && Number.isFinite(max) && min !== max ? { min, max } : null;
+  };
   const persistedState = (options: Record<string, unknown>) =>
-    buildPersistedPlotState("vega", options, [well.well_id], plotIntents());
+    (syncRuntimeAxisRanges(), buildPersistedPlotState("vega", options, [well.well_id], plotIntents(), axisRanges));
   toolbar.append(field("Type", typeSel), field("X", xSel), yField, zField, trendField, groupField, field("Zone", zoneSel.select));
 
   const chartHost = document.createElement("div");
   chartHost.className = "vega-chart-host";
-  container.append(toolbar, chartHost);
+  const rangeInfo = document.createElement("p");
+  rangeInfo.className = "modal-hint";
+  container.append(toolbar, rangeInfo, chartHost);
 
   // Dim the controls that don't apply to the active type so the toolbar reads honestly: Y is
   // irrelevant to a histogram; colour and the trend overlay are meaningful only on a scatter.
@@ -775,6 +806,79 @@ export async function buildVegaContent(
   // V4: an optional hand-edited spec. When set it replaces the generated grammar (the current rows
   // are injected as its data); a chart-type change clears it since the grammar is type-specific.
   let specOverride: VisualizationSpec | null = null;
+  const prepareAxisRanges = (type: ChartType, rows: Row[]): boolean => {
+    if (specOverride) {
+      baseAxisRanges = [];
+      axisRanges = [];
+      rangeInfo.textContent = "Custom spec active: governed axis custody is unavailable, so persistence and export are refused.";
+      return true;
+    }
+    const bindings = currentAxisBindings();
+    const xBinding = bindings.find((binding) => binding.intent.channel === "x") ?? null;
+    const yBinding = bindings.find((binding) => binding.intent.channel === "y") ?? null;
+    const xRange = resolveBoundAxisRange({
+      binding: xBinding,
+      user: null,
+      finiteData: finiteRange(rows, "x"),
+    });
+    const needsY = type === "scatter" || type === "line" || type === "density";
+    const yRange = needsY
+      ? resolveBoundAxisRange({
+          binding: yBinding,
+          user: null,
+          finiteData: finiteRange(rows, "y"),
+        })
+      : null;
+    if (!xRange || (needsY && !yRange)) {
+      baseAxisRanges = [];
+      axisRanges = [];
+      rangeInfo.textContent = "Axis range unavailable: this chart has no complete header, audited-family, or finite-data range.";
+      return false;
+    }
+    baseAxisRanges = [
+      axisRangeExportRecord("x", xRange),
+      ...(yRange ? [axisRangeExportRecord("y", yRange)] : []),
+    ];
+    axisRanges = [...baseAxisRanges];
+    rangeInfo.textContent = formatAxisRangeSummary(axisRanges);
+    return true;
+  };
+  function syncRuntimeAxisRanges(): void {
+    if (!current || specOverride || baseAxisRanges.length === 0) return;
+    const channels: Array<"x" | "y"> = lastType === "histogram" ? ["x", "y"] : ["x", ...(baseAxisRanges.some((range) => range.axis === "y") ? ["y" as const] : [])];
+    const resolved: PlotAxisRangeExport[] = [];
+    for (const channel of channels) {
+      const base = baseAxisRanges.find((range) => range.axis === channel) ?? null;
+      try {
+        const runtimeScale = (current.view as unknown as { scale: (name: string) => { domain: () => unknown[] } }).scale(channel);
+        const domain = runtimeScale?.domain();
+        const min = Number(domain?.[0]);
+        const max = Number(domain?.[domain.length - 1]);
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+          if (base) resolved.push(base);
+          continue;
+        }
+        const unchanged = !!base && base.min === min && base.max === max;
+        resolved.push({
+          axis: channel,
+          min,
+          max,
+          tier: base ? (unchanged ? base.tier : "user") : "finite_data",
+        });
+      } catch {
+        if (base) resolved.push(base);
+      }
+    }
+    if (resolved.length > 0) {
+      axisRanges = resolved;
+      rangeInfo.textContent = formatAxisRangeSummary(axisRanges);
+    }
+  }
+  const syncAxesAfterInteraction = (): void => {
+    requestAnimationFrame(() => syncRuntimeAxisRanges());
+  };
+  chartHost.addEventListener("wheel", syncAxesAfterInteraction, { passive: true });
+  chartHost.addEventListener("pointerup", syncAxesAfterInteraction);
   const specFor = (
     type: ChartType,
     rows: Row[],
@@ -785,7 +889,10 @@ export async function buildVegaContent(
   ): VisualizationSpec =>
     specOverride
       ? ({ ...(specOverride as Record<string, unknown>), data: { values: rows } } as VisualizationSpec)
-      : buildSpec(type, rows, xName, yName, zName, opts);
+      : buildSpec(type, rows, xName, yName, zName, {
+          ...opts,
+          axisDomains: Object.fromEntries(baseAxisRanges.map((range) => [range.axis, [range.min, range.max]])),
+        });
 
   // --- Linked brushing -------------------------------------------------------
   // Emit: publish the depths inside the Vega brush rectangle. rAF-coalesced during a drag, with a
@@ -869,6 +976,9 @@ export async function buildVegaContent(
     current = null;
     chartHost.innerHTML = "";
     if (rows.length === 0) {
+      baseAxisRanges = [];
+      axisRanges = [];
+      rangeInfo.textContent = "";
       const what = type === "histogram" || type === "raincloud" ? xName : `${xName} / ${yName}`;
       const zc = zoneSel.current();
       // `well.well_name` and the curve mnemonics in `what` are LAS-supplied and stored verbatim;
@@ -878,6 +988,11 @@ export async function buildVegaContent(
         messageNode("logview-message", `No finite ${what} samples in ${well.well_name}${scope}.`),
       );
       setStatus("Vega — no data");
+      return;
+    }
+    if (!prepareAxisRanges(type, rows)) {
+      chartHost.replaceChildren(messageNode("logview-message", "Vega refused: no governed display range is available for every source-curve axis."));
+      setStatus("Vega — axis range refused");
       return;
     }
     try {
@@ -891,6 +1006,7 @@ export async function buildVegaContent(
         return;
       }
       current = result;
+      syncRuntimeAxisRanges();
       if (brushable(type)) {
         result.view.addSignalListener("brush", () => scheduleEmit());
         pushBrush(appState.brushedDepths.get()); // reflect any selection already active elsewhere
@@ -1053,6 +1169,7 @@ export async function buildVegaContent(
         wellIds: state.well_ids,
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
       });
       if (path) {
         setStatus(`Vega chart SVG saved to ${path}`);
@@ -1075,6 +1192,7 @@ export async function buildVegaContent(
         wellIds: state.well_ids,
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
+        axisRanges: state.axis_ranges,
       };
     },
   );
@@ -1266,6 +1384,8 @@ export async function buildVegaContent(
       unsubTheme();
       unsubData();
       ro.disconnect();
+      chartHost.removeEventListener("wheel", syncAxesAfterInteraction);
+      chartHost.removeEventListener("pointerup", syncAxesAfterInteraction);
       zoneSel.dispose();
       editor?.destroy();
       current?.finalize();
