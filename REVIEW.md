@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-027: LAS unit alias rejection keeps Curve Catalog and standard density honest
+
+- [ ] **Automated rejection correctness — not manual evidence:** exact SB-DIO-T43 is green
+      at 1 passed / 0 failed / 0 ignored. A delivered `RHOZ.PPG` channel remains familyless,
+      keeps unit `PPG` and source value `9.5` in the generic store, and does not populate the
+      standard RHOB channel, which remains `NaN`.
+- [ ] **Automated designation evidence:** the same public import result names the rejected
+      `density.units: PPG -> density` entry, marks quantity designation required, and exposes a
+      warning containing `PPG`, the recorded pressure-gradient conflict and designation. A silent
+      family binding or a destructive refusal that loses the source data cannot pass.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative ambiguous-unit
+      delivery, inspect the warning and retained Curve Catalog row, and confirm that no standard
+      RHOB trace appears until an explicit quantity decision is made. Synthetic LAS evidence is
+      not operator, interoperability or representative-delivery evidence.
+
 ## 2026-08-14 — G2 SB-DIO-026: LAS affine unit conversion prevents a silent Curve Catalog shortcut
 
 - [ ] **Automated affine correctness — not manual evidence:** exact SB-DIO-T42 is green at

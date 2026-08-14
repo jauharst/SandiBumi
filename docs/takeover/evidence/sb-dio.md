@@ -355,10 +355,10 @@
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T43`.
 - **Atomic obligations:** review aliases against physical quantity; reject a wrong/ambiguous vendor entry; record that designation is required while retaining source data.
 - **Current source:** the unit table explicitly rejects `PPG` as density, leaves the curve familyless, records the pressure-gradient ambiguity and retains the delivered samples/unit for a later decision.
-- **Qualifying acceptance tests:** `a_ppg_column_is_not_bound_to_density_and_is_flagged_for_designation` is `CORRECTNESS`; PPG's pressure-gradient meaning is independently derived in chapter section 5.1 rather than copied from the vendor table.
+- **Qualifying acceptance tests:** `a_ppg_column_is_not_bound_to_density_and_is_flagged_for_designation` is `CORRECTNESS`; chapter §5.1 marks the vendor density alias NON-ADOPTABLE. T43 proves the public rejection record and warning, standard RHOB `NaN`, familyless generic custody, retained `PPG` unit and unchanged `9.5` source value.
 - **Supporting tests:** unit-ambiguity and unconverted-unit tests protect neighbouring cases.
-- **Manual evidence:** `data-conventions` 0/45 and `generic-curve-store` 0/18 - unexercised.
-- **Git evidence:** reachable `7bd9966` contains the recorded rejection.
+- **Manual evidence:** `data-conventions` 4/113, `generic-curve-store` 0/27, `las-import` 0/81 and `security-integrity` 3/101; this RETAIN increment adds no checked operator or representative-delivery evidence.
+- **Git evidence:** reachable `7bd9966` contains the recorded rejection; exact T43 remains green on the current Gate 2 head, with the RETAIN commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied alias-safety contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none for the cited instance; future aliases still require per-entry sources.
 - **Next action:** keep a review/source field on every added alias and ship ambiguous entries familyless until designated.
