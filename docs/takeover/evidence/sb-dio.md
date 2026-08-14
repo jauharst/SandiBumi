@@ -796,14 +796,14 @@
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; owned tests `SB-DIO-T91`, `SB-DIO-T92`, `SB-DIO-T93`, `SB-DIO-T94`.
 - **Atomic obligations:** locate file plus line/record plus failed rule; count affected items; forbid silent drop/coercion, panic, hang and unbounded allocation; run every registered reader over the in-repo malformed corpus in CI.
-- **Current source:** `src-tauri/src/example_data_test.rs` derives the reader inventory from source adapters and drives every malformed fixture through each applicable reader with bounded truncation cases and diagnostic assertions.
-- **Qualifying acceptance tests:** `malformed_input_is_located_counted_named_bounded_and_every_reader_runs_the_corpus_in_ci` is `CORRECTNESS`; it maps T91-T94 and fails when a reader is added without a corpus adapter.
-- **Supporting tests:** individual parser refusals add local detail but do not replace the cross-reader inventory.
+- **Current source:** `src-tauri/src/example_data_test.rs` derives 27 adapters from public readers found only in `parsers.rs` and `intake.rs`, then calls each adapter on two malformed fixtures. The matrix deliberately discards every returned `Result`; a focused RED probe that retained the failures found 23 reader/fixture errors that omitted the fixture filename. The discovery boundary also omits the chapter-owned DLIS, image and workbook readers. `parsers::read_text_file_with_encoding` performs a whole-file `std::fs::read`, and the chapter supplies no cited maximum input size with which to prove T91's no-unbounded-allocation clause.
+- **Qualifying acceptance tests:** none. The existing combined test is not universal evidence for T91/T92/T94 and a timeout around a whole-file allocation is not a bound; test class `MISSING`.
+- **Supporting tests:** `malformed_input_is_located_counted_named_bounded_and_every_reader_runs_the_corpus_in_ci` proves that the two present fixtures do not panic or exceed its wall-clock timeout across the 27 registered adapters, spot-checks selected LAS and delimited diagnostics, and exercises 100 LAS truncations. Individual parser refusals add local detail but do not close the missing reader families or diagnostic fields.
 - **Manual evidence:** `security-integrity` 0/63, `las-import` 0/57, `dlis-import` 0/11 and `delimited-intake` 3/27.
 - **Git evidence:** reachable `3b7b654` introduced the corpus contract; reachable follow-ups `aaa4172`, `f02571f`, `9f99e69` and `86b4b5c` keep the adapter inventory aligned with later readers.
-- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** none for the current registered-reader inventory; real-delivery malformed evidence remains separate from CI proof.
-- **Next action:** keep the source-derived inventory mandatory and add every future malformed recurrence to the corpus before closing its defect.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-SOURCE`. Publish an authoritative full reader inventory and either a cited maximum import size or an approved bounded streaming design that retains the mandatory universal encoding boundary. No plausible byte cap may be invented from the present implementation comment.
+- **Next action:** after those contracts exist, register every LAS, delimited, DLIS, image and workbook reader, require every failing corpus result to carry artifact, line/record, rule and affected count, and prove the allocation bound independently of the timeout.
 
 ## SB-DIO-062 - Text encoding MUST be detected, not assumed.
 

@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-061: malformed-corpus proof remains diagnostic, inventory and memory-bound blocked
+
+- [ ] **Automated implementation:** BLOCKED-SOURCE. A focused RED probe made the existing
+      cross-reader matrix inspect the errors it currently discards; 23 reader/fixture failures
+      omitted the fixture filename. T92 then checks only selected LAS and delimited paths, so the
+      combined green test does not prove the universal diagnostic contract in T91-T94.
+- [ ] **Inventory decision:** publish one authoritative full reader inventory covering the chapter's
+      LAS, delimited, DLIS, image and workbook boundaries. The current source-derived guard scans
+      only `parsers.rs` and `intake.rs`, so adding a reader in another owned module need not fail the
+      build until it is registered.
+- [ ] **Source decision:** supply a cited maximum import size, or approve a bounded streaming design
+      that preserves the mandatory universal encoding boundary. `read_text_file_with_encoding`
+      currently allocates the complete delivery, so T91's no-unbounded-allocation clause cannot be
+      proved truthfully by a timeout alone and no plausible byte cap may be invented.
+- [ ] **Visual / Manual / Field and harsh critique:** after both contracts exist, exercise one
+      malformed delivery from each pilot reader family and confirm the refusal names the artifact,
+      line or record, failed rule and affected count. A test that merely survives malformed bytes
+      while throwing away its errors is a false-green safety claim, not malformed-input custody.
+
 ## 2026-08-14 — G2 SB-DIO-060: BIFF5 routing remains blocked by the deferred table reader
 
 - [ ] **Automated implementation:** BLOCKED-DEPENDENCY. T90 genuinely opens a delimited table
