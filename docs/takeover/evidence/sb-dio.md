@@ -435,11 +435,11 @@
 - **Current source:** `CurveSelection` requires `name`, `mode` and ordered exact members; documents persist it, the UI requires a saved selection, and blank selection names refuse.
 - **Qualifying acceptance tests:** `a_saved_curve_selection_reloads_as_a_named_object_listing_its_members` is `CORRECTNESS`; it pins persisted order/mode and the missing-mode negative side.
 - **Supporting tests:** Reframe request tests consume the saved object rather than an implicit list.
-- **Manual evidence:** `reframe` 0/34 and `project-lifecycle` 3/24.
+- **Manual evidence:** `reframe` 1/44 and `project-lifecycle` 3/24 from prior unrelated reviews; this T49 scenario remains unchecked.
 - **Git evidence:** reachable `216af9d` contains the saved selection object.
-- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-003` has not placed this operation in or out of pilot scope.
-- **Next action:** retain exact ordered members and exercise save/reload in the pilot only if the workflow uses Reframe.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated Gate 2 closure; immutable DEC-018 includes the exact Reframe derivation-set contract and T49 is green at 1 passed / 0 failed / 0 ignored.
+- **Next action:** preserve T49 and field-exercise save, project reload, inspection and consumption of the named selection in Gate 4.
 
 ## SB-DIO-034 - Curves MUST NOT be auto-selected by curve type on read.
 

@@ -1,5 +1,18 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-033: Reframe curve selection is named saved and inspectable
+
+- [ ] **Automated selection correctness — not manual evidence:** exact SB-DIO-T49 is green at
+      1 passed / 0 failed / 0 ignored. Saving and reloading normalizes the object name, preserves
+      the ordered exact `RHOB`, `GR` membership, removes only the repeated member, and returns the
+      explicit `Selected` mode.
+- [ ] **Hidden-default refusal:** a document that lists members without declaring its mode cannot
+      deserialize as a curve selection. A type-implied, blank-means-all or storage-order selection
+      therefore cannot satisfy the same contract merely by returning a list of names.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to save a representative Reframe selection,
+      close and reopen the project, inspect the name, mode and ordered members, then confirm the run
+      consumes that saved object. The in-memory round trip is not operator or project-reload evidence.
+
 ## 2026-08-14 — G2 SB-DIO-032: Reframe substitution stays explicit and provenance-bearing
 
 - [ ] **Automated substitution correctness — not manual evidence:** exact SB-DIO-T48 is green
