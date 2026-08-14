@@ -367,14 +367,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T44`.
 - **Atomic obligations:** carry an independent derivation with every factor/offset and verify the table arithmetically; never treat a vendor file as the authority for arithmetic.
-- **Current source:** every `UnitTransform` includes a derivation string; `curves.rs` keeps the transform table and exposes no source-less factor entry.
-- **Qualifying acceptance tests:** `every_conversion_factor_carries_an_independent_arithmetic_derivation` is `CORRECTNESS`; expected factors are re-derived from NIST exact length/mass/temperature identities and the chapter's explicit arithmetic rather than from the implementation output.
+- **Current source:** every generated `UnitRule` includes factor, affine offset and a derivation string; `curves.rs` keeps numeric transforms exclusively in that source-bearing registry.
+- **Qualifying acceptance tests:** `every_conversion_factor_carries_an_independent_arithmetic_derivation` is `CORRECTNESS`; its independent ten-row table re-derives every expected factor and offset from the exact unit identities named by chapter §5.1, checks the bound families and automatic status, and requires the corresponding arithmetic terms in each runtime derivation. A wrong factor accompanied by a matching wrong sentence cannot pass.
 - **Supporting tests:** concrete sonic, Fahrenheit and PPG tests exercise high-risk rows end to end.
-- **Manual evidence:** `data-conventions` 0/45 and `verification-stewardship` 0/24 - unexercised.
-- **Git evidence:** reachable `bbd43bd` contains the derivation-bearing registry.
+- **Manual evidence:** `data-conventions` 4/116 and `verification-stewardship` 6/77; this proof-strengthening increment adds no checked operator or representative-delivery evidence.
+- **Git evidence:** reachable `bbd43bd` contains the derivation-bearing registry; exact strengthened T44 is green on the current Gate 2 head, with the proof commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied source discipline); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none for current transforms.
-- **Next action:** make a missing derivation a registry-test failure for every future transform.
+- **Next action:** keep every future transform in the independent T44 enumeration so a missing row, wrong arithmetic or source-less derivation fails release.
 
 ## SB-DIO-029 - An unadjudicable unit ambiguity MUST ship with no default.
 

@@ -1,5 +1,19 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-028: every shipped unit factor is independently auditable
+
+- [ ] **Automated arithmetic correctness — not manual evidence:** exact SB-DIO-T44 is green
+      at 1 passed / 0 failed / 0 ignored. Its independent table enumerates all ten generated
+      transforms and checks family binding, factor, affine offset and automatic-versus-confirmed
+      status against the cited exact unit identities; a mutually wrong factor and explanation fail.
+- [ ] **Automated derivation custody:** every runtime row must expose the independently required
+      arithmetic terms, including `25.4 mm/in`, `0.3048 m/ft`, the Fahrenheit offset and scale,
+      and `10^3 mL/L`; a blank, vendor-only or numerically disconnected derivation fails.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to inspect representative imported
+      conversions and their visible audit records, including the confirmation-only QV case.
+      Generated-table correctness is not proof that operators can understand the report or that
+      representative deliveries use the declared units honestly.
+
 ## 2026-08-14 — G2 SB-DIO-027: LAS unit alias rejection keeps Curve Catalog and standard density honest
 
 - [ ] **Automated rejection correctness — not manual evidence:** exact SB-DIO-T43 is green

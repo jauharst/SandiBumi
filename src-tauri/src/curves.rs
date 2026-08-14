@@ -611,17 +611,182 @@ mod tests {
         );
     }
 
-    /// SB-DIO-028 / SB-DIO-T44. Chapter §5.1 independently derives the corrected
-    /// MEQ/L factor from 1 L = 10^3 mL. Every other numeric rule must meet the same
-    /// standard: arithmetic lives in the row, not only in a vendor citation or comment.
+    /// SB-DIO-028 / SB-DIO-T44. CORRECTNESS. Chapter §5.1 cites NIST SP 811 for the
+    /// exact international-foot
+    /// identity, uses exact SI-prefix and percent identities, fixes the affine
+    /// temperature transform through T42, and derives MEQ/L -> meq/mL from
+    /// 1 L = 10^3 mL. The expected table below is independent of the generated
+    /// registry, so a wrong factor plus a matching wrong sentence fails.
     #[test]
     fn every_conversion_factor_carries_an_independent_arithmetic_derivation() {
-        assert!(!UNIT_RULES.is_empty());
-        for rule in UNIT_RULES {
-            assert!(rule.factor.is_finite() && rule.factor != 0.0, "invalid factor for {} -> {}", rule.from_unit, rule.to_unit);
-            assert!(rule.offset.is_finite(), "invalid offset for {} -> {}", rule.from_unit, rule.to_unit);
-            assert!(!rule.derivation.trim().is_empty(), "missing derivation for {} -> {}", rule.from_unit, rule.to_unit);
-            assert!(rule.derivation.contains('='), "derivation must show its arithmetic: {}", rule.derivation);
+        struct ExpectedRule {
+            families: &'static [&'static str],
+            from_unit: &'static str,
+            to_unit: &'static str,
+            factor: f32,
+            offset: f32,
+            derivation_terms: &'static [&'static str],
+            automatic: bool,
+        }
+
+        let expected = [
+            ExpectedRule {
+                families: &["CALI", "BS"],
+                from_unit: "mm",
+                to_unit: "in",
+                factor: 1.0 / 25.4,
+                offset: 0.0,
+                derivation_terms: &["25.4 mm", "divides by 25.4"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["CALI", "BS"],
+                from_unit: "cm",
+                to_unit: "in",
+                factor: 1.0 / 2.54,
+                offset: 0.0,
+                derivation_terms: &["2.54 cm", "divides by 2.54"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["DT", "DTS"],
+                from_unit: "us/m",
+                to_unit: "us/ft",
+                factor: 0.3048,
+                offset: 0.0,
+                derivation_terms: &["0.3048 m", "us/ft"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["DT", "DTS"],
+                from_unit: "usec/m",
+                to_unit: "us/ft",
+                factor: 0.3048,
+                offset: 0.0,
+                derivation_terms: &["1 usec = 1 us", "0.3048"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["RHOB", "DRHO"],
+                from_unit: "kg/m3",
+                to_unit: "g/cc",
+                factor: 1.0 / 1_000.0,
+                offset: 0.0,
+                derivation_terms: &["1000 kg/m3", "divides by 1000"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["NPHI"],
+                from_unit: "pu",
+                to_unit: "v/v",
+                factor: 1.0 / 100.0,
+                offset: 0.0,
+                derivation_terms: &["1 percent", "0.01 v/v"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["NPHI"],
+                from_unit: "%",
+                to_unit: "v/v",
+                factor: 1.0 / 100.0,
+                offset: 0.0,
+                derivation_terms: &["1/100", "0.01 v/v"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["NPHI"],
+                from_unit: "p.u.",
+                to_unit: "v/v",
+                factor: 1.0 / 100.0,
+                offset: 0.0,
+                derivation_terms: &["1 percent", "0.01 v/v"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["TEMP"],
+                from_unit: "DEGF",
+                to_unit: "DEGC",
+                factor: 5.0 / 9.0,
+                offset: -32.0,
+                derivation_terms: &["degF - 32", "1/1.8"],
+                automatic: true,
+            },
+            ExpectedRule {
+                families: &["QV"],
+                from_unit: "MEQ/L",
+                to_unit: "meq/mL",
+                factor: 1.0 / 1_000.0,
+                offset: 0.0,
+                derivation_terms: &["10^3 mL", "10^-3"],
+                automatic: false,
+            },
+        ];
+
+        assert_eq!(
+            UNIT_RULES.len(),
+            expected.len(),
+            "every numeric rule must be independently enumerated here"
+        );
+        for expected_rule in &expected {
+            let rule = UNIT_RULES
+                .iter()
+                .find(|rule| {
+                    rule.from_unit == expected_rule.from_unit
+                        && rule.to_unit == expected_rule.to_unit
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing independently derived rule {} -> {}",
+                        expected_rule.from_unit, expected_rule.to_unit
+                    )
+                });
+            assert_eq!(rule.families, expected_rule.families);
+            assert!(
+                (rule.factor - expected_rule.factor).abs() <= f32::EPSILON,
+                "wrong factor for {} -> {}: expected {}, got {}",
+                rule.from_unit,
+                rule.to_unit,
+                expected_rule.factor,
+                rule.factor
+            );
+            assert_eq!(
+                rule.offset, expected_rule.offset,
+                "wrong affine offset for {} -> {}",
+                rule.from_unit, rule.to_unit
+            );
+            assert_eq!(rule.automatic, expected_rule.automatic);
+            assert!(
+                rule.factor.is_finite() && rule.factor != 0.0,
+                "invalid factor for {} -> {}",
+                rule.from_unit,
+                rule.to_unit
+            );
+            assert!(
+                rule.offset.is_finite(),
+                "invalid offset for {} -> {}",
+                rule.from_unit,
+                rule.to_unit
+            );
+            assert!(
+                !rule.derivation.trim().is_empty(),
+                "missing derivation for {} -> {}",
+                rule.from_unit,
+                rule.to_unit
+            );
+            assert!(
+                rule.derivation.contains('='),
+                "derivation must show its arithmetic: {}",
+                rule.derivation
+            );
+            for term in expected_rule.derivation_terms {
+                assert!(
+                    rule.derivation.contains(term),
+                    "derivation for {} -> {} omits independently required term '{term}': {}",
+                    rule.from_unit,
+                    rule.to_unit,
+                    rule.derivation
+                );
+            }
             assert!(
                 !rule.derivation.to_ascii_lowercase().contains("copied from")
                     && !rule.derivation.to_ascii_lowercase().contains("vendor factor"),
