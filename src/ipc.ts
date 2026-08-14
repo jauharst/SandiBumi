@@ -128,6 +128,20 @@ export interface ImportResult {
   path: string;
   well_id: string | null;
   well_name: string | null;
+  /** Every non-comment LAS ~W record in source order; unknown mnemonics remain raw. */
+  well_headers: Array<{
+    raw: string;
+    mnemonic: string;
+    mapped_field:
+      | "well_name"
+      | "uwi"
+      | "country"
+      | "state"
+      | "well_status"
+      | "null_value"
+      | "step"
+      | null;
+  }>;
   rows: number;
   /** Encoding selected by the mandatory byte-tolerant text reader. */
   text_encoding: string | null;

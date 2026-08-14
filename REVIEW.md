@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-053: LAS source-header mapping prevents silent identity invention
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T75 and SB-DIO-T76 are
+      independently green at 1 passed / 0 failed / 0 ignored each. T75 exercises both LAS reader
+      variants and the successful import result; T76 exercises the committed import path rather
+      than asserting only an internal parser value.
+- [ ] **Verbatim preservation and explicit mapping:** import a LAS carrying a documented `COUNT`
+      record plus an unfamiliar `~W` mnemonic with distinctive spacing, value and description.
+      Confirm Process History names `COUNT → country` and reproduces the unfamiliar source line
+      exactly. An unknown mnemonic must remain unmapped; a raw dump without the cited mapping is
+      also incomplete.
+- [ ] **No identity invention / harsh critique:** import a file whose name looks like it could be
+      a UWI, field, operator or country while its `~W` block states only `WELL` and `NULL`. Confirm
+      the returned header inventory contains exactly those source mnemonics and no filename-derived
+      record. Field and operator mnemonic mappings remain absent because the chapter cites none;
+      adding familiar aliases would be invented metadata, not helpful automation.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative pilot LAS with at
+      least one uncommon well-header record, inspect the visible Process History mapping and raw
+      line, and compare both with the source file. Synthetic headers prove the automated boundary;
+      they do not prove the pilot delivery's vendor vocabulary or operator acceptance.
+
 ## 2026-08-14 — G2 SB-DIO-052: LAS export marks working and final curve identities
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T74 is green at

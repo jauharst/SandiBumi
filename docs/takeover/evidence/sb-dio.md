@@ -692,14 +692,14 @@
 
 - **Chapter evidence:** P2; chapter status `PARTIAL`; owned tests `SB-DIO-T75`, `SB-DIO-T76`.
 - **Atomic obligations:** use a documented header mapping; preserve unmapped headers verbatim; never synthesise any identity field.
-- **Current source:** `src-tauri/src/parsers.rs` maps a selected subset of LAS well fields into typed metadata but does not carry all unmapped `~W` records verbatim. SB-DIO-048 now separates an absent `WELL` value from a filename proposal and requires explicit confirmation; the broader raw-header and all-identity-field contract remains incomplete.
-- **Qualifying acceptance tests:** none maps T75 or T76; test class is `MISSING`.
-- **Supporting tests:** known-header parsing and alias tests prove selected mappings only and cannot prove preservation of unknown fields or absence of invented identity.
-- **Manual evidence:** `las-import` 0/102, `data-conventions` 4/122 and `security-integrity` 3/107 after regeneration; no SB-DIO-053 scenario is checked.
-- **Git evidence:** the partial typed mapping and SB-DIO-048 `WELL` boundary are integrated; verbatim preservation and complete no-synthesis closure are absent.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no source parameter is missing. Unmapped headers remain dropped, and T76 still lacks a whole-contract proof for every identity field; the narrower `WELL` filename violation is closed under SB-DIO-048.
-- **Next action:** preserve the complete raw `~W` map alongside typed fields and add T75/T76 with unknown-header and no-UWI controls without reintroducing any identity fallback.
+- **Current source:** `src-tauri/src/parsers.rs` carries every non-comment `~W` record verbatim through both LAS readers and labels only the mapping table documented by D-30 plus the reader's existing WELL/UWI/NULL/STEP identities. `src-tauri/src/ingest.rs` carries the same ordered inventory through every successful or post-parse failed import result, while `src/ui/ribbon.ts` makes cited mappings and verbatim unmapped records visible in Process History. Field and operator aliases remain absent because the chapter cites none. SB-DIO-048's explicit confirmation boundary remains unchanged.
+- **Qualifying acceptance tests:** `an_unmapped_las_well_header_is_carried_verbatim_beside_an_explicitly_mapped_header` is `CORRECTNESS`, green at 1 passed / 0 failed / 0 ignored across both LAS reader variants and the successful import result. `a_file_without_a_uwi_does_not_synthesize_one_from_the_filename_or_any_other_identity` is `CORRECTNESS`, green at 1 passed / 0 failed / 0 ignored through the committed import path; it pins the exact source-header inventory and a filename-derived negative control.
+- **Supporting tests:** SB-DIO-048's source-first WELL test remains supporting evidence for explicit confirmation; it does not replace the broader raw-header and no-UWI controls.
+- **Manual evidence:** `las-import` 0/124, `security-integrity` 3/111 and `verification-stewardship` 6/92 after regeneration; no representative vendor header has been inspected in Process History.
+- **Git evidence:** SB-DIO-048's WELL boundary is integrated; the current Gate 2 increment adds the raw-header contract, explicit cited mapping labels, import IPC custody, visible Process History records and both owned tests on the live branch.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated LAS import. Uncited field/operator aliases deliberately remain absent rather than being guessed.
+- **Next action:** preserve T75/T76 and compare one representative pilot LAS's uncommon `~W` records with the visible Process History during Gate 4.
 
 ## SB-DIO-054 - Every skipped frame, channel, curve and row MUST be counted and named.
 

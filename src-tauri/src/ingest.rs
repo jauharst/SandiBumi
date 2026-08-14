@@ -10,6 +10,8 @@ pub struct ImportResult {
     pub path: String,
     pub well_id: Option<String>,
     pub well_name: Option<String>,
+    /// Every non-comment LAS `~W` record in source order, with only cited mappings labelled.
+    pub well_headers: Vec<parsers::LasWellHeader>,
     pub rows: usize,
     /// Encoding selected by the mandatory byte-tolerant text reader.
     pub text_encoding: Option<String>,
@@ -291,6 +293,7 @@ fn cancelled_las_import(path: &str) -> ImportResult {
         path: path.to_string(),
         well_id: None,
         well_name: None,
+        well_headers: Vec::new(),
         rows: 0,
         text_encoding: None,
         warning: Some("cancelled before import".into()),
@@ -392,7 +395,7 @@ pub fn import_las_files_with(
             }
             let out = match result {
                 Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), null_resolutions: Vec::new(), index_resolution: None, section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(), section_handling: Vec::new(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() },
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, well_headers: Vec::new(), rows: 0, text_encoding: None, warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: Vec::new(), null_resolutions: Vec::new(), index_resolution: None, section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(), section_handling: Vec::new(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: Vec::new(), unit_tokens: Vec::new(), unit_token_warnings: Vec::new() },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -432,6 +435,7 @@ fn insert_parsed_well(
     opts: &LasImportOptions,
 ) -> ImportResult {
     let well_id = Uuid::new_v4();
+    let well_headers = columns.well_headers.clone();
     let alias_decisions = columns.alias_decisions.clone();
     let null_resolutions = columns.null_resolutions.clone();
     let index_resolution = columns.index_resolution.clone();
@@ -464,6 +468,7 @@ fn insert_parsed_well(
                     path,
                     well_id: None,
                     well_name: None,
+                    well_headers: well_headers.clone(),
                     rows: 0,
                     text_encoding: Some(text_encoding.clone()),
                     warning: None,
@@ -492,6 +497,7 @@ fn insert_parsed_well(
                 path,
                 well_id: None,
                 well_name: None,
+                well_headers: well_headers.clone(),
                 rows: 0,
                 text_encoding: Some(text_encoding.clone()),
                 warning: None,
@@ -534,6 +540,7 @@ fn insert_parsed_well(
                     path,
                     well_id: None,
                     well_name: None,
+                    well_headers: well_headers.clone(),
                     rows: 0,
                     text_encoding: Some(text_encoding.clone()),
                     warning: None,
@@ -566,6 +573,7 @@ fn insert_parsed_well(
                     path,
                     well_id: None,
                     well_name: None,
+                    well_headers: well_headers.clone(),
                     rows: 0,
                     text_encoding: Some(text_encoding.clone()),
                     warning: None,
@@ -590,6 +598,7 @@ fn insert_parsed_well(
                     path,
                     well_id: None,
                     well_name: None,
+                    well_headers: well_headers.clone(),
                     rows: 0,
                     text_encoding: Some(text_encoding.clone()),
                     warning: None,
@@ -634,6 +643,7 @@ fn insert_parsed_well(
             path,
             well_id: None,
             well_name: None,
+            well_headers: well_headers.clone(),
             rows: 0,
             text_encoding: Some(text_encoding.clone()),
             warning: None,
@@ -731,6 +741,7 @@ fn insert_parsed_well(
                 path,
                 well_id: None,
                 well_name: None,
+                well_headers: well_headers.clone(),
                 rows: 0,
                 text_encoding: Some(text_encoding),
                 warning: None,
@@ -766,7 +777,7 @@ fn insert_parsed_well(
         {
             Ok(s) => s,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
+                return ImportResult { path, well_id: None, well_name: None, well_headers: well_headers.clone(), rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
             }
         };
         match stmt
@@ -775,7 +786,7 @@ fn insert_parsed_well(
         {
             Ok(v) => v,
             Err(e) => {
-                return ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
+                return ImportResult { path, well_id: None, well_name: None, well_headers: well_headers.clone(), rows: 0, text_encoding: Some(text_encoding.clone()), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions: alias_decisions.clone(), null_resolutions: null_resolutions.clone(), index_resolution: index_resolution.clone(), section_policy: section_policy.clone(), section_handling: section_handling.clone(), unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations: unit_designations.clone(), unit_tokens: unit_tokens.clone(), unit_token_warnings: unit_token_warnings.clone() }
             }
         }
     };
@@ -793,6 +804,7 @@ fn insert_parsed_well(
             index_resolution.clone(),
             section_policy.clone(),
             section_handling.clone(),
+            well_headers.clone(),
             unit_designations.clone(),
             unit_tokens.clone(),
             unit_token_warnings.clone(),
@@ -836,6 +848,7 @@ fn insert_parsed_well(
                 path,
                 well_id: None,
                 well_name: None,
+                well_headers: well_headers.clone(),
                 rows: 0,
                 text_encoding: Some(text_encoding),
                 warning: None,
@@ -906,9 +919,9 @@ fn insert_parsed_well(
             notes.extend(unit_conversions.iter().map(crate::curves::UnitConversion::note));
             notes.extend(unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), well_headers, rows, text_encoding: Some(text_encoding), warning, error: None, attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions, unconverted_units, unit_designations, unit_tokens, unit_token_warnings }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, well_headers, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
     }
 }
 
@@ -929,6 +942,7 @@ fn attach_curves_to_existing_well(
     index_resolution: Option<parsers::IndexResolution>,
     section_policy: String,
     section_handling: Vec<parsers::LasSectionHandling>,
+    well_headers: Vec<parsers::LasWellHeader>,
     unit_designations: Vec<crate::curves::UnitDesignation>,
     unit_tokens: Vec<crate::curves::UnitTokenObservation>,
     unit_token_warnings: Vec<String>,
@@ -959,6 +973,7 @@ fn attach_curves_to_existing_well(
                 path,
                 well_id: Some(well_id.to_string()),
                 well_name: Some(well_name),
+                well_headers,
                 rows: report.rows,
                 text_encoding: Some(text_encoding),
                 warning: (!notes.is_empty()).then(|| notes.join("; ")),
@@ -978,7 +993,7 @@ fn attach_curves_to_existing_well(
         }
         // Attaching IS the import here (no well/standard-curve write happened), so a
         // loader failure is a real per-file error, not a note.
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, well_headers, rows: 0, text_encoding: Some(text_encoding), warning: None, error: Some(e.to_string()), attached_set: None, alias_decisions, null_resolutions, index_resolution, section_policy, section_handling, unit_conversions: Vec::new(), unconverted_units: Vec::new(), unit_designations, unit_tokens, unit_token_warnings },
     }
 }
 
@@ -2580,6 +2595,7 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let columns = CurveColumns {
             well_name: Some("ROLLBACK-1".into()),
+            well_headers: Vec::new(),
             las_version: Some("2.0".into()),
             unread_sections: Vec::new(),
             section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(),
@@ -2734,6 +2750,7 @@ mod tests {
 
         let cols = || CurveColumns {
             well_name: None,
+            well_headers: Vec::new(),
             las_version: None,
             unread_sections: Vec::new(),
             section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(),
@@ -3390,6 +3407,7 @@ mod tests {
 
         let make_columns = || CurveColumns {
             well_name: None,
+            well_headers: Vec::new(),
             las_version: None,
             unread_sections: Vec::new(),
             section_policy: parsers::LAS_SECTION_POLICY_ID.to_string(),
@@ -4633,6 +4651,72 @@ mod tests {
 
         std::fs::remove_file(header_path).ok();
         std::fs::remove_file(missing_path).ok();
+    }
+
+    /// SB-DIO-053 / SB-DIO-T76. CORRECTNESS.
+    /// Source: `docs/PRD_v2/21_data-io.md` sections 4.9 and 6.9 require a missing UWI,
+    /// field, operator and country to remain absent rather than being derived from a filename
+    /// or another identity value.
+    #[test]
+    fn a_file_without_a_uwi_does_not_synthesize_one_from_the_filename_or_any_other_identity() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+
+        let path = std::env::temp_dir().join(format!(
+            "INVENTED-UWI-FIELD-OPERATOR-COUNTRY-CONTROL-{}.las",
+            Uuid::new_v4()
+        ));
+        std::fs::write(
+            &path,
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. SOURCE-OWNED-IDENTITY : source identity\nNULL. -999.25 : null\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n1000 50\n",
+        )
+        .unwrap();
+
+        let result = import_las_files_with(
+            &conn,
+            &[path.to_string_lossy().into_owned()],
+            None,
+            &LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+
+        assert!(result.error.is_none(), "the source-owned WELL identity is sufficient: {:?}", result.error);
+        let identities: Vec<parsers::LasWellHeaderField> = result
+            .well_headers
+            .iter()
+            .filter_map(|header| header.mapped_field)
+            .filter(|field| {
+                matches!(
+                    field,
+                    parsers::LasWellHeaderField::WellName
+                        | parsers::LasWellHeaderField::Uwi
+                        | parsers::LasWellHeaderField::Country
+                )
+            })
+            .collect();
+        assert_eq!(
+            identities,
+            [parsers::LasWellHeaderField::WellName],
+            "only the identity present in the source may exist after import"
+        );
+        assert_eq!(
+            result
+                .well_headers
+                .iter()
+                .map(|header| header.mnemonic.as_str())
+                .collect::<Vec<_>>(),
+            ["WELL", "NULL"],
+            "no absent UWI, field, operator, country or other header may be added"
+        );
+        assert!(
+            result
+                .well_headers
+                .iter()
+                .all(|header| !header.raw.contains("INVENTED-UWI-FIELD-OPERATOR-COUNTRY-CONTROL")),
+            "the filename must not be copied into any carried header"
+        );
     }
 
     /// Aux import v2 (T-IMP-11): a WELL-columned petrography file routes rows by name;

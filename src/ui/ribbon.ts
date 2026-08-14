@@ -1254,6 +1254,27 @@ export class Ribbon {
       if (encodingSummary) {
         recordProcess("Import", `Text encodings detected: ${encodingSummary}`);
       }
+      for (const result of imported) {
+        const mapped = result.well_headers
+          .filter((header) => header.mapped_field)
+          .map((header) => `${header.mnemonic} → ${header.mapped_field}`);
+        if (mapped.length) {
+          recordProcess(
+            "Import",
+            `${result.well_name ?? result.path}: LAS well-header mappings: ${mapped.join(", ")}`,
+            result.well_name ?? undefined,
+          );
+        }
+        const unmapped = result.well_headers.filter((header) => !header.mapped_field);
+        if (unmapped.length) {
+          recordProcess(
+            "Import",
+            `${result.well_name ?? result.path}: preserved unmapped LAS well header(s): ` +
+              unmapped.map((header) => header.raw).join(" | "),
+            result.well_name ?? undefined,
+          );
+        }
+      }
       for (const w of warned) {
         recordProcess("Import", `${w.well_name ?? w.path}: ${w.warning}`, w.well_name ?? undefined);
       }

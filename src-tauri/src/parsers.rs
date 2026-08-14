@@ -160,6 +160,70 @@ pub struct IndexResolution {
     pub mechanism: IndexResolutionMechanism,
 }
 
+/// Semantic destination for a LAS `~W` record only where the chapter documents one.
+/// Field and operator deliberately have no mnemonic mapping: `21_data-io.md` cites none,
+/// so those records remain raw rather than acquiring a plausible-looking guess.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LasWellHeaderField {
+    WellName,
+    Uwi,
+    Country,
+    State,
+    WellStatus,
+    NullValue,
+    Step,
+}
+
+/// One non-comment source record from the LAS well-information block. `raw` excludes only
+/// the line terminator added by text decoding; its spacing, case, unit, value and description
+/// are otherwise untouched.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct LasWellHeader {
+    pub raw: String,
+    pub mnemonic: String,
+    pub mapped_field: Option<LasWellHeaderField>,
+}
+
+fn mapped_las_well_header_field(mnemonic: &str) -> Option<LasWellHeaderField> {
+    // Source: 21_data-io.md D-30 and sections 4.9/8.7. COUNT and CTRY are the two
+    // documented country spellings; STAT is state and WSTA is well status. WELL, UWI,
+    // NULL and STEP are the explicit identities already consumed by this reader or named
+    // by T76. No undocumented synonym belongs in this table.
+    match mnemonic {
+        "WELL" => Some(LasWellHeaderField::WellName),
+        "UWI" => Some(LasWellHeaderField::Uwi),
+        "COUNT" | "CTRY" => Some(LasWellHeaderField::Country),
+        "STAT" => Some(LasWellHeaderField::State),
+        "WSTA" => Some(LasWellHeaderField::WellStatus),
+        "NULL" => Some(LasWellHeaderField::NullValue),
+        "STEP" => Some(LasWellHeaderField::Step),
+        _ => None,
+    }
+}
+
+fn parse_las_well_header(raw: &str) -> Option<LasWellHeader> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('~') {
+        return None;
+    }
+    let declaration = trimmed.split(':').next().unwrap_or(trimmed);
+    let mnemonic = declaration
+        .split(|ch: char| ch == '.' || ch.is_whitespace())
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_uppercase();
+    if mnemonic.is_empty() {
+        return None;
+    }
+    Some(LasWellHeader {
+        raw: raw.to_string(),
+        mapped_field: mapped_las_well_header_field(&mnemonic),
+        mnemonic,
+    })
+}
+
 /// Columnar curve data ready to be handed to the DuckDB Appender.
 #[derive(Debug, Clone, Default)]
 pub struct CurveColumns {
@@ -167,6 +231,8 @@ pub struct CurveColumns {
     /// prevents normal import from reading and decoding a large file a second time merely
     /// to recover its well name.
     pub well_name: Option<String>,
+    /// Every non-comment `~W` record, including unmapped mnemonics, in source order.
+    pub well_headers: Vec<LasWellHeader>,
     /// Declared LAS version, e.g. `2.0` or `3.0`.
     pub las_version: Option<String>,
     /// Section headers present in a LAS 3.0 delivery that this release did not consume.
@@ -901,6 +967,9 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
                 continue;
             }
             LasSection::WellBlock => {
+                if let Some(header) = parse_las_well_header(line) {
+                    cols.well_headers.push(header);
+                }
                 if cols.well_name.is_none() {
                     cols.well_name = parse_well_name_line(trimmed);
                 }
@@ -1428,6 +1497,8 @@ pub struct LasFrame {
     pub unread_sections: Vec<String>,
     pub section_policy: String,
     pub section_handling: Vec<LasSectionHandling>,
+    /// Every non-comment `~W` record, including unmapped mnemonics, in source order.
+    pub well_headers: Vec<LasWellHeader>,
     // depth_mnemonic/depth_unit feed the Phase 6c TVD-scale + well-header UI (is the file's
     // index depth in metres or feet?); captured now with the rest of the frame.
     #[allow(dead_code)]
@@ -1501,6 +1572,7 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
     let mut las_version: Option<String> = None;
     let mut encountered_unread_sections = Vec::new();
     let mut section_scan = LasSectionScan::default();
+    let mut well_headers = Vec::new();
 
     for (line_index, line) in text.lines().enumerate() {
         let line_number = line_index + 1;
@@ -1531,6 +1603,9 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
                 continue;
             }
             LasSection::WellBlock => {
+                if let Some(header) = parse_las_well_header(line) {
+                    well_headers.push(header);
+                }
                 if let Some(n) = parse_null_line(trimmed) {
                     declared_null = Some(n);
                 }
@@ -1647,6 +1722,7 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
         },
         section_policy: LAS_SECTION_POLICY_ID.to_string(),
         section_handling: section_scan.handling,
+        well_headers,
         depth_mnemonic: curve_names[depth_idx].clone(),
         depth_unit: curve_units[depth_idx].clone(),
         depth: columns.get(depth_idx).cloned().unwrap_or_default(),
@@ -3650,6 +3726,7 @@ mod las_depth_tests {
         let seq: Vec<f32> = (0..depth.len()).map(|i| i as f32).collect();
         CurveColumns {
             well_name: None,
+            well_headers: Vec::new(),
             las_version: None,
             unread_sections: Vec::new(),
             section_policy: LAS_SECTION_POLICY_ID.to_string(),
@@ -3952,6 +4029,51 @@ mod las_depth_tests {
             pef.values[1].is_nan(),
             "LAS null semantics apply once in the primary parse"
         );
+    }
+
+    /// SB-DIO-053 / SB-DIO-T75. CORRECTNESS.
+    /// Source: `docs/PRD_v2/21_data-io.md` sections 4.9 and 6.9 require an unmapped
+    /// `~W` mnemonic to survive verbatim while documented mappings remain explicit.
+    #[test]
+    fn an_unmapped_las_well_header_is_carried_verbatim_beside_an_explicitly_mapped_header() {
+        let unknown = "  XHDR .TXT  SOURCE VALUE : delivery-owned extension";
+        let body = format!(
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. HEADER-PRESERVATION-CONTROL : source identity\nCOUNT. SOURCE-DECLARED : country\n{unknown}\nNULL. -999.25 : null\n~CURVE\nDEPT.M : depth\nGR.GAPI : gamma\n~ASCII\n1000 50\n"
+        );
+        let path = temp("well-header-preservation-control.las", &body);
+
+        let primary = parse_las_2(&path).expect("the primary LAS reader accepts the fixture");
+        let full = parse_las_2_all(&path).expect("the full-curve LAS reader accepts the fixture");
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let imported = crate::ingest::import_las_files_with(
+            &conn,
+            &[path.to_string_lossy().into_owned()],
+            None,
+            &crate::ingest::LasImportOptions::default(),
+        )
+        .remove(0);
+        std::fs::remove_file(&path).ok();
+        assert!(imported.error.is_none(), "the source header must survive a successful import");
+
+        for headers in [&primary.well_headers, &full.well_headers, &imported.well_headers] {
+            let unmapped = headers
+                .iter()
+                .find(|header| header.mnemonic == "XHDR")
+                .expect("the unknown source mnemonic is carried");
+            assert_eq!(unmapped.raw, unknown, "spacing, value and description stay verbatim");
+            assert_eq!(
+                unmapped.mapped_field, None,
+                "an unknown mnemonic must not acquire a guessed semantic identity"
+            );
+
+            let country = headers
+                .iter()
+                .find(|header| header.mnemonic == "COUNT")
+                .expect("the documented COUNT mapping is carried beside the raw record");
+            assert_eq!(country.mapped_field, Some(LasWellHeaderField::Country));
+        }
     }
 
     #[test]

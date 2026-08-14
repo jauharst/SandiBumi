@@ -125,6 +125,8 @@
 "SB-DIO-050","CORRECTNESS","src-tauri/src/ingest.rs","a_declared_step_that_disagrees_with_actual_spacing_is_flagged_as_possibly_regridded_and_a_matching_step_is_not"
 "SB-DIO-051","CORRECTNESS","src-tauri/src/export.rs","every_las_export_carries_measured_computed_and_model_provenance_in_the_file"
 "SB-DIO-052","CORRECTNESS","src-tauri/src/export.rs","a_working_and_final_phie_are_both_exported_and_each_is_marked_in_the_file"
+"SB-DIO-053","CORRECTNESS","src-tauri/src/parsers.rs","an_unmapped_las_well_header_is_carried_verbatim_beside_an_explicitly_mapped_header"
+"SB-DIO-053","CORRECTNESS","src-tauri/src/ingest.rs","a_file_without_a_uwi_does_not_synthesize_one_from_the_filename_or_any_other_identity"
 "SB-DIO-054","CORRECTNESS","src-tauri/src/dlis.rs","every_skipped_frame_channel_curve_and_row_is_counted_named_and_all_skipped_is_an_error"
 "SB-DIO-055","CORRECTNESS","src-tauri/src/export.rs","every_held_curve_is_written_or_named_with_the_same_reason_in_the_file_and_result"
 "SB-DIO-060","CORRECTNESS","src-tauri/src/intake.rs","a_biff5_stream_named_xls_is_chosen_by_signature_and_a_shared_zip_signature_is_disambiguated_by_structure"

@@ -64,12 +64,12 @@
     },
     {
       "owner_requirement": "SB-DIO-010",
-      "related_requirements": ["SB-DIO-041", "SB-DIO-044"],
+      "related_requirements": ["SB-DIO-041", "SB-DIO-044", "SB-DIO-053"],
       "owner_gate": "G2",
       "disposition": "CONNECT-OR-REMOVE-DURING-OWNER-REQUIREMENT",
-      "rationale": "The composite compiler warning includes the pilot index-resolution record, deferred LAS 3 recognition fields and the returned SB-DIO-044 section-policy outcome; the Gate 2 owner must consume index resolution while preserving every named parser result rather than suppressing the warning.",
+      "rationale": "The composite compiler warning includes the pilot index-resolution record, deferred LAS 3 recognition fields, the returned SB-DIO-044 section-policy outcome and SB-DIO-053 raw well-header custody; the Gate 2 owner must consume index resolution while preserving every named parser result rather than suppressing the warning.",
       "warning_keys": [
-        "src/parsers.rs|dead_code|fields `las_version`, `unread_sections`, `section_policy`, `section_handling`, and `index_resolution` are never read"
+        "src/parsers.rs|dead_code|fields `las_version`, `unread_sections`, `section_policy`, `section_handling`, `well_headers`, and `index_resolution` are never read"
       ]
     },
     {
