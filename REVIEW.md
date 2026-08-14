@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-056: whole-index LAS STEP remains source-blocked
+
+- [ ] **Automated implementation:** BLOCKED-SOURCE, so no SB-DIO-T82/T83 is written against an
+      invented comparison tolerance. Current `export.rs` still declares the first adjacent
+      interval as `STEP` without checking the remainder; uniform export round trips do not expose
+      that silent misdeclaration.
+- [ ] **Source decision:** supply a cited whole-index STEP-agreement tolerance, or explicitly adopt
+      exact equality as the contract. T82's `0.1524 m` input and T83's `0.1 m` then `0.15 m` input
+      specify controls, not the boundary between them. Git history and a familiar floating-point
+      epsilon are not sources.
+- [ ] **Visual / Manual:** after the source contract exists and T82/T83 pass, export one uniform
+      and one deliberately irregular native-depth frame. Confirm the former declares its verified
+      step and the latter declares `STEP = 0` while preserving every explicit depth row.
+- [ ] **Field and harsh critique:** Jauhar must reopen both artifacts in a second LAS reader and
+      confirm it does not reconstruct an irregular index as uniform. Until the tolerance is
+      sourced, a green test would defend a number we guessed rather than prove the requirement.
+
 ## 2026-08-14 — G2 SB-DIO-055: LAS export accounts for every held curve
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T80/T81 is green at

@@ -731,11 +731,11 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T82`, `SB-DIO-T83`.
 - **Atomic obligations:** compare every adjacent interval; emit the uniform step only when all intervals agree within the stated tolerance; otherwise write zero; never infer `STEP` from only the first pair.
-- **Current source:** `src-tauri/src/export.rs` still calculates `STEP` as `depth[1] - depth[0]` and does not inspect the remaining index, so a later interval change is silently misdeclared.
+- **Current source:** `src-tauri/src/export.rs` still calculates `STEP` as `depth[1] - depth[0]` and does not inspect the remaining index, so a later interval change is silently misdeclared. The live chapter, §5 parameter tables, `record_data_tools.md` and reachable export history contain no whole-index agreement tolerance or adopted exact-equality rule.
 - **Qualifying acceptance tests:** none maps T82/T83; test class is `MISSING`.
 - **Supporting tests:** export round trips use uniform grids and therefore cannot expose the first-interval defect.
-- **Manual evidence:** `las-export` 0/2, `reframe` 0/34 and `data-conventions` 0/45 - unexercised.
-- **Git evidence:** the divergent first-interval implementation is integrated; no closure commit exists.
+- **Manual evidence:** the generated matrix shows `las-export` 0/23, `reframe` 1/44 and `data-conventions` 4/122. This blocked increment checks no scenario; the existing Reframe/data-convention checks belong to prior work and cannot supply the missing STEP tolerance.
+- **Git evidence:** the divergent first-interval implementation is integrated; the current Gate 2 re-verification found no source-bearing closure commit, tolerance or T82/T83 mapping.
 - **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
 - **Blocker or decision:** the requirement says `within the stated tolerance`, but chapter section 5 supplies no STEP-uniformity tolerance. CONTRACT section 2 forbids selecting one by plausibility; an explicit exact-equality rule or cited tolerance is required before implementation.
 - **Next action:** adjudicate and cite the tolerance (or explicitly specify exact equality), then scan the full finite index and add uniform/irregular T82-T83 controls.

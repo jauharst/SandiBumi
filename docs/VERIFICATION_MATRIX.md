@@ -11,7 +11,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 
 | Capability ID | Capability | Status | Checked scenarios | Ledger date | Review sections |
 |---|---|---|---:|---|---:|
-| `las-import` | LAS import | Not exercised | 0 / 128 | — | 42 |
+| `las-import` | LAS import | Not exercised | 0 / 132 | — | 43 |
 | `dlis-import` | DLIS import | Not exercised | 0 / 14 | — | 9 |
 | `delimited-intake` | Delimited-text Intake | Partially exercised | 3 / 27 | 2026-08-05 | 3 |
 | `core-point-import` | Core and point-data import | Not exercised | 0 / 55 | — | 10 |
@@ -64,4 +64,4 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 50 | — | 9 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 115 | 2026-08-13 | 43 |
-| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 92 | 2026-08-13 | 31 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 96 | 2026-08-13 | 32 |
