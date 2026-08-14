@@ -18,14 +18,14 @@
 
 - **Chapter evidence:** P0; chapter status `PARTIAL`; no direct whole-contract chapter test is assigned; sections 4.1, 6 and 8.1.
 - **Atomic obligations:** persist the semantic request separately from each well's concrete curve ID, mnemonic, quantity, source/display units, conversion, sample count, resolution reason and revision; refuse every unresolved required channel; retain that record in project/template/export state.
-- **Current source:** `src-tauri/src/plotting.rs::resolve_plot_bindings` resolves and refuses required channels, and `src/ipc.ts::getCurveData` stores the returned record in `plotBindingRegistry`. The registry is process memory. `plotCommon.ts` persists raw plot options and templates, while panel `getState` objects preserve selected mnemonics but not the complete per-well resolution. `persist_plot_binding` validates and returns a value; it does not durably persist it.
-- **Qualifying acceptance tests:** none; the chapter supplies no direct test and no observable save/reload/export test recovers the full record. Test class is `MISSING`.
-- **Supporting tests:** `plotting.rs::a_plot_binding_keeps_the_request_and_each_wells_concrete_resolution` proves the resolver value shape and unresolved-required refusal only.
-- **Manual evidence:** `log-view` 5/37, `crossplot` 6/13, `histogram` 5/22 and `project-lifecycle` 3/24 - all partial.
-- **Git evidence:** reachable commit `35e83df` introduced the resolver and in-memory adapter; accepted anchor `b332026c` retains the persistence gap.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** durable per-well binding persistence and complete observable proof are missing.
-- **Next action:** persist the full binding beside each saved plot/template and export, then add a save/reload test with two wells resolving the same semantic request to different concrete curves plus an unresolved-required refusal control.
+- **Current source:** `src-tauri/src/plotting.rs` validates and durably saves typed `PersistedPlotState`; generic document writes cannot bypass the typed plot/session commands. `src/ipc.ts` retains every per-well resolution returned by the resolver. `plotCommon.ts`, `workspace.ts`, the crossplot, histogram, Pickett, correlation and Vega panels capture the represented wells plus exact bindings in project properties, named templates and sessions. Session restore waits for background binding resolution and refuses a changed curve or revision. `plotExport.ts`, `composite.rs` and the PNG/PDF commands retain a separate canonical binding record in SVG, PNG, PDF, clipboard and print artifacts.
+- **Qualifying acceptance tests:** `plotting.rs::a_saved_plot_template_and_export_keep_one_request_and_each_wells_distinct_concrete_resolution` is one `CORRECTNESS` proof sourced to chapter section 4.1. It saves and reloads project and template state for two wells with distinct curve IDs, mnemonics, quantities, units, conversions, counts, reasons and revisions; embeds the export record; and proves from both sides that an unresolved required channel neither saves nor exports.
+- **Supporting tests:** `plotting.rs::a_plot_binding_keeps_the_request_and_each_wells_concrete_resolution` still proves the resolver value shape and immediate required-channel refusal; the qualifying test does not substitute that internal result for the durable reporting surfaces.
+- **Manual evidence:** `crossplot` 6/17, `histogram` 5/26, `pickett` 0/12, `correlation-tops` 0/46, `vega` 0/6 and `project-lifecycle` 3/28 - all partial or unexercised; the new four-scenario section is unchecked.
+- **Git evidence:** reachable commit `35e83df` introduced the resolver and in-memory adapter; the current topic-branch increment closes the durable project/template/session/export gap without editing `db.rs` or treating manual review as complete.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for Gate 2. Visual, manual and representative-field confirmation remain open and are not inferred from the green serialization proof.
+- **Next action:** retain the typed save/export boundary, execute the `REVIEW.md` click-through and Gate 4 corpus case separately, and proceed to SB-PLT-002 without weakening this refusal.
 
 ## SB-PLT-002 - Resolve axes through one explicit precedence chain
 

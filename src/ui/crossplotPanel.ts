@@ -35,6 +35,7 @@ import {
 } from "./plotTypes";
 import {
   buildPlotTemplateBar,
+  buildPersistedPlotState,
   buildZoneSelect,
   concatValues,
   contextZoneWindow,
@@ -1482,9 +1483,34 @@ export async function buildCrossplotContent(
     scopeInfo.style.display = ctxInfo ? "" : "none";
   };
 
+  const plotIntents = () => [
+    { channel: "x", semantic_request: xSel.value, required: true },
+    { channel: "y", semantic_request: ySel.value, required: true },
+    ...(zSel.value ? [{ channel: "colour", semantic_request: zSel.value, required: false }] : []),
+  ];
+  const representedWellIds = () => [well.well_id, ...ctxWellIds];
+  const selectionState = (): Record<string, string> => {
+    const chartProvenance = currentChartDecision().record;
+    return {
+      plotId,
+      x: xSel.value,
+      y: ySel.value,
+      z: zSel.value,
+      zone: zoneSel.select.value,
+      wells: scope.serialize(),
+      chartProvenance: chartProvenance ? JSON.stringify(chartProvenance) : "",
+    };
+  };
+  const persistedState = (options: Record<string, unknown>) =>
+    buildPersistedPlotState("crossplot", options, representedWellIds(), plotIntents());
   const persist = () => {
-    opts.chartProvenance = currentChartDecision().record;
-    savePlotProps("crossplot", opts);
+    try {
+      opts.chartProvenance = currentChartDecision().record;
+      void savePlotProps("crossplot", persistedState({ ...opts }))
+        .catch((error) => setStatus(`Crossplot state not saved: ${error}`));
+    } catch (error) {
+      setStatus(`Crossplot state not saved: ${error}`);
+    }
   };
 
   const propsBtn = document.createElement("button");
@@ -1505,7 +1531,7 @@ export async function buildCrossplotContent(
     buildPlotTemplateBar<CrossplotOptions>(
       "crossplot",
       "Crossplot",
-      () => ({ ...opts }),
+      () => persistedState({ ...opts }),
       (t) => {
         Object.assign(opts, normalizeCrossplotOptions({ ...opts, ...t }));
         persist();
@@ -1525,10 +1551,14 @@ export async function buildCrossplotContent(
     () => getSvg(),
     () => getPdf(),
     () => ctxReductionManifest,
-    () => ({
-      wellIds: scope.getWellIds(),
-      curves: [xSel.value, ySel.value, ...(zSel.value ? [zSel.value] : [])],
-    }),
+    () => {
+      const state = persistedState(selectionState());
+      return {
+        wellIds: state.well_ids,
+        curves: plotIntents().map((intent) => intent.semantic_request),
+        plotBindings: state.bindings,
+      };
+    },
   ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);
@@ -1652,7 +1682,7 @@ export async function buildCrossplotContent(
     const next = currentChartDecision().record;
     if (JSON.stringify(opts.chartProvenance) === JSON.stringify(next)) return;
     opts.chartProvenance = next;
-    savePlotProps("crossplot", opts);
+    persist();
   }
 
   const crossplotWriteSource = async (method: string): Promise<PlotWriteSource> => {
@@ -2194,6 +2224,7 @@ export async function buildCrossplotContent(
   // share and is stride-decimated down to it; the scope row reports the decimation.
   const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: ContextWellLayer[] = [];
+  let ctxWellIds: string[] = [];
   let ctxReductionManifest: PlotReductionExport | null = null;
   let ctxInfo = "";
   let ctxGen = 0;
@@ -2216,6 +2247,7 @@ export async function buildCrossplotContent(
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
+      ctxWellIds = [];
       ctxReductionManifest = null;
       ctxInfo = "";
       updateScopeUi();
@@ -2250,6 +2282,7 @@ export async function buildCrossplotContent(
       xs: l.series.get(xSel.value.toUpperCase())!,
       ys: l.series.get(ySel.value.toUpperCase())!,
     }));
+    ctxWellIds = outcome.layers.map((layer) => layer.wellId);
     ctxInfo = describeContextOutcome(outcome);
     updateScopeUi();
     setStatus(`Crossplot ${ctxInfo.toLowerCase()}`);
@@ -2820,7 +2853,7 @@ export async function buildCrossplotContent(
   await reloadCore();
   // Not awaited: a big scope (hundreds of wells) must not block the panel build — the
   // active well's plot appears immediately and the context layer fades in when ready.
-  void reloadContext();
+  const bindingReady = reloadContext();
   return {
     el: content,
     dispose: () => {
@@ -2838,18 +2871,9 @@ export async function buildCrossplotContent(
       if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
-    getState: () => {
-      const chartProvenance = currentChartDecision().record;
-      return {
-        plotId,
-        x: xSel.value,
-        y: ySel.value,
-        z: zSel.value,
-        zone: zoneSel.select.value,
-        wells: scope.serialize(),
-        chartProvenance: chartProvenance ? JSON.stringify(chartProvenance) : "",
-      };
-    },
+    getState: selectionState,
+    getPersistedState: () => persistedState(selectionState()),
+    bindingReady,
     openProperties: openProps,
   };
 }

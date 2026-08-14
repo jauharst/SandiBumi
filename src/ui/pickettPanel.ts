@@ -19,6 +19,7 @@ import {
 } from "./plotCanvas";
 import {
   buildPlotTemplateBar,
+  buildPersistedPlotState,
   buildZoneSelect,
   contextReductionExport,
   CONTEXT_LEGEND_ROWS,
@@ -325,6 +326,31 @@ export async function buildPickettContent(
     scopeInfo.textContent = ctxInfo;
     scopeInfo.style.display = ctxInfo ? "" : "none";
   };
+  const plotIntents = () => [
+    { channel: "resistivity", semantic_request: rtSel.value, required: true },
+    { channel: "porosity", semantic_request: phiSel.value, required: true },
+    ...(props.zCurve ? [{ channel: "colour", semantic_request: props.zCurve, required: false }] : []),
+  ];
+  const representedWellIds = () => [well.well_id, ...ctxWellIds];
+  const selectionState = (): Record<string, string> => ({
+    plotId,
+    rt: rtSel.value,
+    phi: phiSel.value,
+    m: mIn.value,
+    aRw: aRwIn.value,
+    zone: zoneSel.select.value,
+    wells: scope.serialize(),
+  });
+  const persistedState = (options: Record<string, unknown>) =>
+    buildPersistedPlotState("pickett", options, representedWellIds(), plotIntents());
+  const persist = () => {
+    try {
+      void savePlotProps("pickett", persistedState({ ...props }))
+        .catch((error) => setStatus(`Pickett state not saved: ${error}`));
+    } catch (error) {
+      setStatus(`Pickett state not saved: ${error}`);
+    }
+  };
 
   const selRow = document.createElement("div");
   selRow.className = "plot-toolbar";
@@ -339,10 +365,10 @@ export async function buildPickettContent(
     buildPlotTemplateBar<PickettProps>(
       "pickett",
       "Pickett",
-      () => ({ ...props }),
+      () => persistedState({ ...props }),
       (t) => {
         Object.assign(props, sanitizePickettProps({ ...props, ...t }));
-        savePlotProps("pickett", props);
+        persist();
         viewRef.current = null; // show the template's axis ranges (a live zoom would mask them)
         void reload(true); // refetch (the Z curve may have changed); keeps picks + fitted product line
       },
@@ -356,7 +382,14 @@ export async function buildPickettContent(
     () => getSvg(),
     () => getPdf(),
     () => ctxReductionManifest,
-    () => ({ wellIds: scope.getWellIds(), curves: [rtSel.value, phiSel.value] }),
+    () => {
+      const state = persistedState(selectionState());
+      return {
+        wellIds: state.well_ids,
+        curves: plotIntents().map((intent) => intent.semantic_request),
+        plotBindings: state.bindings,
+      };
+    },
   ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);
@@ -450,6 +483,7 @@ export async function buildPickettContent(
   const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: PickettContextLayer[] = [];
   let ctxReductionManifest: PlotReductionExport | null = null;
+  let ctxWellIds: string[] = [];
   let ctxInfo = "";
   let ctxGen = 0;
   const pickettContext = (): PickettContext | null =>
@@ -472,6 +506,7 @@ export async function buildPickettContent(
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
+      ctxWellIds = [];
       ctxReductionManifest = null;
       ctxInfo = "";
       updateScopeUi();
@@ -506,6 +541,7 @@ export async function buildPickettContent(
       rt: l.series.get(rtSel.value.toUpperCase())!,
       phi: l.series.get(phiSel.value.toUpperCase())!,
     }));
+    ctxWellIds = outcome.layers.map((layer) => layer.wellId);
     ctxInfo = describeContextOutcome(outcome);
     updateScopeUi();
     setStatus(`Pickett ${ctxInfo.toLowerCase()}`);
@@ -798,7 +834,7 @@ export async function buildPickettContent(
       props.zCurve = zSel.value;
       props.colormap = cmSel.value as ColormapName;
       props.zLog = zLogChk.checked;
-      savePlotProps("pickett", props);
+      persist();
       viewRef.current = null; // show the new axis ranges (a live zoom would otherwise mask them)
       void reload(true); // refetch (the Z curve may have changed); keeps picks + fitted product line
       close();
@@ -835,7 +871,7 @@ export async function buildPickettContent(
   await reload();
   // Not awaited: a big scope must not block the panel build — the active well's plot
   // appears immediately and the context clouds fade in when ready.
-  void reloadContext();
+  const bindingReady = reloadContext();
   return {
     el: content,
     dispose: () => {
@@ -852,15 +888,9 @@ export async function buildPickettContent(
       if (rafId) cancelAnimationFrame(rafId); // drop any queued hover redraw so it can't fire post-dispose
       zoneSel.dispose();
     },
-    getState: () => ({
-      plotId,
-      rt: rtSel.value,
-      phi: phiSel.value,
-      m: mIn.value,
-      aRw: aRwIn.value,
-      zone: zoneSel.select.value,
-      wells: scope.serialize(),
-    }),
+    getState: selectionState,
+    getPersistedState: () => persistedState(selectionState()),
+    bindingReady,
     openProperties: openProps,
   };
 }

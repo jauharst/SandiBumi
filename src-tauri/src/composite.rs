@@ -402,38 +402,87 @@ pub fn render_composite_pdf(conn: &Connection, spec: &CompositeSpec) -> Result<V
 
 /// Embeds the complete record inside SVG bytes. The metadata is machine-readable and does not
 /// alter the rendered chart; XML escaping keeps arbitrary source notes from breaking the file.
-pub(crate) fn embed_ancestry_json_in_svg(svg: &str, ancestry_json: &str) -> Result<String, String> {
+fn embed_json_in_svg(
+    svg: &str,
+    metadata_id: &str,
+    json: &str,
+    subject: &str,
+) -> Result<String, String> {
     let insert_at = svg
         .find('>')
         .map(|index| index + 1)
-        .ok_or_else(|| "cannot embed ancestry: SVG has no root element".to_string())?;
+        .ok_or_else(|| format!("cannot embed {subject}: SVG has no root element"))?;
     let mut out = svg.to_string();
     out.insert_str(
         insert_at,
-        &format!(
-            "<metadata id=\"sandibumi-curve-ancestry-v1\">{}</metadata>",
-            esc(ancestry_json)
-        ),
+        &format!("<metadata id=\"{metadata_id}\">{}</metadata>", esc(json)),
     );
     Ok(out)
 }
 
+pub(crate) fn embed_ancestry_json_in_svg(svg: &str, ancestry_json: &str) -> Result<String, String> {
+    embed_json_in_svg(
+        svg,
+        "sandibumi-curve-ancestry-v1",
+        ancestry_json,
+        "ancestry",
+    )
+}
+
+pub(crate) fn embed_plot_bindings_json_in_svg(
+    svg: &str,
+    bindings_json: &str,
+) -> Result<String, String> {
+    embed_json_in_svg(
+        svg,
+        "sandibumi-plot-bindings-v1",
+        bindings_json,
+        "plot bindings",
+    )
+}
+
 /// Embeds the complete record in a PDF comment immediately before EOF. This preserves every xref
 /// offset in the already-assembled document and is the same durable marker used by composites.
-pub(crate) fn embed_ancestry_json_in_pdf(
+fn embed_json_in_pdf(
     mut pdf: Vec<u8>,
-    ancestry_json: &str,
+    marker_name: &str,
+    json: &str,
+    subject: &str,
 ) -> Result<Vec<u8>, String> {
     let marker = format!(
-        "% SANDIBUMI_CURVE_ANCESTRY_V1_BASE64:{}\n",
-        B64.encode(ancestry_json.as_bytes())
+        "% {marker_name}:{}\n",
+        B64.encode(json.as_bytes())
     );
     let eof = pdf
         .windows(5)
         .rposition(|window| window == b"%%EOF")
-        .ok_or_else(|| "cannot embed ancestry: generated PDF has no EOF marker".to_string())?;
+        .ok_or_else(|| format!("cannot embed {subject}: generated PDF has no EOF marker"))?;
     pdf.splice(eof..eof, marker.bytes());
     Ok(pdf)
+}
+
+pub(crate) fn embed_ancestry_json_in_pdf(
+    pdf: Vec<u8>,
+    ancestry_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_pdf(
+        pdf,
+        "SANDIBUMI_CURVE_ANCESTRY_V1_BASE64",
+        ancestry_json,
+        "ancestry",
+    )
+}
+
+pub(crate) fn embed_plot_bindings_json_in_pdf(
+    pdf: Vec<u8>,
+    bindings_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_pdf(
+        pdf,
+        "SANDIBUMI_PLOT_BINDINGS_V1_BASE64",
+        bindings_json,
+        "plot bindings",
+    )
 }
 
 fn png_crc32(bytes: &[u8]) -> u32 {
@@ -453,13 +502,15 @@ fn png_crc32(bytes: &[u8]) -> u32 {
 
 /// Adds one standards-compliant PNG `tEXt` chunk before IEND. A raster export therefore keeps the
 /// complete record even when copied into a slide or detached from the project database.
-pub(crate) fn embed_ancestry_json_in_png(
+fn embed_json_in_png(
     png: &[u8],
-    ancestry_json: &str,
+    keyword: &[u8],
+    json: &str,
+    subject: &str,
 ) -> Result<Vec<u8>, String> {
     const SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
     if png.get(..8) != Some(SIGNATURE) {
-        return Err("cannot embed ancestry: payload is not a PNG".into());
+        return Err(format!("cannot embed {subject}: payload is not a PNG"));
     }
     let mut iend = None;
     let mut offset = 8usize;
@@ -468,20 +519,21 @@ pub(crate) fn embed_ancestry_json_in_png(
         let end = offset
             .checked_add(12 + length)
             .filter(|end| *end <= png.len())
-            .ok_or_else(|| "cannot embed ancestry: malformed PNG chunk length".to_string())?;
+            .ok_or_else(|| format!("cannot embed {subject}: malformed PNG chunk length"))?;
         if &png[offset + 4..offset + 8] == b"IEND" {
             iend = Some(offset);
             break;
         }
         offset = end;
     }
-    let iend = iend.ok_or_else(|| "cannot embed ancestry: PNG has no IEND chunk".to_string())?;
-    let mut data = b"SandiBumiCurveAncestry\0".to_vec();
-    data.extend_from_slice(ancestry_json.as_bytes());
+    let iend = iend.ok_or_else(|| format!("cannot embed {subject}: PNG has no IEND chunk"))?;
+    let mut data = keyword.to_vec();
+    data.push(0);
+    data.extend_from_slice(json.as_bytes());
     let length: u32 = data
         .len()
         .try_into()
-        .map_err(|_| "cannot embed ancestry: PNG metadata is too large".to_string())?;
+        .map_err(|_| format!("cannot embed {subject}: PNG metadata is too large"))?;
     let mut chunk = Vec::with_capacity(data.len() + 12);
     chunk.extend_from_slice(&length.to_be_bytes());
     chunk.extend_from_slice(b"tEXt");
@@ -495,6 +547,25 @@ pub(crate) fn embed_ancestry_json_in_png(
     out.extend_from_slice(&chunk);
     out.extend_from_slice(&png[iend..]);
     Ok(out)
+}
+
+pub(crate) fn embed_ancestry_json_in_png(
+    png: &[u8],
+    ancestry_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_png(png, b"SandiBumiCurveAncestry", ancestry_json, "ancestry")
+}
+
+pub(crate) fn embed_plot_bindings_json_in_png(
+    png: &[u8],
+    bindings_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_png(
+        png,
+        b"SandiBumiPlotBindings",
+        bindings_json,
+        "plot bindings",
+    )
 }
 
 /// Writes the rendered pages to disk as SVG. A single page goes to `dest_path` as given;

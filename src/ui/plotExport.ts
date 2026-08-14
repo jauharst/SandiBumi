@@ -3,6 +3,7 @@ import {
   getCurveAncestryDisclosures,
   savePlotReductionManifest,
   savePng,
+  serializePlotBindingExport,
   type PlotAncestryScope,
 } from "../ipc";
 import { recordProcess } from "../processLog";
@@ -36,7 +37,7 @@ function crc32(bytes: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function withPngAncestry(png: Uint8Array, ancestryJson: string): Uint8Array {
+function withPngText(png: Uint8Array, keywordText: string, jsonText: string): Uint8Array {
   const signature = [137, 80, 78, 71, 13, 10, 26, 10];
   if (!signature.every((byte, index) => png[index] === byte)) throw new Error("canvas did not produce a PNG");
   let offset = 8;
@@ -51,8 +52,8 @@ function withPngAncestry(png: Uint8Array, ancestryJson: string): Uint8Array {
     offset += 12 + length;
   }
   if (iend < 0) throw new Error("canvas PNG has no IEND chunk");
-  const keyword = new TextEncoder().encode("SandiBumiCurveAncestry\0");
-  const json = new TextEncoder().encode(ancestryJson);
+  const keyword = new TextEncoder().encode(`${keywordText}\0`);
+  const json = new TextEncoder().encode(jsonText);
   const data = new Uint8Array(keyword.length + json.length);
   data.set(keyword);
   data.set(json, keyword.length);
@@ -72,15 +73,26 @@ function withPngAncestry(png: Uint8Array, ancestryJson: string): Uint8Array {
   return out;
 }
 
-async function canvasAncestry(canvas: HTMLCanvasElement, scope: PlotAncestryScope): Promise<{ png: Blob; json: string }> {
-  const [blob, ancestry] = await Promise.all([
+async function canvasAncestry(
+  canvas: HTMLCanvasElement,
+  scope: PlotAncestryScope,
+): Promise<{ png: Blob; ancestryJson: string; bindingJson: string }> {
+  const [blob, ancestry, bindingJson] = await Promise.all([
     new Promise<Blob | null>((resolve) => canvas.toBlob((value) => resolve(value), "image/png")),
     getCurveAncestryDisclosures(scope),
+    scope.plotBindings
+      ? serializePlotBindingExport(scope.wellIds, scope.plotBindings)
+      : Promise.resolve(""),
   ]);
   if (!blob) throw new Error("could not render the plot to an image");
-  const json = JSON.stringify(ancestry);
-  const png = withPngAncestry(new Uint8Array(await blob.arrayBuffer()), json);
-  return { png: new Blob([png], { type: "image/png" }), json };
+  const ancestryJson = JSON.stringify(ancestry);
+  let png = withPngText(
+    new Uint8Array(await blob.arrayBuffer()),
+    "SandiBumiCurveAncestry",
+    ancestryJson,
+  );
+  if (bindingJson) png = withPngText(png, "SandiBumiPlotBindings", bindingJson);
+  return { png: new Blob([png], { type: "image/png" }), ancestryJson, bindingJson };
 }
 
 /** Copies the canvas as an ancestry-bearing PNG onto the system clipboard. */
@@ -113,7 +125,7 @@ export async function saveCanvasAsPng(
 /** Prints the canvas image via a hidden iframe (window.print() would print the whole app
  *  chrome). The iframe is removed after the print dialog closes. */
 export async function printCanvas(canvas: HTMLCanvasElement, title: string, scope: PlotAncestryScope): Promise<void> {
-  const { png, json } = await canvasAncestry(canvas, scope);
+  const { png, ancestryJson, bindingJson } = await canvasAncestry(canvas, scope);
   if (png.type !== "image/png") throw new Error("print export did not produce labelled PNG raster bytes");
   const dataUrl = URL.createObjectURL(png);
   const frame = document.createElement("iframe");
@@ -140,8 +152,14 @@ export async function printCanvas(canvas: HTMLCanvasElement, title: string, scop
   const img = doc.createElement("img");
   img.src = dataUrl;
   const ancestry = doc.createElement("pre");
-  ancestry.textContent = `SANDIBUMI_CURVE_ANCESTRY_V1\n${json}`;
-  doc.body.append(img, ancestry);
+  ancestry.textContent = `SANDIBUMI_CURVE_ANCESTRY_V1\n${ancestryJson}`;
+  if (bindingJson) {
+    const bindings = doc.createElement("pre");
+    bindings.textContent = `SANDIBUMI_PLOT_BINDINGS_V1\n${bindingJson}`;
+    doc.body.append(img, ancestry, bindings);
+  } else {
+    doc.body.append(img, ancestry);
+  }
   const cleanup = () => window.setTimeout(() => {
     URL.revokeObjectURL(dataUrl);
     frame.remove();
@@ -168,15 +186,22 @@ export function imageAction(
     setStatus("No plot to export yet");
     return;
   }
+  let scope: PlotAncestryScope;
+  try {
+    scope = getScope();
+  } catch (error) {
+    setStatus(`${name} export refused: ${error}`);
+    return;
+  }
   if (action === "copy") {
-    void copyCanvasToClipboard(canvas, getScope())
+    void copyCanvasToClipboard(canvas, scope)
       .then(() => {
         setStatus(`${name} copied to clipboard`);
         recordProcess("Export", `${name} copied to clipboard`);
       })
       .catch((err) => setStatus(`Copy failed: ${err}`));
   } else if (action === "save") {
-    void saveCanvasAsPng(canvas, name, getScope())
+    void saveCanvasAsPng(canvas, name, scope)
       .then((path) => {
         if (path) {
           setStatus(`${name} image saved to ${path}`);
@@ -185,7 +210,7 @@ export function imageAction(
       })
       .catch((err) => setStatus(`Save failed: ${err}`));
   } else {
-    void printCanvas(canvas, name, getScope()).catch((err) => setStatus(`Print failed: ${err}`));
+    void printCanvas(canvas, name, scope).catch((err) => setStatus(`Print failed: ${err}`));
     setStatus(`Printing ${name}…`);
   }
 }
@@ -203,7 +228,14 @@ export function svgAction(
     setStatus("No plot to export yet");
     return;
   }
-  void saveSvg(svg, name, getScope())
+  let scope: PlotAncestryScope;
+  try {
+    scope = getScope();
+  } catch (error) {
+    setStatus(`${name} SVG export refused: ${error}`);
+    return;
+  }
+  void saveSvg(svg, name, scope)
     .then((path) => {
       if (path) {
         setStatus(`${name} SVG saved to ${path}`);
@@ -227,7 +259,14 @@ export function pdfAction(
     setStatus("No plot to export yet");
     return;
   }
-  void savePdf(pdf, name, getScope())
+  let scope: PlotAncestryScope;
+  try {
+    scope = getScope();
+  } catch (error) {
+    setStatus(`${name} PDF export refused: ${error}`);
+    return;
+  }
+  void savePdf(pdf, name, scope)
     .then((path) => {
       if (path) {
         setStatus(`${name} PDF saved to ${path}`);

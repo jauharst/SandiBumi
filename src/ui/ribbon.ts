@@ -21,6 +21,7 @@ import {
   listModules,
   listWells,
   saveDocument,
+  saveSessionDocument,
   saveProjectAs,
   shiftCoreData,
   updateWellField,
@@ -1034,7 +1035,7 @@ export class Ribbon {
   /** Persists the current workspace under `name` and clears the unsaved markers. Shared by
    *  the Save Session dialog and the Ctrl+S quiet re-save. */
   private async writeSession(name: string): Promise<void> {
-    await saveDocument("session", name, JSON.stringify(this.workspace.snapshotSession()));
+    await saveSessionDocument(name, JSON.stringify(this.workspace.snapshotSession()));
     this.lastSessionName = name;
     // Everything is captured in the named session — clear all unsaved markers.
     this.workspace.muteDirty();

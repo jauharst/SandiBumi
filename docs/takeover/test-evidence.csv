@@ -205,6 +205,7 @@
 "SB-NMR-001","CHARACTERIZATION","src-tauri/src/intake.rs","a_wide_table_reads_its_header_row_as_the_axis"
 "SB-NMR-002","CHARACTERIZATION","src-tauri/src/composite.rs","a_refused_array_write_leaves_the_stored_curve_untouched"
 "SB-NMR-036","CHARACTERIZATION","src-tauri/src/composite.rs","heatmap_cells_off_the_track_scale_are_dropped_not_clamped"
+"SB-PLT-001","CORRECTNESS","src-tauri/src/plotting.rs","a_saved_plot_template_and_export_keep_one_request_and_each_wells_distinct_concrete_resolution"
 "SB-PLT-009","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_finite_statistics_without_population_or_exclusion_metadata"
 "SB-PLT-010","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_regression_as_coefficients_without_a_versioned_scientific_record"
 "SB-PLT-018","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_linked_brushing_as_one_ephemeral_scope_with_exact_depth_membership"

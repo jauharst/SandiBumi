@@ -2,14 +2,17 @@ import {
   deleteDocument,
   finalizePlotWriteProvenance,
   getCurveData,
+  plotBindingSnapshotForChannels,
   listCurveCatalog,
   listDocuments,
   listTops,
   listZoneParams,
   listZones,
-  saveDocument,
+  savePlotState,
   setZoneParam,
   type PlotWriteProvenanceInput,
+  type PersistedPlotState,
+  type PlotChannelIntent,
   type ResolvedPlotCurve,
   type TrackCurveSeries,
   type WellSummary,
@@ -41,10 +44,85 @@ export interface PlotContent {
   /** Current user selections (curves/zone) so the workspace can rebuild the plot for a
    *  newly selected well without losing them. */
   getState?: () => Record<string, string>;
+  /** Complete typed state used by named sessions and exports. It throws while a
+   * required represented-well binding is absent, so callers refuse instead of guess. */
+  getPersistedState?: () => PersistedPlotState;
+  /** Resolves after every channel represented by the initial panel state has completed
+   * its first binding pass. Session restore waits for this before comparing custody. */
+  bindingReady?: Promise<void>;
   /** Opens this plot's Properties dialog. The workspace puts it at the top of the pane's
    *  right-click menu — the canvas no longer swallows right-click to open it directly,
    *  which had hidden the window actions (split/float/export) on every plot. */
   openProperties?: () => void;
+}
+
+function bindingKey(binding: PersistedPlotState["bindings"][number]): string {
+  return binding.intent.channel.trim().toUpperCase();
+}
+
+function canonicalBindings(state: PersistedPlotState): string {
+  return JSON.stringify(
+    [...state.bindings]
+      .sort((left, right) => bindingKey(left).localeCompare(bindingKey(right)))
+      .map((binding) => ({
+        intent: binding.intent,
+        resolved: [...binding.resolved].sort((left, right) => left.well_id.localeCompare(right.well_id)),
+      })),
+  );
+}
+
+export function buildPersistedPlotState(
+  plotType: string,
+  options: Record<string, unknown>,
+  wellIds: string[],
+  intents: PlotChannelIntent[],
+): PersistedPlotState {
+  const represented = [...new Set(wellIds.map((wellId) => wellId.trim()).filter(Boolean))];
+  if (represented.length === 0) throw new Error("plot state has no represented wells");
+  const bindings = plotBindingSnapshotForChannels(represented, intents);
+  for (const binding of bindings) {
+    if (!binding.intent.required) continue;
+    const resolved = new Set(binding.resolved.map((curve) => curve.well_id));
+    const missing = represented.filter((wellId) => !resolved.has(wellId));
+    if (missing.length > 0) {
+      throw new Error(
+        `required channel '${binding.intent.semantic_request}' is unresolved for represented well(s): ${missing.join(", ")}`,
+      );
+    }
+  }
+  return {
+    schema_version: 1,
+    plot_type: plotType,
+    well_ids: represented,
+    options,
+    bindings,
+  };
+}
+
+/** A named session may reopen only onto the same concrete curve answers. Templates
+ * intentionally skip this comparison and re-resolve their semantic requests. */
+export function assertPlotStateRestored(
+  expected: PersistedPlotState,
+  actual: PersistedPlotState,
+): void {
+  if (expected.plot_type !== actual.plot_type || canonicalBindings(expected) !== canonicalBindings(actual)) {
+    throw new Error(
+      `saved ${expected.plot_type} refused: one or more concrete curve bindings or source revisions changed`,
+    );
+  }
+}
+
+function persistedOptions<T>(raw: unknown): Partial<T> {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "schema_version" in raw &&
+    "options" in raw &&
+    (raw as { schema_version?: unknown }).schema_version === 1
+  ) {
+    return (raw as PersistedPlotState).options as Partial<T>;
+  }
+  return (raw ?? {}) as Partial<T>;
 }
 
 /** Maps a log curve mnemonic to the core measurement it's calibrated against, so
@@ -84,7 +162,7 @@ export async function loadPlotProps<T>(kind: string): Promise<Partial<T>> {
   try {
     const docs = await listDocuments("plotprops");
     const doc = docs.find((d) => d.name === kind);
-    return doc ? (JSON.parse(doc.json) as Partial<T>) : {};
+    return doc ? persistedOptions<T>(JSON.parse(doc.json)) : {};
   } catch {
     return {};
   }
@@ -92,8 +170,8 @@ export async function loadPlotProps<T>(kind: string): Promise<Partial<T>> {
 
 /** Fire-and-forget save of a plot kind's properties — new panels of that kind open
  *  with them. */
-export function savePlotProps(kind: string, props: unknown): void {
-  void saveDocument("plotprops", kind, JSON.stringify(props)).catch(() => {});
+export function savePlotProps(kind: string, state: PersistedPlotState): Promise<void> {
+  return savePlotState("plotprops", kind, state);
 }
 
 // --- Named plot templates ---------------------------------------------------
@@ -114,8 +192,8 @@ export async function listPlotTemplates(kind: string): Promise<{ name: string; j
   }
 }
 
-export async function savePlotTemplate(kind: string, name: string, opts: unknown): Promise<void> {
-  await saveDocument(plotTemplateDocType(kind), name, JSON.stringify(opts));
+export async function savePlotTemplate(kind: string, name: string, state: PersistedPlotState): Promise<void> {
+  await savePlotState(plotTemplateDocType(kind), name, state);
 }
 
 export async function deletePlotTemplate(kind: string, name: string): Promise<void> {
@@ -129,7 +207,7 @@ export async function deletePlotTemplate(kind: string, name: string): Promise<vo
 export function buildPlotTemplateBar<T>(
   kind: string,
   niceName: string,
-  getOpts: () => T,
+  getState: () => PersistedPlotState,
   applyOpts: (opts: Partial<T>) => void,
   setStatus: (text: string) => void,
 ): HTMLElement {
@@ -162,7 +240,7 @@ export function buildPlotTemplateBar<T>(
     const doc = templates.find((t) => t.name === name);
     if (!doc) return;
     try {
-      applyOpts(JSON.parse(doc.json) as Partial<T>);
+      applyOpts(persistedOptions<T>(JSON.parse(doc.json)));
       setStatus(`Applied ${niceName} template "${name}"`);
     } catch {
       setStatus(`Template "${name}" is unreadable`);
@@ -191,7 +269,7 @@ export function buildPlotTemplateBar<T>(
       const name = nameInput.value.trim();
       if (!name) return;
       try {
-        await savePlotTemplate(kind, name, getOpts());
+        await savePlotTemplate(kind, name, getState());
         recordProcess("Template", `Saved ${niceName} template "${name}"`);
         setStatus(`${niceName} template "${name}" saved`);
         close();

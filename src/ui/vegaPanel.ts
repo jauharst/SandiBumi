@@ -35,7 +35,7 @@ import type { EditorView } from "codemirror";
 import { getCurveData, listZones, type TrackCurveSeries, type WellSummary, type ZoneEntry } from "../ipc";
 import { recordProcess } from "../processLog";
 import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
-import { buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
+import { buildPersistedPlotState, buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { messageNode } from "./safeDom";
 import { saveSvg } from "./svgExport";
@@ -678,6 +678,39 @@ export async function buildVegaContent(
   const yField = field("Y", ySel);
   const zField = field("Color", zSel);
   const groupField = field("Group", groupSel);
+  const plotIntents = () => {
+    const type = typeSel.value as ChartType;
+    if (type === "histogram") {
+      return [{ channel: "x", semantic_request: xSel.value, required: true }];
+    }
+    if (type === "raincloud") {
+      return [
+        { channel: "x", semantic_request: xSel.value, required: true },
+        ...(groupSel.value !== GROUP_ZONE && groupSel.value !== xSel.value
+          ? [{ channel: "group", semantic_request: groupSel.value, required: true }]
+          : []),
+      ];
+    }
+    return [
+      { channel: "x", semantic_request: xSel.value, required: true },
+      { channel: "y", semantic_request: ySel.value, required: true },
+      ...(type === "scatter" && zSel.value
+        ? [{ channel: "colour", semantic_request: zSel.value, required: true }]
+        : []),
+    ];
+  };
+  const selectionState = (): Record<string, string> => ({
+    type: typeSel.value,
+    x: xSel.value,
+    y: ySel.value,
+    z: zSel.value,
+    zone: zoneSel.select.value,
+    trend: trendChk.checked ? "1" : "",
+    trendMethod: trendMethodSel.value,
+    group: groupSel.value,
+  });
+  const persistedState = (options: Record<string, unknown>) =>
+    buildPersistedPlotState("vega", options, [well.well_id], plotIntents());
   toolbar.append(field("Type", typeSel), field("X", xSel), yField, zField, trendField, groupField, field("Zone", zoneSel.select));
 
   const chartHost = document.createElement("div");
@@ -707,6 +740,24 @@ export async function buildVegaContent(
   let current: VegaResult | null = null;
   let disposed = false;
   let gen = 0;
+  let settleBindingReady!: () => void;
+  let refuseBindingReady!: (error: unknown) => void;
+  let bindingReadySettled = false;
+  const bindingReady = new Promise<void>((resolve, reject) => {
+    settleBindingReady = resolve;
+    refuseBindingReady = reject;
+  });
+  void bindingReady.catch(() => {});
+  const bindingReadyOk = (): void => {
+    if (bindingReadySettled) return;
+    bindingReadySettled = true;
+    settleBindingReady();
+  };
+  const bindingReadyError = (error: unknown): void => {
+    if (bindingReadySettled) return;
+    bindingReadySettled = true;
+    refuseBindingReady(error);
+  };
   // True once the panel has been measured non-zero and the first embed has fired. Declared up here
   // (not by the ResizeObserver) because themeVersion.subscribe below fires synchronously on
   // subscribe and reads it — a `let` declared later would be in the temporal dead zone.
@@ -874,6 +925,7 @@ export async function buildVegaContent(
         series = await getCurveData(well.well_id, needed, zc.depthMin, zc.depthMax);
       } catch (err) {
         if (disposed || myGen !== gen) return;
+        bindingReadyError(err);
         chartHost.replaceChildren(messageNode("logview-message", `Failed to load curves: ${err}`));
         setStatus("Vega — load failed");
         return;
@@ -881,6 +933,7 @@ export async function buildVegaContent(
       if (disposed || myGen !== gen) return;
       const xs = series.find((s) => s.curve_name === xName);
       if (!xs) {
+        bindingReadyError(new Error(`required channel '${xName}' is unresolved`));
         chartHost.replaceChildren(messageNode("logview-message", `No ${xName} data in ${well.well_name}.`));
         setStatus("Vega — no data");
         return;
@@ -899,12 +952,14 @@ export async function buildVegaContent(
       } else {
         const gs = series.find((s) => s.curve_name === groupBy);
         if (!gs) {
+          bindingReadyError(new Error(`required channel '${groupBy}' is unresolved`));
           chartHost.replaceChildren(messageNode("logview-message", `No ${groupBy} data in ${well.well_name}.`));
           setStatus("Vega — no data");
           return;
         }
         const res = groupByCurve(xs, gs, groupBy);
         if (res.error) {
+          bindingReadyError(new Error(res.error));
           chartHost.replaceChildren(messageNode("logview-message", res.error));
           setStatus("Vega — too many groups");
           return;
@@ -922,6 +977,12 @@ export async function buildVegaContent(
       lastGroupOrder = order;
       lastGroupLabel = groupLabel;
       await embedRows(type, rows, xName, "", null, { groupOrder: order, groupLabel }, myGen);
+      if (!current) {
+        bindingReadyError(new Error("Vega refused: the initial chart did not render"));
+        return;
+      }
+      bindingReadyOk();
+      persist();
       // embedRows sets a generic status; refine it with the group count and any dropped-sample note.
       if (current && !disposed && myGen === gen) {
         setStatus(`Vega — raincloud · ${order.length} group(s) · ${rows.length.toLocaleString()} pts${note}`);
@@ -936,6 +997,7 @@ export async function buildVegaContent(
       series = await getCurveData(well.well_id, needed, zc.depthMin, zc.depthMax);
     } catch (err) {
       if (disposed || myGen !== gen) return;
+      bindingReadyError(err);
       chartHost.replaceChildren(messageNode("logview-message", `Failed to load curves: ${err}`));
       setStatus("Vega — load failed");
       return;
@@ -950,6 +1012,12 @@ export async function buildVegaContent(
     lastTrend = useTrend;
     lastMethod = method;
     await embedRows(type, rows, xName, yName, useZ, { trend: useTrend, method }, myGen);
+    if (!current) {
+      bindingReadyError(new Error("Vega refused: the initial chart did not render"));
+      return;
+    }
+    bindingReadyOk();
+    persist();
   }
 
   /** Re-embed the cached rows with the new theme's colours (a theme switch resets zoom/pan — a rare,
@@ -961,17 +1029,14 @@ export async function buildVegaContent(
   }
 
   // --- V4: last-used persistence, export, spec editor ------------------------
-  const persist = (): void =>
-    savePlotProps("vega", {
-      type: typeSel.value,
-      x: xSel.value,
-      y: ySel.value,
-      z: zSel.value,
-      zone: zoneSel.select.value,
-      trend: trendChk.checked ? "1" : "",
-      trendMethod: trendMethodSel.value,
-      group: groupSel.value,
-    });
+  const persist = (): void => {
+    try {
+      void savePlotProps("vega", persistedState(selectionState()))
+        .catch((error) => setStatus(`Vega state not saved: ${error}`));
+    } catch (error) {
+      setStatus(`Vega state not saved: ${error}`);
+    }
+  };
 
   // Export. Vega renders to a <canvas>, so the shared PNG copy/save/print buttons work against it;
   // SVG comes from vega's own vector renderer.
@@ -983,7 +1048,12 @@ export async function buildVegaContent(
     }
     try {
       const svg = await current.view.toSVG();
-      const path = await saveSvg(svg, "Vega chart", { wellIds: [], allProject: true });
+      const state = persistedState(selectionState());
+      const path = await saveSvg(svg, "Vega chart", {
+        wellIds: state.well_ids,
+        curves: plotIntents().map((intent) => intent.semantic_request),
+        plotBindings: state.bindings,
+      });
       if (path) {
         setStatus(`Vega chart SVG saved to ${path}`);
         recordProcess("Export", `Vega chart SVG (vector) → ${path}`);
@@ -999,7 +1069,14 @@ export async function buildVegaContent(
     undefined,
     undefined,
     undefined,
-    () => ({ wellIds: [], allProject: true }),
+    () => {
+      const state = persistedState(selectionState());
+      return {
+        wellIds: state.well_ids,
+        curves: plotIntents().map((intent) => intent.semantic_request),
+        plotBindings: state.bindings,
+      };
+    },
   );
   const svgBtn = document.createElement("button");
   svgBtn.className = "plot-export-btn";
@@ -1194,14 +1271,8 @@ export async function buildVegaContent(
       current?.finalize();
       current = null;
     },
-    getState: () => ({
-      type: typeSel.value,
-      x: xSel.value,
-      y: ySel.value,
-      z: zSel.value,
-      zone: zoneSel.select.value,
-      trend: trendChk.checked ? "1" : "",
-      trendMethod: trendMethodSel.value,
-    }),
+    getState: selectionState,
+    getPersistedState: () => persistedState(selectionState()),
+    bindingReady,
   };
 }

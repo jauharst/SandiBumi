@@ -19,6 +19,7 @@ import {
 } from "./plotCanvas";
 import {
   buildPlotTemplateBar,
+  buildPersistedPlotState,
   buildZoneSelect,
   concatValues,
   contextReductionExport,
@@ -536,6 +537,24 @@ export async function buildHistogramContent(
     scopeInfo.textContent = ctxInfo;
     scopeInfo.style.display = ctxInfo ? "" : "none";
   };
+  const plotIntents = () => [{ channel: "value", semantic_request: curveSel.value, required: true }];
+  const representedWellIds = () => [well.well_id, ...ctxWellIds];
+  const selectionState = (): Record<string, string> => ({
+    plotId,
+    curve: curveSel.value,
+    zone: zoneSel.select.value,
+    wells: scope.serialize(),
+  });
+  const persistedState = (options: Record<string, unknown>) =>
+    buildPersistedPlotState("histogram", options, representedWellIds(), plotIntents());
+  const persist = () => {
+    try {
+      void savePlotProps("histogram", persistedState({ ...opts }))
+        .catch((error) => setStatus(`Histogram state not saved: ${error}`));
+    } catch (error) {
+      setStatus(`Histogram state not saved: ${error}`);
+    }
+  };
 
   const selRow = document.createElement("div");
   selRow.className = "plot-toolbar";
@@ -549,7 +568,7 @@ export async function buildHistogramContent(
     buildPlotTemplateBar<HistogramOptions>(
       "histogram",
       "Histogram",
-      () => ({ ...opts }),
+      () => persistedState({ ...opts }),
       (t) => {
         Object.assign(opts, normalizeHistogramOptions({ ...opts, ...t }));
         persist();
@@ -567,7 +586,14 @@ export async function buildHistogramContent(
     () => getSvg(),
     () => getPdf(),
     () => ctxReductionManifest,
-    () => ({ wellIds: scope.getWellIds(), curves: [curveSel.value] }),
+    () => {
+      const state = persistedState(selectionState());
+      return {
+        wellIds: state.well_ids,
+        curves: [curveSel.value],
+        plotBindings: state.bindings,
+      };
+    },
   ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);
@@ -702,8 +728,6 @@ export async function buildHistogramContent(
     };
   }
 
-  const persist = () => savePlotProps("histogram", opts);
-
   /** Recomputes the brushed subset's values for this curve (only when the brush targets THIS well). */
   const recomputeBrushValues = (sel: BrushSelection | null): void => {
     brushValues = [];
@@ -720,6 +744,7 @@ export async function buildHistogramContent(
   const MAX_CONTEXT_POINTS = 60_000;
   let ctxLayers: HistogramContextLayer[] = [];
   let ctxReductionManifest: PlotReductionExport | null = null;
+  let ctxWellIds: string[] = [];
   let ctxInfo = "";
   let ctxGen = 0;
   const histContext = (): HistogramContext | null =>
@@ -742,6 +767,7 @@ export async function buildHistogramContent(
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
       ctxLayers = [];
+      ctxWellIds = [];
       ctxReductionManifest = null;
       ctxInfo = "";
       updateScopeUi();
@@ -775,6 +801,7 @@ export async function buildHistogramContent(
       color: l.color,
       values: l.series.get(curveSel.value.toUpperCase())!,
     }));
+    ctxWellIds = outcome.layers.map((layer) => layer.wellId);
     ctxInfo = describeContextOutcome(outcome);
     updateScopeUi();
     setStatus(`Histogram ${ctxInfo.toLowerCase()}`);
@@ -1078,7 +1105,7 @@ export async function buildHistogramContent(
   await reload();
   // Not awaited: a big scope must not block the panel build — the active well's plot
   // appears immediately and the context outlines fade in when ready.
-  void reloadContext();
+  const bindingReady = reloadContext();
   return {
     el: content,
     dispose: () => {
@@ -1094,7 +1121,9 @@ export async function buildHistogramContent(
       if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
-    getState: () => ({ plotId, curve: curveSel.value, zone: zoneSel.select.value, wells: scope.serialize() }),
+    getState: selectionState,
+    getPersistedState: () => persistedState(selectionState()),
+    bindingReady,
     openProperties: openProps,
   };
 }

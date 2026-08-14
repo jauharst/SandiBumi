@@ -5,6 +5,7 @@ import {
   listFluidContacts,
   listTops,
   listWells,
+  resolvePlotBindings,
   resolveWellScope,
   suggestContacts,
   upsertFluidContact,
@@ -19,7 +20,7 @@ import {
 import { appState } from "../state";
 import { openModal } from "./modal";
 import { canvasFont, percentile, readTheme } from "./plotCanvas";
-import { curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
+import { buildPersistedPlotState, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 
 /** Default marker colors per contact type (a stored color overrides these). */
@@ -121,9 +122,17 @@ const HEADER_H = 30;
 export async function buildCorrelationContent(
   _well: WellSummary | null,
   setStatus: (text: string) => void,
+  initial?: Record<string, string>,
 ): Promise<PlotContent> {
   const opts: CorrelationOptions = { ...DEFAULT_CORRELATION_OPTIONS, ...(await loadPlotProps<CorrelationOptions>("correlation")) };
-  const persist = () => savePlotProps("correlation", opts);
+  if (initial) {
+    if (initial.curve) opts.curve = initial.curve;
+    if (initial.datum !== undefined) opts.datum = initial.datum;
+    if (initial.depthMode === "md" || initial.depthMode === "tvdss") opts.depthMode = initial.depthMode;
+    if (initial.min !== undefined) opts.min = initial.min === "" ? null : Number(initial.min);
+    if (initial.max !== undefined) opts.max = initial.max === "" ? null : Number(initial.max);
+    if (initial.showContacts !== undefined) opts.showContacts = initial.showContacts === "1";
+  }
 
   let wells: WellSummary[] = [];
   try {
@@ -133,6 +142,35 @@ export async function buildCorrelationContent(
   }
   const included = new Set(wells.map((w) => w.well_id));
   let strips: WellStrip[] = [];
+  const plotIntents = () => [
+    { channel: "value", semantic_request: opts.curve, required: true },
+    ...(opts.depthMode === "tvdss"
+      ? [{ channel: "depth", semantic_request: "TVDSS", required: true }]
+      : []),
+  ];
+  const selectionState = (): Record<string, string> => ({
+    curve: opts.curve,
+    min: opts.min?.toString() ?? "",
+    max: opts.max?.toString() ?? "",
+    datum: opts.datum,
+    depthMode: opts.depthMode,
+    showContacts: opts.showContacts ? "1" : "",
+  });
+  const persistedState = (options: Record<string, unknown>) =>
+    buildPersistedPlotState(
+      "correlation",
+      options,
+      strips.filter((strip) => strip.series !== null).map((strip) => strip.well.well_id),
+      plotIntents(),
+    );
+  const persist = () => {
+    try {
+      void savePlotProps("correlation", persistedState({ ...opts }))
+        .catch((error) => setStatus(`Correlation state not saved: ${error}`));
+    } catch (error) {
+      setStatus(`Correlation state not saved: ${error}`);
+    }
+  };
   let curveNames: string[] = [];
   try {
     curveNames = await loadCurveNames();
@@ -481,6 +519,14 @@ export async function buildCorrelationContent(
   async function reload(): Promise<void> {
     const gen = ++reloadGen;
     const chosen = wells.filter((w) => included.has(w.well_id));
+    if (chosen.length === 0) {
+      strips = [];
+      return;
+    }
+    await resolvePlotBindings(plotIntents(), {
+      kind: "explicit",
+      well_ids: chosen.map((well) => well.well_id),
+    });
     // TVDSS rides along in the same batch read so a TVDSS-mode switch needs no refetch.
     const names = Array.from(new Set([opts.curve, "TVDSS"]));
     const [loaded, loadedContacts] = await Promise.all([
@@ -512,7 +558,17 @@ export async function buildCorrelationContent(
     contacts = loadedContacts;
     applyDatum();
     refreshDatumChoices();
+    persist();
   }
+  const reloadAndDraw = (): void => {
+    void reload()
+      .then(draw)
+      .catch((error) => {
+        strips = [];
+        setStatus(`Correlation refused: ${error}`);
+        draw();
+      });
+  };
 
   /** Re-fetches the well list so the Wells menu and strips track the current project after
    *  an import, delete, or active-group change — reload() alone only re-reads curves for the
@@ -567,7 +623,7 @@ export async function buildCorrelationContent(
         if (box.checked) included.add(well.well_id);
         else included.delete(well.well_id);
         refreshWellsBtn();
-        void reload().then(draw);
+        reloadAndDraw();
       });
       row.appendChild(box);
       row.appendChild(document.createTextNode(well.well_name));
@@ -587,7 +643,7 @@ export async function buildCorrelationContent(
   curveSel.addEventListener("change", () => {
     opts.curve = curveSel.value;
     persist();
-    void reload().then(draw);
+    reloadAndDraw();
   });
 
   const numField = (placeholder: string, value: number | null, onChange: (v: number | null) => void): HTMLInputElement => {
@@ -1047,7 +1103,14 @@ export async function buildCorrelationContent(
     undefined,
     undefined,
     undefined,
-    () => ({ wellIds: wells.filter((candidate) => included.has(candidate.well_id)).map((candidate) => candidate.well_id), curves: [opts.curve] }),
+    () => {
+      const state = persistedState(selectionState());
+      return {
+        wellIds: state.well_ids,
+        curves: plotIntents().map((intent) => intent.semantic_request),
+        plotBindings: state.bindings,
+      };
+    },
   ));
 
   function zoomAtCenter(factor: number): void {
@@ -1141,7 +1204,12 @@ export async function buildCorrelationContent(
     // reload() alone left a stale Wells menu that never showed a newly imported well.
     void refreshWells()
       .then(() => reload())
-      .then(draw);
+      .then(draw)
+      .catch((error) => {
+        strips = [];
+        setStatus(`Correlation refused: ${error}`);
+        draw();
+      });
   });
   // Colours come from CSS vars at draw time; a theme switch only needs a repaint.
   const unsubTheme = appState.themeVersion.subscribe(() => draw());
@@ -1164,5 +1232,7 @@ export async function buildCorrelationContent(
       window.removeEventListener("pointerup", onWindowPointerUp);
       clearTimeout(fitTimer);
     },
+    getState: selectionState,
+    getPersistedState: () => persistedState(selectionState()),
   };
 }

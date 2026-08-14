@@ -8,7 +8,7 @@ import {
   readAutosave,
   showCrashRecoveryDialog,
 } from "./autosave";
-import { awaitProjectOpen, bootReport, saveDocument } from "./ipc";
+import { awaitProjectOpen, bootReport, saveSessionDocument } from "./ipc";
 import { recordProcess } from "./processLog";
 import { showBootOverlay } from "./bootOverlay";
 import { showStartupProblemDialog } from "./startupNotice";
@@ -80,7 +80,7 @@ window.addEventListener("DOMContentLoaded", () => {
       // Nothing silently lost: stash the autosaved workspace as a reopenable session.
       if (autosave) {
         const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
-        void saveDocument("session", `Recovered ${stamp}`, JSON.stringify(autosave))
+        void saveSessionDocument(`Recovered ${stamp}`, JSON.stringify(autosave))
           .then(() => setStatus(`Safe Mode — previous workspace kept as session "Recovered ${stamp}"`))
           .catch(() => setStatus("Safe Mode — default workspace"));
       } else {

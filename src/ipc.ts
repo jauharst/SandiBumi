@@ -705,6 +705,8 @@ export interface PlotAncestryScope {
   wellIds: string[];
   curves?: string[];
   allProject?: boolean;
+  /** Exact binding record captured by the reads that produced the visible marks. */
+  plotBindings?: PlotChannelBinding[];
 }
 
 function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
@@ -712,6 +714,7 @@ function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
     ancestryWellIds: scope ? scope.wellIds : null,
     ancestryCurveNames: scope?.curves ?? null,
     ancestryAllProject: scope?.allProject ?? false,
+    plotBindings: scope?.plotBindings ?? null,
   };
 }
 
@@ -784,6 +787,14 @@ export interface DocumentEntry {
 /** Named JSON documents (saved layouts, plot property sets, ...). */
 export function saveDocument(docType: string, name: string, json: string): Promise<void> {
   return invoke<void>("save_document", { docType, name, json });
+}
+
+export function savePlotState(docType: string, name: string, state: PersistedPlotState): Promise<void> {
+  return invoke<void>("save_plot_state", { docType, name, state });
+}
+
+export function saveSessionDocument(name: string, json: string): Promise<void> {
+  return invoke<void>("save_session_document", { name, json });
 }
 
 export function listDocuments(docType: string): Promise<DocumentEntry[]> {
@@ -2930,7 +2941,7 @@ export async function getCurveData(
   depthMin: number | null,
   depthMax: number | null,
 ): Promise<TrackCurveSeries[]> {
-  const bindings = await resolvePlotBindings(
+  await resolvePlotBindings(
     curveNames.map((semantic_request, index) => ({
       channel: `curve:${index}`,
       semantic_request,
@@ -2938,9 +2949,6 @@ export async function getCurveData(
     })),
     { kind: "explicit", well_ids: [wellId] },
   );
-  for (const binding of bindings) {
-    plotBindingRegistry.set(`${wellId}\u0000${binding.intent.semantic_request.toUpperCase()}`, binding);
-  }
   const buf = await invoke<ArrayBuffer>("get_curve_data", { wellId, curveNames, depthMin, depthMax });
   return decodeCurveBuffer(buf);
 }
@@ -2969,34 +2977,80 @@ export interface PlotChannelBinding {
   resolved: ResolvedPlotCurve[];
 }
 
+export interface PersistedPlotState {
+  schema_version: 1;
+  plot_type: string;
+  well_ids: string[];
+  options: Record<string, unknown>;
+  bindings: PlotChannelBinding[];
+}
+
+export interface PlotBindingExport {
+  schema_version: 1;
+  well_ids: string[];
+  bindings: PlotChannelBinding[];
+}
+
 const plotBindingRegistry = new Map<string, PlotChannelBinding>();
+
+function rememberPlotBindings(bindings: PlotChannelBinding[]): void {
+  for (const binding of bindings) {
+    for (const resolved of binding.resolved) {
+      plotBindingRegistry.set(
+        `${resolved.well_id}\u0000${binding.intent.semantic_request.toUpperCase()}`,
+        { intent: binding.intent, resolved: [resolved] },
+      );
+    }
+  }
+}
+
+/** Rebuilds a channel-labelled binding record only from the concrete answers captured
+ * by the reads that produced the current plot. Missing required answers stay empty so
+ * typed persistence/export validation refuses them rather than resolving again. */
+export function plotBindingSnapshotForChannels(
+  wellIds: string[],
+  intents: PlotChannelIntent[],
+): PlotChannelBinding[] {
+  return intents.map((intent) => {
+    const resolved: ResolvedPlotCurve[] = [];
+    for (const wellId of wellIds) {
+      const binding = plotBindingRegistry.get(
+        `${wellId}\u0000${intent.semantic_request.toUpperCase()}`,
+      );
+      if (binding) resolved.push(...binding.resolved);
+    }
+    return { intent, resolved };
+  });
+}
 
 /** Concrete bindings accumulated by the plot reads in this session, suitable for
  * persisted plot state and provenance records without another curve-resolution pass. */
 export function plotBindingSnapshot(wellIds: string[], curveNames: string[]): PlotChannelBinding[] {
-  const out: PlotChannelBinding[] = [];
-  for (const curveName of curveNames) {
-    const resolved: ResolvedPlotCurve[] = [];
-    for (const wellId of wellIds) {
-      const binding = plotBindingRegistry.get(`${wellId}\u0000${curveName.toUpperCase()}`);
-      if (binding) resolved.push(...binding.resolved);
-    }
-    if (resolved.length > 0) {
-      out.push({
-        intent: { channel: curveName, semantic_request: curveName, required: true },
-        resolved,
-      });
-    }
-  }
-  return out;
+  return plotBindingSnapshotForChannels(
+    wellIds,
+    curveNames.map((curveName) => ({
+      channel: curveName,
+      semantic_request: curveName,
+      required: true,
+    })),
+  );
 }
 
 /** Resolves and validates the semantic plot request before numeric curve bytes are read. */
-export function resolvePlotBindings(
+export async function resolvePlotBindings(
   intents: PlotChannelIntent[],
   scope: BackendWellScope,
 ): Promise<PlotChannelBinding[]> {
-  return invoke<PlotChannelBinding[]>("resolve_plot_bindings", { intents, scope });
+  const bindings = await invoke<PlotChannelBinding[]>("resolve_plot_bindings", { intents, scope });
+  rememberPlotBindings(bindings);
+  return bindings;
+}
+
+export function serializePlotBindingExport(
+  wellIds: string[],
+  bindings: PlotChannelBinding[],
+): Promise<string> {
+  return invoke<string>("serialize_plot_binding_export", { wellIds, bindings });
 }
 
 export interface PlotWriteAxisBinding {

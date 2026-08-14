@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 
 use duckdb::{params, Connection};
 
@@ -33,6 +34,168 @@ pub struct ResolvedPlotCurve {
 pub struct PlotChannelBinding {
     pub intent: PlotChannelIntent,
     pub resolved: Vec<ResolvedPlotCurve>,
+}
+
+pub const PLOT_STATE_SCHEMA_VERSION: u32 = 1;
+
+/// Durable plot state keeps the reusable/display options separate from the exact
+/// concrete curve answers that produced the visible marks. `well_ids` is the
+/// represented set, not merely the user's broader requested scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedPlotState {
+    pub schema_version: u32,
+    pub plot_type: String,
+    pub well_ids: Vec<String>,
+    pub options: serde_json::Value,
+    pub bindings: Vec<PlotChannelBinding>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedPlotDocument {
+    pub name: String,
+    pub state: PersistedPlotState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlotBindingExport {
+    pub schema_version: u32,
+    pub well_ids: Vec<String>,
+    pub bindings: Vec<PlotChannelBinding>,
+}
+
+fn validate_plot_state_doc_type(doc_type: &str) -> Result<(), String> {
+    if doc_type == "plotprops" {
+        return Ok(());
+    }
+    if doc_type
+        .strip_prefix("plottmpl:")
+        .is_some_and(|plot_type| !plot_type.trim().is_empty())
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "plot state document type '{doc_type}' is not whitelisted"
+    ))
+}
+
+pub fn validate_plot_bindings(
+    well_ids: &[String],
+    bindings: &[PlotChannelBinding],
+) -> Result<(), String> {
+    if well_ids.is_empty() {
+        return Err("persisted plot state has no represented wells".into());
+    }
+    let mut represented = BTreeSet::new();
+    for well_id in well_ids {
+        non_blank(well_id, "well id")?;
+        if !represented.insert(well_id.as_str()) {
+            return Err(format!("persisted plot repeats represented well {well_id}"));
+        }
+    }
+    if bindings.is_empty() {
+        return Err("persisted plot state has no channel bindings".into());
+    }
+    let mut channels = BTreeSet::new();
+    for binding in bindings {
+        if !channels.insert(binding.intent.channel.trim().to_ascii_uppercase()) {
+            return Err(format!(
+                "persisted plot repeats channel '{}'",
+                binding.intent.channel
+            ));
+        }
+        persist_plot_binding(binding.intent.clone(), binding.resolved.clone())?;
+        let mut resolved_wells = BTreeSet::new();
+        for curve in &binding.resolved {
+            if !represented.contains(curve.well_id.as_str()) {
+                return Err(format!(
+                    "channel '{}' resolves unrepresented well {}",
+                    binding.intent.channel, curve.well_id
+                ));
+            }
+            if !resolved_wells.insert(curve.well_id.as_str()) {
+                return Err(format!(
+                    "channel '{}' resolves well {} more than once",
+                    binding.intent.channel, curve.well_id
+                ));
+            }
+        }
+        if binding.intent.required && resolved_wells != represented {
+            let missing = represented
+                .difference(&resolved_wells)
+                .copied()
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "required channel '{}' is unresolved for represented well(s): {missing}",
+                binding.intent.semantic_request
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_persisted_plot_state(state: &PersistedPlotState) -> Result<(), String> {
+    if state.schema_version != PLOT_STATE_SCHEMA_VERSION {
+        return Err(format!(
+            "unsupported plot state schema version {}",
+            state.schema_version
+        ));
+    }
+    non_blank(&state.plot_type, "plot type")?;
+    if !state.options.is_object() {
+        return Err("persisted plot options must be a JSON object".into());
+    }
+    validate_plot_bindings(&state.well_ids, &state.bindings)
+}
+
+pub fn save_persisted_plot_state(
+    conn: &Connection,
+    doc_type: &str,
+    name: &str,
+    state: &PersistedPlotState,
+) -> Result<(), String> {
+    validate_plot_state_doc_type(doc_type)?;
+    if name.trim().is_empty() {
+        return Err("persisted plot state requires a document name".into());
+    }
+    validate_persisted_plot_state(state)?;
+    let json = serde_json::to_string(state).map_err(|error| error.to_string())?;
+    crate::db::save_document(conn, doc_type, name, &json).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+pub fn list_persisted_plot_states(
+    conn: &Connection,
+    doc_type: &str,
+) -> Result<Vec<PersistedPlotDocument>, String> {
+    validate_plot_state_doc_type(doc_type)?;
+    crate::db::list_documents(conn, doc_type)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|document| {
+            let state: PersistedPlotState = serde_json::from_str(&document.json)
+                .map_err(|error| format!("plot state '{}' is unreadable: {error}", document.name))?;
+            validate_persisted_plot_state(&state)?;
+            Ok(PersistedPlotDocument {
+                name: document.name,
+                state,
+            })
+        })
+        .collect()
+}
+
+pub fn serialize_plot_binding_export(
+    well_ids: &[String],
+    bindings: &[PlotChannelBinding],
+) -> Result<String, String> {
+    validate_plot_bindings(well_ids, bindings)?;
+    serde_json::to_string(&PlotBindingExport {
+        schema_version: PLOT_STATE_SCHEMA_VERSION,
+        well_ids: well_ids.to_vec(),
+        bindings: bindings.to_vec(),
+    })
+    .map_err(|error| error.to_string())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -1316,6 +1479,109 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("required channel"));
+    }
+
+    #[test]
+    fn a_saved_plot_template_and_export_keep_one_request_and_each_wells_distinct_concrete_resolution() {
+        // CORRECTNESS: docs/PRD_v2/23_plotting-interactivity.md §4.1, SB-PLT-001.
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well_a = "00000000-0000-0000-0000-000000000001".to_string();
+        let well_b = "00000000-0000-0000-0000-000000000002".to_string();
+        let binding = PlotChannelBinding {
+            intent: PlotChannelIntent {
+                channel: "x".into(),
+                semantic_request: "bulk density".into(),
+                required: true,
+            },
+            resolved: vec![
+                ResolvedPlotCurve {
+                    well_id: well_a.clone(),
+                    curve_id: "curve-density-a".into(),
+                    mnemonic: "RHOB".into(),
+                    quantity: "bulk_density".into(),
+                    source_unit: "kg/m3".into(),
+                    display_unit: "g/cc".into(),
+                    conversion: "source * 0.001".into(),
+                    sample_count: 3,
+                    resolution_reason: "typed family in imported set WIRE".into(),
+                    source_revision: "a".repeat(64),
+                },
+                ResolvedPlotCurve {
+                    well_id: well_b.clone(),
+                    curve_id: "curve-density-b".into(),
+                    mnemonic: "RHOZ".into(),
+                    quantity: "bulk_density".into(),
+                    source_unit: "g/cc".into(),
+                    display_unit: "g/cc".into(),
+                    conversion: "identity".into(),
+                    sample_count: 4,
+                    resolution_reason: "typed family in imported set RAW".into(),
+                    source_revision: "b".repeat(64),
+                },
+            ],
+        };
+        let state = PersistedPlotState {
+            schema_version: PLOT_STATE_SCHEMA_VERSION,
+            plot_type: "crossplot".into(),
+            well_ids: vec![well_a.clone(), well_b.clone()],
+            options: serde_json::json!({"x": "bulk density", "y": "neutron porosity"}),
+            bindings: vec![binding.clone()],
+        };
+
+        save_persisted_plot_state(&conn, "plotprops", "crossplot", &state).unwrap();
+        save_persisted_plot_state(&conn, "plottmpl:crossplot", "Density comparison", &state)
+            .unwrap();
+
+        let project = list_persisted_plot_states(&conn, "plotprops").unwrap();
+        let templates = list_persisted_plot_states(&conn, "plottmpl:crossplot").unwrap();
+        assert_eq!(project[0].state, state);
+        assert_eq!(templates[0].state, state);
+        assert_ne!(
+            project[0].state.bindings[0].resolved[0].curve_id,
+            project[0].state.bindings[0].resolved[1].curve_id,
+            "the same request must retain each well's different concrete answer",
+        );
+
+        let export_json = serialize_plot_binding_export(&state.well_ids, &state.bindings).unwrap();
+        let exported: PlotBindingExport = serde_json::from_str(&export_json).unwrap();
+        assert_eq!(exported.well_ids, vec![well_a.clone(), well_b.clone()]);
+        assert_eq!(exported.bindings, vec![binding]);
+        let svg = crate::composite::embed_plot_bindings_json_in_svg(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+            &export_json,
+        )
+        .unwrap();
+        assert!(svg.contains("sandibumi-plot-bindings-v1"));
+        assert!(svg.contains("curve-density-a"));
+        assert!(svg.contains("curve-density-b"));
+
+        let unresolved = PersistedPlotState {
+            schema_version: PLOT_STATE_SCHEMA_VERSION,
+            plot_type: "crossplot".into(),
+            well_ids: vec![well_a, well_b],
+            options: serde_json::json!({"x": "bulk density"}),
+            bindings: vec![PlotChannelBinding {
+                intent: PlotChannelIntent {
+                    channel: "x".into(),
+                    semantic_request: "bulk density".into(),
+                    required: true,
+                },
+                resolved: Vec::new(),
+            }],
+        };
+        let save_error =
+            save_persisted_plot_state(&conn, "plotprops", "unresolved", &unresolved)
+                .unwrap_err();
+        assert!(save_error.contains("required channel"));
+        assert!(list_persisted_plot_states(&conn, "plotprops")
+            .unwrap()
+            .iter()
+            .all(|document| document.name != "unresolved"));
+        let export_error =
+            serialize_plot_binding_export(&unresolved.well_ids, &unresolved.bindings)
+                .unwrap_err();
+        assert!(export_error.contains("required channel"));
     }
 
     #[test]

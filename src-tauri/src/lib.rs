@@ -1077,11 +1077,21 @@ fn save_png(db: tauri::State<DbState>,
     ancestry_well_ids: Option<Vec<String>>,
     ancestry_curve_names: Option<Vec<String>>,
     ancestry_all_project: bool,
+    plot_bindings: Option<Vec<plotting::PlotChannelBinding>>,
 ) -> Result<String, String> {
     use base64::Engine as _;
     let mut bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64.as_bytes())
         .map_err(|e| format!("bad PNG payload: {e}"))?;
+    let plot_binding_json = match plot_bindings {
+        Some(bindings) => Some(plotting::serialize_plot_binding_export(
+            ancestry_well_ids
+                .as_deref()
+                .ok_or_else(|| "plot binding export requires represented well ids".to_string())?,
+            &bindings,
+        )?),
+        None => None,
+    };
     let conn = db.0.lock().unwrap();
     if let Some(ancestry) = scoped_curve_ancestry(
         &conn,
@@ -1099,6 +1109,16 @@ fn save_png(db: tauri::State<DbState>,
             bytes = composite::embed_ancestry_json_in_svg(&svg, &json)?.into_bytes();
         }
     }
+    if let Some(json) = plot_binding_json {
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            bytes = composite::embed_plot_bindings_json_in_png(&bytes, &json)?;
+        } else {
+            let svg = String::from_utf8(bytes).map_err(|_| {
+                "plot-binding image export is neither PNG nor UTF-8 SVG".to_string()
+            })?;
+            bytes = composite::embed_plot_bindings_json_in_svg(&svg, &json)?.into_bytes();
+        }
+    }
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
 }
@@ -1113,8 +1133,18 @@ fn save_plot_pdf(db: tauri::State<DbState>,
     ancestry_well_ids: Option<Vec<String>>,
     ancestry_curve_names: Option<Vec<String>>,
     ancestry_all_project: bool,
+    plot_bindings: Option<Vec<plotting::PlotChannelBinding>>,
 ) -> Result<String, String> {
     let mut bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
+    let plot_binding_json = match plot_bindings {
+        Some(bindings) => Some(plotting::serialize_plot_binding_export(
+            ancestry_well_ids
+                .as_deref()
+                .ok_or_else(|| "plot binding export requires represented well ids".to_string())?,
+            &bindings,
+        )?),
+        None => None,
+    };
     let conn = db.0.lock().unwrap();
     if let Some(ancestry) = scoped_curve_ancestry(
         &conn,
@@ -1124,6 +1154,9 @@ fn save_plot_pdf(db: tauri::State<DbState>,
     )? {
         let json = serde_json::to_string(&ancestry).map_err(|error| error.to_string())?;
         bytes = composite::embed_ancestry_json_in_pdf(bytes, &json)?;
+    }
+    if let Some(json) = plot_binding_json {
+        bytes = composite::embed_plot_bindings_json_in_pdf(bytes, &json)?;
     }
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
@@ -1594,8 +1627,58 @@ fn list_layouts() -> Vec<layout::Layout> {
 /// plot property sets, and similar per-item saves.
 #[tauri::command]
 fn save_document(db: tauri::State<DbState>, doc_type: String, name: String, json: String) -> Result<(), String> {
+    if doc_type == "session" || doc_type == "plotprops" || doc_type.starts_with("plottmpl:") {
+        return Err(format!(
+            "document type '{doc_type}' requires its typed persistence command"
+        ));
+    }
     let conn = db.0.lock().unwrap();
     db::save_document(&conn, &doc_type, &name, &json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_plot_state(
+    db: tauri::State<DbState>,
+    doc_type: String,
+    name: String,
+    state: plotting::PersistedPlotState,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    plotting::save_persisted_plot_state(&conn, &doc_type, &name, &state)
+}
+
+#[tauri::command]
+fn save_session_document(
+    db: tauri::State<DbState>,
+    name: String,
+    json: String,
+) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("session requires a document name".into());
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(&json).map_err(|error| format!("session is unreadable: {error}"))?;
+    if let Some(plot_states) = value.get("plotStates") {
+        let states = plot_states
+            .as_object()
+            .ok_or_else(|| "session plotStates must be an object keyed by panel id".to_string())?;
+        for (panel_id, raw_state) in states {
+            let state: plotting::PersistedPlotState = serde_json::from_value(raw_state.clone())
+                .map_err(|error| format!("session plot '{panel_id}' is unreadable: {error}"))?;
+            plotting::validate_persisted_plot_state(&state)
+                .map_err(|error| format!("session plot '{panel_id}' refused: {error}"))?;
+        }
+    }
+    let conn = db.0.lock().unwrap();
+    db::save_document(&conn, "session", &name, &json).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn serialize_plot_binding_export(
+    well_ids: Vec<String>,
+    bindings: Vec<plotting::PlotChannelBinding>,
+) -> Result<String, String> {
+    plotting::serialize_plot_binding_export(&well_ids, &bindings)
 }
 
 /// Lists every saved document of one type (e.g. "layout").
@@ -3915,6 +3998,8 @@ pub fn run() {
             list_tops,
             list_layouts,
             save_document,
+            save_plot_state,
+            save_session_document,
             list_documents,
             delete_document,
             list_well_groups,
@@ -4106,6 +4191,7 @@ pub fn run() {
             get_curve_ancestry_disclosures,
             save_png,
             save_plot_pdf,
+            serialize_plot_binding_export,
             save_plot_reduction_manifest,
             get_core_data
         ])

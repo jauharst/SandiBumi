@@ -45,12 +45,12 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 43 | 2026-07-19 | 9 |
-| `histogram` | Histogram | Partially exercised | 5 / 22 | 2026-07-20 | 5 |
-| `crossplot` | Crossplot | Partially exercised | 6 / 13 | 2026-07-20 | 6 |
-| `pickett` | Pickett plot | Not exercised | 0 / 8 | — | 3 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 42 | — | 12 |
+| `histogram` | Histogram | Partially exercised | 5 / 26 | 2026-07-20 | 6 |
+| `crossplot` | Crossplot | Partially exercised | 6 / 17 | 2026-07-20 | 7 |
+| `pickett` | Pickett plot | Not exercised | 0 / 12 | — | 4 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 46 | — | 13 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 53 | 2026-07-20 | 15 |
-| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 2 | — | 7 |
+| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 6 | — | 8 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |
@@ -58,7 +58,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |
-| `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 24 | 2026-07-19 | 7 |
+| `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 28 | 2026-07-19 | 8 |
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 2 | — | 2 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |

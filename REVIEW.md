@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-PLT-001: Crossplot, histogram, Pickett, correlation, Vega and session binding custody
+
+- [ ] **Automated correctness:** the one owned contract test is green and the full gate is
+      1023 passed / 0 failed / 37 ignored. It saves and reloads one project plot state and one
+      named template with two wells resolving the same semantic request to different concrete
+      curve IDs, units, conversions, sample counts, reasons and source revisions. A missing
+      required well/channel refuses both save and export and writes no invalid plot document.
+- [ ] **Visual:** create multiwell crossplot, histogram, Pickett and correlation panels where one
+      semantic channel resolves to different concrete curves across two wells, plus a Vega panel.
+      Save project properties, a named template and a named session; reopen each; export SVG, PNG
+      and PDF where offered. Confirm the visible curves remain the intended ones and every action
+      either succeeds with exact binding custody or names the unresolved required channel.
+- [ ] **Manual:** inspect the reopened/exported artifact against the source curve inventory. A
+      similar-looking mnemonic is not enough: confirm well, curve ID, source/display unit,
+      conversion, sample count, resolution reason and revision. Record the outcome here; automated
+      JSON round trips do not close this checkbox.
+- [ ] **Field and harsh critique:** repeat the save/reopen/export path on the representative Gate 4
+      corpus. The implementation now refuses missing bindings, but a green serialization test does
+      not prove that every real imported alias, multi-set well or long-running context fetch resolves
+      to the geoscientist's intended curve.
+
 ## 2026-08-14 — G2 SB-DIO-063: every Python sidecar now owns the same Unicode byte boundary
 
 - [ ] **Automated implementation:** exact SB-DIO-T96 was deliberately run and passed 1 / 0 / 0.
