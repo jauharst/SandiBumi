@@ -1,5 +1,18 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-024: every automatic conversion is visible
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T39 is green at
+      1 passed / 0 failed / 0 ignored. One import converts independent DTCO and DTSM
+      curves from `US/M` to `us/ft`; both public conversion records and the visible note
+      name curve, source unit, destination unit and the cited `0.3048` factor.
+- [ ] **Two-sided storage proof:** the stored first samples are independently derived as
+      `100 × 0.3048 = 30.48` and `150 × 0.3048 = 45.72`. A plausible report attached
+      to unchanged values, or reporting only the first converted curve, cannot pass.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import representative convertible
+      LAS and DLIS deliveries, judge the result wording and inspect the stored curves.
+      Automated synthetic LAS evidence is not representative-format or operator evidence.
+
 ## 2026-08-14 — G2 SB-DIO-022: every writer keeps stored samples at defaults
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T35 is green at

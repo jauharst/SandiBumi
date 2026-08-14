@@ -3369,7 +3369,7 @@ mod tests {
     /// (NIST SP 811, chapter §5.1). Reporting alone is not enough: the stored sample
     /// is checked too, so a no-op conversion with a plausible audit record cannot pass.
     #[test]
-    fn a_converted_sonic_reports_its_from_unit_to_unit_and_factor() {
+    fn every_converted_curve_reports_its_from_unit_to_unit_and_factor_and_uses_that_transform() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let las = "~Version\n\
@@ -3378,10 +3378,11 @@ mod tests {
                    WELL. DIO-024 :\n\
                    ~Curve\n\
                    DEPT .M    : depth\n\
-                   DTCO .US/M : sonic\n\
+                   DTCO .US/M : compressional sonic\n\
+                   DTSM .US/M : shear sonic\n\
                    ~ASCII\n\
-                   1000.0 100.0\n\
-                   1000.5 200.0\n";
+                   1000.0 100.0 150.0\n\
+                   1000.5 200.0 250.0\n";
         let path = std::env::temp_dir().join(format!(
             "sandibumi-dio024-{}-{}.las",
             std::process::id(),
@@ -3398,32 +3399,48 @@ mod tests {
         .remove(0);
         std::fs::remove_file(&path).ok();
         assert!(result.error.is_none(), "import failed: {:?}", result.error);
-        assert_eq!(result.unit_conversions.len(), 1);
-        let conversion = &result.unit_conversions[0];
-        assert_eq!(conversion.curve, "DTCO");
-        assert_eq!(conversion.from_unit, "US/M");
-        assert_eq!(conversion.to_unit, "us/ft");
-        assert_eq!(conversion.factor, 0.3048_f32);
-        assert_eq!(conversion.offset, 0.0, "a multiplicative conversion carries an explicit zero offset");
-        assert!(
-            result.warning.as_deref().is_some_and(|note| {
-                note.contains("DTCO")
-                    && note.contains("US/M")
-                    && note.contains("us/ft")
-                    && note.contains("0.3048")
-            }),
-            "the visible import note must carry the same audit: {:?}",
-            result.warning
+        assert_eq!(
+            result.unit_conversions.len(),
+            2,
+            "reporting only the first converted curve is still a silent conversion"
         );
+        let warning = result.warning.as_deref().unwrap_or("");
+        for curve in ["DTCO", "DTSM"] {
+            let conversion = result
+                .unit_conversions
+                .iter()
+                .find(|conversion| conversion.curve == curve)
+                .unwrap_or_else(|| panic!("{curve} conversion is reported"));
+            assert_eq!(conversion.from_unit, "US/M");
+            assert_eq!(conversion.to_unit, "us/ft");
+            assert_eq!(conversion.factor, 0.3048_f32);
+            assert_eq!(
+                conversion.offset, 0.0,
+                "a multiplicative conversion carries an explicit zero offset"
+            );
+            assert!(
+                warning.contains(curve)
+                    && warning.contains("US/M")
+                    && warning.contains("us/ft")
+                    && warning.contains("0.3048"),
+                "the visible import note must carry the {curve} audit: {:?}",
+                result.warning
+            );
+        }
 
         let well_id = result.well_id.unwrap();
-        let dt = db::list_generic_curve_catalog(&conn, &well_id)
-            .unwrap()
-            .into_iter()
-            .find(|curve| curve.mnemonic == "DTCO")
-            .expect("DTCO generic curve");
-        let samples = db::get_curve_samples(&conn, &dt.curve_id).unwrap();
-        assert!((samples[0].value - 30.48).abs() < 1e-4, "100 us/m must become 30.48 us/ft");
+        let catalog = db::list_generic_curve_catalog(&conn, &well_id).unwrap();
+        for (curve, expected) in [("DTCO", 30.48_f32), ("DTSM", 45.72_f32)] {
+            let held = catalog
+                .iter()
+                .find(|entry| entry.mnemonic == curve)
+                .unwrap_or_else(|| panic!("{curve} generic curve"));
+            let samples = db::get_curve_samples(&conn, &held.curve_id).unwrap();
+            assert!(
+                (samples[0].value - expected).abs() < 1e-4,
+                "the {curve} stored sample must use the reported 0.3048 transform"
+            );
+        }
     }
 
     /// SB-DIO-025 / SB-DIO-T40. A declared unit with no reviewed transform remains

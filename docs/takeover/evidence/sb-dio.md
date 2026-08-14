@@ -316,13 +316,13 @@
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned test `SB-DIO-T39`.
 - **Atomic obligations:** either disable automatic conversion or report every converted curve with source unit, destination unit and factor.
 - **Current source:** conversion remains automatic, but `UnitConversion` records the curve, from/to units, factor and offset; LAS import returns the records and user-visible notes only after the transaction succeeds.
-- **Qualifying acceptance tests:** `a_converted_sonic_reports_its_from_unit_to_unit_and_factor` is `CORRECTNESS`; its microseconds-per-metre to microseconds-per-foot factor is independently derived from the NIST exact foot conversion cited in section 5.1.
-- **Supporting tests:** affine and conversion-table tests protect offset and family coverage.
-- **Manual evidence:** `data-conventions` 0/45, `las-import` 0/57 and `dlis-import` 0/11 - unexercised.
-- **Git evidence:** reachable `66a5c0b` contains the conversion audit record.
+- **Qualifying acceptance tests:** exact T39 `every_converted_curve_reports_its_from_unit_to_unit_and_factor_and_uses_that_transform` passed 1/0/0 and is `CORRECTNESS`; independent DTCO and DTSM channels each produce their own public record and visible note. Stored `30.48` and `45.72` samples are independently derived from source values times the NIST exact-foot factor cited in section 5.1, so a report-only no-op cannot pass.
+- **Supporting tests:** affine and conversion-table tests protect offset and family coverage; the two-channel fixture prevents an implementation that reports only the first automatic conversion.
+- **Manual evidence:** `data-conventions` 4/104, `las-import` 0/72, `dlis-import` 0/14 and `security-integrity` 3/92; this increment claims no representative LAS/DLIS or operator exercise.
+- **Git evidence:** reachable `66a5c0b` contains the conversion audit record; this increment strengthens T39 from one curve to every converted curve in the import, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied conversion-honesty contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** keep conversion records transaction-coupled and add every new reader to the same result surface.
+- **Next action:** retain exact T39, keep conversion records transaction-coupled, and add every new reader to the same public result surface; Jauhar verifies representative LAS/DLIS wording and values.
 
 ## SB-DIO-025 - Conversion coverage MUST be declared, and an unconvertible unit MUST be reported rather than passed through.
 

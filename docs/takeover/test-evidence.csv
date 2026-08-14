@@ -98,7 +98,7 @@
 "SB-DIO-020","CORRECTNESS","src-tauri/src/ingest.rs","duplicate_depths_commit_nothing_until_a_policy_is_declared"
 "SB-DIO-021","CHARACTERIZATION","src-tauri/src/example_data_test.rs","characterizes_every_registered_sampled_reader_and_shipping_store_as_preserving_native_depths_until_reframe_is_explicit"
 "SB-DIO-022","CORRECTNESS","src-tauri/src/export.rs","an_export_at_defaults_writes_the_irregular_stored_samples_without_regridding"
-"SB-DIO-024","CORRECTNESS","src-tauri/src/ingest.rs","a_converted_sonic_reports_its_from_unit_to_unit_and_factor"
+"SB-DIO-024","CORRECTNESS","src-tauri/src/ingest.rs","every_converted_curve_reports_its_from_unit_to_unit_and_factor_and_uses_that_transform"
 "SB-DIO-025","CORRECTNESS","src-tauri/src/curves.rs","the_unit_system_reports_the_exact_families_it_can_convert"
 "SB-DIO-025","CORRECTNESS","src-tauri/src/ingest.rs","an_unknown_declared_unit_is_stored_verbatim_and_flagged_unconverted"
 "SB-DIO-026","CORRECTNESS","src-tauri/src/ingest.rs","a_fahrenheit_temperature_applies_its_affine_offset_before_its_factor"
