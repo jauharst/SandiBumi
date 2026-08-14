@@ -891,29 +891,56 @@ mod tests {
         )
         .unwrap();
 
-        let dest = tmp_path("irregular-default");
-        export_las(&conn, &id.to_string(), dest.to_str().unwrap()).unwrap();
-        let text = crate::parsers::read_text_file(&dest).unwrap();
-        std::fs::remove_file(&dest).ok();
-        let rows: Vec<Vec<f32>> = text
-            .split("~ASCII")
-            .nth(1)
-            .unwrap()
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| line.split_whitespace().map(|field| field.parse::<f32>().unwrap()).collect())
-            .collect();
+        let settings = WriterSettings { null_sentinel: project_null_sentinel(&conn).unwrap() };
+        for writer in REGISTERED_WRITERS {
+            let dest = tmp_path(&format!("irregular-default-{}", writer.id))
+                .with_extension(writer.extension);
+            let result = export_with_writer(
+                &conn,
+                &id.to_string(),
+                dest.to_str().unwrap(),
+                settings,
+                writer,
+            )
+            .unwrap();
+            assert!(result.self_checked, "{} must pass its registered reader", writer.id);
 
-        assert_eq!(
-            rows.iter().map(|row| row[0]).collect::<Vec<_>>(),
-            stored_depth,
-            "the default writer must not replace an irregular stored index with a regular grid"
-        );
-        assert_eq!(
-            rows.iter().map(|row| row[1]).collect::<Vec<_>>(),
-            stored_gr,
-            "the default writer must not interpolate stored values onto different samples"
-        );
+            // Test adapters are deliberately exhaustive over REGISTERED_WRITERS. Adding a
+            // format without teaching T35 to inspect its stored index must fail rather than
+            // silently reducing the universal writer contract to today's default LAS.
+            let rows: Vec<Vec<f32>> = match writer.id {
+                "las-2.0" => crate::parsers::read_text_file(&dest)
+                    .unwrap()
+                    .split("~ASCII")
+                    .nth(1)
+                    .unwrap()
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .map(|line| {
+                        line.split_whitespace()
+                            .map(|field| field.parse::<f32>().unwrap())
+                            .collect()
+                    })
+                    .collect(),
+                unknown => panic!(
+                    "registered writer '{unknown}' has no SB-DIO-T35 native-sample inspection adapter"
+                ),
+            };
+            std::fs::remove_file(&dest).ok();
+
+            assert_eq!(
+                rows.iter().map(|row| row[0]).collect::<Vec<_>>(),
+                stored_depth,
+                "{} must not replace an irregular stored index with a regular grid",
+                writer.id
+            );
+            assert_eq!(
+                rows.iter().map(|row| row[1]).collect::<Vec<_>>(),
+                stored_gr,
+                "{} must not interpolate stored values onto different samples",
+                writer.id
+            );
+        }
     }
 
     /// `export.rs` shipped with no tests at all. Three claims matter and none was pinned.

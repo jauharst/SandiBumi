@@ -289,14 +289,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T35`.
 - **Atomic obligations:** default writer-side regridding off; emit stored irregular samples exactly; if later enabled, name it as output resampling and record the changed-sample provenance.
-- **Current source:** the writer has no regrid option and writes the fetched depth rows directly; therefore the permitted default-off implementation is active.
-- **Qualifying acceptance tests:** `an_export_at_defaults_writes_the_irregular_stored_samples_without_regridding` is `CORRECTNESS`; its expected output is the independently seeded irregular stored index, not a value produced by the writer.
-- **Supporting tests:** LAS self-read validation checks row and curve counts after writing.
-- **Manual evidence:** `las-export` 0/2, `data-conventions` 0/45 and `reframe` 0/34 - unexercised.
-- **Git evidence:** reachable `3291921` contains the default-off lock.
+- **Current source:** the registered writer boundary has no regrid argument, and each writer receives the fetched stored rows directly. One LAS 2.0 writer currently ships; no writer-side resample option exists, so the permitted default-off implementation is active.
+- **Qualifying acceptance tests:** exact T35 `an_export_at_defaults_writes_the_irregular_stored_samples_without_regridding` passed 1/0/0 and is `CORRECTNESS`; every registered writer receives independently seeded irregular depths plus non-linear GR values and must expose its artifact to a format-specific inspection adapter. A new writer without that adapter fails by name rather than inheriting LAS evidence.
+- **Supporting tests:** mandatory self-read validation checks row and curve counts after every registered write, while T35 independently compares artifact values with the database fixture.
+- **Manual evidence:** `las-export` 0/5, `data-conventions` 4/104, `reframe` 0/34 and `security-integrity` 3/92; this increment claims no independent-reader or representative-file exercise.
+- **Git evidence:** reachable `3291921` contains the default-off lock; this increment strengthens T35 across the writer registry, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied output-fidelity contract); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** none while no writer regrid option ships.
-- **Next action:** if output regridding is ever requested, add explicit UI/provenance and a non-default test before implementing it.
+- **Blocker or decision:** none while no writer regrid option ships; its “when on” obligations remain conditional and cannot be claimed as a shipped capability.
+- **Next action:** retain exact T35 and its exhaustive registry adapter; if output regridding is ever requested, add explicit UI provenance and a non-default test before implementing it.
 
 ## SB-DIO-023 - Numeric columns MUST be validated against physical bounds, not against their labels.
 

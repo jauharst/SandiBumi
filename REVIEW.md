@@ -1,5 +1,19 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-022: every writer keeps stored samples at defaults
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T35 is green at
+      1 passed / 0 failed / 0 ignored. Every registered writer receives an irregular,
+      non-linear database fixture and must emit the exact stored depths and paired GR
+      values; a regularized index or interpolated values fail independently.
+- [ ] **Registry boundary:** a new writer cannot inherit this result merely because LAS
+      passes. T35 iterates the writer registry and refuses an unadapted output format by
+      name, so each format must expose its written samples to the same proof.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to export a representative irregular
+      well through the UI and compare the delivered file in an independent reader. No
+      writer-side resample control ships; if one is proposed later, its naming, default-off
+      state and provenance require a separate increment before implementation.
+
 ## 2026-08-14 — G2 SB-DIO-021: reads preserve native sampling by default
 
 - [ ] **Automated characterization — not correctness or manual evidence:** exact
