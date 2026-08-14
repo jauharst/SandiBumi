@@ -822,11 +822,11 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-OK`; owned test `SB-DIO-T96`.
 - **Atomic obligations:** preserve non-ASCII path and payload bytes unchanged through every Python-backed DLIS, office and image boundary; never decode piped stdin with the Windows ANSI code page.
-- **Current source:** `src-tauri/src/office.rs` and `src-tauri/src/images.rs` parse requests from `sys.stdin.buffer`; the shared engine uses byte streams; the DLIS sidecar receives the source path as an argument rather than through text stdin. No embedded Python path exists.
-- **Qualifying acceptance tests:** no T96 test sends the same non-ASCII path and payload through all three named boundaries; test class is `MISSING`.
-- **Supporting tests:** `a_word_document_keeps_non_ascii_text_intact` proves the office payload path, and static runner tests require `sys.stdin.buffer`, but neither proves the DLIS and images end-to-end halves.
+- **Current source:** `src-tauri/src/dlis.rs`, `src-tauri/src/office.rs` and `src-tauri/src/images.rs` serialize their JSON requests as UTF-8 bytes and every Python runner reads `sys.stdin.buffer`; the shared engine also uses byte streams. No embedded Python path exists.
+- **Qualifying acceptance tests:** `office.rs::a_non_ascii_path_and_well_name_survive_the_dlis_office_and_image_sidecars` is exact `SB-DIO-T96`. It makes the production DLIS runner reject an altered Unicode path and return a Unicode source-well payload, reads an actual Word document back from a Unicode path, and requires Pillow rather than fallback to open and convert an image from a Unicode path. It is `OPTIONAL-PACKAGE-IGNORED`, was deliberately run, and passed 1/0/0 on 2026-08-14.
+- **Supporting tests:** `a_word_document_keeps_non_ascii_text_intact` retains its narrower Office-only regression, and static runner tests require `sys.stdin.buffer`; neither is substituted for the cross-sidecar T96 proof.
 - **Manual evidence:** `dlis-import` 0/11, `office-deliverables` 0/39, `image-data` 0/30 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** the byte-safe runner implementations are integrated; the cross-sidecar owned proof is absent.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DEPLOYMENT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** no parameter is missing; the remaining gap is end-to-end proof across the complete sidecar inventory.
-- **Next action:** add T96 with a non-ASCII temporary path and payload through DLIS, office and images, ignoring only an optional-package subcase under the repository's package rule.
+- **Git evidence:** the worktree correction moves the last argument-based DLIS path onto byte stdin and adds the exact cross-sidecar proof without embedding Python or adding a binary corpus fixture.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DEPLOYMENT`; test class `OPTIONAL-PACKAGE-IGNORED`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for Gate 2. The ignored state is not a default-gate pass; Gate 3 still owns clean-machine qualification of the offline Python capability pack.
+- **Next action:** retain all three byte boundaries, qualify the packages in Gate 3, and leave the still-zero manual and field evidence to Gate 4.

@@ -2140,19 +2140,95 @@ mod tests {
         const READBACK: &str = r#"
 import json, sys
 from docx import Document
-doc = Document(sys.argv[1])
+req = json.loads(sys.stdin.buffer.read())
+doc = Document(req["path"])
 sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], ensure_ascii=True).encode("ascii"))
 "#;
         let mut cmd = Command::new(&python);
-        cmd.args(["-c", READBACK, &dest_s]).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.args(["-c", READBACK]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         hide_console(&mut cmd);
-        let out = cmd.output().expect("readback ran");
+        let mut child = cmd.spawn().expect("readback started");
+        let request = serde_json::to_vec(&serde_json::json!({ "path": dest_s })).unwrap();
+        child.stdin.as_mut().expect("readback stdin").write_all(&request).unwrap();
+        drop(child.stdin.take());
+        let out = child.wait_with_output().expect("readback ran");
         let paras: Vec<String> = serde_json::from_slice(&out.stdout).expect("readback json");
         assert!(
             paras.iter().any(|p| p == needle),
             "the en dash / middot / rho did not survive the pipe: {paras:?}"
         );
         let _ = std::fs::remove_file(&dest);
+    }
+
+    /// SB-DIO-063 / SB-DIO-T96. `docs/PRD_v2/21_data-io.md` requires one non-ASCII
+    /// path and source-well payload to survive the DLIS, Office and image subprocesses.
+    #[test]
+    #[ignore = "needs numpy, python-docx and Pillow"]
+    fn a_non_ascii_path_and_well_name_survive_the_dlis_office_and_image_sidecars() {
+        // CHARACTERIZATION — SB-DIO-T96 names the input and exact unchanged output.
+        let root = std::env::temp_dir().join(format!("sb_t96_ñ_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).expect("Unicode temporary directory created");
+        let source_name = "NONASCII–ρ";
+
+        let dlis_path = root.join("córé–ρ.dlis");
+        let dlis_path = dlis_path.to_str().expect("test path is Unicode");
+        let (received_path, received_name) =
+            crate::dlis::probe_non_ascii_sidecar_boundary(dlis_path, source_name)
+                .expect("DLIS byte boundary round-tripped");
+        assert_eq!(received_path, dlis_path, "the DLIS path changed across the subprocess boundary");
+        assert_eq!(received_name, source_name, "the DLIS source-well payload changed across stdout");
+
+        let docx_path = root.join("réport–ρ.docx");
+        let docx_path = docx_path.to_str().expect("test path is Unicode");
+        let blocks = vec![Block::Cover {
+            title: "Encoding boundary".into(),
+            well: source_name.into(),
+            field: "Condition: synthetic".into(),
+            meta: String::new(),
+            author: String::new(),
+        }];
+        write_docx(&blocks, docx_path).expect("Word sidecar wrote the Unicode path");
+
+        const READBACK: &str = r#"
+import json, sys
+from docx import Document
+req = json.loads(sys.stdin.buffer.read())
+doc = Document(req["path"])
+sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], ensure_ascii=True).encode("ascii"))
+"#;
+        let python = find_python().expect("Python is available");
+        let mut cmd = Command::new(&python);
+        cmd.args(["-c", READBACK]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        hide_console(&mut cmd);
+        let mut child = cmd.spawn().expect("Word readback started");
+        let request = serde_json::to_vec(&serde_json::json!({ "path": docx_path })).unwrap();
+        child.stdin.as_mut().expect("Word readback stdin").write_all(&request).unwrap();
+        drop(child.stdin.take());
+        let output = child.wait_with_output().expect("Word readback completed");
+        assert!(output.status.success(), "Word readback failed: {}", String::from_utf8_lossy(&output.stderr));
+        let paragraphs: Vec<String> = serde_json::from_slice(&output.stdout).expect("Word readback JSON");
+        assert!(paragraphs.iter().any(|text| text == source_name), "Word payload changed: {paragraphs:?}");
+
+        let image_path = root.join("pláte–ρ.png");
+        let png = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC",
+        )
+        .expect("embedded PNG decoded");
+        std::fs::write(&image_path, png).expect("Unicode image path created");
+        let image_path = image_path.to_str().expect("test path is Unicode").to_string();
+        let prepared = crate::images::prepare_images(
+            std::slice::from_ref(&image_path),
+            crate::images::DEFAULT_MAX_PX,
+            crate::images::DEFAULT_QUALITY,
+        );
+        assert_eq!(prepared.len(), 1, "one image request must produce one result");
+        assert!(prepared[0].error.is_none(), "Pillow did not open the Unicode path: {:?}", prepared[0].error);
+        assert_eq!(prepared[0].mime, "image/jpeg", "the Pillow sidecar did not perform the conversion");
+
+        std::fs::remove_file(&image_path).expect("test image removed");
+        std::fs::remove_file(docx_path).expect("test document removed");
+        std::fs::remove_dir(&root).expect("test directory removed");
     }
 
     // --- The deck ----------------------------------------------------------
@@ -2333,7 +2409,8 @@ sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], e
         const READBACK: &str = r#"
 import json, sys
 from pptx import Presentation
-prs = Presentation(sys.argv[1])
+req = json.loads(sys.stdin.buffer.read())
+prs = Presentation(req["path"])
 out = []
 for s in prs.slides:
     kinds = [sh.shape_type is not None and str(sh.shape_type) for sh in s.shapes]
@@ -2345,9 +2422,13 @@ for s in prs.slides:
 sys.stdout.buffer.write(json.dumps(out, ensure_ascii=True).encode("ascii"))
 "#;
         let mut cmd = Command::new(&python);
-        cmd.args(["-c", READBACK, &dest_s]).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.args(["-c", READBACK]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         hide_console(&mut cmd);
-        let out = cmd.output().expect("readback ran");
+        let mut child = cmd.spawn().expect("readback started");
+        let request = serde_json::to_vec(&serde_json::json!({ "path": dest_s })).unwrap();
+        child.stdin.as_mut().expect("readback stdin").write_all(&request).unwrap();
+        drop(child.stdin.take());
+        let out = child.wait_with_output().expect("readback ran");
         #[derive(Deserialize)]
         struct SlideInfo {
             pics: usize,

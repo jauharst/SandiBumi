@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-063: every Python sidecar now owns the same Unicode byte boundary
+
+- [ ] **Automated implementation:** exact SB-DIO-T96 was deliberately run and passed 1 / 0 / 0.
+      The production DLIS runner now receives its path as UTF-8 JSON over piped byte stdin, and
+      the one named test proves the path plus source-well payload through DLIS, Word and Pillow.
+- [ ] **Ignored-test custody:** the test remains `#[ignore]` because its subject needs numpy,
+      python-docx and Pillow. It is inventoried as `OPTIONAL-PACKAGE`, raises the default ignored
+      count to 37, and must never be described as a default-gate pass.
+- [ ] **Visual / Manual:** import or export one representative Unicode path through each enabled
+      DLIS, Word and image action. Confirm the displayed path, created artifact and source label
+      remain exact; a successful row or byte count alone does not expose mojibake.
+- [ ] **Gate 3 / Field and harsh critique:** qualify the complete offline Python pack on a clean
+      Windows machine and repeat the three actions. Passing on this development machine proves the
+      byte contract, not that every packaged interpreter and dependency combination is deployable.
+
 ## 2026-08-14 — G2 SB-DIO-062: the named encodings pass but Windows code-page selection is undefined
 
 - [ ] **Automated correctness:** exact SB-DIO-T95 is green at 1 passed / 0 failed / 0 ignored.

@@ -14,6 +14,7 @@ use crate::installation;
 use crate::python_engine::{find_python, hide_console};
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::process::{Command, Stdio};
 
 /// Streams every 1-D scalar channel of every frame. Multi-dimensional channels (image/array
@@ -29,7 +30,8 @@ except Exception as e:
     print(f"dlis-dependency-missing: {e}", file=sys.stderr)
     sys.exit(3)
 
-path = sys.argv[1]
+req = json.loads(sys.stdin.buffer.read())
+path = req["path"]
 out_curves = []
 buffers = []
 skips = []
@@ -928,12 +930,9 @@ pub fn import_dlis_file_with_unit_designation(
         return fail(error);
     }
 
-    let mut cmd = Command::new(&python);
-    cmd.args(["-c", DLIS_RUNNER, path]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    hide_console(&mut cmd);
-    let output = match cmd.output() {
+    let output = match run_dlis_sidecar_with(&python, path, |_| {}) {
         Ok(o) => o,
-        Err(e) => return fail(format!("failed to start python: {e}")),
+        Err(e) => return fail(e),
     };
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
@@ -1378,6 +1377,110 @@ fn read_f32(bytes: &[u8]) -> Vec<f32> {
         .chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
+}
+
+fn run_dlis_sidecar_with(
+    python: &std::path::Path,
+    path: &str,
+    configure: impl FnOnce(&mut Command),
+) -> Result<std::process::Output, String> {
+    let mut cmd = Command::new(python);
+    cmd.args(["-c", DLIS_RUNNER])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure(&mut cmd);
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+    let request = serde_json::to_vec(&serde_json::json!({ "path": path }))
+        .map_err(|e| format!("failed to encode DLIS request: {e}"))?;
+    let write_result = child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "python stdin closed".to_string())
+        .and_then(|stdin| stdin.write_all(&request).map_err(|e| e.to_string()));
+    drop(child.stdin.take());
+    if let Err(error) = write_result {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+    child.wait_with_output().map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+pub(crate) fn probe_non_ascii_sidecar_boundary(
+    path: &str,
+    source_name: &str,
+) -> Result<(String, String), String> {
+    let python = find_python().ok_or_else(|| "Python is unavailable".to_string())?;
+    let root = std::env::temp_dir().join(format!("sb_t96_dlisio_{}", uuid::Uuid::new_v4()));
+    let package = root.join("dlisio");
+    std::fs::create_dir_all(&package).map_err(|e| e.to_string())?;
+    let module = package.join("__init__.py");
+    const FAKE_DLISIO: &str = r#"
+import os
+
+class Origin:
+    def __init__(self, source):
+        self.well_name = source
+        self.well_id = ""
+
+class LogicalFile:
+    def __init__(self, source):
+        self.origins = [Origin(source)]
+        self.frames = []
+
+class Batch(list):
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+class Dlis:
+    @staticmethod
+    def load(path):
+        expected = os.environ["SB_T96_EXPECTED_PATH"]
+        if path != expected:
+            raise RuntimeError("Unicode path changed at the DLIS boundary")
+        return Batch([
+            LogicalFile(os.environ["SB_T96_EXPECTED_NAME"]),
+            LogicalFile(path),
+        ])
+
+dlis = Dlis()
+"#;
+    std::fs::write(&module, FAKE_DLISIO.as_bytes()).map_err(|e| e.to_string())?;
+    let python_path = root.to_str().ok_or_else(|| "test module path is not Unicode".to_string())?;
+    let output = run_dlis_sidecar_with(&python, path, |cmd| {
+        cmd.env("PYTHONPATH", python_path)
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env("SB_T96_EXPECTED_PATH", path)
+            .env("SB_T96_EXPECTED_NAME", source_name);
+    });
+    let remove_module = std::fs::remove_file(&module);
+    let remove_package = std::fs::remove_dir(&package);
+    let remove_root = std::fs::remove_dir(&root);
+    let output = output?;
+    remove_module.map_err(|e| e.to_string())?;
+    remove_package.map_err(|e| e.to_string())?;
+    remove_root.map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let newline = output
+        .stdout
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .ok_or_else(|| "DLIS boundary probe returned no header".to_string())?;
+    let header: DlisHeader = serde_json::from_slice(&output.stdout[..newline]).map_err(|e| e.to_string())?;
+    if header.logical_files.len() != 2 {
+        return Err(format!("DLIS boundary probe returned {} logical files", header.logical_files.len()));
+    }
+    Ok((
+        header.logical_files[1].source_well.clone(),
+        header.logical_files[0].source_well.clone(),
+    ))
 }
 
 #[cfg(test)]

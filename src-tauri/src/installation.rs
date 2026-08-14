@@ -1606,9 +1606,9 @@ mod tests {
             .find("installation::require_python_capability(")
             .expect("DLIS import performs the manifest preflight");
         let runner = source[preflight..]
-            .find("let mut cmd = Command::new(&python)")
+            .find("run_dlis_sidecar_with(&python, path")
             .map(|offset| preflight + offset)
-            .expect("DLIS parsing starts through its subprocess runner");
+            .expect("DLIS parsing starts through its byte-stdin subprocess runner");
         assert!(preflight < runner, "dependency refusal must precede the file parser subprocess");
     }
 

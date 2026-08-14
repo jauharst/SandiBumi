@@ -4,9 +4,9 @@
   "capture_command": "cargo test -- --list plus exact source attribute scan",
   "evidence_class": "CHARACTERIZATION",
   "evidence_note": "Ignored means not run by the default green gate. No row in this inventory is evidence that its subject passes.",
-  "expected_ignored_test_count": 36,
+  "expected_ignored_test_count": 37,
   "expected_category_counts": {
-    "OPTIONAL-PACKAGE": 26,
+    "OPTIONAL-PACKAGE": 27,
     "CONTROLLED-CORPUS": 9,
     "MANUAL-ARTIFACT": 1
   },
@@ -228,6 +228,20 @@
           "key": "src/office.rs|writes_a_real_deck_with_figures_on_it",
           "ignore_reason": null,
           "bare_ignore": true
+        }
+      ]
+    },
+    {
+      "category": "OPTIONAL-PACKAGE",
+      "owner_requirement": "SB-DIO-063",
+      "owner_gate": "G3",
+      "execution_state": "NOT-RUN-BY-DEFAULT",
+      "rationale": "The exact DLIS, Word and image Unicode-boundary test was deliberately run for Gate 2, but its numpy, python-docx and Pillow dependencies remain outside the default gate and require clean-machine qualification in Gate 3.",
+      "tests": [
+        {
+          "key": "src/office.rs|a_non_ascii_path_and_well_name_survive_the_dlis_office_and_image_sidecars",
+          "ignore_reason": "needs numpy, python-docx and Pillow",
+          "bare_ignore": false
         }
       ]
     },
