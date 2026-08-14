@@ -468,21 +468,237 @@ test("track curve keys distinguish equal mnemonics from different imported sets"
   assert.equal(hasTrackCurve(inventory, { curve_name: "PEF", set_name: "WIRE" }), false);
 });
 
-test("characterizes_finite_statistics_without_population_or_exclusion_metadata", async () => {
-  // CHARACTERIZATION — SB-PLT-009 / SB-PLT-T12 supplies the arithmetic fixture and
-  // expected count=3, mean=2 and P50=2. The absent disclosure fields describe the
-  // current PARTIAL result shape; they are not claimed as the specified final contract.
-  const { basicStats } = await load("/src/ui/plotCanvas.ts");
-  const stats = basicStats(Float32Array.of(1, 2, 3, Number.NaN, Number.POSITIVE_INFINITY));
+test("every_plot_statistic_records_its_population_interval_selection_finite_pairs_exclusions_percentile_interpolation_and_standard_deviation_choice", async () => {
+  // CORRECTNESS — SB-PLT-009 / SB-PLT-T12/T13. docs/PRD_v2/23_plotting-interactivity.md
+  // §4.2 requires each record to disclose population, interval, selection, finite-pair count,
+  // exclusion counts, percentile interpolation and sample/population standard-deviation choice.
+  // T12 independently supplies count=3, mean=2, P50=2 and two non-finite exclusions for
+  // [1,2,3,NaN,+Inf]. T13 and the cited §5.2 box parameters supply P5/P25/P50/P75/P95 over 0..100.
+  const { applyPlotRangePolicy } = await load("/src/ui/plotRangePolicy.ts");
+  const {
+    buildPlotStatisticsRecord,
+    formatPlotStatisticsRecord,
+    plotStatisticsInterval,
+  } = await load("/src/ui/plotCanvas.ts");
+  const {
+    DEFAULT_HISTOGRAM_OPTIONS,
+    buildHistogramStatisticsRecord,
+  } = await load("/src/ui/histogramPanel.ts");
+  const {
+    DEFAULT_CROSSPLOT_OPTIONS,
+    buildCrossplotStatisticsRecords,
+  } = await load("/src/ui/crossplotPanel.ts");
+  const {
+    buildVegaBoxStatistics,
+    buildVegaStatisticsRecords,
+  } = await load("/src/ui/vegaPanel.ts");
+  const { buildPickettStatisticsRecords } = await load("/src/ui/pickettPanel.ts");
+  const {
+    DEFAULT_CORRELATION_OPTIONS,
+    buildCorrelationStatisticsRecord,
+  } = await load("/src/ui/correlationPanel.ts");
 
-  assert.equal(stats.count, 3);
-  assert.equal(stats.mean, 2);
-  assert.equal(stats.p50, 2);
+  const input = Float32Array.of(1, 2, 3, Number.NaN, Number.POSITIVE_INFINITY);
+  const policy = applyPlotRangePolicy([{ values: input, display: null, validity: null }], false);
+  const eligible = Float32Array.from(policy.indices.map((index) => input[index]));
+  const context = {
+    binding_channel: "x",
+    channel: "value",
+    population: "active_well",
+    well_ids: ["scope-a"],
+    interval: { low: 100, high: 101, closure: "[lo,hi)" },
+    selection: { kind: "all_eligible", selection_id: null, label: "all eligible", applied: false },
+    policy,
+    selection_excluded: 0,
+    unpaired_or_unclassified_excluded: 0,
+  };
+  const sample = buildPlotStatisticsRecord(eligible, { ...context, standard_deviation: "sample_n_minus_one" });
+  assert.equal(sample.values.count, 3);
+  assert.equal(sample.values.mean, 2);
+  assert.equal(sample.values.p50, 2);
+  assert.equal(sample.values.std, 1, "sample standard deviation divides by n-1");
+  assert.equal(sample.population, "active_well");
+  assert.equal(sample.channel, "value");
+  assert.equal(sample.binding_channel, "x");
+  assert.deepEqual(sample.well_ids, ["scope-a"]);
+  assert.deepEqual(sample.interval, { low: 100, high: 101, closure: "[lo,hi)" });
+  assert.deepEqual(sample.selection, { kind: "all_eligible", selection_id: null, label: "all eligible", applied: false });
+  assert.equal(sample.finite_pair_count, 3);
+  assert.deepEqual(sample.exclusions, {
+    input_count: 5,
+    non_finite: 2,
+    log_domain: 0,
+    validity: 0,
+    selection: 0,
+    unpaired_or_unclassified: 0,
+    display_hidden: 0,
+  });
+  assert.equal(sample.percentile_interpolation, "linear_index_n_minus_one");
+  assert.equal(sample.standard_deviation, "sample_n_minus_one");
+  assert.match(formatPlotStatisticsRecord(sample), /active well.*interval=\[100,101\).*selection=all eligible.*finite pairs=3.*non-finite=2.*percentile=linear index \(n-1\).*std=sample \(n-1\)/u);
+
+  const population = buildPlotStatisticsRecord(eligible, {
+    ...context,
+    population: "pooled",
+    well_ids: ["scope-a", "scope-b"],
+    selection: { kind: "named", selection_id: "sel-1", label: "selected samples", applied: true },
+    standard_deviation: "population_n",
+  });
+  assert.equal(population.values.std, Math.sqrt(2 / 3), "population standard deviation divides by n");
+  assert.equal(population.population, "pooled");
+  assert.equal(population.selection.selection_id, "sel-1");
+  assert.equal(population.standard_deviation, "population_n");
   assert.deepEqual(
-    Object.keys(stats).sort(),
-    ["count", "max", "mean", "min", "p5", "p50", "p95", "std"],
-    "today's summary has no population, interval, selection, exclusion, percentile-method, or std-estimator metadata",
+    plotStatisticsInterval(100, null),
+    { low: 100, high: null, closure: "[lo,+inf)" },
+    "a last-top-to-TD population must not be mislabeled as all depth",
   );
+  assert.deepEqual(
+    plotStatisticsInterval(null, 101),
+    { low: null, high: 101, closure: "(-inf,hi)" },
+    "an upper-bounded population must retain its only finite limit",
+  );
+
+  const liveRecords = [
+    ["Histogram", [buildHistogramStatisticsRecord(
+      input, DEFAULT_HISTOGRAM_OPTIONS, "VALUE", "scope-a", 100, 101,
+    )]],
+    ["Crossplot", buildCrossplotStatisticsRecords(
+      input,
+      input,
+      DEFAULT_CROSSPLOT_OPTIONS,
+      "X",
+      "Y",
+      "scope-a",
+      100,
+      101,
+      null,
+      null,
+    )],
+    ["Vega", buildVegaStatisticsRecords(
+      Array.from(input, (x, index) => ({ x, depth: index })),
+      "histogram",
+      { apply: false, x: null, y: null },
+      "scope-a",
+      100,
+      101,
+      "VALUE",
+      "",
+      null,
+      null,
+    )],
+    ["Pickett", buildPickettStatisticsRecords(
+      input,
+      input,
+      undefined,
+      "RT",
+      "PHIE",
+      "scope-a",
+      100,
+      101,
+      null,
+      null,
+    )],
+    ["Correlation", [buildCorrelationStatisticsRecord(
+      input,
+      Float32Array.of(10, 11, 12, 13, 14),
+      DEFAULT_CORRELATION_OPTIONS,
+      ["scope-a", "scope-b"],
+      null,
+      null,
+    )]],
+  ];
+  for (const [surface, records] of liveRecords) {
+    assert.ok(records.length > 0 && records.every(Boolean), `${surface}: the live adapter returns its governed record`);
+    for (const record of records) {
+      assert.equal(record.finite_pair_count, 3, `${surface}: finite-pair count is T12`);
+      assert.equal(record.exclusions.non_finite, 2, `${surface}: non-finite exclusions are T12`);
+      assert.equal(record.values.mean, 2, `${surface}: mean is T12`);
+      assert.equal(record.values.p50, 2, `${surface}: P50 is T12`);
+      assert.equal(record.standard_deviation, "sample_n_minus_one", `${surface}: estimator choice is explicit`);
+      if (surface === "Correlation") {
+        assert.equal(record.population, "pooled", "Correlation discloses its real pooled-well population");
+        assert.deepEqual(record.well_ids, ["scope-a", "scope-b"]);
+      }
+    }
+  }
+  const clippedHistogram = buildHistogramStatisticsRecord(
+    Float32Array.of(1, 2, 3),
+    DEFAULT_HISTOGRAM_OPTIONS,
+    "VALUE",
+    "scope-a",
+    100,
+    101,
+    "all eligible",
+    { min: 2, max: 3 },
+  );
+  assert.equal(clippedHistogram.finite_pair_count, 3, "Histogram display clipping cannot change statistics n");
+  assert.equal(clippedHistogram.exclusions.display_hidden, 1, "Histogram records the finite value hidden by its display range");
+
+  const ordered = Array.from({ length: 101 }, (_, value) => value);
+  const box = buildVegaBoxStatistics(ordered);
+  assert.deepEqual(
+    { lo: box.lo, q1: box.q1, med: box.med, q3: box.q3, hi: box.hi, n: box.n },
+    { lo: 5, q1: 25, med: 50, q3: 75, hi: 95, n: 101 },
+    "the Vega box uses the same governed P5/P25/P50/P75/P95 contract as Histogram",
+  );
+
+  const groupedRows = [
+    ...ordered.map((x, depth) => ({ x, depth, group: "1" })),
+    { x: Number.NaN, depth: 101, group: "1" },
+    { x: 200, depth: 102, group: "2" },
+    { x: 300, depth: 103, group: "2" },
+    { x: 400, depth: 104 },
+  ];
+  const raincloudRecords = buildVegaStatisticsRecords(
+    groupedRows,
+    "raincloud",
+    { apply: false, x: null, y: null },
+    "scope-a",
+    100,
+    101,
+    "VALUE",
+    "",
+    { min: 25, max: 250 },
+    null,
+  );
+  assert.equal(raincloudRecords.length, 2, "each displayed raincloud group owns one statistics record");
+  assert.deepEqual(
+    raincloudRecords.map((record) => ({
+      label: record.selection.label,
+      applied: record.selection.applied,
+      n: record.finite_pair_count,
+      nonFinite: record.exclusions.non_finite,
+      selection: record.exclusions.selection,
+      unclassified: record.exclusions.unpaired_or_unclassified,
+      hidden: record.exclusions.display_hidden,
+      p50: record.values.p50,
+    })),
+    [
+      { label: "group 1; all eligible", applied: true, n: 101, nonFinite: 1, selection: 2, unclassified: 1, hidden: 25, p50: 50 },
+      { label: "group 2; all eligible", applied: true, n: 2, nonFinite: 1, selection: 101, unclassified: 1, hidden: 1, p50: 250 },
+    ],
+    "group-specific statistics cannot be replaced by one plausible whole-population summary",
+  );
+
+  // Arithmetic above is necessary but insufficient: inventory every live plotting consumer and
+  // the common screen/export record so a dead helper or value-only chip cannot satisfy the test.
+  for (const panel of ["histogramPanel.ts", "crossplotPanel.ts", "pickettPanel.ts", "correlationPanel.ts", "vegaPanel.ts"]) {
+    const source = await readFile(new URL(`../src/ui/${panel}`, import.meta.url), "utf8");
+    assert.match(source, /buildPlotStatisticsRecord\(/, `${panel} must build the governed record`);
+    assert.match(source, /formatPlotStatisticsRecord\(/, `${panel} must disclose the record on screen`);
+    assert.match(source, /statisticsRecords:/, `${panel} must carry the record into plot export`);
+  }
+  const crossplotSource = await readFile(new URL("../src/ui/crossplotPanel.ts", import.meta.url), "utf8");
+  assert.match(
+    crossplotSource,
+    /if \(!plot\) \{[\s\S]*?return;\s*\}\s*refreshStatisticsRecords\(\);/u,
+    "the successful live crossplot draw must refresh the records, not only its no-data refusal",
+  );
+  const ipcSource = await readFile(new URL("../src/ipc.ts", import.meta.url), "utf8");
+  const rustSource = await readFile(new URL("../src-tauri/src/plotting.rs", import.meta.url), "utf8");
+  assert.match(ipcSource, /statisticsRecords\?: PlotStatisticsRecord\[\]/, "the export scope carries typed statistics records");
+  assert.match(rustSource, /statistics_records: Vec<PlotStatisticsRecord>/, "Rust validates and serializes the same records");
 });
 
 test("characterizes_regression_as_coefficients_without_a_versioned_scientific_record", async () => {

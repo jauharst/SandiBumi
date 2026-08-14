@@ -21,7 +21,15 @@ import {
 } from "../ipc";
 import { appState } from "../state";
 import { openModal } from "./modal";
-import { canvasFont, percentile, readTheme } from "./plotCanvas";
+import {
+  buildPlotStatisticsRecord,
+  canvasFont,
+  formatPlotStatisticsRecord,
+  percentile,
+  plotStatisticsInterval,
+  readTheme,
+  type PlotStatisticsRecord,
+} from "./plotCanvas";
 import { buildPersistedPlotState, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import {
@@ -101,6 +109,40 @@ export function screenCorrelationPopulation(
     { values, display: valueDisplay, validity: correlationValidityRange(opts) },
     ...(displayDepths ? [{ values: displayDepths, display: depthDisplay, validity: null }] : []),
   ], opts.validityFilter);
+}
+
+/** Live Correlation adapter: one active-well or pooled record over aligned value/depth rows. */
+export function buildCorrelationStatisticsRecord(
+  values: ArrayLike<number>,
+  displayDepths: ArrayLike<number>,
+  opts: CorrelationOptions,
+  wellIds: string[],
+  valueDisplay: AxisDisplayRange | null,
+  depthDisplay: AxisDisplayRange | null,
+): PlotStatisticsRecord | null {
+  if (wellIds.length === 0) return null;
+  const policy = screenCorrelationPopulation(values, opts, valueDisplay, displayDepths, depthDisplay);
+  if (policy.analysisCount === 0) return null;
+  return buildPlotStatisticsRecord(
+    Float32Array.from(policy.indices.map((index) => values[index])),
+    {
+      binding_channel: "value",
+      channel: `value:${opts.curve}`,
+      population: wellIds.length === 1 ? "active_well" : "pooled",
+      well_ids: wellIds,
+      interval: plotStatisticsInterval(null, null),
+      selection: {
+        kind: "all_eligible",
+        selection_id: null,
+        label: wellIds.length === 1 ? "all eligible" : "all eligible in included wells",
+        applied: false,
+      },
+      policy,
+      selection_excluded: 0,
+      unpaired_or_unclassified_excluded: 0,
+      standard_deviation: "sample_n_minus_one",
+    },
+  );
 }
 
 /** Finite (MD, TVDSS) pairs for one well, ascending in MD (hence in TVDSS). */
@@ -203,6 +245,9 @@ export async function buildCorrelationContent(
     depthMax: depthViewIsUser ? String(viewTop + Math.max(50, canvas.clientHeight - HEADER_H) / pxPerUnit) : "",
   });
   let axisRanges: PlotAxisRangeExport[] = [];
+  let statisticsRecords: PlotStatisticsRecord[] = [];
+  let statisticsSignature = "";
+  let statisticsDataVersion = 0;
   const currentValueBinding = (): PlotChannelBinding | null =>
     plotBindingSnapshotForChannels(
       strips.filter((strip) => strip.series !== null).map((strip) => strip.well.well_id),
@@ -249,6 +294,7 @@ export async function buildCorrelationContent(
   props.className = "plot-props";
   const rangeInfo = document.createElement("p");
   rangeInfo.className = "modal-hint";
+  rangeInfo.style.whiteSpace = "pre-wrap";
   const canvasHost = document.createElement("div");
   canvasHost.className = "correlation-canvas-host";
   const canvas = document.createElement("canvas");
@@ -376,6 +422,8 @@ export async function buildCorrelationContent(
     const active = strips.filter((s) => included.has(s.well.well_id));
     if (active.length === 0) {
       axisRanges = [];
+      statisticsRecords = [];
+      statisticsSignature = "";
       rangeInfo.textContent = "";
       ctx.fillStyle = theme.text;
       ctx.font = canvasFont(theme, 13);
@@ -394,6 +442,8 @@ export async function buildCorrelationContent(
     });
     if (!valueRange || !depthRange) {
       axisRanges = [];
+      statisticsRecords = [];
+      statisticsSignature = "";
       rangeInfo.textContent = "Axis range unavailable: this view has no complete user, header, audited-family, or finite-data range.";
       return;
     }
@@ -405,8 +455,10 @@ export async function buildCorrelationContent(
     ];
     const populationValues: number[] = [];
     const populationDepths: number[] = [];
+    const populationWellIds: string[] = [];
     for (const strip of active) {
       if (!strip.series || (opts.depthMode === "tvdss" && !strip.tv)) continue;
+      populationWellIds.push(strip.well.well_id);
       for (let sample = 0; sample < strip.series.value.length; sample++) {
         populationValues.push(strip.series.value[sample]);
         const displayed = displayOf(strip, strip.series.depth[sample]);
@@ -420,7 +472,35 @@ export async function buildCorrelationContent(
       populationDepths,
       { min: depthRange.min, max: depthRange.max },
     );
-    rangeInfo.textContent = `${formatAxisRangeSummary(axisRanges)} · ${formatPlotRangePolicySummary(population, { statistics: true })}`;
+    const statisticsKey = JSON.stringify([
+      statisticsDataVersion,
+      opts.curve,
+      opts.validityFilter,
+      opts.validMin,
+      opts.validMax,
+      valueRange.min,
+      valueRange.max,
+      depthRange.min,
+      depthRange.max,
+      populationWellIds,
+      active.map((strip) => strip.shift),
+    ]);
+    if (statisticsKey !== statisticsSignature) {
+      const record = buildCorrelationStatisticsRecord(
+        populationValues,
+        populationDepths,
+        opts,
+        populationWellIds,
+        { min: valueRange.min, max: valueRange.max },
+        { min: depthRange.min, max: depthRange.max },
+      );
+      statisticsRecords = record ? [record] : [];
+      statisticsSignature = statisticsKey;
+    }
+    const statisticsText = statisticsRecords.length > 0
+      ? `\n${statisticsRecords.map((record) => formatPlotStatisticsRecord(record)).join("\n")}`
+      : "\nNo governed statistics population.";
+    rangeInfo.textContent = `${formatAxisRangeSummary(axisRanges)} · ${formatPlotRangePolicySummary(population, { statistics: true })}${statisticsText}`;
     const slot = (w - AXIS_W) / active.length;
     const gap = Math.min(46, slot * 0.28);
     const stripW = slot - gap;
@@ -683,6 +763,7 @@ export async function buildCorrelationContent(
     ]);
     if (gen !== reloadGen) return; // a newer reload started while we awaited
     strips = loaded;
+    statisticsDataVersion++;
     contacts = loadedContacts;
     applyDatum();
     refreshDatumChoices();
@@ -1282,6 +1363,7 @@ export async function buildCorrelationContent(
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
         axisRanges: state.axis_ranges,
+        statisticsRecords,
       };
     },
   ));

@@ -1,3 +1,5 @@
+import type { PlotRangePolicyReport } from "./plotRangePolicy";
+
 /** Shared Canvas-2D plot scaffolding for the parameter-selection tools (histogram,
  *  crossplot, Pickett). Handles margins, linear/log axes, inverted axes, ticks/grid,
  *  and data↔pixel transforms. Colors come from the CSS theme variables so plots follow
@@ -875,12 +877,73 @@ export interface BasicStats {
   min: number;
   max: number;
   p5: number;
+  p25: number;
   p50: number;
+  p75: number;
   p95: number;
 }
 
-/** NaN-skipping summary statistics for the histogram chips (sample std dev). */
-export function basicStats(values: ArrayLike<number>): BasicStats {
+export type StatisticsPopulation = "active_well" | "pooled";
+export type StatisticsSelectionKind = "all_eligible" | "named";
+export type StandardDeviationChoice = "sample_n_minus_one" | "population_n";
+
+export interface PlotStatisticsInterval {
+  low: number | null;
+  high: number | null;
+  closure: "[lo,hi)" | "[lo,+inf)" | "(-inf,hi)" | "all";
+}
+
+export interface PlotStatisticsSelection {
+  kind: StatisticsSelectionKind;
+  selection_id: string | null;
+  label: string;
+  applied: boolean;
+}
+
+export interface PlotStatisticsExclusions {
+  input_count: number;
+  non_finite: number;
+  log_domain: number;
+  validity: number;
+  selection: number;
+  unpaired_or_unclassified: number;
+  display_hidden: number;
+}
+
+/** Complete statistics custody used by the screen and every plot-export route. */
+export interface PlotStatisticsRecord {
+  schema_version: 1;
+  binding_channel: string;
+  channel: string;
+  population: StatisticsPopulation;
+  well_ids: string[];
+  interval: PlotStatisticsInterval;
+  selection: PlotStatisticsSelection;
+  finite_pair_count: number;
+  exclusions: PlotStatisticsExclusions;
+  percentile_interpolation: "linear_index_n_minus_one";
+  standard_deviation: StandardDeviationChoice;
+  values: BasicStats;
+}
+
+export interface PlotStatisticsContext {
+  binding_channel: string;
+  channel: string;
+  population: StatisticsPopulation;
+  well_ids: string[];
+  interval: PlotStatisticsInterval;
+  selection: PlotStatisticsSelection;
+  policy: PlotRangePolicyReport;
+  selection_excluded: number;
+  unpaired_or_unclassified_excluded: number;
+  standard_deviation: StandardDeviationChoice;
+}
+
+/** NaN-skipping summary statistics with an explicit standard-deviation estimator. */
+export function basicStats(
+  values: ArrayLike<number>,
+  standardDeviation: StandardDeviationChoice = "sample_n_minus_one",
+): BasicStats {
   let n = 0;
   let sum = 0;
   let sumSq = 0;
@@ -898,7 +961,8 @@ export function basicStats(values: ArrayLike<number>): BasicStats {
     if (v > max) max = v;
   }
   const mean = n > 0 ? sum / n : NaN;
-  const std = n > 1 ? Math.sqrt(Math.max(0, (sumSq - n * mean * mean) / (n - 1))) : NaN;
+  const divisor = standardDeviation === "sample_n_minus_one" ? n - 1 : n;
+  const std = divisor > 0 ? Math.sqrt(Math.max(0, (sumSq - n * mean * mean) / divisor)) : NaN;
   return {
     count: n,
     mean,
@@ -906,9 +970,125 @@ export function basicStats(values: ArrayLike<number>): BasicStats {
     min: n > 0 ? min : NaN,
     max: n > 0 ? max : NaN,
     p5: percentile(values, 5),
+    p25: percentile(values, 25),
     p50: percentile(values, 50),
+    p75: percentile(values, 75),
     p95: percentile(values, 95),
   };
+}
+
+/** Build one internally consistent record from the already-screened analysis population. */
+export function buildPlotStatisticsRecord(
+  eligibleValues: ArrayLike<number>,
+  context: PlotStatisticsContext,
+): PlotStatisticsRecord {
+  if (context.well_ids.length === 0 || context.well_ids.some((wellId) => wellId.trim() === "")) {
+    throw new Error("plot statistics require every represented well identity");
+  }
+  if (new Set(context.well_ids).size !== context.well_ids.length) {
+    throw new Error("plot statistics cannot repeat a represented well identity");
+  }
+  if (context.binding_channel.trim() === "") throw new Error("plot statistics require a binding channel");
+  if (context.channel.trim() === "") throw new Error("plot statistics require a channel identity");
+  if (context.population === "active_well" && context.well_ids.length !== 1) {
+    throw new Error("active-well statistics require exactly one represented well");
+  }
+  if (context.population === "pooled" && context.well_ids.length < 2) {
+    throw new Error("pooled statistics require at least two represented wells");
+  }
+  const { low, high, closure } = context.interval;
+  if (closure === "[lo,hi)") {
+    if (low === null || high === null || !Number.isFinite(low) || !Number.isFinite(high) || low >= high) {
+      throw new Error("plot statistics interval requires increasing finite limits");
+    }
+  } else if (closure === "[lo,+inf)") {
+    if (low === null || !Number.isFinite(low) || high !== null) {
+      throw new Error("lower-bounded plot statistics require one finite low limit");
+    }
+  } else if (closure === "(-inf,hi)") {
+    if (low !== null || high === null || !Number.isFinite(high)) {
+      throw new Error("upper-bounded plot statistics require one finite high limit");
+    }
+  } else if (low !== null || high !== null) {
+    throw new Error("all-depth statistics cannot carry numeric interval limits");
+  }
+  if (context.selection.label.trim() === "") throw new Error("plot statistics selection requires a label");
+  if (context.selection.kind === "named" && !context.selection.selection_id?.trim()) {
+    throw new Error("named plot statistics selection requires an identity");
+  }
+  if (context.selection.kind === "all_eligible" && context.selection.selection_id !== null) {
+    throw new Error("all-eligible plot statistics selection cannot carry an identity");
+  }
+  if (context.selection.kind === "named" && !context.selection.applied) {
+    throw new Error("a named statistics selection must be applied to its population");
+  }
+  if (!Number.isInteger(context.selection_excluded) || context.selection_excluded < 0) {
+    throw new Error("plot statistics selection exclusion count must be a non-negative integer");
+  }
+  if (!Number.isInteger(context.unpaired_or_unclassified_excluded)
+    || context.unpaired_or_unclassified_excluded < 0) {
+    throw new Error("plot statistics unpaired/unclassified exclusion count must be a non-negative integer");
+  }
+  const values = basicStats(eligibleValues, context.standard_deviation);
+  if (values.count + context.selection_excluded !== context.policy.analysisCount
+    || values.count !== eligibleValues.length) {
+    throw new Error("plot statistics values do not match the governed analysis population");
+  }
+  return {
+    schema_version: 1,
+    binding_channel: context.binding_channel,
+    channel: context.channel,
+    population: context.population,
+    well_ids: [...context.well_ids],
+    interval: { ...context.interval },
+    selection: { ...context.selection },
+    finite_pair_count: values.count,
+    exclusions: {
+      input_count: context.policy.inputCount + context.unpaired_or_unclassified_excluded,
+      non_finite: context.policy.nonFiniteExcluded,
+      log_domain: context.policy.logDomainExcluded,
+      validity: context.policy.validityExcluded,
+      selection: context.selection_excluded,
+      unpaired_or_unclassified: context.unpaired_or_unclassified_excluded,
+      display_hidden: context.policy.displayHidden,
+    },
+    percentile_interpolation: "linear_index_n_minus_one",
+    standard_deviation: context.standard_deviation,
+    values,
+  };
+}
+
+export function plotStatisticsInterval(low: number | null, high: number | null): PlotStatisticsInterval {
+  if (low !== null && !Number.isFinite(low)) throw new Error("plot statistics low interval limit must be finite");
+  if (high !== null && !Number.isFinite(high)) throw new Error("plot statistics high interval limit must be finite");
+  if (low !== null && high !== null) {
+    if (low >= high) throw new Error("plot statistics interval limits must increase");
+    return { low, high, closure: "[lo,hi)" };
+  }
+  if (low !== null) return { low, high: null, closure: "[lo,+inf)" };
+  if (high !== null) return { low: null, high, closure: "(-inf,hi)" };
+  return { low: null, high: null, closure: "all" };
+}
+
+/** Compact human-readable form for the live panel; exports retain the full structured record. */
+export function formatPlotStatisticsRecord(record: PlotStatisticsRecord): string {
+  const population = record.population === "active_well" ? "active well" : "pooled";
+  const interval = record.interval.closure === "[lo,hi)"
+    ? `[${record.interval.low},${record.interval.high})`
+    : record.interval.closure === "[lo,+inf)"
+      ? `[${record.interval.low},+inf)`
+      : record.interval.closure === "(-inf,hi)"
+        ? `(-inf,${record.interval.high})`
+        : "all";
+  const std = record.standard_deviation === "sample_n_minus_one" ? "sample (n-1)" : "population (n)";
+  const excluded = record.exclusions;
+  return `statistics[${record.channel}]: ${population} · interval=${interval} · selection=${record.selection.label}`
+    + ` (applied=${record.selection.applied})`
+    + ` · finite pairs=${record.finite_pair_count}`
+    + ` · exclusions input=${excluded.input_count}, non-finite=${excluded.non_finite}, log-domain=${excluded.log_domain},`
+    + ` validity=${excluded.validity}, selection=${excluded.selection},`
+    + ` unpaired/unclassified=${excluded.unpaired_or_unclassified}, display-hidden=${excluded.display_hidden}`
+    + ` · percentile=linear index (n-1) · std=${std}`;
 }
 
 export interface LinearFit {

@@ -14,13 +14,17 @@ import {
   attachResizeRedraw,
   attachZoomPan,
   basicStats,
+  buildPlotStatisticsRecord,
   fitCanvasBackingStore,
+  formatPlotStatisticsRecord,
   makeCanvasAccessible,
   percentile,
+  plotStatisticsInterval,
   PlotCanvas,
   canvasFont,
   readTheme,
   type BasicStats,
+  type PlotStatisticsRecord,
   type Viewport,
   type ViewportRef,
 } from "./plotCanvas";
@@ -200,6 +204,36 @@ export function computeHistogram(
   return canonicalHistogram(values, min, max, bins);
 }
 
+/** Live Histogram adapter: the values and every population decision become one record. */
+export function buildHistogramStatisticsRecord(
+  values: ArrayLike<number>,
+  opts: HistogramOptions,
+  curveName: string,
+  wellId: string,
+  intervalLow: number | null,
+  intervalHigh: number | null,
+  selectionLabel = "all eligible",
+  display: AxisDisplayRange | null = null,
+): PlotStatisticsRecord | null {
+  const policy = screenHistogramPopulation(values, opts, display);
+  if (policy.analysisCount === 0) return null;
+  return buildPlotStatisticsRecord(
+    valuesAtIndices(values, policy.indices),
+    {
+      binding_channel: "value",
+      channel: `value:${curveName}`,
+      population: "active_well",
+      well_ids: [wellId],
+      interval: plotStatisticsInterval(intervalLow, intervalHigh),
+      selection: { kind: "all_eligible", selection_id: null, label: selectionLabel, applied: false },
+      policy,
+      selection_excluded: 0,
+      unpaired_or_unclassified_excluded: 0,
+      standard_deviation: "sample_n_minus_one",
+    },
+  );
+}
+
 /** Compact percentile label ("P10", "P97.5"). */
 const pLabel = (p: number): string => `P${String(p)}`;
 
@@ -233,6 +267,7 @@ export function drawHistogram(
   context: HistogramContext | null = null,
   axisBinding: PlotChannelBinding | null = null,
   onAxisRanges?: (ranges: PlotAxisRangeExport[]) => void,
+  statisticsRecord: PlotStatisticsRecord | null = null,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
   const preliminary = screenHistogramPopulation(values, opts, null);
@@ -274,7 +309,7 @@ export function drawHistogram(
   const { counts, edges, displayedTotal } = computeHistogram(analysisValues, min, max, bins);
   if (displayedTotal === 0) return null;
 
-  const stats = basicStats(analysisValues);
+  const stats = statisticsRecord?.values ?? basicStats(analysisValues);
   const yScale = opts.normalize ? 100 / displayedTotal : 1;
 
   // Context wells: each is binned over the SAME edges and normalized to its OWN sample
@@ -417,8 +452,8 @@ export function drawHistogram(
 
   // Box-and-whisker strip across the top of the plot area.
   if (opts.boxPlot) {
-    const q1 = percentile(analysisValues, 25);
-    const q3 = percentile(analysisValues, 75);
+    const q1 = stats.p25;
+    const q3 = stats.p75;
     if (![q1, q3, stats.p5, stats.p50, stats.p95].some(Number.isNaN)) {
       const { ctx } = plot;
       const r = plot.plotRect;
@@ -686,6 +721,7 @@ export async function buildHistogramContent(
         curves: [curveSel.value],
         plotBindings: state.bindings,
         axisRanges: state.axis_ranges,
+        statisticsRecords: currentStatisticsRecords(),
       };
     },
   ));
@@ -699,6 +735,8 @@ export async function buildHistogramContent(
   chipsRow.className = "stat-chips";
   content.appendChild(chipsRow);
   let stats: BasicStats | null = null;
+  let statisticsRecord: PlotStatisticsRecord | null = null;
+  const currentStatisticsRecords = (): PlotStatisticsRecord[] => statisticsRecord ? [statisticsRecord] : [];
 
   const renderChips = () => {
     chipsRow.style.display = opts.statsPlacement === "inside" ? "none" : "";
@@ -738,6 +776,10 @@ export async function buildHistogramContent(
   canvas.height = 380;
   canvas.className = "plot-canvas";
   content.appendChild(canvas);
+
+  const statisticsInfo = document.createElement("p");
+  statisticsInfo.className = "modal-hint";
+  content.appendChild(statisticsInfo);
 
   const hint = document.createElement("p");
   hint.className = "modal-hint";
@@ -787,8 +829,31 @@ export async function buildHistogramContent(
     return valuesAtIndices(values, screenHistogramPopulation(values, opts, null).indices);
   }
 
-  function refreshStatistics(): void {
-    stats = basicStats(currentAnalysisValues());
+  function refreshStatistics(display: AxisDisplayRange | null = null): void {
+    const brush = appState.brushedDepths.get();
+    const selectionLabel = brush && brush.wellId === well.well_id
+      ? "all eligible; current brush not applied"
+      : "all eligible";
+    const zone = zoneSel.current();
+    statisticsRecord = buildHistogramStatisticsRecord(
+      values,
+      opts,
+      curveSel.value,
+      well.well_id,
+      zone.depthMin,
+      zone.depthMax,
+      selectionLabel,
+      display,
+    );
+    if (!statisticsRecord) {
+      statisticsRecord = null;
+      stats = basicStats([]);
+      statisticsInfo.textContent = "No governed statistics population.";
+      renderChips();
+      return;
+    }
+    stats = statisticsRecord.values;
+    statisticsInfo.textContent = formatPlotStatisticsRecord(statisticsRecord);
     renderChips();
   }
 
@@ -934,6 +999,7 @@ export async function buildHistogramContent(
       (ranges) => {
         axisRanges = ranges;
       },
+      statisticsRecord,
     );
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
@@ -943,7 +1009,9 @@ export async function buildHistogramContent(
       ctx.fillStyle = th.text;
       ctx.textAlign = "center";
       ctx.fillText("No valid data for this curve/zone.", canvas.width / 2, canvas.height / 2);
+      return;
     }
+    refreshStatistics({ min: plot.x.min, max: plot.x.max });
   };
 
   // Vector export: re-run the same static draw (no hover marker, no brush overlay) into a
@@ -969,6 +1037,7 @@ export async function buildHistogramContent(
       (ranges) => {
         axisRanges = ranges;
       },
+      statisticsRecord,
     );
   const getSvg = (): string | null => (plot ? renderPlotToSvg(plot.width, plot.height, drawStatic) : null);
   const getPdf = (): PlotPdf | null => (plot ? renderPlotToPdf(plot.width, plot.height, drawStatic) : null);
@@ -1236,6 +1305,7 @@ export async function buildHistogramContent(
   // Linked brushing: highlight this curve's sub-distribution for the shared brush's samples.
   const unsubBrush = appState.brushedDepths.subscribe((sel) => {
     recomputeBrushValues(sel);
+    refreshStatistics();
     if (!rafId) {
       rafId = requestAnimationFrame(() => {
         rafId = 0;

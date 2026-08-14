@@ -1079,11 +1079,13 @@ fn save_png(db: tauri::State<DbState>,
     ancestry_all_project: bool,
     plot_bindings: Option<Vec<plotting::PlotChannelBinding>>,
     axis_ranges: Option<Vec<plotting::PlotAxisRange>>,
+    statistics_records: Option<Vec<plotting::PlotStatisticsRecord>>,
 ) -> Result<String, String> {
     use base64::Engine as _;
     let mut bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64.as_bytes())
         .map_err(|e| format!("bad PNG payload: {e}"))?;
+    let statistics_records = statistics_records.unwrap_or_default();
     let plot_binding_json = match (plot_bindings, axis_ranges) {
         (Some(bindings), Some(axis_ranges)) => Some(plotting::serialize_plot_binding_export(
             ancestry_well_ids
@@ -1091,10 +1093,12 @@ fn save_png(db: tauri::State<DbState>,
                 .ok_or_else(|| "plot binding export requires represented well ids".to_string())?,
             &bindings,
             &axis_ranges,
+            &statistics_records,
         )?),
         (Some(_), None) => return Err("plot binding export requires resolved axis ranges".into()),
         (None, Some(_)) => return Err("axis-range export requires concrete plot bindings".into()),
-        (None, None) => None,
+        (None, None) if statistics_records.is_empty() => None,
+        (None, None) => return Err("statistics export requires concrete plot bindings".into()),
     };
     let conn = db.0.lock().unwrap();
     if let Some(ancestry) = scoped_curve_ancestry(
@@ -1139,8 +1143,10 @@ fn save_plot_pdf(db: tauri::State<DbState>,
     ancestry_all_project: bool,
     plot_bindings: Option<Vec<plotting::PlotChannelBinding>>,
     axis_ranges: Option<Vec<plotting::PlotAxisRange>>,
+    statistics_records: Option<Vec<plotting::PlotStatisticsRecord>>,
 ) -> Result<String, String> {
     let mut bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
+    let statistics_records = statistics_records.unwrap_or_default();
     let plot_binding_json = match (plot_bindings, axis_ranges) {
         (Some(bindings), Some(axis_ranges)) => Some(plotting::serialize_plot_binding_export(
             ancestry_well_ids
@@ -1148,10 +1154,12 @@ fn save_plot_pdf(db: tauri::State<DbState>,
                 .ok_or_else(|| "plot binding export requires represented well ids".to_string())?,
             &bindings,
             &axis_ranges,
+            &statistics_records,
         )?),
         (Some(_), None) => return Err("plot binding export requires resolved axis ranges".into()),
         (None, Some(_)) => return Err("axis-range export requires concrete plot bindings".into()),
-        (None, None) => None,
+        (None, None) if statistics_records.is_empty() => None,
+        (None, None) => return Err("statistics export requires concrete plot bindings".into()),
     };
     let conn = db.0.lock().unwrap();
     if let Some(ancestry) = scoped_curve_ancestry(
@@ -1686,8 +1694,9 @@ fn serialize_plot_binding_export(
     well_ids: Vec<String>,
     bindings: Vec<plotting::PlotChannelBinding>,
     axis_ranges: Vec<plotting::PlotAxisRange>,
+    statistics_records: Vec<plotting::PlotStatisticsRecord>,
 ) -> Result<String, String> {
-    plotting::serialize_plot_binding_export(&well_ids, &bindings, &axis_ranges)
+    plotting::serialize_plot_binding_export(&well_ids, &bindings, &axis_ranges, &statistics_records)
 }
 
 #[tauri::command]

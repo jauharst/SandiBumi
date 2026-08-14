@@ -6,15 +6,19 @@ import {
   attachResizeRedraw,
   attachScatterTooltip,
   attachZoomPan,
+  buildPlotStatisticsRecord,
   colorRampEx,
   fitCanvasBackingStore,
+  formatPlotStatisticsRecord,
   fmtValue,
   makeCanvasAccessible,
   PlotCanvas,
   canvasFont,
   readTheme,
   percentile,
+  plotStatisticsInterval,
   type ColormapName,
+  type PlotStatisticsRecord,
   type Viewport,
   type ViewportRef,
 } from "./plotCanvas";
@@ -156,6 +160,44 @@ export function screenPickettPopulation(
       log: true,
     },
   ], !!style?.validityFilter);
+}
+
+/** Live Pickett adapter: RT and porosity share one finite-positive pair population. */
+export function buildPickettStatisticsRecords(
+  rt: Float32Array,
+  phi: Float32Array,
+  style: PickettRenderStyle | undefined,
+  rtName: string,
+  phiName: string,
+  wellId: string,
+  intervalLow: number | null,
+  intervalHigh: number | null,
+  rtDisplay: AxisDisplayRange | null,
+  phiDisplay: AxisDisplayRange | null,
+  selectionLabel = "all eligible",
+): PlotStatisticsRecord[] {
+  const policy = screenPickettPopulation(rt, phi, style, rtDisplay, phiDisplay);
+  if (policy.analysisCount === 0) return [];
+  const context = {
+    population: "active_well" as const,
+    well_ids: [wellId],
+    interval: plotStatisticsInterval(intervalLow, intervalHigh),
+    selection: { kind: "all_eligible" as const, selection_id: null, label: selectionLabel, applied: false },
+    policy,
+    selection_excluded: 0,
+    unpaired_or_unclassified_excluded: 0,
+    standard_deviation: "sample_n_minus_one" as const,
+  };
+  return [
+    buildPlotStatisticsRecord(
+      Float32Array.from(policy.indices.map((index) => rt[index])),
+      { ...context, binding_channel: "resistivity", channel: `resistivity:${rtName}` },
+    ),
+    buildPlotStatisticsRecord(
+      Float32Array.from(policy.indices.map((index) => phi[index])),
+      { ...context, binding_channel: "porosity", channel: `porosity:${phiName}` },
+    ),
+  ];
 }
 
 /** One extra well's cloud drawn faded behind the active well — display-only: the fitted
@@ -564,6 +606,7 @@ export async function buildPickettContent(
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
         axisRanges: state.axis_ranges,
+        statisticsRecords,
       };
     },
   ));
@@ -583,6 +626,10 @@ export async function buildPickettContent(
     "directly. The fit does not identify a or Rw separately. Ctrl+wheel = zoom, drag = pan, double-click = reset zoom, right-click = properties. " +
     "Needs a computed porosity curve (run a Porosity module first).";
   content.appendChild(hint);
+  const statisticsInfo = document.createElement("p");
+  statisticsInfo.className = "modal-hint";
+  statisticsInfo.style.whiteSpace = "pre-wrap";
+  content.appendChild(statisticsInfo);
 
   const tc = readTheme(document.documentElement);
   const pickM = pickRow("M (slope)", tc.accent, "M", well, zoneSel.current, setStatus, () => pickettWriteSource());
@@ -598,10 +645,68 @@ export async function buildPickettContent(
   let plot: PlotCanvas | null = null;
   let lastFit: { m: number; aRw: number } | null = null;
   let hoverIdx = -1;
+  let statisticsRecords: PlotStatisticsRecord[] = [];
+  let statisticsSignature = "";
+  let statisticsDataVersion = 0;
   // Linked-brush consumer: samples brushed in the crossplot (same well, same backend depth
   // grid) are ringed here so a selection made in one plot is visible in the other.
   let brushSet: Set<number> | null = null;
   const viewRef: ViewportRef = { current: null };
+
+  const refreshStatisticsRecords = (): void => {
+    if (!plot) {
+      statisticsSignature = "";
+      statisticsRecords = [];
+      statisticsInfo.textContent = "No governed statistics population.";
+      return;
+    }
+    const zone = zoneSel.current();
+    const brush = appState.brushedDepths.get();
+    const selectionLabel = brush && brush.wellId === well.well_id
+      ? "all eligible; current brush not applied"
+      : "all eligible";
+    const signature = JSON.stringify([
+      statisticsDataVersion,
+      rtSel.value,
+      phiSel.value,
+      zone.depthMin,
+      zone.depthMax,
+      props.validityFilter,
+      props.rtValidMin,
+      props.rtValidMax,
+      props.phiValidMin,
+      props.phiValidMax,
+      plot.x.min,
+      plot.x.max,
+      plot.y.min,
+      plot.y.max,
+      selectionLabel,
+    ]);
+    if (signature === statisticsSignature) return;
+    statisticsRecords = buildPickettStatisticsRecords(
+      rt,
+      phi,
+      {
+        validityFilter: props.validityFilter,
+        rtValidMin: props.rtValidMin,
+        rtValidMax: props.rtValidMax,
+        phiValidMin: props.phiValidMin,
+        phiValidMax: props.phiValidMax,
+      },
+      rtSel.value,
+      phiSel.value,
+      well.well_id,
+      zone.depthMin,
+      zone.depthMax,
+      { min: plot.x.min, max: plot.x.max },
+      { min: plot.y.min, max: plot.y.max },
+      selectionLabel,
+    );
+    statisticsSignature = signature;
+    statisticsInfo.textContent = statisticsRecords.length > 0
+      ? statisticsRecords.map((record) => formatPlotStatisticsRecord(record)).join("\n")
+      : "No governed statistics population.";
+  };
 
   const resolvedBinding = (curveName: string): ResolvedPlotCurve | null =>
     plotBindingSnapshot([well.well_id], [curveName])
@@ -754,6 +859,7 @@ export async function buildPickettContent(
       axisRanges = ranges;
     });
     if (!plot) {
+      refreshStatisticsRecords();
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const theme = readTheme(canvas);
@@ -763,6 +869,7 @@ export async function buildPickettContent(
       ctx.fillText("No finite positive data or governed display range for both Pickett axes.", canvas.width / 2, canvas.height / 2);
       return;
     }
+    refreshStatisticsRecords();
     // Ring the samples brushed in the crossplot. Depths come off the same backend grid, so an
     // exact Set membership test aligns them; clipped to the plot and skipping log-invalid points.
     if (plot && brushSet && brushSet.size && depths.length === rt.length) {
@@ -847,6 +954,7 @@ export async function buildPickettContent(
       rt = phi = depths = new Float32Array(0);
       colors = undefined;
     }
+    statisticsDataVersion++;
     hoverIdx = -1; // the old hover index may point at a different sample now
     if (resetPending) {
       resetPending = false;

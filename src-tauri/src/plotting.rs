@@ -77,6 +77,63 @@ pub struct PlotBindingExport {
     pub well_ids: Vec<String>,
     pub bindings: Vec<PlotChannelBinding>,
     pub axis_ranges: Vec<PlotAxisRange>,
+    pub statistics_records: Vec<PlotStatisticsRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotStatisticsInterval {
+    pub low: Option<f64>,
+    pub high: Option<f64>,
+    pub closure: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotStatisticsSelection {
+    pub kind: String,
+    pub selection_id: Option<String>,
+    pub label: String,
+    pub applied: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlotStatisticsExclusions {
+    pub input_count: usize,
+    pub non_finite: usize,
+    pub log_domain: usize,
+    pub validity: usize,
+    pub selection: usize,
+    pub unpaired_or_unclassified: usize,
+    pub display_hidden: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotStatisticsValues {
+    pub count: usize,
+    pub mean: Option<f64>,
+    pub std: Option<f64>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub p5: Option<f64>,
+    pub p25: Option<f64>,
+    pub p50: Option<f64>,
+    pub p75: Option<f64>,
+    pub p95: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlotStatisticsRecord {
+    pub schema_version: u32,
+    pub binding_channel: String,
+    pub channel: String,
+    pub population: String,
+    pub well_ids: Vec<String>,
+    pub interval: PlotStatisticsInterval,
+    pub selection: PlotStatisticsSelection,
+    pub finite_pair_count: usize,
+    pub exclusions: PlotStatisticsExclusions,
+    pub percentile_interpolation: String,
+    pub standard_deviation: String,
+    pub values: PlotStatisticsValues,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -241,16 +298,197 @@ pub fn serialize_plot_binding_export(
     well_ids: &[String],
     bindings: &[PlotChannelBinding],
     axis_ranges: &[PlotAxisRange],
+    statistics_records: &[PlotStatisticsRecord],
 ) -> Result<String, String> {
     validate_plot_bindings(well_ids, bindings)?;
     validate_plot_axis_ranges(axis_ranges, false)?;
+    validate_plot_statistics_records(well_ids, bindings, statistics_records)?;
     serde_json::to_string(&PlotBindingExport {
         schema_version: PLOT_STATE_SCHEMA_VERSION,
         well_ids: well_ids.to_vec(),
         bindings: bindings.to_vec(),
         axis_ranges: axis_ranges.to_vec(),
+        statistics_records: statistics_records.to_vec(),
     })
     .map_err(|error| error.to_string())
+}
+
+pub fn validate_plot_statistics_records(
+    represented_well_ids: &[String],
+    bindings: &[PlotChannelBinding],
+    records: &[PlotStatisticsRecord],
+) -> Result<(), String> {
+    let represented = represented_well_ids
+        .iter()
+        .map(|well_id| well_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let binding_channels = bindings
+        .iter()
+        .map(|binding| binding.intent.channel.trim().to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
+    let mut channels = BTreeSet::new();
+    for record in records {
+        if record.schema_version != 1 {
+            return Err(format!(
+                "unsupported plot statistics schema version {}",
+                record.schema_version
+            ));
+        }
+        non_blank(&record.binding_channel, "plot statistics binding channel")?;
+        if !binding_channels.contains(&record.binding_channel.trim().to_ascii_lowercase()) {
+            return Err(format!(
+                "plot statistics references unbound channel '{}'",
+                record.binding_channel
+            ));
+        }
+        non_blank(&record.channel, "plot statistics channel")?;
+        if !channels.insert(record.channel.trim().to_ascii_lowercase()) {
+            return Err(format!("plot statistics repeats channel '{}'", record.channel));
+        }
+        if record.well_ids.is_empty() || record.well_ids.iter().any(|well_id| well_id.trim().is_empty()) {
+            return Err("plot statistics require every represented well identity".into());
+        }
+        let record_wells = record
+            .well_ids
+            .iter()
+            .map(|well_id| well_id.as_str())
+            .collect::<BTreeSet<_>>();
+        if record_wells.len() != record.well_ids.len() {
+            return Err("plot statistics cannot repeat a represented well identity".into());
+        }
+        if let Some(foreign) = record_wells.difference(&represented).next() {
+            return Err(format!(
+                "plot statistics references unrepresented well {foreign}"
+            ));
+        }
+        match record.population.as_str() {
+            "active_well" if record.well_ids.len() == 1 => {}
+            "pooled" if record.well_ids.len() >= 2 => {}
+            "active_well" => return Err("active-well statistics require exactly one represented well".into()),
+            "pooled" => return Err("pooled statistics require at least two represented wells".into()),
+            other => return Err(format!("unknown plot statistics population '{other}'")),
+        }
+        match record.interval.closure.as_str() {
+            "[lo,hi)" => {
+                let low = record.interval.low.ok_or_else(|| "plot statistics interval has no low limit".to_string())?;
+                let high = record.interval.high.ok_or_else(|| "plot statistics interval has no high limit".to_string())?;
+                if !low.is_finite() || !high.is_finite() || low >= high {
+                    return Err("plot statistics interval requires increasing finite limits".into());
+                }
+            }
+            "[lo,+inf)" if record.interval.low.is_some_and(f64::is_finite)
+                && record.interval.high.is_none() => {}
+            "[lo,+inf)" => {
+                return Err("lower-bounded plot statistics require one finite low limit".into())
+            }
+            "(-inf,hi)" if record.interval.low.is_none()
+                && record.interval.high.is_some_and(f64::is_finite) => {}
+            "(-inf,hi)" => {
+                return Err("upper-bounded plot statistics require one finite high limit".into())
+            }
+            "all" if record.interval.low.is_none() && record.interval.high.is_none() => {}
+            "all" => return Err("all-depth statistics cannot carry numeric interval limits".into()),
+            other => return Err(format!("unknown plot statistics interval closure '{other}'")),
+        }
+        non_blank(&record.selection.label, "plot statistics selection label")?;
+        match record.selection.kind.as_str() {
+            "all_eligible" if record.selection.selection_id.is_none() => {}
+            "named" if record.selection.applied
+                && record.selection.selection_id.as_deref().is_some_and(|id| !id.trim().is_empty()) => {}
+            "all_eligible" => return Err("all-eligible plot statistics selection cannot carry an identity".into()),
+            "named" => return Err("named plot statistics selection requires an applied identity".into()),
+            other => return Err(format!("unknown plot statistics selection kind '{other}'")),
+        }
+        if record.finite_pair_count != record.values.count {
+            return Err("plot statistics finite-pair count disagrees with its values".into());
+        }
+        if record.finite_pair_count == 0 {
+            return Err("plot statistics records require a non-empty finite population".into());
+        }
+        let accounted = [
+            record.finite_pair_count,
+            record.exclusions.non_finite,
+            record.exclusions.log_domain,
+            record.exclusions.validity,
+            record.exclusions.selection,
+            record.exclusions.unpaired_or_unclassified,
+        ]
+        .into_iter()
+        .try_fold(0_usize, |sum, count| sum.checked_add(count))
+        .ok_or_else(|| "plot statistics exclusion counts overflow".to_string())?;
+        if accounted != record.exclusions.input_count {
+            return Err("plot statistics exclusions do not reconcile to the input count".into());
+        }
+        if record.exclusions.display_hidden > record.finite_pair_count {
+            return Err("plot statistics display-hidden count exceeds the finite population".into());
+        }
+        if record.percentile_interpolation != "linear_index_n_minus_one" {
+            return Err(format!(
+                "unsupported percentile interpolation '{}'",
+                record.percentile_interpolation
+            ));
+        }
+        if record.standard_deviation != "sample_n_minus_one"
+            && record.standard_deviation != "population_n"
+        {
+            return Err(format!(
+                "unknown standard-deviation choice '{}'",
+                record.standard_deviation
+            ));
+        }
+        for (name, value) in [
+            ("mean", record.values.mean),
+            ("std", record.values.std),
+            ("min", record.values.min),
+            ("max", record.values.max),
+            ("p5", record.values.p5),
+            ("p25", record.values.p25),
+            ("p50", record.values.p50),
+            ("p75", record.values.p75),
+            ("p95", record.values.p95),
+        ] {
+            if value.is_some_and(|number| !number.is_finite()) {
+                return Err(format!("plot statistics {name} is non-finite"));
+            }
+        }
+        let required = [
+            ("mean", record.values.mean),
+            ("min", record.values.min),
+            ("max", record.values.max),
+            ("p5", record.values.p5),
+            ("p25", record.values.p25),
+            ("p50", record.values.p50),
+            ("p75", record.values.p75),
+            ("p95", record.values.p95),
+        ];
+        if let Some((name, _)) = required.iter().find(|(_, value)| value.is_none()) {
+            return Err(format!("plot statistics {name} is absent for a finite population"));
+        }
+        if record.values.std.is_none()
+            && (record.standard_deviation == "population_n" || record.finite_pair_count > 1)
+        {
+            return Err("plot statistics standard deviation is absent for its estimator and population".into());
+        }
+        let min = record.values.min.unwrap();
+        let max = record.values.max.unwrap();
+        let ordered = [
+            min,
+            record.values.p5.unwrap(),
+            record.values.p25.unwrap(),
+            record.values.p50.unwrap(),
+            record.values.p75.unwrap(),
+            record.values.p95.unwrap(),
+            max,
+        ];
+        if ordered.windows(2).any(|pair| pair[0] > pair[1]) {
+            return Err("plot statistics percentiles are not monotone within min and max".into());
+        }
+        let mean = record.values.mean.unwrap();
+        if mean < min || mean > max {
+            return Err("plot statistics mean is outside min and max".into());
+        }
+    }
+    Ok(())
 }
 
 const CURVE_HEADER_DISPLAY_DOC_TYPE: &str = "curve_header_display";
@@ -1608,12 +1846,14 @@ mod tests {
             &state.well_ids,
             &state.bindings,
             &state.axis_ranges,
+            &[],
         )
         .unwrap();
         let exported: PlotBindingExport = serde_json::from_str(&export_json).unwrap();
         assert_eq!(exported.well_ids, vec![well_a.clone(), well_b.clone()]);
         assert_eq!(exported.bindings, vec![binding]);
         assert_eq!(exported.axis_ranges, state.axis_ranges);
+        assert!(exported.statistics_records.is_empty());
         let svg = crate::composite::embed_plot_bindings_json_in_svg(
             "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
             &export_json,
@@ -1656,9 +1896,129 @@ mod tests {
                 &unresolved.well_ids,
                 &unresolved.bindings,
                 &unresolved.axis_ranges,
+                &[],
             )
                 .unwrap_err();
         assert!(export_error.contains("required channel"));
+    }
+
+    #[test]
+    fn a_plot_statistics_export_preserves_a_reconciled_record_and_refuses_unreconciled_exclusions() {
+        // CORRECTNESS - SB-PLT-009 / T12, 23_plotting-interactivity.md sections 4.2 and 6.
+        // T12 supplies [1,2,3,NaN,+Inf] => n=3, mean/P50=2 and two exclusions; the
+        // remaining percentiles are independent linear-index-(n-1) arithmetic on [1,2,3].
+        let well_id = "00000000-0000-0000-0000-000000000001".to_string();
+        let binding = PlotChannelBinding {
+            intent: PlotChannelIntent {
+                channel: "x".into(),
+                semantic_request: "value".into(),
+                required: true,
+            },
+            resolved: vec![ResolvedPlotCurve {
+                well_id: well_id.clone(),
+                curve_id: "curve-value".into(),
+                mnemonic: "VALUE".into(),
+                quantity: "unspecified".into(),
+                source_unit: "unitless".into(),
+                display_unit: "unitless".into(),
+                conversion: "identity".into(),
+                sample_count: 5,
+                resolution_reason: "exact mnemonic in active delivery".into(),
+                source_revision: "a".repeat(64),
+                header_display: None,
+            }],
+        };
+        let axis_ranges = vec![PlotAxisRange {
+            axis: "x".into(),
+            min: 1.0,
+            max: 3.0,
+            tier: AxisRangeTier::FiniteData,
+        }];
+        let record = PlotStatisticsRecord {
+            schema_version: 1,
+            binding_channel: "x".into(),
+            channel: "x:VALUE".into(),
+            population: "active_well".into(),
+            well_ids: vec![well_id.clone()],
+            interval: PlotStatisticsInterval {
+                low: Some(100.0),
+                high: Some(101.0),
+                closure: "[lo,hi)".into(),
+            },
+            selection: PlotStatisticsSelection {
+                kind: "all_eligible".into(),
+                selection_id: None,
+                label: "all eligible".into(),
+                applied: false,
+            },
+            finite_pair_count: 3,
+            exclusions: PlotStatisticsExclusions {
+                input_count: 5,
+                non_finite: 2,
+                log_domain: 0,
+                validity: 0,
+                selection: 0,
+                unpaired_or_unclassified: 0,
+                display_hidden: 0,
+            },
+            percentile_interpolation: "linear_index_n_minus_one".into(),
+            standard_deviation: "sample_n_minus_one".into(),
+            values: PlotStatisticsValues {
+                count: 3,
+                mean: Some(2.0),
+                std: Some(1.0),
+                min: Some(1.0),
+                max: Some(3.0),
+                p5: Some(1.1),
+                p25: Some(1.5),
+                p50: Some(2.0),
+                p75: Some(2.5),
+                p95: Some(2.9),
+            },
+        };
+
+        let json = serialize_plot_binding_export(
+            std::slice::from_ref(&well_id),
+            std::slice::from_ref(&binding),
+            &axis_ranges,
+            std::slice::from_ref(&record),
+        )
+        .unwrap();
+        let exported: PlotBindingExport = serde_json::from_str(&json).unwrap();
+        assert_eq!(exported.statistics_records, vec![record.clone()]);
+
+        let mut unreconciled = record.clone();
+        unreconciled.exclusions.selection = 1;
+        let error = serialize_plot_binding_export(
+            std::slice::from_ref(&well_id),
+            std::slice::from_ref(&binding),
+            &axis_ranges,
+            &[unreconciled],
+        )
+        .unwrap_err();
+        assert!(error.contains("do not reconcile"));
+
+        let mut unbound = record.clone();
+        unbound.binding_channel = "y".into();
+        let error = serialize_plot_binding_export(
+            std::slice::from_ref(&well_id),
+            std::slice::from_ref(&binding),
+            &axis_ranges,
+            &[unbound],
+        )
+        .unwrap_err();
+        assert!(error.contains("unbound channel"));
+
+        let mut foreign = record;
+        foreign.well_ids = vec!["00000000-0000-0000-0000-000000000002".into()];
+        let error = serialize_plot_binding_export(
+            std::slice::from_ref(&well_id),
+            std::slice::from_ref(&binding),
+            &axis_ranges,
+            &[foreign],
+        )
+        .unwrap_err();
+        assert!(error.contains("unrepresented well"));
     }
 
     #[test]

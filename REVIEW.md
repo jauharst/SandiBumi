@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-009: statistics carry population, estimator and exclusions
+
+- [ ] **Automated correctness:** the exact SB-PLT-009 T12/T13 test executes Histogram, Crossplot,
+      Pickett, Correlation and generated Vega adapters, including active versus pooled wells,
+      two-sided and one-sided intervals, sample versus population standard deviation, display-only
+      clipping and one record per raincloud group. The Rust boundary test preserves a reconciled
+      export record and refuses mismatched totals, foreign wells and channels absent from the plot
+      bindings. A deliberate P5-to-minimum whisker mutation made the T13 assertion RED before
+      restoration. The exact full gate is green at 1028 passed / 0 failed / 37 ignored with 42
+      owned Rust warnings.
+- [ ] **Visual:** open Histogram, Crossplot, Pickett, Correlation and Vega, including a grouped
+      raincloud. Confirm the disclosure remains readable without covering the plot, grouped details
+      collapse rather than forming a wall of text, and a top-to-TD interval is shown as
+      `[top,+inf)` rather than `all`. Automation proves content and custody, not visual legibility.
+- [ ] **Manual:** switch between active-well and pooled data; set, clear and reverse interval bounds;
+      apply and remove a selection; introduce non-finite, log-invalid and validity-excluded samples;
+      clip the display without changing analytical `n`; and switch sample/population standard
+      deviation. Inspect screen plus every SVG/PDF/PNG, clipboard and print route for identical
+      population, interval, estimator, selection, finite-pair and exclusion records.
+- [ ] **Field and harsh critique:** repeat on representative multi-set wells, mismatched native grids,
+      all-NaN deliveries and categorical groups. A correct numeric statistic is still a plausible lie
+      if its population, interval, exclusions or estimator drift; a green adapter/export test does not
+      prove the disclosure is readable or understood in real use. This increment does not claim the
+      deferred SB-PLT-010 regression record or SB-PLT-011 Pickett identifiability contracts.
+
 ## 2026-08-15 — G2 SB-PLT-006: one canonical histogram-bin contract
 
 - [ ] **Automated correctness:** exact SB-PLT-006 is green at 1 passed / 0 failed / 0 ignored;

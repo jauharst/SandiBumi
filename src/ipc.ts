@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { DepthUnit } from "./units";
 import type { TrackCurveRequest } from "./trackCurveRequest";
 import type { PlotAxisRangeExport } from "./ui/axisRange";
+import type { PlotStatisticsRecord } from "./ui/plotCanvas";
 
 /** The project's stored depth unit, plus whether it was explicitly declared (false = a
  *  fresh project that will adopt the unit of its first import). */
@@ -710,6 +711,8 @@ export interface PlotAncestryScope {
   plotBindings?: PlotChannelBinding[];
   /** Exact displayed limits and the precedence tier that supplied each quantitative axis. */
   axisRanges?: PlotAxisRangeExport[];
+  /** Complete statistics custody for every numeric summary visible on the plot. */
+  statisticsRecords?: PlotStatisticsRecord[];
 }
 
 function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
@@ -719,6 +722,7 @@ function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
     ancestryAllProject: scope?.allProject ?? false,
     plotBindings: scope?.plotBindings ?? null,
     axisRanges: scope?.axisRanges ?? null,
+    statisticsRecords: scope?.statisticsRecords ?? null,
   };
 }
 
@@ -3063,8 +3067,9 @@ export function serializePlotBindingExport(
   wellIds: string[],
   bindings: PlotChannelBinding[],
   axisRanges: PlotAxisRangeExport[],
+  statisticsRecords: PlotStatisticsRecord[] = [],
 ): Promise<string> {
-  return invoke<string>("serialize_plot_binding_export", { wellIds, bindings, axisRanges });
+  return invoke<string>("serialize_plot_binding_export", { wellIds, bindings, axisRanges, statisticsRecords });
 }
 
 export function getCurveHeaderDisplayRange(curveId: string): Promise<StoredDisplayRange | null> {

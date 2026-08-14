@@ -15,6 +15,7 @@ import {
   attachResizeRedraw,
   attachScatterTooltip,
   attachZoomPan,
+  buildPlotStatisticsRecord,
   categoricalColors,
   colorRampEx,
   distinctValues,
@@ -22,14 +23,17 @@ import {
   faciesColor,
   faciesLabel,
   fitCanvasBackingStore,
+  formatPlotStatisticsRecord,
   fmtValue,
   looksDiscrete,
   makeCanvasAccessible,
   percentile,
+  plotStatisticsInterval,
   PlotCanvas,
   canvasFont,
   readTheme,
   type ColormapName,
+  type PlotStatisticsRecord,
   type Viewport,
   type ViewportRef,
 } from "./plotCanvas";
@@ -1024,6 +1028,60 @@ export function screenCrossplotPopulation(
   ], enabled);
 }
 
+/** Live Crossplot adapter: both channel summaries share one reconciled finite-pair population. */
+export function buildCrossplotStatisticsRecords(
+  xs: Float32Array,
+  ys: Float32Array,
+  opts: CrossplotOptions,
+  xName: string,
+  yName: string,
+  wellId: string,
+  intervalLow: number | null,
+  intervalHigh: number | null,
+  xDisplay: AxisDisplayRange | null,
+  yDisplay: AxisDisplayRange | null,
+  selectionLabel = "all eligible",
+): PlotStatisticsRecord[] {
+  const xValidity = opts.xValidMin !== null && opts.xValidMax !== null
+    ? { min: opts.xValidMin, max: opts.xValidMax }
+    : null;
+  const yValidity = opts.yValidMin !== null && opts.yValidMax !== null
+    ? { min: opts.yValidMin, max: opts.yValidMax }
+    : null;
+  const policy = screenCrossplotPopulation(
+    xs,
+    ys,
+    opts.validityFilter,
+    xValidity,
+    yValidity,
+    xDisplay,
+    yDisplay,
+    opts.xLog,
+    opts.yLog,
+  );
+  if (policy.analysisCount === 0) return [];
+  const context = {
+    population: "active_well" as const,
+    well_ids: [wellId],
+    interval: plotStatisticsInterval(intervalLow, intervalHigh),
+    selection: { kind: "all_eligible" as const, selection_id: null, label: selectionLabel, applied: false },
+    policy,
+    selection_excluded: 0,
+    unpaired_or_unclassified_excluded: 0,
+    standard_deviation: "sample_n_minus_one" as const,
+  };
+  return [
+    buildPlotStatisticsRecord(
+      Float32Array.from(policy.indices.map((index) => xs[index])),
+      { ...context, binding_channel: "x", channel: `x:${xName}` },
+    ),
+    buildPlotStatisticsRecord(
+      Float32Array.from(policy.indices.map((index) => ys[index])),
+      { ...context, binding_channel: "y", channel: `y:${yName}` },
+    ),
+  ];
+}
+
 export function drawCrossplot(
   canvas: HTMLCanvasElement,
   xName: string,
@@ -1579,6 +1637,7 @@ export async function buildCrossplotContent(
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
         axisRanges: state.axis_ranges,
+        statisticsRecords,
       };
     },
   ));
@@ -1594,6 +1653,10 @@ export async function buildCrossplotContent(
   const hint = document.createElement("p");
   hint.className = "modal-hint";
   content.appendChild(hint);
+  const statisticsInfo = document.createElement("p");
+  statisticsInfo.className = "modal-hint";
+  statisticsInfo.style.whiteSpace = "pre-wrap";
+  content.appendChild(statisticsInfo);
   const updateHint = () => {
     hint.textContent =
       (opts.showPicks
@@ -1674,12 +1737,69 @@ export async function buildCrossplotContent(
   let plot: PlotCanvas | null = null;
   let marker: [number, number] | null = null;
   let hoverIdx = -1;
+  let statisticsRecords: PlotStatisticsRecord[] = [];
+  let statisticsSignature = "";
   // Shared-brush state: indices of the samples in the current brush (this well), plus the live
   // drag rectangle (CSS px) while a Shift+drag is in progress.
   let brushIdx: number[] = [];
   let brushRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   let brushing = false;
   const viewRef: ViewportRef = { current: null };
+
+  const refreshStatisticsRecords = (): void => {
+    if (!plot) {
+      statisticsSignature = "";
+      statisticsRecords = [];
+      statisticsInfo.textContent = "No governed statistics population.";
+      return;
+    }
+    const zone = zoneSel.current();
+    const brush = appState.brushedDepths.get();
+    const selectionLabel = brush && brush.wellId === well.well_id
+      ? "all eligible; current brush not applied"
+      : "all eligible";
+    const signature = JSON.stringify([
+      dataGen,
+      xSel.value,
+      ySel.value,
+      zone.depthMin,
+      zone.depthMax,
+      opts.validityFilter,
+      opts.xValidMin,
+      opts.xValidMax,
+      opts.yValidMin,
+      opts.yValidMax,
+      opts.xLog,
+      opts.yLog,
+      plot.x.min,
+      plot.x.max,
+      plot.y.min,
+      plot.y.max,
+      selectionLabel,
+    ]);
+    if (signature === statisticsSignature) return;
+    statisticsRecords = buildCrossplotStatisticsRecords(
+      xs,
+      ys,
+      opts,
+      xSel.value,
+      ySel.value,
+      well.well_id,
+      zone.depthMin,
+      zone.depthMax,
+      { min: plot.x.min, max: plot.x.max },
+      { min: plot.y.min, max: plot.y.max },
+      selectionLabel,
+    );
+    statisticsSignature = signature;
+    if (statisticsRecords.length === 0) {
+      statisticsInfo.textContent = "No governed statistics population.";
+      return;
+    }
+    statisticsInfo.textContent = statisticsRecords
+      .map((record) => formatPlotStatisticsRecord(record))
+      .join("\n");
+  };
   // Free-form net-flag polygon: click to drop vertices (captured in DATA space so they track
   // zoom/pan), then write a discrete 0/1 net-reservoir flag curve from the polygon's interior.
   const lasso: { active: boolean; pts: [number, number][]; cursor: [number, number] | null } = {
@@ -1811,6 +1931,7 @@ export async function buildCrossplotContent(
     axisRanges = [];
     plot = drawStatic(canvas, hoverIdx);
     if (!plot) {
+      refreshStatisticsRecords();
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const th = readTheme(canvas);
@@ -1820,6 +1941,7 @@ export async function buildCrossplotContent(
       ctx.fillText("No valid data for these curves/zone.", canvas.width / 2, canvas.height / 2);
       return;
     }
+    refreshStatisticsRecords();
     if (marker && opts.showPicks) {
       const [px, py] = plot.toPx(marker[0], marker[1]);
       const ctx = plot.ctx;
@@ -2270,6 +2392,7 @@ export async function buildCrossplotContent(
       if (gen === ctxGen) setStatus(`Crossplot scope refused: ${error}`);
       return;
     }
+    refreshStatisticsRecords();
     if (gen !== ctxGen) return;
     const ids = resolvedIds.filter((id) => id !== well.well_id);
     if (ids.length === 0) {

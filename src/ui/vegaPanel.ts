@@ -52,10 +52,17 @@ import {
   type PlotAxisRangeExport,
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
+import {
+  basicStats,
+  buildPlotStatisticsRecord,
+  formatPlotStatisticsRecord,
+  plotStatisticsInterval,
+  type PlotStatisticsRecord,
+} from "./plotCanvas";
 
-type ChartType = "scatter" | "line" | "histogram" | "density" | "raincloud";
+export type ChartType = "scatter" | "line" | "histogram" | "density" | "raincloud";
 
-interface Row {
+export interface Row {
   x: number;
   y?: number;
   z?: number;
@@ -110,27 +117,28 @@ function cssVar(name: string, fallback: string): string {
 
 const dKey = (d: number): number => Math.round(d * 1000); // mm resolution — depths are in metres
 
-/** Join X/Y (and optional Z) curve series on shared depth into finite rows. Curves ride the same
- *  standard grid, but they are joined by depth (not index) so a curve with its own sampling still
- *  lines up; non-finite values are dropped so vega never sees NaN. */
+/** Join X/Y (and optional Z) curve series by depth while retaining incomplete pairs until the
+ * governed population screen counts and excludes them. */
 function joinXYZ(series: TrackCurveSeries[], xName: string, yName: string, zName: string | null): Row[] {
   const xs = series.find((s) => s.curve_name === xName);
   const ys = series.find((s) => s.curve_name === yName);
   if (!xs || !ys) return [];
   const zs = zName ? (series.find((s) => s.curve_name === zName) ?? null) : null;
-  const yByD = new Map<number, number>();
-  for (let i = 0; i < ys.depth.length; i++) if (Number.isFinite(ys.value[i])) yByD.set(dKey(ys.depth[i]), ys.value[i]);
+  const xByD = new Map<number, { value: number; depth: number }>();
+  for (let i = 0; i < xs.depth.length; i++) xByD.set(dKey(xs.depth[i]), { value: xs.value[i], depth: xs.depth[i] });
+  const yByD = new Map<number, { value: number; depth: number }>();
+  for (let i = 0; i < ys.depth.length; i++) yByD.set(dKey(ys.depth[i]), { value: ys.value[i], depth: ys.depth[i] });
   const zByD = zs ? new Map<number, number>() : null;
   if (zs) for (let i = 0; i < zs.depth.length; i++) if (Number.isFinite(zs.value[i])) zByD!.set(dKey(zs.depth[i]), zs.value[i]);
   const out: Row[] = [];
-  for (let i = 0; i < xs.depth.length; i++) {
-    const xv = xs.value[i];
-    if (!Number.isFinite(xv)) continue;
-    const yv = yByD.get(dKey(xs.depth[i]));
-    if (yv === undefined) continue;
-    const row: Row = { x: xv, y: yv, depth: xs.depth[i] };
+  const depthKeys = [...new Set([...xByD.keys(), ...yByD.keys()])].sort((a, b) => a - b);
+  for (const key of depthKeys) {
+    const x = xByD.get(key);
+    const y = yByD.get(key);
+    const depth = x?.depth ?? y!.depth;
+    const row: Row = { x: x?.value ?? Number.NaN, y: y?.value ?? Number.NaN, depth };
     if (zByD) {
-      const zv = zByD.get(dKey(xs.depth[i]));
+      const zv = zByD.get(key);
       if (zv !== undefined) row.z = zv;
     }
     out.push(row);
@@ -170,6 +178,83 @@ export function screenVegaPopulation(
       validity: policy.y,
     }] : []),
   ], policy.apply);
+}
+
+/** Live Vega adapter: the generated grammar and every export use the same complete records. */
+export function buildVegaStatisticsRecords(
+  rows: readonly Row[],
+  type: ChartType,
+  policy: VegaValidityPolicy,
+  wellId: string,
+  intervalLow: number | null,
+  intervalHigh: number | null,
+  xName: string,
+  yName: string,
+  xDisplay: AxisDisplayRange | null,
+  yDisplay: AxisDisplayRange | null,
+  selectionLabel = "all eligible",
+  unpairedOrUnclassifiedExcluded = 0,
+): PlotStatisticsRecord[] {
+  const classifiedRows = type === "raincloud"
+    ? rows.filter((row) => typeof row.group === "string" && row.group.trim() !== "")
+    : [...rows];
+  const totalUnpairedOrUnclassifiedExcluded = unpairedOrUnclassifiedExcluded
+    + (rows.length - classifiedRows.length);
+  const screened = screenVegaPopulation(classifiedRows, type, policy, xDisplay, yDisplay);
+  if (screened.analysisCount === 0) return [];
+  const context = {
+    binding_channel: "x",
+    population: "active_well" as const,
+    well_ids: [wellId],
+    interval: plotStatisticsInterval(intervalLow, intervalHigh),
+    selection: { kind: "all_eligible" as const, selection_id: null, label: selectionLabel, applied: false },
+    policy: screened,
+    selection_excluded: 0,
+    unpaired_or_unclassified_excluded: totalUnpairedOrUnclassifiedExcluded,
+    standard_deviation: "sample_n_minus_one" as const,
+  };
+  if (type === "raincloud") {
+    const byGroup = new Map<string, number[]>();
+    for (const index of screened.indices) {
+      const row = classifiedRows[index];
+      const group = row.group!;
+      const values = byGroup.get(group) ?? [];
+      values.push(row.x);
+      byGroup.set(group, values);
+    }
+    return [...byGroup.entries()].map(([group, values], groupIndex) => {
+      const groupDisplayHidden = applyPlotRangePolicy([
+        { values, display: xDisplay, validity: null },
+      ], false).displayHidden;
+      return buildPlotStatisticsRecord(values, {
+        ...context,
+        channel: `x:${xName}:group:${groupIndex}`,
+        selection: {
+          kind: "named",
+          selection_id: `raincloud-group:${group}`,
+          label: `group ${group}; ${selectionLabel}`,
+          applied: true,
+        },
+        policy: { ...screened, displayHidden: groupDisplayHidden },
+        selection_excluded: screened.analysisCount - values.length,
+      });
+    });
+  }
+  const channels: { bindingChannel: string; channel: string; values: number[] }[] = [
+    { bindingChannel: "x", channel: `x:${xName}`, values: screened.indices.map((index) => classifiedRows[index].x) },
+  ];
+  if (type === "scatter" || type === "line" || type === "density") {
+    channels.push({
+      bindingChannel: "y",
+      channel: `y:${yName}`,
+      values: screened.indices.map((index) => classifiedRows[index].y as number),
+    });
+  }
+  return channels.map(({ bindingChannel, channel, values }) => buildPlotStatisticsRecord(values, {
+    ...context,
+    binding_channel: bindingChannel,
+    channel,
+  }));
 }
 
 // ---- Raincloud (PtitPrince-style) geometry -------------------------------------------------
@@ -233,15 +318,18 @@ interface BoxStat {
   yb1: number;
   ymid: number;
 }
-function boxStats(values: number[]): { q1: number; med: number; q3: number; lo: number; hi: number; n: number } {
-  const s = [...values].sort((a, b) => a - b);
-  const q1 = quantileSorted(s, 0.25),
-    med = quantileSorted(s, 0.5),
-    q3 = quantileSorted(s, 0.75);
-  const iqr = q3 - q1,
-    loF = q1 - 1.5 * iqr,
-    hiF = q3 + 1.5 * iqr;
-  return { q1, med, q3, lo: s.find((v) => v >= loF) ?? s[0], hi: [...s].reverse().find((v) => v <= hiF) ?? s[s.length - 1], n: s.length };
+export function buildVegaBoxStatistics(
+  values: ArrayLike<number>,
+): { q1: number; med: number; q3: number; lo: number; hi: number; n: number } {
+  const stats = basicStats(values, "sample_n_minus_one");
+  return {
+    q1: stats.p25,
+    med: stats.p50,
+    q3: stats.p75,
+    lo: stats.p5,
+    hi: stats.p95,
+    n: stats.count,
+  };
 }
 interface Raincloud {
   cloud: { group: string; x: number; yTop: number; yBase: number }[];
@@ -279,20 +367,20 @@ function buildRaincloud(rows: Row[], groupOrder: string[]): Raincloud {
     const dens = kde(vals, xMin - pad, xMax + pad, 64);
     const maxD = Math.max(...dens.map((p) => p.d)) || 1;
     for (const p of dens) cloud.push({ group: g, x: p.v, yTop: gy + (p.d / maxD) * CLOUD_H, yBase: gy });
-    box.push({ group: g, ...boxStats(vals), yb0: gy + BOX_LO, yb1: gy + BOX_HI, ymid: gy + (BOX_LO + BOX_HI) / 2 });
+    box.push({ group: g, ...buildVegaBoxStatistics(vals), yb0: gy + BOX_LO, yb1: gy + BOX_HI, ymid: gy + (BOX_LO + BOX_HI) / 2 });
     for (const r of rs) rain.push({ group: g, x: r.x, y: gy + RAIN_HI - Math.random() * (RAIN_HI - RAIN_LO), depth: r.depth });
     labels.push({ group: g, x: xMin - pad, y: gy + CLOUD_H * 0.45 });
   });
   return { cloud, box, rain, labels, yMin: -1.0, yMax: (groups.length - 1) * LANE + CLOUD_H + 0.15, xMin: xMin - pad, xMax: xMax + pad };
 }
 
-/** Assign each finite X sample to the zone whose [top, bottom) contains its depth. Samples outside
+/** Assign each X sample to the zone whose [top, bottom) contains its depth. Samples outside
  *  every zone form an honest "(outside zones)" lane rather than being dropped; with no zones defined
- *  the whole well is one "(all)" lane. */
+ *  the whole well is one "(all)" lane. Non-finite X stays until the population screen counts it. */
 function groupByZone(xs: TrackCurveSeries, zones: ZoneEntry[]): { rows: Row[]; order: string[] } {
   const rows: Row[] = [];
   if (zones.length === 0) {
-    for (let i = 0; i < xs.depth.length; i++) if (Number.isFinite(xs.value[i])) rows.push({ x: xs.value[i], group: "(all)", depth: xs.depth[i] });
+    for (let i = 0; i < xs.depth.length; i++) rows.push({ x: xs.value[i], group: "(all)", depth: xs.depth[i] });
     return { rows, order: ["(all)"] };
   }
   const sorted = [...zones].sort((a, b) => a.top_depth - b.top_depth);
@@ -300,7 +388,6 @@ function groupByZone(xs: TrackCurveSeries, zones: ZoneEntry[]): { rows: Row[]; o
   let outside = false;
   for (let i = 0; i < xs.depth.length; i++) {
     const v = xs.value[i];
-    if (!Number.isFinite(v)) continue;
     const d = xs.depth[i];
     const z = sorted.find((zz) => d >= zz.top_depth && d < zz.bottom_depth);
     if (z) rows.push({ x: v, group: z.zone_name, depth: d });
@@ -320,7 +407,7 @@ function groupByCurve(
   xs: TrackCurveSeries,
   gs: TrackCurveSeries,
   label: string,
-): { rows: Row[]; order: string[]; note: string; error?: string } {
+): { rows: Row[]; order: string[]; note: string; excluded: number; error?: string } {
   const gByD = new Map<number, number>();
   for (let i = 0; i < gs.depth.length; i++) if (Number.isFinite(gs.value[i])) gByD.set(dKey(gs.depth[i]), gs.value[i]);
   const rows: Row[] = [];
@@ -328,7 +415,6 @@ function groupByCurve(
   let missing = 0;
   for (let i = 0; i < xs.depth.length; i++) {
     const v = xs.value[i];
-    if (!Number.isFinite(v)) continue;
     const g = gByD.get(dKey(xs.depth[i]));
     if (g === undefined) {
       missing++;
@@ -340,9 +426,9 @@ function groupByCurve(
   }
   const order = [...seen].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
   if (order.length > MAX_GROUPS) {
-    return { rows: [], order: [], note: "", error: `'${label}' has ${order.length} distinct values — pick a categorical curve (rock-type / facies / RT), not a continuous one.` };
+    return { rows: [], order: [], note: "", excluded: missing, error: `'${label}' has ${order.length} distinct values — pick a categorical curve (rock-type / facies / RT), not a continuous one.` };
   }
-  return { rows, order, note: missing > 0 ? ` · ${missing.toLocaleString()} with no ${label}` : "" };
+  return { rows, order, note: missing > 0 ? ` · ${missing.toLocaleString()} with no ${label}` : "", excluded: missing };
 }
 
 /** A themed Vega-Lite spec for one chart type. Colours are pulled from the active theme's CSS vars
@@ -485,7 +571,7 @@ function buildSpec(
           mark: { type: "rule", color: text, strokeWidth: 2 },
           encoding: { x: { field: "med", type: "quantitative" }, y: y("yb0"), y2: { field: "yb1" } },
         },
-        // box — whiskers (Tukey 1.5·IQR fences)
+        // box — governed P5/P95 whiskers, matching the Histogram and SB-PLT-T13
         {
           data: { values: geo.box },
           mark: { type: "rule", color: dim },
@@ -875,7 +961,15 @@ export async function buildVegaContent(
   chartHost.className = "vega-chart-host";
   const rangeInfo = document.createElement("p");
   rangeInfo.className = "modal-hint";
-  container.append(toolbar, rangeInfo, chartHost);
+  const statisticsInfo = document.createElement("details");
+  statisticsInfo.className = "modal-hint";
+  statisticsInfo.hidden = true;
+  const statisticsHeading = document.createElement("summary");
+  const statisticsBody = document.createElement("pre");
+  statisticsBody.style.whiteSpace = "pre-wrap";
+  statisticsBody.style.margin = "6px 0 0";
+  statisticsInfo.append(statisticsHeading, statisticsBody);
+  container.append(toolbar, rangeInfo, statisticsInfo, chartHost);
 
   // Dim the controls that don't apply to the active type so the toolbar reads honestly: Y is
   // irrelevant to a histogram; colour and the trend overlay are meaningful only on a scatter.
@@ -943,15 +1037,25 @@ export async function buildVegaContent(
   let lastMethod = "linear";
   let lastGroupOrder: string[] = [];
   let lastGroupLabel = "";
+  let lastUnpairedOrUnclassifiedExcluded = 0;
+  let statisticsRecords: PlotStatisticsRecord[] = [];
   // V4: an optional hand-edited spec. When set it replaces the generated grammar (the current rows
   // are injected as its data); a chart-type change clears it since the grammar is type-specific.
   let specOverride: VisualizationSpec | null = null;
   const updateRangeInfo = (): void => {
     if (specOverride) {
+      statisticsRecords = [];
+      statisticsInfo.hidden = true;
+      statisticsBody.textContent = "";
       rangeInfo.textContent = "Custom spec active: governed display clipping is unavailable, so persistence and export are refused.";
       return;
     }
-    if (axisRanges.length === 0 || !lastSourceRows) return;
+    if (axisRanges.length === 0 || !lastSourceRows) {
+      statisticsRecords = [];
+      statisticsInfo.hidden = true;
+      statisticsBody.textContent = "";
+      return;
+    }
     const x = axisRanges.find((range) => range.axis === "x") ?? null;
     const y = axisRanges.find((range) => range.axis === "y") ?? null;
     const population = screenVegaPopulation(
@@ -961,6 +1065,34 @@ export async function buildVegaContent(
       x ? { min: x.min, max: x.max } : null,
       y ? { min: y.min, max: y.max } : null,
     );
+    const zone = zoneSel.current();
+    const brush = appState.brushedDepths.get();
+    const selectionLabel = brush && brush.wellId === well.well_id
+      ? "all eligible; current brush not applied"
+      : "all eligible";
+    const previousStatisticsCount = statisticsRecords.length;
+    statisticsRecords = buildVegaStatisticsRecords(
+      lastSourceRows,
+      lastType,
+      currentValidityPolicy(),
+      well.well_id,
+      zone.depthMin,
+      zone.depthMax,
+      lastX,
+      lastY,
+      x ? { min: x.min, max: x.max } : null,
+      y ? { min: y.min, max: y.max } : null,
+      selectionLabel,
+      lastUnpairedOrUnclassifiedExcluded,
+    );
+    statisticsInfo.hidden = statisticsRecords.length === 0;
+    statisticsHeading.textContent = `Statistics custody — ${statisticsRecords.length} record${statisticsRecords.length === 1 ? "" : "s"}`;
+    statisticsBody.textContent = statisticsRecords
+      .map((record) => formatPlotStatisticsRecord(record))
+      .join("\n");
+    if (statisticsRecords.length !== previousStatisticsCount) {
+      statisticsInfo.open = statisticsRecords.length <= 2;
+    }
     const histogramDomain = lastType === "histogram"
       ? baseAxisRanges.find((range) => range.axis === "x") ?? null
       : null;
@@ -1008,6 +1140,8 @@ export async function buildVegaContent(
     if (!xRange || (needsY && !yRange)) {
       baseAxisRanges = [];
       axisRanges = [];
+      statisticsRecords = [];
+      statisticsInfo.hidden = true;
       rangeInfo.textContent = "Axis range unavailable: this chart has no complete header, audited-family, or finite-data range.";
       return false;
     }
@@ -1152,6 +1286,8 @@ export async function buildVegaContent(
     current = null;
     chartHost.innerHTML = "";
     if (rows.length === 0) {
+      statisticsRecords = [];
+      statisticsInfo.hidden = true;
       baseAxisRanges = [];
       axisRanges = [];
       const population = screenVegaPopulation(lastSourceRows ?? [], type, currentValidityPolicy(), null, null);
@@ -1234,7 +1370,7 @@ export async function buildVegaContent(
         setStatus("Vega — no data");
         return;
       }
-      let rows: Row[], order: string[], note = "", groupLabel: string;
+      let rows: Row[], order: string[], note = "", groupLabel: string, unpairedOrUnclassifiedExcluded = 0;
       if (byZone) {
         let zones: ZoneEntry[] = [];
         try {
@@ -1260,7 +1396,7 @@ export async function buildVegaContent(
           setStatus("Vega — too many groups");
           return;
         }
-        ({ rows, order, note } = res);
+        ({ rows, order, note, excluded: unpairedOrUnclassifiedExcluded } = res);
         groupLabel = groupBy;
       }
       const sourceRows = rows;
@@ -1278,6 +1414,7 @@ export async function buildVegaContent(
       lastMethod = method;
       lastGroupOrder = order;
       lastGroupLabel = groupLabel;
+      lastUnpairedOrUnclassifiedExcluded = unpairedOrUnclassifiedExcluded;
       await embedRows(type, rows, xName, "", null, { groupOrder: order, groupLabel }, myGen);
       if (!current) {
         bindingReadyError(new Error("Vega refused: the initial chart did not render"));
@@ -1316,6 +1453,7 @@ export async function buildVegaContent(
     lastZ = useZ;
     lastTrend = useTrend;
     lastMethod = method;
+    lastUnpairedOrUnclassifiedExcluded = 0;
     await embedRows(type, rows, xName, yName, useZ, { trend: useTrend, method }, myGen);
     if (!current) {
       bindingReadyError(new Error("Vega refused: the initial chart did not render"));
@@ -1359,6 +1497,7 @@ export async function buildVegaContent(
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
         axisRanges: state.axis_ranges,
+        statisticsRecords,
       });
       if (path) {
         setStatus(`Vega chart SVG saved to ${path}`);
@@ -1382,6 +1521,7 @@ export async function buildVegaContent(
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
         axisRanges: state.axis_ranges,
+        statisticsRecords,
       };
     },
   );
@@ -1540,7 +1680,10 @@ export async function buildVegaContent(
   };
   window.addEventListener("pointerup", onPointerUp);
 
-  const unsubBrush = appState.brushedDepths.subscribe((sel) => applyBrush(sel));
+  const unsubBrush = appState.brushedDepths.subscribe((sel) => {
+    applyBrush(sel);
+    updateRangeInfo();
+  });
   const unsubTheme = appState.themeVersion.subscribe(() => {
     if (embedded && lastRows) void repaint();
   });

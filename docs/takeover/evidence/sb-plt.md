@@ -123,14 +123,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; chapter intentions T12-T13; sections 4.2, 6 and 8.1.
 - **Atomic obligations:** record active versus pooled population, interval, selection, finite-pair count, all exclusions, percentile interpolation and sample/population standard-deviation choice for every statistic.
-- **Current source:** `plotCanvas.ts::basicStats` returns only count, extrema, mean, selected percentiles and standard deviation. Histogram labels some counts, crossplot labels selected exclusions, and Vega computes additional summaries independently; none returns the complete governed metadata record.
-- **Qualifying acceptance tests:** `tools/frontend-acceptance.test.mjs::characterizes_finite_statistics_without_population_or_exclusion_metadata`; expected arithmetic is sourced from T12, while the missing result fields explicitly characterize current behavior. Test class is `CHARACTERIZATION`.
-- **Supporting tests:** distribution tests independently pin arithmetic summaries but do not prove disclosure.
+- **Current source:** `plotCanvas.ts::buildPlotStatisticsRecord` owns one typed, reconciled statistics record. Histogram, Crossplot, Pickett, Correlation and generated Vega views build the record from their real screened populations, render its disclosure and carry it through SVG/PDF/PNG, clipboard and print exports. Raincloud plots produce one record per displayed group. `plotExport.ts`, `ipc.ts` and `plotting.rs` preserve the record and refuse unbound channels, foreign wells, invalid intervals, unknown estimators and unreconciled counts at the export boundary.
+- **Qualifying acceptance tests:** `tools/frontend-acceptance.test.mjs::every_plot_statistic_records_its_population_interval_selection_finite_pairs_exclusions_percentile_interpolation_and_standard_deviation_choice`; expected arithmetic and box semantics are independently sourced from T12/T13. The test executes all five live adapters, active and pooled populations, two-sided and one-sided intervals, sample and population standard deviation, display-only clipping, per-group raincloud records and export custody. Test class is `CORRECTNESS`.
+- **Supporting tests:** `plotting.rs::a_plot_statistics_export_preserves_a_reconciled_record_and_refuses_unreconciled_exclusions` round-trips the cited T12 record and refuses unreconciled counts, an unbound channel and a foreign well. A deliberate P5-to-minimum whisker mutation made the T13 acceptance test RED before restoration.
 - **Manual evidence:** `histogram` 5/22, `crossplot` 6/13, `vega` 0/2 and `report` 6/53.
-- **Git evidence:** accepted anchor contains the partial statistics surfaces; no complete record commit is integrated.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** estimator/population/provenance metadata and T13's governed box summary are missing.
-- **Next action:** define one statistics result record and render/export every field; implement T12/T13 without using today's result shape as the expected source.
+- **Git evidence:** current topic-branch worktree; TypeScript and cargo check are green and the exact full gate is 1028 passed / 0 failed / 37 ignored with 42 owned Rust warnings.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** no Gate 2 automation blocker. Visual, Manual and Field evidence remain open rather than inferred from the adapter and export proofs.
+- **Next action:** retain the governed record, execute the separate review and Gate 4 scenarios, and proceed serially to SB-PLT-013 without pulling deferred regression or Pickett-fit contracts into this increment.
 
 ## SB-PLT-010 - Regression is a versioned scientific result
 
