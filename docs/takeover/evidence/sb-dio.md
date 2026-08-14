@@ -380,14 +380,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned test `SB-DIO-T45`.
 - **Atomic obligations:** ship no default for `MS/FT`; require a per-file sonic-versus-conductivity answer; record it; never populate the wrong standard family.
-- **Current source:** `UnitDesignation` detects the symbol, import refuses before commit without an answer, and the two explicit meanings either convert sonic or retain familyless conductivity under its source unit.
-- **Qualifying acceptance tests:** `an_ms_per_ft_curve_waits_for_a_per_file_quantity_answer_and_records_either_answer` is `CORRECTNESS`; both meanings and the absence of a default come directly from chapter sections 4.5 and 5.1.
+- **Current source:** `LasImportOptions.ms_per_ft_meanings` keys explicit decisions by exact source path; import refuses before commit without that file's answer, and `UnitDesignation` records whether the curve becomes sonic or remains familyless conductivity under its source unit.
+- **Qualifying acceptance tests:** `an_ms_per_ft_curve_waits_for_a_per_file_quantity_answer_and_records_either_answer` is `CORRECTNESS`; both meanings and the absence of a default come directly from chapter sections 4.5 and 5.1. T45 also imports two files in one batch with opposite explicit decisions, proving a cached or batch-wide answer cannot satisfy the path-scoped contract.
 - **Supporting tests:** unconverted-unit tests prove source retention outside known families.
-- **Manual evidence:** `data-conventions` 0/45, `las-import` 0/57 and `generic-curve-store` 0/18 - unexercised.
-- **Git evidence:** reachable `f20b87e` contains the no-default designation flow.
+- **Manual evidence:** `data-conventions` 4/119, `las-import` 0/84 and `generic-curve-store` 0/30; this proof-strengthening increment adds no checked operator or representative-delivery evidence.
+- **Git evidence:** reachable `f20b87e` contains the no-default designation flow; exact strengthened T45 is green on the current Gate 2 head, with the proof commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied ambiguity refusal); `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
-- **Next action:** keep the answer scoped per file and never introduce a project-wide default for this symbol.
+- **Next action:** retain the exact-path decision map and two-file T45 proof; never introduce a batch-wide or project-wide default for this symbol.
 
 ## SB-DIO-030 - An alias rename MUST be reported.
 

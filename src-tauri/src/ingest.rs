@@ -3647,6 +3647,14 @@ mod tests {
         ));
         std::fs::write(&path, las).unwrap();
         let file = path.to_string_lossy().to_string();
+        let second_path = std::env::temp_dir().join(format!(
+            "sandibumi-dio029-second-{}-{}.las",
+            std::process::id(),
+            Uuid::new_v4()
+        ));
+        std::fs::write(&second_path, las.replace("WELL. DIO-029", "WELL. DIO-029-SECOND"))
+            .unwrap();
+        let second_file = second_path.to_string_lossy().to_string();
 
         let undecided = Connection::open_in_memory().unwrap();
         db::create_schema(&undecided).unwrap();
@@ -3673,21 +3681,34 @@ mod tests {
             "no answer means no commit"
         );
 
-        let sonic = Connection::open_in_memory().unwrap();
-        db::create_schema(&sonic).unwrap();
-        let sonic_result = import_las_files_with(
-            &sonic,
-            std::slice::from_ref(&file),
+        let designated = Connection::open_in_memory().unwrap();
+        db::create_schema(&designated).unwrap();
+        let designated_results = import_las_files_with(
+            &designated,
+            &[file.clone(), second_file.clone()],
             None,
             &LasImportOptions {
-                ms_per_ft_meanings: std::collections::HashMap::from([(
-                    file.clone(),
-                    crate::curves::MsPerFtMeaning::MicrosecondsPerFoot,
-                )]),
+                ms_per_ft_meanings: std::collections::HashMap::from([
+                    (
+                        file.clone(),
+                        crate::curves::MsPerFtMeaning::MicrosecondsPerFoot,
+                    ),
+                    (
+                        second_file.clone(),
+                        crate::curves::MsPerFtMeaning::MillisiemensPerFoot,
+                    ),
+                ]),
                 ..Default::default()
             },
-        )
-        .remove(0);
+        );
+        let sonic_result = designated_results
+            .iter()
+            .find(|result| result.path == file)
+            .expect("the sonic file has its own import result");
+        let conductivity_result = designated_results
+            .iter()
+            .find(|result| result.path == second_file)
+            .expect("the conductivity file has its own import result");
         assert!(sonic_result.error.is_none(), "sonic designation failed: {:?}", sonic_result.error);
         let sonic_answer = sonic_result.unit_designations.first().expect("sonic answer recorded");
         assert_eq!(sonic_answer.meaning, "microseconds_per_foot");
@@ -3700,31 +3721,23 @@ mod tests {
             "the per-file answer must also be visible: {:?}",
             sonic_result.warning
         );
-        let sonic_curve = db::list_generic_curve_catalog(&sonic, sonic_result.well_id.as_deref().unwrap())
+        let sonic_curve = db::list_generic_curve_catalog(
+            &designated,
+            sonic_result.well_id.as_deref().unwrap(),
+        )
             .unwrap()
             .into_iter()
             .find(|curve| curve.mnemonic == "DTCO")
             .unwrap();
         assert_eq!(sonic_curve.family.as_deref(), Some("DT"));
         assert_eq!(sonic_curve.unit.as_deref(), Some("us/ft"));
-        assert_eq!(db::get_curve_samples(&sonic, &sonic_curve.curve_id).unwrap()[0].value, 100.0);
+        assert_eq!(
+            db::get_curve_samples(&designated, &sonic_curve.curve_id).unwrap()[0].value,
+            100.0
+        );
 
-        let conductivity = Connection::open_in_memory().unwrap();
-        db::create_schema(&conductivity).unwrap();
-        let conductivity_result = import_las_files_with(
-            &conductivity,
-            std::slice::from_ref(&file),
-            None,
-            &LasImportOptions {
-                ms_per_ft_meanings: std::collections::HashMap::from([(
-                    file.clone(),
-                    crate::curves::MsPerFtMeaning::MillisiemensPerFoot,
-                )]),
-                ..Default::default()
-            },
-        )
-        .remove(0);
         std::fs::remove_file(&path).ok();
+        std::fs::remove_file(&second_path).ok();
         assert!(
             conductivity_result.error.is_none(),
             "conductivity designation failed: {:?}",
@@ -3734,8 +3747,17 @@ mod tests {
         assert_eq!(conductivity_answer.meaning, "millisiemens_per_foot");
         assert_eq!(conductivity_answer.recorded_unit, "MS/FT");
         assert_eq!(conductivity_answer.family, None);
+        assert!(
+            conductivity_result.warning.as_deref().is_some_and(|note| {
+                note.contains("DTCO")
+                    && note.contains("MS/FT")
+                    && note.contains("millisiemens_per_foot")
+            }),
+            "the second file's different answer must be visible: {:?}",
+            conductivity_result.warning
+        );
         let conductivity_well = conductivity_result.well_id.as_deref().unwrap();
-        let standard_dt: f32 = conductivity
+        let standard_dt: f32 = designated
             .query_row(
                 "SELECT dt FROM standard_curves WHERE well_id = ?1 ORDER BY depth LIMIT 1",
                 params![conductivity_well],
@@ -3743,14 +3765,17 @@ mod tests {
             )
             .unwrap();
         assert!(standard_dt.is_nan(), "a conductivity designation must not populate standard DT");
-        let conductivity_curve = db::list_generic_curve_catalog(&conductivity, conductivity_well)
+        let conductivity_curve = db::list_generic_curve_catalog(&designated, conductivity_well)
             .unwrap()
             .into_iter()
             .find(|curve| curve.mnemonic == "DTCO")
             .unwrap();
         assert_eq!(conductivity_curve.family, None);
         assert_eq!(conductivity_curve.unit.as_deref(), Some("MS/FT"));
-        assert_eq!(db::get_curve_samples(&conductivity, &conductivity_curve.curve_id).unwrap()[0].value, 100.0);
+        assert_eq!(
+            db::get_curve_samples(&designated, &conductivity_curve.curve_id).unwrap()[0].value,
+            100.0
+        );
     }
 
     /// Phase 6b: a full LAS with curves beyond the fixed 6 (PEF, CALI, a metric-unit

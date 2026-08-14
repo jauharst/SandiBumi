@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-029: LAS MS/FT unit decisions remain file-scoped in the Curve Catalog
+
+- [ ] **Automated no-default correctness — not manual evidence:** exact SB-DIO-T45 is green
+      at 1 passed / 0 failed / 0 ignored. An unanswered `MS/FT` delivery is refused before
+      any well commits, and the result names both legitimate quantities plus the required
+      per-file decision; a silent sonic default cannot pass.
+- [ ] **Two-file scope proof:** one batch assigns `microseconds_per_foot` to one source path
+      and `millisiemens_per_foot` to another. Their separate public designation records and
+      stored curves must respectively become `DT/us/ft` and familyless `MS/FT`; a cached or
+      batch-wide answer would corrupt one side and fail the test.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import representative ambiguous-unit
+      deliveries, confirm that the dialog asks separately for each file, and inspect both the
+      visible decision record and resulting Curve Catalog identity. Synthetic two-file evidence
+      is not operator or interoperability evidence.
+
 ## 2026-08-14 — G2 SB-DIO-028: every shipped unit factor is independently auditable
 
 - [ ] **Automated arithmetic correctness — not manual evidence:** exact SB-DIO-T44 is green
