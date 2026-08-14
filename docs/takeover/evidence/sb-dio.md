@@ -422,11 +422,11 @@
 - **Current source:** `reframe.rs::resolve_substitutions` enforces every precondition and stores the accepted mapping in the resulting log-set parameters while the output curve keeps the substitute mnemonic.
 - **Qualifying acceptance tests:** `an_accepted_named_substitute_is_recorded_on_the_resulting_curve_as_provenance` is `CORRECTNESS`; it pins refusal/no-write and accepted/provenance controls from D-15 and T48.
 - **Supporting tests:** SB-DIO-033 proves the requested selection is itself explicit and saved.
-- **Manual evidence:** `reframe` 0/34 and `processing-history` 0/7 - unexercised.
+- **Manual evidence:** `reframe` 1/41 from prior unrelated review and `processing-history` 0/7; this T48 scenario remains unchecked.
 - **Git evidence:** reachable `f417ea7` contains the explicit substitution flow.
-- **Verdict:** `PRESENT-OK`; `UNDECIDED`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** `DEC-003` has not established whether Reframe substitution is in the first pilot workflow; the contract itself is automated and closed.
-- **Next action:** preserve the test and field-exercise the flow if Reframe enters the named pilot workflow.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for automated Gate 2 closure; immutable DEC-018 includes explicit Reframe and T48 is green at 1 passed / 0 failed / 0 ignored.
+- **Next action:** preserve the two-sided T48 proof and field-exercise the named offer, acceptance, output identity and ancestry in Gate 4.
 
 ## SB-DIO-033 - Curve-selection state MUST be explicit and inspectable.
 

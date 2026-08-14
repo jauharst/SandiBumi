@@ -1,5 +1,19 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-032: Reframe substitution stays explicit and provenance-bearing
+
+- [ ] **Automated substitution correctness — not manual evidence:** exact SB-DIO-T48 is green
+      at 1 passed / 0 failed / 0 ignored. A named substitute is accepted only for an unavailable
+      explicitly requested curve; the opposite case refuses before any log set or curve is written.
+- [ ] **Identity and ancestry proof:** the accepted run writes the substitute under its own
+      mnemonic and persists the exact requested-to-substitute decision in the resulting log-set
+      ancestry. Merely relabelling bytes or logging a decision without applying it cannot pass both
+      sides of the same test.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to exercise a representative Reframe run,
+      inspect the named offer before accepting it, and confirm the output identity and processing
+      ancestry remain understandable after reload. Synthetic in-memory evidence is not operator or
+      pilot-corpus evidence.
+
 ## 2026-08-14 — G2 SB-DIO-031: Curve Catalog Workflow and log view need exact-name refusal
 
 - [ ] **Automated contract:** BLOCKED. Exact SB-DIO-T47 does not exist, and no current
