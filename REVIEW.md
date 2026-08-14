@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-060: BIFF5 routing remains blocked by the deferred table reader
+
+- [ ] **Automated implementation:** BLOCKED-DEPENDENCY. T90 genuinely opens a delimited table
+      named `.las` through Intake and reports the disagreement. T89 only calls the signature
+      detector: it never reads the BIFF5 stream as chapter §6 requires, while the ordinary Intake
+      probe continues into the text-table reader after identifying binary BIFF5 content.
+- [ ] **Scope decision:** decide whether to promote deferred `SB-DIO-059` into the pilot. Its
+      published-specification cell-record reader is the missing route needed to make T89 truthful;
+      this increment does not silently pull that one row out of the 689-row post-pilot backlog.
+- [ ] **Visual / Manual:** after the reader is promoted and implemented, open one licence-safe
+      headerless BIFF5 table named `.xls` and one delimited table named `.las`. Confirm both are
+      read by content and each disagreement/structural choice is visible before commit.
+- [ ] **Field and harsh critique:** a detector that prints `BIFF5` while handing the bytes to a
+      text reader is more dangerous than an explicit unsupported-format refusal: its green unit
+      test can make a silent empty or corrupt import look like working format routing.
+
 ## 2026-08-14 — G2 SB-DIO-057: log-scale zero handling remains family-registry blocked
 
 - [ ] **Automated implementation:** BLOCKED-SOURCE, so no SB-DIO-T84/T85 is written by treating

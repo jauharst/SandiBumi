@@ -129,8 +129,6 @@
 "SB-DIO-053","CORRECTNESS","src-tauri/src/ingest.rs","a_file_without_a_uwi_does_not_synthesize_one_from_the_filename_or_any_other_identity"
 "SB-DIO-054","CORRECTNESS","src-tauri/src/dlis.rs","every_skipped_frame_channel_curve_and_row_is_counted_named_and_all_skipped_is_an_error"
 "SB-DIO-055","CORRECTNESS","src-tauri/src/export.rs","every_held_curve_is_written_or_named_with_the_same_reason_in_the_file_and_result"
-"SB-DIO-060","CORRECTNESS","src-tauri/src/intake.rs","a_biff5_stream_named_xls_is_chosen_by_signature_and_a_shared_zip_signature_is_disambiguated_by_structure"
-"SB-DIO-060","CORRECTNESS","src-tauri/src/intake.rs","a_delimited_text_file_named_las_is_read_as_delimited_and_the_extension_disagreement_is_reported"
 "SB-DIO-061","CORRECTNESS","src-tauri/src/example_data_test.rs","malformed_input_is_located_counted_named_bounded_and_every_reader_runs_the_corpus_in_ci"
 "SB-DIO-062","CORRECTNESS","src-tauri/src/ingest.rs","utf8_utf16_in_both_byte_orders_with_and_without_boms_and_windows_1252_are_imported_and_reported"
 "SB-ENV-006","CHARACTERIZATION","src-tauri/src/modules.rs","env_corrections_move_the_right_way"

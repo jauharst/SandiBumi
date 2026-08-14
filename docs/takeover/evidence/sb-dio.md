@@ -783,14 +783,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T89`, `SB-DIO-T90`.
 - **Atomic obligations:** choose readers from content signatures; report extension disagreement; disambiguate shared signatures using structure and report the selected format.
-- **Current source:** `src-tauri/src/intake.rs` recognises BIFF stream variants, inspects shared ZIP containers by structure and routes text that is misnamed `.las` to the delimited reader while preserving a disagreement note.
-- **Qualifying acceptance tests:** `a_biff5_stream_named_xls_is_chosen_by_signature_and_a_shared_zip_signature_is_disambiguated_by_structure` and `a_delimited_text_file_named_las_is_read_as_delimited_and_the_extension_disagreement_is_reported` are `CORRECTNESS`; together they pin a collision and an extension mismatch.
-- **Supporting tests:** generic intake probes exercise ordinary extensions but do not replace the adverse controls.
-- **Manual evidence:** `delimited-intake` 3/27, `workbooks` 0/19 and `las-import` 0/57.
-- **Git evidence:** reachable `0a7281f` contains the signature-first routing and both owned tests.
-- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
-- **Blocker or decision:** none for the registered signature inventory; newly supported colliding containers must extend it.
-- **Next action:** preserve signature-first routing and capture one extension-disagreement result in pilot intake evidence.
+- **Current source:** `src-tauri/src/intake.rs::detect_format` recognises BIFF stream variants and structurally distinguishes an XLSX-shaped PK container from generic ZIP. The text path genuinely routes a misnamed `.las` table through `probe`, but `probe` does not dispatch on the detected format: after identifying BIFF5 it still calls the text decoder/table reader. No BIFF worksheet/cell-record reader exists.
+- **Qualifying acceptance tests:** `a_delimited_text_file_named_las_is_read_as_delimited_and_the_extension_disagreement_is_reported` is `CORRECTNESS` for T90. The T89-named BIFF5 test calls only `detect_format`, so it proves recognition and ZIP collision reporting but not T89's specified `Read` action; the whole requirement therefore remains `MISSING` its qualifying acceptance proof.
+- **Supporting tests:** generic intake probes exercise ordinary text extensions; the detector-only BIFF and ZIP assertions are useful supporting controls but do not replace a reader-level T89.
+- **Manual evidence:** the generated matrix shows `delimited-intake` 3/27, `office-deliverables` 0/39 and `las-import` 0/132. None proves a BIFF5 table was read.
+- **Git evidence:** reachable `0a7281f` integrated the detector, T90 routing and the detector-only T89-named test; current source re-verification finds no later BIFF table reader or reader-level T89 closure.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
+- **Blocker or decision:** `BLOCKED-DEPENDENCY` on deferred `SB-DIO-059`. T89 cannot truthfully read a BIFF5 stream until the published-specification worksheet/cell-record reader exists; Gate 2 cannot silently promote one of the 689 deferred rows.
+- **Next action:** Jauhar must decide whether to promote SB-DIO-059 into the pilot. If promoted, implement its licence-safe BIFF table reader and replace the detector-only T89 proof with a reader-level adverse control; retain T90 unchanged.
 
 ## SB-DIO-061 - Malformed input MUST be located, counted, named, and regression-tested against a corpus.
 
