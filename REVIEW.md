@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-025: LAS unit coverage and Curve Catalog pass-throughs are not silent
+
+- [ ] **Automated query correctness — not manual evidence:** exact SB-DIO-T41 is green at
+      1 passed / 0 failed / 0 ignored. The shipping Tauri command returns exactly CALI, BS,
+      RHOB, DRHO, NPHI, DT, DTS and TEMP; the same test pins command registration and the
+      typed frontend invoke route, so an internal list with no product query cannot pass.
+- [ ] **Automated unsupported-unit custody — not manual evidence:** exact SB-DIO-T40 is
+      green at 1 passed / 0 failed / 0 ignored. `RHOZ.FURLONGS` creates no conversion record,
+      retains its declared unit and `2400` source sample in the generic store, and produces a
+      visible unconverted warning naming both the curve and unit. Silent canonical relabelling
+      and a warning detached from changed data fail independently.
+- [ ] **Visual / Manual / Field:** Jauhar still needs to import a representative LAS carrying
+      an unsupported declared unit, inspect the visible result and Curve Catalog custody, and
+      judge the warning wording. The synthetic import and registered IPC route are not operator,
+      interoperability or representative-delivery evidence.
+
 ## 2026-08-14 — G2 SB-DIO-024: every automatic conversion is visible
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T39 is green at

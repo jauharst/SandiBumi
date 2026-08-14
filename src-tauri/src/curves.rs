@@ -574,14 +574,41 @@ mod tests {
     /// conversion coverage (chapter finding D-9).
     #[test]
     fn the_unit_system_reports_the_exact_families_it_can_convert() {
+        let queried = crate::list_convertible_unit_families();
         assert_eq!(
-            convertible_unit_families(),
+            queried,
             ["CALI", "BS", "RHOB", "DRHO", "NPHI", "DT", "DTS", "TEMP"]
                 .into_iter()
                 .map(str::to_string)
                 .collect::<Vec<_>>()
         );
-        assert_eq!(convertible_unit_families().len(), CONVERTIBLE_FAMILIES.len());
+        assert_eq!(queried.len(), CONVERTIBLE_FAMILIES.len());
+
+        let backend = include_str!("lib.rs");
+        let (_, handler_tail) = backend
+            .split_once("tauri::generate_handler![")
+            .expect("shipping Tauri command registry");
+        let (registered_commands, _) = handler_tail
+            .split_once("])")
+            .expect("end of shipping Tauri command registry");
+        assert!(
+            registered_commands
+                .lines()
+                .any(|line| line.trim() == "list_convertible_unit_families,"),
+            "the exact family query must remain registered on the shipping Tauri surface"
+        );
+
+        let frontend = include_str!("../../src/ipc.ts");
+        let (_, wrapper_tail) = frontend
+            .split_once("export function listConvertibleUnitFamilies(): Promise<string[]> {")
+            .expect("typed frontend family-query wrapper");
+        let (wrapper_body, _) = wrapper_tail
+            .split_once('}')
+            .expect("end of typed frontend family-query wrapper");
+        assert!(
+            wrapper_body.contains("invoke<string[]>(\"list_convertible_unit_families\")"),
+            "the typed frontend wrapper must invoke the registered family query"
+        );
     }
 
     /// SB-DIO-028 / SB-DIO-T44. Chapter §5.1 independently derives the corrected

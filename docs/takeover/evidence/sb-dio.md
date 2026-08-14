@@ -328,11 +328,11 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; owned tests `SB-DIO-T40`, `SB-DIO-T41`.
 - **Atomic obligations:** expose the exact convertible-family set; retain an unknown declared unit verbatim; flag it as unconverted rather than relabelling it canonical.
-- **Current source:** `curves::convertible_unit_families` is queryable through IPC; `prepare_generic_curves` records `UnconvertedUnit` while preserving the source unit and values.
-- **Qualifying acceptance tests:** `an_unknown_declared_unit_is_stored_verbatim_and_flagged_unconverted` and `the_unit_system_reports_the_exact_families_it_can_convert` are `CORRECTNESS`; family membership comes from the chapter-cited code-resident transform table.
+- **Current source:** `curves::convertible_unit_families` feeds a registered Tauri command and typed frontend IPC wrapper; `prepare_generic_curves` records `UnconvertedUnit` while preserving the source unit and values.
+- **Qualifying acceptance tests:** `an_unknown_declared_unit_is_stored_verbatim_and_flagged_unconverted` and `the_unit_system_reports_the_exact_families_it_can_convert` are `CORRECTNESS`; family membership comes from the chapter-cited code-resident transform table, T41 calls the shipping backend query, and it pins both command registration and the typed frontend invoke route.
 - **Supporting tests:** SB-DIO-024 exercises a supported transform end to end.
-- **Manual evidence:** `data-conventions` 0/45, `generic-curve-store` 0/18 and `las-import` 0/57 - unexercised.
-- **Git evidence:** reachable `a19d0a2` contains the declared-coverage and unconverted report.
+- **Manual evidence:** `data-conventions` 4/107, `generic-curve-store` 0/21, `las-import` 0/75 and `security-integrity` 3/95; this increment adds no checked operator or representative-delivery evidence.
+- **Git evidence:** reachable `a19d0a2` contains the declared-coverage and unconverted report; this Gate 2 increment closes the previously unpinned shipping query route, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied unit boundary); `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none.
 - **Next action:** require a sourced transform before adding a family to the queryable set; otherwise retain and flag the source unit.
