@@ -744,11 +744,11 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; owned tests `SB-DIO-T84`, `SB-DIO-T85`.
 - **Atomic obligations:** identify logarithmic curve families; count exact zeros before commit; require an explicit keep/convert decision; never rewrite automatically; record the decision.
-- **Current source:** intake can report suspicious values generically, but no authoritative log-family registry classifies gas, resistivity and permeability families for this contract and no zero-decision commit record exists.
+- **Current source:** intake can report suspicious values generically, but no authoritative log-family registry classifies gas, resistivity and permeability families for this contract and no zero-decision commit record exists. The live `curves.rs` family table, import paths, UI scale settings and reachable history do not close the chapter's explicit §5.6 / §7.1 O-5 absence.
 - **Qualifying acceptance tests:** none; T84/T85 are intentionally absent because testing them would require inventing the family membership; test class is `MISSING`.
 - **Supporting tests:** generic missing-value and null-policy tests do not establish logarithmic family membership.
-- **Manual evidence:** `delimited-intake` 3/27, `data-conventions` 0/45 and `security-integrity` 0/63 - unexercised for this decision.
-- **Git evidence:** no implementation commit exists; commit state is `UNIMPLEMENTED`.
+- **Manual evidence:** the generated matrix shows `delimited-intake` 3/27, `data-conventions` 4/122 and `security-integrity` 3/115. This blocked increment checks no scenario; prior checks do not classify logarithmic families or prove a zero decision.
+- **Git evidence:** no implementation commit exists; the current Gate 2 re-verification found no source-bearing family-classification or zero-decision commit, so commit state remains `UNIMPLEMENTED`.
 - **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
 - **Blocker or decision:** chapter section 7.1 O-5 explicitly records log-family membership as unclassified. A family registry is a cited parameter and cannot be inferred from mnemonic intuition.
 - **Next action:** supply an authoritative, versioned log-family registry and sources; then implement pre-commit counting, explicit keep/convert recording and T84-T85.

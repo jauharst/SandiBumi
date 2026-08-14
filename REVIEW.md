@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-057: log-scale zero handling remains family-registry blocked
+
+- [ ] **Automated implementation:** BLOCKED-SOURCE, so no SB-DIO-T84/T85 is written by treating
+      familiar gas, resistivity or permeability mnemonics as an authoritative family registry.
+      Current imports can commit exact zeros without a pre-commit logarithmic-family decision.
+- [ ] **Source decision:** publish the ENV-reviewed, versioned classification of which exact curve
+      families are logarithmic, including its source and alias-resolution boundary. Chapter §5.6
+      and §7.1 O-5 deliberately leave that classification ABSENT; UI log-axis choices and current
+      display defaults are not import semantics.
+- [ ] **Visual / Manual:** after the registry exists, import T84's gas control with 200 exact zeros
+      among 4,000 samples. Confirm the pre-commit surface reports 200 without rewriting any value,
+      and confirm declining conversion commits all zeros as values with a durable decision record.
+- [ ] **Field and harsh critique:** Jauhar must exercise one representative logarithmic pilot curve
+      and one genuinely linear zero-bearing control. Until family membership is sourced, either
+      test can be made green by a mnemonic guess that silently corrupts the other class.
+
 ## 2026-08-14 — G2 SB-DIO-056: whole-index LAS STEP remains source-blocked
 
 - [ ] **Automated implementation:** BLOCKED-SOURCE, so no SB-DIO-T82/T83 is written against an
