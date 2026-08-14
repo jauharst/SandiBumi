@@ -598,6 +598,52 @@ fn screen_dlis_values(
     screened
 }
 
+fn screen_dlis_depth(
+    meta: &DlisCurveMeta,
+    depth: Vec<f32>,
+    values: Vec<f32>,
+) -> (Vec<f32>, Vec<f32>, Vec<DlisSkip>) {
+    let (keep, report) = crate::parsers::depth_keep_indices(&depth);
+    let name = format!("frame {} curve {}", meta.run, meta.mnemonic);
+    let mut skipped = Vec::new();
+    if report.nonfinite > 0 {
+        skipped.push(DlisSkip {
+            kind: "row".into(),
+            name: name.clone(),
+            count: report.nonfinite,
+            rule: "non-finite depth index".into(),
+            omitted: false,
+        });
+    }
+    if report.duplicate > 0 {
+        skipped.push(DlisSkip {
+            kind: "row".into(),
+            name: name.clone(),
+            count: report.duplicate,
+            rule: "duplicate depth index; first occurrence kept".into(),
+            omitted: false,
+        });
+    }
+    let (depth, values) = if report.is_clean() {
+        (depth, values)
+    } else {
+        (
+            keep.iter().map(|&index| depth[index]).collect::<Vec<f32>>(),
+            keep.iter().map(|&index| values[index]).collect::<Vec<f32>>(),
+        )
+    };
+    if depth.is_empty() {
+        skipped.push(DlisSkip {
+            kind: "curve".into(),
+            name,
+            count: 1,
+            rule: "no rows survived depth-index validation".into(),
+            omitted: true,
+        });
+    }
+    (depth, values, skipped)
+}
+
 fn stored_interval(conn: &Connection, well_id: &str, set_name: Option<&str>) -> Option<(f32, f32)> {
     let row: Option<(Option<f32>, Option<f32>)> = match set_name {
         Some(set) => conn
@@ -1183,41 +1229,9 @@ pub fn import_dlis_file_with_unit_designation(
         // Sanitize the frame's depth column (drop non-finite + first-occurrence-wins dedup) the
         // same way the LAS paths do, so one bad/duplicate depth sample can't abort the whole DLIS
         // file on the (curve_id, depth) PK. Values follow the kept depth indices.
-        let (keep, dreport) = crate::parsers::depth_keep_indices(&depth);
-        if dreport.nonfinite > 0 {
-            skipped.push(DlisSkip {
-                kind: "row".into(),
-                name: format!("frame {} curve {}", meta.run, meta.mnemonic),
-                count: dreport.nonfinite,
-                rule: "non-finite depth index".into(),
-                omitted: false,
-            });
-        }
-        if dreport.duplicate > 0 {
-            skipped.push(DlisSkip {
-                kind: "row".into(),
-                name: format!("frame {} curve {}", meta.run, meta.mnemonic),
-                count: dreport.duplicate,
-                rule: "duplicate depth index; first occurrence kept".into(),
-                omitted: false,
-            });
-        }
-        let (depth, values) = if dreport.is_clean() {
-            (depth, values)
-        } else {
-            (
-                keep.iter().map(|&i| depth[i]).collect::<Vec<f32>>(),
-                keep.iter().map(|&i| values[i]).collect::<Vec<f32>>(),
-            )
-        };
+        let (depth, values, depth_skips) = screen_dlis_depth(meta, depth, values);
+        skipped.extend(depth_skips);
         if depth.is_empty() {
-            skipped.push(DlisSkip {
-                kind: "curve".into(),
-                name: format!("frame {} curve {}", meta.run, meta.mnemonic),
-                count: 1,
-                rule: "no rows survived depth-index validation".into(),
-                omitted: true,
-            });
             continue;
         }
 
@@ -1577,6 +1591,8 @@ mod tests {
         for marker in [
             "skip(\"frame\", frame_name, 1",
             "skip(\"channel\", name, 1",
+            "\"count\": int(count)",
+            "\"rule\": str(rule)",
             "\"skips\": skips",
         ] {
             assert!(DLIS_RUNNER.contains(marker), "runner lost skip record: {marker}");
@@ -1602,6 +1618,108 @@ mod tests {
             logical_files: Vec::new(),
         };
         assert!(validate_header(&one_bad_one_good).is_ok(), "one good frame must survive a bad one");
+        assert_eq!(
+            import_status(&one_bad_one_good, 1, &one_bad_one_good.skips),
+            DlisImportStatus::Partial,
+            "the user-visible outcome must say partial, not complete, when a named frame was omitted"
+        );
+        assert_eq!(
+            skip_summary(&one_bad_one_good.skips),
+            "frame 'FRAME-BAD' x1: frame.curves failed: RuntimeError: encrypted",
+            "T77 requires the omitted frame's category, identity, count, and rule"
+        );
+
+        // CORRECTNESS: the two depth/value pairs below are the synthetic T77 input. The expected
+        // values are the same supplied input because this assertion pins lossless carriage of the
+        // surviving frame, not a petrophysical calculation or an implementation snapshot.
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = Uuid::new_v4();
+        db::insert_well(&conn, well_id, "DLIS-PARTIAL", None, None, None).unwrap();
+        let well = well_id.to_string();
+        write_prepared_dlis(
+            &conn,
+            &[],
+            &[PreparedDlisCurve {
+                well_id: well.clone(),
+                set_name: "RAW".into(),
+                mnemonic: "GR".into(),
+                unit: Some("GAPI".into()),
+                family: Some("GR"),
+                run_no: Some(1),
+                depth: vec![1000.0, 1000.5],
+                values: vec![50.0, 55.0],
+            }],
+            None,
+        )
+        .unwrap();
+        let catalog = db::list_generic_curve_catalog(&conn, &well).unwrap();
+        assert_eq!(catalog.len(), 1, "the readable frame's one curve must be imported");
+        let samples = db::get_curve_samples(&conn, &catalog[0].curve_id).unwrap();
+        assert_eq!(
+            samples.iter().map(|sample| (sample.depth, sample.value)).collect::<Vec<_>>(),
+            vec![(1000.0, 50.0), (1000.5, 55.0)],
+            "the bad frame must not prevent the good frame's exact samples from being stored"
+        );
+
+        let depth_meta = DlisCurveMeta {
+            mnemonic: "GR".into(),
+            unit: "GAPI".into(),
+            index_unit: "M".into(),
+            n: 3,
+            run: 7,
+            logical_file: 0,
+        };
+        let (kept_depth, kept_values, row_skips) = screen_dlis_depth(
+            &depth_meta,
+            vec![f32::NAN, 1000.0, 1000.0],
+            vec![40.0, 50.0, 60.0],
+        );
+        assert_eq!((kept_depth, kept_values), (vec![1000.0], vec![50.0]));
+        assert_eq!(
+            row_skips,
+            vec![
+                DlisSkip {
+                    kind: "row".into(),
+                    name: "frame 7 curve GR".into(),
+                    count: 1,
+                    rule: "non-finite depth index".into(),
+                    omitted: false,
+                },
+                DlisSkip {
+                    kind: "row".into(),
+                    name: "frame 7 curve GR".into(),
+                    count: 1,
+                    rule: "duplicate depth index; first occurrence kept".into(),
+                    omitted: false,
+                },
+            ],
+            "each dropped row category must name the curve, count its rows, and state its rule"
+        );
+        let (empty_depth, empty_values, curve_skips) =
+            screen_dlis_depth(&depth_meta, vec![f32::NAN], vec![40.0]);
+        assert!(empty_depth.is_empty() && empty_values.is_empty());
+        assert_eq!(
+            curve_skips,
+            vec![
+                DlisSkip {
+                    kind: "row".into(),
+                    name: "frame 7 curve GR".into(),
+                    count: 1,
+                    rule: "non-finite depth index".into(),
+                    omitted: false,
+                },
+                DlisSkip {
+                    kind: "curve".into(),
+                    name: "frame 7 curve GR".into(),
+                    count: 1,
+                    rule: "no rows survived depth-index validation".into(),
+                    omitted: true,
+                },
+            ],
+            "an emptied curve must retain both the row count and the named curve-level omission"
+        );
+
         let all_bad = DlisHeader {
             curves: vec![],
             skips: one_bad_one_good.skips.clone(),
@@ -1610,6 +1728,17 @@ mod tests {
         };
         let error = validate_header(&all_bad).unwrap_err();
         assert!(error.contains("FRAME-BAD") && error.contains("x1") && error.contains("encrypted"));
+        let failed_result = failed("all-frames-unreadable.dlis", error, all_bad.skips.clone());
+        assert_eq!(failed_result.status, DlisImportStatus::Failed);
+        assert_eq!((failed_result.curves_imported, failed_result.rows), (0, 0));
+        assert_eq!(failed_result.skipped, all_bad.skips, "the refusal must retain the exact skip inventory");
+        assert!(
+            failed_result
+                .error
+                .as_deref()
+                .is_some_and(|message| message.contains("every candidate was skipped")),
+            "T78 requires an explicit all-skipped error, never an empty success"
+        );
 
         let las = std::env::temp_dir().join(format!(
             "sandibumi-dio-054-short-row-{}.las",

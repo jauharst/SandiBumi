@@ -705,11 +705,11 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; owned tests `SB-DIO-T77`, `SB-DIO-T78`, `SB-DIO-T79`.
 - **Atomic obligations:** name and count every skipped frame/channel/curve/row with its rule; allow partial success only with that record; turn all-skipped input into an error.
-- **Current source:** `src-tauri/src/dlis.rs` accumulates structured skip records through logical files, frames, channels, curves and rows; its LAS bridge reports malformed short rows with location, and all-skipped input returns an error.
-- **Qualifying acceptance tests:** `every_skipped_frame_channel_curve_and_row_is_counted_named_and_all_skipped_is_an_error` is `CORRECTNESS`; it covers the good-plus-bad, all-bad and short-row obligations rather than asserting only a summary count.
+- **Current source:** `src-tauri/src/dlis.rs` accumulates structured skip records through logical files, frames, channels, curves and rows; the row/curve depth screen is shared by the production importer and its owned test. Its LAS bridge reports malformed short rows with location, and all-skipped input returns an error carrying the exact skip inventory.
+- **Qualifying acceptance tests:** `every_skipped_frame_channel_curve_and_row_is_counted_named_and_all_skipped_is_an_error` is `CORRECTNESS`; it stores the good frame's exact samples beside a named partial outcome, executes row/curve counting through the production helper, inspects the user-visible all-bad result and drives both LAS readers against three short rows plus the wrapped control. The optional Python runner is source-checked for frame/channel record emission; representative DLIS execution remains manual evidence.
 - **Supporting tests:** malformed-corpus coverage checks reader behavior broadly but does not replace the DLIS item-level inventory.
-- **Manual evidence:** `dlis-import` 0/11, `las-import` 0/57 and `security-integrity` 0/63 - unexercised.
-- **Git evidence:** reachable `d922ba8` contains the named skip accounting and owned test.
+- **Manual evidence:** the generated matrix shows `dlis-import` 0/14, `las-import` 0/124 and `security-integrity` 3/115. This increment checks no scenario; the three security checks belong to prior work and do not close SB-DIO-054 field evidence.
+- **Git evidence:** reachable `d922ba8` contains the original named skip accounting; the current Gate 2 increment strengthens the exact owned test and makes the existing row/curve screen directly executable without changing its policy, with commit pending at this evidence write.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER` (satisfied safety contract); `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none for automated degradation reporting; real malformed deliveries remain unexercised.
 - **Next action:** retain the all-skipped refusal and capture partial-import notes against a representative malformed pilot artifact if available.

@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-14 — G2 SB-DIO-054: skipped import items are named, counted and refused when all are lost
+
+- [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T77/T78/T79 is green at
+      1 passed / 0 failed / 0 ignored; the full DLIS module is green at 8 passed / 0 failed /
+      1 optional-package test ignored. The strengthened contract executes the production
+      row/curve accounting path, stores the readable control curve, inspects the failed result,
+      and drives both LAS readers. Source-text markers remain only for the optional Python runner.
+- [ ] **Partial DLIS outcome:** import a representative DLIS containing at least one readable
+      scalar channel and one unreadable frame or channel. Confirm the result says `partial`, the
+      readable curve and samples are present, and every omission displays its kind, source name,
+      count and rule. A success toast without the omission inventory is not acceptance.
+- [ ] **All-skipped refusal and first malformed LAS row:** exercise a DLIS whose candidate frames
+      all fail and confirm the import fails with the complete skip inventory and writes no curve.
+      Separately import an unwrapped LAS with several rows shorter than `~C`; confirm the first
+      offending source line is named. Re-run with a valid wrapped LAS so strictness does not erase
+      declared `WRAP.YES` support.
+- [ ] **Visual / Manual / Field and harsh critique:** Jauhar still needs to exercise representative
+      malformed pilot deliveries in the desktop application and compare every displayed omission
+      with the source artifact. Synthetic frames prove the automated boundary; they do not prove
+      that a vendor-specific DLIS failure is named intelligibly or accepted by an operator.
+
 ## 2026-08-14 — G2 SB-DIO-053: LAS source-header mapping prevents silent identity invention
 
 - [ ] **Automated correctness — not manual evidence:** exact SB-DIO-T75 and SB-DIO-T76 are
