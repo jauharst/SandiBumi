@@ -102,18 +102,66 @@ export function boxStats(
 /** Counts values into `bins` equal-width bins spanning [min, max]. Values outside the range
  *  are DROPPED, not clamped into the end bins — a clamped sample would invent a count the
  *  data never had at that value. Handles a reversed range (min > max), normal for porosity. */
-export function histogram(values: ArrayLike<number>, min: number, max: number, bins: number): number[] {
-  const nb = Math.max(1, Math.floor(bins));
-  const out = new Array<number>(nb).fill(0);
+// SB-PLT-006 source-owned product parameters from 23_plotting-interactivity.md section 5.
+export const HISTOGRAM_BINS_DEFAULT = 50;
+export const HISTOGRAM_BINS_MIN = 1;
+export const HISTOGRAM_BINS_MAX = 200;
+
+export interface HistogramContract {
+  counts: number[];
+  edges: number[];
+  /** The population represented by the bars; always the exact sum of `counts`. */
+  displayedTotal: number;
+  /** NaN and either infinity are excluded from the bars and counted here. */
+  nonFiniteExcluded: number;
+}
+
+/** Apply the cited 1..200 product range. Only an unusable value falls back to the cited default. */
+export function normalizeHistogramBinCount(value: number): number {
+  if (!Number.isFinite(value)) return HISTOGRAM_BINS_DEFAULT;
+  return Math.max(HISTOGRAM_BINS_MIN, Math.min(HISTOGRAM_BINS_MAX, Math.round(value)));
+}
+
+/** The one frontend histogram contract. Interior bins are [low, high); only the final bin
+ *  includes the upper range endpoint. Finite out-of-range values are dropped, never clamped. */
+export function canonicalHistogram(
+  values: ArrayLike<number>,
+  min: number,
+  max: number,
+  bins = HISTOGRAM_BINS_DEFAULT,
+): HistogramContract {
+  const binCount = normalizeHistogramBinCount(bins);
+  const counts = new Array<number>(binCount).fill(0);
   const lo = Math.min(min, max);
   const hi = Math.max(min, max);
-  if (!(hi > lo)) return out;
-  for (let i = 0; i < values.length; i++) {
-    const x = values[i];
-    if (!Number.isFinite(x) || x < lo || x > hi) continue;
-    out[Math.min(nb - 1, Math.floor(((x - lo) / (hi - lo)) * nb))] += 1;
+  const usableRange = Number.isFinite(lo) && Number.isFinite(hi) && hi > lo;
+  const edges = usableRange
+    ? Array.from({ length: binCount + 1 }, (_, index) => lo + ((hi - lo) * index) / binCount)
+    : new Array<number>(binCount + 1).fill(lo);
+  let nonFiniteExcluded = 0;
+  if (usableRange) {
+    for (let index = 0; index < values.length; index++) {
+      const value = values[index];
+      if (!Number.isFinite(value)) {
+        nonFiniteExcluded++;
+        continue;
+      }
+      if (value < lo || value > hi) continue;
+      const bin = Math.min(binCount - 1, Math.floor(((value - lo) / (hi - lo)) * binCount));
+      counts[bin]++;
+    }
+  } else {
+    for (let index = 0; index < values.length; index++) {
+      if (!Number.isFinite(values[index])) nonFiniteExcluded++;
+    }
   }
-  return out;
+  const displayedTotal = counts.reduce((sum, count) => sum + count, 0);
+  return { counts, edges, displayedTotal, nonFiniteExcluded };
+}
+
+/** Counts-only compatibility for non-reporting micro-glyphs. Arithmetic remains canonical. */
+export function histogram(values: ArrayLike<number>, min: number, max: number, bins: number): number[] {
+  return canonicalHistogram(values, min, max, bins).counts;
 }
 
 export interface DepthBin {

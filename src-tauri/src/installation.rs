@@ -1560,7 +1560,7 @@ mod tests {
             .expect("the native module dispatch remains available");
         assert_eq!(shifted["CURVE_DS"], [10.0, 20.0]);
 
-        let histogram = crate::plotting::canonical_histogram(&[0.0, 1.0], 0.0, 1.0, 1);
+        let histogram = crate::distribution::canonical_histogram(&[0.0, 1.0], 0.0, 1.0, 1);
         assert_eq!(histogram.displayed_total, 2);
         let formats = crate::export::export_formats();
         assert!(formats.iter().any(|format| format.is_default && format.extension == "las"));

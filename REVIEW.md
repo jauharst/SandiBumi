@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-006: one canonical histogram-bin contract
+
+- [ ] **Automated correctness:** exact SB-PLT-006 is green at 1 passed / 0 failed / 0 ignored;
+      the full gate is green at 1027 passed / 0 failed / 37 ignored with 42 owned Rust warnings.
+      T06/T07 execute through canonical, primary Histogram, crossplot-marginal and pre-binned Vega
+      adapters; the inventory pins log-view glyphs plus Canvas and Vega export custody. A deliberate
+      final-upper-endpoint mutation returned `[1,1,1]` instead of `[1,1,2]` before restoration, and
+      the Rust supporting test executes the real distribution contract rather than a dead wrapper.
+- [ ] **Visual:** open the primary Histogram, enable crossplot marginal histograms and open a Vega
+      histogram for the same finite population and governed range. Confirm the primary axis says
+      `displayed n=X of analysis n=Y`, the crossplot footer shows both marginal displayed totals,
+      Vega says `histogram bins=50 · displayed total=X`, and the labels remain readable at the
+      smallest normal dock size. Automation proves strings and data rows, not legible placement.
+- [ ] **Manual:** exercise bin requests at 1, 50 and 200 plus out-of-range 0 and 201, then compare
+      the final-upper-endpoint fixture and a delivery containing NaN/infinity across the primary,
+      marginal and Vega surfaces. Zoom without re-binning, export every offered SVG/PDF/PNG route,
+      and confirm bar edges, counts, displayed totals and non-finite exclusions agree with screen.
+- [ ] **Field and harsh critique:** repeat on representative pilot deliveries with reversed axes,
+      logarithmic crossplot marginals, context wells and finite tails outside the displayed range.
+      A clean bar chart is dangerous if one surface shifts an endpoint or silently drops non-finite
+      samples; a green adapter/inventory test is not real-app visual proof. This increment does not
+      claim HFU, Monte-Carlo or other deferred scientific histograms, and it does not close Manual
+      or Field evidence.
+
 ## 2026-08-15 — G2 SB-PLT-005: unit-limit content is audited before activation
 
 - [ ] **Automated correctness:** exact SB-PLT-005 is green at 1 passed / 0 failed / 0 ignored;

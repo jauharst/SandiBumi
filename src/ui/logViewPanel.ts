@@ -20,7 +20,7 @@ import {
   type TrackCurveSeries,
   type WellSummary,
 } from "../ipc";
-import { band, binByDepth, boxStats, evenIndices, histogram, type WhiskerRule } from "../distribution";
+import { band, binByDepth, boxStats, canonicalHistogram, evenIndices, type WhiskerRule } from "../distribution";
 import { appState, setStatus } from "../state";
 import { setDisplayDepthUnit } from "../depthUnitPref";
 import { unitLabel } from "../units";
@@ -1266,7 +1266,12 @@ export class LogViewPanel {
       const i = rows[k];
       // `histogram` DROPS out-of-range values rather than clamping: a heat-map cell is a count
       // AT a value, so a clamped sample would invent density the data never had.
-      const counts = histogram(s.values.subarray(i * s.width, (i + 1) * s.width), style.min, style.max, bins);
+      const counts = canonicalHistogram(
+        s.values.subarray(i * s.width, (i + 1) * s.width),
+        style.min,
+        style.max,
+        bins,
+      ).counts;
       let peak = 0;
       for (const c of counts) if (c > peak) peak = c;
       if (peak === 0) continue;
@@ -1439,7 +1444,7 @@ export class LogViewPanel {
       const mid = (yTop + yBase) / 2;
 
       if (display === "histogram") {
-        const counts = histogram(b.values, style.min, style.max, style.hist_bins ?? 12);
+        const counts = canonicalHistogram(b.values, style.min, style.max, style.hist_bins ?? 12).counts;
         const peak = Math.max(...counts);
         if (peak === 0) continue;
         const barW = span / counts.length;

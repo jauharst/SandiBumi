@@ -45,7 +45,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 43 | 2026-07-19 | 9 |
-| `histogram` | Histogram | Partially exercised | 5 / 30 | 2026-07-20 | 7 |
+| `histogram` | Histogram | Partially exercised | 5 / 34 | 2026-07-20 | 8 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 21 | 2026-07-20 | 8 |
 | `pickett` | Pickett plot | Not exercised | 0 / 16 | — | 5 |
 | `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 50 | — | 14 |
@@ -64,4 +64,4 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 54 | — | 10 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 115 | 2026-08-13 | 43 |
-| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 96 | 2026-08-13 | 32 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 100 | 2026-08-13 | 33 |

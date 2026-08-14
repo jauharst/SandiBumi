@@ -253,21 +253,51 @@ pub fn box_stats(values: &[f32], box_lo: f32, box_hi: f32, whisker: Whisker) -> 
 /// are DROPPED, not clamped into the end bins — a clamped sample would invent a count the
 /// data never had at that value. Handles a reversed range (min > max), which is normal for a
 /// porosity axis.
-pub fn histogram(values: &[f32], min: f32, max: f32, bins: usize) -> Vec<u32> {
-    let bins = bins.max(1);
-    let mut out = vec![0u32; bins];
+pub const HISTOGRAM_BINS_MIN: usize = 1;
+pub const HISTOGRAM_BINS_MAX: usize = 200;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistogramContract {
+    pub counts: Vec<u32>,
+    pub displayed_total: u32,
+    pub non_finite_excluded: usize,
+}
+
+pub fn canonical_histogram(
+    values: &[f32],
+    min: f32,
+    max: f32,
+    bins: usize,
+) -> HistogramContract {
+    let bins = bins.clamp(HISTOGRAM_BINS_MIN, HISTOGRAM_BINS_MAX);
+    let mut counts = vec![0u32; bins];
     let (lo, hi) = if min <= max { (min, max) } else { (max, min) };
-    if !(hi > lo) {
-        return out;
-    }
-    for &x in values {
-        if !x.is_finite() || x < lo || x > hi {
-            continue;
+    let mut non_finite_excluded = 0;
+    if hi > lo {
+        for &value in values {
+            if !value.is_finite() {
+                non_finite_excluded += 1;
+                continue;
+            }
+            if value < lo || value > hi {
+                continue;
+            }
+            let index = (((value - lo) / (hi - lo)) * bins as f32) as usize;
+            counts[index.min(bins - 1)] += 1;
         }
-        let idx = (((x - lo) / (hi - lo)) * bins as f32) as usize;
-        out[idx.min(bins - 1)] += 1;
+    } else {
+        non_finite_excluded = values.iter().filter(|value| !value.is_finite()).count();
     }
-    out
+    HistogramContract {
+        displayed_total: counts.iter().sum(),
+        counts,
+        non_finite_excluded,
+    }
+}
+
+/// Counts-only compatibility for non-reporting micro-glyphs. Arithmetic remains canonical.
+pub fn histogram(values: &[f32], min: f32, max: f32, bins: usize) -> Vec<u32> {
+    canonical_histogram(values, min, max, bins).counts
 }
 
 /// Groups depth-tagged samples into equal-height depth bins, returning

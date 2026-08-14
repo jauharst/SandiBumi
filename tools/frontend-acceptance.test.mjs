@@ -363,6 +363,81 @@ test("every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_wh
   }
 });
 
+test("every_pilot_histogram_uses_half_open_bins_with_a_closed_final_endpoint_counts_non_finite_samples_separately_and_displays_the_sum_of_bin_counts", async () => {
+  // CORRECTNESS - SB-PLT-006 / SB-PLT-T06/T07. docs/PRD_v2/23_plotting-interactivity.md
+  // sections 4.2, 5 and 6 cite the plotting dossier sections 2.4, 2.7 and 5.1-5.3:
+  // [0,1,2,3] over [0,3] in three bins is [1,1,2], while [0,NaN,+Inf,1]
+  // over [0,1] has displayed total 2 and non-finite-excluded count 2. The chapter's
+  // sourced product bounds are exactly default=50, minimum=1 and maximum=200 bins.
+  const {
+    HISTOGRAM_BINS_DEFAULT,
+    HISTOGRAM_BINS_MAX,
+    HISTOGRAM_BINS_MIN,
+    canonicalHistogram,
+    normalizeHistogramBinCount,
+  } = await load("/src/distribution.ts");
+  const { computeHistogram } = await load("/src/ui/histogramPanel.ts");
+  const { computeMarginalHistogram } = await load("/src/ui/crossplotPanel.ts");
+  const { buildVegaHistogramData } = await load("/src/ui/vegaPanel.ts");
+
+  assert.equal(HISTOGRAM_BINS_DEFAULT, 50);
+  assert.equal(HISTOGRAM_BINS_MIN, 1);
+  assert.equal(HISTOGRAM_BINS_MAX, 200);
+  assert.equal(normalizeHistogramBinCount(0), 1);
+  assert.equal(normalizeHistogramBinCount(201), 200);
+  assert.equal(normalizeHistogramBinCount(Number.NaN), 50);
+
+  const endpoints = [0, 1, 2, 3];
+  const missing = [0, Number.NaN, Number.POSITIVE_INFINITY, 1];
+  const adapters = [
+    ["canonical", (values, min, max) => canonicalHistogram(values, min, max, 3)],
+    ["Histogram", (values, min, max) => computeHistogram(values, min, max, 3)],
+    ["Crossplot marginals", (values, min, max) => computeMarginalHistogram(values, min, max, 3, false)],
+    ["Vega", (values, min, max) => buildVegaHistogramData(values, min, max, 3)],
+  ];
+  for (const [surface, run] of adapters) {
+    const endpointResult = run(endpoints, 0, 3);
+    assert.deepEqual(endpointResult.counts, [1, 1, 2], `${surface}: the final upper endpoint belongs to the final bin`);
+    assert.deepEqual(endpointResult.edges, [0, 1, 2, 3], `${surface}: the three equal bins retain their exact edges`);
+    assert.equal(endpointResult.displayedTotal, 4, `${surface}: displayed total is the sum of counts`);
+    assert.equal(endpointResult.counts.reduce((sum, count) => sum + count, 0), endpointResult.displayedTotal);
+    assert.equal(endpointResult.nonFiniteExcluded, 0);
+
+    const missingResult = run(missing, 0, 1);
+    assert.equal(missingResult.displayedTotal, 2, `${surface}: only finite in-range samples are displayed`);
+    assert.equal(missingResult.counts.reduce((sum, count) => sum + count, 0), 2);
+    assert.equal(missingResult.nonFiniteExcluded, 2, `${surface}: NaN and infinity are counted separately`);
+  }
+
+  const vega = buildVegaHistogramData(endpoints, 0, 3, 3);
+  assert.deepEqual(
+    vega.rows,
+    [
+      { binStart: 0, binEnd: 1, count: 1 },
+      { binStart: 1, binEnd: 2, count: 1 },
+      { binStart: 2, binEnd: 3, count: 2 },
+    ],
+    "Vega receives the already-governed bins instead of choosing a private bin transform",
+  );
+
+  // Executed adapters above prove arithmetic. This second side inventories the live draw/export
+  // routes so a dead shared helper cannot pass while a panel keeps private binning.
+  const histogramSource = await readFile(new URL("../src/ui/histogramPanel.ts", import.meta.url), "utf8");
+  const crossplotSource = await readFile(new URL("../src/ui/crossplotPanel.ts", import.meta.url), "utf8");
+  const vegaSource = await readFile(new URL("../src/ui/vegaPanel.ts", import.meta.url), "utf8");
+  const logViewSource = await readFile(new URL("../src/ui/logViewPanel.ts", import.meta.url), "utf8");
+  assert.match(histogramSource, /canonicalHistogram\(/, "the primary draw and its static vector redraw share the contract");
+  assert.match(histogramSource, /displayed n=\$\{displayedTotal\} of analysis n=/, "the primary axis discloses the bar population");
+  assert.match(crossplotSource, /computeMarginalHistogram\(/, "crossplot marginals execute the tested adapter");
+  assert.match(crossplotSource, /marginal displayed n X=/, "crossplot discloses both marginal bar populations");
+  assert.match(crossplotSource, /drawStatic[\s\S]*drawCrossplot\(/, "crossplot vector export reruns the same marginal draw");
+  assert.match(vegaSource, /buildVegaHistogramData\(/, "the live Vega grammar executes the tested pre-bin adapter");
+  assert.match(vegaSource, /displayed total=\$\{histogram\.displayedTotal\}/, "Vega discloses the pre-binned bar population");
+  assert.doesNotMatch(vegaSource, /field:\s*"x",\s*bin:\s*true/, "Vega may not select a private implicit bin contract");
+  assert.match(vegaSource, /current\.view\.toSVG\(\)/, "Vega SVG export uses the rendered governed view");
+  assert.match(logViewSource, /canonicalHistogram\(/, "log-view point and array histogram glyphs use the same contract");
+});
+
 test("track curve keys distinguish equal mnemonics from different imported sets", async () => {
   const { availableTrackSets, hasTrackCurve, trackCurveKey } = await load("/src/trackCurveRequest.ts");
   assert.equal(trackCurveKey({ curve_name: "gr" }), "GR");

@@ -209,6 +209,7 @@
 "SB-PLT-002","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_user_axis_range_wins_and_without_it_the_header_range_wins_in_the_rendered_label_and_export_while_validity_never_becomes_display"
 "SB-PLT-004","CORRECTNESS","tools/frontend-acceptance.test.mjs","display_clipping_counts_hidden_points_without_changing_analysis_while_explicit_validity_changes_and_discloses_n_statistics_and_fit_inputs_on_every_pilot_plot"
 "SB-PLT-005","CORRECTNESS","tools/frontend-acceptance.test.mjs","every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_while_the_documented_6_56x_pair_and_unknown_units_stay_disabled_with_reasons"
+"SB-PLT-006","CORRECTNESS","tools/frontend-acceptance.test.mjs","every_pilot_histogram_uses_half_open_bins_with_a_closed_final_endpoint_counts_non_finite_samples_separately_and_displays_the_sum_of_bin_counts"
 "SB-PLT-009","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_finite_statistics_without_population_or_exclusion_metadata"
 "SB-PLT-010","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_regression_as_coefficients_without_a_versioned_scientific_record"
 "SB-PLT-018","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_linked_brushing_as_one_ephemeral_scope_with_exact_depth_membership"

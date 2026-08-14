@@ -1,5 +1,12 @@
 import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
-import { histogram as canonicalBinCounts } from "../distribution";
+import {
+  HISTOGRAM_BINS_DEFAULT,
+  HISTOGRAM_BINS_MAX,
+  HISTOGRAM_BINS_MIN,
+  canonicalHistogram,
+  normalizeHistogramBinCount,
+  type HistogramContract,
+} from "../distribution";
 import { appState, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
@@ -88,7 +95,7 @@ export interface HistogramOptions {
 
 export const DEFAULT_HISTOGRAM_OPTIONS: HistogramOptions = {
   mode: "bars",
-  bins: 50,
+  bins: HISTOGRAM_BINS_DEFAULT,
   normalize: false,
   stats: ["p5", "p50", "p95", "count"],
   cumulative: false,
@@ -113,8 +120,7 @@ const STAT_DEFS: { key: StatKey; label: string; fmt: (s: BasicStats) => string; 
   { key: "count", label: "n", fmt: (s) => String(s.count), marker: false },
 ];
 
-const clampBins = (v: number): number =>
-  Math.max(1, Math.min(200, Math.round(v) || DEFAULT_HISTOGRAM_OPTIONS.bins));
+const clampBins = normalizeHistogramBinCount;
 
 /** Parses "10, 50, 90"-style user input into clean percentiles (bounded, deduped, sorted). */
 export function parsePercentiles(text: string): number[] {
@@ -184,23 +190,14 @@ function valuesAtIndices(values: ArrayLike<number>, indices: readonly number[]):
   return Float32Array.from(indices.map((index) => values[index]));
 }
 
-/** Computes histogram bin counts over [min, max]; NaN values are skipped. */
+/** Reporting-surface adapter for the canonical histogram contract. */
 export function computeHistogram(
   values: ArrayLike<number>,
   min: number,
   max: number,
   bins = DEFAULT_HISTOGRAM_OPTIONS.bins,
-): { counts: number[]; edges: number[]; n: number; nonFiniteExcluded: number } {
-  const binCount = clampBins(bins);
-  const counts = canonicalBinCounts(values, min, max, binCount);
-  const n = counts.reduce((sum, count) => sum + count, 0);
-  let nonFiniteExcluded = 0;
-  for (let i = 0; i < values.length; i++) {
-    if (!Number.isFinite(values[i])) nonFiniteExcluded++;
-  }
-  const width = (max - min) / binCount;
-  const edges = Array.from({ length: binCount + 1 }, (_, i) => min + i * width);
-  return { counts, edges, n, nonFiniteExcluded };
+): HistogramContract {
+  return canonicalHistogram(values, min, max, bins);
 }
 
 /** Compact percentile label ("P10", "P97.5"). */
@@ -274,11 +271,11 @@ export function drawHistogram(
   });
 
   const bins = clampBins(opts.bins);
-  const { counts, edges, n } = computeHistogram(analysisValues, min, max, bins);
-  if (n === 0) return null;
+  const { counts, edges, displayedTotal } = computeHistogram(analysisValues, min, max, bins);
+  if (displayedTotal === 0) return null;
 
   const stats = basicStats(analysisValues);
-  const yScale = opts.normalize ? 100 / n : 1;
+  const yScale = opts.normalize ? 100 / displayedTotal : 1;
 
   // Context wells: each is binned over the SAME edges and normalized to its OWN sample
   // count, then scaled to the active axis — a neighbour with 3× the samples must not
@@ -289,9 +286,9 @@ export function drawHistogram(
   if (hasCtx) {
     for (let layerIndex = 0; layerIndex < context!.layers.length; layerIndex++) {
       const layer = context!.layers[layerIndex];
-      const { counts: cc, n: cn } = computeHistogram(contextValues[layerIndex], min, max, bins);
-      if (cn === 0) continue;
-      const scale = (n * yScale) / cn;
+      const { counts: cc, displayedTotal: contextDisplayedTotal } = computeHistogram(contextValues[layerIndex], min, max, bins);
+      if (contextDisplayedTotal === 0) continue;
+      const scale = (displayedTotal * yScale) / contextDisplayedTotal;
       let layerPeak = 0;
       const pts: [number, number][] = [];
       for (let i = 0; i < cc.length; i++) {
@@ -308,7 +305,9 @@ export function drawHistogram(
   // The P2–P98 axis window can clip tail samples, so the in-window n is below the total valid
   // count that the stats chips show. Surface both ("n = X of Y") so the two never silently
   // disagree — a real QC trap for anyone standardizing GR on P3/P97 tails.
-  const yLabel = opts.normalize ? `% of analysis samples (n=${stats.count})` : `Count (analysis n=${stats.count})`;
+  const yLabel = opts.normalize
+    ? `% of displayed samples (displayed n=${displayedTotal} of analysis n=${stats.count})`
+    : `Count (displayed n=${displayedTotal} of analysis n=${stats.count})`;
   const yResolution = resolveBoundAxisRange({
     binding: null,
     user: null,
@@ -395,7 +394,7 @@ export function drawHistogram(
     let running = 0;
     for (let i = 0; i < counts.length; i++) {
       running += counts[i];
-      points.push([edges[i + 1], (running / n) * yMax]);
+      points.push([edges[i + 1], (running / displayedTotal) * yMax]);
     }
     plot.drawLine(points, plot.theme.accent2, 1.8);
     const { ctx } = plot;
@@ -1027,8 +1026,8 @@ export async function buildHistogramContent(
     const binsIn = document.createElement("input");
     binsIn.className = "form-control";
     binsIn.type = "number";
-    binsIn.min = "5";
-    binsIn.max = "400";
+    binsIn.min = String(HISTOGRAM_BINS_MIN);
+    binsIn.max = String(HISTOGRAM_BINS_MAX);
     binsIn.value = String(opts.bins);
 
     const chk = (label: string, checked: boolean): { el: HTMLElement; input: HTMLInputElement } => {

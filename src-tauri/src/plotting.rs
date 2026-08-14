@@ -508,27 +508,6 @@ pub fn apply_range_policy(
     report
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HistogramContract {
-    pub counts: Vec<u32>,
-    pub displayed_total: u32,
-    pub non_finite_excluded: usize,
-}
-
-pub fn canonical_histogram(
-    values: &[f32],
-    minimum: f32,
-    maximum: f32,
-    bins: usize,
-) -> HistogramContract {
-    let counts = crate::distribution::histogram(values, minimum, maximum, bins.max(1));
-    HistogramContract {
-        displayed_total: counts.iter().sum(),
-        non_finite_excluded: values.iter().filter(|value| !value.is_finite()).count(),
-        counts,
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PercentageKind {
@@ -1791,12 +1770,26 @@ mod tests {
 
     #[test]
     fn histogram_bins_are_half_open_except_for_the_final_upper_endpoint_and_non_finite_values_are_counted() {
-        let endpoints = canonical_histogram(&[0.0, 1.0, 2.0, 3.0], 0.0, 3.0, 3);
+        // CORRECTNESS - SB-PLT-006 / T06-T07, 23_plotting-interactivity.md sections 5-6.
+        assert_eq!(crate::distribution::HISTOGRAM_BINS_MIN, 1);
+        assert_eq!(crate::distribution::HISTOGRAM_BINS_MAX, 200);
+
+        let endpoints = crate::distribution::canonical_histogram(
+            &[0.0, 1.0, 2.0, 3.0],
+            0.0,
+            3.0,
+            3,
+        );
         assert_eq!(endpoints.counts, vec![1, 1, 2]);
         assert_eq!(endpoints.displayed_total, 4);
         assert_eq!(endpoints.non_finite_excluded, 0);
 
-        let missing = canonical_histogram(&[0.0, f32::NAN, f32::INFINITY, 1.0], 0.0, 1.0, 3);
+        let missing = crate::distribution::canonical_histogram(
+            &[0.0, f32::NAN, f32::INFINITY, 1.0],
+            0.0,
+            1.0,
+            3,
+        );
         assert_eq!(missing.displayed_total, 2);
         assert_eq!(missing.counts.iter().sum::<u32>(), 2);
         assert_eq!(missing.non_finite_excluded, 2);

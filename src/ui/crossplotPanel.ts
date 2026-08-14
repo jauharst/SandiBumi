@@ -1,4 +1,12 @@
 import { getCoreData, getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, runNetFlag, type NetFlagSpec, type PlotChannelBinding, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
+import {
+  HISTOGRAM_BINS_DEFAULT,
+  HISTOGRAM_BINS_MAX,
+  HISTOGRAM_BINS_MIN,
+  canonicalHistogram,
+  normalizeHistogramBinCount,
+  type HistogramContract,
+} from "../distribution";
 import { appState, bumpDataVersion, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import { requestRunCustody } from "./runCustody";
@@ -205,7 +213,7 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
   plotW: 640,
   plotH: 480,
   marginals: false,
-  bins: 40,
+  bins: HISTOGRAM_BINS_DEFAULT,
   color: "",
   percentiles: [],
   zLog: false,
@@ -241,7 +249,7 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   }
   opts.plotW = Math.max(200, Math.min(2000, Math.round(opts.plotW) || DEFAULT_CROSSPLOT_OPTIONS.plotW));
   opts.plotH = Math.max(200, Math.min(2000, Math.round(opts.plotH) || DEFAULT_CROSSPLOT_OPTIONS.plotH));
-  opts.bins = Math.max(5, Math.min(200, Math.round(opts.bins) || DEFAULT_CROSSPLOT_OPTIONS.bins));
+  opts.bins = normalizeHistogramBinCount(opts.bins);
   opts.color = typeof opts.color === "string" ? opts.color : "";
   opts.percentiles = Array.isArray(opts.percentiles) ? parsePercentiles(opts.percentiles.join(",")) : [];
   if (opts.colormap !== "viridis") opts.colormap = "rainbow";
@@ -794,35 +802,48 @@ function alignCoreSeriesByDepth(a: TrackCurveSeries, b: TrackCurveSeries): { xs:
   return { xs: Float32Array.from(xs), ys: Float32Array.from(ys) };
 }
 
-/** Bin counts over the axis's own space (log axes bin log-uniformly so bars align with
- *  the display); returns null when nothing falls in range. */
-function marginalCounts(
+export interface MarginalHistogramContract extends HistogramContract {
+  /** Finite non-positive values excluded before a logarithmic transform. */
+  logDomainExcluded: number;
+}
+
+/** Canonical bins over the axis's own space. Log axes transform only eligible finite values,
+ *  preserving source non-finite and log-domain exclusion counts as different facts. */
+export function computeMarginalHistogram(
   values: ArrayLike<number>,
   lo: number,
   hi: number,
   bins: number,
   log: boolean,
-): number[] | null {
+): MarginalHistogramContract | null {
   const t = (v: number) => (log ? Math.log10(v) : v);
   const tLo = t(lo);
   const tHi = t(hi);
   if (!Number.isFinite(tLo) || !Number.isFinite(tHi) || tLo === tHi) return null;
-  const counts = new Array(bins).fill(0);
-  let any = false;
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i];
-    if (Number.isNaN(v) || (log && v <= 0)) continue;
-    const f = (t(v) - tLo) / (tHi - tLo);
-    if (f < 0 || f > 1) continue;
-    counts[Math.min(bins - 1, Math.floor(f * bins))]++;
-    any = true;
+  const transformed: number[] = [];
+  let logDomainExcluded = 0;
+  for (let index = 0; index < values.length; index++) {
+    const value = values[index];
+    if (!Number.isFinite(value)) {
+      transformed.push(value);
+    } else if (log && value <= 0) {
+      logDomainExcluded++;
+    } else {
+      transformed.push(t(value));
+    }
   }
-  return any ? counts : null;
+  return { ...canonicalHistogram(transformed, tLo, tHi, bins), logDomainExcluded };
 }
 
 /** Marginal histograms in the widened top (X) and right (Y) margins, aligned with the
  *  plot's axes (fraction-based so log scales and inverted axes stay in register). */
-function drawMarginals(plot: PlotCanvas, xs: Float32Array, ys: Float32Array, bins: number, color: string): void {
+function drawMarginals(
+  plot: PlotCanvas,
+  xs: Float32Array,
+  ys: Float32Array,
+  bins: number,
+  color: string,
+): { x: MarginalHistogramContract | null; y: MarginalHistogramContract | null } {
   const r = plot.plotRect;
   const { ctx } = plot;
   const stripH = plot.margin.top - 12;
@@ -830,31 +851,32 @@ function drawMarginals(plot: PlotCanvas, xs: Float32Array, ys: Float32Array, bin
   ctx.save();
   ctx.fillStyle = color;
   ctx.globalAlpha = 0.55;
-  const cx = marginalCounts(xs, Math.min(plot.x.min, plot.x.max), Math.max(plot.x.min, plot.x.max), bins, plot.x.log);
-  if (cx && stripH > 6) {
-    const peak = Math.max(...cx);
-    const bw = r.w / bins;
-    for (let i = 0; i < bins; i++) {
-      if (cx[i] === 0) continue;
-      const f = (i + 0.5) / bins;
+  const xHistogram = computeMarginalHistogram(xs, Math.min(plot.x.min, plot.x.max), Math.max(plot.x.min, plot.x.max), bins, plot.x.log);
+  if (xHistogram && xHistogram.displayedTotal > 0 && stripH > 6) {
+    const peak = Math.max(...xHistogram.counts);
+    const bw = r.w / xHistogram.counts.length;
+    for (let i = 0; i < xHistogram.counts.length; i++) {
+      if (xHistogram.counts[i] === 0) continue;
+      const f = (i + 0.5) / xHistogram.counts.length;
       const px = r.x0 + (plot.x.invert ? 1 - f : f) * r.w;
-      const h = (cx[i] / peak) * stripH;
+      const h = (xHistogram.counts[i] / peak) * stripH;
       ctx.fillRect(px - bw / 2 + 0.5, r.y0 - 4 - h, Math.max(1, bw - 1), h);
     }
   }
-  const cy = marginalCounts(ys, Math.min(plot.y.min, plot.y.max), Math.max(plot.y.min, plot.y.max), bins, plot.y.log);
-  if (cy && stripW > 6) {
-    const peak = Math.max(...cy);
-    const bh = r.h / bins;
-    for (let i = 0; i < bins; i++) {
-      if (cy[i] === 0) continue;
-      const f = (i + 0.5) / bins;
+  const yHistogram = computeMarginalHistogram(ys, Math.min(plot.y.min, plot.y.max), Math.max(plot.y.min, plot.y.max), bins, plot.y.log);
+  if (yHistogram && yHistogram.displayedTotal > 0 && stripW > 6) {
+    const peak = Math.max(...yHistogram.counts);
+    const bh = r.h / yHistogram.counts.length;
+    for (let i = 0; i < yHistogram.counts.length; i++) {
+      if (yHistogram.counts[i] === 0) continue;
+      const f = (i + 0.5) / yHistogram.counts.length;
       const py = r.y0 + (plot.y.invert ? f : 1 - f) * r.h;
-      const w = (cy[i] / peak) * stripW;
+      const w = (yHistogram.counts[i] / peak) * stripW;
       ctx.fillRect(r.x0 + r.w + 4, py - bh / 2 + 0.5, w, Math.max(1, bh - 1));
     }
   }
   ctx.restore();
+  return { x: xHistogram, y: yHistogram };
 }
 
 /** Precomputed per-point Z coloring for the scatter — the redraw's heaviest step (two
@@ -1163,7 +1185,9 @@ export function drawCrossplot(
     plot.drawDiamonds(highXs, highYs, plot.theme.warn, Math.max(2.5, opts.pointSize + 1));
   }
 
-  if (opts.marginals) drawMarginals(plot, plotXs, plotYs, opts.bins, pointColor);
+  const marginalHistograms = opts.marginals
+    ? drawMarginals(plot, plotXs, plotYs, opts.bins, pointColor)
+    : null;
 
   const population = screenCrossplotPopulation(
     xs,
@@ -1180,11 +1204,14 @@ export function drawCrossplot(
   plot.ctx.font = canvasFont(plot.theme, 9);
   plot.ctx.fillStyle = plot.theme.axis;
   plot.ctx.textAlign = "right";
+  const marginalSummary = marginalHistograms
+    ? ` · marginal displayed n X=${marginalHistograms.x?.displayedTotal ?? 0}, Y=${marginalHistograms.y?.displayedTotal ?? 0}`
+    : "";
   plot.ctx.fillText(
     `${formatPlotRangePolicySummary(population, {
       statistics: true,
       fitInputs: opts.regression ? population.analysisCount : null,
-    })}${zExcluded ? ` · Z excluded=${zExcluded}` : ""}${zClamped ? ` · Z clamped/edge-marked=${zClamped}` : ""}`,
+    })}${marginalSummary}${zExcluded ? ` · Z excluded=${zExcluded}` : ""}${zClamped ? ` · Z clamped/edge-marked=${zClamped}` : ""}`,
     plot.plotRect.x0 + plot.plotRect.w,
     plot.plotRect.y0 + plot.plotRect.h + 31,
   );
@@ -2400,6 +2427,8 @@ export async function buildCrossplotContent(
     });
     const marginalsChk = chk("Marginal histograms (X top, Y right)", opts.marginals);
     const binsIn = num(opts.bins, 52, "");
+    binsIn.min = String(HISTOGRAM_BINS_MIN);
+    binsIn.max = String(HISTOGRAM_BINS_MAX);
     const pctIn = document.createElement("input");
     pctIn.className = "form-control";
     pctIn.placeholder = "e.g. 10, 50, 90";

@@ -32,6 +32,11 @@
 //     Layered spec — the selection params sit on the points layer, the variable signals top-level.
 import vegaEmbed, { type VisualizationSpec, type Result as VegaResult } from "vega-embed";
 import type { EditorView } from "codemirror";
+import {
+  HISTOGRAM_BINS_DEFAULT,
+  canonicalHistogram,
+  type HistogramContract,
+} from "../distribution";
 import { getCurveData, listZones, plotBindingSnapshotForChannels, type PlotChannelBinding, type TrackCurveSeries, type WellSummary, type ZoneEntry } from "../ipc";
 import { recordProcess } from "../processLog";
 import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
@@ -57,6 +62,28 @@ interface Row {
   depth: number;
   /** Raincloud only: the categorical lane this sample belongs to (a zone or a class value). */
   group?: string;
+}
+
+export interface VegaHistogramData extends HistogramContract {
+  rows: { binStart: number; binEnd: number; count: number }[];
+}
+
+/** Pre-bin Vega data through the same contract as Canvas plots; Vega renders these rows verbatim. */
+export function buildVegaHistogramData(
+  values: ArrayLike<number>,
+  min: number,
+  max: number,
+  bins = HISTOGRAM_BINS_DEFAULT,
+): VegaHistogramData {
+  const contract = canonicalHistogram(values, min, max, bins);
+  return {
+    ...contract,
+    rows: contract.counts.map((count, index) => ({
+      binStart: contract.edges[index],
+      binEnd: contract.edges[index + 1],
+      count,
+    })),
+  };
 }
 
 /** Options threaded through buildSpec: the scatter trend overlay, and the raincloud group ordering. */
@@ -111,12 +138,13 @@ function joinXYZ(series: TrackCurveSeries[], xName: string, yName: string, zName
   return out;
 }
 
-/** Finite X samples only — the data for a distribution (histogram) view. */
+/** Raw X samples for a distribution view; the governed screen owns exclusion accounting. */
 function xValues(series: TrackCurveSeries[], xName: string): Row[] {
   const xs = series.find((s) => s.curve_name === xName);
   if (!xs) return [];
   const out: Row[] = [];
-  for (let i = 0; i < xs.depth.length; i++) if (Number.isFinite(xs.value[i])) out.push({ x: xs.value[i], depth: xs.depth[i] });
+  // Preserve raw non-finite samples until screenVegaPopulation counts and excludes them.
+  for (let i = 0; i < xs.depth.length; i++) out.push({ x: xs.value[i], depth: xs.depth[i] });
   return out;
 }
 
@@ -353,15 +381,27 @@ function buildSpec(
   };
 
   if (type === "histogram") {
+    const governedDomain = opts?.axisDomains?.x ?? null;
+    const finite = rows.map((row) => row.x).filter(Number.isFinite);
+    const derivedDomain = finite.length > 0
+      ? [Math.min(...finite), Math.max(...finite)] as [number, number]
+      : null;
+    const domain = governedDomain ?? derivedDomain;
+    const histogram = domain && domain[0] !== domain[1]
+      ? buildVegaHistogramData(rows.map((row) => row.x), domain[0], domain[1])
+      : { counts: [], edges: [], displayedTotal: 0, nonFiniteExcluded: 0, rows: [] };
     return {
       ...base,
+      data: { values: histogram.rows },
       mark: { type: "bar", color: accent, opacity: 0.85 },
       encoding: {
-        x: { field: "x", bin: true, type: "quantitative", title: xName, scale: scale("x"), axis },
-        y: { aggregate: "count", type: "quantitative", title: "count", axis },
+        x: { field: "binStart", type: "quantitative", title: xName, scale: scale("x"), axis },
+        x2: { field: "binEnd" },
+        y: { field: "count", type: "quantitative", title: `count (displayed n=${histogram.displayedTotal})`, axis },
         tooltip: [
-          { field: "x", bin: true, type: "quantitative", title: xName },
-          { aggregate: "count", type: "quantitative", title: "count" },
+          { field: "binStart", type: "quantitative", title: `${xName} start` },
+          { field: "binEnd", type: "quantitative", title: `${xName} end` },
+          { field: "count", type: "quantitative", title: "count" },
         ],
       },
     } as VisualizationSpec;
@@ -799,6 +839,7 @@ export async function buildVegaContent(
     xValidMax: xValidMax.value,
     yValidMin: yValidMin.value,
     yValidMax: yValidMax.value,
+    histogramBins: typeSel.value === "histogram" ? String(HISTOGRAM_BINS_DEFAULT) : "",
   });
   let baseAxisRanges: PlotAxisRangeExport[] = [];
   let axisRanges: PlotAxisRangeExport[] = [];
@@ -920,10 +961,24 @@ export async function buildVegaContent(
       x ? { min: x.min, max: x.max } : null,
       y ? { min: y.min, max: y.max } : null,
     );
+    const histogramDomain = lastType === "histogram"
+      ? baseAxisRanges.find((range) => range.axis === "x") ?? null
+      : null;
+    const histogram = histogramDomain && lastRows
+      ? buildVegaHistogramData(
+          lastRows.map((row) => row.x),
+          histogramDomain.min,
+          histogramDomain.max,
+          HISTOGRAM_BINS_DEFAULT,
+        )
+      : null;
+    const histogramSummary = histogram
+      ? ` · histogram bins=${histogram.counts.length} · displayed total=${histogram.displayedTotal}`
+      : "";
     rangeInfo.textContent = `${formatAxisRangeSummary(axisRanges)} · ${formatPlotRangePolicySummary(population, {
       statistics: true,
       fitInputs: lastType === "scatter" && lastTrend ? population.analysisCount : null,
-    })}`;
+    })}${histogramSummary}`;
   };
   const prepareAxisRanges = (type: ChartType, rows: Row[]): boolean => {
     if (specOverride) {

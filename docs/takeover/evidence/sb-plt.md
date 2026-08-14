@@ -84,14 +84,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; chapter intentions T06-T07; sections 4.2, 5, 6 and 8.1.
 - **Atomic obligations:** use half-open bins with only the final upper endpoint included; count NaN/infinity exclusions separately; make displayed total equal the bin-count sum through every histogram surface.
-- **Current source:** the main histogram panel uses `src/distribution.ts::histogram`, defaults to the cited 50 bins and clamps to 1-200 while reporting non-finite exclusions and count totals. Crossplot marginals reimplement binning without the shared exclusion report, and Vega delegates to an implicit `bin: true` rule. Rust uses a duplicate implementation. The stale HTML attributes still advertise 5-400 even though normalization clamps them.
-- **Qualifying acceptance tests:** none; T06/T07 run only through the Rust helper and do not cover the main panel, marginals, Vega and export as one contract. Test class is `MISSING`.
-- **Supporting tests:** `plotting.rs::histogram_bins_are_half_open_except_for_the_final_upper_endpoint_and_non_finite_values_are_counted` and distribution unit tests pin the shared Rust arithmetic, not the divergent live inventory.
+- **Current source:** `src/distribution.ts::canonicalHistogram` owns the cited 50-bin default, 1-200 normalization, half-open/final-closed arithmetic, exact edges, displayed-total sum and non-finite count. The primary panel, transformed crossplot marginals, pre-binned Vega grammar and log-view micro-glyphs call it; Vega retains raw non-finite X samples until the shared population screen counts them. Canvas SVG/PDF rerun the same static draws and Vega SVG/PNG export the rendered governed view. Rust's matching contract lives in `distribution.rs`; the disconnected plotting-local wrapper is removed and the native-install smoke test points to the real path.
+- **Qualifying acceptance tests:** `tools/frontend-acceptance.test.mjs::every_pilot_histogram_uses_half_open_bins_with_a_closed_final_endpoint_counts_non_finite_samples_separately_and_displays_the_sum_of_bin_counts` executes T06/T07 through canonical, primary, marginal and Vega adapters, verifies pre-binned Vega rows and inventories the live screen/vector-export routes. Test class is `CORRECTNESS`.
+- **Supporting tests:** `plotting.rs::histogram_bins_are_half_open_except_for_the_final_upper_endpoint_and_non_finite_values_are_counted` executes the real Rust distribution contract. A deliberate frontend mutation changed the final endpoint guard from `> hi` to `>= hi`; the owned test returned `[1,1,1]` versus `[1,1,2]` before restoration.
 - **Manual evidence:** `histogram` 5/22, `crossplot` 6/13, `vega` 0/2 and `report` 6/53.
-- **Git evidence:** reachable commit `b45427a` migrated the primary histogram path; accepted source retains independent marginal and Vega rules.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** multiple active binning definitions and no product-wide T06/T07 proof remain.
-- **Next action:** route all plotting histograms through one canonical contract, align the property affordance, and test both endpoints and non-finite disclosure through each live consumer and export.
+- **Git evidence:** reachable commit `b45427a` migrated only the primary histogram path; the current Gate 2 increment closes the retained marginal, Vega, log-view, Rust and property-affordance divergence.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for Gate 2 automation. Visual readability, manual interaction and representative-field confirmation remain open rather than inferred.
+- **Next action:** retain the shared contract and explicit population labels, execute the `REVIEW.md` click-through separately, skip deferred SB-PLT-007/008 and proceed to pilot blocker SB-PLT-009.
 
 ## SB-PLT-007 - Overplot thresholds expose the comparator
 
