@@ -96,16 +96,16 @@
 
 ## SB-ENV-007 - Per-sample correction flag channel
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; T11/T13; sections 4.1, 6.2 and 8.
-- **Atomic obligations:** emit full, partial, not-applied and refused states per sample, typed through SB-ENV-030 and linked to the step set.
-- **Current source:** the three environmental-correction helpers emit only corrected numeric curves; no companion correction-state output exists.
-- **Qualifying acceptance tests:** none; T11/T13 are missing. Test class `MISSING`.
-- **Supporting tests:** nominal correction arithmetic does not observe state custody.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** `UNIMPLEMENTED` at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on the missing applied-step model and typed flag model.
-- **Next action:** define the typed correction-state channel and exercise all four states with partial-coverage inputs.
+- **Chapter evidence:** P1; chapter status `ABSENT`; T11/T13; sections 4.1, 5.2, 6.2 and 8.
+- **Atomic obligations:** emit full, partial, not-applied and refused states per sample; identify the applied step set at every partial sample; use SB-ENV-030's one typed polarity contract.
+- **Current source:** the three environmental-correction helpers emit only corrected numeric `Vec<f32>` curves. `ArgSpec` outputs carry name/description/unit but no flag type. SB-ENV-006 now refuses GR/density runs whenever finite source coverage is not fully matched by CALI; that closes the unmarked-copy defect but cannot exercise T13's partial-caliper result. The universal precondition companion is a binary violation curve and is not a correction-state or step-membership record.
+- **Qualifying acceptance tests:** none. Exact T13 has no body. The implemented T11 refusal proves SB-ENV-006's allowed whole-run alternative, not SB-ENV-007's four-state per-sample channel. Test class `MISSING`.
+- **Supporting tests:** `a_gr_correction_with_no_caliper_refuses_and_writes_no_uncorrected_copy` proves an all-uncovered input refuses without a correction-named copy. The SB-ENV-003 partial-precondition proof establishes binary `1 = violation` mechanics but carries neither correction state nor step identity.
+- **Manual evidence:** conditioning 1/50; workflow 0/41; processing-history 0/7; all four SB-ENV-007 blocker-review scenarios remain unchecked and are not silently assigned to a generated capability-map row.
+- **Git evidence:** current topic branch after SB-ENV-006; exact source/spec audit found no typed state output, wire encoding, per-sample step-set record or T13. The unchanged last full gate is 1045 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; the blocker-only exact candidate is re-gated before commit.
+- **Verdict:** chapter and live as-built remain `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`; Gate 2 `BLOCKED-DECISION/DEPENDENCY`; Visual/Manual/Field review open.
+- **Blocker or decision:** DEC-031 records the non-overlapping representation choice. SB-ENV-030 supplies binary `1 = true`, not four categorical wire codes; choosing arbitrary `f32` values would invent an observable file/IPC contract, while emitting four curves would contradict the singular-channel wording without approval. The partial state also requires the step identity/version and persistence owner still open under SB-ENV-005/OI-4. T13 further requires an explicit partial-execution policy rather than silently weakening SB-ENV-006's all-uncovered refusal.
+- **Next action:** Jauhar selects DEC-031's binary one-hot group or categorical state channel, selects OI-4's owner and approves the partial-coverage policy; then implement the typed metadata/storage/IPC seam and exact T13 from both full and partial/refused sides. No correction coefficient or default is needed or inferred.
 
 ## SB-ENV-008 - Validity conditions are visible before the run, not only after it
 

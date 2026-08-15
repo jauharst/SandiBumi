@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-007: per-sample correction state blocked
+
+- [ ] **Automated audit:** exact source/spec inventory confirms `ModuleOutputs` carries only
+      `Vec<f32>`, declared outputs have no flag-type metadata, SB-ENV-030 defines only binary
+      `1 = true`, and no T13 or four-state correction channel exists. The passing SB-ENV-006 T11
+      refusal is supporting evidence only; it cannot prove a per-sample state channel or step set.
+      The unchanged last full gate is 1045 passed / 0 failed / 37 ignored with 31 separately owned
+      Rust warnings; no test was manufactured from the current refusal.
+- [ ] **Visual:** no closure review is executable. A failed correction can show a source-bearing
+      message and a successful correction can show `*_EC`, but neither surface currently shows
+      full/partial/not-applied/refused state at each depth or the steps used at a partial sample.
+- [ ] **Manual decision:** settle DEC-031: either approve a one-hot group of typed binary state
+      channels that preserves SB-ENV-030's `1 = true`, or define one categorical state channel with
+      exact stable wire codes. Also select OI-4's persistence owner and authorize the T13 partial-
+      coverage policy without weakening the all-uncovered SB-ENV-006 refusal.
+- [ ] **Field and harsh critique:** an unchanged input blocked by a whole-run error is safer than an
+      unmarked corrected curve, but it is not the interval-level QC T13 requires. A unit string is
+      not type metadata, and arbitrary float codes would become an undocumented file format.
+
 ## 2026-08-16 — G2 SB-ENV-006: environmental correction workflow refusal
 
 - [ ] **Automated correctness:** exact T11 drives GR-without-caliper through the real workflow
