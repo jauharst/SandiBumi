@@ -193,9 +193,9 @@ test('a_field_fixture_test_cannot_be_relabelled_as_optional_package_execution', 
   );
 });
 
-test('the_live_inventory_owns_34_warnings_and_37_ignored_tests_without_counting_them_as_passed', () => {
-  // CHARACTERIZATION — the live compiler/test inventory is 34 warnings and 37 ignored tests
-  // after SB-PLT-016 moved its duplicate Rust reconciliation oracle behind the test boundary.
+test('the_live_inventory_owns_33_warnings_and_37_ignored_tests_without_counting_them_as_passed', () => {
+  // CHARACTERIZATION — the live compiler/test inventory is 33 warnings and 37 ignored tests
+  // after SB-PLT-017 moved its duplicate Rust half-open oracle behind the test boundary.
   // Owning remaining debt does not prove it passes.
   const warningInventory = JSON.parse(fs.readFileSync(
     path.join(repo, 'docs', 'takeover', 'evidence', 'gate2-warning-inventory.json'),
@@ -206,8 +206,8 @@ test('the_live_inventory_owns_34_warnings_and_37_ignored_tests_without_counting_
     'utf8',
   ));
 
-  assert.equal(warningInventory.expected_warning_count, 34);
-  assert.equal(warningInventory.expected_warning_counts_by_file['src/plotting.rs'], 24);
+  assert.equal(warningInventory.expected_warning_count, 33);
+  assert.equal(warningInventory.expected_warning_counts_by_file['src/plotting.rs'], 23);
   assert.equal(ignoredInventory.expected_ignored_test_count, 37);
   assert.deepEqual(ignoredInventory.expected_category_counts, {
     'OPTIONAL-PACKAGE': 27,

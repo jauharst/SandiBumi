@@ -1165,6 +1165,96 @@ test("a_superseded_async_plot_build_is_disposed_before_it_can_replace_the_active
   assert.ok(activeAppend > staleDispose, "the stale-return branch precedes active-panel mutation");
 });
 
+test("a_viewport_crossing_its_loaded_high_bound_issues_one_generation_tagged_half_open_refetch_and_only_the_newest_reverse_order_response_renders", async () => {
+  // CORRECTNESS — SB-PLT-017 / SB-PLT-T27/T28. The half-open interval, one tagged
+  // refetch on a crossed bound, and newest-generation-only render are specified by
+  // docs/PRD_v2/23_plotting-interactivity.md §4.3 and §6, citing dossier §§2.8/5.4.
+  const { ViewportRefetchCoordinator } = await load("/src/ui/viewportRefetch.ts");
+  const coordinator = new ViewportRefetchCoordinator();
+  const pending = [];
+  const requests = [];
+  const rendered = [];
+  const pendingNotices = [];
+  const failures = [];
+  const deferredLoad = (request) => {
+    requests.push(request);
+    return new Promise((resolve, reject) => pending.push({ resolve, reject }));
+  };
+  const apply = (value) => rendered.push(value);
+  const reportPending = (message) => pendingNotices.push(message);
+  const reportFailure = (message) => failures.push(message);
+
+  coordinator.seedLoaded({ sourceKey: "well-a|GR", low: 100, high: 101, targetPixelHeight: 100 });
+  const contained = await coordinator.refetch(
+    { sourceKey: "well-a|GR", low: 100.1, high: 100.9, targetPixelHeight: 80 },
+    deferredLoad,
+    apply,
+    reportPending,
+    reportFailure,
+  );
+  assert.equal(contained, "loaded", "an equally dense interval already inside the loaded range does not refetch");
+  assert.equal(requests.length, 0);
+
+  const first = coordinator.refetch(
+    { sourceKey: "well-a|GR", low: 100.5, high: 101.5, targetPixelHeight: 100 },
+    deferredLoad,
+    apply,
+    reportPending,
+    reportFailure,
+  );
+  const duplicate = await coordinator.refetch(
+    { sourceKey: "well-a|GR", low: 100.5, high: 101.5, targetPixelHeight: 100 },
+    deferredLoad,
+    apply,
+    reportPending,
+    reportFailure,
+  );
+  assert.equal(duplicate, "pending", "the same crossed-bound request is issued once");
+  assert.equal(requests.length, 1);
+  assert.equal(pendingNotices.length, 1, "the one in-flight request has one visible provisional-data notice");
+  assert.match(pendingNotices[0], /\[100\.5, 101\.5\).*existing samples remain visible/i);
+  assert.deepEqual(requests[0], {
+    sourceKey: "well-a|GR",
+    low: 100.5,
+    high: 101.5,
+    targetPixelHeight: 100,
+    generation: 1,
+  });
+
+  const second = coordinator.refetch(
+    { sourceKey: "well-a|GR", low: 101, high: 102, targetPixelHeight: 100 },
+    deferredLoad,
+    apply,
+    reportPending,
+    reportFailure,
+  );
+  assert.equal(requests[1].generation, 2, "each distinct async request carries a newer generation");
+  pending[1].resolve("newest");
+  assert.equal(await second, "applied");
+  pending[0].resolve("stale");
+  assert.equal(await first, "stale");
+  assert.deepEqual(rendered, ["newest"], "reverse-order completion cannot repaint with stale samples");
+
+  const failed = coordinator.refetch(
+    { sourceKey: "well-a|GR", low: 101.5, high: 102.5, targetPixelHeight: 100 },
+    deferredLoad,
+    apply,
+    reportPending,
+    reportFailure,
+  );
+  pending[2].reject(new Error("offline"));
+  assert.equal(await failed, "failed");
+  assert.match(failures[0], /101\.5.*102\.5.*existing samples remain/i);
+
+  // The executed coordinator proves the race and interval rules. This second side inventories
+  // the live panel route so a dead helper cannot pass while the viewer still stretches old data.
+  const panelSource = await readFile(new URL("../src/ui/logViewPanel.ts", import.meta.url), "utf8");
+  assert.match(panelSource, /viewportRefetch\.refetch\(/);
+  assert.match(panelSource, /getTrackData\([\s\S]*tagged\.low,[\s\S]*tagged\.high/);
+  assert.match(panelSource, /this\.message\(pending\)/, "the old trace is labelled while detail is in flight");
+  assert.match(panelSource, /this\.message\(failure\)/, "the coordinator's failure is visible in the panel");
+});
+
 test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handler_on_dispose", async () => {
   // CORRECTNESS — SB-PLT-030 / SB-PLT-T39 cites plotCanvas.ts:527-618 for the
   // accessible label, keyboard focus, pan/zoom and disposer contract.

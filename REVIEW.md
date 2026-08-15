@@ -1,5 +1,29 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-017: identified log-view viewport refetch
+
+- [ ] **Automated correctness:** the exact SB-PLT-017 T27/T28 test starts from a known loaded
+      interval, proves an equally dense contained view does not fetch, proves a crossed high bound
+      issues one `[low,high)` request with a generation token, collapses its duplicate, resolves two
+      requests in reverse order and renders only the newest, and surfaces both pending and failure
+      states in the panel. Inverting the generation guard made the test RED before restoration. The
+      Rust query proof excludes the high endpoint. The full gate is green at 1032 passed / 0 failed /
+      37 ignored with 33 owned Rust warnings.
+- [ ] **Visual:** open a log view on a dense curve, zoom in and pan past the currently loaded depth
+      interval. Confirm the track shows a readable provisional-data notice while detail loads, then
+      clears it when the denser trace arrives. At the smallest normal dock size, neither the notice
+      nor a refresh-failure message may cover the depth scale or curve headers.
+- [ ] **Manual:** pan and zoom rapidly enough to overlap two loads, finishing on a visibly different
+      interval. Confirm the final interval stays rendered after the older request completes, repeat
+      the same settled view and confirm it does not issue another fetch, and verify the query excludes
+      a sample exactly at the requested high bound. Confirm no source curve, sampling or Reframe
+      output is written.
+- [ ] **Field and harsh critique:** repeat on representative long, dense, sparse and multi-set logs.
+      If zoom merely enlarges a coarse whole-log trace, if an old response repaints a newer view, or
+      if a failed refresh leaves plausible-looking data without disclosure, this requirement fails.
+      Automation does not prove visual clarity, user comprehension, response time or field behavior;
+      those remain open until Jauhar records them.
+
 ## 2026-08-15 — G2 SB-PLT-016: exact depth reconciliation and explicit Reframe handoff
 
 - [ ] **Automated correctness:** the exact SB-PLT-016 T23-T26 test executes equal regular grids,

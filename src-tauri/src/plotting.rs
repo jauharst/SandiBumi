@@ -1089,6 +1089,7 @@ pub fn reconcile_depth_steps(steps: &[f32]) -> Result<DepthStepReconciliation, S
     Ok(DepthStepReconciliation { coarsest_step, decimation_factors })
 }
 
+#[cfg(test)]
 pub fn half_open_depth_indices(depth: &[f32], low: f32, high: f32) -> Vec<usize> {
     depth
         .iter()

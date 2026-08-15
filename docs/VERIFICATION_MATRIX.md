@@ -44,7 +44,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 10 | — | 4 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
-| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 43 | 2026-07-19 | 9 |
+| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 47 | 2026-07-19 | 10 |
 | `histogram` | Histogram | Partially exercised | 5 / 34 | 2026-07-20 | 8 |
 | `crossplot` | Crossplot | Partially exercised | 6 / 21 | 2026-07-20 | 8 |
 | `pickett` | Pickett plot | Not exercised | 0 / 16 | — | 5 |

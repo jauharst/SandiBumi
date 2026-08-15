@@ -41,6 +41,7 @@ import {
   type PlotChannelPolicyReport,
   type PlotDisplayRange,
 } from "./plotTypes";
+import { ViewportRefetchCoordinator } from "./viewportRefetch";
 
 type HeaderMode = "full" | "compact" | "collapsed";
 type BorderStyle = { style: "solid" | "dashed" | "none"; width: number; color: string };
@@ -179,10 +180,9 @@ export class LogViewPanel {
   /** Monotonic token so an out-of-order loadWell (fast well switching, or a dataVersion
    *  bump mid-load) can't render a stale well's series over a newer one. */
   private loadGen = 0;
-  /** Viewport refetches are independently generation-guarded from whole-well loads. */
-  private viewportGen = 0;
+  /** Disposable loaded-interval/density identity plus the generation guard for viewport loads. */
+  private readonly viewportRefetch = new ViewportRefetchCoordinator<TrackCurveSeries[]>();
   private viewportTimer: number | undefined;
-  private viewportSignature = "";
   private depthRangeInitialized = false;
   /** Set in dispose(); the un-awaited initRenderer checks it so subscriptions/observers
    *  aren't registered after the panel already closed (they would leak forever). */
@@ -709,10 +709,9 @@ export class LogViewPanel {
     // supersedes this one and we bail before writing this.series/coreByName. this.well is
     // set synchronously and NOT rolled back — a newer load already advanced it.
     const gen = ++this.loadGen;
-    this.viewportGen += 1;
+    this.viewportRefetch.reset();
     if (this.viewportTimer !== undefined) window.clearTimeout(this.viewportTimer);
     this.viewportTimer = undefined;
-    this.viewportSignature = "";
     this.depthRangeInitialized = false;
     if (!keepView) this.viewResetPending = true;
     this.well = well;
@@ -751,6 +750,15 @@ export class LogViewPanel {
       this.curveUnits = units;
       this.refresh(false);
       this.depthRangeInitialized = true;
+      const [loadedLow, loadedHigh] = this.renderer.getDataDepthRange();
+      if (Number.isFinite(loadedLow) && Number.isFinite(loadedHigh) && loadedHigh > loadedLow) {
+        this.viewportRefetch.seedLoaded({
+          sourceKey: this.viewportSourceKey(well.well_id, curveRequests),
+          low: loadedLow,
+          high: loadedHigh,
+          targetPixelHeight: this.canvas.clientHeight || 400,
+        });
+      }
       if (this.viewResetPending) {
         this.renderer.resetView();
         this.viewResetPending = false;
@@ -1704,6 +1712,10 @@ export class LogViewPanel {
     }, 100);
   }
 
+  private viewportSourceKey(wellId: string, requests: TrackCurveRequest[]): string {
+    return JSON.stringify([wellId, requests]);
+  }
+
   private async reloadViewport(): Promise<void> {
     const well = this.well;
     const renderer = this.renderer;
@@ -1712,40 +1724,46 @@ export class LogViewPanel {
     if (!Number.isFinite(depthMin) || !Number.isFinite(depthMax) || depthMax <= depthMin) return;
     const targetPixelHeight = this.canvas.clientHeight || 400;
     const requests = this.trackCurveRequests();
-    const signature = JSON.stringify([
-      well.well_id,
-      requests,
-      depthMin,
-      depthMax,
-      targetPixelHeight,
-    ]);
-    if (signature === this.viewportSignature) return;
-    this.viewportSignature = signature;
-    const viewportGen = ++this.viewportGen;
     const loadGen = this.loadGen;
-    try {
-      const series = await getTrackData(
-        well.well_id,
-        requests,
+    await this.viewportRefetch.refetch(
+      {
+        sourceKey: this.viewportSourceKey(well.well_id, requests),
+        low: depthMin,
+        high: depthMax,
         targetPixelHeight,
-        depthMin,
-        depthMax,
-      );
-      if (
-        this.disposed ||
-        viewportGen !== this.viewportGen ||
-        loadGen !== this.loadGen ||
-        this.well?.well_id !== well.well_id ||
-        !this.renderer
-      ) {
-        return;
-      }
-      this.series = series;
-      this.applySeriesToRenderer(true);
-    } catch (error) {
-      if (viewportGen === this.viewportGen) this.viewportSignature = "";
-      console.error("Failed to refresh visible curve interval:", error);
-    }
+      },
+      (tagged) =>
+        getTrackData(
+          well.well_id,
+          requests,
+          tagged.targetPixelHeight,
+          tagged.low,
+          tagged.high,
+        ),
+      (series) => {
+        if (
+          this.disposed ||
+          loadGen !== this.loadGen ||
+          this.well?.well_id !== well.well_id ||
+          !this.renderer
+        ) {
+          return;
+        }
+        this.series = series;
+        this.applySeriesToRenderer(true);
+        this.message("");
+      },
+      (pending) => {
+        if (this.disposed || loadGen !== this.loadGen || this.well?.well_id !== well.well_id) return;
+        this.message(pending);
+      },
+      (failure, error) => {
+        if (this.disposed || loadGen !== this.loadGen || this.well?.well_id !== well.well_id) return;
+        console.error("Failed to refresh visible curve interval:", error);
+        this.message(failure);
+        setStatus(failure);
+      },
+    );
   }
 
   private applySeriesToRenderer(preserveDepthRange: boolean): void {
@@ -1919,7 +1937,7 @@ export class LogViewPanel {
 
   dispose(): void {
     this.disposed = true;
-    this.viewportGen += 1;
+    this.viewportRefetch.reset();
     if (this.viewportTimer !== undefined) {
       window.clearTimeout(this.viewportTimer);
       this.viewportTimer = undefined;

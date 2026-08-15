@@ -225,16 +225,16 @@
 
 ## SB-PLT-017 - Zoom beyond loaded data triggers an identified refetch
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; chapter intention T27; sections 4.3, 6 and 8.1.
+- **Chapter evidence:** P1; chapter status `ABSENT`; chapter intentions T27-T28; sections 4.3, 6 and 8.1.
 - **Atomic obligations:** detect viewport crossing of the loaded interval; issue one new half-open identified request with a generation token; discard stale responses; never imply that stretched/empty old samples are newly loaded data.
-- **Current source:** `plotCanvas.ts::attachZoomPan` and keyboard controls mutate only an in-memory viewport and redraw. Histogram, crossplot and Pickett fetch on curve/zone/data-revision changes, not viewport crossing. Targeted source, tests and reachable history recovered no loaded-interval tracker or viewport-triggered refetch.
-- **Qualifying acceptance tests:** none; T27 is absent. Test class is `MISSING`.
-- **Supporting tests:** generation tests for ordinary reloads and panel replacement do not issue the required viewport request.
-- **Manual evidence:** `crossplot` 6/13, `histogram` 5/22, `pickett` 0/8 and `portfolio-performance` 0/50.
-- **Git evidence:** `UNIMPLEMENTED`; no qualifying history is reachable at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** the product cannot distinguish panning beyond loaded data from a local view change.
-- **Next action:** track the identified loaded interval, issue generation-tagged half-open refetches on boundary crossing and implement T27 with a stale-response control.
+- **Current source:** `viewportRefetch.ts::ViewportRefetchCoordinator` carries one source/interval/pixel-density identity, requests when the view crosses that interval or requires denser samples, collapses an identical in-flight request and attaches a monotonic local generation before loading. Only the current generation can apply. `logViewPanel.ts` seeds the identity from the structural whole-well extent, routes settled depth views through the coordinator, preserves the extent while replacing only visible series, and displays both provisional-data and failure notices instead of implying old samples are newly loaded. `equations.rs` applies the same half-open high-bound exclusion to current and explicit-set track reads before decimation; no row or sampling is written.
+- **Qualifying acceptance tests:** `tools/frontend-acceptance.test.mjs::a_viewport_crossing_its_loaded_high_bound_issues_one_generation_tagged_half_open_refetch_and_only_the_newest_reverse_order_response_renders` is CORRECTNESS. It executes contained, crossed-bound, duplicate, reverse-order, pending and failure paths, checks the exact tagged interval, and inventories the live panel route. Inverting the newest-generation guard made the test RED before restoration.
+- **Supporting tests:** `equations.rs::explicit_track_set_keeps_its_native_grid_and_filters_before_decimation` exercises the real pre-decimation query and excludes the high endpoint; `plotting.rs::equal_and_integer_multiple_depth_steps_proceed_but_non_integer_steps_route_to_dio_and_intervals_stay_half_open` retains the independent cited interval oracle as test-only code, removing its disconnected production warning.
+- **Manual evidence:** `log-view` 5/47; visual, manual and representative-field checks are open in `REVIEW.md`.
+- **Git evidence:** the prior local generation guard was unowned and did not track loaded density or disclose provisional/failure state; the Gate 2 completion commit is pending at this evidence write.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for Gate 2 automation. Visual clarity, interaction timing and representative-field evidence remain deliberately open.
+- **Next action:** retain the identified disposable-load contract, half-open query and visible pending/failure states; execute the separate review/Gate 4 scenarios; skip deferred SB-PLT-018 and proceed serially to SB-PLT-019.
 
 ## SB-PLT-018 - Linked selections are named, typed and persistable
 

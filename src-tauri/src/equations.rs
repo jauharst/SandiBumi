@@ -210,7 +210,7 @@ fn filter_curve_interval(
         .iter()
         .copied()
         .enumerate()
-        .filter(|(_, d)| *d >= lo && *d <= hi)
+        .filter(|(_, d)| *d >= lo && *d < hi)
         .map(|(index, d)| (d, values.get(index).copied().unwrap_or(f32::NAN)))
         .unzip()
 }
@@ -247,7 +247,7 @@ fn fetch_generic_curve_native(
         "SELECT depth, value FROM curve_samples
          WHERE curve_id = ?1
            AND (?2 IS NULL OR depth >= ?2)
-           AND (?3 IS NULL OR depth <= ?3)
+           AND (?3 IS NULL OR depth < ?3)
          ORDER BY depth",
     )?;
     let rows = stmt.query_map(params![curve_id, depth_min, depth_max], |row| {
@@ -4890,7 +4890,7 @@ mod tests {
         let visible_packed: &[f32] = bytemuck::cast_slice(&visible[0].data);
         let visible_n = visible[0].point_count;
         assert!(visible_n <= 2, "one pixel bucket emits at most its min/max pair");
-        assert!(visible_packed[..visible_n].iter().all(|d| *d >= 1000.0 && *d <= 1002.5));
+        assert!(visible_packed[..visible_n].iter().all(|d| *d >= 1000.0 && *d < 1002.5));
 
         let current = TrackCurveRequest { curve_name: "GR".into(), set_name: None };
         let standard = fetch_track_data(&conn, well, &[current], 100, None, None).unwrap();
