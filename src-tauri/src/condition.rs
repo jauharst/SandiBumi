@@ -41,8 +41,8 @@
 //! it every run"*). See [`crate::modules::param_open`].
 
 use crate::modules::{
-    log_in, log_out_as, opt_labelled, param, param_open, param_open_when, ModuleContext,
-    ModuleOutputs, ModuleSpec,
+    log_in, log_out_as, log_out_flag_as, opt_labelled, param, param_open, param_open_when,
+    FlagCurve, FlagKind, FlagValue, ModuleContext, ModuleOutputs, ModuleSpec,
 };
 use std::collections::HashMap;
 
@@ -198,7 +198,16 @@ fn yes(ctx: &ModuleContext, name: &str, default: bool) -> bool {
 
 /// The shared trailing args of every Condition module: the output name and the changed-sample
 /// flag. One definition so the wording cannot drift between five dialogs.
-fn out_args(flag_desc: &str, flag_suffix: &str, flag_pattern: &str) -> Vec<crate::modules::ArgSpec> {
+fn out_args(
+    flag_desc: &str,
+    flag_suffix: &str,
+    flag_pattern: &str,
+    flag_kind: Option<FlagKind>,
+) -> Vec<crate::modules::ArgSpec> {
+    let companion = match flag_kind {
+        Some(kind) => log_out_flag_as("OUT_FLAG", flag_pattern, flag_suffix, kind),
+        None => log_out_as("OUT_FLAG", flag_pattern, flag_suffix, ""),
+    };
     vec![
         opt_labelled(
             "OPT_FLAG",
@@ -210,7 +219,7 @@ fn out_args(flag_desc: &str, flag_suffix: &str, flag_pattern: &str) -> Vec<crate
             ],
         ),
         log_out_as("OUT_CURVE", "{CURVE}_C", "Conditioned curve", ""),
-        log_out_as("OUT_FLAG", flag_pattern, flag_suffix, ""),
+        companion,
     ]
 }
 
@@ -298,6 +307,7 @@ pub fn despike_spec() -> ModuleSpec {
                 "Write a flag curve marking every replaced sample",
                 "Replaced-sample flag",
                 "{OUT_CURVE}_SPK",
+                Some(FlagKind::DiagnosticIndicator),
             ));
             a
         },
@@ -373,7 +383,7 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     }
 
     let mut out = vals.clone();
-    let mut flag = vec![0.0f32; ctx.n];
+    let mut flag = FlagCurve::clear(ctx.n);
     let mut buf: Vec<f32> = Vec::new();
 
     // RATE walks the frame in order and needs the PREVIOUS live sample, which is not the previous
@@ -388,7 +398,7 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
             // A MISSING sample stays MISSING. Despiking is a rejection, not a repair — inventing
             // a value here would be Fill Gaps doing its job under another module's name, and it
             // would arrive unflagged.
-            flag[i] = 0.0;
+            flag.set(i, FlagValue::Clear);
             continue;
         }
         let med = window_median(&vals, &frame.idx, lo, hi, &mut buf);
@@ -419,14 +429,14 @@ pub fn despike(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         };
         if reject {
             out[i] = med;
-            flag[i] = 1.0;
+            flag.set(i, FlagValue::Flagged);
         }
         prev = Some((frame.dep[k_i], v));
     }
 
     let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
-        res.insert("OUT_FLAG".to_string(), flag);
+        res.insert("OUT_FLAG".to_string(), flag.into_f32());
     }
     Ok(res)
 }
@@ -473,6 +483,7 @@ pub fn smooth_spec() -> ModuleSpec {
                 "Write a flag curve marking every sample the smoother changed",
                 "Changed-sample flag",
                 "{OUT_CURVE}_SPK",
+                Some(FlagKind::DiagnosticIndicator),
             ));
             a
         },
@@ -548,7 +559,7 @@ pub fn smooth(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let frame = Frame::new(&depth);
     let wins = frame.windows(window / 2.0);
     let mut out = vals.clone();
-    let mut flag = vec![0.0f32; ctx.n];
+    let mut flag = FlagCurve::clear(ctx.n);
     let mut buf: Vec<f32> = Vec::new();
 
     for k_i in 0..frame.len() {
@@ -578,7 +589,7 @@ pub fn smooth(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         };
         if sm.is_finite() {
             if sm != vals[i] {
-                flag[i] = 1.0;
+                flag.set(i, FlagValue::Flagged);
             }
             out[i] = sm;
         }
@@ -586,7 +597,7 @@ pub fn smooth(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 
     let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
-        res.insert("OUT_FLAG".to_string(), flag);
+        res.insert("OUT_FLAG".to_string(), flag.into_f32());
     }
     Ok(res)
 }
@@ -632,6 +643,7 @@ pub fn clip_spec() -> ModuleSpec {
                 "Write a flag curve marking every sample outside the range",
                 "Out-of-range flag",
                 "{OUT_CURVE}_CLP",
+                Some(FlagKind::DiagnosticIndicator),
             ));
             a
         },
@@ -656,7 +668,7 @@ pub fn clip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let blank = ctx.o("OPT_ACTION") != "CLAMP";
 
     let mut out = vals.clone();
-    let mut flag = vec![0.0f32; ctx.n];
+    let mut flag = FlagCurve::clear(ctx.n);
     for i in 0..ctx.n {
         let v = vals[i];
         if !v.is_finite() {
@@ -665,7 +677,7 @@ pub fn clip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         let below = lo_b.is_finite() && (v as f64) < lo_b;
         let above = hi_b.is_finite() && (v as f64) > hi_b;
         if below || above {
-            flag[i] = 1.0;
+            flag.set(i, FlagValue::Flagged);
             out[i] = if blank {
                 MISSING
             } else if below {
@@ -678,7 +690,7 @@ pub fn clip(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 
     let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
-        res.insert("OUT_FLAG".to_string(), flag);
+        res.insert("OUT_FLAG".to_string(), flag.into_f32());
     }
     Ok(res)
 }
@@ -728,6 +740,7 @@ pub fn fill_gaps_spec() -> ModuleSpec {
                 "Write a flag curve marking every invented sample",
                 "Filled-sample flag",
                 "{OUT_CURVE}_FILL",
+                Some(FlagKind::DiagnosticIndicator),
             ));
             a
         },
@@ -748,7 +761,7 @@ pub fn fill_gaps(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 
     let frame = Frame::new(&depth);
     let mut out = vals.clone();
-    let mut flag = vec![0.0f32; ctx.n];
+    let mut flag = FlagCurve::clear(ctx.n);
 
     // Walk the frame finding runs of MISSING bounded by live samples on BOTH sides. A run that
     // reaches either end of the frame is skipped — it has no second anchor, and filling it would
@@ -785,13 +798,13 @@ pub fn fill_gaps(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
             } else {
                 v0 as f32
             };
-            flag[i] = 1.0;
+            flag.set(i, FlagValue::Flagged);
         }
     }
 
     let mut res: ModuleOutputs = HashMap::from([("OUT_CURVE".to_string(), out)]);
     if yes(ctx, "OPT_FLAG", true) {
-        res.insert("OUT_FLAG".to_string(), flag);
+        res.insert("OUT_FLAG".to_string(), flag.into_f32());
     }
     Ok(res)
 }
@@ -837,6 +850,7 @@ pub fn flip_spec() -> ModuleSpec {
                 "Write a curve carrying the pivot actually used",
                 "Pivot actually used",
                 "{OUT_CURVE}_PIV",
+                None,
             ));
             a
         },

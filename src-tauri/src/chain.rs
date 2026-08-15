@@ -301,6 +301,28 @@ fn complete_chain_sets(
                     curve,
                 });
             }
+            for (curve, kind) in workflow::resolved_flag_output_names(manifest, &opts)? {
+                let name = format!(
+                    "{parameter_prefix}{}{curve}",
+                    workflow::FLAG_KIND_PROVENANCE_PREFIX
+                );
+                if parameters.iter().any(|parameter| parameter.name == name) {
+                    return Err(format!(
+                        "module '{}' declares an argument that collides with reserved flag-kind provenance key '{}'",
+                        step.module, name
+                    ));
+                }
+                parameters.push(crate::equations::AncestryParameter {
+                    name,
+                    value: serde_json::to_value(kind).map_err(|error| {
+                        format!("cannot serialize flag kind for {curve}: {error}")
+                    })?,
+                    source: "SB-ENV-030 typed flag-kind declaration".into(),
+                    resolution: None,
+                    manifest_version: None,
+                    decision: None,
+                });
+            }
         }
 
         outputs.sort_by(|left, right| left.curve.cmp(&right.curve));
@@ -515,6 +537,7 @@ mod tests {
     use super::*;
     use crate::{db, jobs, modules};
     use duckdb::params;
+    use std::collections::BTreeMap;
     use uuid::Uuid as U;
 
     /// Minimal synthetic well: a clean-ish sand with GR/RHOB/NPHI so vsh_gr → phi_dn → sw_indo
@@ -1019,6 +1042,137 @@ mod tests {
                 .any(|output| output.derivation.starts_with("step[2] ")),
             "the explicit no-mask state must remain attached to a second-step output position"
         );
+
+        drop(reloaded);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("duckdb.wal"));
+    }
+
+    /// CORRECTNESS — `20_envcorr-qc.md` section 4.3 SB-ENV-030 and SB-ENV-T39. The
+    /// mask/indicator identities come from the requirement's closed semantic distinction, not
+    /// from sample values. Both arms rename the curves so a mnemonic heuristic cannot pass, and
+    /// the assertions read only canonical run metadata after database reload.
+    #[test]
+    fn an_exclusion_mask_and_a_diagnostic_indicator_remain_distinguishable_without_reading_their_values(
+    ) {
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi_flag_kind_provenance_{}.duckdb",
+            U::new_v4()
+        ));
+        let conn = db::init_db(path.to_str().unwrap()).unwrap();
+        let direct_well = seed_well(&conn);
+        let chain_well = seed_well(&conn);
+        let depth: Vec<f32> = (0..200).map(|index| 1000.0 + index as f32 * 0.5).collect();
+        for well in [&direct_well, &chain_well] {
+            let curve_id = db::upsert_curve_meta(
+                &conn,
+                well,
+                "RAW",
+                "DRHO",
+                Some("g/cc"),
+                Some("DRHO"),
+                Some("SB-ENV-T39 synthetic declared-unit fixture"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve_id, &depth, &vec![0.0; depth.len()]).unwrap();
+        }
+        let database = Mutex::new(conn);
+        let rename_opts = HashMap::from([
+            (
+                format!("{}BADHOLE", workflow::OUT_NAME_PREFIX),
+                "TO_EXCLUDE".into(),
+            ),
+            (
+                format!("{}BADHOLE_DRHO_EVALUATED", workflow::OUT_NAME_PREFIX),
+                "DRHO_DIAG".into(),
+            ),
+            ("DRHO_MAX_UNIT".into(), "g/cc".into()),
+        ]);
+        // `20_envcorr-qc.md` section 5.2 cites these named presets: 0.15 g/cc from the
+        // carbonate/ITB gate and 2 in from delivered-study precedent. They make the synthetic
+        // run executable; no flag sample value is used as an expected result.
+        let cited_params = HashMap::from([
+            ("DRHO_MAX".into(), 0.15),
+            ("DCAL_MAX".into(), 2.0),
+        ]);
+
+        let direct = RunModuleRequest {
+            module: "badhole".into(),
+            well_ids: vec![direct_well.clone()],
+            log_inputs: HashMap::new(),
+            params: cited_params.clone(),
+            opts: rename_opts.clone(),
+            output_set: Some("FLAG-KIND-DIRECT".into()),
+            input_set: None,
+            custody: test_custody(),
+        };
+        let direct_result = workflow::run_workflow_module(&database, &direct);
+        assert!(
+            direct_result[0].error.is_none(),
+            "direct flag-kind fixture failed: {:?}",
+            direct_result[0].error
+        );
+
+        let mut chain_step = step("badhole");
+        chain_step.params = cited_params;
+        chain_step.opts = rename_opts;
+        let registry = new_registry();
+        let job_id = U::new_v4();
+        let cancel = register(&registry, job_id);
+        run_chain(
+            &database,
+            &registry,
+            job_id,
+            cancel.as_ref(),
+            &[chain_step],
+            &[chain_well.clone()],
+            Some("FLAG-KIND-CHAIN"),
+            None,
+            &test_custody(),
+            None,
+        );
+        assert!(
+            matches!(status(&registry, job_id), Some(ChainStatus::Completed { ref errors, .. }) if errors.is_empty()),
+            "chain flag-kind fixture failed: {:?}",
+            status(&registry, job_id)
+        );
+
+        drop(database);
+        let reloaded = db::init_db(path.to_str().unwrap()).unwrap();
+        let read_kinds = |well: &str, set_name: &str| -> BTreeMap<String, String> {
+            let mut statement = reloaded
+                .prepare(
+                    "SELECT rp.name, rp.value_json
+                     FROM run_parameters rp
+                     JOIN log_sets ls ON ls.set_id = rp.set_id
+                     WHERE ls.well_id = ?1 AND ls.set_name = ?2
+                       AND rp.name LIKE '%FLAG_KIND.%'
+                     ORDER BY rp.name",
+                )
+                .unwrap();
+            statement
+                .query_map(params![well, set_name], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        for (well, set_name, prefix) in [
+            (&direct_well, "FLAG-KIND-DIRECT", ""),
+            (&chain_well, "FLAG-KIND-CHAIN", "step[1]."),
+        ] {
+            let kinds = read_kinds(well, set_name);
+            assert_eq!(
+                kinds.get(&format!("{prefix}FLAG_KIND.TO_EXCLUDE")),
+                Some(&"\"EXCLUSION_MASK\"".to_string()),
+                "renamed exclusion mask metadata missing for {set_name}"
+            );
+            assert_eq!(
+                kinds.get(&format!("{prefix}FLAG_KIND.DRHO_DIAG")),
+                Some(&"\"DIAGNOSTIC_INDICATOR\"".to_string()),
+                "renamed diagnostic indicator metadata missing for {set_name}"
+            );
+        }
 
         drop(reloaded);
         let _ = std::fs::remove_file(&path);

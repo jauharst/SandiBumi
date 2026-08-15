@@ -1,5 +1,27 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-030: Typed flag polarity and semantic kind
+
+- [ ] **Automated correctness:** exact T38 and T39 were RED before the type/metadata path existed
+      and are GREEN now. T38 inventories every ENV/Condition flag output, excludes Flip's numeric
+      pivot, pins the single `FlagValue` definition and its cited `MISSING/0/1` mapping, and checks
+      the framework companion. T39 renames a real exclusion mask and diagnostic indicator, runs
+      both direct and saved-chain writers with only the chapter's cited 0.15 g/cc and 2 in presets,
+      closes/reopens the database and distinguishes their types without reading curve values.
+- [ ] **Visual:** open Bad-Hole QC Flag and the Condition modules. Confirm every binary output is
+      labelled either “exclusion mask” or “diagnostic indicator,” the labels survive output
+      renaming, and Flip's pivot output has neither label. Select the precondition flag policy and
+      confirm its companion is visibly a diagnostic indicator rather than a user mask.
+- [ ] **Manual restart:** run Bad-Hole QC Flag with reviewed, sourced thresholds; rename BADHOLE and
+      one availability indicator, save a one-step Workflow Builder chain, close the project and
+      reopen it. Inspect `run_parameters`: direct names must be `FLAG_KIND.<actual curve>` and the
+      chain names `step[1].FLAG_KIND.<actual curve>`, with the two distinct typed values intact.
+- [ ] **Field and harsh critique:** typed polarity prevents an inverted boolean convention and
+      typed kind prevents a diagnostic from masquerading as an exclusion mask. It does **not**
+      prove the threshold, source unit, cause channel or physical mask is correct. A clean, typed
+      BADHOLE curve can still be scientifically wrong; compare it against caliper, bit size, DRHO
+      and interval context before allowing it to suppress porosity or pay.
+
 ## 2026-08-16 — G2 SB-ENV-029: Conditioning scale precondition blocked
 
 - [ ] **Decision dependency:** answer DEC-025. Authorize SB-ENV-012's typed neutron matrix-scale

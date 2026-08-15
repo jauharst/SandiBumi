@@ -397,14 +397,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-UNVERIFIED`; T38/T39; sections 4.3, 6.1 and 8.
 - **Atomic obligations:** enforce one polarity at compile time, define it once as a type, and persist flag kind so exclusion masks and diagnostic indicators are distinct.
-- **Current source:** current ENV/Condition producers consistently use numeric 1 for the flagged state, but each site constructs raw `f32` curves. No enum/newtype, central polarity definition, flag-kind metadata or validator exists.
-- **Qualifying acceptance tests:** none; the promised compile-time inventory and type distinction T38/T39 are absent. Test class `MISSING`.
-- **Supporting tests:** bad-hole, condition and mask tests separately assert 0/1 values; agreement by convention is not compile-time impossibility.
+- **Current source:** `modules::FlagValue` is the sole typed conversion from `Missing/Clear/Flagged` to `f32::NAN/0/1`; `FlagCurve` constructs and validates every migrated ENV/Condition flag channel. `ArgSpec.flag_kind` declares `EXCLUSION_MASK` or `DIAGNOSTIC_INDICATOR`; the module registry refuses a kind on a non-output, the run boundary rejects any other finite wire value, and `workflow` persists the resolved renamed/prefixed kind as direct `FLAG_KIND.<curve>` or saved-chain `step[n].FLAG_KIND.<curve>`. The module dialog names the role without requiring a consumer to inspect samples. Flip's `OUT_FLAG` remains an ordinary numeric pivot and is deliberately not misclassified.
+- **Qualifying acceptance tests:** `modules::tests::every_environment_flag_emitter_uses_the_one_typed_polarity_and_declares_its_flag_kind` owns exact T38: it inventories every ENV/Condition flag-emitting output, both semantic roles and the framework companion, pins the sole declaration and the cited `MISSING/0/1` mapping, and excludes Flip's pivot. `chain::tests::an_exclusion_mask_and_a_diagnostic_indicator_remain_distinguishable_without_reading_their_values` owns exact T39 through the real direct and chain writers, renamed output controls and database reload; it queries only persisted type metadata and uses the chapter-cited 0.15 g/cc and 2 in bad-hole presets rather than supplying uncited `condflag` thresholds. Test class `CORRECTNESS`.
+- **Supporting tests:** complete modules, Condition, chain and workflow suites remain green; TypeScript compilation pins the serialized `FlagKind` union and UI consumption. Existing 0/1 behavior tests continue to prove arithmetic separately rather than substituting convention for the type gate.
 - **Manual evidence:** conditioning 0/27; data-conventions 0/45; workflow 0/23.
-- **Git evidence:** the consistent but untyped convention is integrated at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** one typed flag registry and persisted kind are missing.
-- **Next action:** introduce the single polarity/type definition, migrate every ENV emitter and add a whole-registry compile/build gate plus mask/indicator control.
+- **Git evidence:** current topic branch after SB-ENV-029; targeted T38/T39 plus complete modules, Condition, chain and workflow suites are green. TypeScript, cargo check and the fresh full gate are 1055 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; no scientific threshold, flag cause encoding, database schema or computed-curve write discipline changed.
+- **Verdict:** source as-built is now `PRESENT-OK`; `PILOT-BLOCKER` automated contract closed; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`; Visual, Manual and Field evidence remain open.
+- **Blocker or decision:** none for SB-ENV-030. DEC-031/DEC-032 still own the separate multi-state correction/reason representations; binary flag type metadata does not invent their categorical codes or cause channels.
+- **Next action:** preserve the typed registry/wire validator/direct-and-chain kind custody, execute the four review scenarios separately and continue SB-ENV-031 without adopting its shipped-uncited despike cutoff.
 
 ## SB-ENV-031 - The despike cutoff shows its contamination ceiling, live
 

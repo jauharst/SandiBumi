@@ -388,6 +388,7 @@ pub(crate) const OUT_PREFIX_OPT: &str = "OUT_PREFIX";
 pub(crate) const MASK_PROVENANCE_KEY: &str = "MASK";
 pub(crate) const MASK_PROVENANCE_NONE: &str = "NONE";
 pub(crate) const MASK_PROVENANCE_APPLIED: &str = "APPLIED";
+pub(crate) const FLAG_KIND_PROVENANCE_PREFIX: &str = "FLAG_KIND.";
 
 pub(crate) fn mask_provenance(opts: &HashMap<String, String>) -> serde_json::Value {
     match opts
@@ -487,6 +488,35 @@ pub(crate) fn resolve_output_names(
         resolved.push((modules::PRECONDITION_FLAG_OUTPUT_KEY.into(), name));
     }
     Ok(resolved)
+}
+
+/// Resolve every typed flag declaration through the same rename and universal-prefix rules as
+/// the write path. The returned curve identity is therefore the persisted identity, not the
+/// manifest key, and remains correct when an interpreter renames `COND_FLAG` to `TO_EXCLUDE`.
+pub(crate) fn resolved_flag_output_names(
+    spec: &modules::ModuleSpec,
+    opts: &HashMap<String, String>,
+) -> Result<Vec<(String, modules::FlagKind)>, String> {
+    let prefix = opts
+        .get(OUT_PREFIX_OPT)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_uppercase)
+        .unwrap_or_default();
+    Ok(resolve_output_names(spec, opts)?
+        .into_iter()
+        .filter_map(|(declared, name)| {
+            let kind = if declared == modules::PRECONDITION_FLAG_OUTPUT_KEY {
+                Some(modules::framework_precondition_flag_kind())
+            } else {
+                spec.args
+                    .iter()
+                    .find(|arg| arg.name == declared)
+                    .and_then(|arg| arg.flag_kind)
+            }?;
+            Some((format!("{prefix}{name}"), kind))
+        })
+        .collect())
 }
 
 fn validate_output_name(
@@ -724,6 +754,29 @@ fn complete_module_log_spec(
         manifest_version: None,
         decision: None,
     });
+    for (curve, kind) in resolved_flag_output_names(spec, opts)? {
+        // Condition flags are optional. Persist a role only for a curve this run actually emitted;
+        // otherwise metadata would claim an output exists when OPT_FLAG deliberately suppressed it.
+        if !output_names.iter().any(|output| output == &curve) {
+            continue;
+        }
+        let name = format!("{FLAG_KIND_PROVENANCE_PREFIX}{curve}");
+        if parameters.iter().any(|parameter| parameter.name == name) {
+            return Err(format!(
+                "module '{}' declares an argument that collides with reserved flag-kind provenance key '{}'",
+                spec.name, name
+            ));
+        }
+        parameters.push(equations::AncestryParameter {
+            name,
+            value: serde_json::to_value(kind)
+                .map_err(|error| format!("cannot serialize flag kind for {curve}: {error}"))?,
+            source: "SB-ENV-030 typed flag-kind declaration".into(),
+            resolution: None,
+            manifest_version: None,
+            decision: None,
+        });
+    }
     for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Param) {
         for zone_value in zone_params
             .iter()
@@ -921,6 +974,7 @@ pub struct OutputName {
     pub desc: String,
     pub unit: String,
     pub name: String,
+    pub flag_kind: Option<modules::FlagKind>,
 }
 
 /// What the module pane's output grid is filled from: the names this module would write, given the
@@ -946,6 +1000,11 @@ pub fn preview_output_names(
         .map(|(arg, name)| {
             let a = spec.args.iter().find(|a| a.name == arg);
             OutputName {
+                flag_kind: if arg == modules::PRECONDITION_FLAG_OUTPUT_KEY {
+                    Some(modules::framework_precondition_flag_kind())
+                } else {
+                    a.and_then(|argument| argument.flag_kind)
+                },
                 desc: if arg == modules::PRECONDITION_FLAG_OUTPUT_KEY {
                     "Companion flag: 1 = a declared precondition was violated at this sample; 0 = valid."
                         .into()
@@ -1517,7 +1576,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                     for (arg_name, _) in &log_args {
                         if let Some(values) = logs.get_mut(arg_name) {
                             for (v, m) in values.iter_mut().zip(mask.iter()) {
-                                if *m == 1.0 {
+                                if modules::sample_is_flagged(*m) {
                                     *v = f32::NAN;
                                 }
                             }
@@ -1611,7 +1670,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                 if let Some(mask) = &mask {
                     for values in outputs.values_mut() {
                         for (v, m) in values.iter_mut().zip(mask.iter()) {
-                            if *m == 1.0 {
+                            if modules::sample_is_flagged(*m) {
                                 *v = f32::NAN;
                             }
                         }

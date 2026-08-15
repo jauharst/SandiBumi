@@ -37,6 +37,113 @@ pub enum ArgKind {
     LogOut,
 }
 
+/// Semantic role of a binary flag curve. The numeric polarity is deliberately not part of this
+/// enum: every role uses the one [`FlagValue`] mapping below, while the role tells a consumer
+/// whether the curve is intended to exclude samples or merely explain/diagnose them.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum FlagKind {
+    ExclusionMask,
+    DiagnosticIndicator,
+}
+
+/// The only binary flag polarity in the deterministic module system. Producers construct this
+/// type, never numeric truth values; conversion to the persisted f32 channel occurs in one place.
+/// Missing remains `f32::NAN`, in accordance with the project-wide missing-data contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FlagValue {
+    Missing,
+    Clear,
+    Flagged,
+}
+
+impl FlagValue {
+    pub(crate) fn as_f32(self) -> f32 {
+        match self {
+            Self::Missing => f32::NAN,
+            Self::Clear => 0.0,
+            Self::Flagged => 1.0,
+        }
+    }
+}
+
+/// Typed construction boundary for one flag channel. A caller cannot select a numeric polarity;
+/// it can only mark semantic states and let [`FlagValue::as_f32`] perform the single conversion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FlagCurve {
+    values: Vec<FlagValue>,
+}
+
+impl FlagCurve {
+    pub(crate) fn clear(len: usize) -> Self {
+        Self {
+            values: vec![FlagValue::Clear; len],
+        }
+    }
+
+    pub(crate) fn missing(len: usize) -> Self {
+        Self {
+            values: vec![FlagValue::Missing; len],
+        }
+    }
+
+    pub(crate) fn set(&mut self, index: usize, value: FlagValue) {
+        self.values[index] = value;
+    }
+
+    pub(crate) fn get(&self, index: usize) -> FlagValue {
+        self.values[index]
+    }
+
+    pub(crate) fn is_flagged(&self, index: usize) -> bool {
+        self.get(index) == FlagValue::Flagged
+    }
+
+    fn validate_f32(values: &[f32], identity: &str) -> Result<(), String> {
+        for (index, value) in values.iter().copied().enumerate() {
+            if !value.is_nan()
+                && value != FlagValue::Clear.as_f32()
+                && value != FlagValue::Flagged.as_f32()
+            {
+                return Err(format!(
+                    "flag output '{identity}' produced {value} at sample {index}; the only finite flag values are 0 = clear and 1 = flagged"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn from_f32(values: Vec<f32>, identity: &str) -> Result<Self, String> {
+        Self::validate_f32(&values, identity)?;
+        Ok(Self {
+            values: values
+                .into_iter()
+                .map(|value| {
+                    if value.is_nan() {
+                        FlagValue::Missing
+                    } else if value == FlagValue::Clear.as_f32() {
+                        FlagValue::Clear
+                    } else {
+                        FlagValue::Flagged
+                    }
+                })
+                .collect(),
+        })
+    }
+
+    pub(crate) fn into_f32(self) -> Vec<f32> {
+        self.values.into_iter().map(FlagValue::as_f32).collect()
+    }
+}
+
+pub(crate) fn sample_is_flagged(value: f32) -> bool {
+    value == FlagValue::Flagged.as_f32()
+}
+
+pub(crate) const fn framework_precondition_flag_kind() -> FlagKind {
+    FlagKind::DiagnosticIndicator
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct ValidityBranch {
     /// Option/Text argument whose selected id activates this condition.
@@ -102,6 +209,9 @@ pub struct ArgSpec {
     pub desc: String,
     pub unit: String,
     pub kind: ArgKind,
+    /// LogOut only: semantic flag role. `None` means an ordinary numeric/class output.
+    #[serde(default)]
+    pub flag_kind: Option<FlagKind>,
     /// Default numeric value (Param), default choice (Option), or default curve mnemonic (LogIn).
     pub default: String,
     /// Source for a numeric Param default, or the exact token [`ABSENT_DEFAULT_SOURCE`] when the
@@ -232,6 +342,7 @@ pub(crate) fn param(
         desc: desc.into(),
         unit: unit.into(),
         kind: ArgKind::Param,
+        flag_kind: None,
         default: default.to_string(),
         default_source: default_source.into(),
         choices: vec![],
@@ -253,6 +364,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         desc: desc.into(),
         unit: String::new(),
         kind: ArgKind::Option,
+        flag_kind: None,
         default: default.into(),
         default_source: String::new(),
         choices: choices.iter().map(|s| s.to_string()).collect(),
@@ -368,6 +480,7 @@ pub(crate) fn text(name: &str, desc: &str, default: &str) -> ArgSpec {
         desc: desc.into(),
         unit: String::new(),
         kind: ArgKind::Text,
+        flag_kind: None,
         default: default.into(),
         default_source: String::new(),
         choices: vec![],
@@ -389,6 +502,7 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         desc: desc.into(),
         unit: unit.into(),
         kind: ArgKind::LogIn,
+        flag_kind: None,
         default: default_curve.into(),
         default_source: String::new(),
         choices: vec![],
@@ -494,6 +608,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         desc: desc.into(),
         unit: unit.into(),
         kind: ArgKind::LogOut,
+        flag_kind: None,
         default: String::new(),
         default_source: String::new(),
         choices: vec![],
@@ -524,6 +639,24 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
 /// run is about to write against the shadowing rule below.
 pub(crate) fn log_out_as(name: &str, pattern: &str, desc: &str, unit: &str) -> ArgSpec {
     ArgSpec { default: pattern.into(), ..log_out(name, desc, unit) }
+}
+
+/// A flag output declared with its semantic role. This is the only manifest constructor for a
+/// flag; ordinary [`log_out`] remains explicitly untyped.
+pub(crate) fn log_out_flag(name: &str, desc: &str, kind: FlagKind) -> ArgSpec {
+    ArgSpec { flag_kind: Some(kind), ..log_out(name, desc, "") }
+}
+
+pub(crate) fn log_out_flag_as(
+    name: &str,
+    pattern: &str,
+    desc: &str,
+    kind: FlagKind,
+) -> ArgSpec {
+    ArgSpec {
+        default: pattern.into(),
+        ..log_out_flag(name, desc, kind)
+    }
 }
 
 /// Everything a module needs at run time, resolved by the workflow runner:
@@ -941,11 +1074,12 @@ pub(crate) fn run_module_with_degradations(
                 }
             }
         }
-        let mut flag = vec![0.0; ctx.n];
+        validate_flag_outputs(spec, &outputs)?;
+        let mut flag = FlagCurve::clear(ctx.n);
         for index in affected {
-            flag[index] = 1.0;
+            flag.set(index, FlagValue::Flagged);
         }
-        Ok((outputs, violations, Some(flag)))
+        Ok((outputs, violations, Some(flag.into_f32())))
     })();
     let degradations = capture.finish();
     output.map(|(outputs, violations, flag)| (outputs, degradations, violations, flag))
@@ -1081,6 +1215,7 @@ fn module_catalog() -> &'static [ModuleSpec] {
             crate::unconventional::brittleness_spec(),
         ];
         validate_parameter_sources(&modules).unwrap_or_else(|error| panic!("{error}"));
+        validate_flag_declarations(&modules).unwrap_or_else(|error| panic!("{error}"));
         modules
     })
 }
@@ -1169,6 +1304,43 @@ pub(crate) fn canonical_option_value(module: &str, argument: &str, value: &str) 
         }
         _ => trimmed.to_string(),
     }
+}
+
+/// Registry build gate for SB-ENV-030. A semantic flag role belongs only to an output channel;
+/// attaching it to a parameter, option, text field, or input would make the IPC metadata lie.
+fn validate_flag_declarations(modules: &[ModuleSpec]) -> Result<(), String> {
+    let invalid = modules
+        .iter()
+        .flat_map(|module| {
+            module.args.iter().filter_map(move |arg| {
+                (arg.flag_kind.is_some() && arg.kind != ArgKind::LogOut)
+                    .then(|| format!("{}.{}", module.name, arg.name))
+            })
+        })
+        .collect::<Vec<_>>();
+    if invalid.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SB-ENV-030 flag-kind registry gate failed: only LogOut arguments may declare a flag kind; invalid declarations: {}",
+            invalid.join(", ")
+        ))
+    }
+}
+
+/// Validate the wire/storage representation at the boundary where a typed flag becomes f32.
+/// Optional flag outputs may be absent, but an emitted declared flag may contain only MISSING,
+/// CLEAR, or FLAGGED from [`FlagValue`].
+fn validate_flag_outputs(
+    spec: &ModuleSpec,
+    outputs: &ModuleOutputs,
+) -> Result<(), String> {
+    for arg in spec.args.iter().filter(|arg| arg.flag_kind.is_some()) {
+        if let Some(values) = outputs.get(&arg.name) {
+            FlagCurve::validate_f32(values, &format!("{}.{}", spec.name, arg.name))?;
+        }
+    }
+    Ok(())
 }
 
 fn format_numeric_range(min: Option<f64>, max: Option<f64>) -> String {
@@ -1664,7 +1836,9 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         .find(|module| module.name == name)
         .ok_or_else(|| format!("unknown module '{name}'"))?;
     validate_declared_preconditions(spec, ctx)?;
-    dispatch_module(name, ctx)
+    let outputs = dispatch_module(name, ctx)?;
+    validate_flag_outputs(spec, &outputs)?;
+    Ok(outputs)
 }
 
 fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
@@ -1678,7 +1852,7 @@ fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Str
         "ftemp_grad" => Ok(ftemp_grad(ctx)),
         "precalc" => Ok(precalc(ctx)),
         "badhole" => badhole(ctx),
-        "condflag" => Ok(condflag(ctx)),
+        "condflag" => condflag(ctx),
         "nphimat" => Ok(nphimat(ctx)),
         "gascorr" => gascorr(ctx),
         "gr_hole_corr" => Ok(gr_hole_corr(ctx)),
@@ -2664,16 +2838,20 @@ fn badhole_spec() -> ModuleSpec {
             log_in("DRHO", "Density correction log", "g/cc", "DRHO", false),
             log_in("CALI", "Caliper log", "in", "CALI", false),
             log_in("BS", "Bit size log", "in", "BS", false),
-            log_out("BADHOLE", "Bad-hole flag (1 = bad, 0 = good)", ""),
-            log_out(
+            log_out_flag(
+                "BADHOLE",
+                "Bad-hole flag (1 = bad, 0 = good)",
+                FlagKind::ExclusionMask,
+            ),
+            log_out_flag(
                 "BADHOLE_CALI_EVALUATED",
                 "Caliper criterion availability (1 = evaluated, 0 = unavailable)",
-                "",
+                FlagKind::DiagnosticIndicator,
             ),
-            log_out(
+            log_out_flag(
                 "BADHOLE_DRHO_EVALUATED",
                 "Density-correction criterion availability (1 = evaluated, 0 = unavailable)",
-                "",
+                FlagKind::DiagnosticIndicator,
             ),
         ],
     }
@@ -2715,9 +2893,9 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     }
     let cali = ctx.log("CALI");
     let bs = ctx.log("BS");
-    let mut flag = vec![f32::NAN; ctx.n];
-    let mut cali_evaluated = vec![0.0; ctx.n];
-    let mut drho_evaluated = vec![0.0; ctx.n];
+    let mut flag = FlagCurve::missing(ctx.n);
+    let mut cali_evaluated = FlagCurve::clear(ctx.n);
+    let mut drho_evaluated = FlagCurve::clear(ctx.n);
 
     for i in 0..ctx.n {
         let dr = drho[i] as f64;
@@ -2733,27 +2911,40 @@ fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
         let mut bad = false;
         if !is_missing(dr) {
             any = true;
-            drho_evaluated[i] = 1.0;
+            drho_evaluated.set(i, FlagValue::Flagged);
             if dr.abs() > drho_max {
                 bad = true;
             }
         }
         if !is_missing(cl) && !is_missing(bit) {
             any = true;
-            cali_evaluated[i] = 1.0;
+            cali_evaluated.set(i, FlagValue::Flagged);
             if cl - bit > dcal_max {
                 bad = true;
             }
         }
         if any {
-            flag[i] = if bad { 1.0 } else { 0.0 };
+            flag.set(
+                i,
+                if bad {
+                    FlagValue::Flagged
+                } else {
+                    FlagValue::Clear
+                },
+            );
         }
     }
 
     Ok(HashMap::from([
-        ("BADHOLE".to_string(), flag),
-        ("BADHOLE_CALI_EVALUATED".to_string(), cali_evaluated),
-        ("BADHOLE_DRHO_EVALUATED".to_string(), drho_evaluated),
+        ("BADHOLE".to_string(), flag.into_f32()),
+        (
+            "BADHOLE_CALI_EVALUATED".to_string(),
+            cali_evaluated.into_f32(),
+        ),
+        (
+            "BADHOLE_DRHO_EVALUATED".to_string(),
+            drho_evaluated.into_f32(),
+        ),
     ]))
 }
 
@@ -2821,39 +3012,62 @@ fn condflag_spec() -> ModuleSpec {
             log_in("NPHI", "Neutron porosity log (matrix units matching RHO_MA)", "v/v", "NPHI", true),
             log_in("DT", "Sonic transit time log", "us/ft", "DT", false),
             log_in("BADHOLE", "Bad-hole flag from the badhole module", "", "BADHOLE", false),
-            log_out("COAL_FLAG", "Coal flag (1 = coal)", ""),
-            log_out("TIGHT_FLAG", "Tight-zone flag (1 = tight)", ""),
-            log_out("XOVER_FLAG", "Gas crossover flag (1 = crossover)", ""),
-            log_out("SHOULDER_FLAG", "Bed-transition shoulder flag (1 = shoulder)", ""),
-            log_out("COND_FLAG", "Combined conditioning mask (1 = exclude)", ""),
+            log_out_flag(
+                "COAL_FLAG",
+                "Coal flag (1 = coal)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "TIGHT_FLAG",
+                "Tight-zone flag (1 = tight)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "XOVER_FLAG",
+                "Gas crossover flag (1 = crossover)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "SHOULDER_FLAG",
+                "Bed-transition shoulder flag (1 = shoulder)",
+                FlagKind::DiagnosticIndicator,
+            ),
+            log_out_flag(
+                "COND_FLAG",
+                "Combined conditioning mask (1 = exclude)",
+                FlagKind::ExclusionMask,
+            ),
         ],
     }
 }
 
-/// Consecutive runs of flag == 1.0 (missing breaks a run), as inclusive index pairs.
-fn flag_runs(flag: &[f32]) -> Vec<(usize, usize)> {
+/// Consecutive runs of [`FlagValue::Flagged`] (missing breaks a run), as inclusive index pairs.
+fn flag_runs(flag: &FlagCurve) -> Vec<(usize, usize)> {
     let mut runs = Vec::new();
     let mut start: Option<usize> = None;
-    for (i, &f) in flag.iter().enumerate() {
-        if f == 1.0 {
+    for (i, state) in flag.values.iter().copied().enumerate() {
+        if state == FlagValue::Flagged {
             start.get_or_insert(i);
         } else if let Some(s) = start.take() {
             runs.push((s, i - 1));
         }
     }
     if let Some(s) = start {
-        runs.push((s, flag.len() - 1));
+        runs.push((s, flag.values.len() - 1));
     }
     runs
 }
 
 /// Runs of flag == 1.0 with fragments merged when only missing samples separate
 /// them — a null reading inside a bed must not split it into despikable slivers.
-fn bridged_runs(flag: &[f32]) -> Vec<(usize, usize)> {
+fn bridged_runs(flag: &FlagCurve) -> Vec<(usize, usize)> {
     let mut merged: Vec<(usize, usize)> = Vec::new();
     for (s, e) in flag_runs(flag) {
         if let Some(last) = merged.last_mut() {
-            if flag[last.1 + 1..s].iter().all(|v| v.is_nan()) {
+            if flag.values[last.1 + 1..s]
+                .iter()
+                .all(|state| *state == FlagValue::Missing)
+            {
                 last.1 = e;
                 continue;
             }
@@ -2877,29 +3091,36 @@ fn median_spacing(depth: &[f32]) -> f64 {
     d[d.len() / 2]
 }
 
-fn condflag(ctx: &ModuleContext) -> ModuleOutputs {
+fn condflag(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let depth = ctx.log("DEPTH");
     let rhob = ctx.log("RHOB");
     let nphi = ctx.log("NPHI");
     let dt = ctx.log("DT");
-    let bh = ctx.log("BADHOLE");
+    let bh = FlagCurve::from_f32(ctx.log("BADHOLE"), "condflag.BADHOLE input")?;
     let xcond = ctx.o("OPT_XCOND") == "YES";
 
-    let mut coal = vec![f32::NAN; ctx.n];
-    let mut tight = vec![f32::NAN; ctx.n];
-    let mut xover = vec![f32::NAN; ctx.n];
+    let mut coal = FlagCurve::missing(ctx.n);
+    let mut tight = FlagCurve::missing(ctx.n);
+    let mut xover = FlagCurve::missing(ctx.n);
 
     for i in 0..ctx.n {
         let (rb, np) = (rhob[i] as f64, nphi[i] as f64);
         if is_missing(rb) || is_missing(np) {
             continue;
         }
-        let washout = bh[i] == 1.0;
+        let washout = bh.is_flagged(i);
         let d = dt[i] as f64;
         let coal_hit = rb < ctx.p("COAL_RHOB", i)
             && np > ctx.p("COAL_NPHI", i)
             && (is_missing(d) || d > ctx.p("COAL_DT", i));
-        coal[i] = if coal_hit && !washout { 1.0 } else { 0.0 };
+        coal.set(
+            i,
+            if coal_hit && !washout {
+                FlagValue::Flagged
+            } else {
+                FlagValue::Clear
+            },
+        );
 
         // Zone overrides bypass dialog range checks, so a degenerate matrix/fluid
         // pair (den <= 0) can still arrive: DPHI is meaningless then — leave the
@@ -2911,10 +3132,24 @@ fn condflag(ctx: &ModuleContext) -> ModuleOutputs {
         let dphi = (ctx.p("RHO_MA", i) - rb) / den;
 
         let tp = ctx.p("TIGHT_PHI", i);
-        tight[i] = if dphi < tp && np < tp { 1.0 } else { 0.0 };
+        tight.set(
+            i,
+            if dphi < tp && np < tp {
+                FlagValue::Flagged
+            } else {
+                FlagValue::Clear
+            },
+        );
 
         let x_hit = dphi - np > ctx.p("XOVER_MIN", i) && !coal_hit && !washout;
-        xover[i] = if x_hit { 1.0 } else { 0.0 };
+        xover.set(
+            i,
+            if x_hit {
+                FlagValue::Flagged
+            } else {
+                FlagValue::Clear
+            },
+        );
     }
 
     // Spike removal: a one- or two-sample "bed" is log noise, not lithology.
@@ -2926,9 +3161,9 @@ fn condflag(ctx: &ModuleContext) -> ModuleOutputs {
             let min_thick = ctx.p("MIN_THICK", s);
             let extent = (depth[e] - depth[s]).abs() as f64 + dz;
             if extent.is_finite() && min_thick > 0.0 && extent < min_thick {
-                for f in &mut flag[s..=e] {
-                    if *f == 1.0 {
-                        *f = 0.0;
+                for index in s..=e {
+                    if flag.is_flagged(index) {
+                        flag.set(index, FlagValue::Clear);
                     }
                 }
             }
@@ -2938,14 +3173,14 @@ fn condflag(ctx: &ModuleContext) -> ModuleOutputs {
     // A bad-hole interval only earns shoulders when it is a real bed (>= MIN_THICK):
     // a single-sample DRHO blip masks itself via COND_FLAG, but dilating around it
     // would throw away good rock on both sides.
-    let mut bh_bed = vec![0.0_f32; ctx.n];
+    let mut bh_bed = FlagCurve::clear(ctx.n);
     for (s, e) in bridged_runs(&bh) {
         let min_thick = ctx.p("MIN_THICK", s);
         let extent = (depth[e] - depth[s]).abs() as f64 + dz;
         if !extent.is_finite() || min_thick <= 0.0 || extent >= min_thick {
-            for (j, b) in bh_bed[s..=e].iter_mut().enumerate() {
-                if bh[s + j] == 1.0 {
-                    *b = 1.0;
+            for index in s..=e {
+                if bh.is_flagged(index) {
+                    bh_bed.set(index, FlagValue::Flagged);
                 }
             }
         }
@@ -2954,19 +3189,16 @@ fn condflag(ctx: &ModuleContext) -> ModuleOutputs {
     // Shoulder adjustment: walk outward from every coal/tight/bad-hole bed edge
     // and flag samples still within SHOULDER of the boundary — their readings
     // average the two lithologies and would pollute results if left unmasked.
-    let bed: Vec<f32> = (0..ctx.n)
-        .map(|i| {
-            if coal[i] == 1.0 || tight[i] == 1.0 || bh_bed[i] == 1.0 {
-                1.0
-            } else {
-                0.0
-            }
-        })
-        .collect();
-    let mut shoulder = vec![f32::NAN; ctx.n];
+    let mut bed = FlagCurve::clear(ctx.n);
+    for index in 0..ctx.n {
+        if coal.is_flagged(index) || tight.is_flagged(index) || bh_bed.is_flagged(index) {
+            bed.set(index, FlagValue::Flagged);
+        }
+    }
+    let mut shoulder = FlagCurve::missing(ctx.n);
     for i in 0..ctx.n {
         if depth[i].is_finite() {
-            shoulder[i] = 0.0;
+            shoulder.set(i, FlagValue::Clear);
         }
     }
     for (s, e) in flag_runs(&bed) {
@@ -2975,13 +3207,13 @@ fn condflag(ctx: &ModuleContext) -> ModuleOutputs {
             let mut j = s;
             while j > 0 {
                 j -= 1;
-                if bed[j] == 1.0
+                if bed.is_flagged(j)
                     || !depth[j].is_finite()
                     || ((depth[s] - depth[j]).abs() as f64) > sh_top
                 {
                     break;
                 }
-                shoulder[j] = 1.0;
+                shoulder.set(j, FlagValue::Flagged);
             }
         }
         let sh_base = ctx.p("SHOULDER", e);
@@ -2989,36 +3221,45 @@ fn condflag(ctx: &ModuleContext) -> ModuleOutputs {
             let mut j = e;
             while j + 1 < ctx.n {
                 j += 1;
-                if bed[j] == 1.0
+                if bed.is_flagged(j)
                     || !depth[j].is_finite()
                     || ((depth[j] - depth[e]).abs() as f64) > sh_base
                 {
                     break;
                 }
-                shoulder[j] = 1.0;
+                shoulder.set(j, FlagValue::Flagged);
             }
         }
     }
 
-    let mut cond = vec![f32::NAN; ctx.n];
+    let mut cond = FlagCurve::missing(ctx.n);
     for i in 0..ctx.n {
-        let parts = [coal[i], tight[i], bh[i], if xcond { xover[i] } else { f32::NAN }];
-        if parts.iter().any(|&v| v == 1.0) || shoulder[i] == 1.0 {
-            cond[i] = 1.0;
-        } else if parts.iter().any(|&v| v.is_finite()) {
+        let parts = [
+            coal.get(i),
+            tight.get(i),
+            bh.get(i),
+            if xcond {
+                xover.get(i)
+            } else {
+                FlagValue::Missing
+            },
+        ];
+        if parts.contains(&FlagValue::Flagged) || shoulder.is_flagged(i) {
+            cond.set(i, FlagValue::Flagged);
+        } else if parts.iter().any(|state| *state != FlagValue::Missing) {
             // Shoulder alone never marks a sample evaluable: with no QC input at
             // all the combined flag stays MISSING, matching the badhole module.
-            cond[i] = 0.0;
+            cond.set(i, FlagValue::Clear);
         }
     }
 
-    HashMap::from([
-        ("COAL_FLAG".to_string(), coal),
-        ("TIGHT_FLAG".to_string(), tight),
-        ("XOVER_FLAG".to_string(), xover),
-        ("SHOULDER_FLAG".to_string(), shoulder),
-        ("COND_FLAG".to_string(), cond),
-    ])
+    Ok(HashMap::from([
+        ("COAL_FLAG".to_string(), coal.into_f32()),
+        ("TIGHT_FLAG".to_string(), tight.into_f32()),
+        ("XOVER_FLAG".to_string(), xover.into_f32()),
+        ("SHOULDER_FLAG".to_string(), shoulder.into_f32()),
+        ("COND_FLAG".to_string(), cond.into_f32()),
+    ]))
 }
 
 // ---------------------------------------------------------------------------
@@ -4545,6 +4786,71 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CORRECTNESS — `20_envcorr-qc.md` section 4.3 SB-ENV-030, section 5.2 and
+    /// SB-ENV-T38. The source-owned polarity is `1 = true`; the expected inventory names every
+    /// ENV/Condition flag-emitting manifest output and deliberately excludes `flip.OUT_FLAG`,
+    /// which carries a numeric pivot rather than a flag. The source-declaration count prevents a
+    /// second mapping from becoming another convention beside the closed typed one.
+    #[test]
+    fn every_environment_flag_emitter_uses_the_one_typed_polarity_and_declares_its_flag_kind() {
+        let declared: BTreeMap<String, FlagKind> = module_catalog()
+            .iter()
+            .filter(|module| {
+                matches!(
+                    module.name.as_str(),
+                    "badhole" | "condflag" | "despike" | "smooth" | "clip" | "fill_gaps" | "flip"
+                )
+            })
+            .flat_map(|module| {
+                module.args.iter().filter_map(move |argument| {
+                    argument
+                        .flag_kind
+                        .map(|kind| (format!("{}.{}", module.name, argument.name), kind))
+                })
+            })
+            .collect();
+        let expected = BTreeMap::from([
+            ("badhole.BADHOLE".into(), FlagKind::ExclusionMask),
+            (
+                "badhole.BADHOLE_CALI_EVALUATED".into(),
+                FlagKind::DiagnosticIndicator,
+            ),
+            (
+                "badhole.BADHOLE_DRHO_EVALUATED".into(),
+                FlagKind::DiagnosticIndicator,
+            ),
+            ("condflag.COAL_FLAG".into(), FlagKind::DiagnosticIndicator),
+            ("condflag.TIGHT_FLAG".into(), FlagKind::DiagnosticIndicator),
+            ("condflag.XOVER_FLAG".into(), FlagKind::DiagnosticIndicator),
+            (
+                "condflag.SHOULDER_FLAG".into(),
+                FlagKind::DiagnosticIndicator,
+            ),
+            ("condflag.COND_FLAG".into(), FlagKind::ExclusionMask),
+            ("despike.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
+            ("smooth.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
+            ("clip.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
+            ("fill_gaps.OUT_FLAG".into(), FlagKind::DiagnosticIndicator),
+        ]);
+        assert_eq!(declared, expected, "the whole ENV/Condition flag inventory must be typed");
+        assert_eq!(
+            framework_precondition_flag_kind(),
+            FlagKind::DiagnosticIndicator,
+            "the framework-owned companion is an indicator, not a user-selected mask"
+        );
+        assert_eq!(FlagValue::Clear.as_f32(), 0.0);
+        assert_eq!(FlagValue::Flagged.as_f32(), 1.0);
+        assert!(FlagValue::Missing.as_f32().is_nan());
+
+        let source = include_str!("modules.rs");
+        let declaration = ["enum ", "FlagValue"].concat();
+        assert_eq!(
+            source.matches(&declaration).count(),
+            1,
+            "a second flag-polarity type would recreate the convention split T38 forbids"
+        );
+    }
 
     /// `f64::clamp` panics when the bounds are inverted or non-finite, and module bounds are
     /// themselves parameters — a zone override of SWT_IRR entered as a percentage (25 instead of
@@ -6755,7 +7061,7 @@ mod tests {
             &condflag_params(),
             &[],
         );
-        let out = condflag(&ctx);
+        let out = condflag(&ctx).expect("condflag");
         assert_eq!(out["COAL_FLAG"][1], 1.0, "light + hydrogen-rich + slow sonic = coal");
         assert_eq!(out["COAL_FLAG"][2], 0.0, "fast sonic vetoes the coal call");
         assert_eq!(out["TIGHT_FLAG"][3], 1.0, "DPHI 0.015 and NPHI 0.02 both under cutoff");
@@ -6786,7 +7092,7 @@ mod tests {
             &condflag_params(),
             &[("OPT_XCOND", "YES")],
         );
-        let out = condflag(&ctx);
+        let out = condflag(&ctx).expect("condflag");
         assert_eq!(out["COAL_FLAG"][0], 0.0, "washout mimics coal -> not coal");
         assert_eq!(out["XOVER_FLAG"][0], 0.0, "washout mimics crossover -> not crossover");
         assert_eq!(out["COND_FLAG"][0], 1.0, "still masked, via the bad-hole flag");
@@ -6817,7 +7123,7 @@ mod tests {
             &params,
             &[],
         );
-        let out = condflag(&ctx);
+        let out = condflag(&ctx).expect("condflag");
         assert_eq!(out["COAL_FLAG"][2], 0.0, "one-sample spike dropped by MIN_THICK");
         assert_eq!(out["COND_FLAG"][2], 0.0);
         assert_eq!(out["COAL_FLAG"][5], 1.0, "real two-sample bed survives");
@@ -6851,7 +7157,7 @@ mod tests {
             &params,
             &[],
         );
-        let out = condflag(&ctx);
+        let out = condflag(&ctx).expect("condflag");
         let sh = &out["SHOULDER_FLAG"];
         assert_eq!(&sh[..], &[0., 0., 1., 1., 0., 0., 0., 1., 1., 0., 0.]);
         for i in 2..=8 {
@@ -6874,7 +7180,7 @@ mod tests {
             &condflag_params(),
             &[],
         );
-        let out = condflag(&ctx);
+        let out = condflag(&ctx).expect("condflag");
         assert_eq!(out["COAL_FLAG"][0], 1.0, "no sonic -> two-criteria coal call");
         assert_eq!(out["COAL_FLAG"][1], 0.0);
         assert!(out["COAL_FLAG"][2].is_nan(), "missing RHOB -> flags missing");
@@ -6903,7 +7209,7 @@ mod tests {
             &params,
             &[],
         );
-        let out = condflag(&ctx);
+        let out = condflag(&ctx).expect("condflag");
         assert_eq!(out["COAL_FLAG"][2], 1.0, "bed fragment kept despite the null between");
         assert_eq!(out["COAL_FLAG"][4], 1.0);
         assert!(out["COAL_FLAG"][3].is_nan(), "the null sample itself stays missing");
@@ -6938,7 +7244,7 @@ mod tests {
             &params,
             &[],
         );
-        let out = condflag(&ctx);
+        let out = condflag(&ctx).expect("condflag");
         assert_eq!(out["COND_FLAG"][2], 1.0, "the blip sample itself stays masked");
         assert_eq!(out["SHOULDER_FLAG"][1], 0.0, "no dilation around a one-sample blip");
         assert_eq!(out["SHOULDER_FLAG"][3], 0.0);
@@ -6972,7 +7278,7 @@ mod tests {
             &params,
             &[],
         );
-        let out = condflag(&ctx);
+        let out = condflag(&ctx).expect("condflag");
         assert_eq!(out["COAL_FLAG"][0], 1.0, "coal needs no DPHI and still works");
         assert!(out["TIGHT_FLAG"][1].is_nan(), "degenerate RHO_MA/RHO_FL -> no tight call");
         assert!(out["XOVER_FLAG"][1].is_nan(), "degenerate RHO_MA/RHO_FL -> no crossover call");

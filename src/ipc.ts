@@ -967,6 +967,7 @@ export async function getTrackData(
 /** `text` is a free-typed run option — same `opts` channel as `option`, but the valid values are
  *  not a list the manifest can hold (the Condition family's user-named output curve). */
 export type ArgKind = "param" | "option" | "text" | "log_in" | "log_out";
+export type FlagKind = "EXCLUSION_MASK" | "DIAGNOSTIC_INDICATOR";
 
 export interface ValidityBranch {
   argument: string;
@@ -1009,6 +1010,8 @@ export interface ArgSpec {
   desc: string;
   unit: string;
   kind: ArgKind;
+  /** Semantic role of a binary flag output; absent for ordinary numeric/class channels. */
+  flag_kind?: FlagKind | null;
   default: string;
   /** Named source for a numeric default, or exact `ABSENT` when no numeric default ships. */
   default_source: string;
@@ -1256,6 +1259,7 @@ export interface OutputName {
   desc: string;
   unit: string;
   name: string;
+  flag_kind?: FlagKind | null;
 }
 
 /**

@@ -1,4 +1,6 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-ENV-030","CORRECTNESS","src-tauri/src/modules.rs","every_environment_flag_emitter_uses_the_one_typed_polarity_and_declares_its_flag_kind"
+"SB-ENV-030","CORRECTNESS","src-tauri/src/chain.rs","an_exclusion_mask_and_a_diagnostic_indicator_remain_distinguishable_without_reading_their_values"
 "SB-ENV-026","CORRECTNESS","src-tauri/src/workflow.rs","a_drho_unit_is_required_on_import_and_both_threshold_unit_mismatch_directions_refuse_before_flagging"
 "SB-ENV-025","CORRECTNESS","src-tauri/src/modules.rs","bit_size_has_no_default_and_missing_geometry_disables_only_caliper_while_curve_and_explicit_entry_remain_available"
 "SB-ENV-024","CORRECTNESS","src-tauri/src/modules.rs","both_bad_hole_thresholds_ship_absent_and_each_must_be_explicitly_supplied_before_the_algorithm_can_run"

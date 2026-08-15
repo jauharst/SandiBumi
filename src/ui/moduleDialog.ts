@@ -483,6 +483,8 @@ export async function buildModuleContent(
     label.className = "module-output-label";
     label.textContent = arg.desc || arg.name;
     if (arg.unit) label.textContent += ` (${arg.unit})`;
+    if (arg.flag_kind === "EXCLUSION_MASK") label.textContent += " — exclusion mask";
+    if (arg.flag_kind === "DIAGNOSTIC_INDICATOR") label.textContent += " — diagnostic indicator";
     label.title = `Declared as ${arg.name}`;
     const input = document.createElement("input");
     input.className = "form-control module-output-name";
@@ -494,7 +496,7 @@ export async function buildModuleContent(
   }
   const preconditionFlagLabel = document.createElement("label");
   preconditionFlagLabel.className = "module-output-label";
-  preconditionFlagLabel.textContent = "Precondition companion flag (1 = violation)";
+  preconditionFlagLabel.textContent = "Precondition companion flag — diagnostic indicator (1 = violation)";
   preconditionFlagLabel.title = "Framework-owned companion output; its deterministic name cannot be separated from the flagged-result contract.";
   preconditionFlagLabel.hidden = true;
   const preconditionFlagName = document.createElement("input");
