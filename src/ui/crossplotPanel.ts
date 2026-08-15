@@ -48,6 +48,7 @@ import {
 import {
   buildPlotTemplateBar,
   buildPersistedPlotState,
+  buildDepthReframeHandoff,
   buildZoneSelect,
   concatValues,
   contextZoneWindow,
@@ -55,10 +56,12 @@ import {
   contextReductionExport,
   CONTEXT_LEGEND_ROWS,
   curveSelect,
+  depthReframeHandoff,
   describeContextOutcome,
   fetchContextLayers,
   loadCurveNames,
   loadPlotProps,
+  mergeDepthReframeHandoffs,
   nearestDepthIndex,
   pickRow,
   plotWriteAxis,
@@ -1498,6 +1501,8 @@ export async function buildCrossplotContent(
 
   const content = document.createElement("div");
   content.className = "plot-content";
+  const activeDepthHandoff = buildDepthReframeHandoff(setStatus);
+  const contextDepthHandoff = buildDepthReframeHandoff(setStatus);
   const xSel = curveSelect(curveNames, initial?.x ?? "NPHI");
   const ySel = curveSelect(curveNames, initial?.y ?? "RHOB");
   // Z select with a "— None —" head option (universal: color only when wanted).
@@ -1544,7 +1549,7 @@ export async function buildCrossplotContent(
     "Zone/top windows are resolved per well by NAME (a well without that zone or top is skipped).";
   const scopeInfo = document.createElement("p");
   scopeInfo.className = "modal-hint";
-  scopeRow.append(scope.el, scopeStaticHint, scopeInfo);
+  scopeRow.append(scope.el, scopeStaticHint, scopeInfo, contextDepthHandoff.el);
   scopeBtn.addEventListener("click", () => {
     scopeRow.style.display = scopeRow.style.display === "none" ? "" : "none";
   });
@@ -1643,6 +1648,7 @@ export async function buildCrossplotContent(
   ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);
+  content.appendChild(activeDepthHandoff.el);
 
   const canvas = document.createElement("canvas");
   canvas.width = 720;
@@ -2291,8 +2297,9 @@ export async function buildCrossplotContent(
     const gen = ++reloadGen;
     if (!preserveView) resetPending = true;
     const zone = zoneSel.current();
+    const wanted = [xSel.value, ySel.value, ...(zSel.value ? [zSel.value] : [])];
+    activeDepthHandoff.clear();
     try {
-      const wanted = [xSel.value, ySel.value, ...(zSel.value ? [zSel.value] : [])];
       const series = await getCurveData(well.well_id, wanted, zone.depthMin, zone.depthMax);
       if (gen !== reloadGen) return; // a newer reload started while we awaited
       const byName = new Map(series.map((s) => [s.curve_name, s]));
@@ -2316,7 +2323,9 @@ export async function buildCrossplotContent(
       };
     } catch (err) {
       if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
-      setStatus(`Crossplot data load failed: ${err}`);
+      const handoff = depthReframeHandoff(err, [well.well_id], wanted);
+      activeDepthHandoff.show(handoff);
+      setStatus(handoff ? `Crossplot refused: ${handoff.reason}` : `Crossplot data load failed: ${err}`);
       xs = ys = zs = depths = new Float32Array(0);
       typedAxes = { x: null, y: null };
     }
@@ -2385,6 +2394,7 @@ export async function buildCrossplotContent(
    *  single-well behaviour. */
   const reloadContext = async () => {
     const gen = ++ctxGen;
+    contextDepthHandoff.clear();
     let resolvedIds: string[];
     try {
       resolvedIds = await resolveWellScope(scope.backend());
@@ -2401,6 +2411,7 @@ export async function buildCrossplotContent(
       ctxWellIds = [];
       ctxReductionManifest = null;
       ctxInfo = "";
+      contextDepthHandoff.clear();
       updateScopeUi();
       if (had) redraw();
       return;
@@ -2435,6 +2446,7 @@ export async function buildCrossplotContent(
     }));
     ctxWellIds = outcome.layers.map((layer) => layer.wellId);
     ctxInfo = describeContextOutcome(outcome);
+    contextDepthHandoff.show(mergeDepthReframeHandoffs(outcome.depthReframeHandoffs));
     updateScopeUi();
     setStatus(`Crossplot ${ctxInfo.toLowerCase()}`);
     redraw();

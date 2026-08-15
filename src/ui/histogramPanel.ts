@@ -31,6 +31,7 @@ import {
 import {
   buildPlotTemplateBar,
   buildPersistedPlotState,
+  buildDepthReframeHandoff,
   buildZoneSelect,
   concatValues,
   contextReductionExport,
@@ -42,6 +43,7 @@ import {
   fetchContextLayers,
   loadCurveNames,
   loadPlotProps,
+  mergeDepthReframeHandoffs,
   nearestDepthIndex,
   pickRow,
   plotWriteAxis,
@@ -619,6 +621,7 @@ export async function buildHistogramContent(
 
   const content = document.createElement("div");
   content.className = "plot-content";
+  const contextDepthHandoff = buildDepthReframeHandoff(setStatus);
   const curveSel = curveSelect(curveNames, initial?.curve ?? "GR");
 
   const propsBtn = document.createElement("button");
@@ -653,7 +656,7 @@ export async function buildHistogramContent(
     "Zone/top windows are resolved per well by NAME (a well without that zone or top is skipped).";
   const scopeInfo = document.createElement("p");
   scopeInfo.className = "modal-hint";
-  scopeRow.append(scope.el, scopeStaticHint, scopeInfo);
+  scopeRow.append(scope.el, scopeStaticHint, scopeInfo, contextDepthHandoff.el);
   scopeBtn.addEventListener("click", () => {
     scopeRow.style.display = scopeRow.style.display === "none" ? "" : "none";
   });
@@ -923,6 +926,7 @@ export async function buildHistogramContent(
    *  active well → clears the overlay: byte-identical single-well behaviour. */
   const reloadContext = async () => {
     const gen = ++ctxGen;
+    contextDepthHandoff.clear();
     let resolvedIds: string[];
     try {
       resolvedIds = await resolveWellScope(scope.backend());
@@ -938,6 +942,7 @@ export async function buildHistogramContent(
       ctxWellIds = [];
       ctxReductionManifest = null;
       ctxInfo = "";
+      contextDepthHandoff.clear();
       updateScopeUi();
       if (had) redraw();
       return;
@@ -971,6 +976,7 @@ export async function buildHistogramContent(
     }));
     ctxWellIds = outcome.layers.map((layer) => layer.wellId);
     ctxInfo = describeContextOutcome(outcome);
+    contextDepthHandoff.show(mergeDepthReframeHandoffs(outcome.depthReframeHandoffs));
     updateScopeUi();
     setStatus(`Histogram ${ctxInfo.toLowerCase()}`);
     redraw();

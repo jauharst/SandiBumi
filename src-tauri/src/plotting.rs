@@ -1060,6 +1060,7 @@ pub fn decimate_shared_channels(
     })
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DepthStepReconciliation {
     pub coarsest_step: f32,
@@ -1069,6 +1070,7 @@ pub struct DepthStepReconciliation {
 /// Chooses only among exact relationships. No tolerance or resampling kernel is
 /// introduced: equality keeps factor 1, exact integer multiples decimate toward
 /// the coarsest step, and every other relationship is routed to Data I/O.
+#[cfg(test)]
 pub fn reconcile_depth_steps(steps: &[f32]) -> Result<DepthStepReconciliation, String> {
     if steps.is_empty() || steps.iter().any(|step| !step.is_finite() || *step <= 0.0) {
         return Err("depth steps must be finite and positive".into());

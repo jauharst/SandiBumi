@@ -212,16 +212,16 @@
 
 ## SB-PLT-016 - Depth-step reconciliation is explicit and conservative
 
-- **Chapter evidence:** P0; chapter status `ABSENT`; chapter intentions T23-T26; sections 4.3, 6, 7.1 O-7 and 8.1.
+- **Chapter evidence:** P0; chapter status `ABSENT`; chapter intentions T23-T26; sections 4.3, 6, 7.3 R-8 and 8.4 OPEN-X7.
 - **Atomic obligations:** keep equal steps unchanged; decimate exact integer multiples to the coarsest step with factor disclosure; refuse non-integer ratios and route to explicit DIO resampling; retain half-open intervals.
-- **Current source:** `plotTypes.ts::reconcileDepthChannels` is used by crossplot, Pickett and context loading and implements exact-depth alignment, integer-factor decimation and half-open slicing. A non-integer ratio produces an error string naming DIO but no actionable DIO route. The identical-grid shortcut does not validate the full grid's regular step, and independent Rust helpers are unused.
-- **Qualifying acceptance tests:** none; T23-T26 do not run through the active TypeScript panel/refusal route. Test class is `MISSING`.
-- **Supporting tests:** `plotting.rs::equal_and_integer_multiple_depth_steps_proceed_but_non_integer_steps_route_to_dio_and_intervals_stay_half_open` pins the chapter's shown arithmetic and interval fixture.
+- **Current source:** `plotTypes.ts::reconcileDepthChannels` validates every complete input grid before its identical-grid shortcut, keeps equal regular grids unchanged, decimates exact integer multiples to the coarsest grid with per-input factors and refuses irregular or non-integer grids with typed `DepthGridReconciliationError` metadata. Crossplot, Pickett, Histogram and shared context loading render the same `Open Reframe` control; Ribbon routes the user's click to the existing Reframe workspace. No plot consumer calls Reframe or resamples automatically. Half-open slicing remains `[lo,hi)`.
+- **Qualifying acceptance tests:** `tools/frontend-acceptance.test.mjs::equal_and_exact_multiple_regular_depth_grids_proceed_with_reported_factors_while_non_integer_or_irregular_grids_refuse_with_an_explicit_reframe_action_and_intervals_stay_half_open` is CORRECTNESS. It executes equal and 0.5/1.0 grids, both irregular-identical and 0.5/0.8 refusals, the `[100,101)` fixture, typed handoff construction, the visible control and event route, inventories every pilot consumer and proves no panel invokes Reframe itself. Deliberately changing the event name made the exact test RED before restoration.
+- **Supporting tests:** `plotting.rs::equal_and_integer_multiple_depth_steps_proceed_but_non_integer_steps_route_to_dio_and_intervals_stay_half_open` independently pins the cited arithmetic and interval fixture. Its duplicate reconciliation oracle is test-only, removing two disconnected production warnings without weakening the Rust proof.
 - **Manual evidence:** `reframe` 0/34, `crossplot` 6/13, `pickett` 0/8 and `histogram` 5/22.
-- **Git evidence:** reachable commit `16cfcb1` integrated the conservative helpers and panel use; the actionable DIO handoff and complete grid validation remain absent.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the refusal is not an explicit resampling workflow handoff, and the active route lacks T23-T26.
-- **Next action:** validate every regular grid, expose a bounded DIO action on refusal and implement all four fixtures through the panel without introducing a tolerance or implicit Reframe.
+- **Git evidence:** reachable commit `16cfcb1` integrated the original conservative helpers; the Gate 2 completion commit is pending at this evidence write.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for Gate 2 automation. Visual placement, manual interaction and representative-field evidence remain deliberately open.
+- **Next action:** retain exact regular-grid validation, the non-mutating handoff and half-open intervals; execute the separate review/Gate 4 scenarios; proceed serially to SB-PLT-017 without inventing a viewport fetch policy.
 
 ## SB-PLT-017 - Zoom beyond loaded data triggers an identified refetch
 

@@ -48,6 +48,7 @@ import { openWorkbookDialog } from "./workbookDialog";
 import { openDeckDialog } from "./deckDialog";
 import { requireWell } from "./needWell";
 import { openInstallationSupportDialog } from "./installationSupportDialog";
+import { registerDepthReframeRoute } from "./plotCommon";
 
 interface RibbonMenuItem {
   label: string;
@@ -257,6 +258,7 @@ export class Ribbon {
     // pops open on its own — the user shouldn't have to hunt for progress. Ribbon is a
     // singleton created once in main.ts, so this window listener is registered exactly once.
     window.addEventListener("sandibumi:open-processing", () => workspace.openProcessing());
+    registerDepthReframeRoute(() => workspace.openReframe());
     // The start sheet's recent-project rows route through the SAME switchProject guard the
     // Recent ▾ menu uses — a busy chain blocks a switch there exactly as it does here.
     window.addEventListener("sandibumi:open-recent-project", (e) => {

@@ -35,6 +35,7 @@ class FakeElement {
     this.title = "";
     this.hidden = false;
     this.disabled = false;
+    this.listeners = new Map();
     this._textContent = "";
     this._innerHTML = "";
   }
@@ -77,17 +78,46 @@ class FakeElement {
     return this.attributes.get(name) ?? null;
   }
 
-  addEventListener() {}
-  removeEventListener() {}
+  addEventListener(name, listener) {
+    const listeners = this.listeners.get(name) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(name, listeners);
+  }
+
+  removeEventListener(name, listener) {
+    this.listeners.get(name)?.delete(listener);
+  }
+
+  dispatchEvent(event) {
+    for (const listener of this.listeners.get(event.type) ?? []) listener(event);
+    return true;
+  }
+
+  click() {
+    this.dispatchEvent({ type: "click" });
+  }
 }
 
 before(async () => {
   originalDocument = globalThis.document;
   originalWindow = globalThis.window;
   globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+  const windowListeners = new Map();
   globalThis.window = {
     setTimeout: () => 1,
     clearTimeout: () => {},
+    addEventListener(name, listener) {
+      const listeners = windowListeners.get(name) ?? new Set();
+      listeners.add(listener);
+      windowListeners.set(name, listeners);
+    },
+    removeEventListener(name, listener) {
+      windowListeners.get(name)?.delete(listener);
+    },
+    dispatchEvent(event) {
+      for (const listener of windowListeners.get(event.type) ?? []) listener(event);
+      return true;
+    },
   };
   server = await createServer({
     server: { middlewareMode: true },
@@ -469,6 +499,150 @@ test("context_plot_decimation_uses_one_shared_index_retains_both_endpoints_and_e
   }
   const exportSource = await readFile(new URL("../src/ui/plotExport.ts", import.meta.url), "utf8");
   assert.match(exportSource, /savePlotReductionManifest\(dest, JSON\.stringify\(manifest\)\)/u);
+});
+
+test("equal_and_exact_multiple_regular_depth_grids_proceed_with_reported_factors_while_non_integer_or_irregular_grids_refuse_with_an_explicit_reframe_action_and_intervals_stay_half_open", async () => {
+  // CORRECTNESS — SB-PLT-016 / SB-PLT-T23–T26. docs/PRD_v2/23_plotting-interactivity.md
+  // §§4.3, 6 and 7.3 R-8 cite the plotting dossier §§2.12, 5.1 and 5.3: equal steps keep factor 1,
+  // 0.5 and 1.0 decimate to the coarsest grid with factor 2, 0.5 and 0.8 refuse,
+  // and [100,101) retains 100 and 100.5 but excludes 101. docs/record_data_tools.md
+  // makes Reframe the only user-owned operation allowed to create a new depth frame.
+  const { halfOpenDepthIndices, reconcileDepthChannels } = await load("/src/ui/plotTypes.ts");
+
+  const equal = reconcileDepthChannels([
+    { depth: Float32Array.from([0, 0.5, 1]), values: Float32Array.from([10, 11, 12]) },
+    { depth: Float32Array.from([0, 0.5, 1]), values: Float32Array.from([20, 21, 22]) },
+  ]);
+  assert.deepEqual(Array.from(equal.depth), [0, 0.5, 1]);
+  assert.deepEqual(equal.channels.map((channel) => Array.from(channel)), [
+    [10, 11, 12],
+    [20, 21, 22],
+  ]);
+  assert.deepEqual(equal.decimationFactors, [1, 1]);
+  assert.equal(equal.mode, "unchanged");
+
+  const exactMultiple = reconcileDepthChannels([
+    {
+      depth: Float32Array.from([0, 0.5, 1, 1.5, 2]),
+      values: Float32Array.from([10, 11, 12, 13, 14]),
+    },
+    { depth: Float32Array.from([0, 1, 2]), values: Float32Array.from([20, 21, 22]) },
+  ]);
+  assert.deepEqual(Array.from(exactMultiple.depth), [0, 1, 2]);
+  assert.deepEqual(exactMultiple.channels.map((channel) => Array.from(channel)), [
+    [10, 12, 14],
+    [20, 21, 22],
+  ]);
+  assert.deepEqual(exactMultiple.decimationFactors, [2, 1]);
+  assert.equal(exactMultiple.mode, "decimated_to_coarsest");
+
+  let irregularError;
+  try {
+    reconcileDepthChannels([
+      { depth: Float32Array.from([0, 0.5, 1.25]), values: Float32Array.from([10, 11, 12]) },
+      { depth: Float32Array.from([0, 0.5, 1.25]), values: Float32Array.from([20, 21, 22]) },
+    ]);
+  } catch (error) {
+    irregularError = error;
+  }
+  assert.ok(irregularError, "an identical but irregular grid must not bypass regularity validation");
+  assert.equal(irregularError.name, "DepthGridReconciliationError");
+  assert.equal(irregularError.route, "reframe");
+  assert.equal(irregularError.actionLabel, "Open Reframe");
+  assert.equal(irregularError.automaticResampling, false);
+
+  let nonIntegerError;
+  try {
+    reconcileDepthChannels([
+      { depth: Float32Array.from([0, 0.5, 1]), values: Float32Array.from([10, 11, 12]) },
+      { depth: Float32Array.from([0, 0.8, 1.6]), values: Float32Array.from([20, 21, 22]) },
+    ]);
+  } catch (error) {
+    nonIntegerError = error;
+  }
+  assert.ok(nonIntegerError, "non-integer step ratios must refuse instead of being aligned or resampled");
+  assert.equal(nonIntegerError.name, "DepthGridReconciliationError");
+  assert.equal(nonIntegerError.route, "reframe");
+  assert.equal(nonIntegerError.actionLabel, "Open Reframe");
+  assert.equal(nonIntegerError.automaticResampling, false);
+
+  assert.deepEqual(
+    halfOpenDepthIndices(Float32Array.from([100, 100.5, 101]), 100, 101),
+    [0, 1],
+  );
+
+  const plotCommon = await load("/src/ui/plotCommon.ts");
+  const handoff = plotCommon.depthReframeHandoff?.(
+    nonIntegerError,
+    ["active-well"],
+    ["NPHI", "RHOB"],
+  );
+  assert.deepEqual(handoff, {
+    event: "sandibumi:open-reframe",
+    actionLabel: "Open Reframe",
+    reason: nonIntegerError.message,
+    wellIds: ["active-well"],
+    curves: ["NPHI", "RHOB"],
+    automaticResampling: false,
+  });
+  assert.equal(
+    plotCommon.depthReframeHandoff?.(new Error("ordinary fetch failure"), ["active-well"], ["NPHI"]),
+    null,
+    "an unrelated error must not masquerade as a depth-grid handoff",
+  );
+
+  const statuses = [];
+  const control = plotCommon.buildDepthReframeHandoff?.((text) => statuses.push(text));
+  assert.ok(control, "the plot route must expose a real Reframe handoff control");
+  assert.equal(control.el.style.display, "none");
+  control.show(handoff);
+  assert.equal(control.el.style.display, "");
+  assert.match(control.el.textContent, /Plot refused: .* No data were resampled\./u);
+  const button = control.el.children.at(-1);
+  assert.equal(button.textContent, "Open Reframe");
+
+  let opened = 0;
+  const unregister = plotCommon.registerDepthReframeRoute?.(() => {
+    opened += 1;
+  });
+  assert.equal(typeof unregister, "function");
+  button.click();
+  assert.equal(opened, 1, "the refusal action must open the explicit Reframe workflow once");
+  assert.match(statuses.at(-1), /no plot data were resampled/iu);
+  control.clear();
+  assert.equal(control.el.style.display, "none");
+  unregister();
+  button.click();
+  assert.equal(opened, 1, "the registered route must be removable without leaving a hidden listener");
+
+  // The helpers above are necessary but a disconnected refusal/action would still pass. Inventory
+  // every pilot consumer and the one shell route; no plotting consumer may invoke Reframe itself.
+  const sources = Object.fromEntries(await Promise.all([
+    "crossplotPanel.ts",
+    "histogramPanel.ts",
+    "pickettPanel.ts",
+    "plotCommon.ts",
+  ].map(async (file) => [file, await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8")])));
+  for (const panel of ["crossplotPanel.ts", "histogramPanel.ts", "pickettPanel.ts"]) {
+    assert.match(sources[panel], /buildDepthReframeHandoff\(/u, `${panel} must render the refusal action`);
+    assert.match(sources[panel], /\.show\(/u, `${panel} must disclose the typed handoff`);
+    assert.doesNotMatch(
+      sources[panel],
+      /runReframe|run_reframe/u,
+      `${panel} must not resample merely because it encountered an incompatible plot grid`,
+    );
+  }
+  assert.match(
+    sources["plotCommon.ts"],
+    /depthReframeByIndex\[i\] = depthReframeHandoff\(error, \[ids\[i\]\], curves\)/u,
+    "the shared multi-well loader must retain an actionable handoff for the affected well",
+  );
+  const ribbonSource = await readFile(new URL("../src/ui/ribbon.ts", import.meta.url), "utf8");
+  assert.match(
+    ribbonSource,
+    /registerDepthReframeRoute\(\(\) => workspace\.openReframe\(\)\)/u,
+    "the shell must open the existing explicit Reframe workflow when the user chooses the action",
+  );
 });
 
 test("every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_while_the_documented_6_56x_pair_and_unknown_units_stay_disabled_with_reasons", async () => {

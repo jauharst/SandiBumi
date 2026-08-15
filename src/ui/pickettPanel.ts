@@ -25,15 +25,18 @@ import {
 import {
   buildPlotTemplateBar,
   buildPersistedPlotState,
+  buildDepthReframeHandoff,
   buildZoneSelect,
   contextReductionExport,
   CONTEXT_LEGEND_ROWS,
   contextZoneWindow,
   curveSelect,
+  depthReframeHandoff,
   describeContextOutcome,
   fetchContextLayers,
   loadCurveNames,
   loadPlotProps,
+  mergeDepthReframeHandoffs,
   nearestDepthIndex,
   pickRow,
   plotWriteAxis,
@@ -568,6 +571,8 @@ export async function buildPickettContent(
 
   const content = document.createElement("div");
   content.className = "plot-content";
+  const activeDepthHandoff = buildDepthReframeHandoff(setStatus);
+  const contextDepthHandoff = buildDepthReframeHandoff(setStatus);
   const rtSel = curveSelect(curveNames, initial?.rt ?? "RES_DEEP");
   const phiSel = curveSelect(curveNames, initial?.phi ?? "PHIE");
   // Manual M / a·Rw: blank = derive from the two picks; typed = the fitted line follows them.
@@ -604,7 +609,7 @@ export async function buildPickettContent(
     "Zone/top windows are resolved per well by NAME (a well without that zone or top is skipped).";
   const scopeInfo = document.createElement("p");
   scopeInfo.className = "modal-hint";
-  scopeRow.append(scope.el, scopeStaticHint, scopeInfo);
+  scopeRow.append(scope.el, scopeStaticHint, scopeInfo, contextDepthHandoff.el);
   scopeBtn.addEventListener("click", () => {
     scopeRow.style.display = scopeRow.style.display === "none" ? "" : "none";
   });
@@ -690,6 +695,7 @@ export async function buildPickettContent(
   ));
   content.appendChild(selRow);
   content.appendChild(scopeRow);
+  content.appendChild(activeDepthHandoff.el);
 
   const canvas = document.createElement("canvas");
   canvas.width = 720;
@@ -871,6 +877,7 @@ export async function buildPickettContent(
    *  active well → clears the overlay: byte-identical single-well behaviour. */
   const reloadContext = async () => {
     const gen = ++ctxGen;
+    contextDepthHandoff.clear();
     let resolvedIds: string[];
     try {
       resolvedIds = await resolveWellScope(scope.backend());
@@ -886,6 +893,7 @@ export async function buildPickettContent(
       ctxWellIds = [];
       ctxReductionManifest = null;
       ctxInfo = "";
+      contextDepthHandoff.clear();
       updateScopeUi();
       if (had) redraw();
       return;
@@ -920,6 +928,7 @@ export async function buildPickettContent(
     }));
     ctxWellIds = outcome.layers.map((layer) => layer.wellId);
     ctxInfo = describeContextOutcome(outcome);
+    contextDepthHandoff.show(mergeDepthReframeHandoffs(outcome.depthReframeHandoffs));
     updateScopeUi();
     setStatus(`Pickett ${ctxInfo.toLowerCase()}`);
     redraw();
@@ -1023,6 +1032,7 @@ export async function buildPickettContent(
     if (!preserveView) resetPending = true;
     const zone = zoneSel.current();
     const names = props.zCurve ? [rtSel.value, phiSel.value, props.zCurve] : [rtSel.value, phiSel.value];
+    activeDepthHandoff.clear();
     try {
       const series = await getCurveData(well.well_id, names, zone.depthMin, zone.depthMax);
       if (gen !== reloadGen) return; // a newer reload started while we awaited
@@ -1054,7 +1064,9 @@ export async function buildPickettContent(
       }
     } catch (err) {
       if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
-      setStatus(`Pickett data load failed: ${err}`);
+      const handoff = depthReframeHandoff(err, [well.well_id], names);
+      activeDepthHandoff.show(handoff);
+      setStatus(handoff ? `Pickett refused: ${handoff.reason}` : `Pickett data load failed: ${err}`);
       rt = phi = depths = new Float32Array(0);
       zValues = new Float32Array(0);
       zRange = null;

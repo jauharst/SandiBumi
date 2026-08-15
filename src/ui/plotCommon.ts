@@ -25,6 +25,7 @@ import { formRow, openModal } from "./modal";
 import { FACIES_PALETTE } from "./plotCanvas";
 import {
   allocateFinitePairBudget,
+  DepthGridReconciliationError,
   halfOpenDepthIndices,
   reconcileDepthChannels,
   type DepthGridReconciliation,
@@ -55,6 +56,100 @@ export interface PlotContent {
    *  right-click menu — the canvas no longer swallows right-click to open it directly,
    *  which had hidden the window actions (split/float/export) on every plot. */
   openProperties?: () => void;
+}
+
+export interface DepthReframeHandoff {
+  event: "sandibumi:open-reframe";
+  actionLabel: "Open Reframe";
+  reason: string;
+  wellIds: string[];
+  curves: string[];
+  automaticResampling: false;
+}
+
+export interface DepthReframeHandoffControl {
+  el: HTMLDivElement;
+  show: (handoff: DepthReframeHandoff | null) => void;
+  clear: () => void;
+}
+
+export function depthReframeHandoff(
+  error: unknown,
+  wellIds: string[],
+  curves: string[],
+): DepthReframeHandoff | null {
+  if (!(error instanceof DepthGridReconciliationError)) return null;
+  return {
+    event: "sandibumi:open-reframe",
+    actionLabel: error.actionLabel,
+    reason: error.message,
+    wellIds: [...new Set(wellIds.map((wellId) => wellId.trim()).filter(Boolean))],
+    curves: [...new Set(curves.map((curve) => curve.trim()).filter(Boolean))],
+    automaticResampling: error.automaticResampling,
+  };
+}
+
+export function mergeDepthReframeHandoffs(
+  handoffs: DepthReframeHandoff[],
+): DepthReframeHandoff | null {
+  if (handoffs.length === 0) return null;
+  if (handoffs.length === 1) return handoffs[0];
+  return {
+    event: "sandibumi:open-reframe",
+    actionLabel: "Open Reframe",
+    reason:
+      `${handoffs.length} selected wells have irregular depth grids or steps that are not exact integer multiples; ` +
+      "use Reframe to create explicit shared depth frames",
+    wellIds: [...new Set(handoffs.flatMap((handoff) => handoff.wellIds))],
+    curves: [...new Set(handoffs.flatMap((handoff) => handoff.curves))],
+    automaticResampling: false,
+  };
+}
+
+export function buildDepthReframeHandoff(
+  setStatus: (text: string) => void,
+): DepthReframeHandoffControl {
+  const el = document.createElement("div");
+  el.className = "depth-reframe-handoff";
+  el.style.display = "none";
+  const message = document.createElement("span");
+  message.className = "depth-reframe-handoff-message";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "plot-export-btn";
+  let current: DepthReframeHandoff | null = null;
+  const clear = () => {
+    current = null;
+    message.textContent = "";
+    button.textContent = "";
+    el.style.display = "none";
+  };
+  button.addEventListener("click", () => {
+    if (!current) return;
+    window.dispatchEvent(new CustomEvent(current.event, { detail: current }));
+    setStatus("Opening Reframe for an explicit depth-grid decision; no plot data were resampled.");
+  });
+  el.append(message, button);
+  return {
+    el,
+    show: (handoff) => {
+      if (!handoff) {
+        clear();
+        return;
+      }
+      current = handoff;
+      message.textContent = `Plot refused: ${handoff.reason} No data were resampled.`;
+      button.textContent = handoff.actionLabel;
+      el.style.display = "";
+    },
+    clear,
+  };
+}
+
+export function registerDepthReframeRoute(openReframe: () => void): () => void {
+  const listener = () => openReframe();
+  window.addEventListener("sandibumi:open-reframe", listener);
+  return () => window.removeEventListener("sandibumi:open-reframe", listener);
 }
 
 function bindingKey(binding: PersistedPlotState["bindings"][number]): string {
@@ -578,6 +673,8 @@ export interface ContextFetchOutcome {
   skipped: number;
   /** Per-well absence is explicit; an all-NaN required curve is not represented. */
   absent: { wellId: string; reason: string; quota: 0 }[];
+  /** Incompatible depth grids remain absent until the user explicitly opens Reframe. */
+  depthReframeHandoffs: DepthReframeHandoff[];
   /** Present only when the total budget cannot retain required endpoints. */
   refusal: string | null;
 }
@@ -608,6 +705,7 @@ export async function fetchContextLayers(args: {
     depthStep: DepthStepManifest;
   }
   const candidates: (Candidate | null)[] = new Array(ids.length).fill(null);
+  const depthReframeByIndex: (DepthReframeHandoff | null)[] = new Array(ids.length).fill(null);
   const absent: { wellId: string; reason: string; quota: 0 }[] = [];
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -635,6 +733,7 @@ export async function fetchContextLayers(args: {
             present.map((item) => ({ depth: item.depth, values: item.value })),
           );
         } catch (error) {
+          depthReframeByIndex[i] = depthReframeHandoff(error, [ids[i]], curves);
           absent.push({ wellId: ids[i], reason: String(error), quota: 0 });
           continue;
         }
@@ -679,6 +778,9 @@ export async function fetchContextLayers(args: {
       decimated: false,
       skipped: absent.length,
       absent,
+      depthReframeHandoffs: depthReframeByIndex.filter(
+        (handoff): handoff is DepthReframeHandoff => handoff !== null,
+      ),
       refusal: allocation.refusal,
     };
   }
@@ -714,6 +816,9 @@ export async function fetchContextLayers(args: {
     decimated,
     skipped: absent.length,
     absent,
+    depthReframeHandoffs: depthReframeByIndex.filter(
+      (handoff): handoff is DepthReframeHandoff => handoff !== null,
+    ),
     refusal: null,
   };
 }
@@ -730,6 +835,7 @@ export function describeContextOutcome(o: ContextFetchOutcome): string {
   const depthText = depthFactors.some((factor) => factor > 1)
     ? ` · depth decimation factor${depthFactors.length === 1 ? "" : "s"} ${depthFactors.join("/")} to coarsest exact step`
     : "";
+  const reframeCount = o.depthReframeHandoffs?.length ?? 0;
   return (
     `Context: ${o.layers.length} well${o.layers.length === 1 ? "" : "s"} · ~${o.shown.toLocaleString()} pts` +
     (o.decimated
@@ -737,7 +843,8 @@ export function describeContextOutcome(o: ContextFetchOutcome): string {
       : "") +
     depthText +
     (o.layers.length ? " · interval [lo,hi)" : "") +
-    (o.skipped ? ` · ${o.skipped} absent (reasons retained per well)` : "")
+    (o.skipped ? ` · ${o.skipped} absent (reasons retained per well)` : "") +
+    (reframeCount ? ` · ${reframeCount} require explicit Reframe` : "")
   );
 }
 

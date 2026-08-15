@@ -1,5 +1,28 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-016: exact depth reconciliation and explicit Reframe handoff
+
+- [ ] **Automated correctness:** the exact SB-PLT-016 T23-T26 test executes equal regular grids,
+      exact 0.5/1.0 multiples, both irregular-identical and non-integer 0.5/0.8 refusals, and the
+      `[100,101)` half-open interval. It clicks the visible handoff, proves the shell opens Reframe
+      once, inventories Crossplot, Histogram, Pickett and shared context loading, and proves no plot
+      calls Reframe automatically. An event-name mutation made the test RED before restoration; the
+      Rust oracle also passes. The full gate is green at 1031 passed / 0 failed / 37 ignored with 34
+      owned Rust warnings.
+- [ ] **Visual:** load equal, exact-multiple and incompatible native-grid curves in Crossplot,
+      Histogram context and Pickett. Confirm compatible plots render normally; an incompatible plot
+      shows one readable warning card and `Open Reframe` button at the smallest normal dock size;
+      clicking it opens Reframe and the status explicitly says no plot data were resampled.
+- [ ] **Manual:** compare the equal and exact-multiple results against their native samples, confirm
+      the factor disclosure is correct, and verify `[lo,hi)` excludes the high endpoint. For both an
+      irregular grid and non-integer step ratio, snapshot the source curve bytes, exercise the
+      refusal and Reframe handoff without running Reframe, and confirm the source remains unchanged.
+- [ ] **Field and harsh critique:** repeat with representative multi-set wells containing equal,
+      unequal, sparse and irregular native grids. If incompatible logs merely look aligned, or if a
+      refusal gives no obvious next action, the UI is safer-looking rather than safe. This automated
+      proof does not establish visual placement, user comprehension, representative-field behavior
+      or SB-PLT-017 viewport refetching; those remain separate evidence.
+
 ## 2026-08-15 — G2 SB-PLT-015: shared-index decimation and portable tail provenance
 
 - [ ] **Automated correctness:** the exact SB-PLT-015 T21/T22 test derives source indices

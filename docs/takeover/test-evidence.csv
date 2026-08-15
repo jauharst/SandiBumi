@@ -213,6 +213,7 @@
 "SB-PLT-009","CORRECTNESS","tools/frontend-acceptance.test.mjs","every_plot_statistic_records_its_population_interval_selection_finite_pairs_exclusions_percentile_interpolation_and_standard_deviation_choice"
 "SB-PLT-013","CORRECTNESS","tools/frontend-acceptance.test.mjs","non_finite_log_xy_z_and_waveform_values_follow_one_non_mutating_reported_channel_policy"
 "SB-PLT-015","CORRECTNESS","tools/frontend-acceptance.test.mjs","context_plot_decimation_uses_one_shared_index_retains_both_endpoints_and_exports_counts_algorithm_stride_and_forced_endpoint_without_calling_the_view_complete"
+"SB-PLT-016","CORRECTNESS","tools/frontend-acceptance.test.mjs","equal_and_exact_multiple_regular_depth_grids_proceed_with_reported_factors_while_non_integer_or_irregular_grids_refuse_with_an_explicit_reframe_action_and_intervals_stay_half_open"
 "SB-PLT-010","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_regression_as_coefficients_without_a_versioned_scientific_record"
 "SB-PLT-018","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_linked_brushing_as_one_ephemeral_scope_with_exact_depth_membership"
 "SB-PLT-026","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_vector_exports_as_labelled_while_the_png_print_path_is_not_labelled_raster"

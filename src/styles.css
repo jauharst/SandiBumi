@@ -2650,6 +2650,26 @@ textarea {
   margin: 8px 0;
 }
 
+.depth-reframe-handoff {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--warn);
+  border-radius: 4px;
+  background: var(--bg-panel-alt);
+}
+
+.depth-reframe-handoff-message {
+  flex: 1;
+  min-width: 0;
+  color: var(--warn);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+
 .modal-result {
   margin-top: 10px;
   font-size: var(--fs-sm);
