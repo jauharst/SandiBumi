@@ -1367,6 +1367,115 @@ mod tests {
         }
     }
 
+    /// CORRECTNESS — SB-ENV-034 / exact SB-ENV-T43 in
+    /// `docs/PRD_v2/20_envcorr-qc.md` supplies the 1.0 m window and the 0.1 m / 0.5 m samplings.
+    /// The expected window populations (eleven and three) and their common 1.0 m span follow
+    /// independently from those values. MEDIAN isolates this physical-window contract from
+    /// SB-ENV-T42's separately blocked Hampel minimum-sample/fallback decision.
+    ///
+    /// The narrow 0.4 m feature and wide 2.0 m bed pin both sides: the former must be removed at
+    /// both samplings while the latter survives. A fixed sample-count window can satisfy only one
+    /// side when the sampling changes fivefold.
+    #[test]
+    fn every_conditioning_and_framing_distance_is_physical_thickness_and_a_one_metre_despike_covers_one_metre_at_two_samplings(
+    ) {
+        use std::collections::BTreeSet;
+
+        let expected: BTreeSet<(String, String)> = [
+            ("despike", "WINDOW"),
+            ("smooth", "WINDOW"),
+            ("fill_gaps", "MAX_GAP"),
+            ("block", "INTERVAL"),
+            ("block", "MIN_BED"),
+            ("bed_detect", "MIN_BED"),
+            ("condflag", "MIN_THICK"),
+            ("condflag", "SHOULDER"),
+        ]
+        .into_iter()
+        .map(|(module, argument)| (module.to_string(), argument.to_string()))
+        .collect();
+        let mut declared = BTreeSet::new();
+        for module in crate::modules::list_modules().into_iter().filter(|module| {
+            matches!(module.category.as_str(), "Condition" | "Frame") || module.name == "condflag"
+        }) {
+            for argument in module.args.into_iter().filter(|argument| {
+                matches!(
+                    argument.name.as_str(),
+                    "WINDOW" | "MAX_GAP" | "INTERVAL" | "MIN_BED" | "MIN_THICK" | "SHOULDER"
+                ) || argument.name.contains("LENGTH")
+                    || argument.name.contains("WIDTH")
+            }) {
+                assert!(
+                    matches!(argument.kind, crate::modules::ArgKind::Param),
+                    "{}.{} is a physical distance and must remain a numeric parameter",
+                    module.name,
+                    argument.name
+                );
+                assert!(
+                    matches!(argument.unit.as_str(), "depth" | "m|ft"),
+                    "{}.{} declares {:?}; SB-ENV-034 permits only the project's depth unit, never samples",
+                    module.name,
+                    argument.name,
+                    argument.unit
+                );
+                declared.insert((module.name.clone(), argument.name));
+            }
+        }
+        assert_eq!(
+            declared, expected,
+            "the whole conditioning/framing distance inventory must be reviewed when one is added, removed or renamed"
+        );
+
+        let mut fine_result = Vec::new();
+        for (step, expected_samples) in [(0.1f32, 11usize), (0.5, 3)] {
+            let n = (10.0 / step) as usize + 1;
+            let depth = regular(n, step, 0.0);
+            let mut curve = vec![0.0f32; n];
+            for (index, value) in curve.iter_mut().enumerate() {
+                let position = index as f32 * step;
+                if (1.8..=2.2).contains(&position) || (5.0..=7.0).contains(&position) {
+                    *value = 10.0;
+                }
+            }
+
+            let centre = (4.0 / step).round() as usize;
+            let frame = Frame::new(&depth);
+            let (lo, hi) = frame.windows(0.5)[centre];
+            assert_eq!(hi - lo, expected_samples, "step {step}: wrong 1.0 m window population");
+            assert!(
+                ((frame.dep[hi - 1] - frame.dep[lo]) - 1.0).abs() < 1e-6,
+                "step {step}: the window spans {} m instead of 1.0 m",
+                frame.dep[hi - 1] - frame.dep[lo]
+            );
+
+            let output = despike(&ctx_for(
+                &depth,
+                &curve,
+                &[("WINDOW", 1.0)],
+                &[("OPT_METHOD", "MEDIAN")],
+            ))
+            .expect("a physical median window runs at both samplings")["OUT_CURVE"]
+                .clone();
+            let narrow = (2.0 / step).round() as usize;
+            let wide = (6.0 / step).round() as usize;
+            assert_eq!(output[narrow], 0.0, "step {step}: a 0.4 m feature survives a 1.0 m window");
+            assert_eq!(output[wide], 10.0, "step {step}: a 2.0 m bed is erased by a 1.0 m window");
+
+            if step == 0.1 {
+                fine_result = output;
+            } else {
+                for (coarse_index, coarse_value) in output.iter().copied().enumerate() {
+                    assert_eq!(
+                        coarse_value,
+                        fine_result[coarse_index * 5],
+                        "the two results disagree at physical depth {} m",
+                        coarse_index as f32 * step
+                    );
+                }
+            }
+        }
+    }
+
     /// **A despike must not despike the rock**, and the discriminator is thickness against the
     /// window. A bed comfortably wider than the window survives; a single bad sample does not.
     ///

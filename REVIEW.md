@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-034: Physical conditioning and framing distances
+
+- [ ] **Automated correctness:** exact T43 is GREEN. One named test inventories all eight current
+      `WINDOW`, `MAX_GAP`, `INTERVAL`, `MIN_BED`, `MIN_THICK` and `SHOULDER` declarations across
+      Condition, Frame and `condflag`; a 1.0 m centred window spans eleven 0.1 m samples and three
+      0.5 m samples, removes a 0.4 m feature, preserves a 2.0 m bed and agrees at every coarse depth.
+- [ ] **Visual:** open Despike, Smooth, Fill Gaps, Block, Bed Detect and Data Conditioning Flags.
+      Confirm every distance field is presented as a physical depth-unit quantity and never as a
+      sample count. The inconsistent `depth` versus `m|ft` wording is separately owned by SB-ENV-057.
+- [ ] **Manual two-sampling review:** reframe one controlled curve at 0.1 m and 0.5 m, use the same
+      1.0 m MEDIAN despike window and compare at shared depths. Confirm a narrow feature is removed,
+      a bed wider than the window remains and the original curves are still available for undo/QC.
+- [ ] **Field and harsh critique:** sampling invariance prevents the same typed number from covering
+      five times more rock after a reframe; it does not prove 1.0 m is a defensible window for any
+      real tool or bed. The interpreter still chooses the physical thickness from the actual log.
+
 ## 2026-08-16 — G2 SB-ENV-033: Degenerate-window reporting contract blocked
 
 - [ ] **Decision dependency:** answer DEC-034. Exact T42 requires a four-sample Hampel

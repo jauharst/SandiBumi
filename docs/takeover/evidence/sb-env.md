@@ -449,14 +449,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-OK`; T43; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** no sample-count windows; every conditioning/framing window, gap, bed/shoulder and filter length resolves as physical thickness against its own depth frame.
-- **Current source:** Condition and Frame specs use physical-thickness parameters and their algorithms resolve depth windows from actual samples; `condflag` thickness/shoulder arithmetic also uses depth differences. The declaration tokens remain inconsistent under SB-ENV-057.
-- **Qualifying acceptance tests:** none for the universal inventory; T43 is not implemented as a whole-registry gate. Test class `MISSING`.
-- **Supporting tests:** `a_despike_window_covers_the_same_rock_at_any_sampling` passed and proves one resampling-invariant path, not every declaration/caller.
+- **Current source:** Condition and Frame resolve `WINDOW`, `MAX_GAP`, `INTERVAL` and `MIN_BED` from actual depth differences; `condflag` resolves `MIN_THICK` and `SHOULDER` from depth extents. No production behavior changed. The declaration-token inconsistency remains separately owned by SB-ENV-057.
+- **Qualifying acceptance tests:** exact T43 `condition::tests::every_conditioning_and_framing_distance_is_physical_thickness_and_a_one_metre_despike_covers_one_metre_at_two_samplings` passes. It inventories all eight current distance declarations, derives eleven versus three samples from the chapter's 1.0 m / 0.1 m / 0.5 m fixture, and pins both a removable 0.4 m feature and a surviving 2.0 m bed. Test class `CORRECTNESS`.
+- **Supporting tests:** the existing block-interval, minimum-bed, fill-gap and `condflag` bed/shoulder tests remain green; they support individual paths but are not counted as separate T43 ownership.
 - **Manual evidence:** conditioning 0/27; data-conventions 0/45.
-- **Git evidence:** the physical-thickness mechanisms are integrated and no sample-count ENV window was found at the accepted anchor.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** exhaustive registry proof is missing; SB-ENV-057 separately blocks token consistency.
-- **Next action:** add T43 as an exhaustive declaration/behavior inventory with two samplings per operation, without changing the existing physical-width semantics.
+- **Git evidence:** the physical-thickness mechanisms are integrated; the exact proof is added in this one-requirement increment.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`.
+- **Blocker or decision:** none for physical-thickness behavior; SB-ENV-057 still owns the one-token declaration contract and is not silently closed here.
+- **Next action:** preserve the exhaustive T43 inventory and two-sided sampling control; execute visual/manual/field review separately; continue SB-ENV-035.
 
 ## SB-ENV-035 - Smoothing never bridges a gap, and never invents a sample
 
