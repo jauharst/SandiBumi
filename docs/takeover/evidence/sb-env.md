@@ -72,14 +72,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; T08-T10; sections 4.1, 5, 6.2, 7.1 OI-4 and 8.
 - **Atomic obligations:** persist and reload every correction step, status and applied parameter value with the output curve.
-- **Current source:** `workflow.rs` records only request numeric parameters and input bindings for direct runs; `chain.rs` records only the module ID sequence for a chain. Neither records applied/unavailable/disabled/refused steps, actual per-step parameters or a restart-retrievable correction manifest.
-- **Qualifying acceptance tests:** none; T08-T10 are missing. Test class `MISSING`.
-- **Supporting tests:** generic log-set version tests prove version retrieval, not correction-step custody.
-- **Manual evidence:** processing-history 0/7; conditioning 0/27; workflow 0/23.
-- **Git evidence:** generic provenance is integrated, but the required manifest is `UNIMPLEMENTED`.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** OI-4 leaves the exact persistence location open; the manifest content itself is fully specified.
-- **Next action:** settle OI-4, persist one applied-step manifest with the curve, and prove partial input plus restart retrieval.
+- **Current source:** the complete-run writer links every computed curve to one versioned log-set record carrying the module, effective parameters, input ancestry, validity snapshot, outcomes and degradations. That is supporting infrastructure, not an applied-step manifest: neither `workflow.rs` nor `chain.rs` records the correction chain's complete step identities or one of `applied` / `unavailable` / `user-disabled` / `refused` per step, and no reader reconstructs those states after restart. `curve_meta` has no such record either.
+- **Qualifying acceptance tests:** none. Exact current/test inventory found no `SB-ENV-T08`, `SB-ENV-T09`, `SB-ENV-T10`, applied-step or correction-manifest implementation. T08 also depends on actual partial correction chains owned by SB-ENV-010/011; T09's uncertainty parity is owned by deferred SB-ENV-019 and its OI-3 model decision; T10 cannot choose a persistence candidate on behalf of OI-4. Test class `MISSING`.
+- **Supporting tests:** the versioned log-set, restore and ancestry tests prove that generic records survive and remain curve-linked. They do not prove step status, per-step parameter binding, a complete correction-chain inventory or post-restart applied-step retrieval.
+- **Manual evidence:** conditioning 1/46; workflow 0/37; processing-history 0/7; the blocked SB-ENV-005 review remains unchecked.
+- **Git evidence:** current topic branch after SB-ENV-004; read-only exact-source audit found the three OI-4 candidates but no later owner decision, step schema or executable acceptance test. The unchanged last full gate is 1043 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; the blocker-only exact candidate is re-gated before commit.
+- **Verdict:** chapter and live as-built remain `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`; Gate 2 `BLOCKED-DECISION/DEPENDENCY`; Visual/Manual/Field review open.
+- **Blocker or decision:** OI-4 explicitly leaves log-set archive versus run record versus per-curve metadata open and ties the choice to SB-ENV-028 and SB-ENV-042. Choosing the existing `params_json` blob merely because it is convenient would silently settle a product architecture decision. Exact T08/T09 execution also depends on correction-chain and uncertainty contracts outside this row; no numeric coefficient, measured input, chain identity or status is inferred.
+- **Next action:** Jauhar selects OI-4's single persistence owner; source-complete correction chains become available; then add one typed applied-step schema to the existing atomic writer, retrieve it after restart and implement T08-T10. Until then SB-ENV-006/007 must make current unmanifested correction outputs refuse or remain outside the pilot rather than calling this row complete.
 
 ## SB-ENV-006 - A curve named "corrected" MUST have been corrected
 

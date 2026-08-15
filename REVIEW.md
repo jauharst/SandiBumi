@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-ENV-005: environmental applied-step storage blocked
+
+- [ ] **Automated audit:** no applied-step schema, writer, reader or qualifying T08-T10 test exists.
+      The current log-set archive records a module, effective parameters and input ancestry, but it
+      does not distinguish applied, unavailable, user-disabled and refused correction steps or bind
+      each applied value to one step. The last exact-candidate gate remains 1043 passed / 0 failed /
+      37 ignored with 31 separately owned Rust warnings; no passing test was manufactured from the
+      generic run record.
+- [ ] **Visual:** no closure review is executable. A curve can still be displayed with a module name
+      and numeric parameters while omitting which correction terms actually ran; that is precisely
+      the plausible-looking but unauditable state this requirement rejects.
+- [ ] **Manual decision:** choose OI-4's one persistence owner for the shared applied-step, mask and
+      interactive-edit history problem: log-set archive, run record or per-curve metadata. The choice
+      must support restart retrieval and one-hop curve linkage without adding a second write path.
+- [ ] **Field and harsh critique:** a generic provenance blob is not a correction manifest. Until
+      the storage owner and source-complete correction chains are settled, a well review cannot
+      distinguish “step unavailable” from “step never modelled,” so this row remains BLOCKED.
+
 ## 2026-08-15 — G2 SB-ENV-004: parameter-source contract blocked
 
 - [ ] **Automated audit:** current source has the universal `default_source`/`ABSENT` field, build
