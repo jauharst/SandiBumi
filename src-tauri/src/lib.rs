@@ -60,6 +60,7 @@ mod registration;
 mod report;
 mod resultsqc;
 mod rocktyping;
+mod robust;
 mod satheight;
 mod schema_vocab;
 mod shf_fit;

@@ -133,9 +133,9 @@ fn window_median(vals: &[f32], idx: &[usize], lo: usize, hi: usize, buf: &mut Ve
 /// The robust spread of a window about `centre` — the scale the Hampel test measures a sample
 /// against.
 ///
-/// Median absolute deviation, scaled by 1.4826 so it estimates the standard deviation of a normal
-/// population. That scaling is what makes one `K` readable as "this many deviations out" on GR,
-/// RHOB, NPHI and RT alike, rather than a different number per curve.
+/// Median absolute deviation, scaled by [`crate::robust::C_MAD`] so it estimates the standard
+/// deviation of a normal population. That scaling is what makes one `K` readable as "this many
+/// deviations out" on GR, RHOB, NPHI and RT alike, rather than a different number per curve.
 ///
 /// **With a fall-back, because MAD IMPLODES.** It is zero whenever more than half the window is
 /// identical — a quiet interval, a curve quantized to a coarse step, a tool sitting on its rail —
@@ -210,7 +210,7 @@ fn window_spread(
         return WindowSpread { value: MISSING, estimator: DespikeEstimator::MeanDeviationFallback };
     }
     buf.sort_by(|a, b| a.partial_cmp(b).expect("finite by construction"));
-    let mad = 1.4826 * crate::distribution::percentile(buf, 50.0);
+    let mad = crate::robust::C_MAD as f32 * crate::distribution::percentile(buf, 50.0);
     if mad > 0.0 {
         return WindowSpread { value: mad, estimator: DespikeEstimator::TrueMad };
     }
@@ -379,8 +379,9 @@ pub fn despike_spec() -> ModuleSpec {
               top and bottom sample to the shoulder, where the window straddles the contact.\n\n\
               METHOD:\n\
               • HAMPEL — replace when the sample is more than K robust deviations from the window \
-              median (the deviation is 1.4826 x MAD, so one K reads the same on GR, RHOB, NPHI \
-              and RT). Needs a WINDOW covering at least five samples, and the run refuses a \
+              median (the deviation is the cited Gaussian consistency constant x MAD, so one K \
+              reads the same on GR, RHOB, NPHI and RT). Needs a WINDOW covering at least five \
+              samples, and the run refuses a \
               narrower one: below that the spread being measured against is set by the very \
               sample under test. Where more than half the window is identical — a quiet interval, \
               a coarsely quantized curve, a tool on its rail — the MAD is zero and the mean \

@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-032: One cited MAD consistency constant
+
+- [ ] **Automated correctness:** exact T41 is GREEN: the Rust source tree has one `C_MAD`
+      definition, one executable source record and no second copy of the numeric literal; both the
+      Condition and Frame consumers are inventoried and must reference the shared constant.
+- [ ] **Structural review:** open `robust.rs` and confirm the value is explicitly derived as the
+      reciprocal of the standard-normal 75th percentile and cites `20_envcorr-qc.md` §5.3. Search
+      the Rust tree independently and confirm the only numeric occurrence is that definition.
+- [ ] **Manual result regression:** rerun a representative Hampel despike and Frame bed detection
+      before and after this increment. Confirm the same samples are selected and the tiny move from
+      the truncated literal to the chapter value does not change an interpreter-visible decision.
+- [ ] **Field and harsh critique:** one source of truth prevents drift; it does not prove MAD is the
+      right estimator for a particular tool artifact, window, sampling, or bed. A green structural
+      gate and unchanged-looking curves are not field validation.
+
 ## 2026-08-16 — G2 SB-ENV-031: Live despike contamination ceiling
 
 - [ ] **Automated correctness:** exact T40/T69/T70 are GREEN from independent chapter arithmetic:

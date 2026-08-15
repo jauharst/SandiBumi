@@ -169,8 +169,9 @@ fn detect_beds(vals: &[f32], depth: &[f32], sens: f64, min_bed: f64) -> Vec<f32>
     let noise = if diffs.is_empty() {
         0.0
     } else {
-        // 1.4826 x MAD-about-zero of |Δ|, then / sqrt(2) for the two-sample difference.
-        (1.4826 * crate::distribution::percentile(&diffs, 50.0) as f64) / std::f64::consts::SQRT_2
+        // C_MAD x MAD-about-zero of |Δ|, then / sqrt(2) for the two-sample difference.
+        (crate::robust::C_MAD * crate::distribution::percentile(&diffs, 50.0) as f64)
+            / std::f64::consts::SQRT_2
     };
     let sens = if sens.is_finite() && sens > 0.0 { sens } else { 2.0 };
     let threshold = noise * sens;

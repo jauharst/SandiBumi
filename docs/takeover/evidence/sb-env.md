@@ -423,14 +423,14 @@
 
 - **Chapter evidence:** P2; chapter status `PRESENT-DIVERGENT`; T41; sections 4.4, 5, 6.4 and 8.
 - **Atomic obligations:** one named cited consistency constant is shared by every MAD consumer.
-- **Current source:** the same literal appears independently in `condition.rs::window_spread` and `frame.rs`; it is neither named nor connected to a machine-readable source.
-- **Qualifying acceptance tests:** none; T41 is missing. Test class `MISSING`.
-- **Supporting tests:** despike/frame behavior can pass with duplicated literals and therefore cannot prove single ownership.
+- **Current source:** `robust.rs` owns the one `C_MAD` definition and executable §5.3 source record; `condition.rs::window_spread` and `frame.rs::detect_beds` consume that definition and contain no copied literal.
+- **Qualifying acceptance tests:** `robust::tests::the_mad_gaussian_consistency_constant_has_one_cited_definition_and_no_duplicate_literal` recursively inventories every Rust source, requires exactly one named definition and source record, rejects any second numeric occurrence and requires both current robust consumers to use it. Test class `CORRECTNESS`.
+- **Supporting tests:** all 18 Condition tests and all 20 Frame/Reframe-filtered tests remain green after replacing the truncated copies with the chapter value.
 - **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** duplicate literals are integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the chapter supplies the required citation; no new numeric choice is needed.
-- **Next action:** define one cited constant, route all consumers through it and add the whole-tree single-definition T41 gate.
+- **Git evidence:** current topic branch after SB-ENV-031; exact T41 plus complete Condition and Frame suites are green. TypeScript and cargo check are green with the same 31 owned Rust warnings; the expected full gate is 1061 passed / 0 failed / 37 ignored.
+- **Verdict:** source as-built is now `PRESENT-OK`; `PILOT-BLOCKER` automated contract closed; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Manual and Field evidence remain open.
+- **Blocker or decision:** none; the chapter supplies the mathematical derivation and value, so this increment makes no petrophysical choice.
+- **Next action:** preserve the single source and execute the manual result-regression review separately; continue SB-ENV-033. One constant prevents implementation drift but does not validate Hampel for a delivered curve.
 
 ## SB-ENV-033 - A degenerate window is declared, not silently substituted
 

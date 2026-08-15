@@ -1,4 +1,5 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-ENV-032","CORRECTNESS","src-tauri/src/robust.rs","the_mad_gaussian_consistency_constant_has_one_cited_definition_and_no_duplicate_literal"
 "SB-ENV-031","CORRECTNESS","src-tauri/src/condition.rs","the_zero_mad_fallback_ceiling_stops_at_half_and_updates_with_k"
 "SB-ENV-031","CORRECTNESS","src-tauri/src/condition.rs","a_positive_mad_window_reports_the_true_mad_ceiling_not_the_fallback_ceiling"
 "SB-ENV-031","CORRECTNESS","src-tauri/src/condition.rs","a_future_mean_sigma_estimator_cannot_inherit_a_hampel_ceiling"
