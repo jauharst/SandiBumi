@@ -329,7 +329,13 @@ export async function buildModuleContent(
       input.value = arg.default;
       // A manifest with NO default opens EMPTY on purpose (`modules::param_open`) — a despike
       // window and a gap limit have no value that is right in two basins, so the user states one.
-      if (!arg.default) input.placeholder = arg.required ? "set a value" : "no bound";
+      if (!arg.default) {
+        input.placeholder = arg.required
+          ? "set a value"
+          : arg.min === null && arg.max === null
+            ? "optional value"
+            : "no bound";
+      }
       if (arg.min !== null) input.min = String(arg.min);
       if (arg.max !== null) input.max = String(arg.max);
       paramInputs.set(arg.name, input);
@@ -673,7 +679,8 @@ export async function buildModuleContent(
       // A blank field on a no-default param is a real state, not a parse failure. Required →
       // refused BY NAME here, where the user is looking (the needWell.ts rule), rather than as N
       // per-well failures in the Processing panel. Optional → omitted, and the module reads the
-      // absence as "no bound on this side" (Clip's MIN/MAX).
+      // absence as NaN. For Clip that means "no bound on this side"; for an unbounded optional
+      // input such as BADHOLE bit size it means the corresponding criterion is unavailable.
       if (!input.value.trim()) {
         if (arg.required) {
           resultBox.textContent = `${name} must be set — ${arg.desc}`;

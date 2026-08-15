@@ -2601,8 +2601,10 @@ fn badhole_spec() -> ModuleSpec {
         category: "Prep".into(),
         doc: "BADHOLE = 1 where the borehole is enlarged or the density correction is large \
               enough to distrust the porosity logs: |DRHO| > DRHO_MAX, or (CALI - bit size) > \
-              DCAL_MAX. Bit size comes from the BS curve where present, else BS_DEF. The flag is \
-              0 in good hole and MISSING where no QC criterion can be evaluated. The two \
+              DCAL_MAX. Bit size comes from the BS curve where present, or the interpreter's \
+              optional BS_INPUT; no value is substituted when both are absent, so only DRHO can \
+              be evaluated. The flag is 0 in good hole and MISSING where no QC criterion can be \
+              evaluated. The two \
               BADHOLE_*_EVALUATED companions record criterion availability with 1 = evaluated and \
               0 = unavailable; they are not the separate cause/sign channels. Feed BADHOLE to any \
               module run as a mask so flagged intervals go missing instead of polluting results."
@@ -2624,14 +2626,18 @@ fn badhole_spec() -> ModuleSpec {
                 12.0,
                 true,
             ),
-            param_open(
-                "BS_DEF",
-                "Bit size when BS curve is absent",
-                "in",
-                3.0,
-                30.0,
-                true,
-            ),
+            ArgSpec {
+                min: None,
+                max: None,
+                ..param_open(
+                    "BS_INPUT",
+                    "Optional explicit bit size when the BS curve is absent — blank means unavailable",
+                    "in",
+                    0.0,
+                    0.0,
+                    false,
+                )
+            },
             log_in("DRHO", "Density correction log", "g/cc", "DRHO", false),
             log_in("CALI", "Caliper log", "in", "CALI", false),
             log_in("BS", "Bit size log", "in", "BS", false),
@@ -2665,7 +2671,7 @@ fn badhole(ctx: &ModuleContext) -> ModuleOutputs {
         let dcal_max = ctx.p("DCAL_MAX", i);
         let bit = {
             let b = bs[i] as f64;
-            if is_missing(b) { ctx.p("BS_DEF", i) } else { b }
+            if is_missing(b) { ctx.p("BS_INPUT", i) } else { b }
         };
 
         let mut any = false;
@@ -6454,13 +6460,16 @@ mod tests {
 
     #[test]
     fn badhole_flags_washout_and_drho() {
+        // `20_envcorr-qc.md` section 5.2 cites 0.02 g/cc and 2 in; section 4.3 uses
+        // a real 6 in slim-hole example. The other values only bracket those supplied inputs.
         let ctx = ctx_with(
             4,
             &[
-                ("DRHO", vec![0.01, 0.20, 0.01, f32::NAN]),
-                ("CALI", vec![8.6, 8.6, 14.0, f32::NAN]),
+                ("DRHO", vec![0.01, 0.03, 0.01, f32::NAN]),
+                ("CALI", vec![6.2, 6.2, 9.0, f32::NAN]),
+                ("BS", vec![6.0, 6.0, 6.0, f32::NAN]),
             ],
-            &[("DRHO_MAX", 0.05), ("DCAL_MAX", 1.0), ("BS_DEF", 8.5)],
+            &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
             &[],
         );
         let out = badhole(&ctx);
@@ -6474,18 +6483,18 @@ mod tests {
     /// CORRECTNESS — `20_envcorr-qc.md` section 4.3 SB-ENV-021 and section 6.3 T32,
     /// sourced to Geolog `badhole.lls:88-101`, require independent caliper/DRHO availability,
     /// an explicit record of which terms were evaluated, and MISSING rather than a false good-hole
-    /// zero when neither is evaluable. The supplied 0.05 g/cc and 1.0 in thresholds are fixture
-    /// inputs, not shipped defaults; every expected flag follows directly from those inequalities.
+    /// zero when neither is evaluable. The supplied 0.02 g/cc and 2 in thresholds are cited in
+    /// section 5.2; every expected flag follows directly from those inequalities.
     #[test]
     fn a_bad_hole_flag_uses_each_available_term_records_which_was_evaluated_and_stays_missing_when_neither_was_evaluable() {
         let ctx = ctx_with(
             5,
             &[
-                ("DRHO", vec![f32::NAN, 0.06, 0.01, f32::NAN, f32::NAN]),
-                ("CALI", vec![10.0, f32::NAN, 8.6, f32::NAN, 8.6]),
-                ("BS", vec![8.5, f32::NAN, 8.5, f32::NAN, 8.5]),
+                ("DRHO", vec![f32::NAN, 0.03, 0.01, f32::NAN, f32::NAN]),
+                ("CALI", vec![9.0, f32::NAN, 6.2, f32::NAN, 6.2]),
+                ("BS", vec![6.0, f32::NAN, 6.0, f32::NAN, 6.0]),
             ],
-            &[("DRHO_MAX", 0.05), ("DCAL_MAX", 1.0), ("BS_DEF", 8.5)],
+            &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
             &[],
         );
 
@@ -6554,21 +6563,95 @@ mod tests {
             "differential-caliper threshold refusal is not actionable: {error}"
         );
 
-        // Call the arithmetic directly because SB-ENV-025 separately owns removal of the legacy
-        // BS_DEF dispatcher precondition. CALI and BS are absent, so no bit-size value enters this
-        // DRHO-only control and no uncited geometry fixture is needed.
+        // CALI and BS are absent, so no bit-size value enters this DRHO-only public control and no
+        // uncited geometry fixture is needed.
         let explicit = ctx_with(
             2,
             &[("DRHO", vec![0.01, 0.03])],
             &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
             &[],
         );
-        let output = badhole(&explicit);
+        let output = run_module("badhole", &explicit)
+            .expect("explicitly supplying both required thresholds must enable public dispatch");
         assert_eq!(
             output["BADHOLE"],
             [0.0, 1.0],
             "explicit cited thresholds must distinguish below-threshold and above-threshold samples"
         );
+    }
+
+    /// CORRECTNESS — `20_envcorr-qc.md` sections 4.3 SB-ENV-025, 5.2 and 6.3 T34.
+    /// The 0.02 g/cc and 2 in thresholds are the chapter's cited selectable values; the 6 in bit
+    /// size is its explicit slim-hole example. CALI 8/10 in are independently derived as one/two
+    /// threshold-widths above 6 in, so the strict boundary and firing sides do not mirror the code.
+    #[test]
+    fn bit_size_has_no_default_and_missing_geometry_disables_only_caliper_while_curve_and_explicit_entry_remain_available() {
+        let spec = module_catalog()
+            .iter()
+            .find(|module| module.name == "badhole")
+            .expect("badhole is registered");
+        assert!(
+            spec.args.iter().all(|arg| arg.name != "BS_DEF"),
+            "a fallback named BS_DEF is still a default source of invented geometry"
+        );
+        let explicit_bit_size = spec
+            .args
+            .iter()
+            .find(|arg| arg.name == "BS_INPUT")
+            .expect("an explicit user entry remains available when no BS curve exists");
+        assert_eq!(explicit_bit_size.default_source, ABSENT_DEFAULT_SOURCE);
+        assert!(explicit_bit_size.default.is_empty());
+        assert!(!explicit_bit_size.required, "missing bit size must not block the DRHO term");
+        assert_eq!(explicit_bit_size.min, None, "the chapter cites no physical lower bound");
+        assert_eq!(explicit_bit_size.max, None, "the chapter cites no physical upper bound");
+
+        let no_bit_size = ctx_with(
+            3,
+            &[
+                ("DRHO", vec![0.03, 0.01, f32::NAN]),
+                ("CALI", vec![6.2, 6.2, 6.2]),
+            ],
+            &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
+            &[],
+        );
+        let output = run_module("badhole", &no_bit_size)
+            .expect("missing geometry must degrade to the independently evaluable DRHO term");
+        assert_eq!(output["BADHOLE"][..2], [1.0, 0.0]);
+        assert!(output["BADHOLE"][2].is_nan(), "neither evaluable term must remain MISSING");
+        assert_eq!(output["BADHOLE_CALI_EVALUATED"], [0.0, 0.0, 0.0]);
+        assert_eq!(output["BADHOLE_DRHO_EVALUATED"], [1.0, 1.0, 0.0]);
+
+        let from_curve = ctx_with(
+            2,
+            &[
+                ("DRHO", vec![f32::NAN; 2]),
+                ("CALI", vec![8.0, 10.0]),
+                ("BS", vec![6.0, 6.0]),
+            ],
+            &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
+            &[],
+        );
+        let output = run_module("badhole", &from_curve).expect("a measured BS curve must enable caliper QC");
+        assert_eq!(output["BADHOLE"], [0.0, 1.0]);
+        assert_eq!(output["BADHOLE_CALI_EVALUATED"], [1.0, 1.0]);
+
+        let from_explicit_entry = ctx_with(
+            2,
+            &[
+                ("DRHO", vec![f32::NAN; 2]),
+                ("CALI", vec![8.0, 10.0]),
+            ],
+            &[
+                ("DRHO_MAX", 0.02),
+                ("DCAL_MAX", 2.0),
+                ("BS_INPUT", 6.0),
+            ],
+            &[],
+        );
+        let output = run_module("badhole", &from_explicit_entry)
+            .expect("an explicit interpreter entry must enable caliper QC without becoming a default");
+        assert_eq!(output["BADHOLE"], [0.0, 1.0]);
+        assert_eq!(output["BADHOLE_CALI_EVALUATED"], [1.0, 1.0]);
     }
 
     /// Full parameter set for condflag tests; individual tests override entries.

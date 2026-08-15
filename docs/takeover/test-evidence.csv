@@ -1,4 +1,5 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-ENV-025","CORRECTNESS","src-tauri/src/modules.rs","bit_size_has_no_default_and_missing_geometry_disables_only_caliper_while_curve_and_explicit_entry_remain_available"
 "SB-ENV-024","CORRECTNESS","src-tauri/src/modules.rs","both_bad_hole_thresholds_ship_absent_and_each_must_be_explicitly_supplied_before_the_algorithm_can_run"
 "SB-ENV-003","CORRECTNESS","src-tauri/src/workflow.rs","a_subset_precondition_violation_keeps_only_valid_samples_with_a_companion_flag_and_source_bearing_provenance_while_refusal_stays_available_and_a_flag_alone_never_versions_an_answer"
 "SB-ENV-002","CORRECTNESS","src-tauri/src/modules.rs","source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes"

@@ -4283,14 +4283,15 @@ mod tests {
         )
         .unwrap();
 
-        // PEF, DRHO, CALI ONLY in the generic store. CALI is huge (washout) at sample 2.
+        // PEF, DRHO, CALI ONLY in the generic store. CALI is enlarged at sample 2 against the
+        // explicit 6 in bit size from `20_envcorr-qc.md` section 4.3's slim-hole example.
         let put = |mnem: &str, family: &str, unit: &str, vals: Vec<f32>| {
             let id = db::upsert_curve_meta(&conn, &w, "RAW", mnem, Some(unit), Some(family), Some("test"), None).unwrap();
             db::insert_curve_samples(&conn, &id, &depths, &vals).unwrap();
         };
         put("PEFZ", "PEF", "b/e", vec![pef_v; n]); // mnemonic differs → must resolve by family
-        put("HDRA", "DRHO", "g/cc", vec![0.01, 0.01, 0.20, 0.01]); // big DRHO at sample 2
-        put("HCAL", "CALI", "in", vec![8.6, 8.6, 14.0, 8.6]); // washout at sample 2 (BS 8.5)
+        put("HDRA", "DRHO", "g/cc", vec![0.01, 0.01, 0.03, 0.01]); // above 0.02 at sample 2
+        put("HCAL", "CALI", "in", vec![6.2, 6.2, 9.0, 6.2]); // 9 - 6 > cited 2 in cutoff
 
         let dbm = Mutex::new(conn);
         let run = |module: &str, params: &[(&str, f64)], opts: &[(&str, &str)]| -> Vec<ModuleRunResult> {
@@ -4323,7 +4324,11 @@ mod tests {
         assert!(r[0].output_curves.is_empty(), "a retired module must write no curves");
 
         // (2) badhole — DRHO and CALI resolve from the generic store; sample 2 is bad.
-        let r = run("badhole", &[("DRHO_MAX", 0.05), ("DCAL_MAX", 1.0), ("BS_DEF", 8.5)], &[]);
+        let r = run(
+            "badhole",
+            &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0), ("BS_INPUT", 6.0)],
+            &[],
+        );
         assert!(r[0].error.is_none(), "badhole: {:?}", r[0].error);
         {
             let conn = dbm.lock().unwrap();

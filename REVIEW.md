@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-025: BADHOLE bit size is input, never fallback
+
+- [ ] **Automated correctness:** exact T34 was RED while BADHOLE still declared BS_DEF. It is GREEN
+      with no fallback argument: a missing BS curve and blank BS_INPUT mark the caliper criterion
+      unavailable while bad/good DRHO samples still produce 1/0 and neither-evaluable remains
+      MISSING. Measured-curve and explicit-entry controls both exercise the strict cited 2 in cutoff.
+- [ ] **Visual:** open Bad-Hole QC Flag and confirm the old BS_DEF field is absent. BS_INPUT must open
+      blank with “optional value,” not 8.5 in and not “no bound.” Run with CALI plus no bit size and
+      confirm the caliper-evaluated companion stays 0 while the DRHO-evaluated companion still moves.
+- [ ] **Manual:** run the same interval three ways: measured BS curve, a reviewed explicit BS_INPUT,
+      and neither. Confirm curve and explicit entry give reviewable caliper results, while neither
+      disables only caliper. If transcribing a well-header value, verify the unit and run custody.
+- [ ] **Field and harsh critique:** removing 8.5 in prevents fabricated hole geometry, but an
+      interpreter can still type the wrong value or unit. The chapter cites no physical min/max, so
+      the UI deliberately invents none; review CALI minus the actual bit size on the delivered hole
+      section before trusting the mask. The separate GR-correction BS_DEF path remains outside this
+      requirement and must not be mistaken for bad-hole closure.
+
 ## 2026-08-16 — G2 SB-ENV-024: BADHOLE thresholds ship absent
 
 - [ ] **Automated correctness:** exact T07/T33 proves both DRHO_MAX and DCAL_MAX are required,

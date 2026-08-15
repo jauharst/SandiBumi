@@ -332,14 +332,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T33/T34; sections 4.3, 5, 6.3 and 8.
 - **Atomic obligations:** obtain bit size from curve/header/explicit entry; never default it; report the caliper term unavailable and continue with density correction when absent.
-- **Current source:** `badhole` substitutes `BS_DEF` whenever the bit-size curve is missing, so the caliper term silently runs on invented geometry.
-- **Qualifying acceptance tests:** none; T33/T34 are missing. Test class `MISSING`.
-- **Supporting tests:** nominal bad-hole arithmetic does not exercise absent bit size without the fallback.
-- **Manual evidence:** conditioning 0/27; data-conventions 0/45.
-- **Git evidence:** the divergent fallback is integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** section 5 specifies bit size ABSENT; no replacement default may be chosen.
-- **Next action:** remove `BS_DEF`, make the caliper term explicitly unavailable without geometry and prove the density term still operates.
+- **Current source:** the bad-hole manifest has no `BS_DEF`. It offers the measured `BS` curve and an optional, empty-by-default `BS_INPUT`; the scalar declares no physical min/max because the chapter cites none. The algorithm prefers the curve, uses the scalar only when explicitly supplied and marks caliper unavailable when neither exists, while independently evaluating DRHO.
+- **Qualifying acceptance tests:** `modules::tests::bit_size_has_no_default_and_missing_geometry_disables_only_caliper_while_curve_and_explicit_entry_remain_available` owns T34 and the SB-ENV-025 part of T33. It inventories away BS_DEF, proves the scalar has ABSENT/empty/no-bounds metadata, executes absent geometry with bad/good/missing DRHO, and pins measured-curve plus explicit-entry controls from the strict differential threshold's boundary and firing sides. Test class `CORRECTNESS`.
+- **Supporting tests:** SB-ENV-021 still proves independent availability; SB-ENV-024 now reaches public dispatch without any bit-size argument; the generic-store workflow uses an explicit `BS_INPUT` and retains mask behavior. None is substituted for the owned T34 proof.
+- **Manual evidence:** conditioning 1/70; data-conventions 4/130; all four SB-ENV-025 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-024; exact T34 was RED on the surviving BS_DEF manifest, then GREEN after the fallback was removed. TypeScript and cargo check are green; the fresh full gate is 1051 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** source-owned chapter status remains `PRESENT-DIVERGENT`; live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed for the bad-hole bit-size fallback; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none. No physical range or replacement value was invented. A well-header value can be transcribed as explicit `BS_INPUT`; the module does not silently infer a header or claim unproved automatic header binding.
+- **Next action:** retain the absent/curve/explicit-entry contract, exercise the unchecked UI and delivery review separately, and continue SB-ENV-026 without changing the separate GR-correction BS_DEF path outside this requirement.
 
 ## SB-ENV-026 - DRHO's unit is declared on the curve and validated at the threshold
 
