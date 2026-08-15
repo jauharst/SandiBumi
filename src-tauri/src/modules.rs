@@ -6504,6 +6504,73 @@ mod tests {
         );
     }
 
+    /// CORRECTNESS — `20_envcorr-qc.md` sections 4.3 SB-ENV-024, 5.2 and 6.3 T33.
+    /// Both bad-hole thresholds are required to ship `ABSENT`; the valid-side values are the
+    /// chapter's cited 0.02 g/cc tight-tolerance and 2 in delivered-study precedents. Presets are
+    /// not offered here because section 7.2 ESC-1 leaves their shipped names and set unresolved.
+    #[test]
+    fn both_bad_hole_thresholds_ship_absent_and_each_must_be_explicitly_supplied_before_the_algorithm_can_run() {
+        let spec = module_catalog()
+            .iter()
+            .find(|module| module.name == "badhole")
+            .expect("badhole is registered");
+        for name in ["DRHO_MAX", "DCAL_MAX"] {
+            let threshold = spec
+                .args
+                .iter()
+                .find(|arg| arg.name == name)
+                .unwrap_or_else(|| panic!("{name} is declared"));
+            assert!(threshold.required, "{name} must remain a required interpreter decision");
+            assert_eq!(threshold.default_source, ABSENT_DEFAULT_SOURCE);
+            assert!(
+                threshold.default.is_empty(),
+                "{name} must not conceal a numeric default behind ABSENT"
+            );
+        }
+
+        let missing_drho_threshold = ctx_with(
+            1,
+            &[("DRHO", vec![0.03])],
+            &[("DCAL_MAX", 2.0)],
+            &[],
+        );
+        let error = run_module("badhole", &missing_drho_threshold)
+            .expect_err("a missing DRHO threshold must refuse before computation");
+        assert!(
+            error.contains("DRHO_MAX") && error.contains("ABSENT"),
+            "DRHO threshold refusal is not actionable: {error}"
+        );
+
+        let missing_caliper_threshold = ctx_with(
+            1,
+            &[("DRHO", vec![0.03])],
+            &[("DRHO_MAX", 0.02)],
+            &[],
+        );
+        let error = run_module("badhole", &missing_caliper_threshold)
+            .expect_err("a missing differential-caliper threshold must refuse before computation");
+        assert!(
+            error.contains("DCAL_MAX") && error.contains("ABSENT"),
+            "differential-caliper threshold refusal is not actionable: {error}"
+        );
+
+        // Call the arithmetic directly because SB-ENV-025 separately owns removal of the legacy
+        // BS_DEF dispatcher precondition. CALI and BS are absent, so no bit-size value enters this
+        // DRHO-only control and no uncited geometry fixture is needed.
+        let explicit = ctx_with(
+            2,
+            &[("DRHO", vec![0.01, 0.03])],
+            &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
+            &[],
+        );
+        let output = badhole(&explicit);
+        assert_eq!(
+            output["BADHOLE"],
+            [0.0, 1.0],
+            "explicit cited thresholds must distinguish below-threshold and above-threshold samples"
+        );
+    }
+
     /// Full parameter set for condflag tests; individual tests override entries.
     fn condflag_params() -> Vec<(&'static str, f64)> {
         vec![

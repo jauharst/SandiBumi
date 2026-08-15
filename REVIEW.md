@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-024: BADHOLE thresholds ship absent
+
+- [ ] **Automated correctness:** exact T07/T33 proves both DRHO_MAX and DCAL_MAX are required,
+      carry the exact `ABSENT` source token and conceal no numeric default. Omitting either one
+      produces an actionable refusal naming that threshold and ABSENT. A separate two-sample
+      DRHO control uses only the chapter-cited 0.02 g/cc and 2 in values as explicit inputs and
+      distinguishes below-threshold from above-threshold behavior.
+- [ ] **Visual:** open Bad-Hole QC Flag and confirm neither threshold field is pre-populated. Try
+      running once with DRHO_MAX blank and once with DCAL_MAX blank; each refusal must identify the
+      missing field, and neither path may silently substitute the old 0.05 g/cc or 1 in values.
+- [ ] **Manual:** explicitly enter reviewed thresholds for one delivery, run it, and verify the run
+      record shows the interpreter-supplied values. Do not describe that entry as a named preset;
+      SandiBumi currently offers none while ESC-1 remains unresolved.
+- [ ] **Field and harsh critique:** `ABSENT` prevents an arbitrary cutoff from silently masking
+      footage, but it does not make the interpreter's chosen values scientifically correct. Review
+      the resulting masked interval against the delivered caliper/bit-size and DRHO evidence before
+      using downstream porosity or pay; any future preset needs an approved name, source and
+      provenance path before it may appear in the product.
+
 ## 2026-08-16 — G2 SB-ENV-023: BADHOLE signed DRHO reason blocked
 
 - [ ] **Automated audit:** exact T31 and current source confirm `badhole` evaluates

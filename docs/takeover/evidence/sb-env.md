@@ -319,14 +319,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T07/T33; sections 4.3, 5, 6.3, 7.2 ESC-1 and 8.
 - **Atomic obligations:** ship both thresholds absent; optionally expose only named, cited presets; persist the chosen preset.
-- **Current source:** `badhole_spec` ships numeric threshold defaults with no source/preset identity, and run provenance cannot name a selected preset.
-- **Qualifying acceptance tests:** none; T07/T33 are missing. Test class `MISSING`.
-- **Supporting tests:** `badhole_flags_washout_and_drho` uses supplied fixture thresholds and is not authority for defaults.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** the divergent defaults are integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** ESC-1 leaves which cited presets, if any, ship; the default values are not authorized.
-- **Next action:** remove both defaults now; add preset identities only after ESC-1 is answered from cited study records.
+- **Current source:** `badhole_spec` already declares both thresholds through required `param_open` arguments. Each has an empty default and the exact `ABSENT` source token; public dispatch refuses before arithmetic when either threshold is absent. No named preset selector is exposed while ESC-1 is unresolved.
+- **Qualifying acceptance tests:** `modules::tests::both_bad_hole_thresholds_ship_absent_and_each_must_be_explicitly_supplied_before_the_algorithm_can_run` owns the mandatory T07/T33 contract from both missing-threshold sides, then uses only the chapter-cited 0.02 g/cc and 2 in values as explicit inputs for a below/above-threshold arithmetic control. Test class `CORRECTNESS`.
+- **Supporting tests:** the registry-wide sourced/default audit and generic ABSENT-parameter refusal remain supporting only; nominal bad-hole tests continue to use explicit fixture thresholds and are not authority for shipped defaults.
+- **Manual evidence:** conditioning 1/66; processing-history 0/7; all four SB-ENV-024 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-023; focused exact proof is green. TypeScript and cargo check are green; the fresh full gate is 1050 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** source-owned chapter status remains `PRESENT-DIVERGENT`; live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed for shipped defaults and both mandatory refusal sides; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none for the mandatory contract. The requirement says the application MAY offer named presets, so no preset is manufactured. ESC-1 remains open and must be answered before any named preset is added; therefore its conditional provenance obligation is not triggered by the current product.
+- **Next action:** retain both required ABSENT thresholds; do not relabel explicit entry as a preset; execute the unchecked review separately and continue SB-ENV-025.
 
 ## SB-ENV-025 - Bit size is an input, never a default
 
