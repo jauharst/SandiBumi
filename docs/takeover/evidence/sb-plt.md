@@ -396,14 +396,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-OK`; chapter intention T39; sections 4.6, 6 and 8.1.
 - **Atomic obligations:** give every canvas a current accessible label and keyboard focus/pan/zoom; provide non-pointer routes to properties and export.
-- **Current source:** histogram, crossplot and Pickett use `makeCanvasAccessible`, keyboard pan/zoom and toolbar/context-menu actions. Correlation's hand-built canvas lacks the shared accessibility/keyboard helpers, and Vega's generated canvas has no SandiBumi keyboard-pan contract. The shared workspace provides export menus for some but not all vector paths.
-- **Qualifying acceptance tests:** none; T39 exercises one fake canvas/helper, not every active canvas and non-pointer property/export route. Test class is `MISSING`.
-- **Supporting tests:** `tools/frontend-acceptance.test.mjs::a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handler_on_dispose` is correctness evidence for the shared helper from focus through disposal.
-- **Manual evidence:** `themes-language-accessibility` 2/52, `crossplot` 6/13, `histogram` 5/22, `pickett` 0/8, `correlation-tops` 0/36 and `vega` 0/2.
-- **Git evidence:** accepted anchor contains compliant and noncompliant canvas families.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** correlation/Vega and the universal non-pointer/export inventory are not covered.
-- **Next action:** bring every plot canvas under one accessible interaction contract and implement T39 as an inventory test with current-label and non-pointer properties/export controls.
+- **Current source:** `plotCanvas.ts` owns one element-level accessibility binding with a current label, visible-focus attributes, semantic view commands, non-pointer Properties/export routes and explicit disposal. Histogram, Crossplot, Pickett, Correlation and Vega all consume it. The first three retain their existing range setters; Correlation maps commands to its live depth viewport and zoom routine; Vega attaches after the generated canvas commits, mutates runtime X/Y domains and repaints. `styles.css` gives both ordinary plot canvases and the generated Vega canvas the same visible focus ring.
+- **Qualifying acceptance tests:** `tools/frontend-acceptance.test.mjs::a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handler_on_dispose`; CORRECTNESS. It executes ArrowRight against the real shared binding and requires the exact translated X range, refreshes a changed label, executes `P` and `E`, proves disposal, and inventories all five panels for current-label, real view mutation, Properties, export-focus and disposal boundaries. Reversing ArrowRight, removing Vega's export route and omitting its focus-ring selector each made the test RED before restoration.
+- **Supporting tests:** the complete 24-test frontend acceptance file remains green, including the separate five-panel invalidation/disposal and generation-safety contracts; those tests do not substitute for T39's input and reporting-surface proof.
+- **Manual evidence:** `themes-language-accessibility` 2/56, `histogram` 5/42, `crossplot` 6/29, `pickett` 0/24, `correlation-tops` 0/58 and `vega` 0/18; all four SB-PLT-030 scenarios remain unchecked and Automated, Visual, Manual and Field are not conflated.
+- **Git evidence:** current topic-branch worktree; fresh full gate 1036 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; exact commit follows the one-requirement commit contract.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`, Visual/Manual/Field review open.
+- **Blocker or decision:** none for Gate 2 automation. A helper and source inventory do not establish screen-reader, renderer, device or representative-field behavior.
+- **Next action:** retain the exact T39 inventory and executable shortcut proof; Jauhar separately performs the five-panel keyboard/screen-reader review during Gate 4; proceed serially to SB-PLT-031.
 
 ## SB-PLT-031 - No silent record truncation
 

@@ -1674,8 +1674,9 @@ test("a_chart_missing_its_source_revision_is_blocked_on_screen_save_template_svg
 });
 
 test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handler_on_dispose", async () => {
-  // CORRECTNESS — SB-PLT-030 / SB-PLT-T39 cites plotCanvas.ts:527-618 for the
-  // accessible label, keyboard focus, pan/zoom and disposer contract.
+  // CORRECTNESS — SB-PLT-030 / SB-PLT-T39 cites plotCanvas.ts:527-618 and
+  // docs/PRD_v2/23_plotting-interactivity.md §4.6: every interactive plot canvas
+  // keeps its current label, focus, pan/zoom, Properties and export routes.
   const { attachKeyboardPanZoom, makeCanvasAccessible } = await load("/src/ui/plotCanvas.ts");
   const attributes = new Map();
   const listeners = new Map();
@@ -1694,6 +1695,7 @@ test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handl
       if (listeners.get(name) === listener) listeners.delete(name);
     },
   };
+  makeCanvasAccessible(canvas, "Earlier finite-pair crossplot");
   makeCanvasAccessible(canvas, "Current finite-pair crossplot");
   assert.equal(attributes.get("role"), "img");
   assert.equal(attributes.get("aria-label"), "Current finite-pair crossplot");
@@ -1701,7 +1703,9 @@ test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handl
 
   const view = { current: null };
   let redraws = 0;
-  const detach = attachKeyboardPanZoom({
+  let propertiesRoutes = 0;
+  let exportRoutes = 0;
+  const accessibility = attachKeyboardPanZoom({
     canvas,
     getPlot: () => ({
       x: { min: 0, max: 10, log: false },
@@ -1711,7 +1715,15 @@ test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handl
     redraw: () => {
       redraws += 1;
     },
+    getLabel: () => "Current finite-pair crossplot",
+    openProperties: () => {
+      propertiesRoutes += 1;
+    },
+    focusExport: () => {
+      exportRoutes += 1;
+    },
   });
+  accessibility.refresh();
   let prevented = false;
   listeners.get("keydown")({
     key: "ArrowRight",
@@ -1725,8 +1737,40 @@ test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handl
   assert.equal(redraws, 1);
   assert.equal(prevented, true);
   assert.equal(attributes.get("aria-label"), "Current finite-pair crossplot");
-  detach();
+  assert.match(attributes.get("aria-keyshortcuts"), /ArrowLeft.*Home.*P.*E/u);
+  listeners.get("keydown")({ key: "p", shiftKey: false, preventDefault() {} });
+  listeners.get("keydown")({ key: "E", shiftKey: false, preventDefault() {} });
+  assert.equal(propertiesRoutes, 1, "P reaches Properties without a pointer");
+  assert.equal(exportRoutes, 1, "E reaches export without a pointer");
+  accessibility.dispose();
   assert.equal(listeners.has("keydown"), false);
+
+  const panelContracts = new Map([
+    ["histogramPanel.ts", "attachKeyboardPanZoom"],
+    ["crossplotPanel.ts", "attachKeyboardPanZoom"],
+    ["pickettPanel.ts", "attachKeyboardPanZoom"],
+    ["correlationPanel.ts", "attachAccessiblePlotKeyboard"],
+    ["vegaPanel.ts", "attachAccessiblePlotKeyboard"],
+  ]);
+  for (const [file, helper] of panelContracts) {
+    const source = await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8");
+    assert.match(source, new RegExp(`${helper}\\(`), `${file} must use the governed keyboard contract`);
+    assert.match(source, /getLabel:/u, `${file} must refresh a current accessible label`);
+    if (helper === "attachAccessiblePlotKeyboard") {
+      assert.match(source, /changeView:/u, `${file} must route the keyboard command into its real viewport`);
+    }
+    assert.match(source, /openProperties:/u, `${file} must expose a non-pointer Properties route`);
+    assert.match(source, /focusExport:/u, `${file} must expose a non-pointer export route`);
+    assert.match(source, /\.dispose\(\)/u, `${file} must remove the accessibility handler on close or replacement`);
+  }
+  const correlation = await readFile(new URL("../src/ui/correlationPanel.ts", import.meta.url), "utf8");
+  assert.match(correlation, /viewTop \+= command\.direction \* span/u);
+  assert.match(correlation, /zoomAtCenter\(command\.direction === "in"/u);
+  const vega = await readFile(new URL("../src/ui/vegaPanel.ts", import.meta.url), "utf8");
+  assert.match(vega, /domains\[command\.axis\] = \[domain\[0\] \+ delta, domain\[1\] \+ delta\]/u);
+  assert.match(vega, /void repaint\(domains\)/u);
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(styles, /\.plot-canvas:focus-visible,\s*\.vega-chart-host canvas:focus-visible/u);
 });
 
 test("an_uninterpreted_pay_summary_renders_absent_values_while_a_real_zero_net_zone_renders_zero", async () => {

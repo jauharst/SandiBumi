@@ -22,9 +22,11 @@ import {
 import { appState, type BrushSelection, type TopInterval } from "../state";
 import { openModal } from "./modal";
 import {
+  attachAccessiblePlotKeyboard,
   buildPlotStatisticsRecord,
   canvasFont,
   formatPlotStatisticsRecord,
+  makeCanvasAccessible,
   percentile,
   plotStatisticsInterval,
   readTheme,
@@ -408,6 +410,10 @@ export async function buildCorrelationContent(
   };
 
   function draw(): void {
+    makeCanvasAccessible(
+      canvas,
+      `Correlation: ${opts.curve} across ${included.size} included well${included.size === 1 ? "" : "s"}, ${opts.depthMode.toUpperCase()} depth${opts.datum ? ` flattened on ${opts.datum}` : ""}`,
+    );
     const dpr = window.devicePixelRatio || 1;
     const w = canvasHost.clientWidth;
     const h = canvasHost.clientHeight;
@@ -1422,7 +1428,7 @@ export async function buildCorrelationContent(
   props.appendChild(mkBtn("−", "Zoom out", () => {
     zoomAtCenter(1 / 1.25);
   }));
-  props.appendChild(buildImageExportButtons(
+  const exportGroup = buildImageExportButtons(
     () => canvas,
     "Correlation",
     setStatus,
@@ -1439,7 +1445,8 @@ export async function buildCorrelationContent(
         statisticsRecords,
       };
     },
-  ));
+  );
+  props.appendChild(exportGroup);
 
   function zoomAtCenter(factor: number): void {
     const plotH = Math.max(50, canvas.clientHeight - HEADER_H);
@@ -1450,6 +1457,35 @@ export async function buildCorrelationContent(
     draw();
     persist();
   }
+
+  const accessibility = attachAccessiblePlotKeyboard({
+    surface: canvas,
+    getLabel: () =>
+      `Correlation: ${opts.curve} across ${included.size} included well${included.size === 1 ? "" : "s"}, ${opts.depthMode.toUpperCase()} depth${opts.datum ? ` flattened on ${opts.datum}` : ""}`,
+    openProperties: () => curveSel.focus(),
+    focusExport: () => exportGroup.querySelector<HTMLButtonElement>("button")?.focus(),
+    changeView: (command) => {
+      if (command.kind === "reset") {
+        if (!displayExtent()) return false;
+        fit();
+        return true;
+      }
+      if (command.kind === "zoom") {
+        if (!displayExtent()) return false;
+        zoomAtCenter(command.direction === "in" ? 1.25 : 1 / 1.25);
+        return true;
+      }
+      if (command.axis !== "y") return false;
+      const plotH = Math.max(50, canvas.clientHeight - HEADER_H);
+      const span = plotH / pxPerUnit;
+      if (!Number.isFinite(span) || span <= 0) return false;
+      viewTop += command.direction * span * (command.large ? 0.2 : 0.08);
+      depthViewIsUser = true;
+      draw();
+      persist();
+      return true;
+    },
+  });
 
   // --- Interactions: wheel/drag pan, hover broadcast ---
   canvas.addEventListener(
@@ -1590,6 +1626,7 @@ export async function buildCorrelationContent(
         persist();
       }
       invalidation.dispose();
+      accessibility.dispose();
       window.removeEventListener("pointerup", onWindowPointerUp);
     },
     getState: selectionState,

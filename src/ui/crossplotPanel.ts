@@ -1624,7 +1624,7 @@ export async function buildCrossplotContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(
+  const exportGroup = buildImageExportButtons(
     () => canvas,
     "Crossplot",
     setStatus,
@@ -1644,7 +1644,8 @@ export async function buildCrossplotContent(
         chartRenderRecord: chartRenderRecord ?? undefined,
       };
     },
-  ));
+  );
+  selRow.appendChild(exportGroup);
   content.appendChild(selRow);
   content.appendChild(scopeRow);
   content.appendChild(activeDepthHandoff.el);
@@ -2922,7 +2923,15 @@ export async function buildCrossplotContent(
     redraw,
     onPanStart: (px, py) => handleAt(px, py) === null, // a handle grab vetoes panning
   });
-  const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw });
+  const detachKeys = attachKeyboardPanZoom({
+    canvas,
+    getPlot: () => plot,
+    view: viewRef,
+    redraw,
+    getLabel: ariaLabel,
+    openProperties: () => openProps(),
+    focusExport: () => exportGroup.querySelector<HTMLButtonElement>("button")?.focus(),
+  });
 
   // Synchronized hover: ring the sample nearest the depth under any log view's cursor.
   let rafId = 0;
@@ -3045,7 +3054,7 @@ export async function buildCrossplotContent(
       scope.dispose();
       unsubHover();
       detachZoomPan();
-      detachKeys();
+      detachKeys.dispose();
       detachTip();
       window.removeEventListener("mouseup", onBrushEnd);
       zoneSel.dispose();

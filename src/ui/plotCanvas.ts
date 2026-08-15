@@ -528,10 +528,99 @@ export function attachZoomPan(opts: {
 /** Marks a plot canvas up for assistive tech: `role="img"` with a text `label` describing the chart,
  *  and `tabindex=0` so it can take keyboard focus (for {@link attachKeyboardPanZoom}). Re-set the
  *  `aria-label` when the plotted curves change so the description stays accurate. */
-export function makeCanvasAccessible(canvas: HTMLCanvasElement, label: string): void {
-  canvas.setAttribute("role", "img");
-  canvas.setAttribute("aria-label", label);
-  if (!canvas.hasAttribute("tabindex")) canvas.tabIndex = 0;
+export function makeCanvasAccessible(surface: HTMLElement, label: string): void {
+  surface.setAttribute("role", "img");
+  surface.setAttribute("aria-label", label);
+  if (!surface.hasAttribute("tabindex")) surface.tabIndex = 0;
+}
+
+export type PlotViewKeyboardCommand =
+  | { kind: "pan"; axis: "x" | "y"; direction: -1 | 1; large: boolean }
+  | { kind: "zoom"; direction: "in" | "out" }
+  | { kind: "reset" };
+
+export interface PlotAccessibilityBinding {
+  /** Re-reads the current chart identity after a curve, zone or chart-type change. */
+  refresh(): void;
+  /** Removes the keyboard handler; required when the panel or generated canvas is replaced. */
+  dispose(): void;
+}
+
+/**
+ * One non-pointer contract shared by every interactive plot surface. Arrow/+/-/Home change the
+ * view, P reaches Properties and E reaches export. The callbacks keep canvas-specific rendering
+ * outside this accessibility shell while one handler owns focus, labels, shortcuts and teardown.
+ */
+export function attachAccessiblePlotKeyboard(opts: {
+  surface: HTMLElement;
+  getLabel: () => string;
+  changeView: (command: PlotViewKeyboardCommand) => boolean;
+  openProperties: () => void;
+  focusExport: () => void;
+}): PlotAccessibilityBinding {
+  const { surface } = opts;
+  const refresh = (): void => {
+    makeCanvasAccessible(surface, opts.getLabel());
+    surface.setAttribute(
+      "aria-keyshortcuts",
+      "ArrowLeft ArrowRight ArrowUp ArrowDown + - Home P E",
+    );
+    surface.setAttribute(
+      "aria-description",
+      "Arrow keys pan, plus and minus zoom, Home resets, P opens Properties, and E moves to export controls.",
+    );
+  };
+  const onKey = (event: KeyboardEvent): void => {
+    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    if (key === "p") {
+      opts.openProperties();
+      event.preventDefault();
+      return;
+    }
+    if (key === "e") {
+      opts.focusExport();
+      event.preventDefault();
+      return;
+    }
+    let command: PlotViewKeyboardCommand | null = null;
+    switch (event.key) {
+      case "ArrowLeft":
+        command = { kind: "pan", axis: "x", direction: -1, large: event.shiftKey };
+        break;
+      case "ArrowRight":
+        command = { kind: "pan", axis: "x", direction: 1, large: event.shiftKey };
+        break;
+      case "ArrowUp":
+        command = { kind: "pan", axis: "y", direction: 1, large: event.shiftKey };
+        break;
+      case "ArrowDown":
+        command = { kind: "pan", axis: "y", direction: -1, large: event.shiftKey };
+        break;
+      case "+":
+      case "=":
+        command = { kind: "zoom", direction: "in" };
+        break;
+      case "-":
+      case "_":
+        command = { kind: "zoom", direction: "out" };
+        break;
+      case "0":
+      case "Home":
+        command = { kind: "reset" };
+        break;
+      default:
+        break;
+    }
+    if (!command || !opts.changeView(command)) return;
+    refresh();
+    event.preventDefault();
+  };
+  refresh();
+  surface.addEventListener("keydown", onKey);
+  return {
+    refresh,
+    dispose: () => surface.removeEventListener("keydown", onKey),
+  };
 }
 
 /** Keyboard pan/zoom for a focused plot canvas, mirroring {@link attachZoomPan}: arrow keys pan
@@ -544,7 +633,10 @@ export function attachKeyboardPanZoom(opts: {
   view: ViewportRef;
   redraw: () => void;
   axes?: "both" | "x";
-}): () => void {
+  getLabel: () => string;
+  openProperties: () => void;
+  focusExport: () => void;
+}): PlotAccessibilityBinding {
   const { canvas, getPlot, view, redraw } = opts;
   const axes = opts.axes ?? "both";
   const seed = (plot: PlotCanvas): Viewport => ({
@@ -566,55 +658,42 @@ export function attachKeyboardPanZoom(opts: {
     const half = ((b - a) / 2) * factor;
     return [itf(log, c - half), itf(log, c + half)];
   };
-  const onKey = (e: KeyboardEvent) => {
+  return attachAccessiblePlotKeyboard({
+    surface: canvas,
+    getLabel: opts.getLabel,
+    openProperties: opts.openProperties,
+    focusExport: opts.focusExport,
+    changeView: (command) => {
     const plot = getPlot();
-    if (!plot) return;
-    if (e.key === "0" || e.key === "Home") {
+    if (!plot) return false;
+    if (command.kind === "reset") {
       if (view.current) {
         view.current = null;
         redraw();
+        return true;
       }
-      e.preventDefault();
-      return;
+      return false;
     }
     const v = view.current ?? seed(plot);
-    const step = e.shiftKey ? 0.2 : 0.08;
-    let handled = true;
-    switch (e.key) {
-      case "ArrowLeft":
-        [v.xMin, v.xMax] = pan(v.xMin, v.xMax, plot.x.log, -1, step);
-        break;
-      case "ArrowRight":
-        [v.xMin, v.xMax] = pan(v.xMin, v.xMax, plot.x.log, 1, step);
-        break;
-      case "ArrowUp":
-        if (axes === "both") [v.yMin, v.yMax] = pan(v.yMin, v.yMax, plot.y.log, 1, step);
-        else handled = false;
-        break;
-      case "ArrowDown":
-        if (axes === "both") [v.yMin, v.yMax] = pan(v.yMin, v.yMax, plot.y.log, -1, step);
-        else handled = false;
-        break;
-      case "+":
-      case "=":
-        [v.xMin, v.xMax] = zoom(v.xMin, v.xMax, plot.x.log, 0.83);
-        if (axes === "both") [v.yMin, v.yMax] = zoom(v.yMin, v.yMax, plot.y.log, 0.83);
-        break;
-      case "-":
-      case "_":
-        [v.xMin, v.xMax] = zoom(v.xMin, v.xMax, plot.x.log, 1.2);
-        if (axes === "both") [v.yMin, v.yMax] = zoom(v.yMin, v.yMax, plot.y.log, 1.2);
-        break;
-      default:
-        handled = false;
+    if (command.kind === "pan") {
+      const step = command.large ? 0.2 : 0.08;
+      if (command.axis === "x") {
+        [v.xMin, v.xMax] = pan(v.xMin, v.xMax, plot.x.log, command.direction, step);
+      } else if (axes === "both") {
+        [v.yMin, v.yMax] = pan(v.yMin, v.yMax, plot.y.log, command.direction, step);
+      } else {
+        return false;
+      }
+    } else {
+      const factor = command.direction === "in" ? 0.83 : 1.2;
+      [v.xMin, v.xMax] = zoom(v.xMin, v.xMax, plot.x.log, factor);
+      if (axes === "both") [v.yMin, v.yMax] = zoom(v.yMin, v.yMax, plot.y.log, factor);
     }
-    if (!handled) return;
     view.current = { ...v };
     redraw();
-    e.preventDefault();
-  };
-  canvas.addEventListener("keydown", onKey);
-  return () => canvas.removeEventListener("keydown", onKey);
+    return true;
+    },
+  });
 }
 
 /** ResizeObserver → rAF-debounced redraw, so a plot re-renders at the panel's real size.

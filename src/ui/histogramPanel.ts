@@ -711,7 +711,7 @@ export async function buildHistogramContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(
+  const exportGroup = buildImageExportButtons(
     () => canvas,
     "Histogram",
     setStatus,
@@ -728,7 +728,8 @@ export async function buildHistogramContent(
         statisticsRecords: currentStatisticsRecords(),
       };
     },
-  ));
+  );
+  selRow.appendChild(exportGroup);
   content.appendChild(selRow);
   content.appendChild(scopeRow);
 
@@ -1278,7 +1279,16 @@ export async function buildHistogramContent(
   // Wheel-zoom + drag-pan on the X axis only (Y is the count axis); double-click resets.
   makeCanvasAccessible(canvas, `Histogram of ${curveSel.value}`);
   const detachZoomPan = attachZoomPan({ canvas, getPlot: () => plot, view: viewRef, redraw, axes: "x" });
-  const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw, axes: "x" });
+  const detachKeys = attachKeyboardPanZoom({
+    canvas,
+    getPlot: () => plot,
+    view: viewRef,
+    redraw,
+    axes: "x",
+    getLabel: () => `Histogram of ${curveSel.value}`,
+    openProperties: () => openProps(),
+    focusExport: () => exportGroup.querySelector<HTMLButtonElement>("button")?.focus(),
+  });
 
   // Synchronized hover: mark this curve's value at the depth under any log view's cursor.
   let rafId = 0;
@@ -1337,7 +1347,7 @@ export async function buildHistogramContent(
       scope.dispose();
       unsubHover();
       detachZoomPan();
-      detachKeys();
+      detachKeys.dispose();
       zoneSel.dispose();
     },
     getState: selectionState,

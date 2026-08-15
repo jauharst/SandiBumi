@@ -676,7 +676,7 @@ export async function buildPickettContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(
+  const exportGroup = buildImageExportButtons(
     () => canvas,
     "Pickett",
     setStatus,
@@ -693,7 +693,8 @@ export async function buildPickettContent(
         statisticsRecords,
       };
     },
-  ));
+  );
+  selRow.appendChild(exportGroup);
   content.appendChild(selRow);
   content.appendChild(scopeRow);
   content.appendChild(activeDepthHandoff.el);
@@ -1171,7 +1172,15 @@ export async function buildPickettContent(
 
   makeCanvasAccessible(canvas, `Pickett plot: ${rtSel.value} versus ${phiSel.value}`);
   const detachZoomPan = attachZoomPan({ canvas, getPlot: () => plot, view: viewRef, redraw });
-  const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw });
+  const detachKeys = attachKeyboardPanZoom({
+    canvas,
+    getPlot: () => plot,
+    view: viewRef,
+    redraw,
+    getLabel: () => `Pickett plot: ${rtSel.value} versus ${phiSel.value}`,
+    openProperties: () => openProps(),
+    focusExport: () => exportGroup.querySelector<HTMLButtonElement>("button")?.focus(),
+  });
 
   // Synchronized hover: ring the sample nearest the depth under any log view's cursor.
   let rafId = 0;
@@ -1395,7 +1404,7 @@ export async function buildPickettContent(
       scope.dispose();
       unsubHover();
       detachZoomPan();
-      detachKeys();
+      detachKeys.dispose();
       detachTip();
       zoneSel.dispose();
     },

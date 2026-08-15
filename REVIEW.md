@@ -1,5 +1,33 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-030: Accessibility for Histogram, Crossplot, Pickett, Correlation and Vega interaction
+
+- [ ] **Automated correctness:** the exact T39 test executes one shared accessibility contract,
+      changes the real X view with ArrowRight, refreshes a changed accessible label, opens the
+      Properties route with `P`, focuses export with `E`, and proves disposal removes the handler.
+      Its source inventory requires the same current-label, keyboard-view, non-pointer Properties,
+      export-focus and disposal boundaries in Histogram, Crossplot, Pickett, Correlation and Vega.
+      Correlation must mutate its depth viewport and use its existing zoom routine; Vega must mutate
+      runtime domains and repaint. Reversing ArrowRight and removing Vega's export route each made
+      the test RED. The generated Vega canvas also shares the existing visible focus-ring rule.
+      TypeScript and the complete 24-test frontend acceptance file are green; the fresh full gate is
+      1036 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- [ ] **Visual:** open Histogram, Crossplot, Pickett, Correlation and Vega, then use only Tab to
+      reach every canvas. Confirm each focused canvas has a visible ring and a current description
+      naming its selected curves and context. Exercise arrow pan, `+`/`-` zoom and `Home` fit; verify
+      the plotted viewport really changes. Press `P` and `E` and confirm Properties and export
+      controls receive visible focus without a pointer.
+- [ ] **Manual:** repeat the five-panel sequence with keyboard only and a Windows screen reader.
+      Confirm changed curve, well, interval, depth basis and Vega channel selections update the
+      announced label; no shortcut scrolls the page instead; focus never disappears into the
+      generated Vega subtree; and closing a panel removes its keyboard handler.
+- [ ] **Field and harsh critique:** repeat on the representative pilot workstation with real plot
+      sizes and selections. A `tabindex`, helper call and green synthetic event are not usable
+      accessibility if focus is invisible, a view does not move, the accessible name becomes stale,
+      or Properties/export still require a mouse. Automated source inventory cannot prove screen-
+      reader announcements, browser/renderer focus behavior, user comprehension or field usability;
+      those evidence classes remain open until Jauhar records them.
+
 ## 2026-08-15 — G2 SB-PLT-029: generation-safe Histogram, Crossplot, Pickett, Correlation, Vega and log-view loads
 
 - [ ] **Automated correctness:** the exact T28/T33 test inventories all 15 asynchronous

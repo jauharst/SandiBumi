@@ -3962,7 +3962,8 @@ textarea {
 
 /* Keyboard focus ring for the interactive plot canvases (they are role=img, tabindex=0, and take
    arrow-key pan / +- zoom / 0 reset via attachKeyboardPanZoom). */
-.plot-canvas:focus-visible {
+.plot-canvas:focus-visible,
+.vega-chart-host canvas:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }

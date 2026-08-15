@@ -60,11 +60,14 @@ import {
   type PlotAsyncGenerationToken,
 } from "./plotAsync";
 import {
+  attachAccessiblePlotKeyboard,
   basicStats,
   buildPlotStatisticsRecord,
   formatPlotStatisticsRecord,
   plotStatisticsInterval,
+  type PlotAccessibilityBinding,
   type PlotStatisticsRecord,
+  type PlotViewKeyboardCommand,
 } from "./plotCanvas";
 
 export type ChartType = "scatter" | "line" | "histogram" | "density" | "raincloud";
@@ -1085,6 +1088,7 @@ export async function buildVegaContent(
   let selectorGen = 0;
   let editorGen = 0;
   let resizeGen = 0;
+  let accessibility: PlotAccessibilityBinding | null = null;
   let settleBindingReady!: () => void;
   let refuseBindingReady!: (error: unknown) => void;
   let bindingReadySettled = false;
@@ -1376,6 +1380,8 @@ export async function buildVegaContent(
   };
   const clearCurrent = (): void => {
     resizeGen++;
+    accessibility?.dispose();
+    accessibility = null;
     current?.finalize();
     current = null;
     chartHost.innerHTML = "";
@@ -1452,6 +1458,7 @@ export async function buildVegaContent(
       clearCurrent();
       current = result;
       chartHost.replaceChildren(...Array.from(stagingHost.childNodes));
+      bindVegaAccessibility();
       syncRuntimeAxisRanges();
       if (brushable(type)) {
         result.view.addSignalListener("brush", () => scheduleEmit());
@@ -1471,6 +1478,7 @@ export async function buildVegaContent(
   }
 
   async function render(): Promise<void> {
+    accessibility?.refresh();
     const token = beginPlotAsyncGeneration("vega-data-refetch", ++gen);
     const type = typeSel.value as ChartType;
     const xName = xSel.value;
@@ -1599,10 +1607,12 @@ export async function buildVegaContent(
   }
 
   /** Re-embed cached rows with new theme colours, restoring current runtime X/Y domains. */
-  async function repaint(): Promise<void> {
+  async function repaint(
+    requestedDomains?: Partial<Record<"x" | "y", [number, number]>>,
+  ): Promise<void> {
     if (!lastSourceRows) return;
-    syncRuntimeAxisRanges();
-    const axisDomains = captureVegaViewportDomains(axisRanges);
+    if (!requestedDomains) syncRuntimeAxisRanges();
+    const axisDomains = requestedDomains ?? captureVegaViewportDomains(axisRanges);
     const token = beginPlotAsyncGeneration("vega-data-refetch", ++gen);
     const screened = screenVegaPopulation(lastSourceRows, lastType, currentValidityPolicy(), null, null);
     const rows = screened.indices.map((index) => lastSourceRows![index]);
@@ -1628,6 +1638,61 @@ export async function buildVegaContent(
   // Export. Vega renders to a <canvas>, so the shared PNG copy/save/print buttons work against it;
   // SVG comes from vega's own vector renderer.
   const getCanvas = (): HTMLCanvasElement | null => chartHost.querySelector<HTMLCanvasElement>("canvas");
+
+  const accessibleLabel = (): string => {
+    const type = typeSel.options[typeSel.selectedIndex]?.textContent ?? typeSel.value;
+    const usesY = typeSel.value === "scatter" || typeSel.value === "line" || typeSel.value === "density";
+    return `Vega ${type}: ${xSel.value}${usesY ? ` versus ${ySel.value}` : ""}${zSel.value ? `, coloured by ${zSel.value}` : ""}`;
+  };
+
+  const changeVegaView = (command: PlotViewKeyboardCommand): boolean => {
+    if (!current || !lastRows) return false;
+    if (command.kind === "reset") {
+      const base = captureVegaViewportDomains(baseAxisRanges);
+      if (!base.x && !base.y) return false;
+      void repaint(base);
+      return true;
+    }
+    syncRuntimeAxisRanges();
+    const domains = captureVegaViewportDomains(axisRanges);
+    if (command.kind === "pan") {
+      const domain = domains[command.axis];
+      if (!domain) return false;
+      const span = domain[1] - domain[0];
+      const delta = span * (command.large ? 0.2 : 0.08) * command.direction;
+      domains[command.axis] = [domain[0] + delta, domain[1] + delta];
+    } else {
+      let changed = false;
+      for (const axis of ["x", "y"] as const) {
+        const domain = domains[axis];
+        if (!domain) continue;
+        const center = (domain[0] + domain[1]) / 2;
+        const half = ((domain[1] - domain[0]) / 2) * (command.direction === "in" ? 0.83 : 1.2);
+        domains[axis] = [center - half, center + half];
+        changed = true;
+      }
+      if (!changed) return false;
+    }
+    void repaint(domains);
+    return true;
+  };
+
+  function bindVegaAccessibility(): void {
+    accessibility?.dispose();
+    const canvas = getCanvas();
+    if (!canvas) {
+      accessibility = null;
+      return;
+    }
+    accessibility = attachAccessiblePlotKeyboard({
+      surface: canvas,
+      getLabel: accessibleLabel,
+      changeView: changeVegaView,
+      openProperties: () => typeSel.focus(),
+      focusExport: () => exportGroup.querySelector<HTMLButtonElement>("button")?.focus(),
+    });
+  }
+
   const exportSvg = async (): Promise<void> => {
     if (!current) {
       setStatus("No Vega chart to export yet");
@@ -1919,6 +1984,8 @@ export async function buildVegaContent(
       chartHost.removeEventListener("wheel", syncAxesAfterInteraction);
       chartHost.removeEventListener("pointerup", syncAxesAfterInteraction);
       zoneSel.dispose();
+      accessibility?.dispose();
+      accessibility = null;
       editor?.destroy();
       current?.finalize();
       current = null;

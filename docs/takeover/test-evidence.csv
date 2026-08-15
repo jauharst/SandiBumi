@@ -221,6 +221,7 @@
 "SB-PLT-026","CORRECTNESS","src-tauri/src/plotting.rs","the_backend_accepts_only_a_page_that_contains_every_recorded_mark_and_never_calls_raster_pixels_points"
 "SB-PLT-029","CORRECTNESS","tools/frontend-acceptance.test.mjs","every_async_plot_build_and_refetch_is_registered_and_reverse_order_or_data_revision_completion_never_replaces_the_active_panel"
 "SB-PLT-029","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_superseded_async_plot_build_is_disposed_before_it_can_replace_the_active_panel"
+"SB-PLT-030","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handler_on_dispose"
 "SB-PLT-010","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_regression_as_coefficients_without_a_versioned_scientific_record"
 "SB-PLT-018","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_linked_brushing_as_one_ephemeral_scope_with_exact_depth_membership"
 "SB-PLT-028","CHARACTERIZATION","tools/frontend-acceptance.test.mjs","characterizes_crossplot_static_draw_and_z_colours_as_separately_invalidated_subsets"

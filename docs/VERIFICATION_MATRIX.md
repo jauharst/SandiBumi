@@ -45,12 +45,12 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
 | `log-view` | Interactive log views and tracks | Partially exercised | 5 / 51 | 2026-07-19 | 11 |
-| `histogram` | Histogram | Partially exercised | 5 / 38 | 2026-07-20 | 9 |
-| `crossplot` | Crossplot | Partially exercised | 6 / 25 | 2026-07-20 | 9 |
-| `pickett` | Pickett plot | Not exercised | 0 / 20 | — | 6 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 54 | — | 15 |
+| `histogram` | Histogram | Partially exercised | 5 / 42 | 2026-07-20 | 10 |
+| `crossplot` | Crossplot | Partially exercised | 6 / 29 | 2026-07-20 | 10 |
+| `pickett` | Pickett plot | Not exercised | 0 / 24 | — | 7 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 58 | — | 16 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 61 | 2026-07-20 | 17 |
-| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 14 | — | 10 |
+| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 18 | — | 11 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |
@@ -61,7 +61,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `project-lifecycle` | Project lifecycle and sessions | Partially exercised | 3 / 28 | 2026-07-19 | 8 |
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 2 | — | 2 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
-| `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
+| `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 54 | — | 10 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 123 | 2026-08-13 | 45 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 112 | 2026-08-13 | 36 |
