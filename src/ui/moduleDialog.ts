@@ -1,10 +1,13 @@
 import {
   listCurveCatalog,
+  moduleInputAvailability,
   moduleOutputNames,
   runWorkflowModule,
+  type ModuleInputAvailability,
   type ModuleSpec,
   type OutputName,
   type RunModuleRequest,
+  type ValidityCondition,
 } from "../ipc";
 import { appState } from "../state";
 import { buildLogSetPicker } from "./logSetPicker";
@@ -52,6 +55,124 @@ export function argumentHint(arg: ModuleSpec["args"][number]): string {
   return [arg.desc, defaultSource, ...conditions].filter(Boolean).join(" ");
 }
 
+export interface ValidityConditionView {
+  id: string;
+  statement: string;
+  source: string;
+  state: "checking" | "evaluable" | "un_evaluable" | "inactive" | "check_failed";
+  status: string;
+}
+
+function conditionDependencies(
+  owner: ModuleSpec["args"][number],
+  condition: ValidityCondition,
+  spec: ModuleSpec,
+): { all: string[]; any: string[] } {
+  const isLog = (name: string) => spec.args.some((argument) => argument.name === name && argument.kind === "log_in");
+  if (condition.kind === "required_companion") return { all: [], any: condition.any_of };
+  if (condition.kind === "required_where_finite") return { all: [condition.input, owner.name], any: [] };
+  if (condition.kind === "numeric_range" && owner.kind === "log_in") return { all: [owner.name], any: [] };
+  if (condition.kind === "less_than") {
+    return { all: [owner.name, condition.other].filter(isLog), any: [] };
+  }
+  return { all: [], any: [] };
+}
+
+/** Convert the backend's finite-input preflight into the visible state of each sourced condition.
+ * The same helper is used by the acceptance test and the live pane, including the positive control:
+ * “available” is never inferred merely because a project-wide picker offered the mnemonic. */
+export function validityConditionViews(
+  owner: ModuleSpec["args"][number],
+  spec: ModuleSpec,
+  selectedValues: Record<string, string>,
+  availability: ModuleInputAvailability[] | null,
+  wellName: (wellId: string) => string,
+): ValidityConditionView[] {
+  return (owner.validity_conditions ?? []).map((condition) => {
+    const base = { id: condition.id, statement: condition.statement, source: condition.source };
+    const branch = "when" in condition ? condition.when : null;
+    if (branch && selectedValues[branch.argument] !== branch.equals) {
+      return {
+        ...base,
+        state: "inactive" as const,
+        status: `Not active for this run — applies when ${branch.argument} = ${branch.equals}.`,
+      };
+    }
+    const dependencies = conditionDependencies(owner, condition, spec);
+    if (dependencies.all.length === 0 && dependencies.any.length === 0) {
+      return {
+        ...base,
+        state: "evaluable" as const,
+        status: "Evaluated from the entered or selected value before the module body runs.",
+      };
+    }
+    if (availability === null) {
+      return { ...base, state: "checking" as const, status: "Checking selected well inputs…" };
+    }
+    if (availability.length === 0) {
+      return {
+        ...base,
+        state: "un_evaluable" as const,
+        status: "Cannot evaluate before run — no well is in scope.",
+      };
+    }
+    const failed = availability.filter((row) => row.error);
+    if (failed.length > 0) {
+      return {
+        ...base,
+        state: "check_failed" as const,
+        status: `Cannot complete the pre-run input check for ${failed.map((row) => wellName(row.well_id)).join(", ")}.`,
+      };
+    }
+    const missing = availability.filter((row) => {
+      const available = new Set(row.available_arguments);
+      return dependencies.all.some((name) => !available.has(name))
+        || (dependencies.any.length > 0 && !dependencies.any.some((name) => available.has(name)));
+    });
+    const selectedLabel = (name: string) => {
+      const selected = selectedValues[name] ?? spec.args.find((argument) => argument.name === name)?.default ?? "";
+      return selected && selected !== name ? `${name} (${selected})` : name;
+    };
+    const required = [
+      ...dependencies.all.map(selectedLabel),
+      ...(dependencies.any.length > 0 ? [`one of ${dependencies.any.map(selectedLabel).join(" / ")}`] : []),
+    ].join(" and ");
+    if (missing.length > 0) {
+      return {
+        ...base,
+        state: "un_evaluable" as const,
+        status: `Cannot evaluate before run for ${missing.map((row) => wellName(row.well_id)).join(", ")} — required input ${required} is absent.`,
+      };
+    }
+    return {
+      ...base,
+      state: "evaluable" as const,
+      status: `Inputs available before run for ${availability.length} well${availability.length === 1 ? "" : "s"}: ${required}.`,
+    };
+  });
+}
+
+/** Render source, condition and preflight state as text beside the field. A title/tooltip is not
+ * sufficient: the user must see an unavailable condition without discovering it by hovering. */
+export function renderValidityConditions(host: HTMLElement, views: ValidityConditionView[]): void {
+  host.innerHTML = "";
+  for (const view of views) {
+    const item = document.createElement("div");
+    item.className = `module-validity-item module-validity-${view.state}`;
+    const condition = document.createElement("div");
+    condition.className = "module-validity-condition";
+    condition.textContent = `${view.id} — ${view.statement}`;
+    const source = document.createElement("div");
+    source.className = "module-validity-source";
+    source.textContent = `Source: ${view.source}`;
+    const status = document.createElement("div");
+    status.className = "module-validity-status";
+    status.textContent = view.status;
+    item.append(condition, source, status);
+    host.appendChild(item);
+  }
+}
+
 /** Builds the auto-generated parameter form for one module: input-curve selectors,
  *  option dropdowns, and validated numeric parameters — all straight from the manifest
  *  (module-manifest model). Hosted as a dock pane (workspace component "module", panel id
@@ -67,7 +188,8 @@ export async function buildModuleContent(
   let catalog = await listCurveCatalog();
   let curveNames = catalog.map((c) => c.name);
   let disposed = false;
-  const scope = await buildWellScope();
+  let refreshValidityConditions: () => Promise<void> = async () => {};
+  const scope = await buildWellScope({ onChange: () => void refreshValidityConditions() });
   const custodyControls = buildRunCustodyControls();
 
   const content = document.createElement("div");
@@ -115,6 +237,19 @@ export async function buildModuleContent(
   const optSelects = new Map<string, HTMLSelectElement>();
   const textInputs = new Map<string, HTMLInputElement>();
   const paramInputs = new Map<string, HTMLInputElement>();
+  const validityHosts = new Map<string, HTMLElement>();
+
+  const withVisibleValidity = (arg: ModuleSpec["args"][number], control: HTMLElement): HTMLElement => {
+    if (!(arg.validity_conditions?.length)) return control;
+    const wrap = document.createElement("div");
+    wrap.className = "module-control-with-validity";
+    const host = document.createElement("div");
+    host.className = "module-validity-list";
+    validityHosts.set(arg.name, host);
+    renderValidityConditions(host, validityConditionViews(arg, spec, {}, null, (wellId) => wellId));
+    wrap.append(control, host);
+    return wrap;
+  };
 
   /** `labels` is parallel to `names` and optional — a missing or short entry shows the id, which
    *  is what every un-labelled module still does. The VALUE is always the id, because it is what
@@ -168,13 +303,13 @@ export async function buildModuleContent(
         : arg.required
           ? ""
           : "(optional)";
-      argsGrid.appendChild(formRow(`${arg.name} ${requirement}`, select, argumentHint(arg)));
+      argsGrid.appendChild(formRow(`${arg.name} ${requirement}`, withVisibleValidity(arg, select), argumentHint(arg)));
     } else if (arg.kind === "option") {
       const select = document.createElement("select");
       select.className = "form-control";
       fillSelect(select, arg.choices, arg.default, arg.choice_labels);
       optSelects.set(arg.name, select);
-      argsGrid.appendChild(formRow(arg.name, select, argumentHint(arg)));
+      argsGrid.appendChild(formRow(arg.name, withVisibleValidity(arg, select), argumentHint(arg)));
     } else if (arg.kind === "text") {
       // Free-typed run option (ArgKind::Text) — the Condition family's user-named output curve.
       const input = document.createElement("input");
@@ -185,7 +320,7 @@ export async function buildModuleContent(
       // placeholder is where a user looks before reading a hint.
       input.placeholder = arg.desc.includes("blank") ? arg.desc.split("—").pop()!.trim() : "";
       textInputs.set(arg.name, input);
-      argsGrid.appendChild(formRow(arg.name, input, argumentHint(arg)));
+      argsGrid.appendChild(formRow(arg.name, withVisibleValidity(arg, input), argumentHint(arg)));
     } else if (arg.kind === "param") {
       const input = document.createElement("input");
       input.className = "form-control";
@@ -217,7 +352,7 @@ export async function buildModuleContent(
       if (arg.sources_topic) {
         control = withParamSources(control, arg.sources_topic);
       }
-      argsGrid.appendChild(formRow(arg.name, control, argumentHint(arg)));
+      argsGrid.appendChild(formRow(arg.name, withVisibleValidity(arg, control), argumentHint(arg)));
     }
   }
 
@@ -274,7 +409,10 @@ export async function buildModuleContent(
   // --- Input / output log set: the ONE shared control (`logSetPicker.ts`). Was two bespoke
   // blocks here labelled "Input cons" / "Output cons" — the store, the backend and the docs all
   // say LOG SET, and only this UI said constellation, which is why the word did not connect.
-  const setPicker = buildLogSetPicker({ write: "INTERP" });
+  const setPicker = buildLogSetPicker({
+    write: "INTERP",
+    onInputChange: () => void refreshValidityConditions(),
+  });
   for (const row of setPicker.rows) argsGrid.appendChild(row);
   for (const row of custodyControls.rows) argsGrid.appendChild(row);
 
@@ -383,6 +521,55 @@ export async function buildModuleContent(
     return logInputs;
   };
 
+  const collectConditionSelections = (): Record<string, string> => {
+    const selected = collectLogInputs();
+    for (const [name, select] of optSelects) selected[name] = select.value;
+    for (const [name, input] of textInputs) selected[name] = input.value.trim();
+    return selected;
+  };
+
+  let validityGen = 0;
+  refreshValidityConditions = async () => {
+    if (validityHosts.size === 0) return;
+    const gen = ++validityGen;
+    const selected = collectConditionSelections();
+    const needsWellInputs = spec.args.some((arg) =>
+      (arg.validity_conditions ?? []).some((condition) => {
+        const dependencies = conditionDependencies(arg, condition, spec);
+        return dependencies.all.length > 0 || dependencies.any.length > 0;
+      }));
+    const nameFor = (wellId: string) => scope.namesFor([wellId])[0] ?? wellId;
+    const render = (availability: ModuleInputAvailability[] | null) => {
+      for (const arg of spec.args) {
+        const host = validityHosts.get(arg.name);
+        if (host) renderValidityConditions(host, validityConditionViews(arg, spec, selected, availability, nameFor));
+      }
+    };
+    render(null);
+    if (!needsWellInputs) return;
+    if (scope.getWellIds().length === 0) {
+      render([]);
+      return;
+    }
+    try {
+      const availability = await moduleInputAvailability(
+        spec.name,
+        scope.backend(),
+        collectLogInputs(),
+        setPicker.inputSet(),
+      );
+      if (disposed || gen !== validityGen) return;
+      render(availability);
+    } catch (error) {
+      if (disposed || gen !== validityGen) return;
+      render(scope.getWellIds().map((wellId) => ({
+        well_id: wellId,
+        available_arguments: [],
+        error: String(error),
+      })));
+    }
+  };
+
   // The placeholder in each name box is the name the run would write if the box is left alone —
   // so an untouched form still SHOWS its answer rather than an empty field. Re-asked whenever an
   // input curve or a rename changes, because a pattern is built from those: renaming the despiked
@@ -409,11 +596,19 @@ export async function buildModuleContent(
       outWarn.hidden = false;
     }
   };
-  for (const [, select] of logSelects) select.addEventListener("change", () => void refreshOutNames());
-  for (const [, select] of optSelects) select.addEventListener("change", () => void refreshOutNames());
+  for (const [, select] of logSelects) select.addEventListener("change", () => {
+    void refreshOutNames();
+    void refreshValidityConditions();
+  });
+  for (const [, select] of optSelects) select.addEventListener("change", () => {
+    void refreshOutNames();
+    void refreshValidityConditions();
+  });
+  for (const [, input] of textInputs) input.addEventListener("input", () => void refreshValidityConditions());
   preconditionPolicySelect.addEventListener("change", () => void refreshOutNames());
   for (const [, input] of outNameInputs) input.addEventListener("input", () => void refreshOutNames());
   void refreshOutNames();
+  void refreshValidityConditions();
 
   // --- Footer (design 1d): primary pill naming the module, last-run status
   // right-aligned beside it.
@@ -447,6 +642,7 @@ export async function buildModuleContent(
         fillLogSelect(select, arg, select.value);
       }
       rebuildMaskOptions(maskSelect.value);
+      void refreshValidityConditions();
     } catch {
       // No backend / transient failure: keep the current form as-is.
     }

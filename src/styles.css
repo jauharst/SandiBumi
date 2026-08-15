@@ -7186,6 +7186,53 @@ input[type="number"].num-editing:focus {
   min-width: 0;
 }
 
+/* SB-ENV-008: validity is a visible part of the field, not a hover-only tooltip. The state line
+   stays compact in ordinary modules but turns amber when the scoped well cannot supply an input. */
+.module-control-with-validity {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.module-validity-list {
+  display: grid;
+  gap: 5px;
+}
+.module-validity-item {
+  border-left: 3px solid var(--border);
+  padding: 4px 7px;
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+.module-validity-condition {
+  color: var(--text);
+  font-weight: 650;
+}
+.module-validity-source {
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.module-validity-status {
+  margin-top: 2px;
+  color: var(--text-dim);
+}
+.module-validity-evaluable {
+  border-left-color: var(--accent2);
+}
+.module-validity-un_evaluable,
+.module-validity-check_failed {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 9%, var(--panel));
+}
+.module-validity-un_evaluable .module-validity-status,
+.module-validity-check_failed .module-validity-status {
+  color: var(--warn);
+  font-weight: 700;
+}
+.module-validity-inactive {
+  opacity: 0.78;
+}
+
 /* A numeric value and its unit read as one fact: unit to the RIGHT of the input. */
 .input-unit {
   display: flex;

@@ -37,6 +37,17 @@ pub struct RunModuleRequest {
     pub custody: equations::RunCustody,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ModuleInputAvailability {
+    pub well_id: String,
+    /// Manifest argument names whose selected curves contain at least one finite sample on the
+    /// exact frame/input-set resolution path the public runner will use.
+    pub available_arguments: Vec<String>,
+    /// A read failure is not reported as an absent curve. The dialog renders this as an explicit
+    /// preflight failure so a database error cannot masquerade as ordinary missing log coverage.
+    pub error: Option<String>,
+}
+
 #[cfg(test)]
 pub(crate) fn test_run_custody() -> equations::RunCustody {
     equations::RunCustody {
@@ -955,6 +966,167 @@ pub fn run_workflow_module(db: &Mutex<Connection>, req: &RunModuleRequest) -> Ve
     run_workflow_module_into(db, req, None, None, None)
 }
 
+fn resolved_log_args(spec: &modules::ModuleSpec, log_inputs: &HashMap<String, String>) -> Vec<(String, String)> {
+    spec.args
+        .iter()
+        .filter(|argument| argument.kind == ArgKind::LogIn)
+        .map(|argument| {
+            let mnemonic = log_inputs
+                .get(&argument.name)
+                .cloned()
+                .unwrap_or_else(|| argument.default.clone());
+            (argument.name.clone(), mnemonic)
+        })
+        .collect()
+}
+
+fn validity_input_arguments(spec: &modules::ModuleSpec) -> HashSet<String> {
+    let is_log = |name: &str| {
+        spec.args
+            .iter()
+            .any(|argument| argument.name == name && argument.kind == ArgKind::LogIn)
+    };
+    let mut names = HashSet::new();
+    for owner in &spec.args {
+        for condition in &owner.validity_conditions {
+            match &condition.rule {
+                modules::ValidityRule::NumericRange { .. } if owner.kind == ArgKind::LogIn => {
+                    names.insert(owner.name.clone());
+                }
+                modules::ValidityRule::RequiredCompanion { any_of, .. } => {
+                    names.extend(any_of.iter().filter(|name| is_log(name)).cloned());
+                }
+                modules::ValidityRule::RequiredWhereFinite { input } => {
+                    if owner.kind == ArgKind::LogIn {
+                        names.insert(owner.name.clone());
+                    }
+                    if is_log(input) {
+                        names.insert(input.clone());
+                    }
+                }
+                modules::ValidityRule::LessThan { other } => {
+                    if owner.kind == ArgKind::LogIn {
+                        names.insert(owner.name.clone());
+                    }
+                    if is_log(other) {
+                        names.insert(other.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    names
+}
+
+/// Resolve the selected input mnemonics into manifest argument names using the same input-set,
+/// native-curve and computed-only rules as a real module run. This is shared with the dialog
+/// preflight so “available before run” cannot be answered by a cheaper but different resolver.
+fn fetch_module_input_logs(
+    conn: &Connection,
+    well_id: &str,
+    spec: &modules::ModuleSpec,
+    log_args: &[(String, String)],
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+) -> Result<(Vec<f32>, HashMap<String, Vec<f32>>), String> {
+    let curve_names: Vec<String> = log_args.iter().map(|(_, mnemonic)| mnemonic.clone()).collect();
+    let (depth, columns) = equations::fetch_curve_frame_from_set(
+        conn,
+        well_id,
+        &curve_names,
+        input_set,
+        own_set_id,
+    )
+    .map_err(|error| error.to_string())?;
+
+    let mut logs = HashMap::new();
+    logs.insert("DEPTH".to_string(), depth.clone());
+    for (argument, mnemonic) in log_args {
+        let values = columns
+            .get(&mnemonic.trim().to_uppercase())
+            .cloned()
+            .unwrap_or_else(|| vec![f32::NAN; depth.len()]);
+        logs.insert(argument.clone(), values);
+    }
+
+    // A raw curve with a familiar mnemonic is not proof that a computed-only input exists. Keep
+    // this on the shared path so the preflight cannot advertise an input the runner will reject.
+    for argument in spec
+        .args
+        .iter()
+        .filter(|argument| argument.kind == ArgKind::LogIn && argument.computed_only)
+    {
+        let mnemonic = log_args
+            .iter()
+            .find(|(name, _)| name == &argument.name)
+            .map(|(_, mnemonic)| mnemonic.clone())
+            .unwrap_or_else(|| argument.default.clone());
+        let values = equations::fetch_computed_only_aligned(
+            conn,
+            well_id,
+            &mnemonic,
+            &depth,
+            input_set,
+            own_set_id,
+        )
+        .map_err(|error| error.to_string())?;
+        logs.insert(argument.name.clone(), values);
+    }
+    Ok((depth, logs))
+}
+
+/// Read-only preflight for the module dialog. Only argument names and availability booleans leave
+/// Rust; curve arrays remain behind IPC. A condition with no finite source sample is therefore
+/// visible before launch without duplicating the runner's curve-resolution rules in TypeScript.
+pub fn module_input_availability(
+    db: &Mutex<Connection>,
+    module: &str,
+    well_ids: &[String],
+    log_inputs: &HashMap<String, String>,
+    input_set: Option<&str>,
+) -> Result<Vec<ModuleInputAvailability>, String> {
+    let spec = modules::list_modules()
+        .into_iter()
+        .find(|candidate| candidate.name == module)
+        .ok_or_else(|| format!("unknown module '{module}'"))?;
+    let needed = validity_input_arguments(&spec);
+    let log_args: Vec<(String, String)> = resolved_log_args(&spec, log_inputs)
+        .into_iter()
+        .filter(|(argument, _)| needed.contains(argument))
+        .collect();
+    let mut rows = Vec::with_capacity(well_ids.len());
+    for well_id in well_ids {
+        let resolved = db
+            .lock()
+            .map_err(|_| "database busy".to_string())
+            .and_then(|conn| fetch_module_input_logs(&conn, well_id, &spec, &log_args, input_set, None));
+        match resolved {
+            Ok((_, logs)) => {
+                let available_arguments = log_args
+                    .iter()
+                    .filter_map(|(argument, _)| {
+                        logs.get(argument)
+                            .is_some_and(|values| values.iter().any(|value| value.is_finite()))
+                            .then(|| argument.clone())
+                    })
+                    .collect();
+                rows.push(ModuleInputAvailability {
+                    well_id: well_id.clone(),
+                    available_arguments,
+                    error: None,
+                });
+            }
+            Err(error) => rows.push(ModuleInputAvailability {
+                well_id: well_id.clone(),
+                available_arguments: Vec::new(),
+                error: Some(error),
+            }),
+        }
+    }
+    Ok(rows)
+}
+
 /// Like [`run_workflow_module`], but chains pass `preset_sets` (well_id → set_id) so every
 /// step of one chain run writes into the SAME set version instead of bumping per step, and an
 /// optional `cancel` flag lets a running chain skip the remaining wells mid-step so Cancel takes
@@ -1048,15 +1220,7 @@ fn run_workflow_module_into_with_parameter_serializer(
     };
 
     // Input curves: dialog mnemonic over manifest default mnemonic.
-    let log_args: Vec<(String, String)> = spec
-        .args
-        .iter()
-        .filter(|a| a.kind == ArgKind::LogIn)
-        .map(|a| {
-            let mnemonic = req.log_inputs.get(&a.name).cloned().unwrap_or_else(|| a.default.clone());
-            (a.name.clone(), mnemonic)
-        })
-        .collect();
+    let log_args = resolved_log_args(&spec, &req.log_inputs);
     // The names this run will write, decided ONCE. Every input to the decision — the manifest, the
     // chosen mnemonics, the renames — is well-independent, so a bad name is refused here as one
     // message rather than as N identical per-well failures in the Processing panel.
@@ -1146,19 +1310,19 @@ fn run_workflow_module_into_with_parameter_serializer(
                 ),
                 String,
             > {
-                let curve_names: Vec<String> = log_args.iter().map(|(_, m)| m.clone()).collect();
                 // A chain's own set event: its earlier steps' outputs beat the input set.
                 let own_set = preset_sets.and_then(|m| m.get(well_id.as_str())).map(|s| s.as_str());
-                let (depth, columns, params, defaulted_parameters) = {
+                let (depth, mut logs, params, defaulted_parameters) = {
                     let conn = db.lock().unwrap();
-                    let (depth, columns) = equations::fetch_curve_frame_from_set(
+                    let (depth, logs) = fetch_module_input_logs(
                         &conn,
                         well_id,
-                        &curve_names,
+                        &spec,
+                        &log_args,
                         req.input_set.as_deref(),
                         own_set,
                     )
-                    .map_err(|e| e.to_string())?;
+                    ?;
                     if depth.is_empty() {
                         return Err("no curve data for well".into());
                     }
@@ -1169,39 +1333,8 @@ fn run_workflow_module_into_with_parameter_serializer(
                         &req.params,
                         &depth,
                     )?;
-                    (depth, columns, params, defaulted_parameters)
+                    (depth, logs, params, defaulted_parameters)
                 };
-
-                let mut logs: HashMap<String, Vec<f32>> = HashMap::new();
-                logs.insert("DEPTH".to_string(), depth.clone());
-                for (arg_name, mnemonic) in &log_args {
-                    let values = columns
-                        .get(&mnemonic.trim().to_uppercase())
-                        .cloned()
-                        .unwrap_or_else(|| vec![f32::NAN; depth.len()]);
-                    logs.insert(arg_name.clone(), values);
-                }
-                // Unit-contract inputs (ArgSpec.computed_only, e.g. gascorr FTEMP/FPRESS):
-                // re-resolve from computed provenance only — the frame above may have
-                // fallen back to a RAW import with the same mnemonic but the wrong unit.
-                for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogIn && a.computed_only) {
-                    let mnemonic = log_args
-                        .iter()
-                        .find(|(name, _)| name == &a.name)
-                        .map(|(_, m)| m.clone())
-                        .unwrap_or_else(|| a.default.clone());
-                    let conn = db.lock().unwrap();
-                    let values = equations::fetch_computed_only_aligned(
-                        &conn,
-                        well_id,
-                        &mnemonic,
-                        &depth,
-                        req.input_set.as_deref(),
-                        own_set,
-                    )
-                    .map_err(|e| e.to_string())?;
-                    logs.insert(a.name.clone(), values);
-                }
 
                 // Optional bad-hole (or any flag) mask. Resolve it BEFORE the module runs so
                 // flagged samples can be excluded from the module's INPUTS, not just its

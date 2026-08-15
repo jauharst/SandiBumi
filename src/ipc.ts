@@ -1121,6 +1121,30 @@ export interface RunModuleRequest {
   custody: RunCustody;
 }
 
+export interface ModuleInputAvailability {
+  well_id: string;
+  /** Manifest LogIn argument names with at least one finite sample on the runner's resolved frame. */
+  available_arguments: string[];
+  /** A read failure is distinct from an ordinarily absent required input. */
+  error: string | null;
+}
+
+/** Read-only preflight for a module pane. Numeric arrays remain in Rust; only availability
+ * metadata crosses IPC so this cannot become a second JSON curve-data path. */
+export function moduleInputAvailability(
+  moduleName: string,
+  scope: BackendWellScope,
+  logInputs: Record<string, string>,
+  inputSet?: string,
+): Promise<ModuleInputAvailability[]> {
+  return invoke<ModuleInputAvailability[]>("module_input_availability", {
+    module: moduleName,
+    scope,
+    logInputs,
+    inputSet,
+  });
+}
+
 export type AncestryActorKind = "HUMAN" | "AUTOMATED";
 
 export interface RunCustody {

@@ -111,14 +111,14 @@
 
 - **Chapter evidence:** P2; chapter status `ABSENT`; T14; sections 4.1, 6.1 and 8.
 - **Atomic obligations:** show every condition and source beside its field and pre-mark conditions that cannot be evaluated because inputs are absent.
-- **Current source:** `moduleDialog.ts` renders numeric min/max controls and selected `sources_topic` content, but no general condition record exists and the dialog does not preflight required-input availability or show an un-evaluable state.
-- **Qualifying acceptance tests:** none; no dialog-level T14 body exists. Test class `MISSING`.
-- **Supporting tests:** frontend compilation and selected source rendering do not exercise the required pre-run state.
-- **Manual evidence:** conditioning 0/27; workflow 0/23.
-- **Git evidence:** partial UI seams are integrated at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-ENV-001/SB-ENV-004 data and the input-availability preflight are absent.
-- **Next action:** render the shared condition/source model and add a dialog test with both evaluable and missing-companion controls.
+- **Current source:** every manifest condition is now a visible field-adjacent card containing its stable id, full statement and source. `module_input_availability` resolves each scoped well through the same input-set/native/computed-only curve path as a real run, reduces the result to finite argument-name availability in Rust, and sends no curve arrays through JSON. Scope, selected mnemonic, input log set and project-data changes all refresh the card with a generation guard against stale responses.
+- **Qualifying acceptance tests:** `a_missing_required_well_input_is_marked_beside_its_sourced_condition_before_the_run` is T14 CORRECTNESS. It renders the exact sourced condition for a two-state fixture, requires the missing-CALI scope to name CALI and the affected physical-condition identity before launch, then requires the finite-CALI control to say inputs are available and contain no un-evaluable text. The test also requires the live pane to call the scoped backend preflight and route it into the visible renderer.
+- **Supporting tests:** the unchanged GR all-uncovered refusal and computed-only FTEMP regression both remain green after factoring their shared input resolver; frontend acceptance is 26/26. They prove the preflight did not create a different raw/computed resolution route or weaken the public guard.
+- **Manual evidence:** conditioning 1/50; workflow 0/41; verification-stewardship 6/124; all four SB-ENV-008 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-007; exact T14 was RED because no renderer/preflight function existed and GREEN after implementation. TypeScript, cargo check and focused neighbouring Rust regressions are green; the exact full gate follows before commit.
+- **Verdict:** chapter status remains source-owned `ABSENT`; live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed at the pre-run reporting surface; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none for T14. No petrophysical value, endpoint, fallback mnemonic or default was added. SB-ENV-004's missing parameter-source inventory remains separately blocked; T14 displays every source already declared by the manifest and does not claim those declarations are complete.
+- **Next action:** retain the visible source/state card and exact runner-resolver preflight; Jauhar executes the unchecked visual/performance review separately; continue serially to SB-ENV-009 without treating visible metadata as proof that every method selector is backend-validated.
 
 ## SB-ENV-009 - A method-selection string that matches no known method is an error
 

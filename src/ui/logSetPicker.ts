@@ -49,6 +49,9 @@ export interface LogSetPickerOptions {
   writeHint?: string;
   /** Prefills the input picker (a pane restoring its own state). */
   initialInput?: string;
+  /** Called when the readable source set changes, so a condition/QC preflight can re-evaluate
+   * against the same stored inputs the eventual operation will consume. */
+  onInputChange?: () => void;
 }
 
 const READ_HINT =
@@ -88,6 +91,7 @@ export function buildLogSetPicker(opts: LogSetPickerOptions = {}): LogSetPicker 
     latest.textContent = "(current values)";
     inSelect.appendChild(latest);
     if (opts.initialInput) inSelect.value = opts.initialInput;
+    inSelect.addEventListener("change", () => opts.onInputChange?.());
     rows.push(formRow("Input log set", inSelect, opts.readHint ?? READ_HINT));
   }
 

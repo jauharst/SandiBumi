@@ -2052,3 +2052,76 @@ test("a_training_well_that_contributes_no_samples_is_warned_in_the_rendered_ml_r
   renderResults(clean, { ...result, notes: [] });
   assert.equal(clean.children.some((child) => child.classList.contains("mc-note-err")), false);
 });
+
+test("a_missing_required_well_input_is_marked_beside_its_sourced_condition_before_the_run", async () => {
+  // CORRECTNESS — SB-ENV-008 / SB-ENV-T14. docs/PRD_v2/20_envcorr-qc.md section 4.1
+  // and section 6.1 T14 require the dialog to show the declared condition and source beside
+  // its field, and to mark an absent required well input before launch. The two physical-state
+  // fixtures below pin both sides; neither number is a petrophysical value or product default.
+  const {
+    renderValidityConditions,
+    validityConditionViews,
+  } = await load("/src/ui/moduleDialog.ts");
+  const condition = {
+    kind: "required_where_finite",
+    id: "gr_hole_corr.caliper_coverage",
+    statement: "Caliper is required at every finite GR sample.",
+    source: "docs/PRD_v2/20_envcorr-qc.md SB-ENV-006 and section 6.2 T11/T12",
+    input: "GR",
+  };
+  const logArg = (name, selected, validityConditions = []) => ({
+    name,
+    desc: `${name} input`,
+    unit: "",
+    kind: "log_in",
+    default: selected,
+    default_source: "",
+    choices: [],
+    validity_conditions: validityConditions,
+    min: null,
+    max: null,
+    required: true,
+  });
+  const spec = {
+    name: "gr_hole_corr",
+    title: "GR environmental correction",
+    category: "Condition",
+    doc: "",
+    args: [logArg("GR", "GR"), logArg("CALI", "CALI", [condition])],
+  };
+  const selected = { GR: "GR", CALI: "CALI" };
+  const missing = validityConditionViews(
+    spec.args[1],
+    spec,
+    selected,
+    [
+      { well_id: "CALIPER_PRESENT", available_arguments: ["GR", "CALI"], error: null },
+      { well_id: "CALIPER_ABSENT", available_arguments: ["GR"], error: null },
+    ],
+    (id) => id,
+  );
+  const missingHost = document.createElement("div");
+  renderValidityConditions(missingHost, missing);
+  assert.match(missingHost.textContent, /gr_hole_corr\.caliper_coverage/);
+  assert.match(missingHost.textContent, /Caliper is required at every finite GR sample/);
+  assert.match(missingHost.textContent, /Source: docs\/PRD_v2\/20_envcorr-qc\.md/);
+  assert.match(missingHost.textContent, /Cannot evaluate before run/);
+  assert.match(missingHost.textContent, /CALI/);
+  assert.match(missingHost.textContent, /CALIPER_ABSENT/);
+
+  const available = validityConditionViews(
+    spec.args[1],
+    spec,
+    selected,
+    [{ well_id: "CALIPER_PRESENT", available_arguments: ["GR", "CALI"], error: null }],
+    (id) => id,
+  );
+  const availableHost = document.createElement("div");
+  renderValidityConditions(availableHost, available);
+  assert.match(availableHost.textContent, /Inputs available before run/);
+  assert.doesNotMatch(availableHost.textContent, /Cannot evaluate before run/);
+
+  const source = await readFile(new URL("../src/ui/moduleDialog.ts", import.meta.url), "utf8");
+  assert.match(source, /moduleInputAvailability\(/u, "the pane must query scoped runner input availability");
+  assert.match(source, /renderValidityConditions\(/u, "the query result must reach the visible field-adjacent surface");
+});

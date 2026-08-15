@@ -140,6 +140,7 @@
 "SB-DIO-063","OPTIONAL-PACKAGE-IGNORED","src-tauri/src/office.rs","a_non_ascii_path_and_well_name_survive_the_dlis_office_and_image_sidecars"
 "SB-ENV-006","CORRECTNESS","src-tauri/src/workflow.rs","a_gr_correction_with_no_caliper_refuses_and_writes_no_uncorrected_copy"
 "SB-ENV-006","CORRECTNESS","src-tauri/src/modules.rs","every_ec_module_with_a_missing_correction_input_refuses_or_changes_the_curve_and_complete_inputs_still_run"
+"SB-ENV-008","CORRECTNESS","tools/frontend-acceptance.test.mjs","a_missing_required_well_input_is_marked_beside_its_sourced_condition_before_the_run"
 "SB-ENV-027","CHARACTERIZATION","src-tauri/src/workflow.rs","a_masked_washout_defeats_the_very_module_meant_to_repair_it"
 "SB-ENV-033","CHARACTERIZATION","src-tauri/src/condition.rs","a_spike_in_a_quiet_interval_is_still_a_spike"
 "SB-ENV-035","CORRECTNESS","src-tauri/src/condition.rs","a_smoothed_curve_never_fills_a_gap"

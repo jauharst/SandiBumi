@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-008: sourced validity visible before launch
+
+- [ ] **Automated correctness:** exact T14 drives one declared CALI/GR condition through the
+      rendered field-adjacent surface. The missing-CALI scope visibly says it cannot be evaluated,
+      names the absent selected input and keeps the chapter-owned source; the finite-CALI control
+      says inputs are available and carries no refusal text. The production preflight returns only
+      argument-level metadata over IPC and uses the runner's input-set/computed-only resolver.
+- [ ] **Visual:** open GR Environmental Correction and confirm the CALI field shows a compact
+      condition card containing the stable id, full statement, source and current input-check state
+      without hover. Confirm the amber unavailable state remains readable in both wide and narrow
+      module panes and does not obscure the curve selector.
+- [ ] **Manual:** select a scope containing one finite-GR well without CALI and one with CALI; confirm
+      only the missing-input well is named before Run. Change the CALI mnemonic, well scope and input
+      log set in turn and confirm the card refreshes without losing any typed output name or field.
+- [ ] **Field and harsh critique:** a green DOM test proves the governed text/state transform, not
+      that a 2,000-well project preflights fast enough or that the wording changes an interpreter's
+      decision. Time the real pane and verify the selected log set against a real delivery separately.
+
 ## 2026-08-16 — G2 SB-ENV-007: per-sample correction state blocked
 
 - [ ] **Automated audit:** exact source/spec inventory confirms `ModuleOutputs` carries only

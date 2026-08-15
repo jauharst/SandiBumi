@@ -1984,6 +1984,35 @@ fn module_output_names(
     workflow::preview_output_names(&module, &log_inputs, &opts)
 }
 
+/// Reports which selected LogIn arguments have at least one finite sample for each scoped well,
+/// using the runner's exact input-set and curve-resolution path. Curve arrays stay in Rust; the
+/// dialog receives only argument names and can mark an un-evaluable sourced condition before Run.
+#[tauri::command]
+async fn module_input_availability(
+    db: tauri::State<'_, DbState>,
+    module: String,
+    scope: well_scope::WellScopeSelection,
+    log_inputs: std::collections::HashMap<String, String>,
+    input_set: Option<String>,
+) -> Result<Vec<workflow::ModuleInputAvailability>, String> {
+    let well_ids = {
+        let conn = db.0.lock().unwrap();
+        well_scope::resolve_well_scope(&conn, &scope, "module input preflight")?
+    };
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        workflow::module_input_availability(
+            &conn,
+            &module,
+            &well_ids,
+            &log_inputs,
+            input_set.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Runs one deterministic module across the given wells (rayon-parallel), resolving interval
 /// parameters per zone and writing outputs to computed_curves. Async + off-thread via the job
 /// registry, so it reports live per-well progress and a Cancel in the Processing panel and never
@@ -4128,6 +4157,7 @@ pub fn run() {
             parameter_pack::load_parameter_pack,
             run_workflow_module,
             module_output_names,
+            module_input_availability,
             run_reframe,
             reframe_source_curves,
             save_curve_selection,
