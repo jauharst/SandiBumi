@@ -463,13 +463,13 @@
 - **Chapter evidence:** P0; chapter status `PRESENT-OK`; T44; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** every smoothing/filter/average path preserves input MISSING samples; only explicit gap filling may create values.
 - **Current source:** `condition::smooth` clones the input, skips missing centres and shares that preservation rule across mean, median and Savitzky-Golay branches.
-- **Qualifying acceptance tests:** `condition::tests::a_smoothed_curve_never_fills_a_gap` passed exactly once and loops over all three live smoothing methods, asserting both missing preservation and a finite live-sample control. Expected behavior comes from T44; test class `CORRECTNESS`.
+- **Qualifying acceptance tests:** `condition::tests::a_smoothed_curve_never_fills_a_gap` was re-run exactly once for this increment and loops over all three live smoothing methods, asserting both missing preservation and a finite live-sample control. Expected behavior comes from T44; test class `CORRECTNESS`.
 - **Supporting tests:** the quadratic-preservation test differentiates smoothing methods but is not needed for the gap contract.
 - **Manual evidence:** conditioning 0/27.
-- **Git evidence:** behavior and test are integrated at the accepted anchor.
+- **Git evidence:** behavior and test remain integrated; this increment changes evidence only because the exact contract already passes.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`.
 - **Blocker or decision:** none; automated proof passes, but conditioning field evidence remains 0/27.
-- **Next action:** preserve T44 unchanged and exercise all three methods on representative pilot data before release acceptance.
+- **Next action:** preserve T44 unchanged, execute the visual/manual/field review separately and continue SB-ENV-037.
 
 ## SB-ENV-036 - Outlier and spurious-population culling exists as a distinct operation
 

@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-035: Smoothing preserves every missing sample
+
+- [ ] **Automated correctness:** exact T44 is GREEN. The retained named test runs MEAN, MEDIAN and
+      SAVGOL over the same curve with a three-sample MISSING interval, requires every missing centre
+      to remain MISSING and also requires a live control sample to remain finite. No production code
+      or scientific parameter changed in this re-verification increment.
+- [ ] **Visual:** open Condition > Smooth and inspect all three method choices. Confirm the help says
+      smoothing never fills a gap and routes intentional invention to Fill Gaps, where written samples
+      receive a companion flag.
+- [ ] **Manual gap review:** run each method on a representative raw curve containing a real delivery
+      gap. Compare input and output at every missing depth, then confirm live samples on both sides are
+      still conditioned without creating a continuous bridge through the unlogged interval.
+- [ ] **Field and harsh critique:** preserving NaN prevents invented rock; it does not prove the chosen
+      window or smoothing method preserves thin beds, tool response, or meaningful curve character.
+      A green missing-data test is not permission to accept a visually plausible over-smoothed log.
+
 ## 2026-08-16 — G2 SB-ENV-034: Physical conditioning and framing distances
 
 - [ ] **Automated correctness:** exact T43 is GREEN. One named test inventories all eight current
