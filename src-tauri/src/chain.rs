@@ -169,6 +169,33 @@ fn complete_chain_sets(
                 &parameter_prefix,
             )?;
             parameters.extend(effective_parameters);
+            let mask = workflow::mask_provenance(&step.opts);
+            let mask_name = format!("{parameter_prefix}{}", workflow::MASK_PROVENANCE_KEY);
+            if parameters
+                .iter()
+                .any(|parameter| parameter.name == mask_name)
+            {
+                return Err(format!(
+                    "module '{}' declares an argument that collides with reserved run-provenance key '{}'",
+                    step.module,
+                    workflow::MASK_PROVENANCE_KEY
+                ));
+            }
+            let mask_is_applied = mask["state"] == workflow::MASK_PROVENANCE_APPLIED;
+            parameters.push(crate::equations::AncestryParameter {
+                name: mask_name,
+                value: mask,
+                source: if mask_is_applied {
+                    custody.source_note.clone()
+                } else {
+                    "SB-ENV-028 explicit no-mask run state".into()
+                },
+                resolution: mask_is_applied.then_some(
+                    crate::equations::ParameterResolution::Explicit,
+                ),
+                manifest_version: None,
+                decision: None,
+            });
 
             for arg in &manifest.args {
                 if arg.kind == crate::modules::ArgKind::Param {
@@ -821,6 +848,181 @@ mod tests {
         assert_eq!(set_count, 0, "an invalid later selector must allocate no chain version");
         assert_eq!(current_count, 0, "the valid first step must not survive as the invalid chain's current value");
         assert_eq!(archive_count, 0, "the valid first step must not survive in the invalid chain's archive");
+    }
+
+    /// CORRECTNESS — `20_envcorr-qc.md` section 4.3 SB-ENV-028 and section 6.3
+    /// SB-ENV-T28. The expected mask identities are the test inputs themselves; `NONE` is the
+    /// requirement's explicit no-mask state. The direct runs are otherwise identical and every
+    /// zero-valued mask changes no sample, so only persisted provenance can distinguish them.
+    /// The chain arm pins both sides again and requires the existing one-based step derivations,
+    /// preventing an implementation that records one chain-wide mask from passing.
+    #[test]
+    fn every_completed_direct_and_chain_run_records_the_applied_mask_or_explicit_none_and_the_chain_step_position(
+    ) {
+        let path = std::env::temp_dir().join(format!(
+            "sandibumi_mask_provenance_{}.duckdb",
+            U::new_v4()
+        ));
+        let conn = db::init_db(path.to_str().unwrap()).unwrap();
+        let direct_well = seed_well(&conn);
+        let chain_well = seed_well(&conn);
+        let depth: Vec<f32> = (0..200).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        crate::equations::write_computed_curve(
+            &conn,
+            &direct_well,
+            &depth,
+            "BADHOLE",
+            &vec![0.0; depth.len()],
+        )
+        .unwrap();
+        crate::equations::write_computed_curve(
+            &conn,
+            &chain_well,
+            &depth,
+            "BADHOLE",
+            &vec![0.0; depth.len()],
+        )
+        .unwrap();
+        crate::equations::write_computed_curve(
+            &conn,
+            &direct_well,
+            &depth,
+            "NONE",
+            &vec![0.0; depth.len()],
+        )
+        .unwrap();
+        let database = Mutex::new(conn);
+
+        let mut direct = vsh_request(vec![direct_well.clone()], 20.0, 120.0);
+        direct.output_set = Some("MASK-PROVENANCE-DIRECT".into());
+        direct.opts.insert("MASK".into(), "badhole".into());
+        let masked = workflow::run_workflow_module(&database, &direct);
+        assert!(masked[0].error.is_none(), "masked direct run failed: {:?}", masked[0].error);
+        direct.opts.remove("MASK");
+        let unmasked = workflow::run_workflow_module(&database, &direct);
+        assert!(unmasked[0].error.is_none(), "unmasked direct run failed: {:?}", unmasked[0].error);
+        direct.opts.insert("MASK".into(), "NONE".into());
+        let curve_named_none = workflow::run_workflow_module(&database, &direct);
+        assert!(
+            curve_named_none[0].error.is_none(),
+            "a real mask curve named NONE failed: {:?}",
+            curve_named_none[0].error
+        );
+
+        let mut masked_step = step("vsh_gr");
+        masked_step.opts.insert("MASK".into(), "BADHOLE".into());
+        let chain_steps = vec![masked_step, step("phi_dn")];
+        let registry = new_registry();
+        let job_id = U::new_v4();
+        let cancel = register(&registry, job_id);
+        run_chain(
+            &database,
+            &registry,
+            job_id,
+            cancel.as_ref(),
+            &chain_steps,
+            &[chain_well.clone()],
+            Some("MASK-PROVENANCE-CHAIN"),
+            None,
+            &test_custody(),
+            None,
+        );
+        assert!(
+            matches!(status(&registry, job_id), Some(ChainStatus::Completed { ref errors, .. }) if errors.is_empty()),
+            "the provenance fixture chain must complete: {:?}",
+            status(&registry, job_id)
+        );
+
+        drop(database);
+        let reloaded = db::init_db(path.to_str().unwrap()).unwrap();
+        let direct_rows: Vec<(i64, String)> = {
+            let mut statement = reloaded
+                .prepare(
+                    "SELECT version, params_json FROM log_sets
+                     WHERE well_id = ?1 AND set_name = 'MASK-PROVENANCE-DIRECT'
+                     ORDER BY version",
+                )
+                .unwrap();
+            statement
+                .query_map(params![direct_well], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        assert_eq!(direct_rows.len(), 3, "all direct run versions must reload");
+        let badhole_mask = serde_json::json!({ "state": "APPLIED", "curve": "BADHOLE" });
+        let no_mask = serde_json::json!({ "state": "NONE" });
+        let none_curve_mask = serde_json::json!({ "state": "APPLIED", "curve": "NONE" });
+        let masked_ancestry = crate::equations::parse_curve_ancestry(&direct_rows[0].1).unwrap();
+        let unmasked_ancestry = crate::equations::parse_curve_ancestry(&direct_rows[1].1).unwrap();
+        let named_none_ancestry =
+            crate::equations::parse_curve_ancestry(&direct_rows[2].1).unwrap();
+        assert_eq!(
+            masked_ancestry
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == workflow::MASK_PROVENANCE_KEY)
+                .map(|parameter| &parameter.value),
+            Some(&badhole_mask)
+        );
+        assert_eq!(
+            unmasked_ancestry
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == workflow::MASK_PROVENANCE_KEY)
+                .map(|parameter| &parameter.value),
+            Some(&no_mask)
+        );
+        assert_eq!(
+            named_none_ancestry
+                .parameters
+                .iter()
+                .find(|parameter| parameter.name == workflow::MASK_PROVENANCE_KEY)
+                .map(|parameter| &parameter.value),
+            Some(&none_curve_mask)
+        );
+
+        let chain_json: String = reloaded
+            .query_row(
+                "SELECT params_json FROM log_sets
+                 WHERE well_id = ?1 AND set_name = 'MASK-PROVENANCE-CHAIN'",
+                params![chain_well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let chain_ancestry = crate::equations::parse_curve_ancestry(&chain_json).unwrap();
+        for (name, expected) in [
+            ("step[1].MASK", badhole_mask),
+            ("step[2].MASK", no_mask),
+        ] {
+            assert_eq!(
+                chain_ancestry
+                    .parameters
+                    .iter()
+                    .find(|parameter| parameter.name == name)
+                    .map(|parameter| &parameter.value),
+                Some(&expected),
+                "the reloaded chain provenance must record {name}"
+            );
+        }
+        assert!(
+            chain_ancestry
+                .outputs
+                .iter()
+                .any(|output| output.derivation.starts_with("step[1] ")),
+            "the mask must remain attached to a first-step output position"
+        );
+        assert!(
+            chain_ancestry
+                .outputs
+                .iter()
+                .any(|output| output.derivation.starts_with("step[2] ")),
+            "the explicit no-mask state must remain attached to a second-step output position"
+        );
+
+        drop(reloaded);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("duckdb.wal"));
     }
 
     #[test]

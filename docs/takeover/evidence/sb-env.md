@@ -371,14 +371,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T27/T28; sections 4.3, 6.3 and 8.
 - **Atomic obligations:** persist the applied mask identity or explicit none so masked and unmasked outputs remain distinguishable.
-- **Current source:** `MASK` is carried in request options and used by the runner, but direct-run `params_json` and `inputs_json` omit options; chain provenance records only module IDs. No persisted mask identity exists.
-- **Qualifying acceptance tests:** none; T27/T28 are missing. Test class `MISSING`.
-- **Supporting tests:** mask behavior and generic log-set provenance tests do not retrieve the mask after the run.
-- **Manual evidence:** processing-history 0/7; conditioning 0/27; workflow 0/23.
-- **Git evidence:** mask execution is integrated; provenance custody is `UNIMPLEMENTED`.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** no owner decision is required; the run identity is simply omitted.
-- **Next action:** persist `MASK` including explicit none in direct and chain records and prove reload distinguishes otherwise identical runs.
+- **Current source:** `workflow::mask_provenance` converts the universal run option into one typed, non-overlapping ancestry value: `{state: APPLIED, curve: <canonical mnemonic>}` or `{state: NONE}`. `complete_module_log_spec` stores it as direct-run `MASK`; `complete_chain_sets` stores one value per one-based `step[n].MASK`, beside the existing step-indexed output derivations. The legacy flat scalar-parameter payload remains unchanged.
+- **Qualifying acceptance tests:** `chain::tests::every_completed_direct_and_chain_run_records_the_applied_mask_or_explicit_none_and_the_chain_step_position` drives three otherwise identical direct versions and a two-step saved chain through the real writer, closes and reopens the database, and retrieves the canonical ancestry. It distinguishes BADHOLE, explicit no mask and an applied curve literally named `NONE`, then proves both chain positions and output derivations; test class `CORRECTNESS` from T28.
+- **Supporting tests:** workflow and chain suites remain green; existing mask arithmetic tests continue to prove exclusion behavior separately rather than being relabelled provenance proof.
+- **Manual evidence:** processing-history 0/7; conditioning 1/82; workflow 0/49; all four SB-ENV-028 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-027; targeted owner test and complete workflow/chain module suites are green before the full gate. No database schema/write-discipline or masking arithmetic changed.
+- **Verdict:** source as-built is now `PRESENT-OK`; `PILOT-BLOCKER` automated contract closed; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`; Visual, Manual and Field evidence remain open.
+- **Blocker or decision:** none for SB-ENV-028. OI-4's broader correction-step/edit persistence decision remains open and is not silently settled by this narrow run-context record.
+- **Next action:** preserve typed direct/per-step mask custody, execute the four review scenarios separately and continue SB-ENV-029 without inferring neutron matrix-scale metadata.
 
 ## SB-ENV-029 - Conditioning flags validate their own stated preconditions
 

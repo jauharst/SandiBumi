@@ -381,6 +381,28 @@ pub(crate) const ZONE_INDEX_ARG: &str = "__ZONE_INDEX";
 /// computed from nothing. Refusing by name beats a silently empty answer.
 pub(crate) const OUT_PREFIX_OPT: &str = "OUT_PREFIX";
 
+/// Canonical run-provenance key for the universal sample mask. Its value is always either the
+/// upper-cased curve mnemonic actually selected by the run or the explicit `NONE` state; absence
+/// of the key is reserved for legacy records written before SB-ENV-028. State and curve are kept
+/// separate so a real curve named `NONE` cannot masquerade as an unmasked run.
+pub(crate) const MASK_PROVENANCE_KEY: &str = "MASK";
+pub(crate) const MASK_PROVENANCE_NONE: &str = "NONE";
+pub(crate) const MASK_PROVENANCE_APPLIED: &str = "APPLIED";
+
+pub(crate) fn mask_provenance(opts: &HashMap<String, String>) -> serde_json::Value {
+    match opts
+        .get(MASK_PROVENANCE_KEY)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        Some(curve) => serde_json::json!({
+            "state": MASK_PROVENANCE_APPLIED,
+            "curve": curve.to_uppercase(),
+        }),
+        None => serde_json::json!({ "state": MASK_PROVENANCE_NONE }),
+    }
+}
+
 /// Run-option prefix carrying a per-output rename: `__OUT_VSH = VSHALE` makes the run write its
 /// `VSH` output as `VSHALE`.
 ///
@@ -679,6 +701,29 @@ fn complete_module_log_spec(
         req.custody.source_note.trim(),
         "",
     )?;
+    let mask = mask_provenance(&req.opts);
+    if parameters
+        .iter()
+        .any(|parameter| parameter.name == MASK_PROVENANCE_KEY)
+    {
+        return Err(format!(
+            "module '{}' declares an argument that collides with reserved run-provenance key '{}'",
+            spec.name, MASK_PROVENANCE_KEY
+        ));
+    }
+    let mask_is_applied = mask["state"] == MASK_PROVENANCE_APPLIED;
+    parameters.push(equations::AncestryParameter {
+        name: MASK_PROVENANCE_KEY.into(),
+        value: mask,
+        source: if mask_is_applied {
+            req.custody.source_note.clone()
+        } else {
+            "SB-ENV-028 explicit no-mask run state".into()
+        },
+        resolution: mask_is_applied.then_some(equations::ParameterResolution::Explicit),
+        manifest_version: None,
+        decision: None,
+    });
     for arg in spec.args.iter().filter(|arg| arg.kind == ArgKind::Param) {
         for zone_value in zone_params
             .iter()
@@ -3461,12 +3506,15 @@ mod tests {
                 .prepare(
                     "SELECT name, value_json, resolution, manifest_version
                      FROM run_parameters
-                     WHERE set_id = ?1
+                     WHERE set_id = ?1 AND name <> ?2
                      ORDER BY position",
                 )
                 .unwrap();
             statement
-                .query_map(duckdb::params![set_id], |row| {
+                // This helper owns configurable numeric parameters. SB-ENV-028's separately
+                // tested typed MASK context also uses the canonical run-parameter store, but is
+                // deliberately not coerced into an f64 to make this older test pass.
+                .query_map(duckdb::params![set_id, MASK_PROVENANCE_KEY], |row| {
                     let value_json: String = row.get(1)?;
                     let value = serde_json::from_str::<f64>(&value_json).unwrap();
                     Ok((row.get(0)?, value, row.get(2)?, row.get(3)?))

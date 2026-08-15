@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-028: Workflow MASK provenance
+
+- [ ] **Automated correctness:** exact T28 was RED because direct run ancestry omitted MASK and
+      chain ancestry could not distinguish its steps' mask context. It is GREEN after database
+      close/reopen: otherwise identical direct versions retain `APPLIED/BADHOLE` versus explicit
+      `NONE`, a real curve named `NONE` remains `APPLIED/NONE`, and a two-step chain retains
+      `step[1].MASK`, `step[2].MASK` and both one-based output derivations.
+- [ ] **Visual:** run one module with BADHOLE selected and once with Mask blank. In Database
+      Inspector, read the two log-set versions and their `run_parameters` rows; MASK must be a
+      typed state object, not an empty string, and the blank run must say `NONE` rather than omit
+      the row. Repeat with two Workflow Builder steps and confirm their names remain indexed.
+- [ ] **Manual restart:** save and close the project, reopen it, then inspect the same direct and
+      chain records without rerunning. Confirm the mask identities and step positions survive and
+      that the corresponding output curves still cite those log-set records.
+- [ ] **Field and harsh critique:** a complete MASK record proves which exclusion context produced
+      the curve; it does not prove the mask was physically appropriate. Compare the selected mask
+      against caliper, bit size, DRHO and interval context before trusting a downstream result.
+      Reproducible wrong conditioning is still wrong conditioning.
+
 ## 2026-08-16 — G2 SB-ENV-027: Workflow MASK repair exemption blocked
 
 - [ ] **Automated characterization:** the existing owned test stays GREEN only as a defect record:
