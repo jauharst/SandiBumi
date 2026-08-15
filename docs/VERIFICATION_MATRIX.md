@@ -19,7 +19,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 134 | 2026-08-13 | 54 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
-| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 82 | 2026-08-13 | 18 |
+| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 86 | 2026-08-13 | 19 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
@@ -62,6 +62,6 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `database-tools` | Database inspector and SQL tools | Not exercised | 0 / 2 | — | 2 |
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
-| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 54 | — | 10 |
+| `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 58 | — | 11 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 143 | 2026-08-13 | 50 |
 | `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 128 | 2026-08-13 | 40 |

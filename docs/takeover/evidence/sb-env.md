@@ -382,16 +382,16 @@
 
 ## SB-ENV-029 - Conditioning flags validate their own stated preconditions
 
-- **Chapter evidence:** P1; chapter status `ABSENT`; T18/T19; sections 4.3, 6.3 and 8.
+- **Chapter evidence:** P1; chapter status `ABSENT`; T18/T19; sections 4.3, 5.1, 6.2 and 8.
 - **Atomic obligations:** validate the documented neutron matrix-scale pairing before crossover arithmetic and refuse/flag a mismatch.
-- **Current source:** `condflag_spec` contains a prose warning; `condflag` consumes numeric curves and matrix parameters without matrix-scale metadata or validation.
-- **Qualifying acceptance tests:** none; T18 is missing and T19 remains a specified characterization only. Test class `MISSING`.
-- **Supporting tests:** condflag detection tests exercise numerical branches with no scale metadata.
-- **Manual evidence:** conditioning 0/27; data-conventions 0/45.
-- **Git evidence:** `UNIMPLEMENTED` at the consumer precondition boundary.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on SB-ENV-012's typed neutron-scale metadata, not on an invented numeric offset.
-- **Next action:** implement the metadata contract first, then add matched, mismatched, absent and unknown scale controls at `condflag`.
+- **Current source:** reverified after SB-ENV-028: `condflag_spec` contains a prose warning, while `condflag` consumes numeric curves and matrix parameters without curve-owned matrix-scale metadata or validation. No current request, ancestry or curve record can establish which scale the neutron samples actually use.
+- **Qualifying acceptance tests:** none. Exact T18 requires both `condflag` and the neutron correction to receive a limestone-scale curve and reject/flag its sandstone `RHO_MA` pairing; that input state cannot be represented. T19 is explicitly a `CHARACTERIZATION` of the uncited approximately 0.04 statement and cannot substitute for T18 correctness. Test class `MISSING`.
+- **Supporting tests:** condflag detection tests exercise numerical branches with no scale metadata; they prove arithmetic under an assumed pairing, not the pairing's validity.
+- **Manual evidence:** conditioning 1/86; data-conventions 4/134; all four SB-ENV-029 review scenarios remain unchecked.
+- **Git evidence:** no production behavior or test changed. A local `condflag` option was rejected as false metadata because it could disagree with the source curve and would not satisfy SB-ENV-012's every-consumer contract.
+- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; `BLOCKED-DEPENDENCY/DECISION`; test class `MISSING`; commit state `UNIMPLEMENTED`.
+- **Blocker or decision:** SB-ENV-012 owns the cited closed `{SANDSTONE, LIMESTONE, DOLOMITE}` curve-metadata contract but is outside DEC-018's immutable pilot manifest. DEC-025 must authorize that typed metadata/persistence seam as infrastructure or revise the manifest. No numeric scale default or approximately 0.04 correction is authorized.
+- **Next action:** after DEC-025, implement curve-owned scale metadata with explicit absence and unknown-value refusal, then add matched, mismatched, absent and unknown controls at `condflag` and the neutron correction for exact T18. Keep T19 labelled characterization.
 
 ## SB-ENV-030 - One flag polarity, defined once, as a type
 

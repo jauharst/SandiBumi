@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-029: Conditioning scale precondition blocked
+
+- [ ] **Decision dependency:** answer DEC-025. Authorize SB-ENV-012's typed neutron matrix-scale
+      metadata/persistence seam as required infrastructure while the whole consumer contract stays
+      deferred, or revise and re-approve the immutable pilot manifest to include SB-ENV-012.
+- [ ] **Automated gap:** exact T18 remains unwritten because neither `condflag` nor the neutron
+      correction can receive a curve-owned `LITHSCALE` today. T19 remains explicitly a
+      characterization of an uncited source-code statement and is not correctness evidence.
+- [ ] **Boundary review:** confirm that a local `condflag` string parameter would be a false fix: it
+      could agree with `RHO_MA` while disagreeing with the neutron curve's actual, undeclared scale,
+      and it would leave every other neutron consumer unguarded.
+- [ ] **Field and harsh critique:** until the typed seam exists, do not treat a clean crossover flag
+      as evidence that neutron and density were on compatible matrix bases. A plausible unflagged
+      interval is exactly the silent-wrongness failure this requirement is meant to stop.
+
 ## 2026-08-16 — G2 SB-ENV-028: Workflow MASK provenance
 
 - [ ] **Automated correctness:** exact T28 was RED because direct run ancestry omitted MASK and
