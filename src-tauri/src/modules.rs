@@ -523,6 +523,7 @@ pub(crate) fn log_out_as(name: &str, pattern: &str, desc: &str, unit: &str) -> A
 /// Everything a module needs at run time, resolved by the workflow runner:
 /// input logs by arg name, per-sample numeric parameter arrays (zone-resolved),
 /// and global string options.
+#[derive(Clone)]
 pub struct ModuleContext {
     pub n: usize,
     pub logs: HashMap<String, Vec<f32>>,
@@ -606,6 +607,92 @@ pub enum RunDegradationKind {
     Defaulted,
     Truncated,
     SubstitutedInput,
+}
+
+/// Universal run policy for a source-bearing precondition. The default stays refusal: callers
+/// must opt into retaining valid samples because that choice adds a companion curve and a
+/// degraded run record.
+pub(crate) const PRECONDITION_POLICY_OPT: &str = "__PRECONDITION_POLICY";
+pub(crate) const PRECONDITION_POLICY_REFUSE: &str = "REFUSE";
+pub(crate) const PRECONDITION_POLICY_FLAG_VALID_SAMPLES: &str = "FLAG_VALID_SAMPLES";
+pub(crate) const PRECONDITION_FLAG_OUTPUT_KEY: &str = "__PRECONDITION_FLAG";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PreconditionPolicy {
+    Refuse,
+    FlagValidSamples,
+}
+
+pub(crate) fn precondition_policy(
+    opts: &HashMap<String, String>,
+) -> Result<PreconditionPolicy, String> {
+    let value = opts
+        .get(PRECONDITION_POLICY_OPT)
+        .map(|value| value.trim())
+        .unwrap_or("");
+    match value {
+        "" | PRECONDITION_POLICY_REFUSE => Ok(PreconditionPolicy::Refuse),
+        PRECONDITION_POLICY_FLAG_VALID_SAMPLES => Ok(PreconditionPolicy::FlagValidSamples),
+        other => Err(format!(
+            "precondition policy '{other}' is not recognized; choose {PRECONDITION_POLICY_REFUSE} or {PRECONDITION_POLICY_FLAG_VALID_SAMPLES}"
+        )),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub(crate) struct PreconditionAffectedSample {
+    pub index: usize,
+    pub offending_value: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comparison_value: Option<f64>,
+}
+
+/// Structured runtime evidence for one declared condition. The complete affected-sample list is
+/// retained in run provenance; the companion flag is the fast per-depth surface.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub(crate) struct PreconditionViolation {
+    pub condition_id: String,
+    pub argument: String,
+    pub expected: String,
+    pub source: String,
+    pub statement: String,
+    pub unit: String,
+    pub affected_samples: Vec<PreconditionAffectedSample>,
+}
+
+impl PreconditionViolation {
+    pub(crate) fn message(&self, module: &str) -> String {
+        let first = self
+            .affected_samples
+            .first()
+            .expect("a precondition violation always has an affected sample");
+        let unit = if self.unit.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", self.unit)
+        };
+        let remainder = if self.affected_samples.len() == 1 {
+            String::new()
+        } else {
+            format!(
+                " ({} affected samples; the complete list is stored in run provenance)",
+                self.affected_samples.len()
+            )
+        };
+        format!(
+            "precondition '{}' on '{}' flagged before {} ran: value {}{} at sample {} is outside {}{}. {} Source: {}",
+            self.condition_id,
+            self.argument,
+            module,
+            first.offending_value,
+            unit,
+            first.index,
+            self.expected,
+            remainder,
+            self.statement,
+            self.source
+        )
+    }
 }
 
 impl RunDegradationKind {
@@ -767,11 +854,84 @@ pub(crate) fn run_module_with_degradations(
     name: &str,
     ctx: &ModuleContext,
     default_usage: DefaultUsage,
-) -> Result<(ModuleOutputs, Vec<RunDegradation>), String> {
+) -> Result<
+    (
+        ModuleOutputs,
+        Vec<RunDegradation>,
+        Vec<PreconditionViolation>,
+        Option<Vec<f32>>,
+    ),
+    String,
+> {
     let capture = DegradationCaptureGuard::start(default_usage);
-    let output = run_module(name, ctx);
+    let output = (|| {
+        if precondition_policy(&ctx.opts)? == PreconditionPolicy::Refuse {
+            return run_module(name, ctx).map(|outputs| (outputs, Vec::new(), None));
+        }
+
+        if let Some(message) = retired_module(name) {
+            return Err(message.to_string());
+        }
+        let spec = module_catalog()
+            .iter()
+            .find(|module| module.name == name)
+            .ok_or_else(|| format!("unknown module '{name}'"))?;
+        let violations = collect_sample_precondition_violations(spec, ctx)?;
+        if violations.is_empty() {
+            return run_module(name, ctx)
+                .map(|outputs| (outputs, Vec::new(), Some(vec![0.0; ctx.n])));
+        }
+
+        let affected: HashSet<usize> = violations
+            .iter()
+            .flat_map(|violation| {
+                violation
+                    .affected_samples
+                    .iter()
+                    .map(|sample| sample.index)
+            })
+            .collect();
+        if affected.len() >= ctx.n {
+            // With no unaffected sample there is no partial result to retain. Re-run the ordinary
+            // validator so the refusal keeps the exact condition/value/range/source payload.
+            return run_module(name, ctx).map(|outputs| (outputs, Vec::new(), None));
+        }
+
+        let mut sanitized = ctx.clone();
+        for (name, values) in &mut sanitized.logs {
+            if name != "DEPTH" {
+                for index in &affected {
+                    if let Some(value) = values.get_mut(*index) {
+                        *value = f32::NAN;
+                    }
+                }
+            }
+        }
+        for values in sanitized.params.values_mut() {
+            for index in &affected {
+                if let Some(value) = values.get_mut(*index) {
+                    *value = f64::NAN;
+                }
+            }
+        }
+
+        validate_declared_preconditions_ignoring(spec, &sanitized, &affected)?;
+        let mut outputs = dispatch_module(name, &sanitized)?;
+        for values in outputs.values_mut() {
+            for index in &affected {
+                if let Some(value) = values.get_mut(*index) {
+                    *value = f32::NAN;
+                }
+            }
+        }
+        let mut flag = vec![0.0; ctx.n];
+        for index in affected {
+            flag[index] = 1.0;
+        }
+        Ok((outputs, violations, Some(flag)))
+    })();
     let degradations = capture.finish();
-    output.map(|output| (output, degradations))
+    output.map(|(outputs, violations, flag)| (outputs, degradations, violations, flag))
 }
 
 /// The DECLARED output keys of `module` whose values are class identifiers rather than quantities
@@ -994,6 +1154,142 @@ pub(crate) fn canonical_option_value(module: &str, argument: &str, value: &str) 
     }
 }
 
+fn format_numeric_range(min: Option<f64>, max: Option<f64>) -> String {
+    match (min, max) {
+        (Some(lo), Some(hi)) => format!("{lo} to {hi}"),
+        (Some(lo), None) => format!(">= {lo}"),
+        (None, Some(hi)) => format!("<= {hi}"),
+        (None, None) => "a finite value".to_string(),
+    }
+}
+
+fn selected_value(spec: &ModuleSpec, ctx: &ModuleContext, name: &str) -> String {
+    let default = spec
+        .args
+        .iter()
+        .find(|arg| arg.name == name)
+        .map(|arg| arg.default.as_str())
+        .unwrap_or("");
+    canonical_option_value(
+        &spec.name,
+        name,
+        ctx.opts.get(name).map(String::as_str).unwrap_or(default),
+    )
+}
+
+fn numeric_value_at(
+    spec: &ModuleSpec,
+    ctx: &ModuleContext,
+    name: &str,
+    index: usize,
+) -> Option<f64> {
+    let arg = spec.args.iter().find(|arg| arg.name == name)?;
+    match arg.kind {
+        ArgKind::Param => ctx.params.get(name)?.get(index).copied(),
+        ArgKind::LogIn => ctx.logs.get(name)?.get(index).map(|value| *value as f64),
+        _ => None,
+    }
+}
+
+fn condition_is_active(spec: &ModuleSpec, ctx: &ModuleContext, rule: &ValidityRule) -> bool {
+    let when = match rule {
+        ValidityRule::NumericRange { when, .. }
+        | ValidityRule::RequiredCompanion { when, .. }
+        | ValidityRule::RequiredValue { when } => when.as_ref(),
+        _ => None,
+    };
+    when.map_or(true, |branch| {
+        selected_value(spec, ctx, &branch.argument) == branch.equals
+    })
+}
+
+/// Collect only conditions whose offending samples can be isolated without discarding the
+/// unaffected interval. Whole-run conditions (method ids, required companions/values) remain
+/// refusals because no per-sample repair can make them true.
+fn collect_sample_precondition_violations(
+    spec: &ModuleSpec,
+    ctx: &ModuleContext,
+) -> Result<Vec<PreconditionViolation>, String> {
+    let mut violations = Vec::new();
+    for arg in &spec.args {
+        for condition in &arg.validity_conditions {
+            if condition.id.trim().is_empty()
+                || condition.statement.trim().is_empty()
+                || condition.source.trim().is_empty()
+            {
+                return Err(format!(
+                    "module '{}' has an invalid validity manifest on '{}': every condition needs a stable id, statement and source",
+                    spec.name, arg.name
+                ));
+            }
+            if !condition_is_active(spec, ctx, &condition.rule) {
+                continue;
+            }
+            let (expected, unit, affected_samples) = match &condition.rule {
+                ValidityRule::NumericRange { min, max, unit, .. } => {
+                    let affected = (0..ctx.n)
+                        .filter_map(|index| {
+                            let value = numeric_value_at(spec, ctx, &arg.name, index)?;
+                            (value.is_finite()
+                                && (min.is_some_and(|lo| value < lo)
+                                    || max.is_some_and(|hi| value > hi)))
+                            .then_some(PreconditionAffectedSample {
+                                index,
+                                offending_value: value,
+                                comparison_value: None,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    let suffix = if unit.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {unit}")
+                    };
+                    (format!("{}{}", format_numeric_range(*min, *max), suffix), unit.clone(), affected)
+                }
+                ValidityRule::LessThan { other } => {
+                    if !spec.args.iter().any(|candidate| candidate.name == *other) {
+                        return Err(format!(
+                            "module '{}' has an invalid validity manifest: '{}' names unknown comparison argument '{}'",
+                            spec.name, condition.id, other
+                        ));
+                    }
+                    let affected = (0..ctx.n)
+                        .filter_map(|index| {
+                            let value = numeric_value_at(spec, ctx, &arg.name, index)?;
+                            let other_value = numeric_value_at(spec, ctx, other, index)?;
+                            (value.is_finite() && other_value.is_finite() && value >= other_value)
+                                .then_some(PreconditionAffectedSample {
+                                    index,
+                                    offending_value: value,
+                                    comparison_value: Some(other_value),
+                                })
+                        })
+                        .collect::<Vec<_>>();
+                    (
+                        format!("less than '{other}' at the same sample"),
+                        arg.unit.clone(),
+                        affected,
+                    )
+                }
+                _ => continue,
+            };
+            if !affected_samples.is_empty() {
+                violations.push(PreconditionViolation {
+                    condition_id: condition.id.clone(),
+                    argument: arg.name.clone(),
+                    expected,
+                    source: condition.source.clone(),
+                    statement: condition.statement.clone(),
+                    unit,
+                    affected_samples,
+                });
+            }
+        }
+    }
+    Ok(violations)
+}
+
 /// Enforce the validity conditions already declared by a module manifest before its body runs.
 ///
 /// This deliberately lives at the public dispatch boundary rather than in the dialog or in one
@@ -1001,32 +1297,18 @@ pub(crate) fn canonical_option_value(module: &str, argument: &str, value: &str) 
 /// [`run_module`], so none can turn an unknown option into a module body's `_ => default` arm or
 /// feed an out-of-range zone array to arithmetic that returns a plausible number.
 fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Result<(), String> {
-    let format_range = |min: Option<f64>, max: Option<f64>| match (min, max) {
-        (Some(lo), Some(hi)) => format!("{lo} to {hi}"),
-        (Some(lo), None) => format!(">= {lo}"),
-        (None, Some(hi)) => format!("<= {hi}"),
-        (None, None) => "a finite value".to_string(),
-    };
+    validate_declared_preconditions_ignoring(spec, ctx, &HashSet::new())
+}
+
+fn validate_declared_preconditions_ignoring(
+    spec: &ModuleSpec,
+    ctx: &ModuleContext,
+    ignored_samples: &HashSet<usize>,
+) -> Result<(), String> {
     let populated = |name: &str| {
         ctx.logs
             .get(name)
             .is_some_and(|values| values.iter().take(ctx.n).any(|value| value.is_finite()))
-    };
-    let selected = |name: &str| {
-        let default = spec.args.iter().find(|arg| arg.name == name).map(|arg| arg.default.as_str()).unwrap_or("");
-        canonical_option_value(
-            &spec.name,
-            name,
-            ctx.opts.get(name).map(String::as_str).unwrap_or(default),
-        )
-    };
-    let numeric_at = |name: &str, index: usize| {
-        let arg = spec.args.iter().find(|arg| arg.name == name)?;
-        match arg.kind {
-            ArgKind::Param => ctx.params.get(name)?.get(index).copied(),
-            ArgKind::LogIn => ctx.logs.get(name)?.get(index).map(|value| *value as f64),
-            _ => None,
-        }
     };
 
     for arg in &spec.args {
@@ -1037,21 +1319,13 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                     spec.name, arg.name
                 ));
             }
-            let active = match &condition.rule {
-                ValidityRule::NumericRange { when, .. }
-                | ValidityRule::RequiredCompanion { when, .. }
-                | ValidityRule::RequiredValue { when } => when
-                    .as_ref()
-                    .map_or(true, |branch| selected(&branch.argument) == branch.equals),
-                _ => true,
-            };
-            if !active {
+            if !condition_is_active(spec, ctx, &condition.rule) {
                 continue;
             }
 
             match &condition.rule {
                 ValidityRule::Enumeration => {
-                    let value = selected(&arg.name);
+                    let value = selected_value(spec, ctx, &arg.name);
                     if value.is_empty() || !arg.choices.iter().any(|choice| choice == &value) {
                         return Err(format!(
                             "precondition '{}' on '{}' failed before {} ran: value '{}' is not in the permitted set [{}]. {} Source: {}",
@@ -1067,7 +1341,10 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                 }
                 ValidityRule::NumericRange { min, max, unit, .. } => {
                     for index in 0..ctx.n {
-                        let Some(value) = numeric_at(&arg.name, index) else { continue ;
+                        if ignored_samples.contains(&index) {
+                            continue;
+                        }
+                        let Some(value) = numeric_value_at(spec, ctx, &arg.name, index) else { continue ;
                         };
                         if !value.is_finite() {
                             continue;
@@ -1082,7 +1359,7 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                                 value,
                                 suffix,
                                 index,
-                                format_range(*min, *max),
+                                format_numeric_range(*min, *max),
                                 suffix,
                                 condition.statement,
                                 condition.source
@@ -1131,7 +1408,9 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                         .copied()
                         .enumerate()
                         .take(ctx.n)
-                        .find(|(_, value)| !value.is_finite())
+                        .find(|(index, value)| {
+                            !ignored_samples.contains(index) && !value.is_finite()
+                        })
                     {
                         return Err(format!(
                             "precondition '{}' on '{}' failed before {} ran: the selected method branch requires a finite interpreter value at sample {}, got {}. {} Source: {}",
@@ -1153,8 +1432,14 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                         ));
                     }
                     for index in 0..ctx.n {
+                        if ignored_samples.contains(&index) {
+                            continue;
+                        }
                         let (Some(value), Some(other_value)) =
-                            (numeric_at(&arg.name, index), numeric_at(other, index))
+                            (
+                                numeric_value_at(spec, ctx, &arg.name, index),
+                                numeric_value_at(spec, ctx, other, index),
+                            )
                         else {
                             continue;
                         };
@@ -1179,7 +1464,7 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
 
         match &arg.kind {
             ArgKind::Option => {
-                let value = selected(&arg.name);
+                let value = selected_value(spec, ctx, &arg.name);
                 let has_sourced_enumeration =
                     arg.validity_conditions.iter().any(|condition| matches!(condition.rule, ValidityRule::Enumeration));
                 if !has_sourced_enumeration
@@ -1195,7 +1480,7 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                 }
             }
             ArgKind::Text => {
-                let value = selected(&arg.name);
+                let value = selected_value(spec, ctx, &arg.name);
                 if arg.required && value.trim().is_empty() {
                     return Err(format!(
                         "precondition '{}' failed before {} ran: a non-empty value is required.",
@@ -1229,6 +1514,9 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
                     ));
                 }
                 for (index, value) in values.iter().copied().enumerate().take(ctx.n) {
+                    if ignored_samples.contains(&index) {
+                        continue;
+                    }
                     if value.is_nan() && !arg.required {
                         continue;
                     }
@@ -1283,6 +1571,10 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         .find(|module| module.name == name)
         .ok_or_else(|| format!("unknown module '{name}'"))?;
     validate_declared_preconditions(spec, ctx)?;
+    dispatch_module(name, ctx)
+}
+
+fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     match name {
         "vsh_gr" => Ok(vsh_gr(ctx)),
         "vsh_dn" => Ok(vsh_dn(ctx)),

@@ -1,5 +1,31 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-ENV-003: partial precondition refusal or flagged workflow result
+
+- [ ] **Automated correctness:** the exact T05 test starts from refusal as the default and proves it
+      writes no curve. With the explicit partial-result policy, one of three source-backed endpoint
+      samples is invalid: both scientific outputs are missing only there, the companion curve is
+      exactly `[0, 1, 0]`, Processing is visibly Degraded and saved provenance retains the condition,
+      offending value, expected range, source and affected index. A separate negative-PHIE case makes
+      every scientific PERM sample missing and proves its finite all-zero flag cannot allocate a set,
+      write a curve or manufacture success. Changing answer detection to count the flag made the test
+      RED; restoration returned GREEN. TypeScript and `cargo check` are green; the fresh full gate is
+      1043 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- [ ] **Visual:** in the linear-GR module dialog, verify the “When only some samples violate a
+      condition” control defaults to “Refuse this well.” Select “Keep valid samples and write a flag
+      curve”; confirm the companion output name and `1 = violation` meaning appear before running.
+      Repeat in Workflow Builder and confirm the per-step policy is readable and batch-settable.
+- [ ] **Manual:** run the same three-sample endpoint fixture first under refusal and then under partial
+      retention. Confirm refusal produces no curve; partial retention shows a Degraded Processing
+      result, preserves both valid depths, gaps both scientific curves at the invalid depth, writes
+      one flag at that depth, and retains the same condition/value/range/source after project reopen.
+      Then run the all-invalid negative-PHIE control and confirm it is Failed with no output set.
+- [ ] **Field and harsh critique:** repeat on a representative native-depth curve with a genuinely
+      source-controlled condition. A finite flag is not a scientific answer, a flag nobody can find
+      is not usable QC, and one synthetic violation does not prove every module declares all required
+      conditions. Typed flag quantity/family metadata remains SB-ENV-030; exhaustive parameter-source
+      custody remains SB-ENV-004; visual comprehension and field fitness remain open for Jauhar.
+
 ## 2026-08-15 — G2 SB-ENV-002: identical precondition refusal across workflow routes
 
 - [ ] **Automated correctness:** the existing T02 public-dispatch test proves an invalid selector

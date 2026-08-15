@@ -108,6 +108,27 @@ fn degradation_message(degradations: &[modules::RunDegradation]) -> String {
     format!("degraded result - {details}")
 }
 
+fn run_warning_message(
+    module: &str,
+    degradations: &[modules::RunDegradation],
+    violations: &[modules::PreconditionViolation],
+) -> String {
+    let mut parts = Vec::new();
+    if !degradations.is_empty() {
+        parts.push(degradation_message(degradations));
+    }
+    if !violations.is_empty() {
+        parts.push(
+            violations
+                .iter()
+                .map(|violation| violation.message(module))
+                .collect::<Vec<_>>()
+                .join("; "),
+        );
+    }
+    parts.join("; ")
+}
+
 /// Whether a deterministic module's result changes when the physical unit of its
 /// depth frame changes. This is deliberately exhaustive rather than inferred from
 /// argument spelling: `phimax`, for example, can fall back from TVDSS to DEPTH, and
@@ -191,6 +212,16 @@ fn resolve_param_arrays_with_default_usage(
     let mut bad: Vec<String> = Vec::new();
     let mut zoned: Vec<String> = Vec::new();
     for arg in spec.args.iter().filter(|a| a.kind == ArgKind::Param) {
+        // A source-bearing unconditional NumericRange is enforced at the algorithm boundary,
+        // where it can produce SB-ENV-003's condition id, source and optional per-sample flag.
+        // Legacy ArgSpec ranges with no such condition stay here: silently dropping their only
+        // guard would be a weakening, not a migration.
+        let algorithm_range = arg.validity_conditions.iter().any(|condition| {
+            matches!(
+                condition.rule,
+                modules::ValidityRule::NumericRange { when: None, .. }
+            )
+        });
         let range = || match (arg.min, arg.max) {
             (Some(lo), Some(hi)) => format!("valid {lo} to {hi}"),
             (Some(lo), None) => format!("valid >= {lo}"),
@@ -206,14 +237,14 @@ fn resolve_param_arrays_with_default_usage(
         // carry NaN or Infinity, so today's single caller cannot trigger it; the point is that
         // the next caller (a chain computing a parameter, say) meets one rule, not two.
         if let Some(&v) = req_params.get(&arg.name) {
-            if !v.is_finite() || !in_range(v) {
+            if !v.is_finite() || (!algorithm_range && !in_range(v)) {
                 bad.push(format!("{} = {v} ({})", arg.name, range()));
             }
         }
         for zp in zone_params.iter().filter(|z| z.param_name == arg.name) {
             let Some(v) = zp.value_num else { continue };
             let v = v as f64;
-            if !v.is_finite() || !in_range(v) {
+            if !v.is_finite() || (!algorithm_range && !in_range(v)) {
                 bad.push(format!("{} = {v} in zone '{}' ({})", arg.name, zp.zone_name, range()));
             }
         }
@@ -348,6 +379,11 @@ pub(crate) const OUT_PREFIX_OPT: &str = "OUT_PREFIX";
 /// additive by construction.
 pub(crate) const OUT_NAME_PREFIX: &str = "__OUT_";
 
+pub(crate) const PRECONDITION_POLICY_PROVENANCE_KEY: &str =
+    "_sandibumi_precondition_policy_v1";
+pub(crate) const PRECONDITION_VIOLATIONS_PROVENANCE_KEY: &str =
+    "_sandibumi_precondition_violations_v1";
+
 /// The names a run will actually write, one per declared output, in declaration order.
 ///
 /// This is the ONE place a module's output name is decided, and it exists because five modules
@@ -409,41 +445,51 @@ pub(crate) fn resolve_output_names(
             expand_out_pattern(&arg.default, spec, opts, &resolved).unwrap_or_else(|| arg.name.clone())
         };
 
-        // Whitespace and quotes would survive the write and then break every reader that parses a
-        // curve list — refused here, where the user typed it, rather than in a LAS export weeks on.
-        if name.chars().any(|c| c.is_whitespace() || c == '"' || c == '\'' || c == ',') {
-            return Err(format!(
-                "Output name '{name}' for {} contains a space or quote. A curve name is used \
-                 verbatim in exports and curve lists — use letters, digits and underscores.",
-                arg.name
-            ));
-        }
-        if name == "DEPTH" {
-            return Err(format!(
-                "{} = DEPTH is refused: DEPTH is the reference column of the existing STANDARD \
-                 frame. A module must never write back to that frame's reference column; use \
-                 Reframe to emit a different depth basis as a new OWN frame.",
-                arg.name
-            ));
-        }
-        if crate::schema_vocab::standard_column(&name).is_some() {
-            return Err(format!(
-                "{} = {name} would be shadowed: {name} is read from the raw log first, so a \
-                 computed copy stored under that name is never the one anything reads. Give the \
-                 output its own name.",
-                arg.name
-            ));
-        }
-        if let Some((other, _)) = resolved.iter().find(|(_, n)| *n == name) {
-            return Err(format!(
-                "{} and {other} would both be written as {name}. Two outputs under one name means \
-                 one of them silently replaces the other — rename one.",
-                arg.name
-            ));
-        }
+        validate_output_name(&arg.name, &name, &resolved)?;
         resolved.push((arg.name.clone(), name));
     }
+    if modules::precondition_policy(opts)? == modules::PreconditionPolicy::FlagValidSamples {
+        let name = format!("{}_PRECONDITION_FLAG", spec.name.to_uppercase());
+        validate_output_name(modules::PRECONDITION_FLAG_OUTPUT_KEY, &name, &resolved)?;
+        resolved.push((modules::PRECONDITION_FLAG_OUTPUT_KEY.into(), name));
+    }
     Ok(resolved)
+}
+
+fn validate_output_name(
+    argument: &str,
+    name: &str,
+    resolved: &[(String, String)],
+) -> Result<(), String> {
+    // Whitespace and quotes would survive the write and then break every reader that parses a
+    // curve list — refused here, where the user typed it, rather than in a LAS export weeks on.
+    if name.chars().any(|c| c.is_whitespace() || c == '"' || c == '\'' || c == ',') {
+        return Err(format!(
+            "Output name '{name}' for {argument} contains a space or quote. A curve name is used \
+             verbatim in exports and curve lists — use letters, digits and underscores."
+        ));
+    }
+    if name == "DEPTH" {
+        return Err(format!(
+            "{argument} = DEPTH is refused: DEPTH is the reference column of the existing STANDARD \
+             frame. A module must never write back to that frame's reference column; use \
+             Reframe to emit a different depth basis as a new OWN frame."
+        ));
+    }
+    if crate::schema_vocab::standard_column(name).is_some() {
+        return Err(format!(
+            "{argument} = {name} would be shadowed: {name} is read from the raw log first, so a \
+             computed copy stored under that name is never the one anything reads. Give the \
+             output its own name."
+        ));
+    }
+    if let Some((other, _)) = resolved.iter().find(|(_, resolved_name)| resolved_name == name) {
+        return Err(format!(
+            "{argument} and {other} would both be written as {name}. Two outputs under one name means \
+             one of them silently replaces the other — rename one."
+        ));
+    }
+    Ok(())
 }
 
 /// The run options a module actually sees: manifest defaults, the caller's overrides on top, and
@@ -606,6 +652,7 @@ fn complete_module_log_spec(
     opts: &HashMap<String, String>,
     log_args: &[(String, String)],
     output_names: &[String],
+    precondition_violations: &[modules::PreconditionViolation],
     parameter_serializer: &impl Fn(
         &serde_json::Map<String, serde_json::Value>,
     ) -> Result<serde_json::Value, String>,
@@ -667,6 +714,47 @@ fn complete_module_log_spec(
             manifest_version: None,
             decision: None,
         });
+    }
+
+    if modules::precondition_policy(opts)? == modules::PreconditionPolicy::FlagValidSamples {
+        let policy = serde_json::json!(modules::PRECONDITION_POLICY_FLAG_VALID_SAMPLES);
+        let violations = serde_json::to_value(precondition_violations)
+            .map_err(|error| format!("cannot serialize precondition violations: {error}"))?;
+        for (key, value) in [
+            (PRECONDITION_POLICY_PROVENANCE_KEY, policy.clone()),
+            (PRECONDITION_VIOLATIONS_PROVENANCE_KEY, violations.clone()),
+        ] {
+            if legacy.insert(key.into(), value).is_some() {
+                return Err(format!(
+                    "module '{}' declares an argument that collides with reserved saved-run key '{}'",
+                    spec.name, key
+                ));
+            }
+        }
+        parameters.push(equations::AncestryParameter {
+            name: PRECONDITION_POLICY_PROVENANCE_KEY.into(),
+            value: policy,
+            source: req.custody.source_note.clone(),
+            resolution: Some(equations::ParameterResolution::Explicit),
+            manifest_version: None,
+            decision: None,
+        });
+        if !precondition_violations.is_empty() {
+            let mut sources = precondition_violations
+                .iter()
+                .map(|violation| violation.source.clone())
+                .collect::<Vec<_>>();
+            sources.sort();
+            sources.dedup();
+            parameters.push(equations::AncestryParameter {
+                name: PRECONDITION_VIOLATIONS_PROVENANCE_KEY.into(),
+                value: violations,
+                source: sources.join(" | "),
+                resolution: None,
+                manifest_version: None,
+                decision: None,
+            });
+        }
     }
 
     let mut inputs = Vec::new();
@@ -802,8 +890,17 @@ pub fn preview_output_names(
         .map(|(arg, name)| {
             let a = spec.args.iter().find(|a| a.name == arg);
             OutputName {
-                desc: a.map(|a| a.desc.clone()).unwrap_or_default(),
-                unit: a.map(|a| a.unit.clone()).unwrap_or_default(),
+                desc: if arg == modules::PRECONDITION_FLAG_OUTPUT_KEY {
+                    "Companion flag: 1 = a declared precondition was violated at this sample; 0 = valid."
+                        .into()
+                } else {
+                    a.map(|a| a.desc.clone()).unwrap_or_default()
+                },
+                unit: if arg == modules::PRECONDITION_FLAG_OUTPUT_KEY {
+                    "1 = violation".into()
+                } else {
+                    a.map(|a| a.unit.clone()).unwrap_or_default()
+                },
                 arg,
                 name,
             }
@@ -984,6 +1081,8 @@ fn run_workflow_module_into_with_parameter_serializer(
             depth: Vec<f32>,
             outputs: HashMap<String, Vec<f32>>,
             degradations: Vec<modules::RunDegradation>,
+            precondition_violations: Vec<modules::PreconditionViolation>,
+            scientific_answered: bool,
         },
     }
 
@@ -1042,6 +1141,8 @@ fn run_workflow_module_into_with_parameter_serializer(
                     Vec<f32>,
                     HashMap<String, Vec<f32>>,
                     Vec<modules::RunDegradation>,
+                    Vec<modules::PreconditionViolation>,
+                    bool,
                 ),
                 String,
             > {
@@ -1152,7 +1253,12 @@ fn run_workflow_module_into_with_parameter_serializer(
                     parameter_samples: defaulted_parameters,
                     options: defaulted_options.clone(),
                 };
-                let (mut outputs, mut degradations) =
+                let (
+                    mut outputs,
+                    mut degradations,
+                    mut precondition_violations,
+                    precondition_flag,
+                ) =
                     modules::run_module_with_degradations(&req.module, &ctx, default_usage)?;
 
                 // A module returning a vector shorter OR longer than its depth frame is still
@@ -1222,19 +1328,61 @@ fn run_workflow_module_into_with_parameter_serializer(
                     }
                 }
 
+                // Decide whether the module answered before adding the finite 0/1 framework flag.
+                // Otherwise an all-MISSING scientific run would be versioned merely because its
+                // companion flag contains zeros — exactly the false-success contract `answered`
+                // exists to prevent.
+                let scientific_answered = answered(&outputs);
+                if let Some(flag) = precondition_flag {
+                    let base = out_names
+                        .iter()
+                        .find(|(declared, _)| declared == modules::PRECONDITION_FLAG_OUTPUT_KEY)
+                        .map(|(_, name)| name.clone())
+                        .ok_or_else(|| {
+                            "precondition flag policy was selected but no companion output name was resolved"
+                                .to_string()
+                        })?;
+                    let name = opts
+                        .get(OUT_PREFIX_OPT)
+                        .map(|value| value.trim())
+                        .filter(|value| !value.is_empty())
+                        .map(|prefix| format!("{}{base}", prefix.to_uppercase()))
+                        .unwrap_or(base);
+                    outputs.insert(name, flag);
+                }
+
                 degradations.sort_by(|left, right| {
                     left.kind
                         .cmp(&right.kind)
                         .then_with(|| left.detail.cmp(&right.detail))
                 });
-                Ok((depth, outputs, degradations))
-            };
-
-            let outcome = match compute() {
-                Ok((depth, outputs, degradations)) => Outcome::Computed {
+                precondition_violations.sort_by(|left, right| {
+                    left.condition_id
+                        .cmp(&right.condition_id)
+                        .then_with(|| left.argument.cmp(&right.argument))
+                });
+                Ok((
                     depth,
                     outputs,
                     degradations,
+                    precondition_violations,
+                    scientific_answered,
+                ))
+            };
+
+            let outcome = match compute() {
+                Ok((
+                    depth,
+                    outputs,
+                    degradations,
+                    precondition_violations,
+                    scientific_answered,
+                )) => Outcome::Computed {
+                    depth,
+                    outputs,
+                    degradations,
+                    precondition_violations,
+                    scientific_answered,
                 },
                 Err(e) => Outcome::Failed(e),
             };
@@ -1244,21 +1392,30 @@ fn run_workflow_module_into_with_parameter_serializer(
                     // module fed an all-NaN input) did no real work — flag it Warned, not a green
                     // Ok, so the panel doesn't read as a successful correction.
                     Outcome::Computed {
-                        outputs,
+                        scientific_answered,
                         degradations,
+                        precondition_violations,
                         ..
-                    } if answered(outputs) && degradations.is_empty() => {
+                    } if *scientific_answered
+                        && degradations.is_empty()
+                        && precondition_violations.is_empty() =>
+                    {
                         p.finish_item(well_id, crate::jobs::ItemState::Ok, None)
                     }
                     Outcome::Computed {
-                        outputs,
+                        scientific_answered,
                         degradations,
+                        precondition_violations,
                         ..
-                    } if answered(outputs) => {
+                    } if *scientific_answered => {
                         p.finish_item(
                             well_id,
                             crate::jobs::ItemState::Warned,
-                            Some(degradation_message(degradations)),
+                            Some(run_warning_message(
+                                &req.module,
+                                degradations,
+                                precondition_violations,
+                            )),
                         )
                     }
                     Outcome::Computed { .. } => {
@@ -1283,7 +1440,7 @@ fn run_workflow_module_into_with_parameter_serializer(
         .iter()
         .zip(outcomes.iter())
         .filter_map(|(w, o)| match o {
-            Outcome::Computed { outputs, .. } if answered(outputs) => Some(w.clone()),
+            Outcome::Computed { scientific_answered: true, .. } => Some(w.clone()),
             _ => None,
         })
         .collect();
@@ -1298,10 +1455,16 @@ fn run_workflow_module_into_with_parameter_serializer(
         let mut complete = Vec::with_capacity(succ_ids.len());
         let mut build_error = None;
         for (well_id, outcome) in req.well_ids.iter().zip(outcomes.iter()) {
-            let Outcome::Computed { outputs, .. } = outcome else {
+            let Outcome::Computed {
+                outputs,
+                precondition_violations,
+                scientific_answered,
+                ..
+            } = outcome
+            else {
                 continue;
             };
-            if !answered(outputs) {
+            if !*scientific_answered {
                 continue;
             }
             let mut names: Vec<String> = outputs.keys().cloned().collect();
@@ -1314,6 +1477,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                 &opts,
                 &log_args,
                 &names,
+                precondition_violations,
                 parameter_serializer,
             ) {
                 Ok(spec) => complete.push(equations::CompleteWellLogSet {
@@ -1344,9 +1508,11 @@ fn run_workflow_module_into_with_parameter_serializer(
             depth,
             outputs,
             degradations,
+            scientific_answered,
+            ..
         } = o
         {
-            if !answered(outputs) {
+            if !*scientific_answered {
                 continue;
             }
             if let Some(set_id) = set_ids.get(well_id) {
@@ -1420,10 +1586,12 @@ fn run_workflow_module_into_with_parameter_serializer(
                 depth,
                 outputs,
                 degradations,
+                precondition_violations,
+                scientific_answered,
             } => {
                 if outputs.is_empty() {
                     ModuleRunResult::skipped(well_id.clone())
-                } else if !answered(outputs) {
+                } else if !*scientific_answered {
                     // Every output sample MISSING (e.g. gascorr with no precalc, rocktyping with
                     // no permeability). Checked BEFORE the set/write branches, because this well
                     // was deliberately given no output set — reporting "no output set allocated"
@@ -1461,7 +1629,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                         rows_written: depth.len(),
                         output_curves: names,
                         error: None,
-                        outcome: if degradations.is_empty() {
+                        outcome: if degradations.is_empty() && precondition_violations.is_empty() {
                             ModuleRunOutcome::Clean
                         } else {
                             ModuleRunOutcome::Degraded
@@ -2730,6 +2898,7 @@ mod tests {
             &build_opts(&synthetic, &request.opts, &request.log_inputs),
             &[],
             &["CORRECTED".into()],
+            &[],
             &|parameters| serde_json::to_value(parameters).map_err(|error| error.to_string()),
         )
         .unwrap();
@@ -2939,6 +3108,7 @@ mod tests {
                 &build_opts(spec, &request.opts, &request.log_inputs),
                 &[],
                 &["FIXTURE_RESULT".into()],
+                &[],
                 &|parameters| serde_json::to_value(parameters).map_err(|error| error.to_string()),
             )
             .unwrap();
@@ -6311,5 +6481,223 @@ mod tests {
         );
         let clean_store = stored(&clean);
         assert_eq!(clean_store, ("CLEAN".into(), vec![]));
+    }
+
+    /// CORRECTNESS — `20_envcorr-qc.md` §4.1 SB-ENV-003 and §6.1 SB-ENV-T05.
+    /// The 0–200 gAPI GR-matrix validity range and its source come from the shipping manifest,
+    /// cited there to `10_clay-volume.md` §3.2 and Geolog `vsh_gr.info` L48-L49. The valid
+    /// LINEAR controls are independently hand-calculated from `(GR - GR_MA) / (GR_SH - GR_MA)`:
+    /// 20 gAPI gives 0 and 220 gAPI gives 1 for the 20/220 endpoints. The middle zone supplies
+    /// 201 gAPI, exactly one gAPI beyond the cited maximum; no uncited physical value is adopted.
+    #[test]
+    fn a_subset_precondition_violation_keeps_only_valid_samples_with_a_companion_flag_and_source_bearing_provenance_while_refusal_stays_available_and_a_flag_alone_never_versions_an_answer(
+    ) {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well_id, "PARTIAL-PRECONDITION", None, None, None).unwrap();
+        let well = well_id.to_string();
+        db::insert_standard_curves(
+            &conn,
+            well_id,
+            vec![1000.0, 1001.0, 1002.0],
+            vec![20.0, 120.0, 220.0],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+            vec![f32::NAN; 3],
+        )
+        .unwrap();
+        db::upsert_md_zone(&conn, &well, "ABOVE-DECLARED-RANGE", 1000.5, 1001.5).unwrap();
+        db::set_zone_param(
+            &conn,
+            &well,
+            "ABOVE-DECLARED-RANGE",
+            "GR_MA",
+            Some(201.0),
+            Some("SB-ENV-003 one-sample boundary fixture"),
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+
+        let request = |policy: Option<&str>, output_set: &str| RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids: vec![well.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("GR_MA".into(), 20.0), ("GR_SH".into(), 220.0)]),
+            opts: policy
+                .map(|value| HashMap::from([("__PRECONDITION_POLICY".into(), value.into())]))
+                .unwrap_or_default(),
+            output_set: Some(output_set.into()),
+            input_set: None,
+            custody: test_run_custody(),
+        };
+
+        let refused = run_workflow_module(&dbm, &request(None, "REFUSAL-CONTROL"));
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].outcome, ModuleRunOutcome::Failed);
+        let refusal = refused[0].error.as_deref().expect("the default policy must label its refusal");
+        assert!(refusal.contains("vsh_gr.gr_ma_range"), "condition id missing: {refusal}");
+        assert!(refusal.contains("value 201 gAPI at sample 1"), "offending value missing: {refusal}");
+        assert!(refusal.contains("0 to 200 gAPI"), "expected range missing: {refusal}");
+        assert!(refusal.contains("vsh_gr.info L48-L49"), "range source missing: {refusal}");
+
+        let registry = crate::jobs::new_registry();
+        let job_id = uuid::Uuid::new_v4();
+        let progress = crate::jobs::register(
+            &registry,
+            job_id,
+            "Module",
+            "flag partial precondition",
+            vec![(well.clone(), "one sample above the declared range".into())],
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            true,
+        );
+        progress.running(1);
+        let flagged = run_workflow_module_into(
+            &dbm,
+            &request(Some("FLAG_VALID_SAMPLES"), "FLAGGED-PARTIAL"),
+            None,
+            None,
+            Some(&progress),
+        );
+        progress.complete();
+
+        assert_eq!(flagged.len(), 1);
+        assert_eq!(flagged[0].outcome, ModuleRunOutcome::Degraded, "{flagged:?}");
+        assert_eq!(flagged[0].rows_written, 3);
+        assert_eq!(
+            flagged[0].output_curves,
+            vec![
+                "VSH".to_string(),
+                "VSH_GR".to_string(),
+                "VSH_GR_PRECONDITION_FLAG".to_string(),
+            ]
+        );
+        assert!(flagged[0].error.is_none(), "the valid samples are a result, not a failed run");
+
+        let view = crate::jobs::list(&registry)
+            .into_iter()
+            .find(|view| view.id == job_id.to_string())
+            .expect("the Processing panel can inspect the completed run");
+        assert_eq!(view.outcome, Some(crate::jobs::JobOutcome::Degraded));
+        let item = view.items.iter().find(|item| item.key == well).expect("per-well Processing item");
+        assert_eq!(item.state, crate::jobs::ItemState::Warned);
+        let warning = item.message.as_deref().expect("the flag cannot be the only warning surface");
+        assert!(warning.contains("vsh_gr.gr_ma_range"), "condition id missing: {warning}");
+        assert!(warning.contains("201 gAPI"), "offending value missing: {warning}");
+        assert!(warning.contains("0 to 200 gAPI"), "expected range missing: {warning}");
+        assert!(warning.contains("vsh_gr.info L48-L49"), "range source missing: {warning}");
+
+        let conn = dbm.lock().unwrap();
+        let read_curve = |name: &str| -> Vec<f32> {
+            let mut statement = conn
+                .prepare(
+                    "SELECT value FROM computed_curves
+                     WHERE well_id = ?1 AND curve_name = ?2 ORDER BY depth",
+                )
+                .unwrap();
+            statement
+                .query_map(duckdb::params![&well, name], |row| row.get(0))
+                .unwrap()
+                .collect::<duckdb::Result<Vec<_>>>()
+                .unwrap()
+        };
+        let vsh = read_curve("VSH");
+        assert_eq!(vsh.len(), 3);
+        assert_eq!(vsh[0], 0.0);
+        assert!(vsh[1].is_nan(), "the invalid sample must never become an unmarked number");
+        assert_eq!(vsh[2], 1.0);
+        assert_eq!(read_curve("VSH_GR_PRECONDITION_FLAG"), vec![0.0, 1.0, 0.0]);
+
+        let params_json: String = conn
+            .query_row(
+                "SELECT params_json FROM log_sets
+                 WHERE well_id = ?1 AND set_name = 'FLAGGED-PARTIAL'",
+                duckdb::params![&well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&params_json).unwrap();
+        assert_eq!(saved["_sandibumi_precondition_policy_v1"], "FLAG_VALID_SAMPLES");
+        let violations = saved["_sandibumi_precondition_violations_v1"]
+            .as_array()
+            .expect("the run provenance must carry its flagged violations");
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0]["condition_id"], "vsh_gr.gr_ma_range");
+        assert_eq!(violations[0]["argument"], "GR_MA");
+        assert_eq!(violations[0]["expected"], "0 to 200 gAPI");
+        assert_eq!(
+            violations[0]["source"],
+            "docs/PRD_v2/10_clay-volume.md §3.2; Geolog vsh_gr.info L48-L49"
+        );
+        assert_eq!(violations[0]["affected_samples"][0]["index"], 1);
+        assert_eq!(violations[0]["affected_samples"][0]["offending_value"], 201.0);
+
+        let refused_writes: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM log_sets
+                 WHERE well_id = ?1 AND set_name = 'REFUSAL-CONTROL'",
+                duckdb::params![&well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(refused_writes, 0, "the refusal side must still write nothing");
+
+        // `docs/record_fixes.md`: a run that reports failure must not also version an
+        // interpretation. A negative finite PHIE is a deliberately invalid fixture value, not an
+        // adopted endpoint; Wyllie-Rose explicitly leaves every such sample MISSING. With no
+        // declared precondition violation the selected policy still produces an all-zero framework
+        // flag, and that flag must not be mistaken for a scientific answer.
+        drop(conn);
+        {
+            let conn = dbm.lock().unwrap();
+            equations::write_computed_curve(
+                &conn,
+                &well,
+                &[1000.0, 1001.0, 1002.0],
+                "PHIE",
+                &[-0.1, -0.1, -0.1],
+            )
+            .unwrap();
+        }
+        let flag_only = run_workflow_module(
+            &dbm,
+            &RunModuleRequest {
+                module: "perm_wyllie_rose".into(),
+                well_ids: vec![well.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([("SWE_IRR".into(), 0.2)]),
+                opts: HashMap::from([(
+                    modules::PRECONDITION_POLICY_OPT.into(),
+                    modules::PRECONDITION_POLICY_FLAG_VALID_SAMPLES.into(),
+                )]),
+                output_set: Some("FLAG-IS-NOT-AN-ANSWER".into()),
+                input_set: None,
+                custody: test_run_custody(),
+            },
+        );
+        assert_eq!(flag_only[0].outcome, ModuleRunOutcome::Failed);
+        assert_eq!(flag_only[0].rows_written, 0);
+        let conn = dbm.lock().unwrap();
+        let flag_only_sets: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM log_sets WHERE well_id = ?1 AND set_name = 'FLAG-IS-NOT-AN-ANSWER'",
+                duckdb::params![&well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(flag_only_sets, 0, "a flag alone must not allocate a log-set version");
+        let flag_only_curves: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM computed_curves
+                 WHERE well_id = ?1 AND curve_name IN
+                 ('PERM', 'PERM_WR', 'PERM_WYLLIE_ROSE_PRECONDITION_FLAG')",
+                duckdb::params![&well],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(flag_only_curves, 0, "a finite framework flag must not version an all-MISSING scientific result");
     }
 }

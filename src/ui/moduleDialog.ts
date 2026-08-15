@@ -24,6 +24,10 @@ export interface ModulePaneCallbacks {
  *  so the canonical chain (badhole → condflag → solvers with Mask) is composable in a
  *  fresh project. The catalog only lists curves that have actually been computed. */
 export const MASK_CURVE_SUGGESTIONS = ["BADHOLE", "COND_FLAG"];
+export const PRECONDITION_POLICY_OPT = "__PRECONDITION_POLICY";
+export const PRECONDITION_POLICY_REFUSE = "REFUSE";
+export const PRECONDITION_POLICY_FLAG_VALID_SAMPLES = "FLAG_VALID_SAMPLES";
+export const PRECONDITION_FLAG_OUTPUT_ARG = "__PRECONDITION_FLAG";
 
 /** Catalog names with the well-known flag curves prepended when absent. */
 export function maskCurveNames(curveNames: string[]): string[] {
@@ -244,6 +248,29 @@ export async function buildModuleContent(
     formRow("Mask (optional)", maskSelect, "Flag curve (=1 bad) to blank out of every output — e.g. BADHOLE."),
   );
 
+  // A source-bearing precondition still refuses by default. The partial-result policy is an
+  // explicit interpreter choice because it adds a degraded run, a companion flag curve and
+  // durable violation provenance; silently changing the default would make old saved runs mean
+  // something new.
+  const preconditionPolicySelect = document.createElement("select");
+  preconditionPolicySelect.className = "form-control";
+  for (const [value, label] of [
+    [PRECONDITION_POLICY_REFUSE, "Refuse this well"],
+    [PRECONDITION_POLICY_FLAG_VALID_SAMPLES, "Keep valid samples and write a flag curve"],
+  ] as const) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    preconditionPolicySelect.appendChild(option);
+  }
+  argsGrid.appendChild(
+    formRow(
+      "When only some samples violate a condition",
+      preconditionPolicySelect,
+      "Refusal remains the default. The flag policy keeps unaffected samples, writes 1 at every violating sample and records the condition, value, expected range and source in run provenance.",
+    ),
+  );
+
   // --- Input / output log set: the ONE shared control (`logSetPicker.ts`). Was two bespoke
   // blocks here labelled "Input cons" / "Output cons" — the store, the backend and the docs all
   // say LOG SET, and only this UI said constellation, which is why the word did not connect.
@@ -311,6 +338,18 @@ export async function buildModuleContent(
     outNameInputs.set(arg.name, input);
     outGrid.appendChild(label);
   }
+  const preconditionFlagLabel = document.createElement("label");
+  preconditionFlagLabel.className = "module-output-label";
+  preconditionFlagLabel.textContent = "Precondition companion flag (1 = violation)";
+  preconditionFlagLabel.title = "Framework-owned companion output; its deterministic name cannot be separated from the flagged-result contract.";
+  preconditionFlagLabel.hidden = true;
+  const preconditionFlagName = document.createElement("input");
+  preconditionFlagName.className = "form-control module-output-name";
+  preconditionFlagName.type = "text";
+  preconditionFlagName.readOnly = true;
+  preconditionFlagName.tabIndex = -1;
+  preconditionFlagLabel.appendChild(preconditionFlagName);
+  outGrid.appendChild(preconditionFlagLabel);
   outSection.appendChild(outGrid);
   const outWarn = document.createElement("div");
   outWarn.className = "module-outputs-warn";
@@ -332,6 +371,9 @@ export async function buildModuleContent(
       if (typed) opts[`__OUT_${arg}`] = typed;
     }
     if (maskSelect.value) opts.MASK = maskSelect.value;
+    if (preconditionPolicySelect.value === PRECONDITION_POLICY_FLAG_VALID_SAMPLES) {
+      opts[PRECONDITION_POLICY_OPT] = PRECONDITION_POLICY_FLAG_VALID_SAMPLES;
+    }
     if (prefixInput.value.trim()) opts.OUT_PREFIX = prefixInput.value.trim();
     return opts;
   };
@@ -352,6 +394,10 @@ export async function buildModuleContent(
       const names: OutputName[] = await moduleOutputNames(spec.name, collectLogInputs(), collectOpts());
       if (disposed || gen !== outGen) return;
       for (const n of names) outNameInputs.get(n.arg)?.setAttribute("placeholder", n.name);
+      const flag = names.find((name) => name.arg === PRECONDITION_FLAG_OUTPUT_ARG);
+      preconditionFlagLabel.hidden = !flag;
+      preconditionFlagName.value = flag?.name ?? "";
+      outTitle.textContent = names.length === 1 ? "Output curve" : "Output curves";
       outWarn.hidden = true;
     } catch (e) {
       if (disposed || gen !== outGen) return;
@@ -365,6 +411,7 @@ export async function buildModuleContent(
   };
   for (const [, select] of logSelects) select.addEventListener("change", () => void refreshOutNames());
   for (const [, select] of optSelects) select.addEventListener("change", () => void refreshOutNames());
+  preconditionPolicySelect.addEventListener("change", () => void refreshOutNames());
   for (const [, input] of outNameInputs) input.addEventListener("input", () => void refreshOutNames());
   void refreshOutNames();
 
