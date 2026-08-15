@@ -280,14 +280,14 @@
 
 - **Chapter evidence:** P1; chapter status `PARTIAL`; T31/T32; sections 4.3, 6.3 and 8.
 - **Atomic obligations:** evaluate caliper and density-correction terms independently; use whichever exists; return MISSING when neither is evaluable; record which terms were evaluated.
-- **Current source:** `modules.rs::badhole` tracks `any` and `bad`, evaluates the two terms independently and leaves the result MISSING when neither can run. It emits no evaluated-term or reason record.
-- **Qualifying acceptance tests:** none; T31/T32's complete degradation-plus-custody contract has no executable body. Test class `MISSING`.
-- **Supporting tests:** `modules::tests::badhole_flags_washout_and_drho` passed and proves nominal two-term arithmetic, but not every availability combination or the missing term record.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the partial degradation logic is integrated at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `DEGRADED-RESULT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-ENV-022's reason channel is absent.
-- **Next action:** emit the evaluated-term state and add both single-input controls plus the neither-evaluable MISSING case.
+- **Current source:** `modules.rs::badhole` still evaluates the caliper and DRHO criteria independently and leaves BADHOLE MISSING when neither can run. It now declares and emits `BADHOLE_CALI_EVALUATED` and `BADHOLE_DRHO_EVALUATED` as one-hot availability records beside the unchanged BADHOLE mask.
+- **Qualifying acceptance tests:** `modules.rs::a_bad_hole_flag_uses_each_available_term_records_which_was_evaluated_and_stays_missing_when_neither_was_evaluable` owns T32 from both single-input sides plus both/neither and the genuine-good-zero discriminator. Test class `CORRECTNESS`.
+- **Supporting tests:** nominal bad-hole arithmetic, manifest/output-key parity, generic-store masking and complete curve ancestry remain focused green controls.
+- **Manual evidence:** conditioning 1/54; workflow 0/41; processing-history 0/7; four SB-ENV-021 review scenarios remain unchecked.
+- **Git evidence:** exact T32 was RED because the returned output had no evaluated-term keys, then GREEN with explicit per-sample availability and an unchanged MISSING-versus-zero distinction. The full repository gate remains a commit precondition.
+- **Verdict:** source-owned chapter status remains `PARTIAL`; live as-built is `PRESENT-OK`; `PILOT-BLOCKER` handled; `DEGRADED-RESULT` closed for criterion availability; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none for SB-ENV-021. No threshold or bit-size value became a default; the test values are explicit fixture inputs. SB-ENV-022's cause channel and SB-ENV-023's DRHO sign remain separate open contracts.
+- **Next action:** retain the independent degradation and one-hot availability outputs; execute the unchecked review separately; continue serially to SB-ENV-022 without calling availability a diagnosis.
 
 ## SB-ENV-022 - Bad-hole flag carries a reason channel
 

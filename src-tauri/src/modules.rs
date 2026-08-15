@@ -2602,8 +2602,10 @@ fn badhole_spec() -> ModuleSpec {
         doc: "BADHOLE = 1 where the borehole is enlarged or the density correction is large \
               enough to distrust the porosity logs: |DRHO| > DRHO_MAX, or (CALI - bit size) > \
               DCAL_MAX. Bit size comes from the BS curve where present, else BS_DEF. The flag is \
-              0 in good hole and MISSING where no QC curve exists. Feed it to any module run as a \
-              mask so flagged intervals go missing instead of polluting results."
+              0 in good hole and MISSING where no QC criterion can be evaluated. The two \
+              BADHOLE_*_EVALUATED companions record criterion availability with 1 = evaluated and \
+              0 = unavailable; they are not the separate cause/sign channels. Feed BADHOLE to any \
+              module run as a mask so flagged intervals go missing instead of polluting results."
             .into(),
         args: vec![
             param_open(
@@ -2634,6 +2636,16 @@ fn badhole_spec() -> ModuleSpec {
             log_in("CALI", "Caliper log", "in", "CALI", false),
             log_in("BS", "Bit size log", "in", "BS", false),
             log_out("BADHOLE", "Bad-hole flag (1 = bad, 0 = good)", ""),
+            log_out(
+                "BADHOLE_CALI_EVALUATED",
+                "Caliper criterion availability (1 = evaluated, 0 = unavailable)",
+                "",
+            ),
+            log_out(
+                "BADHOLE_DRHO_EVALUATED",
+                "Density-correction criterion availability (1 = evaluated, 0 = unavailable)",
+                "",
+            ),
         ],
     }
 }
@@ -2643,6 +2655,8 @@ fn badhole(ctx: &ModuleContext) -> ModuleOutputs {
     let cali = ctx.log("CALI");
     let bs = ctx.log("BS");
     let mut flag = vec![f32::NAN; ctx.n];
+    let mut cali_evaluated = vec![0.0; ctx.n];
+    let mut drho_evaluated = vec![0.0; ctx.n];
 
     for i in 0..ctx.n {
         let dr = drho[i] as f64;
@@ -2658,12 +2672,14 @@ fn badhole(ctx: &ModuleContext) -> ModuleOutputs {
         let mut bad = false;
         if !is_missing(dr) {
             any = true;
+            drho_evaluated[i] = 1.0;
             if dr.abs() > drho_max {
                 bad = true;
             }
         }
         if !is_missing(cl) && !is_missing(bit) {
             any = true;
+            cali_evaluated[i] = 1.0;
             if cl - bit > dcal_max {
                 bad = true;
             }
@@ -2673,7 +2689,11 @@ fn badhole(ctx: &ModuleContext) -> ModuleOutputs {
         }
     }
 
-    HashMap::from([("BADHOLE".to_string(), flag)])
+    HashMap::from([
+        ("BADHOLE".to_string(), flag),
+        ("BADHOLE_CALI_EVALUATED".to_string(), cali_evaluated),
+        ("BADHOLE_DRHO_EVALUATED".to_string(), drho_evaluated),
+    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -6449,6 +6469,39 @@ mod tests {
         assert_eq!(f[1], 1.0, "big DRHO");
         assert_eq!(f[2], 1.0, "washout");
         assert!(f[3].is_nan(), "no QC curves at all -> missing");
+    }
+
+    /// CORRECTNESS — `20_envcorr-qc.md` section 4.3 SB-ENV-021 and section 6.3 T32,
+    /// sourced to Geolog `badhole.lls:88-101`, require independent caliper/DRHO availability,
+    /// an explicit record of which terms were evaluated, and MISSING rather than a false good-hole
+    /// zero when neither is evaluable. The supplied 0.05 g/cc and 1.0 in thresholds are fixture
+    /// inputs, not shipped defaults; every expected flag follows directly from those inequalities.
+    #[test]
+    fn a_bad_hole_flag_uses_each_available_term_records_which_was_evaluated_and_stays_missing_when_neither_was_evaluable() {
+        let ctx = ctx_with(
+            5,
+            &[
+                ("DRHO", vec![f32::NAN, 0.06, 0.01, f32::NAN, f32::NAN]),
+                ("CALI", vec![10.0, f32::NAN, 8.6, f32::NAN, 8.6]),
+                ("BS", vec![8.5, f32::NAN, 8.5, f32::NAN, 8.5]),
+            ],
+            &[("DRHO_MAX", 0.05), ("DCAL_MAX", 1.0), ("BS_DEF", 8.5)],
+            &[],
+        );
+
+        let out = run_module("badhole", &ctx)
+            .expect("each available criterion must run independently");
+        assert_eq!(out["BADHOLE"][..3], [1.0, 1.0, 0.0]);
+        assert!(out["BADHOLE"][3].is_nan(), "neither evaluable must remain MISSING");
+        assert_eq!(out["BADHOLE"][4], 0.0, "one evaluated good criterion is a genuine zero");
+        assert_eq!(
+            out["BADHOLE_CALI_EVALUATED"],
+            [1.0, 0.0, 1.0, 0.0, 1.0]
+        );
+        assert_eq!(
+            out["BADHOLE_DRHO_EVALUATED"],
+            [0.0, 1.0, 1.0, 0.0, 0.0]
+        );
     }
 
     /// Full parameter set for condflag tests; individual tests override entries.

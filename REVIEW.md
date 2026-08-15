@@ -1,5 +1,23 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-021: BADHOLE detection records evaluated terms
+
+- [ ] **Automated correctness:** exact T32 was RED because BADHOLE returned only the mask. It is
+      GREEN across caliper-only bad/good, DRHO-only bad, both-available good and neither-evaluable
+      samples: the last remains `NaN`, a genuinely evaluated good sample is `0`, and two one-hot
+      companion outputs record caliper and DRHO availability. Existing nominal bad-hole arithmetic,
+      manifest/output parity, generic-store masking and complete curve ancestry remain green.
+- [ ] **Visual:** run Bad-Hole QC Flag and confirm the result lists BADHOLE plus the two clearly
+      labelled `*_EVALUATED` companions. At a caliper-only interval, verify the caliper channel is
+      1, the DRHO channel is 0, and BADHOLE remains reviewable as a separate mask.
+- [ ] **Manual:** exercise caliper-only, DRHO-only, both-present and neither-present intervals using
+      explicitly supplied thresholds. Confirm an evaluated good interval reads BADHOLE = 0 while a
+      neither-evaluable interval is blank/MISSING rather than falsely good.
+- [ ] **Field and harsh critique:** availability is not diagnosis. These companions say only which
+      criteria could run; they do not yet say which criterion fired or preserve DRHO sign. Do not
+      present them as closing SB-ENV-022/023, and verify the three-curve review on a real delivery
+      separately before Gate 4 acceptance.
+
 ## 2026-08-16 — G2 SB-ENV-009: unknown selectors refuse before any chain step
 
 - [ ] **Automated correctness:** exact T03 names the invalid `OPT_GR=TYPO` value and the
