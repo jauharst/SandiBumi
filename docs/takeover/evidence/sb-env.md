@@ -33,14 +33,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T02/T04/T38; sections 4.1, 6.1 and 8.
 - **Atomic obligations:** evaluate every declared condition before arithmetic, per sample where needed, identically through dialog, saved chain, workflow, zone override, batch and API paths.
-- **Current source:** `workflow.rs::resolve_param_arrays` rejects supplied non-finite/out-of-range scalars and named-zone overrides for well-scoped parameters before dispatch. It cannot evaluate the absent general conditions, does not validate option enumerations, and is not proof of all launch paths or data-dependent predicates.
-- **Qualifying acceptance tests:** none; no four-path preflight fixture exists. Test class `MISSING`.
-- **Supporting tests:** the exact-filter range and temperature-scope tests passed, but call the narrow resolver and do not prove all preconditions or paths.
-- **Manual evidence:** conditioning 0/27; workflow 0/23; processing-history 0/7.
-- **Git evidence:** the narrow runner gate is integrated and reachable at the accepted anchor.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** SB-ENV-001's missing schema prevents a complete common preflight; the four-path observable test is absent.
-- **Next action:** introduce one pre-dispatch evaluator used by every launch route and prove body non-entry plus identical refusal on all named routes.
+- **Current source:** `modules.rs::validate_declared_preconditions` evaluates the source-bearing `ValidityRule` inventory at the public `run_module` boundary before the module match/body. Numeric and relational rules consume the resolved parameter/log array at every sample. `workflow.rs::run_workflow_module_into` is the one dialog/Tauri, single-well, multi-well and zone-resolved path; `chain.rs::run_chain` delegates every saved step to it; `run_module_with_degradations` and direct callers retain the same algorithm boundary.
+- **Qualifying acceptance tests:** `modules::tests::source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes` owns T02's before-body/valid-other-side contract; `chain::tests::dialog_chain_batch_and_zone_override_routes_report_the_identical_precondition_refusal` owns T04. The latter checks returned `ModuleRunResult`, Processing-panel job items, saved-chain polling status, a two-well batch, one-sample named-zone arrays and zero persisted curves. CORRECTNESS. Temporarily bypassing the shared validator made the exact T04 test RED by allowing the VSH body to return blank arrays; restoration returned GREEN.
+- **Supporting tests:** the T04 compile-time route inventory pins dialog → typed IPC → Tauri command → `run_workflow_module_into`; the runtime assertions do not count the direct internal `Result` as the reporting surface. T38's flag-type build gate remains independently owned by SB-ENV-030.
+- **Manual evidence:** conditioning 1/38; workflow 0/33; processing-history 0/7; all four SB-ENV-002 scenarios remain unchecked.
+- **Git evidence:** current topic-branch worktree; focused RED/GREEN proof complete; TypeScript and cargo check are green; fresh full gate 1042 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings; the one-requirement commit follows after the exact-candidate repeated gate.
+- **Verdict:** chapter status remains source-owned `ABSENT`; live as-built `PRESENT-OK`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`, Visual/Manual/Field review open.
+- **Blocker or decision:** none for shared precondition evaluation or route parity. This does not prove that every shipping manifest is scientifically complete or source-correct; SB-ENV-003, SB-ENV-004 and SB-ENV-008 retain those distinct obligations.
+- **Next action:** retain the single algorithm-boundary evaluator and route-parity proof; Jauhar executes the unchecked review separately; continue serially to SB-ENV-003 without treating identical routing as complete source population or usable UI wording.
 
 ## SB-ENV-003 - A violated precondition produces a refusal or a flagged result, never an unmarked number
 

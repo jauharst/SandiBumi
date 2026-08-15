@@ -1,5 +1,34 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-ENV-002: identical precondition refusal across workflow routes
+
+- [ ] **Automated correctness:** the existing T02 public-dispatch test proves an invalid selector
+      and source-backed endpoint violation stop before VSH arithmetic while the valid side still
+      computes. The new exact T04 test routes the same source-backed endpoint inversion through the
+      module dialog/Tauri/Processing path, a saved chain, a two-well batch and a named-zone override.
+      Every returned and pollable payload carries the identical source-bearing refusal, reports zero
+      rows/curves, and the database remains empty. The zone starts with a valid 20/120 gAPI base and
+      inverts only sample zero to 120/20, so scalar-only or pre-zone validation cannot pass. Bypassing
+      the central validator made the test RED by allowing the body to return blank VSH arrays; the
+      production call was restored and the focused test returned GREEN. TypeScript and `cargo check`
+      are green; the fresh full gate is 1042 passed / 0 failed / 37 ignored with 31 separately
+      owned Rust warnings.
+- [ ] **Visual:** from the linear-GR module dialog, submit the source-backed endpoint inversion and
+      open Processing → details. Confirm the well is visibly Failed, the message names the endpoint
+      condition, both values, the sample, the expected relation and the source, and no success toast
+      or output curve appears. Repeat from Workflow Builder and confirm the same human-readable text.
+- [ ] **Manual:** run the same invalid endpoint pair as a single-well dialog run, a saved chain and a
+      two-well batch. Then use valid whole-well endpoints with a one-sample named-zone inversion.
+      Compare the four visible refusals character for character, reopen the project and confirm no
+      VSH/VSH_GR curve or misleading successful run remains. Raw database queries may support this
+      review but do not replace the operator-visible Processing and Workflow Builder surfaces.
+- [ ] **Field and harsh critique:** repeat on representative native-depth curves and real zone
+      boundaries. One shared evaluator and a strong synthetic route test prove registered routing,
+      not that every shipping method has every scientifically required condition or that every
+      condition is sourced correctly. A future caller can still bypass the public dispatcher unless
+      its route inventory is maintained, and an identical technical message can still be unusable to
+      an interpreter. Source completeness, UI comprehension and field fitness remain separate work.
+
 ## 2026-08-15 — G2 SB-ENV-001: source-bearing validity conditions survive saved runs
 
 - [ ] **Automated correctness:** one versioned validity manifest snapshots every declared condition

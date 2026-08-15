@@ -1,4 +1,6 @@
 "requirement_id","test_class","test_path","test_name"
+"SB-ENV-002","CORRECTNESS","src-tauri/src/modules.rs","source_bearing_precondition_shapes_refuse_before_computation_while_a_valid_public_run_still_computes"
+"SB-ENV-002","CORRECTNESS","src-tauri/src/chain.rs","dialog_chain_batch_and_zone_override_routes_report_the_identical_precondition_refusal"
 "SB-ENV-001","CORRECTNESS","src-tauri/src/workflow.rs","an_enumeration_validity_condition_survives_the_saved_run_params_json_round_trip"
 "SB-ENV-001","CORRECTNESS","src-tauri/src/workflow.rs","a_per_sample_numeric_range_survives_the_saved_run_with_its_unit_meaning_and_source"
 "SB-ENV-001","CORRECTNESS","src-tauri/src/workflow.rs","branch_specific_ranges_survive_the_saved_run_without_collapsing_to_one_module_range"

@@ -468,7 +468,7 @@ pub(crate) fn run_chain(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db;
+    use crate::{db, jobs, modules};
     use duckdb::params;
     use uuid::Uuid as U;
 
@@ -538,6 +538,211 @@ mod tests {
             },
             source_note: "characterization fixture values declared in this test".into(),
         }
+    }
+
+    fn precondition_custody() -> crate::equations::RunCustody {
+        crate::equations::RunCustody {
+            actor: crate::equations::AncestryActor {
+                kind: crate::equations::AncestryActorKind::Human,
+                identity: "precondition-contract-fixture".into(),
+            },
+            source_note: "SB-ENV-002 correctness fixture; VSH endpoint conditions are sourced by the module manifest"
+                .into(),
+        }
+    }
+
+    fn vsh_request(well_ids: Vec<String>, gr_ma: f64, gr_sh: f64) -> RunModuleRequest {
+        RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids,
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("GR_MA".into(), gr_ma), ("GR_SH".into(), gr_sh)]),
+            opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
+            output_set: None,
+            input_set: None,
+            custody: precondition_custody(),
+        }
+    }
+
+    fn run_with_processing_surface(
+        db: &Mutex<Connection>,
+        request: &RunModuleRequest,
+    ) -> (Vec<workflow::ModuleRunResult>, jobs::JobView) {
+        let registry = jobs::new_registry();
+        let job_id = U::new_v4();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let items = request
+            .well_ids
+            .iter()
+            .map(|well_id| (well_id.clone(), "declared-precondition sample".into()))
+            .collect();
+        let job = jobs::register(
+            &registry,
+            job_id,
+            "Module",
+            request.module.clone(),
+            items,
+            cancel,
+            true,
+        );
+        job.running(request.well_ids.len());
+        let shared_cancel = job.cancel.clone();
+        let results = workflow::run_workflow_module_into(
+            db,
+            request,
+            None,
+            Some(shared_cancel.as_ref()),
+            Some(&job),
+        );
+        job.complete();
+        let view = jobs::list(&registry)
+            .into_iter()
+            .find(|view| view.id == job_id.to_string())
+            .expect("the Processing panel can poll the completed module job");
+        (results, view)
+    }
+
+    fn assert_processing_refusal(
+        results: &[workflow::ModuleRunResult],
+        view: &jobs::JobView,
+        expected: &str,
+    ) {
+        assert!(!results.is_empty(), "the route must report every requested well");
+        for result in results {
+            assert_eq!(result.outcome, workflow::ModuleRunOutcome::Failed);
+            assert_eq!(result.rows_written, 0);
+            assert!(result.output_curves.is_empty(), "a refusal must not claim an output curve");
+            assert_eq!(result.error.as_deref(), Some(expected));
+        }
+        assert_eq!(view.outcome, Some(jobs::JobOutcome::Failed));
+        assert_eq!(view.items.len(), results.len());
+        for item in &view.items {
+            assert_eq!(item.state, jobs::ItemState::Failed);
+            assert_eq!(item.message.as_deref(), Some(expected));
+        }
+    }
+
+    /// CORRECTNESS — `20_envcorr-qc.md` §4.1 SB-ENV-002 and §6.1 SB-ENV-T04.
+    /// The 20/120 gAPI valid pair and the 120/20 invalid pair are already source-backed by the
+    /// shipping `vsh_gr` manifest (`10_clay-volume.md` §3.2-§3.3; Geolog `vsh_gr.info` L48-L49
+    /// and `vsh_gr.lls` L99-L102). The named-zone arm changes only sample zero, so an evaluator
+    /// that checks one scalar before zone resolution—or ignores zone arrays—cannot pass.
+    #[test]
+    fn dialog_chain_batch_and_zone_override_routes_report_the_identical_precondition_refusal() {
+        // Compile-time route inventory: the dialog calls the typed IPC wrapper, the wrapper invokes
+        // the Tauri command, and that command supplies the same Processing handle used below.
+        let dialog_source = include_str!("../../src/ui/moduleDialog.ts");
+        let ipc_source = include_str!("../../src/ipc.ts");
+        let command_source = include_str!("lib.rs");
+        assert!(dialog_source.contains("await runWorkflowModule(req, scope.backend())"));
+        assert!(ipc_source.contains("invoke<ModuleRunResult[]>(\"run_workflow_module\""));
+        assert!(command_source.contains("workflow::run_workflow_module_into("));
+        assert!(command_source.contains("Some(&job.cancel), Some(&job)"));
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let dialog_well = seed_well(&conn);
+        let chain_well = seed_well(&conn);
+        let batch_a = seed_well(&conn);
+        let batch_b = seed_well(&conn);
+        let zoned_well = seed_well(&conn);
+        db::upsert_md_zone(&conn, &zoned_well, "ENDPOINT-INVERSION", 1000.0, 1000.5).unwrap();
+        db::set_zone_param(&conn, &zoned_well, "ENDPOINT-INVERSION", "GR_MA", Some(120.0), None)
+            .unwrap();
+        db::set_zone_param(&conn, &zoned_well, "ENDPOINT-INVERSION", "GR_SH", Some(20.0), None)
+            .unwrap();
+        let database = Mutex::new(conn);
+
+        let direct_context = modules::ModuleContext {
+            n: 1,
+            logs: HashMap::from([("GR".into(), vec![70.0])]),
+            params: HashMap::from([("GR_MA".into(), vec![120.0]), ("GR_SH".into(), vec![20.0])]),
+            opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
+            depth_unit: Default::default(),
+        };
+        let expected = modules::run_module("vsh_gr", &direct_context)
+            .expect_err("the algorithm boundary must refuse inverted endpoints before its body");
+        assert!(expected.contains("vsh_gr.endpoint_order"), "condition id missing: {expected}");
+        assert!(expected.contains("value 120 at sample 0"), "offending sample missing: {expected}");
+        assert!(expected.contains("'GR_SH' value 20"), "comparison value missing: {expected}");
+        assert!(expected.contains("SB-CLY-001"), "condition source missing: {expected}");
+
+        // Dialog/Tauri route: assert both the returned IPC payload and what Processing polls.
+        let (dialog_results, dialog_job) =
+            run_with_processing_surface(&database, &vsh_request(vec![dialog_well], 120.0, 20.0));
+        assert_processing_refusal(&dialog_results, &dialog_job, &expected);
+
+        // Batch route: every well gets the same visible refusal; none is collapsed into summary Ok.
+        let (batch_results, batch_job) = run_with_processing_surface(
+            &database,
+            &vsh_request(vec![batch_a, batch_b], 120.0, 20.0),
+        );
+        assert_processing_refusal(&batch_results, &batch_job, &expected);
+
+        // Zone route: the dialog/base values are valid; only the first sample's named-zone arrays
+        // invert the endpoints. Identical refusal proves validation runs after per-sample resolution.
+        let (zone_results, zone_job) =
+            run_with_processing_surface(&database, &vsh_request(vec![zoned_well], 20.0, 120.0));
+        assert_processing_refusal(&zone_results, &zone_job, &expected);
+
+        // Saved-chain route: assert the chain-specific poll payload and the universal Processing
+        // payload, not merely an internal Result returned by the module dispatcher.
+        let chain_registry = new_registry();
+        let chain_job_id = U::new_v4();
+        let chain_cancel = register(&chain_registry, chain_job_id);
+        let processing_registry = jobs::new_registry();
+        let processing_job_id = U::new_v4();
+        let processing_job = jobs::register(
+            &processing_registry,
+            processing_job_id,
+            "Workflow",
+            "declared precondition",
+            vec![(chain_well.clone(), "declared-precondition sample".into())],
+            chain_cancel.clone(),
+            true,
+        );
+        processing_job.running(1);
+        let invalid_step = ChainStep {
+            module: "vsh_gr".into(),
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("GR_MA".into(), 120.0), ("GR_SH".into(), 20.0)]),
+            opts: HashMap::from([("OPT_GR".into(), "LINEAR".into())]),
+        };
+        run_chain(
+            &database,
+            &chain_registry,
+            chain_job_id,
+            chain_cancel.as_ref(),
+            &[invalid_step],
+            &[chain_well.clone()],
+            None,
+            None,
+            &precondition_custody(),
+            Some(&processing_job),
+        );
+        processing_job.complete();
+        match status(&chain_registry, chain_job_id).expect("the Workflow Builder can poll its job") {
+            ChainStatus::Completed { curves_written, errors, .. } => {
+                assert_eq!(curves_written, 0);
+                assert_eq!(errors.len(), 1);
+                assert_eq!(errors[0], format!("vsh_gr @ {chain_well}: {expected}"));
+            }
+            other => panic!("expected a completed chain carrying the per-well refusal, got {other:?}"),
+        }
+        let chain_processing = jobs::list(&processing_registry)
+            .into_iter()
+            .find(|view| view.id == processing_job_id.to_string())
+            .expect("Processing can poll the completed saved chain");
+        assert_eq!(chain_processing.outcome, Some(jobs::JobOutcome::Failed));
+        assert_eq!(chain_processing.items[0].state, jobs::ItemState::Failed);
+        assert_eq!(chain_processing.items[0].message.as_deref(), Some(expected.as_str()));
+
+        let written: i64 = database
+            .lock()
+            .unwrap()
+            .query_row("SELECT count(*) FROM computed_curves", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(written, 0, "no route may write a curve after the shared refusal");
     }
 
     #[test]
