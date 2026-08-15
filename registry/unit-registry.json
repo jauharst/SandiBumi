@@ -4,7 +4,8 @@
   "custody": [
     "docs/IP_PROVENANCE.md section 2.3 records the independently assembled public-convention mnemonic dictionary",
     "docs/workflow_standards.md section Mnemonic standardization records the project mnemonic subset",
-    "SB-INS-016 and SB-INS-017 accepted the typed unit spellings and exact conversion derivations retained here"
+    "SB-INS-016 and SB-INS-017 accepted the typed unit spellings and exact conversion derivations retained here",
+    "SB-ENV-026 records Geolog G/C3 and k/m3 density spellings and the 1000:1 bridge trap"
   ],
   "quantity_kinds": [
     { "id": "gamma_ray", "rust_variant": "GammaRay" },
@@ -51,8 +52,11 @@
     { "token": "IN", "quantity_kind": "length", "canonical_unit": "in" },
     { "token": "g/cc", "quantity_kind": "bulk_density", "canonical_unit": "g/cc" },
     { "token": "G/CC", "quantity_kind": "bulk_density", "canonical_unit": "g/cc" },
+    { "token": "G/C3", "quantity_kind": "bulk_density", "canonical_unit": "g/cc" },
     { "token": "kg/m3", "quantity_kind": "bulk_density", "canonical_unit": "kg/m3" },
     { "token": "KG/M3", "quantity_kind": "bulk_density", "canonical_unit": "kg/m3" },
+    { "token": "k/m3", "quantity_kind": "bulk_density", "canonical_unit": "kg/m3" },
+    { "token": "K/M3", "quantity_kind": "bulk_density", "canonical_unit": "kg/m3" },
     { "token": "b/e", "quantity_kind": "photoelectric_factor", "canonical_unit": "b/e" },
     { "token": "B/E", "quantity_kind": "photoelectric_factor", "canonical_unit": "b/e" },
     { "token": "v/v", "quantity_kind": "fraction", "canonical_unit": "v/v" },

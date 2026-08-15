@@ -263,6 +263,8 @@ export interface LasImportOptions {
   duplicateDepthPolicy?: "keep-first" | "keep-last" | "mean" | "refuse" | null;
   /** Explicit MS/FT meanings keyed by the exact source path; no entry means refuse. */
   msPerFtMeanings?: Record<string, "microseconds_per_foot" | "millisiemens_per_foot">;
+  /** Explicit unit for DRHO-family channels whose source declaration is absent. */
+  undeclaredDrhoUnit?: "g/cc" | "kg/m3" | null;
   /** Explicit confirmations keyed by source path, consulted only when the container has no identity. */
   confirmedWellNames?: Record<string, string>;
   /** Required set-level declaration; it is never inferred from coincidentally regular depths. */
@@ -282,6 +284,7 @@ export function importLasFiles(paths: string[], opts?: LasImportOptions): Promis
     nonMonotonicIndex: opts?.nonMonotonicIndex ?? null,
     duplicateDepthPolicy: opts?.duplicateDepthPolicy ?? null,
     msPerFtMeanings: opts?.msPerFtMeanings ?? null,
+    undeclaredDrhoUnit: opts?.undeclaredDrhoUnit ?? null,
     confirmedWellNames: opts?.confirmedWellNames ?? null,
     samplingStyle: opts?.samplingStyle ?? null,
     samplingStyleVerifyTolerance: opts?.samplingStyleVerifyTolerance ?? null,
@@ -5243,6 +5246,7 @@ export function importDlisFile(
   setName?: string | null,
   fileDepthUnit?: "M" | "FT" | null,
   msPerFtMeaning?: "microseconds_per_foot" | "millisiemens_per_foot" | null,
+  undeclaredDrhoUnit?: "g/cc" | "kg/m3" | null,
   outsideIntervalDecision?: "accept_outside_declared_interval" | null,
   duplicateDecisions?: DlisDuplicateDecision[] | null,
   lasSentinelExceptions?: string[] | null,
@@ -5254,6 +5258,7 @@ export function importDlisFile(
     setName: setName ?? null,
     fileDepthUnit: fileDepthUnit ?? null,
     msPerFtMeaning: msPerFtMeaning ?? null,
+    undeclaredDrhoUnit: undeclaredDrhoUnit ?? null,
     outsideIntervalDecision: outsideIntervalDecision ?? null,
     duplicateDecisions: duplicateDecisions ?? null,
     lasSentinelExceptions: lasSentinelExceptions ?? null,

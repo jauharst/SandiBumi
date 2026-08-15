@@ -1484,6 +1484,7 @@ export class Ribbon {
           setName,
           choice.fileDepthUnit,
           null,
+          choice.undeclaredDrhoUnit,
           intervalDecision,
           duplicateDecisions,
           choice.lasSentinelExceptions,
@@ -1595,6 +1596,7 @@ export class Ribbon {
   private askDlisSetName(path: string): Promise<{
     setName: string;
     fileDepthUnit: "M" | "FT" | null;
+    undeclaredDrhoUnit: "g/cc" | "kg/m3" | null;
     lasSentinelExceptions: string[];
   } | null> {
     return new Promise((resolve) => {
@@ -1636,6 +1638,26 @@ export class Ribbon {
         ),
       );
 
+      const undeclaredDrhoUnit = document.createElement("select");
+      undeclaredDrhoUnit.className = "form-control";
+      for (const [value, label] of [
+        ["", "Require each DRHO channel to declare it"],
+        ["g/cc", "g/cc (explicit confirmation)"],
+        ["kg/m3", "kg/m³ (explicit confirmation)"],
+      ] as const) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        undeclaredDrhoUnit.appendChild(option);
+      }
+      wrap.appendChild(
+        formRow(
+          "DRHO unit when undeclared",
+          undeclaredDrhoUnit,
+          "Used only for a density-correction channel whose UNITS attribute is absent. Leave empty to refuse it.",
+        ),
+      );
+
       const sentinelExceptions = document.createElement("input");
       sentinelExceptions.type = "text";
       sentinelExceptions.className = "form-control";
@@ -1664,6 +1686,7 @@ export class Ribbon {
       const finish = (v: {
         setName: string;
         fileDepthUnit: "M" | "FT" | null;
+        undeclaredDrhoUnit: "g/cc" | "kg/m3" | null;
         lasSentinelExceptions: string[];
       } | null) => {
         if (settled) return;
@@ -1678,6 +1701,10 @@ export class Ribbon {
         fileDepthUnit: undeclaredUnit.value === "M" || undeclaredUnit.value === "FT"
           ? undeclaredUnit.value
           : null,
+        undeclaredDrhoUnit:
+          undeclaredDrhoUnit.value === "g/cc" || undeclaredDrhoUnit.value === "kg/m3"
+            ? undeclaredDrhoUnit.value
+            : null,
         lasSentinelExceptions: sentinelExceptions.value
           .split(",")
           .map((name) => name.trim())

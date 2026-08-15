@@ -896,6 +896,7 @@ pub fn import_dlis_file(
         confirmed_file_unit,
         None,
         None,
+        None,
         &[],
         &[],
         &[],
@@ -909,6 +910,7 @@ pub fn import_dlis_file_with_unit_designation(
     set_name: Option<&str>,
     confirmed_file_unit: Option<&str>,
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+    undeclared_drho_unit: Option<&str>,
     outside_interval_decision: Option<DlisOutsideIntervalDecision>,
     duplicate_decisions: &[DlisDuplicateDecision],
     las_sentinel_exceptions: &[String],
@@ -1118,7 +1120,7 @@ pub fn import_dlis_file_with_unit_designation(
             mapping.source_well, mapping.logical_files, mapping.target_well_name
         )
     }));
-    let unit_designations: Vec<crate::curves::UnitDesignation> = ms_per_ft_meaning
+    let mut unit_designations: Vec<crate::curves::UnitDesignation> = ms_per_ft_meaning
         .map(|meaning| {
             ambiguous
                 .iter()
@@ -1175,7 +1177,48 @@ pub fn import_dlis_file_with_unit_designation(
             las_sentinel_exceptions,
         ));
 
-        let mut unit = if meta.unit.trim().is_empty() { None } else { Some(meta.unit.clone()) };
+        let source_unit_missing = crate::curves::unit_token_state(Some(&meta.unit))
+            == crate::curves::UnitTokenState::MissingUnit;
+        let mut unit = if source_unit_missing { None } else { Some(meta.unit.clone()) };
+        if source_unit_missing
+            && crate::curves::family_for(&meta.mnemonic)
+                .is_some_and(|family| family.family == "DRHO")
+        {
+            let stated = match undeclared_drho_unit.map(str::trim).filter(|value| !value.is_empty()) {
+                Some(value) => value,
+                None => {
+                    return failed(
+                        path,
+                        format!(
+                            "DRHO-family curve {} has no declared unit; state g/cc or kg/m3 before import",
+                            meta.mnemonic
+                        ),
+                        skipped,
+                    )
+                }
+            };
+            let Some(token) = crate::curves::resolve_unit_token(stated) else {
+                return failed(
+                    path,
+                    format!(
+                        "DRHO-family curve {} has unsupported stated unit '{stated}'; state g/cc or kg/m3",
+                        meta.mnemonic
+                    ),
+                    skipped,
+                );
+            };
+            if !matches!(token.canonical_unit, "g/cc" | "kg/m3") {
+                return failed(
+                    path,
+                    format!(
+                        "DRHO-family curve {} has incompatible stated unit '{stated}'; state g/cc or kg/m3",
+                        meta.mnemonic
+                    ),
+                    skipped,
+                );
+            }
+            unit = Some(token.canonical_unit.to_string());
+        }
         let resolved_ms_per_ft = crate::curves::is_ms_per_ft(Some(&meta.unit));
         let (fam, rejected_alias) = if resolved_ms_per_ft {
             match ms_per_ft_meaning.expect("ambiguity checked before writes") {
@@ -1188,7 +1231,7 @@ pub fn import_dlis_file_with_unit_designation(
                 crate::curves::MsPerFtMeaning::MillisiemensPerFoot => (None, None),
             }
         } else {
-            crate::curves::family_for_import(&meta.mnemonic, Some(&meta.unit))
+            crate::curves::family_for_import(&meta.mnemonic, unit.as_deref())
         };
         let family = fam.map(|f| f.family);
         if let Some(rejected) = rejected_alias {
@@ -1219,6 +1262,17 @@ pub fn import_dlis_file_with_unit_designation(
         {
             notes.push(unconverted.note());
             unconverted_units.push(unconverted);
+        }
+        if source_unit_missing && family == Some("DRHO") {
+            let designation = crate::curves::UnitDesignation {
+                curve: meta.mnemonic.clone(),
+                declared_unit: "ABSENT".to_string(),
+                meaning: "explicit_density_correction_unit".to_string(),
+                recorded_unit: unit.clone().unwrap_or_default(),
+                family: Some("DRHO".to_string()),
+            };
+            notes.push(designation.note());
+            unit_designations.push(designation);
         }
         // Give DLIS frames their own run numbering (frame 0 → run 0). The old frame-0 → NULL
         // mapping collided with LAS RAW curves (also run_no NULL), so a DLIS silently

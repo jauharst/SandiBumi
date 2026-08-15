@@ -883,13 +883,13 @@ test("every_shipped_unit_limit_row_is_source_owned_and_dimensionally_screened_wh
   assert.equal(Math.round(attenuation.divergenceFactor * 100) / 100, 6.56);
   assert.match(attenuation.reason, /disabled.*exceeds the cited 15% screen/u);
 
-  const unknown = auditedFamilyDisplayDecision({ mnemonic: "RHOB", display_unit: "g/c3" });
+  const unknown = auditedFamilyDisplayDecision({ mnemonic: "RHOB", display_unit: "lb/ft3" });
   assert.equal(unknown.enabled, false);
   assert.equal(unknown.range, null);
   assert.match(unknown.reason, /disabled.*no audited unit-limit row/u);
 
   const fallback = resolveBoundAxisRange({
-    binding: { resolved: [{ mnemonic: "RHOB", display_unit: "g/c3" }] },
+    binding: { resolved: [{ mnemonic: "RHOB", display_unit: "lb/ft3" }] },
     user: null,
     finiteData: { min: 2.1, max: 2.8 },
     validity: null,

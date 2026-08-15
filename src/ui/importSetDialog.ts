@@ -68,6 +68,7 @@ export interface ImportSetChoice extends LasImportOptions {
   setName: string;
   attach: boolean;
   fileDepthUnit: "M" | "FT" | null;
+  undeclaredDrhoUnit: "g/cc" | "kg/m3" | null;
   samplingStyle: "CONTINUOUS_REGULAR" | "CONTINUOUS_IRREGULAR";
   samplingStyleVerifyTolerance: { value: number; unit: "M" | "FT" } | null;
   confirmedWellNames: Record<string, string>;
@@ -257,6 +258,26 @@ export function openImportSetDialog(
       ),
     );
 
+    const undeclaredDrhoUnit = document.createElement("select");
+    undeclaredDrhoUnit.className = "form-control";
+    for (const [value, label] of [
+      ["", "Require each DRHO curve to declare it"],
+      ["g/cc", "g/cc (explicit confirmation)"],
+      ["kg/m3", "kg/m³ (explicit confirmation)"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      undeclaredDrhoUnit.appendChild(option);
+    }
+    wrap.appendChild(
+      formRow(
+        "DRHO unit when undeclared",
+        undeclaredDrhoUnit,
+        "Used only for a density-correction channel whose source unit is absent. Leave empty to refuse it; a mnemonic is not a unit declaration.",
+      ),
+    );
+
     const vocabulary = document.createElement("details");
     vocabulary.className = "import-unit-registry";
     const vocabularySummary = document.createElement("summary");
@@ -352,6 +373,10 @@ export function openImportSetDialog(
         fileDepthUnit: undeclaredUnit.value === "M" || undeclaredUnit.value === "FT"
           ? undeclaredUnit.value
           : null,
+        undeclaredDrhoUnit:
+          undeclaredDrhoUnit.value === "g/cc" || undeclaredDrhoUnit.value === "kg/m3"
+            ? undeclaredDrhoUnit.value
+            : null,
         samplingStyle: samplingStyle.value,
         samplingStyleVerifyTolerance: tolerance,
         confirmedWellNames,

@@ -79,6 +79,10 @@ pub struct LasImportOptions {
     /// Explicit answers keyed by the exact source path; absent is deliberately not a default.
     #[serde(default, alias = "msPerFtMeanings")]
     pub ms_per_ft_meanings: std::collections::HashMap<String, crate::curves::MsPerFtMeaning>,
+    /// Explicit density-correction unit used only when a DRHO-family source channel declares
+    /// none. Absence remains a refusal; this is a user statement, never a mnemonic-based default.
+    #[serde(default, alias = "undeclaredDrhoUnit")]
+    pub undeclared_drho_unit: Option<String>,
     /// Explicit well-name confirmations keyed by exact source path. The map is consulted only
     /// when the LAS container has no `WELL` identity; a container value always wins.
     #[serde(default, alias = "confirmedWellNames")]
@@ -107,6 +111,7 @@ impl Default for LasImportOptions {
             non_monotonic_index: None,
             duplicate_depth_policy: None,
             ms_per_ft_meanings: Default::default(),
+            undeclared_drho_unit: None,
             confirmed_well_names: Default::default(),
             sampling_style: Some(crate::schema_vocab::SamplingStyle::ContinuousIrregular),
             sampling_style_verify_tolerance: None,
@@ -441,7 +446,7 @@ fn insert_parsed_well(
     let index_resolution = columns.index_resolution.clone();
     let section_policy = columns.section_policy.clone();
     let section_handling = columns.section_handling.clone();
-    let unit_designations = columns.unit_designations.clone();
+    let mut unit_designations = columns.unit_designations.clone();
     let las_version = columns.las_version.clone();
     let unread_sections = columns.unread_sections.clone();
     let text_encoding = columns.text_encoding.clone();
@@ -841,6 +846,7 @@ fn insert_parsed_well(
         &generic_depth,
         &generic_curves,
         opts.ms_per_ft_meanings.get(&path).copied(),
+        opts.undeclared_drho_unit.as_deref(),
     ) {
         Ok(prepared) => prepared,
         Err(error) => {
@@ -867,6 +873,7 @@ fn insert_parsed_well(
             };
         }
     };
+    unit_designations.extend(prepared.unit_designations.iter().cloned());
     let result: db::DbResult<()> = db::with_txn(conn, |conn| {
         db::insert_well(conn, well_id, &well_name, None, None, None)?;
         // Record the unit the stored depths are actually in, alongside the data itself so
@@ -943,7 +950,7 @@ fn attach_curves_to_existing_well(
     section_policy: String,
     section_handling: Vec<parsers::LasSectionHandling>,
     well_headers: Vec<parsers::LasWellHeader>,
-    unit_designations: Vec<crate::curves::UnitDesignation>,
+    mut unit_designations: Vec<crate::curves::UnitDesignation>,
     unit_tokens: Vec<crate::curves::UnitTokenObservation>,
     unit_token_warnings: Vec<String>,
     text_encoding: String,
@@ -960,6 +967,7 @@ fn attach_curves_to_existing_well(
         curves,
         &set,
         ms_per_ft_meaning,
+        opts.undeclared_drho_unit.as_deref(),
         Some(sampling_verdict),
     ) {
         // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
@@ -969,6 +977,7 @@ fn attach_curves_to_existing_well(
             let mut notes = notes;
             notes.extend(report.unit_conversions.iter().map(crate::curves::UnitConversion::note));
             notes.extend(report.unconverted_units.iter().map(crate::curves::UnconvertedUnit::note));
+            unit_designations.extend(report.unit_designations.iter().cloned());
             ImportResult {
                 path,
                 well_id: Some(well_id.to_string()),
@@ -1037,6 +1046,7 @@ pub fn import_all_curves_into_generic_store(
         set_name,
         None,
         None,
+        None,
     )
     .map(|report| (report.curves_written, report.rows))
 }
@@ -1046,6 +1056,7 @@ struct GenericCurveImportReport {
     rows: usize,
     unit_conversions: Vec<crate::curves::UnitConversion>,
     unconverted_units: Vec<crate::curves::UnconvertedUnit>,
+    unit_designations: Vec<crate::curves::UnitDesignation>,
 }
 
 struct PreparedGenericCurve {
@@ -1059,6 +1070,7 @@ struct PreparedGenericImport {
     curves: Vec<PreparedGenericCurve>,
     unit_conversions: Vec<crate::curves::UnitConversion>,
     unconverted_units: Vec<crate::curves::UnconvertedUnit>,
+    unit_designations: Vec<crate::curves::UnitDesignation>,
 }
 
 fn import_parsed_curves_into_generic_store(
@@ -1068,6 +1080,7 @@ fn import_parsed_curves_into_generic_store(
     curves: &[parsers::RawLasCurve],
     set_name: &str,
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+    undeclared_drho_unit: Option<&str>,
     sampling_verdict: Option<&ImportSetSamplingVerdict>,
 ) -> db::DbResult<GenericCurveImportReport> {
     // `depth` and `curves` came from the same primary parse and passed one shared unit,
@@ -1080,10 +1093,16 @@ fn import_parsed_curves_into_generic_store(
             rows: 0,
             unit_conversions: Vec::new(),
             unconverted_units: Vec::new(),
+            unit_designations: Vec::new(),
         });
     }
 
-    let prepared = prepare_generic_curves(depth, curves, ms_per_ft_meaning)?;
+    let prepared = prepare_generic_curves(
+        depth,
+        curves,
+        ms_per_ft_meaning,
+        undeclared_drho_unit,
+    )?;
     db::with_txn(conn, |conn| {
         if let Some(verdict) = sampling_verdict {
             record_import_set_sampling(conn, well_id, set_name, verdict)?;
@@ -1095,6 +1114,7 @@ fn import_parsed_curves_into_generic_store(
         rows: depth.len(),
         unit_conversions: prepared.unit_conversions,
         unconverted_units: prepared.unconverted_units,
+        unit_designations: prepared.unit_designations,
     })
 }
 
@@ -1102,20 +1122,49 @@ fn prepare_generic_curves(
     depth: &[f32],
     curves: &[parsers::RawLasCurve],
     ms_per_ft_meaning: Option<crate::curves::MsPerFtMeaning>,
+    undeclared_drho_unit: Option<&str>,
 ) -> db::DbResult<PreparedGenericImport> {
     let mut prepared = Vec::with_capacity(curves.len());
     let mut unit_conversions = Vec::new();
     let mut unconverted_units = Vec::new();
+    let mut unit_designations = Vec::new();
     for raw in curves {
         let mut values = raw.values.clone();
         // Align to the depth column length (defensive: malformed files can short a column).
         if values.len() != depth.len() {
             values.resize(depth.len(), f32::NAN);
         }
+        let source_unit_missing =
+            crate::curves::unit_token_state(raw.unit.as_deref())
+                == crate::curves::UnitTokenState::MissingUnit;
         let mut unit = match crate::curves::unit_token_state(raw.unit.as_deref()) {
             crate::curves::UnitTokenState::MissingUnit => None,
             _ => raw.unit.clone(),
         };
+        if source_unit_missing
+            && crate::curves::family_for(&raw.mnemonic)
+                .is_some_and(|family| family.family == "DRHO")
+        {
+            let stated = undeclared_drho_unit.map(str::trim).filter(|value| !value.is_empty()).ok_or_else(|| {
+                db::DbError::LengthMismatch(format!(
+                    "DRHO-family curve {} has no declared unit; state g/cc or kg/m3 before import",
+                    raw.mnemonic
+                ))
+            })?;
+            let token = crate::curves::resolve_unit_token(stated).ok_or_else(|| {
+                db::DbError::LengthMismatch(format!(
+                    "DRHO-family curve {} has unsupported stated unit '{stated}'; state g/cc or kg/m3",
+                    raw.mnemonic
+                ))
+            })?;
+            if !matches!(token.canonical_unit, "g/cc" | "kg/m3") {
+                return Err(db::DbError::LengthMismatch(format!(
+                    "DRHO-family curve {} has incompatible stated unit '{stated}'; state g/cc or kg/m3",
+                    raw.mnemonic
+                )));
+            }
+            unit = Some(token.canonical_unit.to_string());
+        }
         let resolved_ms_per_ft = crate::curves::is_ms_per_ft(unit.as_deref());
         let (fam, rejected_alias) = if resolved_ms_per_ft {
             let meaning = ms_per_ft_meaning.ok_or_else(|| {
@@ -1169,11 +1218,24 @@ fn prepare_generic_curves(
             family,
             values,
         });
+        if source_unit_missing && family == Some("DRHO") {
+            unit_designations.push(crate::curves::UnitDesignation {
+                curve: raw.mnemonic.clone(),
+                declared_unit: "ABSENT".to_string(),
+                meaning: "explicit_density_correction_unit".to_string(),
+                recorded_unit: prepared
+                    .last()
+                    .and_then(|curve| curve.unit.clone())
+                    .unwrap_or_default(),
+                family: Some("DRHO".to_string()),
+            });
+        }
     }
     Ok(PreparedGenericImport {
         curves: prepared,
         unit_conversions,
         unconverted_units,
+        unit_designations,
     })
 }
 
@@ -2901,7 +2963,7 @@ mod tests {
                 && token["quantity_kind"].is_null()
         }));
 
-        let prepared = prepare_generic_curves(&[1000.0], &raw, None).unwrap();
+        let prepared = prepare_generic_curves(&[1000.0], &raw, None, None).unwrap();
         assert!(
             prepared.curves.iter().all(|curve| curve.unit.is_none()),
             "the storage boundary must receive one absent unit, never a placeholder"

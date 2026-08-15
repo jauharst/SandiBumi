@@ -2,8 +2,8 @@
 # Canonical curve and unit registry
 
 - Registry version: `curve-units-v1`
-- Source SHA-256: `53dd83a4e7396dd8526e967bd5da10e95db7e134b566b80a7b44b2f2d2ef84e1`
-- Population: 15 families, 101 aliases, 42 unit tokens, 10 conversion rules
+- Source SHA-256: `28f8a5e5ccbbf8ac4c2e8cdfd0d12928c54c13229e161cb15daecf83897f3443`
+- Population: 15 families, 101 aliases, 45 unit tokens, 10 conversion rules
 
 ## Families
 
@@ -42,8 +42,11 @@
 | `IN` | `length` | `in` |
 | `g/cc` | `bulk_density` | `g/cc` |
 | `G/CC` | `bulk_density` | `g/cc` |
+| `G/C3` | `bulk_density` | `g/cc` |
 | `kg/m3` | `bulk_density` | `kg/m3` |
 | `KG/M3` | `bulk_density` | `kg/m3` |
+| `k/m3` | `bulk_density` | `kg/m3` |
+| `K/M3` | `bulk_density` | `kg/m3` |
 | `b/e` | `photoelectric_factor` | `b/e` |
 | `B/E` | `photoelectric_factor` | `b/e` |
 | `v/v` | `fraction` | `v/v` |

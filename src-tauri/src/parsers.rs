@@ -659,6 +659,21 @@ fn las_version_is_3(version: Option<&str>) -> bool {
     version.and_then(|value| value.trim().parse::<f32>().ok()) == Some(3.0)
 }
 
+/// Read the unit field from a LAS curve declaration without treating the
+/// description delimiter as a unit when the field is deliberately empty.
+fn parse_las_curve_unit(trimmed: &str) -> Option<String> {
+    let (_, rest) = trimmed.split_once('.')?;
+    let unit_field = rest.split_once(':').map_or(rest, |(before_description, _)| {
+        before_description
+    });
+    unit_field
+        .split_whitespace()
+        .next()
+        .map(str::trim)
+        .filter(|unit| !unit.is_empty())
+        .map(str::to_string)
+}
+
 fn numeric_las_version_is_declared(version: Option<&str>) -> bool {
     version
         .and_then(|value| value.trim().parse::<f32>().ok())
@@ -990,13 +1005,7 @@ pub fn parse_las_2_with_unit_designation<P: AsRef<Path>>(
                     curve_names.push(mnem.trim().to_uppercase());
                     // Same extraction as parse_las_2_all, kept parallel to curve_names so
                     // the index column's unit can be read once the depth column resolves.
-                    curve_units.push(
-                        trimmed
-                            .split_once('.')
-                            .and_then(|(_, rest)| rest.split_whitespace().next())
-                            .map(|u| u.trim().to_string())
-                            .filter(|u| !u.is_empty()),
-                    );
+                    curve_units.push(parse_las_curve_unit(trimmed));
                 }
             }
             LasSection::AsciiData => {
@@ -1621,11 +1630,7 @@ pub fn parse_las_2_all_with_null_rules<P: AsRef<Path>>(
                 if mnem.is_empty() {
                     continue;
                 }
-                let unit = trimmed
-                    .split_once('.')
-                    .and_then(|(_, rest)| rest.split_whitespace().next())
-                    .map(|u| u.trim().to_string())
-                    .filter(|u| !u.is_empty());
+                let unit = parse_las_curve_unit(trimmed);
                 curve_names.push(mnem);
                 curve_units.push(unit);
             }

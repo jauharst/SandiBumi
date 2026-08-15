@@ -5,7 +5,7 @@
 use crate::db;
 use crate::equations;
 use crate::modules::{self, ArgKind, ModuleContext};
-use duckdb::Connection;
+use duckdb::{Connection, OptionalExt};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -1019,6 +1019,106 @@ fn validity_input_arguments(spec: &modules::ModuleSpec) -> HashSet<String> {
     names
 }
 
+/// Unit metadata for the curve source the value resolver will actually use. This mirrors the
+/// resolver's source order without moving unit decisions into a scientific module: selected
+/// import set, selected/own computed set, current computed curve, then the deterministic generic
+/// curve decision. A row carrying NULL is a found curve with missing metadata and must not fall
+/// through to a different curve whose unit happens to be populated.
+fn resolved_module_input_unit(
+    conn: &Connection,
+    well_id: &str,
+    mnemonic: &str,
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let upper = mnemonic.trim().to_uppercase();
+
+    if let Some(set_name) = input_set.map(str::trim).filter(|value| !value.is_empty()) {
+        let computed_set: Option<String> = conn
+            .query_row(
+                "SELECT set_id FROM log_sets WHERE well_id = ?1 AND upper(set_name) = upper(?2) \
+                 ORDER BY version DESC LIMIT 1",
+                duckdb::params![well_id, set_name],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("cannot resolve input set '{set_name}' unit: {error}"))?;
+        if let Some(set_id) = computed_set {
+            let present: Option<i32> = conn
+                .query_row(
+                    "SELECT 1 FROM computed_curves_archive \
+                     WHERE set_id = ?1 AND upper(curve_name) = ?2 LIMIT 1",
+                    duckdb::params![set_id, upper],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| format!("cannot inspect selected input-set unit: {error}"))?;
+            if present.is_some() {
+                return Ok(crate::db::curve_unit_for(conn, well_id, &upper));
+            }
+        } else {
+            let imported: Option<Option<String>> = conn
+                .query_row(
+                    "SELECT unit FROM curve_meta \
+                     WHERE well_id = ?1 AND upper(set_name) = upper(?2) AND upper(mnemonic) = ?3 \
+                     ORDER BY modified_seq DESC NULLS LAST, curve_id LIMIT 1",
+                    duckdb::params![well_id, set_name, upper],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| format!("cannot resolve selected import-set unit: {error}"))?;
+            if let Some(unit) = imported {
+                return Ok(unit);
+            }
+        }
+    }
+
+    if let Some(own_set_id) = own_set_id {
+        let present: Option<i32> = conn
+            .query_row(
+                "SELECT 1 FROM computed_curves_archive \
+                 WHERE set_id = ?1 AND upper(curve_name) = ?2 LIMIT 1",
+                duckdb::params![own_set_id, upper],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("cannot inspect current chain-set unit: {error}"))?;
+        if present.is_some() {
+            return Ok(crate::db::curve_unit_for(conn, well_id, &upper));
+        }
+    }
+
+    let current_computed: Option<i32> = conn
+        .query_row(
+            "SELECT 1 FROM computed_curves c \
+             JOIN standard_curves s ON s.well_id = c.well_id AND s.depth = c.depth \
+             WHERE c.well_id = ?1 AND upper(c.curve_name) = ?2 AND isfinite(c.value) LIMIT 1",
+            duckdb::params![well_id, upper],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("cannot inspect current computed-curve unit: {error}"))?;
+    if current_computed.is_some() {
+        return Ok(crate::db::curve_unit_for(conn, well_id, &upper));
+    }
+
+    let generic: Option<Option<String>> = conn
+        .query_row(
+            "SELECT unit FROM curve_meta \
+             WHERE well_id = ?1 AND (upper(mnemonic) = ?2 OR upper(family) = ?2) \
+             ORDER BY (set_name = 'RAW') DESC, \
+                      (upper(mnemonic) = ?2) DESC, \
+                      (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC, \
+                      COALESCE(final_flag, 0) DESC, \
+                      modified_seq DESC NULLS LAST, curve_id LIMIT 1",
+            duckdb::params![well_id, upper],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("cannot resolve imported curve unit: {error}"))?;
+    Ok(generic.flatten())
+}
+
 /// Resolve the selected input mnemonics into manifest argument names using the same input-set,
 /// native-curve and computed-only rules as a real module run. This is shared with the dialog
 /// preflight so “available before run” cannot be answered by a cheaper but different resolver.
@@ -1029,7 +1129,7 @@ fn fetch_module_input_logs(
     log_args: &[(String, String)],
     input_set: Option<&str>,
     own_set_id: Option<&str>,
-) -> Result<(Vec<f32>, HashMap<String, Vec<f32>>), String> {
+) -> Result<(Vec<f32>, HashMap<String, Vec<f32>>, HashMap<String, String>), String> {
     let curve_names: Vec<String> = log_args.iter().map(|(_, mnemonic)| mnemonic.clone()).collect();
     let (depth, columns) = equations::fetch_curve_frame_from_set(
         conn,
@@ -1041,6 +1141,7 @@ fn fetch_module_input_logs(
     .map_err(|error| error.to_string())?;
 
     let mut logs = HashMap::new();
+    let mut units = HashMap::new();
     logs.insert("DEPTH".to_string(), depth.clone());
     for (argument, mnemonic) in log_args {
         let values = columns
@@ -1048,6 +1149,11 @@ fn fetch_module_input_logs(
             .cloned()
             .unwrap_or_else(|| vec![f32::NAN; depth.len()]);
         logs.insert(argument.clone(), values);
+        if let Some(unit) =
+            resolved_module_input_unit(conn, well_id, mnemonic, input_set, own_set_id)?
+        {
+            units.insert(argument.clone(), unit);
+        }
     }
 
     // A raw curve with a familiar mnemonic is not proof that a computed-only input exists. Keep
@@ -1073,7 +1179,7 @@ fn fetch_module_input_logs(
         .map_err(|error| error.to_string())?;
         logs.insert(argument.name.clone(), values);
     }
-    Ok((depth, logs))
+    Ok((depth, logs, units))
 }
 
 /// Read-only preflight for the module dialog. Only argument names and availability booleans leave
@@ -1102,7 +1208,7 @@ pub fn module_input_availability(
             .map_err(|_| "database busy".to_string())
             .and_then(|conn| fetch_module_input_logs(&conn, well_id, &spec, &log_args, input_set, None));
         match resolved {
-            Ok((_, logs)) => {
+            Ok((_, logs, _)) => {
                 let available_arguments = log_args
                     .iter()
                     .filter_map(|(argument, _)| {
@@ -1312,9 +1418,9 @@ fn run_workflow_module_into_with_parameter_serializer(
             > {
                 // A chain's own set event: its earlier steps' outputs beat the input set.
                 let own_set = preset_sets.and_then(|m| m.get(well_id.as_str())).map(|s| s.as_str());
-                let (depth, mut logs, params, defaulted_parameters) = {
+                let (depth, mut logs, input_units, params, defaulted_parameters) = {
                     let conn = db.lock().unwrap();
-                    let (depth, logs) = fetch_module_input_logs(
+                    let (depth, logs, input_units) = fetch_module_input_logs(
                         &conn,
                         well_id,
                         &spec,
@@ -1333,7 +1439,7 @@ fn run_workflow_module_into_with_parameter_serializer(
                         &req.params,
                         &depth,
                     )?;
-                    (depth, logs, params, defaulted_parameters)
+                    (depth, logs, input_units, params, defaulted_parameters)
                 };
 
                 // Optional bad-hole (or any flag) mask. Resolve it BEFORE the module runs so
@@ -1378,6 +1484,12 @@ fn run_workflow_module_into_with_parameter_serializer(
                 // curves. Set only where the well has any, so a project that has never run a
                 // clustering carries no extra key and behaves exactly as before.
                 let mut well_opts = opts.clone();
+                for (argument, unit) in input_units {
+                    well_opts.insert(
+                        format!("{}{}", modules::INPUT_UNIT_OPT_PREFIX, argument),
+                        unit,
+                    );
+                }
                 if let Some(cls) = class_by_well.get(well_id) {
                     well_opts.insert(modules::CLASS_CURVES_OPT.to_string(), cls.clone());
                 }
@@ -2585,6 +2697,152 @@ mod tests {
     use crate::ingest;
     use sha2::{Digest, Sha256};
     use std::collections::HashMap;
+
+    /// CORRECTNESS - SB-ENV-026 / SB-ENV-T35. The declaration requirement, both mismatch
+    /// directions and 0.1 g/cc = 100 kg/m3 come from `docs/PRD_v2/20_envcorr-qc.md`
+    /// sections 4.3, 5.2 and 6.3. The 0.05 and 0.2 g/cc controls are derived as one half
+    /// and two times that cited threshold; together they prove a matching declaration still
+    /// reaches the specified comparison without depending on decimal equality after f32 storage.
+    #[test]
+    fn a_drho_unit_is_required_on_import_and_both_threshold_unit_mismatch_directions_refuse_before_flagging() {
+        assert_eq!(
+            crate::curves::resolve_unit_token("G/C3").map(|token| token.canonical_unit),
+            Some("g/cc"),
+            "the chapter-cited Geolog G/C3 spelling must resolve to g/cc"
+        );
+        assert_eq!(
+            crate::curves::resolve_unit_token("k/m3").map(|token| token.canonical_unit),
+            Some("kg/m3"),
+            "the chapter-cited Geolog k/m3 spelling must resolve to kg/m3"
+        );
+        let las_path = std::env::temp_dir().join(format!(
+            "sandibumi-env026-{}-{}.las",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(
+            &las_path,
+            "~VERSION\nVERS. 2.0 :\n~WELL\nWELL. DRHO-UNIT-DECLARATION :\n\
+             ~CURVE\nDEPT.M : depth\nDRHO. : density correction\n\
+             ~ASCII\n1000.0 100.0\n1000.5 200.0\n",
+        )
+        .unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let path = las_path.to_string_lossy().into_owned();
+        let absent = ingest::import_las_files_with(
+            &conn,
+            std::slice::from_ref(&path),
+            None,
+            &ingest::LasImportOptions::default(),
+        )
+        .remove(0);
+        assert!(
+            absent.error.as_deref().unwrap_or("").contains("DRHO")
+                && absent.error.as_deref().unwrap_or("").contains("unit"),
+            "an undeclared DRHO unit must request a declaration, got {:?}",
+            absent.error
+        );
+        let well_count: i64 = conn.query_row("SELECT count(*) FROM wells", [], |row| row.get(0)).unwrap();
+        assert_eq!(well_count, 0, "the refused delivery must not leave a partial well");
+
+        let imported = ingest::import_las_files_with(
+            &conn,
+            std::slice::from_ref(&path),
+            None,
+            &ingest::LasImportOptions {
+                undeclared_drho_unit: Some("kg/m3".into()),
+                ..Default::default()
+            },
+        )
+        .remove(0);
+        std::fs::remove_file(&las_path).ok();
+        assert!(imported.error.is_none(), "an explicit cited unit must import: {:?}", imported.error);
+        let imported_well = imported.well_id.expect("the explicit declaration creates the well");
+        let (stored_unit, first_value): (Option<String>, f32) = conn
+            .query_row(
+                "SELECT m.unit, s.value FROM curve_meta m JOIN curve_samples s USING (curve_id) \
+                 WHERE m.well_id = ?1 AND upper(m.mnemonic) = 'DRHO' ORDER BY s.depth LIMIT 1",
+                duckdb::params![imported_well],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored_unit.as_deref(), Some("g/cc"), "the declared metric source is persisted canonically");
+        assert!((first_value - 0.1).abs() < 1e-6, "100 kg/m3 must become 0.1 g/cc, got {first_value}");
+
+        let add_well = |unit: Option<&str>, values: &[f32]| -> String {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, "DRHO-THRESHOLD-UNIT", None, None, Some(0.0)).unwrap();
+            let depth = vec![1000.0, 1000.5];
+            db::insert_standard_curves(
+                &conn,
+                id,
+                depth.clone(),
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+                vec![f32::NAN; 2],
+            )
+            .unwrap();
+            let well = id.to_string();
+            let curve = db::upsert_curve_meta(
+                &conn,
+                &well,
+                "RAW",
+                "DRHO",
+                unit,
+                Some("DRHO"),
+                Some("synthetic unit-contract fixture"),
+                None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &curve, &depth, values).unwrap();
+            well
+        };
+        let kg_curve = add_well(Some("kg/m3"), &[100.0, 200.0]);
+        let gcc_curve = add_well(Some("g/cc"), &[0.05, 0.2]);
+        let missing_curve = add_well(None, &[0.05, 0.2]);
+        let dbm = Mutex::new(conn);
+        let run = |well: &str, threshold_unit: &str| {
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "badhole".into(),
+                    well_ids: vec![well.to_string()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::from([
+                        ("DRHO_MAX".into(), 0.1),
+                        ("DCAL_MAX".into(), 2.0),
+                    ]),
+                    opts: HashMap::from([("DRHO_MAX_UNIT".into(), threshold_unit.into())]),
+                    output_set: None,
+                    input_set: None,
+                    custody: test_run_custody(),
+                },
+            )
+            .remove(0)
+        };
+
+        let kg_vs_gcc = run(&kg_curve, "g/cc");
+        let message = kg_vs_gcc.error.as_deref().unwrap_or("");
+        assert!(message.contains("kg/m3") && message.contains("g/cc") && message.contains("mismatch"), "{message}");
+
+        let gcc_vs_kg = run(&gcc_curve, "kg/m3");
+        let message = gcc_vs_kg.error.as_deref().unwrap_or("");
+        assert!(message.contains("g/cc") && message.contains("kg/m3") && message.contains("mismatch"), "{message}");
+
+        let missing = run(&missing_curve, "g/cc");
+        let message = missing.error.as_deref().unwrap_or("");
+        assert!(message.contains("DRHO") && message.contains("unit") && message.contains("missing"), "{message}");
+
+        let matching = run(&gcc_curve, "g/cc");
+        assert!(matching.error.is_none(), "matching units must run: {:?}", matching.error);
+        let conn = dbm.lock().unwrap();
+        let (_, columns) = equations::fetch_curve_frame(&conn, &gcc_curve, &["BADHOLE".into()]).unwrap();
+        assert_eq!(columns["BADHOLE"], vec![0.0, 1.0], "strict cited threshold comparison must still execute");
+    }
 
     /// CORRECTNESS - SB-DBM-013 / SB-DBM-T13. The expected atomic refusal, Failed well
     /// state and configuration inventory come from `docs/PRD_v2/22_database-model.md`
@@ -4327,7 +4585,7 @@ mod tests {
         let r = run(
             "badhole",
             &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0), ("BS_INPUT", 6.0)],
-            &[],
+            &[("DRHO_MAX_UNIT", "g/cc")],
         );
         assert!(r[0].error.is_none(), "badhole: {:?}", r[0].error);
         {

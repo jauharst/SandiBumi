@@ -553,6 +553,7 @@ pub struct ModuleContext {
 /// and a new typed field would have to be threaded through all forty-odd context constructions to
 /// say nothing in most of them.
 pub(crate) const CLASS_CURVES_OPT: &str = "__CLASS_CURVES";
+pub(crate) const INPUT_UNIT_OPT_PREFIX: &str = "__UNIT_";
 
 impl ModuleContext {
     /// Whether the curve named by log argument `arg` was DECLARED a class curve.
@@ -586,6 +587,16 @@ impl ModuleContext {
     /// rather than a compile error.
     pub(crate) fn in_curve(&self, arg: &str) -> String {
         self.o(&format!("__IN_{arg}")).trim().to_uppercase()
+    }
+
+    /// Declared unit of the concrete curve resolved for one input argument. The workflow owns
+    /// source precedence because it owns the database connection; the module owns whether that
+    /// declaration is mandatory for its arithmetic.
+    pub(crate) fn input_unit(&self, arg: &str) -> &str {
+        self.opts
+            .get(&format!("{INPUT_UNIT_OPT_PREFIX}{arg}"))
+            .map(String::as_str)
+            .unwrap_or("")
     }
 
     pub(crate) fn log(&self, name: &str) -> Vec<f32> {
@@ -1307,6 +1318,9 @@ fn validate_declared_preconditions(spec: &ModuleSpec, ctx: &ModuleContext) -> Re
 }
 
 fn validate_option_value(spec: &ModuleSpec, arg: &ArgSpec, value: &str) -> Result<(), String> {
+    if value.is_empty() && !arg.required {
+        return Ok(());
+    }
     let mut has_sourced_enumeration = false;
     for condition in arg
         .validity_conditions
@@ -1663,7 +1677,7 @@ fn dispatch_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Str
         "phimax" => Ok(phimax(ctx)),
         "ftemp_grad" => Ok(ftemp_grad(ctx)),
         "precalc" => Ok(precalc(ctx)),
-        "badhole" => Ok(badhole(ctx)),
+        "badhole" => badhole(ctx),
         "condflag" => Ok(condflag(ctx)),
         "nphimat" => Ok(nphimat(ctx)),
         "gascorr" => gascorr(ctx),
@@ -2610,10 +2624,19 @@ fn badhole_spec() -> ModuleSpec {
               module run as a mask so flagged intervals go missing instead of polluting results."
             .into(),
         args: vec![
+            ArgSpec {
+                required: false,
+                ..opt_labelled(
+                    "DRHO_MAX_UNIT",
+                    "Unit of the density-correction threshold; required when DRHO is present",
+                    "",
+                    &[("g/cc", "g/cc"), ("kg/m3", "kg/m3")],
+                )
+            },
             param_open(
                 "DRHO_MAX",
                 "Max acceptable density correction",
-                "g/cc",
+                "",
                 0.0,
                 0.5,
                 true,
@@ -2656,8 +2679,40 @@ fn badhole_spec() -> ModuleSpec {
     }
 }
 
-fn badhole(ctx: &ModuleContext) -> ModuleOutputs {
+fn badhole(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
     let drho = ctx.log("DRHO");
+    if drho.iter().take(ctx.n).any(|value| value.is_finite()) {
+        let curve_unit = ctx.input_unit("DRHO").trim();
+        if curve_unit.is_empty() {
+            return Err(format!(
+                "DRHO unit is missing for input curve '{}'; declare g/cc or kg/m3 before badhole compares it with DRHO_MAX",
+                ctx.in_curve("DRHO")
+            ));
+        }
+        let threshold_unit = ctx.o("DRHO_MAX_UNIT").trim();
+        if threshold_unit.is_empty() {
+            return Err(format!(
+                "DRHO_MAX unit is missing while DRHO is present in {curve_unit}; state the threshold unit before badhole runs"
+            ));
+        }
+        let curve_token = crate::curves::resolve_unit_token(curve_unit).ok_or_else(|| {
+            format!(
+                "DRHO input curve '{}' declares unsupported unit '{curve_unit}'; declare g/cc or kg/m3 before badhole runs",
+                ctx.in_curve("DRHO")
+            )
+        })?;
+        let threshold_token = crate::curves::resolve_unit_token(threshold_unit).ok_or_else(|| {
+            format!(
+                "DRHO_MAX declares unsupported unit '{threshold_unit}'; state g/cc or kg/m3 before badhole runs"
+            )
+        })?;
+        if curve_token.canonical_unit != threshold_token.canonical_unit {
+            return Err(format!(
+                "DRHO unit mismatch: input curve '{}' is declared {curve_unit}, but DRHO_MAX is declared {threshold_unit}; badhole refused before comparing values",
+                ctx.in_curve("DRHO")
+            ));
+        }
+    }
     let cali = ctx.log("CALI");
     let bs = ctx.log("BS");
     let mut flag = vec![f32::NAN; ctx.n];
@@ -2695,11 +2750,11 @@ fn badhole(ctx: &ModuleContext) -> ModuleOutputs {
         }
     }
 
-    HashMap::from([
+    Ok(HashMap::from([
         ("BADHOLE".to_string(), flag),
         ("BADHOLE_CALI_EVALUATED".to_string(), cali_evaluated),
         ("BADHOLE_DRHO_EVALUATED".to_string(), drho_evaluated),
-    ])
+    ]))
 }
 
 // ---------------------------------------------------------------------------
@@ -6470,9 +6525,13 @@ mod tests {
                 ("BS", vec![6.0, 6.0, 6.0, f32::NAN]),
             ],
             &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
-            &[],
+            &[
+                ("__IN_DRHO", "DRHO"),
+                ("__UNIT_DRHO", "g/cc"),
+                ("DRHO_MAX_UNIT", "g/cc"),
+            ],
         );
-        let out = badhole(&ctx);
+        let out = badhole(&ctx).expect("matching declared units must run");
         let f = &out["BADHOLE"];
         assert_eq!(f[0], 0.0, "good hole");
         assert_eq!(f[1], 1.0, "big DRHO");
@@ -6495,7 +6554,11 @@ mod tests {
                 ("BS", vec![6.0, f32::NAN, 6.0, f32::NAN, 6.0]),
             ],
             &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
-            &[],
+            &[
+                ("__IN_DRHO", "DRHO"),
+                ("__UNIT_DRHO", "g/cc"),
+                ("DRHO_MAX_UNIT", "g/cc"),
+            ],
         );
 
         let out = run_module("badhole", &ctx)
@@ -6569,7 +6632,11 @@ mod tests {
             2,
             &[("DRHO", vec![0.01, 0.03])],
             &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
-            &[],
+            &[
+                ("__IN_DRHO", "DRHO"),
+                ("__UNIT_DRHO", "g/cc"),
+                ("DRHO_MAX_UNIT", "g/cc"),
+            ],
         );
         let output = run_module("badhole", &explicit)
             .expect("explicitly supplying both required thresholds must enable public dispatch");
@@ -6612,7 +6679,11 @@ mod tests {
                 ("CALI", vec![6.2, 6.2, 6.2]),
             ],
             &[("DRHO_MAX", 0.02), ("DCAL_MAX", 2.0)],
-            &[],
+            &[
+                ("__IN_DRHO", "DRHO"),
+                ("__UNIT_DRHO", "g/cc"),
+                ("DRHO_MAX_UNIT", "g/cc"),
+            ],
         );
         let output = run_module("badhole", &no_bit_size)
             .expect("missing geometry must degrade to the independently evaluable DRHO term");

@@ -345,14 +345,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; T35; sections 4.3, 6.3 and 8.
 - **Atomic obligations:** persist density-correction curve units; reconcile them with threshold units; refuse missing or incompatible declarations, in both mismatch directions.
-- **Current source:** the manifest labels the expected log/threshold unit, and a generic curve-unit registry exists, but `badhole` receives plain numeric arrays and never validates the actual curve unit against the threshold.
-- **Qualifying acceptance tests:** none; T35 is missing. Test class `MISSING`.
-- **Supporting tests:** generic unit-conversion tests do not enter the bad-hole threshold path.
-- **Manual evidence:** data-conventions 0/45; conditioning 0/27.
-- **Git evidence:** `UNIMPLEMENTED` at the bad-hole consumer boundary.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** no scientific value is missing; the absent piece is typed metadata propagation and refusal.
-- **Next action:** carry curve units into module resolution and implement compatible conversion plus both incompatible/missing-unit refusals.
+- **Current source:** LAS and DLIS imports inspect the delivered DRHO-family unit before any write. A missing declaration refuses until the user states `g/cc` or `kg/m3`; the unit registry owns the cited `G/C3` and `k/m3` spellings and exact `kg/m3` to canonical `g/cc` conversion. Workflow input resolution now carries the actual selected curve's stored unit into `badhole`. The threshold has a blank-by-default unit selector, and the module refuses a missing curve unit, missing threshold unit, unsupported unit or either mismatch direction before arithmetic.
+- **Qualifying acceptance tests:** `workflow::tests::a_drho_unit_is_required_on_import_and_both_threshold_unit_mismatch_directions_refuse_before_flagging` owns T35. It proves absent import metadata leaves no partial well, an explicit `kg/m3` declaration stores 100 kg/m3 as the cited 0.1 g/cc canonical value, missing consumer metadata refuses, both kg/m3-versus-g/cc directions refuse, and matching g/cc reaches below/above-threshold arithmetic. Test class `CORRECTNESS`.
+- **Supporting tests:** the unit-registry equality test proves the Rust/UI/documentation/test consumers share the same spellings and conversion rule; the existing bad-hole and generic-store workflow tests remain green after explicit threshold-unit custody. They do not substitute for T35.
+- **Manual evidence:** data-conventions 4/134; conditioning 1/74; all four SB-ENV-026 review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-025; exact T35 was RED when `. :` was misread as a literal unit and import accepted the undeclared curve, then GREEN after parser-boundary, import-custody and consumer-refusal changes. TypeScript and cargo check are green; the fresh full gate is 1052 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** source-owned chapter status remains `ABSENT`; live as-built is now `PRESENT-OK`; `PILOT-BLOCKER` handled; `SILENT-WRONGNESS` closed at import and threshold boundaries; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`; Visual/Manual/Field review open.
+- **Blocker or decision:** none. No scientific threshold, tolerance or conversion policy was invented; the only conversion is the chapter's exact 1000:1 bridge, and unlike a compatible conversion during import, a threshold-unit mismatch refuses exactly as T35 requires.
+- **Next action:** retain explicit DRHO import and threshold-unit custody, execute the unchecked UI and delivery review separately, and continue SB-ENV-027 without inventing OI-5's repair-exemption declaration shape.
 
 ## SB-ENV-027 - A module whose purpose is to produce a value where the mask says there is none MUST be exempt from the mask
 

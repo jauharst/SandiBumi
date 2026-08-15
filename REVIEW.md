@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-026: BADHOLE DRHO unit custody
+
+- [ ] **Automated correctness:** exact T35 was RED because an empty LAS unit field (`DRHO. :`)
+      was parsed as the colon and then accepted as an unrecognized unit. It is GREEN with atomic
+      refusal until the user states `g/cc` or `kg/m3`; the cited 100 kg/m3 input becomes canonical
+      0.1 g/cc, missing consumer metadata refuses, both mismatch directions refuse, and matching
+      units still execute the below/above-threshold bad-hole comparison.
+- [ ] **Visual:** open a LAS or DLIS import and confirm “DRHO unit when undeclared” starts on the
+      refusal choice, not g/cc. Open Bad-Hole QC Flag and confirm DRHO_MAX has no unit hidden in its
+      numeric label and its separate unit selector starts blank. With a finite DRHO input, leaving
+      that selector blank must show a unit-specific refusal rather than save BADHOLE.
+- [ ] **Manual:** import one delivery whose DRHO declares a cited g/cc spelling and one controlled
+      copy with the declaration removed. Confirm the declared delivery needs no override, the
+      undeclared copy refuses, and an explicit reviewed kg/m3 statement produces a recorded
+      designation plus canonical g/cc values. Then run with matching and deliberately mismatched
+      threshold units and inspect the refusal text and run history.
+- [ ] **Field and harsh critique:** typed units prevent the 1000x comparison trap; they do not prove
+      the source header or the interpreter's declaration is true. Compare the source documentation,
+      curve magnitude and tool convention before stating a missing unit. Do not treat automatic
+      canonical conversion as evidence that the original delivery was labelled correctly.
+
 ## 2026-08-16 — G2 SB-ENV-025: BADHOLE bit size is input, never fallback
 
 - [ ] **Automated correctness:** exact T34 was RED while BADHOLE still declared BS_DEF. It is GREEN

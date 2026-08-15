@@ -307,9 +307,19 @@ export async function buildModuleContent(
     } else if (arg.kind === "option") {
       const select = document.createElement("select");
       select.className = "form-control";
-      fillSelect(select, arg.choices, arg.default, arg.choice_labels);
+      const optionalAndUnset = !arg.required && arg.default === "";
+      fillSelect(
+        select,
+        optionalAndUnset ? ["", ...arg.choices] : arg.choices,
+        arg.default,
+        optionalAndUnset
+          ? ["Choose when the corresponding input is present", ...(arg.choice_labels ?? [])]
+          : arg.choice_labels,
+      );
       optSelects.set(arg.name, select);
-      argsGrid.appendChild(formRow(arg.name, withVisibleValidity(arg, select), argumentHint(arg)));
+      argsGrid.appendChild(
+        formRow(`${arg.name}${arg.required ? "" : " (optional)"}`, withVisibleValidity(arg, select), argumentHint(arg)),
+      );
     } else if (arg.kind === "text") {
       // Free-typed run option (ArgKind::Text) — the Condition family's user-named output curve.
       const input = document.createElement("input");

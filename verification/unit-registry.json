@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "registry_version": "curve-units-v1",
-  "source_sha256": "53dd83a4e7396dd8526e967bd5da10e95db7e134b566b80a7b44b2f2d2ef84e1",
+  "source_sha256": "28f8a5e5ccbbf8ac4c2e8cdfd0d12928c54c13229e161cb15daecf83897f3443",
   "populations": {
     "families": 15,
     "aliases": 101,
-    "units": 42,
+    "units": 45,
     "rules": 10
   },
   "families": [
@@ -283,12 +283,27 @@
       "canonical_unit": "g/cc"
     },
     {
+      "token": "G/C3",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "g/cc"
+    },
+    {
       "token": "kg/m3",
       "quantity_kind": "bulk_density",
       "canonical_unit": "kg/m3"
     },
     {
       "token": "KG/M3",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "kg/m3"
+    },
+    {
+      "token": "k/m3",
+      "quantity_kind": "bulk_density",
+      "canonical_unit": "kg/m3"
+    },
+    {
+      "token": "K/M3",
       "quantity_kind": "bulk_density",
       "canonical_unit": "kg/m3"
     },
