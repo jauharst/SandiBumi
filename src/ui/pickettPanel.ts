@@ -64,6 +64,7 @@ import {
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
 import { registerPlotInvalidationContract } from "./plotInvalidation";
+import { beginPlotAsyncGeneration, isPlotAsyncGenerationCurrent } from "./plotAsync";
 
 /** Persisted Pickett v2 display settings (plotprops doc "pickett"). Complete axis pairs are
  *  user overrides; absent pairs continue to header/family/finite data. */
@@ -877,16 +878,16 @@ export async function buildPickettContent(
    *  (per-well zone/top-by-name windows, point budget, cancellation). Scope = just the
    *  active well → clears the overlay: byte-identical single-well behaviour. */
   const reloadContext = async () => {
-    const gen = ++ctxGen;
+    const token = beginPlotAsyncGeneration("pickett-context-refetch", ++ctxGen);
     contextDepthHandoff.clear();
     let resolvedIds: string[];
     try {
       resolvedIds = await resolveWellScope(scope.backend());
     } catch (error) {
-      if (gen === ctxGen) setStatus(`Pickett scope refused: ${error}`);
+      if (isPlotAsyncGenerationCurrent(token, ctxGen)) setStatus(`Pickett scope refused: ${error}`);
       return;
     }
-    if (gen !== ctxGen) return;
+    if (!isPlotAsyncGenerationCurrent(token, ctxGen)) return;
     const ids = resolvedIds.filter((id) => id !== well.well_id);
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
@@ -912,7 +913,7 @@ export async function buildPickettContent(
       curves: [rtSel.value, phiSel.value],
       windowFor: (id) => contextZoneWindow(zoneSel, id),
       budget: MAX_CONTEXT_POINTS,
-      isStale: () => gen !== ctxGen,
+      isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
     ctxReductionManifest = contextReductionExport(
@@ -1031,14 +1032,14 @@ export async function buildPickettContent(
   let reloadGen = 0;
   let resetPending = false;
   const reload = async (preserveView = false) => {
-    const gen = ++reloadGen;
+    const token = beginPlotAsyncGeneration("pickett-data-refetch", ++reloadGen);
     if (!preserveView) resetPending = true;
     const zone = zoneSel.current();
     const names = props.zCurve ? [rtSel.value, phiSel.value, props.zCurve] : [rtSel.value, phiSel.value];
     activeDepthHandoff.clear();
     try {
       const series = await getCurveData(well.well_id, names, zone.depthMin, zone.depthMax);
-      if (gen !== reloadGen) return; // a newer reload started while we awaited
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
       const byName = new Map(series.map((s) => [s.curve_name, s]));
       const required = names.map((name) => byName.get(name.toUpperCase()));
       if (required.some((item) => !item)) throw new Error("one or more required plot curves are absent");
@@ -1066,7 +1067,7 @@ export async function buildPickettContent(
         setStatus(`Pickett depth inputs decimated to the coarsest exact step; factors ${reconciled.decimationFactors.join("/")} · interval ${reconciled.intervalClosure}`);
       }
     } catch (err) {
-      if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
       const handoff = depthReframeHandoff(err, [well.well_id], names);
       activeDepthHandoff.show(handoff);
       setStatus(handoff ? `Pickett refused: ${handoff.reason}` : `Pickett data load failed: ${err}`);

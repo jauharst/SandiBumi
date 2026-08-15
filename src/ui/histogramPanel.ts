@@ -66,6 +66,7 @@ import {
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
 import { registerPlotInvalidationContract } from "./plotInvalidation";
+import { beginPlotAsyncGeneration, isPlotAsyncGenerationCurrent } from "./plotAsync";
 
 export type HistogramMode = "bars" | "line";
 
@@ -925,16 +926,16 @@ export async function buildHistogramContent(
    *  (per-well zone/top-by-name windows, point budget, cancellation). Scope = just the
    *  active well → clears the overlay: byte-identical single-well behaviour. */
   const reloadContext = async () => {
-    const gen = ++ctxGen;
+    const token = beginPlotAsyncGeneration("histogram-context-refetch", ++ctxGen);
     contextDepthHandoff.clear();
     let resolvedIds: string[];
     try {
       resolvedIds = await resolveWellScope(scope.backend());
     } catch (error) {
-      if (gen === ctxGen) setStatus(`Histogram scope refused: ${error}`);
+      if (isPlotAsyncGenerationCurrent(token, ctxGen)) setStatus(`Histogram scope refused: ${error}`);
       return;
     }
-    if (gen !== ctxGen) return;
+    if (!isPlotAsyncGenerationCurrent(token, ctxGen)) return;
     const ids = resolvedIds.filter((id) => id !== well.well_id);
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
@@ -960,7 +961,7 @@ export async function buildHistogramContent(
       curves: [curveSel.value],
       windowFor: (id) => contextZoneWindow(zoneSel, id),
       budget: MAX_CONTEXT_POINTS,
-      isStale: () => gen !== ctxGen,
+      isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
     ctxReductionManifest = contextReductionExport(
@@ -1059,16 +1060,16 @@ export async function buildHistogramContent(
   // actually commits, so a background bump can't strand the new curve at the old zoom.
   let resetPending = false;
   const reload = async (preserveView = false) => {
-    const gen = ++reloadGen;
+    const token = beginPlotAsyncGeneration("histogram-data-refetch", ++reloadGen);
     if (!preserveView) resetPending = true;
     const zone = zoneSel.current();
     try {
       const series = await getCurveData(well.well_id, [curveSel.value], zone.depthMin, zone.depthMax);
-      if (gen !== reloadGen) return; // a newer reload started while we awaited
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
       values = series[0]?.value ?? new Float32Array(0);
       depths = series[0]?.depth ?? new Float32Array(0);
     } catch (err) {
-      if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
       setStatus(`Histogram data load failed: ${err}`);
       values = new Float32Array(0);
       depths = new Float32Array(0);

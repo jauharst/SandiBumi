@@ -32,6 +32,11 @@ import { buildStartSheet } from "./startSheet";
 import { showContextMenu, type ContextMenuEntry } from "./contextMenu";
 import { imageExportMenuEntries, plotAncestryScope } from "./plotExport";
 import { forgetViewer, isWorkingPane, markActiveViewer } from "./activeViewer";
+import {
+  beginPlotAsyncGeneration,
+  commitPlotAsyncGeneration,
+  isPlotAsyncGenerationCurrent,
+} from "./plotAsync";
 
 const LAYOUT_STORAGE_KEY = "sandibumi.workspace";
 /** Id of the blank content-area placeholder shown only when every real content pane is closed
@@ -1191,7 +1196,7 @@ export class Workspace {
       let currentWellId: string | null = null;
 
       const rebuild = (well: WellSummary | null) => {
-        const gen = ++generation;
+        const token = beginPlotAsyncGeneration("workspace-plot-build", ++generation);
         const initial = getState?.() ?? (expectedRestore?.options as Record<string, string> | undefined);
         disposer?.();
         disposer = undefined;
@@ -1211,10 +1216,12 @@ export class Workspace {
         // well is only null for correlation, whose builder tolerates it.
         build(well as WellSummary, setStatus, initial)
           .then(async (content) => {
-            if (closed || gen !== generation) {
-              content.dispose?.();
-              return;
-            }
+            if (
+              commitPlotAsyncGeneration(token, generation, closed, content, {
+                apply: () => {},
+                disposeStale: (stale) => stale.dispose?.(),
+              }) === "stale"
+            ) return;
             host.appendChild(content.el);
             disposer = content.dispose;
             getState = content.getState;
@@ -1225,7 +1232,7 @@ export class Workspace {
               }
               try {
                 await content.bindingReady;
-                if (closed || gen !== generation) {
+                if (!isPlotAsyncGenerationCurrent(token, generation, closed)) {
                   content.dispose?.();
                   return;
                 }
@@ -1243,7 +1250,7 @@ export class Workspace {
             if (content.openProperties) this.plotProps.set(params.api.id, content.openProperties);
           })
           .catch((err) => {
-            if (closed || gen !== generation) return; // a newer build/close already won
+            if (!isPlotAsyncGenerationCurrent(token, generation, closed)) return;
             host.innerHTML = `<div class="logview-message">Failed to open ${escapeHtml(kind)}: ${escapeHtml(String(err))}</div>`;
           });
       };

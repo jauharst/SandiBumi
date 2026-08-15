@@ -1243,19 +1243,119 @@ test("characterizes_crossplot_static_draw_and_z_colours_as_separately_invalidate
   assert.match(source, /plot\s*=\s*drawStatic\(canvas,\s*hoverIdx\)/);
 });
 
-test("a_superseded_async_plot_build_is_disposed_before_it_can_replace_the_active_panel", async () => {
-  // CORRECTNESS — SB-PLT-029 / SB-PLT-T28/T33 cites workspace.ts's generation
-  // contract: reverse-order completion may render only the newest generation.
-  const { Workspace } = await load("/src/ui/workspace.ts");
-  const source = Function.prototype.toString.call(Workspace.prototype.createPlot);
-  const generationCheck = source.indexOf("gen !== generation");
-  const staleDispose = source.indexOf("content.dispose", generationCheck);
-  const activeAppend = source.indexOf("host.appendChild(content.el)");
+test("every_async_plot_build_and_refetch_is_registered_and_reverse_order_or_data_revision_completion_never_replaces_the_active_panel", async () => {
+  // CORRECTNESS — SB-PLT-029 / SB-PLT-T28/T33. The expected inventory comes from the
+  // five plot surfaces in docs/PRD_v2/23_plotting-interactivity.md §3.1 plus T27's
+  // viewport refetch; the newest-generation-only result and stale disposal come from §6.
+  const {
+    PLOT_ASYNC_LOAD_REGISTRY,
+    beginPlotAsyncGeneration,
+    commitPlotAsyncGeneration,
+  } = await load("/src/ui/plotAsync.ts");
+  const expectedInventory = [
+    ["workspace-plot-build", "src/ui/workspace.ts"],
+    ["histogram-data-refetch", "src/ui/histogramPanel.ts"],
+    ["histogram-context-refetch", "src/ui/histogramPanel.ts"],
+    ["crossplot-data-refetch", "src/ui/crossplotPanel.ts"],
+    ["crossplot-core-refetch", "src/ui/crossplotPanel.ts"],
+    ["crossplot-context-refetch", "src/ui/crossplotPanel.ts"],
+    ["pickett-data-refetch", "src/ui/pickettPanel.ts"],
+    ["pickett-context-refetch", "src/ui/pickettPanel.ts"],
+    ["correlation-data-refetch", "src/ui/correlationPanel.ts"],
+    ["correlation-well-refetch", "src/ui/correlationPanel.ts"],
+    ["vega-data-refetch", "src/ui/vegaPanel.ts"],
+    ["vega-selector-refetch", "src/ui/vegaPanel.ts"],
+    ["vega-editor-load", "src/ui/vegaPanel.ts"],
+    ["vega-resize", "src/ui/vegaPanel.ts"],
+    ["logview-viewport-refetch", "src/ui/viewportRefetch.ts"],
+  ];
+  assert.deepEqual(
+    PLOT_ASYNC_LOAD_REGISTRY.map(({ id, owner }) => [id, owner]),
+    expectedInventory,
+  );
+  for (const [id, owner] of expectedInventory) {
+    const source = await readFile(new URL(`../${owner}`, import.meta.url), "utf8");
+    assert.match(
+      source,
+      new RegExp(`beginPlotAsyncGeneration\\(\\s*[\"']${id}[\"']`),
+      `${id} must create its registered token in ${owner}`,
+    );
+  }
+  const workspaceSource = await readFile(new URL("../src/ui/workspace.ts", import.meta.url), "utf8");
+  const workspaceCommit = workspaceSource.indexOf("commitPlotAsyncGeneration(token");
+  const workspaceAppend = workspaceSource.indexOf("host.appendChild(content.el)", workspaceCommit);
+  assert.ok(workspaceCommit >= 0 && workspaceAppend > workspaceCommit, "the workspace checks and disposes before panel replacement");
 
-  assert.ok(source.includes("const gen = ++generation"));
-  assert.ok(generationCheck >= 0, "resolved content is guarded by its generation");
-  assert.ok(staleDispose > generationCheck, "stale content is disposed inside the guard");
-  assert.ok(activeAppend > staleDispose, "the stale-return branch precedes active-panel mutation");
+  const correlationSource = await readFile(new URL("../src/ui/correlationPanel.ts", import.meta.url), "utf8");
+  assert.match(correlationSource, /async function reload\(\): Promise<boolean>/);
+  assert.match(correlationSource, /\.then\(\(applied\) => \{\s*if \(!applied\) return;\s*draw\(\)/);
+
+  const vegaSource = await readFile(new URL("../src/ui/vegaPanel.ts", import.meta.url), "utf8");
+  const detachedHost = vegaSource.indexOf('const stagingHost = document.createElement("div")');
+  const detachedEmbed = vegaSource.indexOf("vegaEmbed(stagingHost", detachedHost);
+  const vegaGuard = vegaSource.indexOf("isPlotAsyncGenerationCurrent(token", detachedEmbed);
+  const activeVegaCommit = vegaSource.indexOf("chartHost.replaceChildren", vegaGuard);
+  assert.ok(detachedHost >= 0 && detachedEmbed > detachedHost, "Vega embeds only into a detached host while pending");
+  assert.ok(vegaGuard > detachedEmbed && activeVegaCommit > vegaGuard, "Vega checks freshness before touching the live host");
+  assert.doesNotMatch(vegaSource, /vegaEmbed\(chartHost/);
+
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    return { promise, resolve };
+  };
+  let generation = 0;
+  let activePanel = "initial";
+  const disposed = [];
+  const oldLoad = deferred();
+  const newestLoad = deferred();
+  const oldToken = beginPlotAsyncGeneration("workspace-plot-build", ++generation);
+  const oldSettlement = oldLoad.promise.then((content) =>
+    commitPlotAsyncGeneration(oldToken, generation, false, content, {
+      apply: (value) => { activePanel = value.id; },
+      disposeStale: (value) => disposed.push(value.id),
+    }));
+  const newestToken = beginPlotAsyncGeneration("workspace-plot-build", ++generation);
+  const newestSettlement = newestLoad.promise.then((content) =>
+    commitPlotAsyncGeneration(newestToken, generation, false, content, {
+      apply: (value) => { activePanel = value.id; },
+      disposeStale: (value) => disposed.push(value.id),
+    }));
+
+  newestLoad.resolve({ id: "newest" });
+  assert.equal(await newestSettlement, "applied");
+  oldLoad.resolve({ id: "old" });
+  assert.equal(await oldSettlement, "stale");
+  assert.equal(activePanel, "newest", "reverse-order T28 keeps the newest panel");
+  assert.deepEqual(disposed, ["old"], "the superseded build is disposed before any active mutation");
+
+  const priorRevision = deferred();
+  const revisionToken = beginPlotAsyncGeneration("histogram-data-refetch", ++generation);
+  const priorSettlement = priorRevision.promise.then((content) =>
+    commitPlotAsyncGeneration(revisionToken, generation, false, content, {
+      apply: (value) => { activePanel = value.id; },
+      disposeStale: (value) => disposed.push(value.id),
+    }));
+  beginPlotAsyncGeneration("histogram-data-refetch", ++generation); // the new data revision
+  priorRevision.resolve({ id: "prior-revision" });
+  assert.equal(await priorSettlement, "stale");
+  assert.equal(activePanel, "newest", "T33's stale data revision never replaces current content");
+  assert.deepEqual(disposed, ["old", "prior-revision"]);
+});
+
+test("a_superseded_async_plot_build_is_disposed_before_it_can_replace_the_active_panel", async () => {
+  // CORRECTNESS — supporting workspace seam for SB-PLT-029 / T28-T33. The whole
+  // inventory and executed reverse-order race live in the adjacent requirement test.
+  const source = await readFile(new URL("../src/ui/workspace.ts", import.meta.url), "utf8");
+  const tokenStart = source.indexOf('beginPlotAsyncGeneration("workspace-plot-build"');
+  const generationCommit = source.indexOf("commitPlotAsyncGeneration(token", tokenStart);
+  const staleDispose = source.indexOf("disposeStale:", generationCommit);
+  const activeAppend = source.indexOf("host.appendChild(content.el)", staleDispose);
+
+  assert.ok(tokenStart >= 0, "the actual workspace build creates its registered generation token");
+  assert.ok(generationCommit > tokenStart, "resolved content crosses the shared currentness boundary");
+  assert.ok(staleDispose > generationCommit, "stale content is disposed inside that boundary");
+  assert.ok(activeAppend > staleDispose, "active-panel mutation remains after stale disposal");
 });
 
 test("a_viewport_crossing_its_loaded_high_bound_issues_one_generation_tagged_half_open_refetch_and_only_the_newest_reverse_order_response_renders", async () => {
@@ -1311,6 +1411,7 @@ test("a_viewport_crossing_its_loaded_high_bound_issues_one_generation_tagged_hal
     low: 100.5,
     high: 101.5,
     targetPixelHeight: 100,
+    operation: "logview-viewport-refetch",
     generation: 1,
   });
 
@@ -1481,7 +1582,7 @@ test("every_plot_uses_one_change_only_invalidation_contract_and_a_theme_change_r
   for (const pattern of [/theme:\s*\(\)\s*=>\s*redraw\(\)/, /reload\(true\)/, /reloadContext\(\)/, /applySelectedInterval/, /brushSet\s*=\s*next/, /size:\s*\(\)\s*=>\s*redraw\(\)/, /reloadGen\+\+/, /ctxGen\+\+/, /cancelAnimationFrame/]) {
     assert.match(liveRegistrations.get("pickettPanel.ts"), pattern, `Pickett's handler is not a no-op: ${pattern}`);
   }
-  for (const pattern of [/applyBrush\(selection\)/, /repaint\(\)/, /loadCurveNames\(\)/, /render\(\)/, /applySelectedInterval/, /current\.view\.resize\(\)/, /gen\+\+/, /cancelAnimationFrame/]) {
+  for (const pattern of [/applyBrush\(selection\)/, /repaint\(\)/, /loadCurveNames\(\)/, /render\(\)/, /applySelectedInterval/, /const resized = current/, /beginPlotAsyncGeneration\("vega-resize"/, /resized\.view\.resize\(\)/, /current === resized/, /gen\+\+/, /cancelAnimationFrame/]) {
     assert.match(liveRegistrations.get("vegaPanel.ts"), pattern, `Vega's handler is not a no-op: ${pattern}`);
   }
   for (const pattern of [/theme:\s*\(\)\s*=>\s*draw\(\)/, /refreshWells\(\)/, /reload\(\)/, /selectedInterval\s*=\s*interval/, /brushSelection\s*=\s*selection/, /size:\s*\(\)\s*=>\s*draw\(\)/, /reloadGen\+\+/, /clearTimeout\(fitTimer\)/, /removeWellsMenu\(\)/]) {

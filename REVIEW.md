@@ -1,5 +1,33 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-029: generation-safe Histogram, Crossplot, Pickett, Correlation, Vega and log-view loads
+
+- [ ] **Automated correctness:** the exact T28/T33 test inventories all 15 asynchronous
+      build/refetch boundaries owned by the chapter's five plot surfaces plus the specified
+      log-view viewport refetch. It resolves two panel builds in reverse order, starts a new data
+      revision while an older refetch is in flight, and requires only the newest generation to
+      apply while both stale disposable results are torn down before active-panel mutation.
+      Workspace replacement, correlation's applied-only draw, detached Vega embed and live-host
+      commit order are pinned separately. Removing the generation comparison and embedding Vega
+      directly into the live host each made the same test RED. TypeScript and cargo check are
+      green; the fresh full gate is 1036 passed / 0 failed / 37 ignored with 31 separately owned
+      Rust warnings.
+- [ ] **Visual:** with Crossplot, Histogram, Pickett, Correlation and Vega open, switch curves,
+      zones, scoped wells and the selected well rapidly enough to overlap loads. Trigger a data
+      revision while each plot is still loading. Confirm the newest selection remains visible,
+      no older chart flashes back into the pane, and Correlation does not redraw an earlier well
+      inventory after the current one.
+- [ ] **Manual:** repeat reverse-order completion with developer throttling or a controllable test
+      backend. Close a plot while its build, context fetch, Vega editor import or Vega resize is
+      pending; confirm stale content is disposed, no detached Vega result re-enters the live host,
+      no stale failure message replaces a current chart, and the log viewport keeps the newest
+      generation-tagged half-open refetch.
+- [ ] **Field and harsh critique:** repeat with representative multi-well context scopes and data
+      volumes. A green deterministic race test proves ordering and disposal at registered
+      boundaries; it does not prove network/storage latency realism, visual stability on every
+      machine, or that a future unregistered asynchronous branch cannot be introduced. The
+      executable inventory is the tripwire for that future change, not permanent omniscience.
+
 ## 2026-08-15 — G2 SB-PLT-026: measured paper export and honest raster print
 
 - [ ] **Automated correctness:** the exact T37/T38 test draws a long axis label beyond the source

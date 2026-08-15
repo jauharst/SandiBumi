@@ -44,13 +44,13 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 10 | — | 4 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |
 | `well-scope` | Well scope, groups and multi-selection | Partially exercised | 4 / 13 | 2026-08-13 | 5 |
-| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 47 | 2026-07-19 | 10 |
-| `histogram` | Histogram | Partially exercised | 5 / 34 | 2026-07-20 | 8 |
-| `crossplot` | Crossplot | Partially exercised | 6 / 21 | 2026-07-20 | 8 |
-| `pickett` | Pickett plot | Not exercised | 0 / 16 | — | 5 |
-| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 50 | — | 14 |
+| `log-view` | Interactive log views and tracks | Partially exercised | 5 / 51 | 2026-07-19 | 11 |
+| `histogram` | Histogram | Partially exercised | 5 / 38 | 2026-07-20 | 9 |
+| `crossplot` | Crossplot | Partially exercised | 6 / 25 | 2026-07-20 | 9 |
+| `pickett` | Pickett plot | Not exercised | 0 / 20 | — | 6 |
+| `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 54 | — | 15 |
 | `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 61 | 2026-07-20 | 17 |
-| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 10 | — | 9 |
+| `vega` | Vega-Lite interactive charts | Not exercised | 0 / 14 | — | 10 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |

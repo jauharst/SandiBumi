@@ -1,3 +1,5 @@
+import { beginPlotAsyncGeneration, isPlotAsyncGenerationCurrent, type PlotAsyncOperationId } from "./plotAsync";
+
 export interface ViewportLoadIdentity {
   sourceKey: string;
   low: number;
@@ -6,6 +8,7 @@ export interface ViewportLoadIdentity {
 }
 
 export interface TaggedViewportLoad extends ViewportLoadIdentity {
+  operation: PlotAsyncOperationId;
   generation: number;
 }
 
@@ -76,7 +79,8 @@ export class ViewportRefetchCoordinator<T> {
     const requestSignature = signature(request);
     if (requestSignature === this.pendingSignature) return "pending";
 
-    const tagged: TaggedViewportLoad = { ...request, generation: ++this.generation };
+    const token = beginPlotAsyncGeneration("logview-viewport-refetch", ++this.generation);
+    const tagged: TaggedViewportLoad = { ...request, ...token };
     this.pendingSignature = requestSignature;
     try {
       reportPending(
@@ -85,13 +89,13 @@ export class ViewportRefetchCoordinator<T> {
         tagged,
       );
       const value = await load(tagged);
-      if (tagged.generation !== this.generation) return "stale";
+      if (!isPlotAsyncGenerationCurrent(token, this.generation)) return "stale";
       apply(value, tagged);
       this.loaded = { ...request };
       this.pendingSignature = "";
       return "applied";
     } catch (error) {
-      if (tagged.generation !== this.generation) return "stale";
+      if (!isPlotAsyncGenerationCurrent(token, this.generation)) return "stale";
       this.pendingSignature = "";
       reportFailure(
         `Could not load detailed samples for depth [${request.low}, ${request.high}). ` +

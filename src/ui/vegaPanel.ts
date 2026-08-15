@@ -55,6 +55,11 @@ import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolic
 import { registerPlotInvalidationContract } from "./plotInvalidation";
 import { applyPlotChannelPolicy, type PlotRangeEdge } from "./plotTypes";
 import {
+  beginPlotAsyncGeneration,
+  isPlotAsyncGenerationCurrent,
+  type PlotAsyncGenerationToken,
+} from "./plotAsync";
+import {
   basicStats,
   buildPlotStatisticsRecord,
   formatPlotStatisticsRecord,
@@ -1077,6 +1082,9 @@ export async function buildVegaContent(
   let current: VegaResult | null = null;
   let disposed = false;
   let gen = 0;
+  let selectorGen = 0;
+  let editorGen = 0;
+  let resizeGen = 0;
   let settleBindingReady!: () => void;
   let refuseBindingReady!: (error: unknown) => void;
   let bindingReadySettled = false;
@@ -1366,9 +1374,15 @@ export async function buildVegaContent(
       pushBrush(pendingSel);
     });
   };
+  const clearCurrent = (): void => {
+    resizeGen++;
+    current?.finalize();
+    current = null;
+    chartHost.innerHTML = "";
+  };
 
   /** Embed `rows` for `type`, wiring the brush emit listener and syncing the current shared brush.
-   *  `myGen` guards against a newer render/repaint having superseded this one mid-await. */
+   *  The token guards against a newer render/repaint having superseded this one mid-await. */
   async function embedRows(
     type: ChartType,
     rows: Row[],
@@ -1376,12 +1390,10 @@ export async function buildVegaContent(
     yName: string,
     zName: string | null,
     opts: SpecOpts,
-    myGen: number,
-  ): Promise<void> {
-    current?.finalize();
-    current = null;
-    chartHost.innerHTML = "";
+    token: PlotAsyncGenerationToken,
+  ): Promise<boolean> {
     if (rows.length === 0) {
+      clearCurrent();
       statisticsRecords = [];
       statisticsInfo.hidden = true;
       baseAxisRanges = [];
@@ -1400,21 +1412,23 @@ export async function buildVegaContent(
         messageNode("logview-message", `No eligible ${what} samples in ${well.well_name}${scope}; review validity and finite-data exclusions.`),
       );
       setStatus("Vega — no data");
-      return;
+      return true;
     }
     lastColourPolicy = null;
     if (!prepareAxisRanges(type, rows, zName)) {
+      clearCurrent();
       chartHost.replaceChildren(messageNode("logview-message", "Vega refused: no governed display range is available for every source-curve axis."));
       setStatus("Vega — axis range refused");
-      return;
+      return true;
     }
     let renderRows = rows;
     if (type === "scatter" && zName) {
       const colourRange = baseAxisRanges.find((range) => range.axis === "colour");
       if (!colourRange) {
+        clearCurrent();
         chartHost.replaceChildren(messageNode("logview-message", "Vega refused: no governed colour range is available for the selected Z curve."));
         setStatus("Vega — colour range refused");
-        return;
+        return true;
       }
       const colourPolicy = applyVegaColourPolicy(rows, { min: colourRange.min, max: colourRange.max });
       lastColourPolicy = { excluded: colourPolicy.excluded, clamped: colourPolicy.clamped };
@@ -1423,16 +1437,21 @@ export async function buildVegaContent(
     lastRows = renderRows;
     updateRangeInfo();
     try {
-      const result = await vegaEmbed(chartHost, specFor(type, renderRows, xName, yName, zName, opts), {
+      // vegaEmbed mutates its host before its Promise resolves. Build in a detached host so an
+      // old generation cannot touch the active panel before the freshness check runs.
+      const stagingHost = document.createElement("div");
+      const result = await vegaEmbed(stagingHost, specFor(type, renderRows, xName, yName, zName, opts), {
         actions: false,
         renderer: "canvas",
         tooltip: true,
       });
-      if (disposed || myGen !== gen) {
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) {
         result.finalize();
-        return;
+        return false;
       }
+      clearCurrent();
       current = result;
+      chartHost.replaceChildren(...Array.from(stagingHost.childNodes));
       syncRuntimeAxisRanges();
       if (brushable(type)) {
         result.view.addSignalListener("brush", () => scheduleEmit());
@@ -1441,15 +1460,18 @@ export async function buildVegaContent(
       const zc = zoneSel.current();
       const scope = zc.zoneName !== "*" ? ` · ${zc.zoneName}` : "";
       setStatus(`Vega — ${type}, ${renderRows.length.toLocaleString()} points${scope}`);
+      return true;
     } catch (err) {
-      if (disposed || myGen !== gen) return;
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return false;
+      clearCurrent();
       chartHost.replaceChildren(messageNode("logview-message", `Vega render failed: ${err}`));
       setStatus("Vega — render failed");
+      return true;
     }
   }
 
   async function render(): Promise<void> {
-    const myGen = ++gen;
+    const token = beginPlotAsyncGeneration("vega-data-refetch", ++gen);
     const type = typeSel.value as ChartType;
     const xName = xSel.value;
     const yName = ySel.value;
@@ -1467,13 +1489,13 @@ export async function buildVegaContent(
       try {
         series = await getCurveData(well.well_id, needed, zc.depthMin, zc.depthMax);
       } catch (err) {
-        if (disposed || myGen !== gen) return;
+        if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
         bindingReadyError(err);
         chartHost.replaceChildren(messageNode("logview-message", `Failed to load curves: ${err}`));
         setStatus("Vega — load failed");
         return;
       }
-      if (disposed || myGen !== gen) return;
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
       const xs = series.find((s) => s.curve_name === xName);
       if (!xs) {
         bindingReadyError(new Error(`required channel '${xName}' is unresolved`));
@@ -1489,7 +1511,7 @@ export async function buildVegaContent(
         } catch {
           zones = [];
         }
-        if (disposed || myGen !== gen) return;
+        if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
         ({ rows, order } = groupByZone(xs, zones));
         groupLabel = "zone";
       } else {
@@ -1526,7 +1548,8 @@ export async function buildVegaContent(
       lastGroupOrder = order;
       lastGroupLabel = groupLabel;
       lastUnpairedOrUnclassifiedExcluded = unpairedOrUnclassifiedExcluded;
-      await embedRows(type, rows, xName, "", null, { groupOrder: order, groupLabel }, myGen);
+      if (!(await embedRows(type, rows, xName, "", null, { groupOrder: order, groupLabel }, token))) return;
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
       if (!current) {
         bindingReadyError(new Error("Vega refused: the initial chart did not render"));
         return;
@@ -1534,7 +1557,7 @@ export async function buildVegaContent(
       bindingReadyOk();
       persist();
       // embedRows sets a generic status; refine it with the group count and any dropped-sample note.
-      if (current && !disposed && myGen === gen) {
+      if (current && isPlotAsyncGenerationCurrent(token, gen, disposed)) {
         setStatus(`Vega — raincloud · ${order.length} group(s) · ${rows.length.toLocaleString()} pts${note}`);
       }
       return;
@@ -1546,13 +1569,13 @@ export async function buildVegaContent(
     try {
       series = await getCurveData(well.well_id, needed, zc.depthMin, zc.depthMax);
     } catch (err) {
-      if (disposed || myGen !== gen) return;
+      if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
       bindingReadyError(err);
       chartHost.replaceChildren(messageNode("logview-message", `Failed to load curves: ${err}`));
       setStatus("Vega — load failed");
       return;
     }
-    if (disposed || myGen !== gen) return; // a newer render (or close) already won
+    if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
     const sourceRows = type === "histogram" ? xValues(series, xName) : joinXYZ(series, xName, yName, useZ);
     const screened = screenVegaPopulation(sourceRows, type, currentValidityPolicy(), null, null);
     const rows = screened.indices.map((index) => sourceRows[index]);
@@ -1565,7 +1588,8 @@ export async function buildVegaContent(
     lastTrend = useTrend;
     lastMethod = method;
     lastUnpairedOrUnclassifiedExcluded = 0;
-    await embedRows(type, rows, xName, yName, useZ, { trend: useTrend, method }, myGen);
+    if (!(await embedRows(type, rows, xName, yName, useZ, { trend: useTrend, method }, token))) return;
+    if (!isPlotAsyncGenerationCurrent(token, gen, disposed)) return;
     if (!current) {
       bindingReadyError(new Error("Vega refused: the initial chart did not render"));
       return;
@@ -1579,7 +1603,7 @@ export async function buildVegaContent(
     if (!lastSourceRows) return;
     syncRuntimeAxisRanges();
     const axisDomains = captureVegaViewportDomains(axisRanges);
-    const myGen = ++gen;
+    const token = beginPlotAsyncGeneration("vega-data-refetch", ++gen);
     const screened = screenVegaPopulation(lastSourceRows, lastType, currentValidityPolicy(), null, null);
     const rows = screened.indices.map((index) => lastSourceRows![index]);
     await embedRows(lastType, rows, lastX, lastY, lastZ, {
@@ -1588,7 +1612,7 @@ export async function buildVegaContent(
       groupOrder: lastGroupOrder,
       groupLabel: lastGroupLabel,
       axisDomains,
-    }, myGen);
+    }, token);
   }
 
   // --- V4: last-used persistence, export, spec editor ------------------------
@@ -1711,18 +1735,21 @@ export async function buildVegaContent(
   const refreshTemplate = (): void => {
     if (editor) editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: templateJson() } });
   };
-  const ensureEditor = async (): Promise<void> => {
-    if (editor || disposed) return;
+  const ensureEditor = async (): Promise<boolean> => {
+    if (editor) return true;
+    if (disposed) return false;
+    const token = beginPlotAsyncGeneration("vega-editor-load", ++editorGen);
     const { EditorView: CM, basicSetup } = await import("codemirror");
-    if (disposed) return; // the panel closed while the (lazy) editor module loaded
+    if (!isPlotAsyncGenerationCurrent(token, editorGen, disposed)) return false;
     editor = new CM({ parent: editorHost, doc: templateJson(), extensions: [basicSetup, CM.lineWrapping] });
+    return true;
   };
   let specOpen = false;
   specToggle.addEventListener("click", () => {
     specOpen = !specOpen;
     specWrap.style.display = specOpen ? "" : "none";
     specToggle.classList.toggle("active", specOpen);
-    if (specOpen) void ensureEditor().then(() => !specOverride && refreshTemplate());
+    if (specOpen) void ensureEditor().then((applied) => applied && !specOverride && refreshTemplate());
   });
   applyBtn.addEventListener("click", () => {
     if (!editor) return;
@@ -1822,10 +1849,11 @@ export async function buildVegaContent(
     dataRevision: () => {
       // Refill selectors and re-fetch after module/equation runs, imports and undo, so the
       // grammar cannot keep stale rows while sibling plots already show the new revision.
+      const token = beginPlotAsyncGeneration("vega-selector-refetch", ++selectorGen);
       void (async () => {
         try {
           const names = await loadCurveNames();
-          if (disposed) return;
+          if (!isPlotAsyncGenerationCurrent(token, selectorGen, disposed)) return;
           refillCurveSelect(xSel, names);
           refillCurveSelect(ySel, names);
           refillCurveSelect(zSel, names, [{ value: "", label: "— None —" }]);
@@ -1833,7 +1861,7 @@ export async function buildVegaContent(
         } catch {
           // Catalog refill failed; still re-render below so the plot reflects the new revision.
         }
-        if (!disposed && embedded) await render();
+        if (isPlotAsyncGenerationCurrent(token, selectorGen, disposed) && embedded) await render();
       })();
     },
     interval: (interval) => zoneSel.applySelectedInterval(interval, true),
@@ -1845,14 +1873,22 @@ export async function buildVegaContent(
         return;
       }
       if (current) {
-        void current.view.resize().runAsync().then(() => {
-          if (!disposed) syncRuntimeAxisRanges();
+        const resized = current;
+        const token = beginPlotAsyncGeneration("vega-resize", ++resizeGen);
+        void resized.view.resize().runAsync().then(() => {
+          if (
+            isPlotAsyncGenerationCurrent(token, resizeGen, disposed) &&
+            current === resized
+          ) syncRuntimeAxisRanges();
         }).catch(() => {});
       }
     },
     cancelPending: () => {
       disposed = true;
       gen++;
+      selectorGen++;
+      editorGen++;
+      resizeGen++;
       if (emitRaf) {
         cancelAnimationFrame(emitRaf);
         emitRaf = 0;

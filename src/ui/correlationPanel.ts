@@ -42,6 +42,7 @@ import {
 } from "./axisRange";
 import { applyPlotRangePolicy, formatPlotRangePolicySummary, type PlotRangePolicyReport } from "./plotRangePolicy";
 import { registerPlotInvalidationContract } from "./plotInvalidation";
+import { beginPlotAsyncGeneration, isPlotAsyncGenerationCurrent } from "./plotAsync";
 
 /** Default marker colors per contact type (a stored color overrides these). */
 const CONTACT_COLORS: Record<string, string> = {
@@ -766,25 +767,32 @@ export async function buildCorrelationContent(
   // older Promise.all in flight; whichever reload started last wins, so a stale set of
   // strips can't replace the current one. reload() preserves the pan/zoom viewport.
   let reloadGen = 0;
-  async function reload(): Promise<void> {
-    const gen = ++reloadGen;
+  async function reload(): Promise<boolean> {
+    const token = beginPlotAsyncGeneration("correlation-data-refetch", ++reloadGen);
     const chosen = wells.filter((w) => included.has(w.well_id));
     if (chosen.length === 0) {
       strips = [];
-      return;
+      return true;
     }
-    await resolvePlotBindings(plotIntents(), {
-      kind: "explicit",
-      well_ids: chosen.map((well) => well.well_id),
-    });
+    try {
+      await resolvePlotBindings(plotIntents(), {
+        kind: "explicit",
+        well_ids: chosen.map((well) => well.well_id),
+      });
+    } catch (error) {
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return false;
+      throw error;
+    }
+    if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return false;
     // TVDSS rides along in the same batch read so a TVDSS-mode switch needs no refetch.
     const names = Array.from(new Set([opts.curve, "TVDSS"]));
     const [loaded, loadedContacts] = await Promise.all([
       Promise.all(
-        chosen.map(async (well): Promise<WellStrip> => {
+        chosen.map(async (well): Promise<{ strip: WellStrip; topsError: string | null }> => {
           let series: TrackCurveSeries | null = null;
           let tv: TvdssMap | null = null;
           let tops: TopEntry[] = [];
+          let topsError: string | null = null;
           try {
             const data = await getTrackData(well.well_id, names, 1400);
             series = data.find((s) => s.curve_name === opts.curve) ?? null;
@@ -796,23 +804,27 @@ export async function buildCorrelationContent(
             tops = await listTops(well.well_id);
           } catch (err) {
             tops = [];
-            setStatus(`Correlation tops unavailable: ${String(err)}`);
+            topsError = String(err);
           }
-          return { well, series, tops, tv, shift: 0, hasDatum: false };
+          return { strip: { well, series, tops, tv, shift: 0, hasDatum: false }, topsError };
         }),
       ),
       listFluidContacts().catch(() => [] as FluidContact[]),
     ]);
-    if (gen !== reloadGen) return; // a newer reload started while we awaited
-    strips = loaded;
+    if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return false;
+    const topsError = loaded.find((item) => item.topsError)?.topsError;
+    if (topsError) setStatus(`Correlation tops unavailable: ${topsError}`);
+    strips = loaded.map((item) => item.strip);
     statisticsDataVersion++;
     contacts = loadedContacts;
     applyDatum();
     refreshDatumChoices();
+    return true;
   }
   const reloadAndDraw = (): void => {
     void reload()
-      .then(() => {
+      .then((applied) => {
+        if (!applied) return;
         draw();
         persist();
       })
@@ -827,19 +839,25 @@ export async function buildCorrelationContent(
    *  an import, delete, or active-group change — reload() alone only re-reads curves for the
    *  wells already included, so a freshly imported well never appeared. New wells join the
    *  included set (they show as strips immediately); wells that no longer exist drop out. */
-  async function refreshWells(): Promise<void> {
+  let wellsGen = 0;
+  async function refreshWells(): Promise<boolean> {
+    const token = beginPlotAsyncGeneration("correlation-well-refetch", ++wellsGen);
     let latest: WellSummary[];
     try {
       latest = await listActiveScopedWells();
     } catch {
-      return; // keep the current list if the fetch fails
+      // Keep the current list if the fetch fails, but let the winning data-revision path
+      // continue to reload curves for that current inventory.
+      return isPlotAsyncGenerationCurrent(token, wellsGen);
     }
+    if (!isPlotAsyncGenerationCurrent(token, wellsGen)) return false;
     const known = new Set(wells.map((w) => w.well_id));
     const live = new Set(latest.map((w) => w.well_id));
     for (const w of latest) if (!known.has(w.well_id)) included.add(w.well_id);
     for (const id of Array.from(included)) if (!live.has(id)) included.delete(id);
     wells = latest;
     refreshWellsBtn();
+    return true;
   }
 
   /** Recomputes per-well flattening shifts from the chosen datum top. */
@@ -915,14 +933,7 @@ export async function buildCorrelationContent(
   const curveSel = curveSelect(curveNames, opts.curve);
   curveSel.addEventListener("change", () => {
     opts.curve = curveSel.value;
-    void reload().then(() => {
-      draw();
-      persist();
-    }).catch((error) => {
-      strips = [];
-      setStatus(`Correlation refused: ${error}`);
-      draw();
-    });
+    reloadAndDraw();
   });
 
   const numField = (placeholder: string, value: number | null, onChange: (v: number | null) => void): HTMLInputElement => {
@@ -1539,8 +1550,10 @@ export async function buildCorrelationContent(
       // Refresh the well inventory before its curves so an import/delete/group change cannot
       // leave the Wells menu and the rendered strips on different data revisions.
       void refreshWells()
-        .then(() => reload())
-        .then(draw)
+        .then((current) => current ? reload() : false)
+        .then((applied) => {
+          if (applied) draw();
+        })
         .catch((error) => {
           strips = [];
           setStatus(`Correlation refused: ${error}`);
@@ -1558,6 +1571,7 @@ export async function buildCorrelationContent(
     size: () => draw(),
     cancelPending: () => {
       reloadGen++;
+      wellsGen++;
       clearTimeout(fitTimer);
       if (wheelPersistTimer !== null) {
         clearTimeout(wheelPersistTimer);

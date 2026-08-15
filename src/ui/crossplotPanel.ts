@@ -84,6 +84,7 @@ import {
   type PlotAxisRangeExport,
 } from "./axisRange";
 import { registerPlotInvalidationContract } from "./plotInvalidation";
+import { beginPlotAsyncGeneration, isPlotAsyncGenerationCurrent } from "./plotAsync";
 import {
   chartRecordForSurface,
   type ChartRenderRecord,
@@ -2305,14 +2306,14 @@ export async function buildCrossplotContent(
   // whichever reload commits, so a background bump can't strand new axes at the old zoom.
   let resetPending = false;
   const reload = async (preserveView = false) => {
-    const gen = ++reloadGen;
+    const token = beginPlotAsyncGeneration("crossplot-data-refetch", ++reloadGen);
     if (!preserveView) resetPending = true;
     const zone = zoneSel.current();
     const wanted = [xSel.value, ySel.value, ...(zSel.value ? [zSel.value] : [])];
     activeDepthHandoff.clear();
     try {
       const series = await getCurveData(well.well_id, wanted, zone.depthMin, zone.depthMax);
-      if (gen !== reloadGen) return; // a newer reload started while we awaited
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
       const byName = new Map(series.map((s) => [s.curve_name, s]));
       const required = wanted.map((name) => byName.get(name.toUpperCase()));
       if (required.some((item) => !item)) throw new Error("one or more required plot curves are absent");
@@ -2333,7 +2334,7 @@ export async function buildCrossplotContent(
         y: bindings.find((binding) => binding.intent.semantic_request === ySel.value)?.resolved[0] ?? null,
       };
     } catch (err) {
-      if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
+      if (!isPlotAsyncGenerationCurrent(token, reloadGen)) return;
       const handoff = depthReframeHandoff(err, [well.well_id], wanted);
       activeDepthHandoff.show(handoff);
       setStatus(handoff ? `Crossplot refused: ${handoff.reason}` : `Crossplot data load failed: ${err}`);
@@ -2370,7 +2371,7 @@ export async function buildCrossplotContent(
    *  rapid core toggle supersedes an in-flight core fetch without dropping a data reload. */
   let coreGen = 0;
   const reloadCore = async () => {
-    const gen = ++coreGen;
+    const token = beginPlotAsyncGeneration("crossplot-core-refetch", ++coreGen);
     if (!opts.showCore) {
       coreByName = new Map();
       redraw();
@@ -2378,10 +2379,10 @@ export async function buildCrossplotContent(
     }
     try {
       const series = await getCoreData(well.well_id);
-      if (gen !== coreGen) return; // a newer core load started while we awaited
+      if (!isPlotAsyncGenerationCurrent(token, coreGen)) return;
       coreByName = new Map(series.map((s) => [s.curve_name, s]));
     } catch (err) {
-      if (gen !== coreGen) return;
+      if (!isPlotAsyncGenerationCurrent(token, coreGen)) return;
       setStatus(`Core data load failed: ${err}`);
       coreByName = new Map();
     }
@@ -2404,17 +2405,17 @@ export async function buildCrossplotContent(
    *  generation token). Scope = just the active well → clears the overlay: byte-identical
    *  single-well behaviour. */
   const reloadContext = async () => {
-    const gen = ++ctxGen;
+    const token = beginPlotAsyncGeneration("crossplot-context-refetch", ++ctxGen);
     contextDepthHandoff.clear();
     let resolvedIds: string[];
     try {
       resolvedIds = await resolveWellScope(scope.backend());
     } catch (error) {
-      if (gen === ctxGen) setStatus(`Crossplot scope refused: ${error}`);
+      if (isPlotAsyncGenerationCurrent(token, ctxGen)) setStatus(`Crossplot scope refused: ${error}`);
       return;
     }
     refreshStatisticsRecords();
-    if (gen !== ctxGen) return;
+    if (!isPlotAsyncGenerationCurrent(token, ctxGen)) return;
     const ids = resolvedIds.filter((id) => id !== well.well_id);
     if (ids.length === 0) {
       const had = ctxLayers.length > 0;
@@ -2440,7 +2441,7 @@ export async function buildCrossplotContent(
       curves: [xSel.value, ySel.value],
       windowFor: (id) => contextZoneWindow(zoneSel, id),
       budget: MAX_CONTEXT_POINTS,
-      isStale: () => gen !== ctxGen,
+      isStale: () => !isPlotAsyncGenerationCurrent(token, ctxGen),
     });
     if (!outcome) return; // superseded by a newer call (or dispose)
     ctxReductionManifest = contextReductionExport(
