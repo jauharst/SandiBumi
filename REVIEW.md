@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-023: BADHOLE signed DRHO reason blocked
+
+- [ ] **Automated audit:** exact T31 and current source confirm `badhole` evaluates
+      `abs(DRHO) > DRHO_MAX` and then keeps only the combined BADHOLE bit. Positive and negative
+      exceedances therefore become indistinguishable. No passing test currently observes a signed
+      reason output, and the raw DRHO input is not misrepresented as output custody.
+- [ ] **Visual:** no closure review is executable. A positive and a negative DRHO excursion of equal
+      magnitude currently render the same BADHOLE state; the availability companion is 1 for both
+      and supplies no diagnosis.
+- [ ] **Manual decision:** settle DEC-032. Choose the typed binary cause group or categorical reason
+      type, including the exact representation that preserves positive and negative DRHO causes and
+      every caliper-plus-DRHO combination after storage and export.
+- [ ] **Field and harsh critique:** preserving `abs(DRHO)` only preserves alarm magnitude, not the
+      physical direction that separates broadly washout-like and mudcake-like responses. Do not
+      infer the sign from a later curve that may have been renamed, reframed or omitted from a
+      deliverable; exercise equal-magnitude opposite-sign controls after the contract is approved.
+
 ## 2026-08-16 — G2 SB-ENV-022: BADHOLE reason representation blocked
 
 - [ ] **Automated audit:** exact source/spec inventory confirms BADHOLE still exposes the mask and

@@ -306,14 +306,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T31; sections 4.3, 6.3 and 8.
 - **Atomic obligations:** preserve the sign of each density-correction exceedance in the reason output.
-- **Current source:** `badhole` compares `abs(DRHO)` and emits only 0/1, so the sign is irrecoverably discarded.
-- **Qualifying acceptance tests:** none; T31 is missing. Test class `MISSING`.
-- **Supporting tests:** the existing bad-hole test covers magnitude only and supplies no positive/negative reason assertion.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** `UNIMPLEMENTED` at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** depends on the reason-channel representation selected under OI-7.
-- **Next action:** preserve positive and negative exceedances as distinct typed reasons, with equal-magnitude opposite-sign controls.
+- **Current source:** `badhole` compares `abs(DRHO)` against the supplied threshold and collapses either sign into the same combined BADHOLE bit. The SB-ENV-021 DRHO availability companion is also 1 for either sign and cannot preserve the cause direction.
+- **Qualifying acceptance tests:** none. Exact T31 has no executable equal-magnitude opposite-sign control and no signed reason output to assert. Test class `MISSING`.
+- **Supporting tests:** nominal bad-hole arithmetic and SB-ENV-021 availability prove only magnitude-based alarm and criterion availability; the raw input DRHO curve is not output reason custody and cannot close this contract.
+- **Manual evidence:** conditioning 1/62; workflow 0/41; processing-history 0/7; all four SB-ENV-023 blocker-review scenarios remain unchecked.
+- **Git evidence:** current topic branch after blocker commit SB-ENV-022; exact source/spec audit found no signed reason representation or T31. The blocker-only candidate retains the measured 1049 passed / 0 failed / 37 ignored baseline and is re-gated before commit.
+- **Verdict:** chapter and live as-built remain `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`; Gate 2 `BLOCKED-DECISION/DEPENDENCY`; Visual/Manual/Field review open.
+- **Blocker or decision:** SB-ENV-023 is an arm of DEC-032: `-1/0/+1`, a signed raw exceedance and separate positive/negative booleans are different public contracts. OI-7/DEC-031 also require the reason representation family to remain shared with SB-ENV-007. Engineering cannot choose one by implementation convenience.
+- **Next action:** Jauhar settles DEC-032 together with DEC-031; then add exact T31 with equal-magnitude positive and negative DRHO-only samples, both caliper combinations, evaluated-good and neither-evaluable controls, plus persistence/export proof.
 
 ## SB-ENV-024 - Bad-hole thresholds ship ABSENT with cited presets
 
