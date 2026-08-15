@@ -930,7 +930,7 @@ export class Workspace {
           undefined,
           undefined,
           undefined,
-          () => plotAncestryScope(host.querySelector<HTMLCanvasElement>("canvas.plot-canvas")),
+          (surface) => plotAncestryScope(host.querySelector<HTMLCanvasElement>("canvas.plot-canvas"), surface),
         ),
         "sep",
         { label: `New ${kind} window`, onClick: () => this.openPlot(kind as PlotKind, group) },

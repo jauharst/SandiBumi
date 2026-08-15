@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { DepthUnit } from "./units";
 import type { TrackCurveRequest } from "./trackCurveRequest";
 import type { PlotAxisRangeExport } from "./ui/axisRange";
+import type { ChartRenderRecord } from "./ui/chartProvenance";
 import type { PlotStatisticsRecord } from "./ui/plotCanvas";
 
 /** The project's stored depth unit, plus whether it was explicitly declared (false = a
@@ -713,6 +714,8 @@ export interface PlotAncestryScope {
   axisRanges?: PlotAxisRangeExport[];
   /** Complete statistics custody for every numeric summary visible on the plot. */
   statisticsRecords?: PlotStatisticsRecord[];
+  /** Complete identity and source custody for an optional chart payload. */
+  chartRenderRecord?: ChartRenderRecord;
 }
 
 function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
@@ -723,6 +726,7 @@ function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
     plotBindings: scope?.plotBindings ?? null,
     axisRanges: scope?.axisRanges ?? null,
     statisticsRecords: scope?.statisticsRecords ?? null,
+    chartRenderRecord: scope?.chartRenderRecord ?? null,
   };
 }
 

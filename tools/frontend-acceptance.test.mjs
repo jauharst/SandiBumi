@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { createServer } from "vite";
@@ -1405,6 +1406,78 @@ test("every_plot_uses_one_change_only_invalidation_contract_and_a_theme_change_r
     { x: [10, 20], y: [30, 40] },
     "a theme re-embed restores the current pan/zoom domains rather than the original data domains",
   );
+});
+
+test("a_chart_missing_its_source_revision_is_blocked_on_screen_save_template_svg_and_pdf_while_one_complete_public_primary_record_survives_all_five", async () => {
+  // CORRECTNESS — SB-PLT-023 / SB-PLT-T35. docs/PRD_v2/23_plotting-interactivity.md
+  // §§4.5 and 6 require the complete record and the missing-revision refusal on every
+  // deliverable route. Pittman, E.D. (1992), AAPG Bulletin 76(2), 191-198, Table 1 is
+  // the public-primary citation already classified in chapter 15 §5; this test transports
+  // metadata for a non-shipped contract fixture and does not transcribe chart values.
+  const { chartRecordForSurface } = await load("/src/ui/chartProvenance.ts");
+  const { normalizeCrossplotOptions } = await load("/src/ui/crossplotPanel.ts");
+  const payload = JSON.stringify({ fixture: "metadata-only", values: [] });
+  const complete = {
+    chart_id: "pittman-1992-metadata-fixture",
+    title: "Pittman 1992 metadata fixture",
+    chart_type: "published-primary-metadata-fixture",
+    x_quantity: "porosity",
+    x_unit: "%",
+    y_quantity: "permeability",
+    y_unit: "mD",
+    citation: "Pittman, E.D. (1992), AAPG Bulletin 76(2), 191-198, Table 1",
+    publisher: "AAPG",
+    revision_date: "1992",
+    digitizer: "SandiBumi acceptance fixture",
+    approved_derivation_path: "independently_digitized_public_primary_source",
+    payload_checksum: createHash("sha256").update(payload).digest("hex"),
+    transform_applied: "metadata-only; no chart values transcribed",
+  };
+  const surfaces = ["screen", "save", "template", "svg", "pdf"];
+
+  for (const surface of surfaces) {
+    assert.deepEqual(
+      chartRecordForSurface(complete.chart_id, complete, surface),
+      complete,
+      `${surface} must carry the same complete stable record`,
+    );
+  }
+
+  const saved = normalizeCrossplotOptions({
+    chartOverlay: complete.chart_id,
+    chartProvenance: complete,
+  });
+  assert.deepEqual(saved.chartProvenance, complete, "save/template normalization must not discard provenance");
+
+  const missingRevision = { ...complete, revision_date: "" };
+  for (const surface of surfaces) {
+    assert.throws(
+      () => chartRecordForSurface(complete.chart_id, missingRevision, surface),
+      new RegExp(`${surface}.*revision`, "iu"),
+      `${surface} must refuse the same incomplete record`,
+    );
+  }
+  assert.throws(
+    () => chartRecordForSurface("different-chart", complete, "screen"),
+    /screen.*identity/iu,
+    "a complete record for a different chart must not authorize the selected payload",
+  );
+
+  const [crossplot, ipc, backend] = await Promise.all([
+    readFile(new URL("../src/ui/crossplotPanel.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/ipc.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
+  ]);
+  assert.match(crossplot, /authorizeProvenancedChart\([\s\S]*?"screen"/u);
+  assert.match(crossplot, /savePlotProps\("crossplot",\s*persistedChartState\("save"\)\)/u);
+  assert.match(crossplot, /buildPlotTemplateBar<[\s\S]*?persistedChartState\("template"\)/u);
+  assert.match(crossplot, /surface === "svg" \|\| surface === "pdf" \? surface : "save"/u);
+  assert.match(crossplot, /chartRecordForSelectedSurface\(chartSurface\)/u);
+  assert.match(crossplot, /chartRenderRecord:\s*chartRenderRecord\s*\?\?/u);
+  assert.match(ipc, /chartRenderRecord:\s*scope\?\.chartRenderRecord\s*\?\?/u);
+  assert.match(backend, /validate_chart_render_record\(chart_render_record\.as_ref\(\)\)/u);
+  assert.match(backend, /embed_chart_render_record_json_in_svg/u);
+  assert.match(backend, /embed_chart_render_record_json_in_pdf/u);
 });
 
 test("a_focused_accessible_canvas_changes_view_by_keyboard_and_removes_the_handler_on_dispose", async () => {

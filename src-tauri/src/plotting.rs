@@ -2452,8 +2452,9 @@ mod tests {
     }
 
     #[test]
-    fn a_chart_record_missing_its_source_revision_cannot_render_in_a_deliverable() {
-        // SB-PLT-023 / SB-PLT-T35: strings are provenance fixtures, not shipped content.
+    fn the_backend_refuses_an_incomplete_chart_record_and_embeds_a_complete_one_in_vector_deliverables() {
+        // Supporting backend proof for SB-PLT-023 / SB-PLT-T35. The cross-surface
+        // acceptance test lives in tools/frontend-acceptance.test.mjs.
         let complete = ChartRenderRecord {
             chart_id: "chart-id".into(),
             title: "Chart title".into(),
@@ -2472,7 +2473,25 @@ mod tests {
         };
         assert!(validate_chart_render_record(Some(&complete)).is_ok());
 
-        let mut missing_revision = complete;
+        let json = serde_json::to_string(&complete).unwrap();
+        let svg = crate::composite::embed_chart_render_record_json_in_svg(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+            &json,
+        )
+        .unwrap();
+        assert!(svg.contains("sandibumi-chart-render-record-v1"));
+        assert!(svg.contains("chart-id"));
+
+        let pdf = crate::composite::assemble_single_page_pdf("", 100.0, 100.0);
+        let pdf = crate::composite::embed_chart_render_record_json_in_pdf(pdf, &json).unwrap();
+        use base64::Engine as _;
+        let marker = format!(
+            "SANDIBUMI_CHART_RENDER_RECORD_V1_BASE64:{}",
+            base64::engine::general_purpose::STANDARD.encode(json.as_bytes())
+        );
+        assert!(String::from_utf8_lossy(&pdf).contains(&marker));
+
+        let mut missing_revision = complete.clone();
         missing_revision.revision_date.clear();
         assert!(validate_chart_render_record(Some(&missing_revision))
             .unwrap_err()
@@ -2481,7 +2500,7 @@ mod tests {
 
         let renderer = include_str!("../../src/ui/crossplotPanel.ts");
         let gate = renderer
-            .find("authorizeProvenancedChart(overlayDef")
+            .find("const decision = authorizeProvenancedChart(")
             .expect("chart renderer must authorize provenance");
         let draw = renderer
             .find("drawChartOverlay(plot, overlayDef")

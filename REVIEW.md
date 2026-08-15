@@ -1,5 +1,30 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-023: provenance-complete chart custody and refusal
+
+- [ ] **Automated correctness:** the exact SB-PLT-023/T35 test carries one complete metadata-only
+      fixture, sourced to Pittman (1992) as already classified in chapter 15, unchanged through
+      screen, saved state, template, SVG and PDF surfaces; removes the revision and proves every
+      surface refuses; and changes the chart identity to prove a different record cannot authorize
+      the selected payload. Removing the revision check made the test RED before restoration. The
+      Rust boundary independently validates the record and embeds it in SVG/PDF metadata. Existing
+      vendor-derived chartbook overlays remain blocked because no rights-approved source record was
+      added. The fresh full gate is 1034 passed / 0 failed / 37 ignored; cargo check reports the
+      separately owned 31 Rust warnings.
+- [ ] **Visual:** open a Crossplot whose axes match a chartbook overlay. Confirm each existing
+      unapproved overlay is labelled blocked in the selector and draws a readable refusal instead of
+      chart curves. At the smallest normal dock size, the refusal must not masquerade as a plotted
+      result or disappear beneath the axes.
+- [ ] **Manual:** with a test build containing one rights-approved record, confirm the same chart ID,
+      title/type, typed axes, citation, publisher, revision, digitizer, derivation path, checksum and
+      transform survive last-used state, named-template reload, SVG metadata and PDF metadata.
+      Remove only the revision and confirm screen, state/template save and both vector exports refuse.
+- [ ] **Field and harsh critique:** do not interpret populated metadata as lawful provenance. The
+      existing vendor-derived payloads remain unusable until rights and exact source custody are
+      independently approved. A green metadata fixture proves fail-closed plumbing, not content
+      rights, digitization correctness, scientific validity, visual readability or representative-
+      field behavior; those remain open until Jauhar records them.
+
 ## 2026-08-15 — G2 SB-PLT-019: one invalidation and disposal contract for every plot
 
 - [ ] **Automated correctness:** the exact SB-PLT-019/T32 test executes one current-value event

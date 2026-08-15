@@ -305,14 +305,14 @@
 
 - **Chapter evidence:** P0; chapter status `ABSENT`; chapter intention T35; sections 4.5, 6, 7.1 O-5 and 8.1.
 - **Atomic obligations:** persist chart ID/title/type, typed X/Y quantity and unit, citation, publisher, revision/date, digitizer when required, approved derivation path, payload checksum and applied transform; block every deliverable render with any mandatory field missing.
-- **Current source:** `crossplotPanel.ts::authorizeProvenancedChart` constructs the complete record only after typed-axis authorization and visibly refuses missing/invalid source metadata. The same `drawStatic` path feeds screen, SVG and PDF. Current generated chart definitions provide no accepted provenance, so those overlays are blocked rather than rendered. The record is retained in last-used options/getState, but named template/project portability and a complete positive deliverable path are not proven.
-- **Qualifying acceptance tests:** none; T35's deliverable refusal is represented only by an internal validator and source-order assertion, not an executed screen/export/save route. Test class is `MISSING`.
-- **Supporting tests:** `plotting.rs::a_chart_record_missing_its_source_revision_cannot_render_in_a_deliverable` checks every record field, an invalid revision and authorization-before-draw source order.
+- **Current source:** `src/ui/chartProvenance.ts` owns the change-surface validator and stable chart-ID check. `crossplotPanel.ts::authorizeProvenancedChart` rebuilds the record from the current definition and typed axes rather than trusting a saved snapshot; screen, last-used state, named templates, SVG and PDF execute the same refusal. `ipc.ts` carries the optional record as typed metadata; `lib.rs` independently validates it before any write; `composite.rs` embeds the complete record in SVG, PNG and PDF artifacts. Current generated chart definitions still provide no accepted provenance, so every vendor-derived overlay remains blocked rather than rendered.
+- **Qualifying acceptance tests:** `tools/frontend-acceptance.test.mjs::a_chart_missing_its_source_revision_is_blocked_on_screen_save_template_svg_and_pdf_while_one_complete_public_primary_record_survives_all_five`; CORRECTNESS. It uses a metadata-only non-shipped fixture tied to Pittman (1992), already classified as a public-primary source in chapter 15; no chart values are transcribed. Removing the revision requirement made the exact test RED before restoration.
+- **Supporting tests:** `plotting.rs::the_backend_refuses_an_incomplete_chart_record_and_embeds_a_complete_one_in_vector_deliverables` checks the independent Rust validator and exact SVG/PDF metadata markers.
 - **Manual evidence:** `chart-overlays` 16/53, `report` 6/53, `office-deliverables` 0/39 and `project-lifecycle` 3/24.
 - **Git evidence:** reachable commit `113916c` added the fail-closed gate; accepted source contains no known provenance bypass for the chartbook draw call.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** T35's observable refusal/positive route and O-5's rights/provenance evidence are missing.
-- **Next action:** add a screen/save/template/SVG/PDF T35 fixture with one complete public-primary record and one missing revision; keep current unapproved overlays blocked.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 automation DONE, with Visual, Manual and Field still open.
+- **Blocker or decision:** none for the fail-closed custody mechanism. O-5 rights/provenance evidence remains absent for every current vendor-derived payload; those overlays remain blocked and are not counted as delivered content.
+- **Next action:** retain exact T35 and the backend artifact proof; execute REVIEW.md and Gate 4 evidence separately; acquire/approve rights and exact source records before enabling any current chartbook overlay; proceed serially to SB-PLT-028.
 
 ## SB-PLT-024 - Vendor chart payloads are never transcribed
 

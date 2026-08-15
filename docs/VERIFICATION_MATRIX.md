@@ -49,7 +49,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `crossplot` | Crossplot | Partially exercised | 6 / 21 | 2026-07-20 | 8 |
 | `pickett` | Pickett plot | Not exercised | 0 / 16 | — | 5 |
 | `correlation-tops` | Correlation, tops and propagation | Not exercised | 0 / 50 | — | 14 |
-| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 53 | 2026-07-20 | 15 |
+| `chart-overlays` | Chart overlays and MID | Partially exercised | 16 / 57 | 2026-07-20 | 16 |
 | `vega` | Vega-Lite interactive charts | Not exercised | 0 / 10 | — | 9 |
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
@@ -63,5 +63,5 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `processing-history` | Processing history | Not exercised | 0 / 7 | — | 1 |
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 52 | 2026-07-19 | 15 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 54 | — | 10 |
-| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 115 | 2026-08-13 | 43 |
-| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 108 | 2026-08-13 | 35 |
+| `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 119 | 2026-08-13 | 44 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 112 | 2026-08-13 | 36 |

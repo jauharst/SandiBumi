@@ -85,6 +85,11 @@ import {
 } from "./axisRange";
 import { registerPlotInvalidationContract } from "./plotInvalidation";
 import {
+  chartRecordForSurface,
+  type ChartRenderRecord,
+  type ChartRenderSurface,
+} from "./chartProvenance";
+import {
   applyPlotRangePolicy,
   formatPlotRangePolicySummary,
   type PlotRangePolicyReport,
@@ -93,23 +98,6 @@ import {
 export type RegModel = "linear" | "power" | "logx" | "exp";
 export type RegMethod = "yx" | "xy" | "rma";
 export type SizeMode = "fill" | "fixed";
-
-export interface ChartRenderRecord {
-  chart_id: string;
-  title: string;
-  chart_type: string;
-  x_quantity: string;
-  x_unit: string;
-  y_quantity: string;
-  y_unit: string;
-  citation: string;
-  publisher: string;
-  revision_date: string;
-  digitizer: string | null;
-  approved_derivation_path: string;
-  payload_checksum: string;
-  transform_applied: string;
-}
 
 interface ChartSourceProvenance {
   chartType: string;
@@ -234,9 +222,8 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
  *  the axis-log flags to keep saved por-perm regressions meaning the same thing. */
 export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): CrossplotOptions {
   const opts: CrossplotOptions = { ...DEFAULT_CROSSPLOT_OPTIONS, ...raw };
-  // A saved snapshot never authorizes itself. Rebuild it from the current approved chart
-  // record, concrete axis units and actual transform before the next persistence write.
-  opts.chartProvenance = null;
+  // Preserve the record as portable evidence. It never authorizes itself: every live draw,
+  // state write and export rebuilds and validates the record from the current chart definition.
   if (raw.regModel === undefined) {
     opts.regModel = opts.xLog && opts.yLog ? "power" : opts.xLog ? "logx" : opts.yLog ? "exp" : "linear";
   }
@@ -610,6 +597,7 @@ function authorizeProvenancedChart(
   yName: string,
   xSource: ResolvedPlotCurve | null,
   ySource: ResolvedPlotCurve | null,
+  surface: ChartRenderSurface = "screen",
 ): ChartRenderDecision {
   const authorization = authorizeTypedOverlay(def, xName, yName, xSource, ySource);
   if (!authorization) return { authorization: null, record: null, refusal: null };
@@ -660,10 +648,7 @@ function authorizeProvenancedChart(
       offset: authorization.y.offset,
     },
   });
-  return {
-    authorization,
-    refusal: null,
-    record: {
+  const record: ChartRenderRecord = {
       chart_id: def.id,
       title: def.label,
       chart_type: source.chartType,
@@ -678,8 +663,12 @@ function authorizeProvenancedChart(
       approved_derivation_path: source.approvedDerivationPath,
       payload_checksum: source.payloadChecksum.toLowerCase(),
       transform_applied: transform,
-    },
   };
+  try {
+    return { authorization, refusal: null, record: chartRecordForSurface(def.id, record, surface) };
+  } catch (error) {
+    return { authorization, record: null, refusal: String(error) };
+  }
 }
 
 function drawChartProvenanceRefusal(plot: PlotCanvas, refusal: string): void {
@@ -1450,7 +1439,14 @@ export function drawCrossplot(
   // axes only, except charts that themselves need a log axis (e.g. Th/K ratio).
   const overlayDef = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
   if (overlayDef) {
-    const decision = authorizeProvenancedChart(overlayDef, xName, yName, typedAxes?.x ?? null, typedAxes?.y ?? null);
+    const decision = authorizeProvenancedChart(
+      overlayDef,
+      xName,
+      yName,
+      typedAxes?.x ?? null,
+      typedAxes?.y ?? null,
+      "screen",
+    );
     if (decision.authorization && decision.record) {
       const flipped = decision.authorization.orientation === "flipped";
       const logOk = overlayDef.xLogNeeded
@@ -1573,8 +1569,8 @@ export async function buildCrossplotContent(
       y: bindings.find((binding) => binding.intent.channel === "y") ?? null,
     };
   };
-  const selectionState = (): Record<string, string> => {
-    const chartProvenance = currentChartDecision().record;
+  const selectionState = (surface: ChartRenderSurface = "save"): Record<string, string> => {
+    const chartProvenance = chartRecordForSelectedSurface(surface);
     return {
       plotId,
       x: xSel.value,
@@ -1589,8 +1585,7 @@ export async function buildCrossplotContent(
     buildPersistedPlotState("crossplot", options, representedWellIds(), plotIntents(), axisRanges);
   const persist = () => {
     try {
-      opts.chartProvenance = currentChartDecision().record;
-      void savePlotProps("crossplot", persistedState({ ...opts }))
+      void savePlotProps("crossplot", persistedChartState("save"))
         .catch((error) => setStatus(`Crossplot state not saved: ${error}`));
     } catch (error) {
       setStatus(`Crossplot state not saved: ${error}`);
@@ -1615,7 +1610,7 @@ export async function buildCrossplotContent(
     buildPlotTemplateBar<CrossplotOptions>(
       "crossplot",
       "Crossplot",
-      () => persistedState({ ...opts }),
+      () => persistedChartState("template"),
       (t) => {
         Object.assign(opts, normalizeCrossplotOptions({ ...opts, ...t }));
         applySize();
@@ -1635,14 +1630,17 @@ export async function buildCrossplotContent(
     () => getSvg(),
     () => getPdf(),
     () => ctxReductionManifest,
-    () => {
-      const state = persistedState(selectionState());
+    (surface) => {
+      const chartSurface: ChartRenderSurface = surface === "svg" || surface === "pdf" ? surface : "save";
+      const state = persistedState(selectionState(chartSurface));
+      const chartRenderRecord = chartRecordForSelectedSurface(chartSurface);
       return {
         wellIds: state.well_ids,
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
         axisRanges: state.axis_ranges,
         statisticsRecords,
+        chartRenderRecord: chartRenderRecord ?? undefined,
       };
     },
   ));
@@ -1819,11 +1817,24 @@ export async function buildCrossplotContent(
       .find((binding) => binding.intent.semantic_request.toUpperCase() === curveName.toUpperCase())
       ?.resolved[0] ?? null;
 
-  function currentChartDecision(): ChartRenderDecision {
+  function currentChartDecision(surface: ChartRenderSurface = "screen"): ChartRenderDecision {
     const def = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
     return def
-      ? authorizeProvenancedChart(def, xSel.value, ySel.value, typedAxes.x, typedAxes.y)
+      ? authorizeProvenancedChart(def, xSel.value, ySel.value, typedAxes.x, typedAxes.y, surface)
       : { authorization: null, record: null, refusal: null };
+  }
+
+  function chartRecordForSelectedSurface(surface: ChartRenderSurface): ChartRenderRecord | null {
+    if (!opts.chartOverlay) return null;
+    const decision = currentChartDecision(surface);
+    if (!decision.record) throw new Error(decision.refusal ?? `${surface} chart rendering is blocked`);
+    return decision.record;
+  }
+
+  function persistedChartState(surface: "save" | "template") {
+    const chartProvenance = chartRecordForSelectedSurface(surface);
+    opts.chartProvenance = chartProvenance;
+    return persistedState({ ...opts, chartProvenance });
   }
 
   function persistChartProvenanceIfChanged(): boolean {

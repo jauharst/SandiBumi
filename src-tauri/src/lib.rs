@@ -1080,12 +1080,19 @@ fn save_png(db: tauri::State<DbState>,
     plot_bindings: Option<Vec<plotting::PlotChannelBinding>>,
     axis_ranges: Option<Vec<plotting::PlotAxisRange>>,
     statistics_records: Option<Vec<plotting::PlotStatisticsRecord>>,
+    chart_render_record: Option<plotting::ChartRenderRecord>,
 ) -> Result<String, String> {
     use base64::Engine as _;
     let mut bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64.as_bytes())
         .map_err(|e| format!("bad PNG payload: {e}"))?;
     let statistics_records = statistics_records.unwrap_or_default();
+    let chart_render_json = if chart_render_record.is_some() {
+        plotting::validate_chart_render_record(chart_render_record.as_ref())?;
+        Some(serde_json::to_string(&chart_render_record).map_err(|error| error.to_string())?)
+    } else {
+        None
+    };
     let plot_binding_json = match (plot_bindings, axis_ranges) {
         (Some(bindings), Some(axis_ranges)) => Some(plotting::serialize_plot_binding_export(
             ancestry_well_ids
@@ -1127,6 +1134,16 @@ fn save_png(db: tauri::State<DbState>,
             bytes = composite::embed_plot_bindings_json_in_svg(&svg, &json)?.into_bytes();
         }
     }
+    if let Some(json) = chart_render_json {
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            bytes = composite::embed_chart_render_record_json_in_png(&bytes, &json)?;
+        } else {
+            let svg = String::from_utf8(bytes).map_err(|_| {
+                "chart-record image export is neither PNG nor UTF-8 SVG".to_string()
+            })?;
+            bytes = composite::embed_chart_render_record_json_in_svg(&svg, &json)?.into_bytes();
+        }
+    }
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
 }
@@ -1144,9 +1161,16 @@ fn save_plot_pdf(db: tauri::State<DbState>,
     plot_bindings: Option<Vec<plotting::PlotChannelBinding>>,
     axis_ranges: Option<Vec<plotting::PlotAxisRange>>,
     statistics_records: Option<Vec<plotting::PlotStatisticsRecord>>,
+    chart_render_record: Option<plotting::ChartRenderRecord>,
 ) -> Result<String, String> {
     let mut bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
     let statistics_records = statistics_records.unwrap_or_default();
+    let chart_render_json = if chart_render_record.is_some() {
+        plotting::validate_chart_render_record(chart_render_record.as_ref())?;
+        Some(serde_json::to_string(&chart_render_record).map_err(|error| error.to_string())?)
+    } else {
+        None
+    };
     let plot_binding_json = match (plot_bindings, axis_ranges) {
         (Some(bindings), Some(axis_ranges)) => Some(plotting::serialize_plot_binding_export(
             ancestry_well_ids
@@ -1173,6 +1197,9 @@ fn save_plot_pdf(db: tauri::State<DbState>,
     }
     if let Some(json) = plot_binding_json {
         bytes = composite::embed_plot_bindings_json_in_pdf(bytes, &json)?;
+    }
+    if let Some(json) = chart_render_json {
+        bytes = composite::embed_chart_render_record_json_in_pdf(bytes, &json)?;
     }
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)

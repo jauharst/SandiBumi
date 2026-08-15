@@ -12,15 +12,21 @@ import { saveSvg } from "./svgExport";
 import { savePdf, type PlotPdf } from "./pdfExport";
 import type { PlotReductionExport } from "./plotTypes";
 
-const canvasScopes = new WeakMap<HTMLCanvasElement, () => PlotAncestryScope>();
+export type PlotExportSurface = "copy" | "save" | "print" | "svg" | "pdf";
+type PlotScopeProvider = (surface: PlotExportSurface) => PlotAncestryScope;
+
+const canvasScopes = new WeakMap<HTMLCanvasElement, PlotScopeProvider>();
 
 /** Returns the live scope registered by a plot's own toolbar. The generic dock context menu uses
  *  this instead of guessing a well or exporting all-project ancestry. */
-export function plotAncestryScope(canvas: HTMLCanvasElement | null): PlotAncestryScope {
+export function plotAncestryScope(
+  canvas: HTMLCanvasElement | null,
+  surface: PlotExportSurface = "save",
+): PlotAncestryScope {
   if (!canvas) throw new Error("No plot to export yet");
   const getScope = canvasScopes.get(canvas);
   if (!getScope) throw new Error("Plot export refused: this plot has no declared ancestry scope");
-  return getScope();
+  return getScope(surface);
 }
 
 /** Print / copy / export-image actions shared by every canvas-based visualization
@@ -185,7 +191,7 @@ export function imageAction(
   canvas: HTMLCanvasElement | null,
   name: string,
   setStatus: (text: string) => void,
-  getScope: () => PlotAncestryScope,
+  getScope: PlotScopeProvider,
 ): void {
   if (!canvas) {
     setStatus("No plot to export yet");
@@ -193,7 +199,7 @@ export function imageAction(
   }
   let scope: PlotAncestryScope;
   try {
-    scope = getScope();
+    scope = getScope(action);
   } catch (error) {
     setStatus(`${name} export refused: ${error}`);
     return;
@@ -226,7 +232,7 @@ export function svgAction(
   getSvg: () => string | null,
   name: string,
   setStatus: (text: string) => void,
-  getScope: () => PlotAncestryScope,
+  getScope: PlotScopeProvider,
 ): void {
   const svg = getSvg();
   if (!svg) {
@@ -235,7 +241,7 @@ export function svgAction(
   }
   let scope: PlotAncestryScope;
   try {
-    scope = getScope();
+    scope = getScope("svg");
   } catch (error) {
     setStatus(`${name} SVG export refused: ${error}`);
     return;
@@ -257,7 +263,7 @@ export function pdfAction(
   getPdf: () => PlotPdf | null,
   name: string,
   setStatus: (text: string) => void,
-  getScope: () => PlotAncestryScope,
+  getScope: PlotScopeProvider,
 ): void {
   const pdf = getPdf();
   if (!pdf) {
@@ -266,7 +272,7 @@ export function pdfAction(
   }
   let scope: PlotAncestryScope;
   try {
-    scope = getScope();
+    scope = getScope("pdf");
   } catch (error) {
     setStatus(`${name} PDF export refused: ${error}`);
     return;
@@ -319,7 +325,7 @@ export function imageExportMenuEntries(
   getSvg?: () => string | null,
   getPdf?: () => PlotPdf | null,
   getReductionManifest?: () => PlotReductionExport | null,
-  getScope?: () => PlotAncestryScope,
+  getScope?: PlotScopeProvider,
 ): ContextMenuEntry[] {
   if (!getScope) throw new Error("Plot export controls require an ancestry scope");
   const scope = getScope;
@@ -349,7 +355,7 @@ export function buildImageExportButtons(
   getSvg?: () => string | null,
   getPdf?: () => PlotPdf | null,
   getReductionManifest?: () => PlotReductionExport | null,
-  getScope?: () => PlotAncestryScope,
+  getScope?: PlotScopeProvider,
 ): HTMLElement {
   if (!getScope) throw new Error("Plot export controls require an ancestry scope");
   const scope = getScope;

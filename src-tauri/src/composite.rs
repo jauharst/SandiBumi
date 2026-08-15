@@ -442,6 +442,18 @@ pub(crate) fn embed_plot_bindings_json_in_svg(
     )
 }
 
+pub(crate) fn embed_chart_render_record_json_in_svg(
+    svg: &str,
+    chart_record_json: &str,
+) -> Result<String, String> {
+    embed_json_in_svg(
+        svg,
+        "sandibumi-chart-render-record-v1",
+        chart_record_json,
+        "chart render record",
+    )
+}
+
 /// Embeds the complete record in a PDF comment immediately before EOF. This preserves every xref
 /// offset in the already-assembled document and is the same durable marker used by composites.
 fn embed_json_in_pdf(
@@ -483,6 +495,18 @@ pub(crate) fn embed_plot_bindings_json_in_pdf(
         "SANDIBUMI_PLOT_BINDINGS_V1_BASE64",
         bindings_json,
         "plot bindings",
+    )
+}
+
+pub(crate) fn embed_chart_render_record_json_in_pdf(
+    pdf: Vec<u8>,
+    chart_record_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_pdf(
+        pdf,
+        "SANDIBUMI_CHART_RENDER_RECORD_V1_BASE64",
+        chart_record_json,
+        "chart render record",
     )
 }
 
@@ -566,6 +590,18 @@ pub(crate) fn embed_plot_bindings_json_in_png(
         b"SandiBumiPlotBindings",
         bindings_json,
         "plot bindings",
+    )
+}
+
+pub(crate) fn embed_chart_render_record_json_in_png(
+    png: &[u8],
+    chart_record_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_png(
+        png,
+        b"SandiBumiChartRecord",
+        chart_record_json,
+        "chart render record",
     )
 }
 
