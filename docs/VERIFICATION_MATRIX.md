@@ -19,7 +19,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `generic-curve-store` | Generic curve store and family resolution | Not exercised | 0 / 39 | — | 10 |
 | `data-conventions` | Depth, unit, null and encoding conventions | Partially exercised | 4 / 134 | 2026-08-13 | 54 |
 | `reframe` | Reframe and sampling alignment | Partially exercised | 1 / 48 | 2026-08-13 | 8 |
-| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 74 | 2026-08-13 | 16 |
+| `conditioning` | Log conditioning and masking | Partially exercised | 1 / 78 | 2026-08-13 | 17 |
 | `formation-temperature` | Formation-temperature curves | Not recorded | 0 / 0 | — | 1 |
 | `curve-editing` | Depth shift, splice and curve editing | Exercised | 5 / 5 | 2026-07-19 | 1 |
 | `array-logs` | Array-log storage and displays | Not exercised | 0 / 16 | — | 1 |
@@ -39,7 +39,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `electrofacies` | Electrofacies and clustering | Partially exercised | 2 / 26 | 2026-07-18 | 6 |
 | `machine-learning` | Machine-learning models | Partially exercised | 7 / 189 | 2026-07-19 | 32 |
 | `equation-engine` | Rhai and Python equation engines | Partially exercised | 1 / 14 | 2026-08-13 | 5 |
-| `workflow` | Multi-well workflow chains | Not exercised | 0 / 41 | — | 8 |
+| `workflow` | Multi-well workflow chains | Not exercised | 0 / 45 | — | 9 |
 | `monte-carlo` | Monte Carlo uncertainty | Partially exercised | 2 / 14 | 2026-07-18 | 7 |
 | `field-dashboard` | Field Dashboard | Not exercised | 0 / 10 | — | 4 |
 | `cutoffs-pay` | Cutoffs, net flags and pay summaries | Not exercised | 0 / 23 | — | 9 |

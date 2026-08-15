@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-027: Workflow MASK repair exemption blocked
+
+- [ ] **Automated characterization:** the existing owned test stays GREEN only as a defect record:
+      unmasked `log_predict` MAX_RAW repairs the synthetic RHOB at the washout, the same masked run
+      writes MISSING there, and a direct module call proves input-side blanking alone already defeats
+      prediction. No assertion was inverted and no passing defect was relabelled correctness.
+- [ ] **Decision review:** answer DEC-033. Confirm whether the initial repair inventory is only
+      `log_predict.SYN` under `OPT_COMBINE = MAX_RAW`, as engineering recommends, or name every
+      additional output and mode. Do not approve a whole `Prep` category exemption: it would bypass
+      the safety mask for unrelated conditioning modules.
+- [ ] **Marker review:** define the reconstructed-sample companion's public identity, binary type and
+      export/report behavior. It must mark a finite result produced at a masked depth without calling
+      that result a measurement, and its resolved name must remain understandable if the output curve
+      is renamed.
+- [ ] **Field and harsh critique:** a repair exemption can restore the exact bad interval the mask was
+      designed to distrust. Even after T36/T37 become green, compare the reconstructed curve against
+      an independent truth/control and inspect every marker before allowing it into porosity or pay.
+      “Finite under the mask” proves the plumbing worked; it does not prove the prediction is right.
+
 ## 2026-08-16 — G2 SB-ENV-026: BADHOLE DRHO unit custody
 
 - [ ] **Automated correctness:** exact T35 was RED because an empty LAS unit field (`DRHO. :`)

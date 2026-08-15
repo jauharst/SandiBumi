@@ -358,14 +358,14 @@
 
 - **Chapter evidence:** P0; chapter status `PRESENT-DIVERGENT`; T36/T37; sections 4.3, 6.3, 7.1 OI-5 and 8.
 - **Atomic obligations:** declare a justified repair exemption; bypass both input and output mask passes; mark each reconstructed masked sample.
-- **Current source:** `workflow.rs` blanks all module inputs before execution and all outputs afterward. No exemption or reconstructed-sample marker exists.
-- **Qualifying acceptance tests:** `workflow::tests::a_masked_washout_defeats_the_very_module_meant_to_repair_it` passed with one actual test line. It deliberately pins the two-pass defect plus an unmasked working control, so it is `CHARACTERIZATION`.
+- **Current source:** `workflow.rs` blanks all module inputs before execution and all outputs afterward. No exemption or reconstructed-sample marker exists. The complete shipped `ModuleSpec` inventory finds one declared output with explicit repair semantics: `log_predict.SYN`. Its `OPT_COMBINE` modes are not interchangeable: `MAX_RAW` is the T36 washout repair, `FILL_MISSING` reconstructs only an absent target while preserving finite raw values, and `SYNTHETIC` is a pure model output that OI-5 says arguably is not repair.
+- **Qualifying acceptance tests:** `workflow::tests::a_masked_washout_defeats_the_very_module_meant_to_repair_it` owns the current two-pass defect and unmasked MAX_RAW working control as `CHARACTERIZATION`. It must not be inverted while the observable exemption and marker contracts are open.
 - **Supporting tests:** ordinary mask-exclusion tests prove the general mask, not the required repair exception.
-- **Manual evidence:** conditioning 0/27; workflow 0/23.
-- **Git evidence:** the divergent mask runner and characterization are integrated at the accepted anchor.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`.
-- **Blocker or decision:** OI-5 leaves the exemption declaration shape open.
-- **Next action:** settle OI-5, exempt both mask passes for declared repair modules, emit a reconstructed marker and invert the characterization into T36/T37 correctness.
+- **Manual evidence:** conditioning 1/78; workflow 0/45; all four SB-ENV-027 blocker-review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-026; the divergent two-pass runner and characterization remain integrated and green. No production code or test assertion changed in this blocker increment. TypeScript and cargo check are green; the fresh full gate is 1052 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** source and live as-built remain `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `SILENT-WRONGNESS`; test class `CHARACTERIZATION`; commit state `INTEGRATED`; Gate 2 `BLOCKED-DECISION` on DEC-033; no false closure.
+- **Blocker or decision:** DEC-033 records OI-5's exact non-overlapping choice. A module flag would exempt all three `log_predict` modes; a `Prep` category flag would bypass the safety mask for unrelated modules; an unconditional per-output flag would still conflate the modes. The required reconstructed marker also has no approved public identity, type or export contract.
+- **Next action:** Jauhar settles DEC-033. Engineering recommends a conditional per-output declaration initially covering only `log_predict.SYN` with `OPT_COMBINE = MAX_RAW`, plus a typed binary reconstructed companion for finite values produced at masked samples. Then bypass both passes only for that scope and invert the characterization into exact T36/T37 correctness.
 
 ## SB-ENV-028 - The mask is recorded in the run's provenance
 
