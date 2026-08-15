@@ -312,20 +312,20 @@
 - **Git evidence:** reachable commit `113916c` added the fail-closed gate; accepted source contains no known provenance bypass for the chartbook draw call.
 - **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 automation DONE, with Visual, Manual and Field still open.
 - **Blocker or decision:** none for the fail-closed custody mechanism. O-5 rights/provenance evidence remains absent for every current vendor-derived payload; those overlays remain blocked and are not counted as delivered content.
-- **Next action:** retain exact T35 and the backend artifact proof; execute REVIEW.md and Gate 4 evidence separately; acquire/approve rights and exact source records before enabling any current chartbook overlay; proceed serially to SB-PLT-028.
+- **Next action:** retain exact T35 and the backend artifact proof; execute REVIEW.md and Gate 4 evidence separately; keep every current chartbook overlay blocked until rights and exact source records are approved; SB-PLT-024 records the separate payload-distribution legal block and Gate 2 continues with SB-PLT-026.
 
 ## SB-PLT-024 - Vendor chart payloads are never transcribed
 
 - **Chapter evidence:** P0; chapter status `PRESENT-OK`; no direct whole-contract chapter test; sections 4.5, 6, 7.1 O-5 and 8.1.
 - **Atomic obligations:** keep vendor tables, vertices and lookup payloads out of the repository/product; use only a licensed source or independently digitized published primary source with its own provenance; allow metadata-only inventories.
-- **Current source:** generated `src/ui/chartOverlays.ts` declares digitization from a commercial chartbook and contains 19 chart definitions with numeric curve/point/line/region payloads. `docs/IP_PROVENANCE.md` section 2.1 states that these extracted numeric values ship and calls the item the product's highest-exposure legal question. `docs/takeover/CLAIMS.md` CLAIM-013 is `LEGAL-REVIEW` and a first-sale blocker. No payload coordinates are reproduced in this receipt.
+- **Current source:** generated `src/ui/chartOverlays.ts` declares digitization from a commercial chartbook, contains 19 chart definitions with numeric curve/point/line/region payloads, and remains imported into the crossplot bundle. `docs/IP_PROVENANCE.md` section 2.1 states that these extracted numeric values ship and calls the item the product's highest-exposure legal question. `docs/takeover/CLAIMS.md` CLAIM-013 is `LEGAL-REVIEW` and a first-sale blocker. SB-PLT-023 now blocks rendering and deliverable export without an approved provenance record, but that fail-closed behavior does not remove the payload bytes or establish redistribution rights. No payload coordinates are reproduced in this receipt.
 - **Qualifying acceptance tests:** none; the chapter supplies no direct test and repository inventory is factual evidence, not a legal entitlement. Test class is `MISSING`.
 - **Supporting tests:** generated-file and build checks establish presence/reachability only; they cannot decide copyright or licence scope.
 - **Manual evidence:** `chart-overlays` 16/53, `security-integrity` 0/63 and `verification-stewardship` 0/24.
-- **Git evidence:** accepted anchor integrates the generated payload and renderer; Git reachability proves shipment, not permission.
-- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DEPLOYMENT`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** legal counsel must select a permitted route under O-5/CLAIM-013 before first sale; engineering cannot declare the payload licensed.
-- **Next action:** obtain counsel's disposition and then either document a licensed source, re-derive from independently published primary sources with full provenance, or remove the payload from the paid build while preserving only lawful metadata/tooling.
+- **Git evidence:** accepted source integrates the generated payload and renderer; `fe41f1a3` makes rendering fail closed but deliberately does not alter or authorize the payload. Git reachability proves shipment, not permission.
+- **Verdict:** `PRESENT-DIVERGENT`; `PILOT-BLOCKER`; `DEPLOYMENT`; test class `MISSING`; commit state `INTEGRATED`; Gate 2 disposition `BLOCKED-LEGAL`.
+- **Blocker or decision:** legal counsel must select a permitted route under O-5/CLAIM-013 before first sale; engineering cannot declare the payload licensed, choose removal on the owner's behalf, or treat a blocked renderer as non-distribution.
+- **Next action:** retain the SB-PLT-023 fail-closed boundary, obtain counsel's disposition, then either document a sufficient licence, re-derive from independently published primary sources with full provenance, or remove the payload from the paid build/repository while preserving only lawful metadata/tooling; proceed serially to SB-PLT-026 without implementing deferred SB-PLT-025 or SB-PLT-028.
 
 ## SB-PLT-025 - Plot templates are schema-versioned and scope-aware
 

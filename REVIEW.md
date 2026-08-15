@@ -1,5 +1,26 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-024: vendor chart payload remains a legal blocker
+
+- [ ] **Automated factual inventory:** the generated `src/ui/chartOverlays.ts` remains imported by
+      the crossplot surface and contains the 19 vendor-derived numeric definitions recorded by
+      `docs/IP_PROVENANCE.md` section 2.1 and CLAIM-013. SB-PLT-023 now blocks their screen and
+      deliverable rendering without an approved record, but a blocked renderer does not remove the
+      payload bytes from the repository or application bundle. No correctness test is claimed
+      because executable code cannot establish licence or redistribution rights. The fresh full
+      gate is 1034 passed / 0 failed / 37 ignored; cargo check reports the separately owned 31 Rust
+      warnings.
+- [ ] **Visual:** confirm the chart selector still labels every current chartbook overlay blocked and
+      that choosing one shows the provenance refusal rather than curves. This confirms fail-closed
+      behavior only; it is not legal clearance.
+- [ ] **Manual/legal:** counsel must select one O-5/CLAIM-013 route before first sale: document a
+      sufficient licence, replace the payload with an independently digitized published primary
+      source carrying full custody, or remove the payload from the paid build/repository while
+      retaining only lawful metadata and tooling.
+- [ ] **Field and harsh critique:** an unreachable or visually hidden payload can still be copied in
+      distributed source or binaries. Green builds, factual inventory, metadata, and blocked UI do
+      not prove ownership, permission, scientific correctness, or lawful redistribution.
+
 ## 2026-08-15 — G2 SB-PLT-023: provenance-complete chart custody and refusal
 
 - [ ] **Automated correctness:** the exact SB-PLT-023/T35 test carries one complete metadata-only
