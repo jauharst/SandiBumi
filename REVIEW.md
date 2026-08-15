@@ -1,5 +1,22 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-038: Exact Fill Gaps boundary
+
+- [ ] **Automated correctness:** exact T46 is GREEN. One named test supplies a 1.000 m maximum
+      and independently exercises live-anchor spans of 0.875 m, exactly 1.000 m and 1.125 m; the
+      first two fill, the third stays missing, both open ends stay missing, measured values remain
+      unchanged and exactly the two invented samples are flagged.
+- [ ] **Visual:** open Condition ▸ Fill Gaps and confirm the dialog says the maximum is a physical
+      depth-unit thickness, a gap at the maximum is eligible, open-ended gaps are never filled and
+      the output flag identifies invented samples.
+- [ ] **Manual boundary review:** on a disposable copied curve, create one bounded gap exactly at
+      the chosen maximum, one just wider, and gaps open at the log top and bottom. Run LINEAR and
+      inspect the output plus `<OUT>_FILL`; confirm only the exact-boundary gap is bridged and every
+      inserted sample, and no measured sample, is flagged.
+- [ ] **Field and harsh critique:** inclusive arithmetic and honest flags prevent a hidden
+      off-by-one policy; they do not make interpolation geologically defensible. The interpreter
+      still owns the uncited, project-specific maximum and must inspect the invented-sample flag.
+
 ## 2026-08-16 — G2 SB-ENV-037: Exact conditioning recovery blocked
 
 - [ ] **Decision dependency:** answer DEC-035. Exact T45 requires despike, cull, clip and gap fill

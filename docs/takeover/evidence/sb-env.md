@@ -501,14 +501,14 @@
 
 - **Chapter evidence:** P1; chapter status `PRESENT-OK`; T46; sections 4.4, 6.4 and 8.
 - **Atomic obligations:** document and test the exact-equality boundary; skip both open ends; measure between live anchors; flag every inserted sample.
-- **Current source:** `fill_gaps_spec` says gaps no wider than the limit are filled; `fill_gaps` uses `span > max` to skip, so equality fills, rejects open-ended runs and flags inserted samples.
-- **Qualifying acceptance tests:** none for the exact-boundary clause. The existing focused test passed for inside, outside and both open ends, but does not put a gap exactly on `MAX_GAP`; test class `MISSING`.
-- **Supporting tests:** `fill_gaps_bridges_only_a_bounded_hole_inside_the_limit` proves the other four obligations and a flag-count control.
+- **Current source:** `fill_gaps_spec` says gaps no wider than the limit are filled; `fill_gaps` measures the physical span between live anchors and skips only when that span is greater than `MAX_GAP`, so equality fills, both open ends remain missing and every inserted sample is flagged.
+- **Qualifying acceptance tests:** exact T46 `condition::tests::a_gap_at_or_below_the_maximum_is_filled_while_epsilon_over_and_both_open_ends_are_not` passes. One missing row sits behind live-anchor spans of 0.875 m, exactly 1.000 m and 1.125 m against a supplied 1.000 m maximum, so a row-count shortcut cannot pass; it proves under/equal fill, over-limit and both-open-end refusal, unchanged measured samples and exact inserted-sample flags. Test class `CORRECTNESS`.
+- **Supporting tests:** `fill_gaps_bridges_only_a_bounded_hole_inside_the_limit` and `holding_a_gap_draws_no_transition_the_rock_does_not_have` remain green for broader LINEAR/HOLD behavior; neither is counted as separate T46 ownership.
 - **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** behavior is integrated at the accepted anchor; proof is incomplete.
-- **Verdict:** `PRESENT-UNVERIFIED`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** the exact-equality regression required by T46 is missing.
-- **Next action:** add one exact-boundary fixture beside the existing inside/outside/open-end controls; do not change the documented less-than-or-equal behavior.
+- **Git evidence:** production behavior was already integrated; this one-requirement increment adds the missing exact-boundary proof without choosing or defaulting a maximum.
+- **Verdict:** `PRESENT-OK`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `CORRECTNESS`; commit state `INTEGRATED`; Gate 2 `DONE`, Visual/Manual/Field review open.
+- **Blocker or decision:** none for the boundary/flag contract. A defensible project maximum remains deliberately absent and interpreter-owned.
+- **Next action:** preserve the inclusive live-anchor boundary and flag proof; execute visual/manual/field review separately; continue SB-ENV-039.
 
 ## SB-ENV-039 - Clip refuses rather than repairs
 

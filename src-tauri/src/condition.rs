@@ -1757,6 +1757,65 @@ mod tests {
         );
     }
 
+    /// CORRECTNESS — SB-ENV-T46 in `docs/PRD_v2/20_envcorr-qc.md` supplies the boundary
+    /// contract. The three bounded gaps span MAX_GAP - epsilon, MAX_GAP, and MAX_GAP + epsilon
+    /// between their live anchors; epsilon is 0.125 m here so every fixture depth is represented
+    /// exactly in binary. One missing row in each gap pins that physical span, not row count, makes
+    /// the decision. The same source requires both open ends to remain missing and every inserted
+    /// sample to be flagged.
+    #[test]
+    fn a_gap_at_or_below_the_maximum_is_filled_while_epsilon_over_and_both_open_ends_are_not() {
+        let depth = vec![
+            0.0, 0.25, 0.5, 0.75, 1.375, 2.0, 2.25, 3.0, 3.5, 3.75, 4.625, 5.0, 5.25,
+        ];
+        let curve = vec![
+            f32::NAN,
+            f32::NAN,
+            10.0,
+            f32::NAN, // live-anchor span 0.875 m: MAX_GAP - epsilon
+            20.0,
+            30.0,
+            f32::NAN, // live-anchor span 1.000 m: exactly MAX_GAP
+            50.0,
+            60.0,
+            f32::NAN, // live-anchor span 1.125 m: MAX_GAP + epsilon
+            80.0,
+            90.0,
+            f32::NAN,
+        ];
+        let out = fill_gaps(&ctx_for(
+            &depth,
+            &curve,
+            &[("MAX_GAP", 1.0)],
+            &[("OPT_METHOD", "LINEAR")],
+        ))
+        .expect("run");
+        let got = &out["OUT_CURVE"];
+        let flag = &out["OUT_FLAG"];
+
+        assert!(got[3].is_finite(), "MAX_GAP - epsilon must be filled");
+        assert!(got[6].is_finite(), "exactly MAX_GAP must be filled");
+        assert!(got[9].is_nan(), "MAX_GAP + epsilon must remain missing");
+        assert!(got[0].is_nan() && got[1].is_nan(), "an open top must not be extrapolated");
+        assert!(got[12].is_nan(), "an open bottom must not be extrapolated");
+
+        assert_eq!(flag[3], 1.0, "the under-limit inserted sample must be flagged");
+        assert_eq!(flag[6], 1.0, "the boundary inserted sample must be flagged");
+        assert_eq!(flag[9], 0.0, "an unfilled sample must not be flagged as invented");
+        assert_eq!(flag[0], 0.0, "the open top must not be flagged as invented");
+        assert_eq!(flag[1], 0.0, "the open top must not be flagged as invented");
+        assert_eq!(flag[12], 0.0, "the open bottom must not be flagged as invented");
+        assert_eq!(
+            flag.iter().filter(|sample| **sample == 1.0).count(),
+            2,
+            "only the two inserted samples are flagged"
+        );
+        for &i in &[2usize, 4, 5, 7, 8, 10, 11] {
+            assert_eq!(got[i], curve[i], "measured sample {i} must remain unchanged");
+            assert_eq!(flag[i], 0.0, "measured sample {i} must not be flagged as invented");
+        }
+    }
+
     /// HOLD carries the last live value rather than ramping — the honest fill for a blocky curve,
     /// where a straight line would draw a transition the rock does not have.
     #[test]
