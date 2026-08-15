@@ -1,5 +1,20 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-033: Degenerate-window reporting contract blocked
+
+- [ ] **Decision dependency:** answer DEC-034. Exact T42 requires a four-sample Hampel
+      window to produce per-sample fallback declarations, while the shipped safety guard and its
+      regression test refuse that same under-minimum input before any module output exists.
+- [ ] **Automated gap:** no SB-ENV-T42 acceptance test was added. The existing zero-MAD
+      characterization and narrow-window refusal remain useful evidence, but neither can prove the
+      exact two-limb contract and they point to mutually exclusive outcomes for the four-sample arm.
+- [ ] **Boundary review:** confirm the existing `OUT_FLAG` remains a replaced-sample diagnostic.
+      Reusing it to mark estimator fallback would conflate “this value was replaced” with “this
+      window used another spread estimator,” while an error result cannot carry a per-sample flag.
+- [ ] **Field and harsh critique:** `BLOCKED` means the contradiction is visible; it does not mean
+      degenerate-window reporting is delivered. Until DEC-034 is settled, preserve the under-five
+      refusal and do not interpret a quiet flag curve as proof that no estimator fallback occurred.
+
 ## 2026-08-16 — G2 SB-ENV-032: One cited MAD consistency constant
 
 - [ ] **Automated correctness:** exact T41 is GREEN: the Rust source tree has one `C_MAD`

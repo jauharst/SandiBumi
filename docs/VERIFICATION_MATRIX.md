@@ -54,7 +54,7 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `results-qc` | Results QC | Not exercised | 0 / 1 | — | 5 |
 | `thomas-stieber` | Interactive Thomas-Stieber interpretation | Not listed | 0 / 0 | — | 0 |
 | `composite` | Composite log plots | Not exercised | 0 / 10 | — | 4 |
-| `report` | Report deliverables | Partially exercised | 8 / 71 | 2026-08-14 | 18 |
+| `report` | Report deliverables | Partially exercised | 8 / 75 | 2026-08-14 | 19 |
 | `office-deliverables` | Workbook, document and deck deliverables | Not exercised | 0 / 39 | — | 4 |
 | `las-export` | LAS export | Not exercised | 0 / 23 | — | 8 |
 | `workspace-shell` | Docking workspace, panes and ribbon | Not exercised | 0 / 159 | — | 29 |
@@ -64,4 +64,4 @@ Capabilities with recorded exercise: **20 / 54**. Fully exercised: **1 / 54**.
 | `themes-language-accessibility` | Themes, language and accessibility | Partially exercised | 2 / 56 | 2026-07-19 | 16 |
 | `portfolio-performance` | Portfolio-scale performance and responsiveness | Not exercised | 0 / 58 | — | 11 |
 | `security-integrity` | Security and data-integrity guards | Partially exercised | 3 / 143 | 2026-08-13 | 50 |
-| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 128 | 2026-08-13 | 40 |
+| `verification-stewardship` | Verification, provenance and stewardship | Partially exercised | 6 / 132 | 2026-08-13 | 41 |
