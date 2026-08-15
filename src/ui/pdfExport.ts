@@ -1,6 +1,14 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { savePlotPdf, type PlotAncestryScope } from "../ipc";
+import { savePlotPdf, type PaperExportRecord, type PlotAncestryScope } from "../ipc";
 import { readTheme, type PlotCanvas } from "./plotCanvas";
+import {
+  buildPaperExportRecord,
+  measurePaperText,
+  PAPER_PROVENANCE_FONT_PT,
+  paperPageHeight,
+  paperPageWidth,
+} from "./paperExport";
+import { measurePlotForPaper } from "./svgExport";
 
 /** True-vector PDF export for the Canvas-2D plots, a sibling of svgExport.ts. It drives the
  *  *same* draw functions through a recording 2D context (the SvgRecorder pattern), but serialises
@@ -363,7 +371,12 @@ export class PdfRecorder {
     // the matrix's x-basis / y-basis are unit directions for the advance / descender).
     let dx = m[0] * x + m[2] * y + m[4];
     let dy = m[1] * x + m[3] * y + m[5];
-    const width = 0.6 * size * s.length;
+    const width = measurePaperText(
+      this.font,
+      s,
+      this.textAlign as CanvasTextAlign,
+      this.textBaseline as CanvasTextBaseline,
+    ).width;
     const alignFrac = this.textAlign === "center" ? 0.5 : this.textAlign === "right" || this.textAlign === "end" ? 1 : 0;
     dx -= alignFrac * width * m[0];
     dy -= alignFrac * width * m[1];
@@ -377,7 +390,13 @@ export class PdfRecorder {
     this.body.push(`q\nBT ${font} ${r2(size)} Tf\n${c3(r)} ${c3(g)} ${c3(b)} rg\n${tm} Tm\n(${pdfText(s)}) Tj\nET\nQ`);
   }
   measureText(text: string): { width: number } {
-    return { width: 0.6 * this.fontSizePx() * String(text).length };
+    const metrics = measurePaperText(
+      this.font,
+      String(text),
+      this.textAlign as CanvasTextAlign,
+      this.textBaseline as CanvasTextBaseline,
+    );
+    return { width: metrics.width };
   }
 
   /** The assembled content stream: a full-page background fill, then every recorded operator,
@@ -397,6 +416,7 @@ export interface PlotPdf {
   content: string;
   widthPt: number;
   heightPt: number;
+  paperRecord?: PaperExportRecord;
 }
 
 /** Drives a panel's static-draw callback through a PdfRecorder and returns the PDF content stream
@@ -426,6 +446,52 @@ export function renderPlotToPdf(
   return { content: rec.toContentStream(), widthPt: c.width, heightPt: c.height };
 }
 
+/** Paper-space PDF sibling of renderPlotToPaperSvg. SVG preflight measures the exact same draw
+ *  primitives, then the PDF recorder reruns that callback and translates every operator into the
+ *  expanded physical page. No label, legend or annotation can sit outside the recorded page. */
+export function renderPlotToPaperPdf(
+  width: number,
+  height: number,
+  draw: (canvas: HTMLCanvasElement) => PlotCanvas | null,
+  scope: PlotAncestryScope,
+): PlotPdf | null {
+  const measured = measurePlotForPaper(width, height, draw, scope);
+  if (!measured) return null;
+  const record = buildPaperExportRecord("pdf-vector", width, height, measured.bounds, measured.footer);
+
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(width));
+  c.height = Math.max(1, Math.round(height));
+  const rec = new PdfRecorder(c.width, c.height);
+  rec.setBackground(measured.plot.theme?.bg ?? "#ffffff");
+  const holder = c as unknown as { __recordingCtx2d?: CanvasRenderingContext2D };
+  holder.__recordingCtx2d = rec as unknown as CanvasRenderingContext2D;
+  let plot: PlotCanvas | null;
+  try {
+    plot = draw(c);
+    if (plot) {
+      rec.font = `${PAPER_PROVENANCE_FONT_PT}px monospace`;
+      rec.fillStyle = plot.theme?.text ?? "#000000";
+      rec.textAlign = "left";
+      rec.textBaseline = "top";
+      rec.fillText(measured.footer, measured.footerX, measured.footerY);
+    }
+  } finally {
+    delete holder.__recordingCtx2d;
+  }
+  if (!plot) return null;
+
+  const translateX = -record.page_bounds.min_x;
+  const translateY = record.page_bounds.max_y - c.height;
+  const content = `q\n1 0 0 1 ${r2(translateX)} ${r2(translateY)} cm\n${rec.toContentStream()}Q\n`;
+  return {
+    content,
+    widthPt: paperPageWidth(record),
+    heightPt: paperPageHeight(record),
+    paperRecord: record,
+  };
+}
+
 /** Writes a chart PDF to a user-picked path: the content stream is assembled into a one-page PDF
  *  document by the backend (`save_plot_pdf` → `composite::assemble_single_page_pdf`). Returns the
  *  path, or null if the dialog was cancelled. */
@@ -436,5 +502,7 @@ export async function savePdf(pdf: PlotPdf, defaultName: string, scope?: PlotAnc
     filters: [{ name: "PDF document", extensions: ["pdf"] }],
   });
   if (!dest) return null;
-  return savePlotPdf(dest, pdf.content, pdf.widthPt, pdf.heightPt, scope);
+  if (pdf.paperRecord && !scope) throw new Error("paper PDF export requires its plot ancestry scope");
+  const exportScope = pdf.paperRecord && scope ? { ...scope, paperExportRecord: pdf.paperRecord } : scope;
+  return savePlotPdf(dest, pdf.content, pdf.widthPt, pdf.heightPt, exportScope);
 }

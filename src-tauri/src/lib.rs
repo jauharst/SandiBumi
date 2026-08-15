@@ -1081,6 +1081,7 @@ fn save_png(db: tauri::State<DbState>,
     axis_ranges: Option<Vec<plotting::PlotAxisRange>>,
     statistics_records: Option<Vec<plotting::PlotStatisticsRecord>>,
     chart_render_record: Option<plotting::ChartRenderRecord>,
+    paper_export_record: Option<plotting::PaperExportRecord>,
 ) -> Result<String, String> {
     use base64::Engine as _;
     let mut bytes = base64::engine::general_purpose::STANDARD
@@ -1090,6 +1091,12 @@ fn save_png(db: tauri::State<DbState>,
     let chart_render_json = if chart_render_record.is_some() {
         plotting::validate_chart_render_record(chart_render_record.as_ref())?;
         Some(serde_json::to_string(&chart_render_record).map_err(|error| error.to_string())?)
+    } else {
+        None
+    };
+    let paper_export_json = if let Some(record) = paper_export_record.as_ref() {
+        plotting::validate_paper_export_record(record)?;
+        Some(serde_json::to_string(record).map_err(|error| error.to_string())?)
     } else {
         None
     };
@@ -1144,6 +1151,25 @@ fn save_png(db: tauri::State<DbState>,
             bytes = composite::embed_chart_render_record_json_in_svg(&svg, &json)?.into_bytes();
         }
     }
+    if let Some(json) = paper_export_json {
+        let record = paper_export_record.as_ref().unwrap();
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            if record.medium != "print-raster" {
+                return Err("PNG paper custody must identify a raster output".into());
+            }
+            bytes = composite::embed_paper_export_record_json_in_png(&bytes, &json)?;
+        } else {
+            if record.medium != "svg-vector" {
+                return Err("SVG paper custody must identify a vector output".into());
+            }
+            let svg = String::from_utf8(bytes)
+                .map_err(|_| "paper export is neither PNG nor UTF-8 SVG".to_string())?;
+            if !svg.contains(&record.provenance_footer) {
+                return Err("paper SVG is missing its visible provenance footer".into());
+            }
+            bytes = composite::embed_paper_export_record_json_in_svg(&svg, &json)?.into_bytes();
+        }
+    }
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
 }
@@ -1162,7 +1188,22 @@ fn save_plot_pdf(db: tauri::State<DbState>,
     axis_ranges: Option<Vec<plotting::PlotAxisRange>>,
     statistics_records: Option<Vec<plotting::PlotStatisticsRecord>>,
     chart_render_record: Option<plotting::ChartRenderRecord>,
+    paper_export_record: Option<plotting::PaperExportRecord>,
 ) -> Result<String, String> {
+    let paper_export_record = paper_export_record
+        .ok_or_else(|| "plot PDF export requires paper geometry and a no-crop proof".to_string())?;
+    plotting::validate_paper_export_record(&paper_export_record)?;
+    if paper_export_record.medium != "pdf-vector" {
+        return Err("plot PDF paper custody must identify a vector PDF".into());
+    }
+    let record_width = paper_export_record.page_bounds.max_x - paper_export_record.page_bounds.min_x;
+    let record_height = paper_export_record.page_bounds.max_y - paper_export_record.page_bounds.min_y;
+    if width_pt != record_width || height_pt != record_height {
+        return Err("plot PDF page size disagrees with its no-crop record".into());
+    }
+    if !content.contains(&paper_export_record.provenance_footer) {
+        return Err("plot PDF is missing its visible provenance footer".into());
+    }
     let mut bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
     let statistics_records = statistics_records.unwrap_or_default();
     let chart_render_json = if chart_render_record.is_some() {
@@ -1201,6 +1242,8 @@ fn save_plot_pdf(db: tauri::State<DbState>,
     if let Some(json) = chart_render_json {
         bytes = composite::embed_chart_render_record_json_in_pdf(bytes, &json)?;
     }
+    let paper_export_json = serde_json::to_string(&paper_export_record).map_err(|error| error.to_string())?;
+    bytes = composite::embed_paper_export_record_json_in_pdf(bytes, &paper_export_json)?;
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
 }

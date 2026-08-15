@@ -43,7 +43,7 @@ import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../
 import { buildPersistedPlotState, buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { messageNode } from "./safeDom";
-import { saveSvg } from "./svgExport";
+import { paperExportRecordFromSvg, paperizeMeasuredSvg, saveSvg } from "./svgExport";
 import {
   axisRangeExportRecord,
   formatAxisRangeSummary,
@@ -1610,14 +1610,25 @@ export async function buildVegaContent(
       return;
     }
     try {
-      const svg = await current.view.toSVG();
       const state = persistedState(selectionState());
-      const path = await saveSvg(svg, "Vega chart", {
+      const scope = {
         wellIds: state.well_ids,
         curves: plotIntents().map((intent) => intent.semantic_request),
         plotBindings: state.bindings,
         axisRanges: state.axis_ranges,
         statisticsRecords,
+      };
+      const measured = current.view.scenegraph().bounds;
+      const svg = paperizeMeasuredSvg(
+        await current.view.toSVG(),
+        current.view.width(),
+        current.view.height(),
+        { min_x: measured.x1, min_y: measured.y1, max_x: measured.x2, max_y: measured.y2 },
+        scope,
+      );
+      const path = await saveSvg(svg, "Vega chart", {
+        ...scope,
+        paperExportRecord: paperExportRecordFromSvg(svg),
       });
       if (path) {
         setStatus(`Vega chart SVG saved to ${path}`);

@@ -134,8 +134,8 @@ test('the_live_gate_two_program_routes_the_approved_242_rows_into_222_gate_two_a
   assert.equal(result.later, 20);
   assert.deepEqual(result.action_mode_counts, {
     'IMPLEMENT-OR-REFUSE': 30,
-    REMEDIATE: 92,
+    REMEDIATE: 91,
     PROVE: 15,
-    RETAIN: 85,
+    RETAIN: 86,
   });
 });

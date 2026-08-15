@@ -1334,6 +1334,82 @@ pub fn validate_chart_render_record(record: Option<&ChartRenderRecord>) -> Resul
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaperExportBounds {
+    pub min_x: f64,
+    pub min_y: f64,
+    pub max_x: f64,
+    pub max_y: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaperExportRecord {
+    pub schema_version: u32,
+    pub medium: String,
+    pub unit: String,
+    pub source_width: f64,
+    pub source_height: f64,
+    pub margin_pt: f64,
+    pub content_bounds: PaperExportBounds,
+    pub page_bounds: PaperExportBounds,
+    pub provenance_footer: String,
+    pub crop_proof: String,
+}
+
+fn finite_ordered_bounds(bounds: &PaperExportBounds) -> bool {
+    bounds.min_x.is_finite()
+        && bounds.min_y.is_finite()
+        && bounds.max_x.is_finite()
+        && bounds.max_y.is_finite()
+        && bounds.max_x >= bounds.min_x
+        && bounds.max_y >= bounds.min_y
+}
+
+pub fn validate_paper_export_record(record: &PaperExportRecord) -> Result<(), String> {
+    if !matches!(record.medium.as_str(), "svg-vector" | "pdf-vector" | "print-raster") {
+        return Err("paper export has an unsupported output medium".into());
+    }
+    let raster = record.medium == "print-raster";
+    if record.schema_version != 1 || record.unit != if raster { "px" } else { "pt" } {
+        return Err("paper export has an unsupported schema or medium-specific unit".into());
+    }
+    if !record.source_width.is_finite()
+        || !record.source_height.is_finite()
+        || record.source_width <= 0.0
+        || record.source_height <= 0.0
+        || !record.margin_pt.is_finite()
+        || record.margin_pt <= 0.0
+        || !finite_ordered_bounds(&record.content_bounds)
+        || !finite_ordered_bounds(&record.page_bounds)
+    {
+        return Err("paper export has invalid source geometry, margin or bounds".into());
+    }
+    if record.content_bounds.min_x > 0.0
+        || record.content_bounds.min_y > 0.0
+        || record.content_bounds.max_x < record.source_width
+        || record.content_bounds.max_y < record.source_height
+    {
+        return Err("paper export source canvas is cropped by its declared content bounds".into());
+    }
+    if record.page_bounds.min_x > record.content_bounds.min_x
+        || record.page_bounds.min_y > record.content_bounds.min_y
+        || record.page_bounds.max_x < record.content_bounds.max_x
+        || record.page_bounds.max_y < record.content_bounds.max_y
+    {
+        return Err("paper export content is cropped by its declared page".into());
+    }
+    require_provenance_text(&record.provenance_footer, "paper provenance footer")?;
+    let expected_proof = if raster {
+        "raster_pixels_preserved_before_browser_print_layout"
+    } else {
+        "all_recorded_bounds_inside_page"
+    };
+    if record.crop_proof != expected_proof {
+        return Err("paper export lacks the measured no-crop proof".into());
+    }
+    Ok(())
+}
+
 /// Screens aligned required channels before assigning any part of the total point
 /// budget. Each represented well first receives enough capacity for both eligible
 /// endpoints (or its single eligible sample), then remaining capacity is shared in
@@ -2507,6 +2583,68 @@ mod tests {
             .expect("chart renderer call must remain inventoried");
         assert!(gate < draw, "provenance authorization must precede chart rendering");
         assert!(renderer.contains("chartProvenance: chartProvenance ? JSON.stringify(chartProvenance)"));
+    }
+
+    #[test]
+    fn the_backend_accepts_only_a_page_that_contains_every_recorded_mark_and_never_calls_raster_pixels_points() {
+        // CORRECTNESS — supporting SB-PLT-026 / T37-T38 write-boundary proof. The
+        // expected inclusion and medium-specific unit follow chapter 23 §§4.5/6;
+        // coordinates are non-scientific discriminator geometry from the frontend fixture.
+        let complete = PaperExportRecord {
+            schema_version: 1,
+            medium: "svg-vector".into(),
+            unit: "pt".into(),
+            source_width: 100.0,
+            source_height: 80.0,
+            margin_pt: 30.0,
+            content_bounds: PaperExportBounds {
+                min_x: -50.0,
+                min_y: 0.0,
+                max_x: 130.0,
+                max_y: 120.0,
+            },
+            page_bounds: PaperExportBounds {
+                min_x: -80.0,
+                min_y: -30.0,
+                max_x: 160.0,
+                max_y: 150.0,
+            },
+            provenance_footer: "SandiBumi provenance: full records embedded".into(),
+            crop_proof: "all_recorded_bounds_inside_page".into(),
+        };
+        validate_paper_export_record(&complete).unwrap();
+
+        let json = serde_json::to_string(&complete).unwrap();
+        let svg = crate::composite::embed_paper_export_record_json_in_svg(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+            &json,
+        )
+        .unwrap();
+        assert!(svg.contains("sandibumi-paper-export-validated-v1"));
+        assert!(svg.contains("all_recorded_bounds_inside_page"));
+
+        let pdf = crate::composite::assemble_single_page_pdf("", 240.0, 180.0);
+        let pdf = crate::composite::embed_paper_export_record_json_in_pdf(pdf, &json).unwrap();
+        assert!(String::from_utf8_lossy(&pdf).contains("SANDIBUMI_PAPER_EXPORT_V1_BASE64"));
+
+        let mut cropped = complete.clone();
+        cropped.page_bounds.min_x = 0.0;
+        assert!(validate_paper_export_record(&cropped)
+            .unwrap_err()
+            .contains("cropped"));
+
+        let mut source_cropping_lie = complete.clone();
+        source_cropping_lie.content_bounds.max_x = 99.0;
+        assert!(validate_paper_export_record(&source_cropping_lie)
+            .unwrap_err()
+            .contains("source canvas is cropped"));
+
+        let mut raster_lie = complete;
+        raster_lie.medium = "print-raster".into();
+        raster_lie.crop_proof = "raster_pixels_preserved_before_browser_print_layout".into();
+        assert!(validate_paper_export_record(&raster_lie)
+            .unwrap_err()
+            .contains("medium-specific unit"));
     }
 
     #[test]

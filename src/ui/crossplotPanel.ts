@@ -1,4 +1,4 @@
-import { getCoreData, getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, runNetFlag, type NetFlagSpec, type PlotChannelBinding, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { getCoreData, getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, runNetFlag, type NetFlagSpec, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type TrackCurveSeries, type WellSummary } from "../ipc";
 import {
   HISTOGRAM_BINS_DEFAULT,
   HISTOGRAM_BINS_MAX,
@@ -73,8 +73,8 @@ import {
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
-import { renderPlotToSvg } from "./svgExport";
-import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
+import { renderPlotToPaperSvg } from "./svgExport";
+import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
 import {
   axisRangeExportRecord,
   formatAxisRangeSummary,
@@ -1627,8 +1627,8 @@ export async function buildCrossplotContent(
     () => canvas,
     "Crossplot",
     setStatus,
-    () => getSvg(),
-    () => getPdf(),
+    (scope) => getSvg(scope),
+    (scope) => getPdf(scope),
     () => ctxReductionManifest,
     (surface) => {
       const chartSurface: ChartRenderSurface = surface === "svg" || surface === "pdf" ? surface : "save";
@@ -1938,10 +1938,10 @@ export async function buildCrossplotContent(
   };
 
   // Vector export: the static chart re-run into a recording context sized to the live plot.
-  const getSvg = (): string | null =>
-    plot ? renderPlotToSvg(plot.width, plot.height, (c) => drawStatic(c, -1)) : null;
-  const getPdf = (): PlotPdf | null =>
-    plot ? renderPlotToPdf(plot.width, plot.height, (c) => drawStatic(c, -1)) : null;
+  const getSvg = (scope: PlotAncestryScope): string | null =>
+    plot ? renderPlotToPaperSvg(plot.width, plot.height, (c) => drawStatic(c, -1), scope) : null;
+  const getPdf = (scope: PlotAncestryScope): PlotPdf | null =>
+    plot ? renderPlotToPaperPdf(plot.width, plot.height, (c) => drawStatic(c, -1), scope) : null;
 
   const redraw = () => {
     canvas.setAttribute("aria-label", ariaLabel()); // keep the a11y description in sync with the axes

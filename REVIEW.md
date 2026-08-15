@@ -1,5 +1,36 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-15 — G2 SB-PLT-026: measured paper export and honest raster print
+
+- [ ] **Automated correctness:** the exact T37/T38 test draws a long axis label beyond the source
+      canvas's left edge and an outside legend beyond its right edge, then proves SVG and PDF rerun
+      the supplied scientific draw, retain the axis/legend/annotation/footer as vector text and
+      expand their point-sized page around real TextMetrics glyph bounds. SVG measurement, PDF
+      preflight and the final PDF draw must consume the same text width; a declared content box
+      smaller than its source canvas is rejected. It also proves the shared print
+      control says `Print raster…`, embeds the same provenance/exclusion footer and records backing
+      pixels as pixels rather than falsely calling them physical points. A mutation that moved the
+      page edge inside its content and the former 0.6-em PDF width each made the test RED before
+      repair. A separate Rust test pins the independent write refusal, source-canvas inclusion,
+      vector metadata embedding and dishonest-raster-unit control. TypeScript and cargo check are
+      green; the fresh full gate is 1035 passed / 0 failed / 37 ignored. Cargo check reports the
+      separately owned 31 Rust warnings.
+- [ ] **Visual:** export Crossplot, Histogram, Pickett and Vega plots with the longest realistic axis
+      labels, context legends, annotations and statistics blocks. Open the SVG and PDF side by side;
+      confirm all marks remain readable, no label/footer is clipped, point sizing is useful on paper,
+      and the added physical margin does not make the plot implausibly small. Confirm Correlation and
+      every Canvas/Vega toolbar call the print route `Raster`, never an unqualified `Print`.
+- [ ] **Manual:** inspect SVG text elements and the embedded `sandibumi-paper-export` records, then
+      inspect PDF text selection and its embedded record. Verify recorded content bounds sit inside
+      page bounds and the visible footer counts match the plot's wells, bindings, axes, statistics,
+      exclusions and display-hidden samples. Print one raster route to paper/PDF and verify the title
+      explicitly says raster, the footer remains visible and full ancestry/binding records follow.
+- [ ] **Field and harsh critique:** repeat with representative long labels, many-well legends,
+      decimated plots, non-finite/validity exclusions and vendor-overlay refusals. Measured recorder
+      bounds do not prove typography is attractive or every printer driver preserves layout. Raster
+      pixels are deliberately not called paper points. Automated green proves custody and no-crop
+      geometry for recorded vector marks, not real-printer fidelity, visual legibility or field use.
+
 ## 2026-08-15 — G2 SB-PLT-024: vendor chart payload remains a legal blocker
 
 - [ ] **Automated factual inventory:** the generated `src/ui/chartOverlays.ts` remains imported by

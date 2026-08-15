@@ -454,6 +454,18 @@ pub(crate) fn embed_chart_render_record_json_in_svg(
     )
 }
 
+pub(crate) fn embed_paper_export_record_json_in_svg(
+    svg: &str,
+    paper_record_json: &str,
+) -> Result<String, String> {
+    embed_json_in_svg(
+        svg,
+        "sandibumi-paper-export-validated-v1",
+        paper_record_json,
+        "paper export record",
+    )
+}
+
 /// Embeds the complete record in a PDF comment immediately before EOF. This preserves every xref
 /// offset in the already-assembled document and is the same durable marker used by composites.
 fn embed_json_in_pdf(
@@ -507,6 +519,18 @@ pub(crate) fn embed_chart_render_record_json_in_pdf(
         "SANDIBUMI_CHART_RENDER_RECORD_V1_BASE64",
         chart_record_json,
         "chart render record",
+    )
+}
+
+pub(crate) fn embed_paper_export_record_json_in_pdf(
+    pdf: Vec<u8>,
+    paper_record_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_pdf(
+        pdf,
+        "SANDIBUMI_PAPER_EXPORT_V1_BASE64",
+        paper_record_json,
+        "paper export record",
     )
 }
 
@@ -602,6 +626,18 @@ pub(crate) fn embed_chart_render_record_json_in_png(
         b"SandiBumiChartRecord",
         chart_record_json,
         "chart render record",
+    )
+}
+
+pub(crate) fn embed_paper_export_record_json_in_png(
+    png: &[u8],
+    paper_record_json: &str,
+) -> Result<Vec<u8>, String> {
+    embed_json_in_png(
+        png,
+        b"SandiBumiPaperExport",
+        paper_record_json,
+        "paper export record",
     )
 }
 

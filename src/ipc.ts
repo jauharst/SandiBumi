@@ -704,6 +704,29 @@ export function exportWorkbook(spec: WorkbookSpec, scope: BackendWellScope, dest
 /** Exact project scope whose current computed curves contribute numbers to an exported plot.
  *  `curves: []` explicitly means the plot carries no project curve; `allProject` is reserved for
  *  free-form charts whose query cannot be narrowed without inventing a binding. */
+export interface PaperExportBounds {
+  min_x: number;
+  min_y: number;
+  max_x: number;
+  max_y: number;
+}
+
+/** Machine-checkable paper/raster custody embedded with a plot artifact. Vector page geometry is
+ *  recorded in physical points; raster backing geometry stays honestly labelled pixels. Neither
+ *  route invents an A4/Letter default. */
+export interface PaperExportRecord {
+  schema_version: 1;
+  medium: "svg-vector" | "pdf-vector" | "print-raster";
+  unit: "pt" | "px";
+  source_width: number;
+  source_height: number;
+  margin_pt: number;
+  content_bounds: PaperExportBounds;
+  page_bounds: PaperExportBounds;
+  provenance_footer: string;
+  crop_proof: "all_recorded_bounds_inside_page" | "raster_pixels_preserved_before_browser_print_layout";
+}
+
 export interface PlotAncestryScope {
   wellIds: string[];
   curves?: string[];
@@ -716,6 +739,8 @@ export interface PlotAncestryScope {
   statisticsRecords?: PlotStatisticsRecord[];
   /** Complete identity and source custody for an optional chart payload. */
   chartRenderRecord?: ChartRenderRecord;
+  /** Paper geometry, crop proof, output medium and visible footer for a plot deliverable. */
+  paperExportRecord?: PaperExportRecord;
 }
 
 function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
@@ -727,6 +752,7 @@ function ancestryArgs(scope?: PlotAncestryScope): Record<string, unknown> {
     axisRanges: scope?.axisRanges ?? null,
     statisticsRecords: scope?.statisticsRecords ?? null,
     chartRenderRecord: scope?.chartRenderRecord ?? null,
+    paperExportRecord: scope?.paperExportRecord ?? null,
   };
 }
 

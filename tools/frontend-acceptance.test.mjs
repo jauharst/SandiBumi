@@ -97,6 +97,29 @@ class FakeElement {
   click() {
     this.dispatchEvent({ type: "click" });
   }
+
+  getContext(kind) {
+    if (this.tagName !== "CANVAS" || kind !== "2d") return null;
+    return {
+      font: "10px sans-serif",
+      textAlign: "start",
+      textBaseline: "alphabetic",
+      measureText(text) {
+        // T37/T38 discriminator metric: deliberately wider than the old
+        // 0.6-em character-count estimate, so a self-certified crop proof
+        // cannot pass without consuming real TextMetrics-style bounds.
+        const width = String(text).length * 9;
+        const left = this.textAlign === "center" ? width / 2 : this.textAlign === "right" || this.textAlign === "end" ? width : 0;
+        return {
+          width,
+          actualBoundingBoxLeft: left,
+          actualBoundingBoxRight: width - left,
+          actualBoundingBoxAscent: 8,
+          actualBoundingBoxDescent: 2,
+        };
+      },
+    };
+  }
 }
 
 before(async () => {
@@ -1114,11 +1137,77 @@ test("an_unknown_future_template_field_survives_crossplot_option_normalization",
   assert.deepEqual(normalized.future_template_field, future);
 });
 
-test("characterizes_vector_exports_as_labelled_while_the_png_print_path_is_not_labelled_raster", async () => {
-  // CHARACTERIZATION — SB-PLT-026 / SB-PLT-T37/T38 requires labelled vector exports
-  // and a raster-labelled print route. The unqualified Print label is today's PARTIAL
-  // behaviour and must not be mistaken for completion of the export contract.
-  const { imageExportMenuEntries, printCanvas } = await load("/src/ui/plotExport.ts");
+test("a_long_axis_label_and_outside_legend_stay_uncropped_vectors_while_the_same_print_is_labelled_raster_and_keeps_its_provenance_footer", async () => {
+  // CORRECTNESS — SB-PLT-026 / SB-PLT-T37/T38. The chapter requires the same
+  // scientific draw at paper scale, uncropped vector labels/legend, and an explicitly
+  // labelled raster print retaining its provenance footer. The deliberately small
+  // source canvas and out-of-frame text pin automatic bound expansion from both sides;
+  // the strings and coordinates are discriminator fixtures, not scientific values.
+  const { imageExportMenuEntries, paperProvenanceFooter, rasterPrintRecord } = await load("/src/ui/plotExport.ts");
+  const { validatePaperExportRecord } = await load("/src/ui/paperExport.ts");
+  const { renderPlotToPaperSvg } = await load("/src/ui/svgExport.ts");
+  const { renderPlotToPaperPdf } = await load("/src/ui/pdfExport.ts");
+  const scope = {
+    wellIds: ["scope-a"],
+    curves: ["bulk-density"],
+    plotBindings: [{ intent: { channel: "x", semantic_request: "bulk density", required: true }, resolved: [] }],
+    axisRanges: [{ axis: "x", min: 1, max: 2, tier: "user" }],
+    statisticsRecords: [{ exclusions: { input_count: 11, non_finite: 2, log_domain: 0, validity: 1, selection: 0, unpaired_or_unclassified: 0, display_hidden: 0 } }],
+  };
+  const axis = "A deliberately long quantitative axis label";
+  const legend = "Outside legend";
+  const annotation = "Excluded: 3";
+  const draws = [];
+  const measuredLegendWidths = [];
+  const draw = (canvas) => {
+    draws.push([canvas.width, canvas.height]);
+    const ctx = canvas.__recordingCtx2d;
+    ctx.font = "10px sans-serif";
+    measuredLegendWidths.push(ctx.measureText(legend).width);
+    ctx.textAlign = "right";
+    ctx.fillText(axis, -4, canvas.height / 2);
+    ctx.textAlign = "left";
+    ctx.fillText(legend, canvas.width + 8, 20);
+    ctx.fillText(annotation, 20, canvas.height - 8);
+    return { theme: { bg: "#ffffff" } };
+  };
+
+  const svg = renderPlotToPaperSvg(100, 80, draw, scope);
+  const pdf = renderPlotToPaperPdf(100, 80, draw, scope);
+  assert.ok(svg);
+  assert.ok(pdf);
+  for (const text of [axis, legend, annotation, paperProvenanceFooter(scope)]) {
+    assert.match(svg, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${text} remains SVG vector text`);
+    assert.match(pdf.content, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${text} remains PDF vector text`);
+  }
+  assert.match(svg, /<metadata id="sandibumi-paper-export-v1">/);
+  assert.equal(pdf.paperRecord.crop_proof, "all_recorded_bounds_inside_page");
+  assert.ok(
+    pdf.paperRecord.content_bounds.min_x <= -4 - axis.length * 9,
+    "the page uses the rendered label's measured left bound rather than a character-count estimate",
+  );
+  assert.ok(
+    pdf.paperRecord.content_bounds.max_x >= 108 + legend.length * 9,
+    "the page uses the rendered legend's measured right bound rather than a character-count estimate",
+  );
+  assert.ok(pdf.paperRecord.page_bounds.min_x <= pdf.paperRecord.content_bounds.min_x);
+  assert.ok(pdf.paperRecord.page_bounds.max_x >= pdf.paperRecord.content_bounds.max_x);
+  assert.ok(pdf.paperRecord.page_bounds.min_y <= pdf.paperRecord.content_bounds.min_y);
+  assert.ok(pdf.paperRecord.page_bounds.max_y >= pdf.paperRecord.content_bounds.max_y);
+  assert.deepEqual(
+    measuredLegendWidths,
+    [legend.length * 9, legend.length * 9, legend.length * 9],
+    "SVG measurement, PDF preflight, and PDF draw consume the same rendered text width",
+  );
+  assert.ok(draws.length >= 3, "SVG and PDF each rerun the supplied scientific draw; PDF also preflights bounds");
+  const sourceCroppingLie = structuredClone(pdf.paperRecord);
+  sourceCroppingLie.content_bounds.max_x = 99;
+  assert.throws(
+    () => validatePaperExportRecord(sourceCroppingLie),
+    /source canvas is cropped/,
+    "a page cannot prove no crop by declaring content smaller than its source canvas",
+  );
+
   const entries = imageExportMenuEntries(
     () => null,
     "plot",
@@ -1132,9 +1221,12 @@ test("characterizes_vector_exports_as_labelled_while_the_png_print_path_is_not_l
 
   assert.ok(labels.includes("Export SVG (vector)…"));
   assert.ok(labels.includes("Export PDF (vector)…"));
-  assert.ok(labels.includes("Print…"));
-  assert.ok(!labels.some((label) => /raster/i.test(label)));
-  assert.match(Function.prototype.toString.call(printCanvas), /image\/png/);
+  assert.ok(labels.includes("Print raster…"));
+  const raster = rasterPrintRecord(100, 80, scope);
+  assert.equal(raster.medium, "print-raster");
+  assert.equal(raster.unit, "px", "raster backing-store pixels are never mislabelled as physical points");
+  assert.equal(raster.provenance_footer, paperProvenanceFooter(scope));
+  assert.equal(raster.crop_proof, "raster_pixels_preserved_before_browser_print_layout");
 });
 
 test("characterizes_crossplot_static_draw_and_z_colours_as_separately_invalidated_subsets", async () => {

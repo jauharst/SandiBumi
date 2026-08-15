@@ -1,4 +1,4 @@
-import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
+import { getCurveData, plotBindingSnapshot, plotBindingSnapshotForChannels, resolveWellScope, type PlotAncestryScope, type PlotChannelBinding, type ResolvedPlotCurve, type WellSummary } from "../ipc";
 import {
   HISTOGRAM_BINS_DEFAULT,
   HISTOGRAM_BINS_MAX,
@@ -54,8 +54,8 @@ import {
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { buildWellScope, WELL_SCOPE_NAME_PREVIEW_ROWS } from "./wellScope";
-import { renderPlotToSvg } from "./svgExport";
-import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
+import { renderPlotToPaperSvg } from "./svgExport";
+import { renderPlotToPaperPdf, type PlotPdf } from "./pdfExport";
 import { parsePercentileP, type PlotReductionExport } from "./plotTypes";
 import {
   axisRangeExportRecord,
@@ -714,8 +714,8 @@ export async function buildHistogramContent(
     () => canvas,
     "Histogram",
     setStatus,
-    () => getSvg(),
-    () => getPdf(),
+    (scope) => getSvg(scope),
+    (scope) => getPdf(scope),
     () => ctxReductionManifest,
     () => {
       const state = persistedState(selectionState());
@@ -1045,8 +1045,10 @@ export async function buildHistogramContent(
       },
       statisticsRecord,
     );
-  const getSvg = (): string | null => (plot ? renderPlotToSvg(plot.width, plot.height, drawStatic) : null);
-  const getPdf = (): PlotPdf | null => (plot ? renderPlotToPdf(plot.width, plot.height, drawStatic) : null);
+  const getSvg = (scope: PlotAncestryScope): string | null =>
+    plot ? renderPlotToPaperSvg(plot.width, plot.height, drawStatic, scope) : null;
+  const getPdf = (scope: PlotAncestryScope): PlotPdf | null =>
+    plot ? renderPlotToPaperPdf(plot.width, plot.height, drawStatic, scope) : null;
 
   // Monotonic token so a slow curve/zone load that resolves after a newer one (fast
   // switching) can't overwrite the newer data. `preserveView` keeps the zoom/pan on a
