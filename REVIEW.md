@@ -1,5 +1,24 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-022: BADHOLE reason representation blocked
+
+- [ ] **Automated audit:** exact source/spec inventory confirms BADHOLE still exposes the mask and
+      the two SB-ENV-021 availability companions, but no output records whether caliper, DRHO or
+      both criteria fired. Exact T31 has no executable body. OI-7 explicitly leaves one encoded
+      curve versus several booleans open and ties the choice to SB-ENV-007; no current passing test
+      was relabelled as reason-channel proof.
+- [ ] **Visual:** no closure review is executable. The current three outputs can show a bad sample
+      and which criteria were available, but they cannot show which criterion caused the flag.
+      Treat any UI inference from BADHOLE plus availability as insufficient and potentially wrong.
+- [ ] **Manual decision:** settle DEC-032 together with DEC-031: approve a typed binary cause group
+      that preserves the one `1 = true` flag polarity, or define one categorical reason type with
+      exact stable wire values. The decision must also define how SB-ENV-023's positive and negative
+      DRHO causes remain distinguishable after storage and export.
+- [ ] **Field and harsh critique:** availability is not causation. An interpreter can have both
+      inputs available while only one fires, and an arbitrary numeric code would become an
+      undocumented interchange format. Do not present SB-ENV-022 as delivered until the selected
+      representation survives a real run, persistence and export review.
+
 ## 2026-08-16 — G2 SB-ENV-021: BADHOLE detection records evaluated terms
 
 - [ ] **Automated correctness:** exact T32 was RED because BADHOLE returned only the mask. It is

@@ -293,14 +293,14 @@
 
 - **Chapter evidence:** P1; chapter status `ABSENT`; T31; sections 4.3, 6.3, 7.1 OI-7 and 8.
 - **Atomic obligations:** identify caliper, density correction, both or neither-evaluable per sample.
-- **Current source:** `badhole` emits only one untyped numeric `BADHOLE` curve; the information used to set it is discarded.
-- **Qualifying acceptance tests:** none; T31 is missing. Test class `MISSING`.
-- **Supporting tests:** the arithmetic test cannot recover which criterion fired from the output.
-- **Manual evidence:** conditioning 0/27; processing-history 0/7.
-- **Git evidence:** `UNIMPLEMENTED` at the accepted anchor.
-- **Verdict:** `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`.
-- **Blocker or decision:** OI-7 leaves one encoded reason curve versus several typed booleans open.
-- **Next action:** settle OI-7, emit the four reason states and prove they remain distinguishable after persistence/export.
+- **Current source:** `badhole` emits the numeric `BADHOLE` mask plus the SB-ENV-021 `BADHOLE_CALI_EVALUATED` and `BADHOLE_DRHO_EVALUATED` availability companions. It still discards whether each evaluated criterion actually fired; availability cannot distinguish caliper-only, DRHO-only or both causes.
+- **Qualifying acceptance tests:** none. Exact T31 has no executable body, and no passing availability/arithmetic test is counted as cause-channel proof. Test class `MISSING`.
+- **Supporting tests:** SB-ENV-021 proves both availability sides and the neither-evaluable MISSING distinction; nominal arithmetic proves the combined mask. Neither can recover the firing criterion from persisted outputs.
+- **Manual evidence:** conditioning 1/58; workflow 0/41; processing-history 0/7; all four SB-ENV-022 blocker-review scenarios remain unchecked.
+- **Git evidence:** current topic branch after SB-ENV-021; exact source/spec audit found no reason output or T31. TypeScript and cargo check are green; the fresh full gate is 1049 passed / 0 failed / 37 ignored with 31 separately owned Rust warnings.
+- **Verdict:** chapter and live as-built remain `ABSENT`; `PILOT-BLOCKER`; `DATA-INTEGRITY`; test class `MISSING`; commit state `UNIMPLEMENTED`; Gate 2 `BLOCKED-DECISION`; Visual/Manual/Field review open.
+- **Blocker or decision:** OI-7 requires the same encoded-curve-versus-boolean-group choice as SB-ENV-007, while DEC-031 remains open and SB-ENV-030 defines only binary `1 = true`. DEC-032 records the bad-hole-specific cause/sign state matrix. Inventing numeric reason codes or silently treating two new curves as one singular channel would create an unapproved storage/IPC/export contract.
+- **Next action:** Jauhar settles DEC-031/DEC-032 by approving the typed binary group or every exact categorical wire value; then implement T31 from caliper-only, positive/negative DRHO-only, both, evaluated-good and neither-evaluable sides and prove persistence/export preserves it.
 
 ## SB-ENV-023 - The density correction's sign is preserved and reported
 
