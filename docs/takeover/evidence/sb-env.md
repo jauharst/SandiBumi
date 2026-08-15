@@ -492,10 +492,10 @@
 - **Qualifying acceptance tests:** none across the operation family; T45 is missing. Test class `MISSING`.
 - **Supporting tests:** `curve_edit::tests::shift_moves_curve_and_restore_undoes_it` passed for one interactive path only; retaining a separate input curve is not the required per-operation recovery record.
 - **Manual evidence:** conditioning 0/27; curve-editing 5/5; processing-history 0/7.
-- **Git evidence:** interactive undo is integrated; universal recovery is incomplete.
-- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `RECOVERY`; test class `MISSING`; commit state `INTEGRATED`.
-- **Blocker or decision:** cull is absent and batch restoration payload/persistence is missing.
-- **Next action:** define one bit-exact change record for all four operation families and exercise restore after persistence, including missing values.
+- **Git evidence:** current source was reverified after SB-ENV-035; interactive undo remains integrated, universal recovery remains incomplete, and no production code or test assertion changed in this blocker increment.
+- **Verdict:** `PARTIAL`; `PILOT-BLOCKER`; `RECOVERY`; test class `MISSING`; commit state `INTEGRATED`; Gate 2 `BLOCKED-DEPENDENCY/DECISION` on DEC-035; no false closure.
+- **Blocker or decision:** exact T45 requires the absent cull operation, but SB-ENV-036 is deferred outside DEC-018's immutable pilot manifest. The shipped batch operations also emit no original-value payload from which they can be restored. Omitting cull would weaken T45; implementing it here would widen approved scope.
+- **Next action:** Jauhar settles DEC-035 by either re-approving the pilot manifest with SB-ENV-036 or explicitly re-adjudicating first-pilot T45 to the shipped operation set. Then define one persisted bit-exact change record, including MISSING-value bit custody, and exercise restoration after restart.
 
 ## SB-ENV-038 - Gap filling states its boundary comparison and refuses an open-ended gap
 

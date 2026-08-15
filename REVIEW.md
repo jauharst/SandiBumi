@@ -1,5 +1,21 @@
 # Review checklist — for Jauhar's click-through in `npm run tauri dev`
 
+## 2026-08-16 — G2 SB-ENV-037: Exact conditioning recovery blocked
+
+- [ ] **Decision dependency:** answer DEC-035. Exact T45 requires despike, cull, clip and gap fill
+      to restore from each operation's emitted record, but culling is the absent, deferred
+      SB-ENV-036 capability outside the immutable first-pilot manifest.
+- [ ] **Automated gap:** no SB-ENV-T45 acceptance test was added. Batch changed-sample flags do not
+      contain the original values needed for restoration, and the existing interactive shift undo
+      proves only one path rather than the required four-operation record family.
+- [ ] **Recovery boundary:** decide whether to add culling through an explicitly re-approved pilot
+      manifest or re-adjudicate first-pilot T45 to the shipped operation set. Then require a stable
+      persisted record that restores finite and MISSING values bit-exactly after restart.
+- [ ] **Field and harsh critique:** retaining the input curve is useful but is not the emitted
+      operation-specific recovery record the requirement promises. `BLOCKED` makes that gap visible;
+      it does not make conditioning recoverable or authorize reviewers to trust a changed-sample flag
+      as an undo payload.
+
 ## 2026-08-16 — G2 SB-ENV-035: Smoothing preserves every missing sample
 
 - [ ] **Automated correctness:** exact T44 is GREEN. The retained named test runs MEAN, MEDIAN and
